@@ -60,6 +60,12 @@ CONFIG_POLICIES = {
         "freshness_policy": "review_when_station_or_provenance_changes",
         "max_age_days": None,
     },
+    "venue_rule_stations.json": {
+        "owner": "weather.backtesting.venue_rule_labels",
+        "classification": "hand_authored_registry",
+        "freshness_policy": "add_a_dated_entry_when_the_venue_station_changes",
+        "max_age_days": None,
+    },
     "no_market_extra_locations.json": {
         "owner": "weather.reporting.location_analysis.extra_location_registry",
         "classification": "local_shadow_registry",
@@ -76,6 +82,12 @@ CONFIG_POLICIES = {
         "owner": "weather.execution_host",
         "classification": "single_active_execution_host_registry",
         "freshness_policy": "review_and_merge_for_each_executor_reassignment",
+        "max_age_days": None,
+    },
+    "capture_families.json": {
+        "owner": "weather.market.maker_evidence_family",
+        "classification": "hand_authored_registry",
+        "freshness_policy": "review_with_desk_study_go_or_family_scope_changes",
         "max_age_days": None,
     },
 }

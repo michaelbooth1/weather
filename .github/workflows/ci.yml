@@ -59,6 +59,7 @@ jobs:
           tests/app/test_app_architecture.py
           tests/market/test_wallet_reader.py
           tests/operations/test_agent_docs_audit.py
+          tests/operations/test_capture_host_collection.py
           tests/operations/test_ci_ratchet_selection.py
           tests/operations/test_cold_recovery_host_guard.py
           tests/operations/test_dependency_pins.py
@@ -75,7 +76,9 @@ jobs:
           tests/operations/test_release_import_boundary.py
           tests/operations/test_research_harness.py
           tests/operations/test_runtime_utilities.py
+          tests/operations/test_schema_families_registry.py
           tests/operations/test_schema_registry.py
+          tests/operations/test_source_control_bytes.py
           tests/operations/test_structure_inventory.py
           tests/operations/test_workload_admission_script.py
           tests/operations/test_wu_token_repository_scan.py

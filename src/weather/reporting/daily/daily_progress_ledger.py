@@ -272,6 +272,50 @@ def broad_claim_failures(row):
     return failures
 
 
+def _settlement_audit_result(daily_refresh):
+    for step in reversed(daily_refresh.get("steps") or []):
+        if step.get("name") == "settlement_source_audit":
+            return step.get("result") or {}
+    return ((daily_refresh.get("summary") or {}).get("settlement_source_audit")) or {}
+
+
+def _parse_audit_gate_entry(entry):
+    """Split a target-date gate entry into date, market and blocker class.
+
+    Gate entries are ``date:market:STATUS`` (deferred ones append
+    ``:reconciliation_status``), ``date:missing_audit_row`` or the bare
+    ``settlement_source_audit_missing``.
+    """
+    parts = str(entry or "").split(":")
+    if len(parts) >= 3:
+        parsed = {"target_date": parts[0], "market_id": parts[1], "blocker_class": parts[2]}
+        if len(parts) >= 4:
+            parsed["reconciliation_status"] = parts[3]
+        return parsed
+    if len(parts) == 2:
+        return {"target_date": parts[0], "market_id": None, "blocker_class": parts[1].upper()}
+    return {"target_date": None, "market_id": None, "blocker_class": parts[0].upper()}
+
+
+def settlement_audit_blocker_fields(daily_refresh):
+    """Per-row settlement-audit blocker classes for the analyzed target date.
+
+    Additive ledger fields (owner decision 2026-10-16): the blocking rows'
+    classes (SOURCE_DISAGREEMENT, PROVISIONAL, UNRECONCILED, ...) and the
+    Option 1 deferrals, which are recorded as non-countable.
+    """
+    result = _settlement_audit_result(daily_refresh or {})
+    blockers = [
+        _parse_audit_gate_entry(entry)
+        for entry in result.get("target_date_gate_blockers") or []
+    ]
+    deferred = [
+        {**_parse_audit_gate_entry(entry), "countable": False}
+        for entry in result.get("target_date_deferred_non_countable") or []
+    ]
+    return blockers, deferred
+
+
 def build_progress_row(
     *,
     backtest_root=DEFAULT_BACKTEST_ROOT,
@@ -343,6 +387,20 @@ def build_progress_row(
         or {}
     )
     calibration = _daily_calibration_metrics(proper_scoring)
+    audit_blockers, audit_deferred = settlement_audit_blocker_fields(daily_refresh)
+    audit_blocker_classes = sorted({item["blocker_class"] for item in audit_blockers})
+
+    def blocker_entry(step):
+        entry = {
+            "step": step.get("name"),
+            "status": step.get("status"),
+            "error": step.get("error"),
+            "root_cause_class": step.get("root_cause_class"),
+        }
+        if step.get("root_cause_class") == "settled_day_analysis_barrier":
+            entry["audit_blocker_classes"] = audit_blocker_classes
+        return entry
+
     row = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at,
@@ -350,15 +408,12 @@ def build_progress_row(
         "daily_refresh_status": _daily_refresh_status(daily_refresh),
         "daily_refresh_duration_seconds": daily_refresh.get("duration_seconds"),
         "daily_refresh_blockers": json_field([
-            {
-                "step": step.get("name"),
-                "status": step.get("status"),
-                "error": step.get("error"),
-                "root_cause_class": step.get("root_cause_class"),
-            }
+            blocker_entry(step)
             for step in daily_refresh.get("steps") or []
             if step.get("status") == "error"
         ]),
+        "settlement_audit_target_date_blockers": json_field(audit_blockers),
+        "settlement_audit_deferred_non_countable": json_field(audit_deferred),
         "model_claim_allowed": bool(trend.get("claim_allowed")),
         "model_claim_status": trend.get("status"),
         "model_rolling_daily_first_brier_skill": maybe_float(trend_summary.get("rolling_daily_first_brier_skill")),

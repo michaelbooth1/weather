@@ -12,8 +12,11 @@ Modes:
             apply the 49 live substitutions; copy the code items, the 89a text, the
             rulings sheet and the cover prompt; run the §4 check, the MO1/MO2
             self-tests and the deny-list drift check; build the filtered tree (§5
-            globs, the R4b recorded exclusion list ``R4B_WITHHELD``, then the R4
-            fail-closed import refusal); create a standalone
+            globs less the owner's blob-pinned ``FIXTURE_KEEP``, the R4b recorded
+            exclusion list ``R4B_WITHHELD``, the R4 fail-closed import refusal, then
+            the import-resolution check: every kept ``tests/`` Python file imports
+            only repository modules the cut keeps, except the recorded
+            ``IMPORT_WITHHELD`` files, which are withheld); create a standalone
             repository in a NEW directory holding one parentless commit; assert the
             R1 invariants; write ``H1-manifest.json`` and print its SHA-256, the
             binding value. Any refusal deletes the partial output directory.
@@ -25,6 +28,18 @@ Modes:
             commit, verify that the code items (H-6..H-9) and the 89a text (H-10) are
             byte-identical there (R2). Identical: print a re-bind record. Different:
             exit non-zero with a diff summary (a re-hand).
+``verify``  Re-check a cut directory from disk alone (no source repository): the
+            manifest SHA-256 against ``--binding``, every handout and tree byte, the §4
+            check on the handout as written, the per-file list, the tar rebuilt from the
+            snapshot's own blobs, and R1. Used by the host after transfer and before
+            the author session starts.
+
+Output controls (proposed erratum 1 §E3, ``docs/roadmap/maker-replay-v2-shadow-gate-spec-
+v3.4-erratum-1-DRAFT-2026-10-12.md``; stricter-only): a kept tree file that carries a §4
+rule-2 literal, or is byte-identical to an excluded or withheld file (empty blob exempt),
+refuses and cannot be withheld; ``filtered-files.sha256`` lists every tree file's SHA-256
+and its hash is in the manifest; ``cut`` runs ``verify``'s checks before writing the
+manifest.
 
 Expected outputs (master, 2026-10-07): the full SHA-256 of H-1..H-9 is pinned in
 ``EXPECTED_OUTPUT_SHA256``; the plan must carry each value in full and equal to it. Cut and
@@ -265,6 +280,36 @@ R4B_WITHHELD: tuple[tuple[str, str], ...] = (
     ("tools/research/pull_cap_precheck/measure.py", "v1-import"),
     (CUT_SCRIPT_PATH, "cut-script"),
 )
+
+# Output controls (proposed v3.4 erratum 1 §E3, 2026-10-12; stricter-only, 0 hits at 501f47579 and
+# 155848313). (1) No kept tree file may carry a §4 rule-2 literal; this is never withholdable.
+# (2) No kept tree file may be byte-identical (same git blob) to a glob-excluded or withheld file,
+# except the empty blob. (3) After writing, every output byte is re-read from disk and checked
+# against the in-memory plan (``verify_output``); the same check runs on the host (``verify``).
+EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+
+# R4 narrowed by the owner (2026-10-12, ~21:30, relayed by master): these two files below
+# ``tests/maker_core/fixtures/**`` are kept, pinned by blob, because the kept conftest and three
+# kept tests import them. Fictional coin-toss plugin over ``maker_core.contracts`` only; no Kernel
+# logic; 0 §4 and 0 R4 hits at 501f47579. Fail closed: a pinned file that is missing, has another
+# blob, or gains a §4, R4 or output-control hit refuses.
+FIXTURE_KEEP: tuple[tuple[str, str], ...] = (
+    ("tests/maker_core/fixtures/__init__.py", EMPTY_BLOB),
+    ("tests/maker_core/fixtures/fictional_domain.py", "c498c8600a3cd287592aa61cd6eb9a4f7dfa1dde"),
+)
+# Import resolution (owner, same ruling): every kept Python file under ``tests/`` must import only
+# repository modules the cut keeps, so pytest collection cannot fail on an excluded import. These
+# tests import fixtures that stay excluded (``re1_session_replay`` imports the v1 replay package)
+# and are withheld instead. Fail closed both ways, like R4b: an unresolved import not listed here
+# refuses, and a listed path that is missing, glob-excluded or now resolves also refuses.
+IMPORT_WITHHELD: tuple[tuple[str, str], ...] = (
+    ("tests/maker_core/test_re1_parity.py", "excluded-import"),
+    ("tests/maker_core/test_re1_session_export.py", "excluded-import"),
+)
+IMPORT_CHECK_PREFIX = "tests/"
+IMPORT_ROOTS = ("", "src/")
+FILES_LIST_NAME = "filtered-files.sha256"
+OUTPUT_TOP_LEVEL = frozenset({HANDOUT_DIR, REPO_DIR, TAR_NAME, FILES_LIST_NAME, MANIFEST_NAME})
 
 
 # --------------------------------------------------------------------------- helpers
@@ -524,8 +569,11 @@ def glob_regex(pattern: str) -> re.Pattern[str]:
 _GLOB_RES = tuple(glob_regex(g) for g in EXCLUSION_GLOBS)
 
 
-def excluded_by(path: str, globs: Iterable[re.Pattern[str]] = _GLOB_RES) -> bool:
-    return any(g.fullmatch(path) for g in globs)
+def excluded_by(path: str, globs: Iterable[re.Pattern[str]] = _GLOB_RES,
+                keep: Iterable[str] | None = None) -> bool:
+    """Glob-excluded and not on the owner's keep list (``FIXTURE_KEEP`` unless ``keep`` is given)."""
+    kept = {p for p, _ in FIXTURE_KEEP} if keep is None else set(keep)
+    return path not in kept and any(g.fullmatch(path) for g in globs)
 
 
 def _is_utf16(data: bytes) -> bool:
@@ -813,23 +861,127 @@ def _withheld_map(withheld: Sequence[tuple[str, str]]) -> dict[str, str]:
     return mapping
 
 
+def tree_output_reasons(entry: TreeEntry, data: bytes, excluded_blobs: set[str]) -> list[str]:
+    """Erratum-1 output controls for one kept tree file (never withholdable)."""
+    reasons = []
+    text = _decode(data)
+    for literal in DENIED_LITERALS:
+        if literal in text:
+            reasons.append(f"names a denied Kernel string (§4 rule 2: {literal})")
+    if entry.blob in excluded_blobs:
+        reasons.append("byte-identical to an excluded or withheld file")
+    return reasons
+
+
+def _module_files(dotted: str) -> list[str]:
+    base = "/".join(dotted.split("."))
+    return [f"{root}{base}{suffix}" for root in IMPORT_ROOTS for suffix in (".py", "/__init__.py")]
+
+
+def unresolved_imports(path: str, text: str, kept: set[str], source: set[str]) -> list[str]:
+    """Imports in ``path`` of a repository module (one in ``source``) that the cut does not keep.
+
+    A dotted name is a repository module when ``<root><a/b/c>.py`` or ``<root><a/b/c>/__init__.py``
+    exists in the source tree for a root in ``IMPORT_ROOTS``; it resolves when one of those is kept.
+    Each package prefix is checked too. ``from X import n`` checks ``X.n`` only when the source tree
+    has it as a module. Stdlib and third-party imports are not repository modules and are ignored."""
+    def status(dotted: str) -> str | None:
+        names = _module_files(dotted)
+        if any(n in kept for n in names):
+            return "kept"
+        return "missing" if any(n in source for n in names) else None
+
+    try:
+        tree = ast.parse(text, filename=path)
+    except SyntaxError as exc:
+        return [f"line {exc.lineno}: does not parse ({exc.msg})"]
+    package = path.rsplit("/", 1)[0].split("/") if "/" in path else []
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                if node.level - 1 > len(package):
+                    out.append(f"line {node.lineno}: relative import beyond the top level")
+                    continue
+                parts = package[: len(package) - (node.level - 1)]
+                base = ".".join(parts + ([node.module] if node.module else []))
+            else:
+                base = node.module or ""
+            subs = [f"{base}.{a.name}" if base else a.name for a in node.names if a.name != "*"]
+            targets = ([base] if base else []) + [t for t in subs if status(t) is not None]
+        else:
+            continue
+        for target in targets:
+            pieces = target.split(".")
+            for index in range(1, len(pieces) + 1):
+                prefix = ".".join(pieces[:index])
+                if status(prefix) == "missing":
+                    out.append(f"line {node.lineno}: {target} ({prefix} is not kept)")
+                    break
+    return out
+
+
+def _keep_map(keep: Sequence[tuple[str, str]]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for path, blob in keep:
+        if not re.fullmatch(r"[0-9a-f]{40}", blob):
+            raise CutRefused(f"keep list: {path} needs a full 40-hex blob pin")
+        if path in mapping:
+            raise CutRefused(f"keep list: {path} is listed twice")
+        mapping[path] = blob
+    return mapping
+
+
+def _import_withheld_map(import_withheld: Sequence[tuple[str, str]], listed: dict[str, str]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for path, cls in import_withheld:
+        if cls != "excluded-import":
+            raise CutRefused(f"import-withheld list: {path} has unknown reason class {cls!r}")
+        if path in mapping or path in listed:
+            raise CutRefused(f"import-withheld list: {path} is listed twice")
+        mapping[path] = cls
+    return mapping
+
+
 def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] = R4B_WITHHELD,
-                   handout_sources: Iterable[str] = ()) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
-    """Apply the §5 globs, the R4b recorded list, then the R4 refusal over every remaining file.
+                   handout_sources: Iterable[str] = (), *, keep: Sequence[tuple[str, str]] = FIXTURE_KEEP,
+                   import_withheld: Sequence[tuple[str, str]] = IMPORT_WITHHELD,
+                   ) -> tuple[list[tuple[TreeEntry, bytes]], list[dict]]:
+    """Apply the §5 globs (less the owner's keep list), the R4b recorded list, the R4 refusal over
+    every remaining file, then the import-resolution check over kept ``tests/`` Python files.
 
     Returns the kept files and the withheld records (path and reason class only).
     """
     listed = _withheld_map(withheld)
+    keep_map = _keep_map(keep)
+    import_listed = _import_withheld_map(import_withheld, listed)
     allowed_names = {p.casefold() for p in handout_sources}
     files: list[tuple[TreeEntry, bytes]] = []
     records: list[dict] = []
     refused: list[str] = []
     stale: list[str] = []
     seen: set[str] = set()
+    entries = list_tree(repo, commit)
+    by_path = {e.path: e for e in entries}
+
+    def excluded(path: str) -> bool:
+        return excluded_by(path, keep=keep_map)
+
+    for path, blob in keep_map.items():
+        entry = by_path.get(path)
+        if entry is None:
+            stale.append(f"{path}: on the keep list but absent at {commit[:12]}")
+        elif entry.blob != blob:
+            stale.append(f"{path}: on the keep list with blob {blob[:12]} but is {entry.blob[:12]} at {commit[:12]}")
+        elif not any(g.fullmatch(path) for g in _GLOB_RES):
+            stale.append(f"{path}: on the keep list but no exclusion glob matches it")
+    excluded_blobs = {e.blob for e in entries if excluded(e.path) or e.path in listed} - {EMPTY_BLOB}
     reader = BlobReader(repo)
     try:
-        for entry in list_tree(repo, commit):
-            if excluded_by(entry.path):
+        for entry in entries:
+            if excluded(entry.path):
                 continue
             cls = listed.get(entry.path)
             if cls == "cut-script":
@@ -849,6 +1001,9 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
                 continue
             if V2_PATH_NAME.search(entry.path) and entry.path.casefold() not in allowed_names:
                 reasons = [*reasons, "path name says replay v2 and it is not a handout item"]
+            reasons = [*reasons, *tree_output_reasons(entry, data, excluded_blobs)]
+            if entry.path in keep_map:
+                reasons = [*reasons, *(f"§4 {h.rule} at line {h.line}" for h in section4_hits(entry.path, _decode(data)))]
             if reasons:
                 refused.append(f"{entry.path}: {'; '.join(reasons)}")
             files.append((entry, data))
@@ -857,12 +1012,40 @@ def filtered_files(repo: Path, commit: str, withheld: Sequence[tuple[str, str]] 
     for path, cls in listed.items():
         if path not in seen and cls != "cut-script":
             stale.append(f"{path}: listed as {cls} but absent from the filtered tree at {commit[:12]}")
+    # Import resolution over the kept tree less the import-withheld files.
+    kept_paths = {e.path for e, _ in files} - set(import_listed)
+    source_paths = set(by_path)
+    for path in import_listed:
+        if path not in by_path or excluded(path) or path in listed:
+            stale.append(f"{path}: listed as excluded-import but not in the filtered tree at {commit[:12]}")
+    unresolved: dict[str, list[str]] = {}
+    for entry, data in files:
+        if entry.path.startswith(IMPORT_CHECK_PREFIX) and entry.path.endswith(".py"):
+            problems = unresolved_imports(entry.path, _decode(data), kept_paths, source_paths)
+            if problems:
+                unresolved[entry.path] = problems
+    for path, problems in sorted(unresolved.items()):
+        if path not in import_listed:
+            refused.append(f"{path}: imports a repository module the cut does not keep: {'; '.join(problems)}")
+    for path in sorted(import_listed):
+        if path in by_path and not excluded(path) and path not in listed:
+            if path not in unresolved:
+                stale.append(f"{path}: listed as excluded-import but every import now resolves")
+            else:
+                records.append({"path": path, "reason_class": import_listed[path]})
+    withheld_blobs = {by_path[p].blob for p in import_listed if p in by_path} - {EMPTY_BLOB}
+    files = [(e, d) for e, d in files if e.path not in import_listed]
+    for entry, _ in files:
+        if entry.blob in withheld_blobs:
+            refused.append(f"{entry.path}: byte-identical to an excluded or withheld file")
     if refused or stale:
         parts = []
         if refused:
-            parts.append(f"R4 import refusal: {len(refused)} unlisted file(s) after filtering:\n  " + "\n  ".join(refused))
+            parts.append(f"R4 or import-resolution refusal: {len(refused)} unlisted file(s) after filtering:\n  "
+                         + "\n  ".join(refused))
         if stale:
-            parts.append(f"R4b list is stale: {len(stale)} entr(y/ies):\n  " + "\n  ".join(stale))
+            parts.append(f"recorded list is stale (R4b, keep or excluded-import): {len(stale)} entr(y/ies):\n  "
+                         + "\n  ".join(stale))
         raise CutRefused("\n".join(parts))
     return files, sorted(records, key=lambda r: r["path"])
 
@@ -959,6 +1142,125 @@ def assert_r1_invariants(repo_dir: Path) -> dict:
             "objects": len(present)}
 
 
+# --------------------------------------------------------------------------- output verification
+
+
+def files_list_bytes(files: Sequence[tuple[TreeEntry, bytes]]) -> bytes:
+    """``<sha256>  <path>`` per filtered-tree file, sorted by path, LF."""
+    rows = sorted((entry.path, sha256_hex(data)) for entry, data in files)
+    return "".join(f"{digest}  {path}\n" for path, digest in rows).encode("utf-8")
+
+
+def parse_files_list(data: bytes) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    if not data.endswith(b"\n"):
+        raise CutRefused(f"{FILES_LIST_NAME}: must be non-empty and end with a newline")
+    for line in data.decode("utf-8")[:-1].split("\n"):
+        digest, sep, path = line.partition("  ")
+        if not sep or not re.fullmatch(r"[0-9a-f]{64}", digest) or not path or path in rows:
+            raise CutRefused(f"{FILES_LIST_NAME}: malformed or duplicate line {line[:80]!r}")
+        rows[path] = digest
+    return rows
+
+
+def _walk_files(root: Path, skip_top: str | None = None) -> dict[str, Path]:
+    """Every regular file below ``root`` as a POSIX relative path (``skip_top`` excluded)."""
+    found: dict[str, Path] = {}
+    base = long_path(root)
+    for current, dirs, names in os.walk(base):
+        rel_dir = os.path.relpath(current, base)
+        if rel_dir == "." and skip_top in dirs:
+            dirs.remove(skip_top)
+        for name in names:
+            rel = name if rel_dir == "." else f"{rel_dir.replace(os.sep, '/')}/{name}"
+            found[rel] = Path(current) / name
+    return found
+
+
+def verify_output(out_dir: Path, manifest: dict, *, require_manifest: bool = False) -> dict:
+    """Re-read every output byte from disk and check it against ``manifest`` (erratum 1 §E3).
+
+    Runs at the end of ``cut`` before the manifest is written, and on the host as ``verify``
+    after transfer. Refuses on any extra, missing or changed file, a §4 hit on the handout as
+    written, an excluded or v2-named tree path, a tar that does not rebuild from the
+    repository's own blobs, or a broken R1 invariant."""
+    out_dir = out_dir.resolve()
+    if not out_dir.is_dir():
+        raise CutRefused(f"verify: {out_dir} is not a directory")
+    top = {p.name for p in out_dir.iterdir()}
+    required = {HANDOUT_DIR, REPO_DIR, TAR_NAME, FILES_LIST_NAME} | ({MANIFEST_NAME} if require_manifest else set())
+    if top - OUTPUT_TOP_LEVEL or required - top:
+        raise CutRefused(f"verify: output top level {sorted(top)} != expected {sorted(required)}")
+
+    # Handout as written.
+    expected_handout = {row["handout_path"]: row for row in manifest["handout"]}
+    on_disk = _walk_files(out_dir / HANDOUT_DIR)
+    if set(on_disk) != set(expected_handout):
+        extra, missing = sorted(set(on_disk) - set(expected_handout)), sorted(set(expected_handout) - set(on_disk))
+        raise CutRefused(f"verify: handout files differ (extra {extra}, missing {missing})")
+    for rel, path in sorted(on_disk.items()):
+        data = path.read_bytes()
+        if sha256_hex(data) != expected_handout[rel]["sha256"]:
+            raise CutRefused(f"verify: handout file {rel} changed on disk")
+        hits = section4_hits(rel, _decode(data))
+        if hits:
+            raise CutRefused(f"verify: §4 check on the handout as written: {len(hits)} hit(s) in {rel}")
+
+    # Filtered tree: files list, working tree, git objects, tar.
+    tree = manifest["filtered_tree"]
+    files_list = (out_dir / FILES_LIST_NAME).read_bytes()
+    if sha256_hex(files_list) != tree["files_sha256_list"]["sha256"]:
+        raise CutRefused(f"verify: {FILES_LIST_NAME} does not match the manifest")
+    rows = parse_files_list(files_list)
+    if len(rows) != tree["files"]:
+        raise CutRefused(f"verify: {FILES_LIST_NAME} lists {len(rows)} files, the manifest {tree['files']}")
+    allowed_names = {row["source"].casefold() for row in manifest["handout"] if row["kind"] in ("code", "text_89a")}
+    keep_rows = {row["path"]: row["blob"] for row in tree.get("fixture_keep", [])}
+    withheld_rows = {row["path"] for row in tree.get("withheld_r4b", [])}
+    for rel in rows:
+        check_tree_path(rel)
+        if rel in withheld_rows:
+            raise CutRefused(f"verify: {rel} is recorded as withheld")
+        if excluded_by(rel, keep=keep_rows):
+            raise CutRefused(f"verify: {rel} matches an exclusion glob")
+        if V2_PATH_NAME.search(rel) and rel.casefold() not in allowed_names:
+            raise CutRefused(f"verify: {rel} is named for replay v2 and is not a handout item")
+    repo_dir = out_dir / REPO_DIR
+    working = _walk_files(repo_dir, skip_top=".git")
+    if set(working) != set(rows):
+        extra, missing = sorted(set(working) - set(rows))[:20], sorted(set(rows) - set(working))[:20]
+        raise CutRefused(f"verify: working tree differs from {FILES_LIST_NAME} (extra {extra}, missing {missing})")
+    for rel, path in working.items():
+        data = path.read_bytes()
+        if sha256_hex(data) != rows[rel]:
+            raise CutRefused(f"verify: working-tree file {rel} changed on disk")
+        if rel in keep_rows and git_blob_id(data) != keep_rows[rel]:
+            raise CutRefused(f"verify: kept fixture {rel} is not its pinned blob")
+    if git(repo_dir, "rev-parse", BRANCH).decode().strip() != tree["commit"]:
+        raise CutRefused("verify: the snapshot commit differs from the manifest")
+    if git(repo_dir, "rev-parse", f"{BRANCH}^{{tree}}").decode().strip() != tree["tree"]:
+        raise CutRefused("verify: the snapshot tree differs from the manifest")
+    entries = list_tree(repo_dir, BRANCH)
+    if {e.path for e in entries} != set(rows):
+        raise CutRefused("verify: the committed tree differs from the files list")
+    reader = BlobReader(repo_dir)
+    try:
+        committed = [(entry, reader.read(entry.blob)) for entry in entries]
+    finally:
+        reader.close()
+    for entry, data in committed:
+        if sha256_hex(data) != rows[entry.path]:
+            raise CutRefused(f"verify: committed blob for {entry.path} differs from the files list")
+    tar_bytes = (out_dir / TAR_NAME).read_bytes()
+    if sha256_hex(tar_bytes) != tree["tar_sha256"] or deterministic_tar(committed) != tar_bytes:
+        raise CutRefused("verify: the snapshot tar does not match the manifest and the committed tree")
+    r1 = assert_r1_invariants(repo_dir)
+    if r1 != tree["r1"]:
+        raise CutRefused("verify: the R1 report differs from the manifest")
+    return {"handout_files": len(on_disk), "tree_files": len(rows), "section4_hits": 0, "tar_rebuilt": True,
+            "r1": "ok"}
+
+
 # --------------------------------------------------------------------------- plan + cut
 
 
@@ -1039,7 +1341,9 @@ def _mo2(sample: bytes, pin: str) -> dict:
 def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] = V34_TABLE,
             mo1_skip: str | None = "S6", run_drift: bool = True,
             withheld: Sequence[tuple[str, str]] = R4B_WITHHELD,
-            expected_outputs: dict[str, str] | None = None) -> tuple[dict, str]:
+            expected_outputs: dict[str, str] | None = None,
+            keep: Sequence[tuple[str, str]] = FIXTURE_KEEP,
+            import_withheld: Sequence[tuple[str, str]] = IMPORT_WITHHELD) -> tuple[dict, str]:
     """Cut the handout and the filtered tree. Returns (manifest, binding sha256).
 
     ``expected_outputs`` defaults to ``EXPECTED_OUTPUT_SHA256``; tests pass a synthetic map."""
@@ -1163,8 +1467,12 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
     # 5. Filtered tree, standalone repository, R1.
     handout_sources = {item["path"] for item in plan["code_items"]} | {text89["path"]}
     handout_sources |= {row["path"] for row in (rulings, cover or {}, spec_in_force or {}) if "commit" in row}
-    files, withheld_records = filtered_files(repo, commit, withheld, handout_sources)
+    files, withheld_records = filtered_files(repo, commit, withheld, handout_sources, keep=keep,
+                                             import_withheld=import_withheld)
     checks["import_refusal_files"] = 0
+    checks["tree_denied_literal_files"] = 0
+    checks["tree_excluded_blob_matches"] = 0
+    checks["tests_unresolved_imports"] = 0
     out_dir.mkdir(parents=True)
     try:
         for h in handout:
@@ -1175,6 +1483,8 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
         (out_dir / TAR_NAME).write_bytes(tar_bytes)
         snapshot = create_standalone_repo(out_dir / REPO_DIR, files)
         r1 = assert_r1_invariants(out_dir / REPO_DIR)
+        files_list = files_list_bytes(files)
+        (out_dir / FILES_LIST_NAME).write_bytes(files_list)
         manifest = {
             "schema": MANIFEST_SCHEMA,
             "rev": plan.get("rev", "r1"),
@@ -1194,11 +1504,14 @@ def run_cut(plan_file: Path, repo: Path, out_dir: Path, *, table: Sequence[Sub] 
                 "files": len(files),
                 "tar": TAR_NAME,
                 "tar_sha256": sha256_hex(tar_bytes),
+                "files_sha256_list": {"name": FILES_LIST_NAME, "sha256": sha256_hex(files_list)},
                 "exclusion_globs": list(EXCLUSION_GLOBS),
                 "withheld_r4b": withheld_records,
+                "fixture_keep": [{"path": p, "blob": b} for p, b in keep],
                 "r1": r1,
             },
         }
+        checks["output_verified"] = verify_output(out_dir, manifest)
         manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
         (out_dir / MANIFEST_NAME).write_bytes(manifest_bytes)
     except BaseException:
@@ -1249,6 +1562,22 @@ def run_rebind(manifest_file: Path, repo: Path, new_rev: str) -> tuple[dict, str
     return record, sha256_hex(record_bytes)
 
 
+def run_verify(out_dir: Path, expected_binding: str | None) -> tuple[dict, str]:
+    """Host-side check of a transferred cut directory (erratum 1 §E3); reads nothing outside it."""
+    manifest_bytes = (out_dir / MANIFEST_NAME).read_bytes() if (out_dir / MANIFEST_NAME).is_file() else b""
+    if not manifest_bytes:
+        raise CutRefused(f"verify: {MANIFEST_NAME} is missing")
+    binding = sha256_hex(manifest_bytes)
+    if expected_binding is not None and not hash_matches(binding, expected_binding):
+        raise CutRefused(f"verify: manifest SHA-256 {binding} != the expected binding {expected_binding}")
+    manifest = json.loads(manifest_bytes)
+    if manifest.get("schema") != MANIFEST_SCHEMA:
+        raise CutRefused(f"manifest schema must be {MANIFEST_SCHEMA}")
+    if "files_sha256_list" not in manifest.get("filtered_tree", {}):
+        raise CutRefused("verify: the manifest predates the per-file list (re-cut with this script)")
+    return verify_output(out_dir, manifest, require_manifest=True), binding
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     sub = parser.add_subparsers(dest="mode", required=True)
@@ -1261,9 +1590,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     rebind.add_argument("--repo", required=True, type=Path)
     rebind.add_argument("--commit", required=True)
     rebind.add_argument("--out", type=Path, help="write the re-bind record here (must not exist)")
+    verify = sub.add_parser("verify", help="re-check a cut directory from disk alone (host, after transfer)")
+    verify.add_argument("--out", required=True, type=Path, help="the cut directory holding H1-manifest.json")
+    verify.add_argument("--binding", help="expected SHA-256 of H1-manifest.json (full 64 hex)")
     args = parser.parse_args(argv)
     try:
-        if args.mode == "cut":
+        if args.mode == "verify":
+            summary, binding = run_verify(args.out, args.binding)
+            print(json.dumps(summary, sort_keys=True))
+            print(f"verified; binding (SHA-256 of {MANIFEST_NAME}): {binding}")
+        elif args.mode == "cut":
             manifest, binding = run_cut(args.plan, args.repo, args.out)
             print(f"handout files: {len(manifest['handout'])}; filtered tree {manifest['filtered_tree']['tree']} "
                   f"({manifest['filtered_tree']['files']} files); commit {manifest['filtered_tree']['commit']}")

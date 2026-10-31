@@ -1,0 +1,987 @@
+# Live Fill-Calibration Session-0 Runbook (owner-attended)
+
+> **Run and ATTESTED 2026-10-16** (about 16:35Z). Evidence: the
+> [session-0 record](live-fill-calibration-session0-record-2026-10-16.md). Session 1 needs its own runbook revision
+> for its pin `6bc6f2bec`.
+
+Owns: the copy-pasteable owner procedure for session 0 of the live
+fill-calibration campaign on the workstation. Read when: preparing for or
+running session 0, or reviewing what the owner will do.
+
+- **Not a signed text.** This runbook adds no rule. Where it differs from a
+  signed file, the signed file governs; section 11 lists every difference found
+  against the code, and the draft
+  [clarification D](live-fill-calibration-clarification-D-2026-10-09.md)
+  carries the ones that need a signature.
+- Rules it follows, at the hashes in the
+  [signature record](live-fill-calibration-signature-2026-10-09.md) and the
+  [C signature record](live-fill-calibration-clarification-C-signature-2026-10-09.md):
+  pre-registration (PR), session-0 spec (S0), panel clarifications,
+  clarification A/2, and clarification C (sha256
+  `4d6ae37a4f2cb6a098ef709dd0148b9babba6e465c3d202dff2ab4242d369054`).
+- Code: the pinned worktree `C:\wt\lfc-pinned-e27909a76` at the session-0 tip `e27909a76`
+  (`e27909a764e96931c9ea38d6fba8202af8fc2b67`, branch `claude/lfc-scope-date-guard-r2-20261014`: `acd052a2d` plus the
+  deadline 2026-10-25T00:00Z and the scope-date guard r2; Fable-reviewed 2026-10-13, master-approved pin;
+  the main session created and locked it 2026-10-13, section 3.0). It replaces `acd052a2d`; the worktrees
+  `C:\wt\lfc-pinned-acd052a2d` and `C:\wt\lfc-pinned-6c45aaa14` are **retained as evidence** and are not
+  used. **A fresh preflight is needed on this pin** (Fable): preflight evidence binds `code_identity`
+  (the commit), so no receipt from `acd052a2d` counts. The ledger is unchanged from `acd052a2d` to
+  `e27909a76`, so the ledger from `init-ledger` stays valid. The commands below were checked against the
+  CLI at `acd052a2d`; the pin adds only the deadline value and the scope-date refusals (section 10). Commands that touch the venue or the wallet reader
+  were **not** run while drafting.
+- Data seen while drafting: none. No 88a, panel or settlement data, and no
+  session-0 artefact.
+
+**Who runs what.** Every command in this file is run by the owner, in an
+interactive PowerShell window on the workstation. `preflight`, `live` and
+`session0-attest` refuse without a real terminal (`owner_terminal_required`),
+so no agent can run them. Steps marked **OWNER ONLY** are never run by an agent
+under any relay.
+
+## 1. Timing
+
+| Item | Rule | Source |
+| --- | --- | --- |
+| Session 0 date | **UTC 2026-10-16 (Friday), starting about 15:00Z (11:00 EDT)**, owner-attended, about 3 h. This is the 10-16 variant of this runbook; the owner's chat answer picks the day (DECISION_LOG 2026-10-13 rows). It replaces the 10-14 date of 2026-10-12 and the 10-12 date of 2026-10-09 (D9). | owner, D9, DECISION_LOG |
+| Session 0 deadline | Before **2026-10-25T00:00Z** (10-24 20:00 EDT), per the DECISION_LOG 2026-10-13 rows; it replaces 2026-10-15T00:00Z and is in the pin `e27909a76`. No clarification is issued for the move; the session-0 day and logistics are decided by the owner's chat answer. **Enforced:** `preflight` and `live` with `--session0` refuse `session0_deadline_passed` at or after that instant. | DECISION_LOG, D10, `SESSION0_DEADLINE_UTC` |
+| One UTC date | Run every sub-run on one UTC date. `live` accepts only a PASS preflight from the same UTC date and commit. | code (`clean_preflight`) |
+| Hard stop | Each run's start + duration must end by 23:50Z (19:50 EDT; 0a = 20 min, others = 10 min), else `past_hard_stop_2350z`. | PR §4, code |
+| Plan for 10-16 | T − 24 h steps on **10-15 about 15:00Z (11:00 EDT)** (`init-ledger` already ran on 10-13 and is once; it is not repeated); T − 40 min steps (including the shadow scope, section 2) at **10:20 EDT (14:20Z) on 10-16**; first preflight about **15:00Z (11:00 EDT)**. Total ≈ 3 h with checks. Anything not done by the 23:50Z (19:50 EDT) hard stop on 10-16 is not done that day; any other session-0 date is an owner decision. Host-Python Phase B is planned on the capture host at 00:30-04:45 the same morning (10-16); whether that fits the upgrade runbook's G7 is master's and the owner's call. | this runbook |
+| Earliest counted session | Session 1: **10-18 or later**, only after a session-0 PASS, with its t24 taken the day before (20-30 h before its start); **never 10-16 or 10-17**. The code's own floor is 2026-10-15T00:00Z (session 0 is exempt). | PR §4, `EARLIEST_START_UTC` |
+| Session-1 pin | `claude/lfc-hardening-r2-20261014` @ `6bc6f2bec` replaces delta-3 §8's `acd052a2d` for session 1. It needs its own pinned worktree and a fresh preflight on it (preflight evidence binds `code_identity`), and is recorded in DECISION_LOG after a session-0 PASS. Session 0 runs on `e27909a76` only. | master, Fable |
+| Markets | Session 0 uses **non-panel markets only**: the owner lists ≥ 3 off-panel events, and the selector refuses any condition in the 88a extra conditions, the shadow scope or `panel_exclusions.jsonl`. | S0 §2, C2 |
+
+## 2. Shell setup (every new window)
+
+Open Windows PowerShell (not an agent tool). Paste this into **each** window
+you use; window A runs `live`, window B runs the helpers.
+
+```powershell
+Set-Location C:\wt\lfc-pinned-e27909a76
+$python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+$env:PYTHONPATH = 'C:\wt\lfc-pinned-e27909a76;C:\wt\lfc-pinned-e27909a76\src'
+$env:PYTHONDONTWRITEBYTECODE = '1'
+$root = Join-Path $env:USERPROFILE '.weather-lfc-20261009'
+$snapDir = Join-Path $env:USERPROFILE '.weather-lfc-20261009-owner-snapshots'
+
+# Open-order count helper (S0 section 5): ONE fresh venue read through GET /open-orders?fresh=1
+# (wallet_reader_client.open_order_count(fresh=True); no 30 s cache). Prints the count, or ERR <reason>.
+# Every call counts in the reader's 30-per-60 s cap, shared with the capture host's 5-minute journal.
+function Get-OpenOrderCount {
+  & $python -c "import weather.market.wallet_reader_client as c`ntry:`n print(c.open_order_count(fresh=True))`nexcept c.ReaderError as e:`n print('ERR', getattr(e, 'reason', 'refused'))"
+  $global:lfcLastReaderCallUtc = (Get-Date).ToUniversalTime()
+}
+
+# Reader-cap window (delta-3 review 4b, D6.2): the 0c kill and the 0d/0f/0g drops must fall >= 60 s after a
+# 5-minute boundary (the capture host's wallet-journal burst at :00/:05/...) and <= 270 s into it (so the 21 s
+# loop ends before the next burst), and >= 60 s after the last reader call from THIS window. Pasting this
+# block resets the last-call time: after a re-paste, wait 60 s by hand before a kill or a drop.
+$global:lfcLastReaderCallUtc = [datetime]::MinValue
+function Test-ReaderQuietAt([datetime]$atUtc) {
+  $phase = ($atUtc.Minute % 5) * 60 + $atUtc.Second
+  $since = [math]::Min(($atUtc - $global:lfcLastReaderCallUtc).TotalSeconds, 99999)
+  [pscustomobject]@{ ok = ($phase -ge 60 -and $phase -le 270 -and $since -ge 60); phase_s = $phase; since_last_read_s = [int]$since }
+}
+# Blocks until (now + LeadSeconds) satisfies the window; prints READER_QUIET. Lead 0 for the 0c kill.
+function Wait-ReaderQuiet([int]$LeadSeconds = 0) {
+  while ($true) {
+    $at = (Get-Date).ToUniversalTime().AddSeconds($LeadSeconds)
+    $r = Test-ReaderQuietAt $at
+    if ($r.ok) {
+      "READER_QUIET event_utc=$($at.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) phase_s=$($r.phase_s) since_last_read_s=$($r.since_last_read_s)" | Write-Host
+      return
+    }
+    Start-Sleep -Milliseconds 500
+  }
+}
+# Check line after a drop: reads the drop row's recorded_at_utc and prints DROP_WINDOW OK or MISSED.
+# Call it BEFORE Measure-TimeToZero (whose reads move the last-call time).
+function Test-DropWindow([string]$journal, [string]$pattern) {
+  $line = Select-String -Path $journal -SimpleMatch $pattern | Select-Object -First 1
+  $at = ([datetimeoffset]::Parse(($line.Line | ConvertFrom-Json).recorded_at_utc, [Globalization.CultureInfo]::InvariantCulture)).UtcDateTime
+  $r = Test-ReaderQuietAt $at
+  "DROP_WINDOW $(if ($r.ok) { 'OK' } else { 'MISSED' }) drop_utc=$($at.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) phase_s=$($r.phase_s) since_last_read_s=$($r.since_last_read_s)"
+}
+
+# Time-to-zero (S0 section 5, D6) with the UTC time the helper read 0 (N-10): a fresh read every 3 s from t0
+# until it reads 0 or 21 s have passed (at most 8 fresh reads, inside the cap). ERR never counts as 0.
+# Each fresh read prints read_utc (taken when the read returned) and its count; the last line gives
+# helper_zero_utc, the value for lfc_cli --s0-2-helper-zero-utc (N-10). Keep the whole output.
+function Measure-TimeToZero([datetime]$t0) {
+  do {
+    $next = (Get-Date).ToUniversalTime().AddSeconds(3)
+    $n = "$(Get-OpenOrderCount)".Trim()
+    $at = (Get-Date).ToUniversalTime()
+    "read_utc=$($at.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")) open=$n" | Write-Host
+    if ($n -ne '0' -and ($at - $t0).TotalSeconds -le 21) {
+      $wait = ($next - (Get-Date).ToUniversalTime()).TotalMilliseconds
+      if ($wait -gt 0) { Start-Sleep -Milliseconds ([int]$wait) }
+    }
+  } until ($n -eq '0' -or ($at - $t0).TotalSeconds -gt 21)
+  "open=$n seconds=$([math]::Ceiling(($at - $t0).TotalSeconds)) t0_utc=$($t0.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")) helper_zero_utc=$($at.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"))"
+}
+
+# Host gate: run before every preflight and every live start.
+function Test-HostFree {
+  . .\scripts\ops\workload_admission.ps1
+  "holder=" + (Get-WeatherHeavyWorkloadHolderSummary -RepoRoot (Get-Location).Path | ConvertTo-Json -Compress)
+  "poison=" + (Test-Path 'C:\ProgramData\WeatherProject\heavy_workload_v1.poison')
+  "queued=" + @(Get-ChildItem 'C:\ProgramData\WeatherProject\heavy_workload_queue_v1' -Filter 'ticket-*.json' -ErrorAction SilentlyContinue).Count
+  $m = [Threading.Mutex]::new($false, 'Global\WeatherProjectHeavyWorkloadV1')
+  try { if ($m.WaitOne(0)) { $m.ReleaseMutex(); 'MUTEX FREE' } else { 'MUTEX BUSY' } }
+  catch [Threading.AbandonedMutexException] { $m.ReleaseMutex(); 'MUTEX WAS ABANDONED (now cleared)' }
+  finally { $m.Dispose() }
+}
+
+# Owner-private wallet snapshot: raw reader output stays on this machine; only hashes are shared.
+function Save-OwnerSnapshot([string]$label) {
+  New-Item -ItemType Directory -Force $snapDir | Out-Null
+  $ts = (Get-Date).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
+  foreach ($r in 'summary', 'open-orders', 'positions') {
+    $f = Join-Path $snapDir "$label-$r-$ts.json"
+    & $python -m weather.market.wallet_reader_client $r | Out-File -Encoding utf8 $f
+    $global:lfcLastReaderCallUtc = (Get-Date).ToUniversalTime()
+    '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower(), (Split-Path $f -Leaf)
+  }
+}
+
+# R-D1 (a), D5: session-start baseline compare. The code compares positions with the LATEST t40 only
+# (lfc_ledger.compare_baselines); this compares the latest t40 with the session-start t40 (the first t40 of
+# the day), on the baseline file's own fields (lfc_ledger.take_baseline). Reads only $root\ledger.jsonl and
+# the two baseline-t40-*.json files the code wrote. Prints PASS or STOP with counts only, never sizes,
+# assets or balances.
+function Get-LedgerRows { @(Get-Content -LiteralPath (Join-Path $root 'ledger.jsonl') | ForEach-Object { $_ | ConvertFrom-Json }) }
+function Get-LatestT40Row { @(Get-LedgerRows | Where-Object { $_.event -eq 'baseline' -and $_.label -eq 't40' }) | Select-Object -Last 1 }
+function Compare-T40ToStart([string]$StartFile, [string]$StartSha) {
+  $inv = [Globalization.CultureInfo]::InvariantCulture
+  $rows = Get-LedgerRows
+  $t40s = @($rows | Where-Object { $_.event -eq 'baseline' -and $_.label -eq 't40' })
+  $last = $t40s | Select-Object -Last 1
+  $why = @()
+  if (-not @($t40s | Where-Object { $_.file -eq $StartFile -and $_.sha256 -eq $StartSha }).Count) { $why += 'start_not_a_ledger_t40' }
+  $sp = Join-Path $root $StartFile; $lp = Join-Path $root $last.file
+  if ((Get-FileHash -LiteralPath $sp -Algorithm SHA256).Hash.ToLower() -ne $StartSha) { $why += 'start_sha_mismatch' }
+  if ((Get-FileHash -LiteralPath $lp -Algorithm SHA256).Hash.ToLower() -ne $last.sha256) { $why += 'latest_sha_mismatch' }
+  $s = Get-Content -LiteralPath $sp -Raw | ConvertFrom-Json
+  $l = Get-Content -LiteralPath $lp -Raw | ConvertFrom-Json
+  if ($s.schema_version -ne 'lfc_baseline_v0.1' -or $l.schema_version -ne 'lfc_baseline_v0.1') { $why += 'baseline_schema' }
+  if ($s.maker_address -ne $l.maker_address) { $why += 'account_differs' }
+  if (@($s.open_order_ids).Count -or @($l.open_order_ids).Count) { $why += 'open_orders_in_baseline' }
+  $ours = @($rows | Where-Object { $_.event -eq 'leg_intent' } | ForEach-Object { [string]$_.token_id })
+  $fills = @($rows | Where-Object { $_.event -eq 'leg_terminal' -and [double]::Parse([string]$_.size_matched, $inv) -ne 0 }).Count
+  $sm = @{}; foreach ($x in $s.positions.PSObject.Properties) { $sm[$x.Name] = [double]::Parse([string]$x.Value, $inv) }
+  $lm = @{}; foreach ($x in $l.positions.PSObject.Properties) { $lm[$x.Name] = [double]::Parse([string]$x.Value, $inv) }
+  $assets = @(@($sm.Keys) + @($lm.Keys) | Sort-Object -Unique | Where-Object { $ours -notcontains $_ })
+  $changed = @($assets | Where-Object { $sm[$_] -ne $lm[$_] }).Count
+  if ($changed) { $why += "positions_changed_outside_pilot_tokens=$changed" }
+  if ($fills -eq 0 -and [double]::Parse([string]$s.available_collateral, $inv) -ne [double]::Parse([string]$l.available_collateral, $inv)) { $why += 'collateral_changed_without_pilot_fill' }
+  if ($why.Count) { "STOP $($why -join ' ') start=$StartFile latest=$($last.file)" }
+  else { "PASS start=$StartFile latest=$($last.file) assets_compared=$($assets.Count) pilot_tokens_excluded=$($ours.Count) pilot_fills=$fills" }
+}
+```
+
+**Owner inputs** (window A only; fill in before section 5). The five events
+are the proposed session-0 list (all plain binary, fee-free, non-weather; the
+pinned selector picked the Netanyahu market in 3 of 3 checks on 10-10 about
+00:40Z, 20:40 EDT 10-09). Paste as is:
+
+```powershell
+$ev1 = 'netanyahu-out-before-2027'
+$ev2 = 'iran-oman-hormuz-management-agreement-byptptpt-20260804222725871'
+$ev3 = 'china-x-philippines-military-clash-before-2027-20260723214807932'
+$ev4 = 'will-russia-capture-all-of-bilytske-by-june-30'
+$ev5 = 'turkey-rejoins-f-35-program-byptptpt-20260708215709215'
+# Alternates (swap one in only if an event above is closed or refused):
+#   'houthis-enter-saudi-arabia-byptptpt'   'next-us-iran-senior-diplomatic-meeting-byptptpt'
+$extra = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\extra_conditions-<sha8>.json'  # host copy; sha check below
+$scope = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\shadow_scope_20261016.json'
+$s0 = @('--session0', '--event-slug', $ev1, '--event-slug', $ev2, '--event-slug', $ev3,
+        '--event-slug', $ev4, '--event-slug', $ev5, '--extra-conditions', $extra, '--shadow-scope', $scope)
+```
+
+- At least **3 distinct** slugs (case-insensitive), else
+  `session0_requires_three_candidate_events`. Slugs must match the Gamma event
+  slug exactly, else `session0_event_unreadable`.
+- `--extra-conditions` and `--shadow-scope` are both required with
+  `--session0` (`session0_requires_event_slug_extra_conditions_shadow_scope`).
+  Agents may not read either file (read clearance).
+- **`$extra`** is a byte-identical copy of the 88a file in force,
+  passed **as is** (the code accepts its
+  `{"extra_conditions": [...], "update_windows_utc": [...]}` shape). Neither
+  agent reads or parses it. Transfer (master-agent, 2026-10-09):
+  1. At **T - 40 min** on 10-16 (14:20Z, 10:20 EDT), master-agent makes a shared-open, byte-for-byte
+     copy of `<prod checkout>\data\maker_evidence\extra_conditions.json` on
+     the capture host, records its sha256, and places it at
+     `C:\Users\micha\Desktop\lfc-transfer\extra_conditions-<sha8>.json` on the
+     capture host. Master-agent never touches the workstation by shell; the
+     workstation agent never opens the capture host.
+  2. The **owner** moves that file to the workstation (LAN share or USB, the
+     owner's choice), into `$env:USERPROFILE\.weather-lfc-20261009-inputs\`.
+  3. Before any preflight, window A:
+
+     ```powershell
+     $extra = Join-Path $env:USERPROFILE '.weather-lfc-20261009-inputs\extra_conditions-<sha8>.json'
+     $extraHostSha = '<sha256 recorded by master-agent on the capture host>'
+     if ((Get-FileHash -LiteralPath $extra -Algorithm SHA256).Hash.ToLower() -ne $extraHostSha) { throw 'extra_conditions copy does not match the host sha256: NO SESSION' }
+     ```
+
+     A mismatch means **no session**.
+- **`$scope`** is generated at **T − 40 min** (about 14:20Z, 10:20 EDT, on 10-16) and its
+  sha256 recorded:
+
+  ```powershell
+  New-Item -ItemType Directory -Force (Split-Path $scope) | Out-Null
+  & $python -m weather.market.lfc_cli shadow-scope-union --date 2026-10-16 --out $scope
+  ```
+
+  Success: exit 0, printing `sha256` and `count`; record the sha256 line. It
+  reads public Gamma only and **fails closed** (`shadow_scope_event_missing`,
+  nothing written) until every registry event dated 10-15 to 10-18 (D−1 to
+  D+2) is listed; rerun later if so. An existing `--out` is refused.
+- **The scope file name carries the date.** At the session-0 pin `e27909a76`,
+  `shadow-scope-union` writes only `{"conditions": [...]}`, so the file NAME
+  (`shadow_scope_<YYYYMMDD>.json`) is the only record of its date, and
+  `preflight`/`live` refuse a name without the session's UTC date (section 10).
+  From the session-1 pin (`6bc6f2bec`) onward, `shadow-scope-union` also writes
+  a `"date"` field, which must agree with the name.
+- `go <6 hex>` is typed by the owner at each `live` start; it is the first 6 hex
+  of the selection digest that `live` prints. Check S0 rules 1-2 by eye on the
+  printed `event_slug` and `condition` before typing.
+
+## 3. Pre-flight (once, then the gate before each run)
+
+### 3.0 Pinned worktree (created by the main session after review)
+
+Done by the main session 2026-10-13 (~22:40 EDT): the locked, detached
+worktree `C:\wt\lfc-pinned-e27909a76` at `e27909a76` (Fable-reviewed r2,
+master-approved pin). `C:\wt\lfc-pinned-acd052a2d` and
+`C:\wt\lfc-pinned-6c45aaa14` stay as they are, as evidence. For the record,
+the commands were:
+
+```powershell
+git -C C:\Users\Michael\Documents\github\weather fetch origin claude/lfc-scope-date-guard-r2-20261014
+git -C C:\Users\Michael\Documents\github\weather worktree add --detach C:\wt\lfc-pinned-e27909a76 e27909a764e96931c9ea38d6fba8202af8fc2b67
+git -C C:\Users\Michael\Documents\github\weather worktree lock --reason "LFC session-0 pinned tip e27909a76 (deadline 2026-10-25T00Z + scope-date guard r2; Fable-reviewed 2026-10-13; master-approved pin; owner logistics row 2026-10-13)" C:\wt\lfc-pinned-e27909a76
+```
+
+A new pin needs a fresh `preflight` on it (preflight evidence binds
+`code_identity`, the commit).
+
+### 3.1 Pinned code and lock (window A)
+
+```powershell
+git -C C:\wt\lfc-pinned-e27909a76 rev-parse HEAD
+git -C C:\wt\lfc-pinned-e27909a76 status --porcelain --untracked-files=normal
+git -C C:\Users\Michael\Documents\github\weather worktree list --porcelain | Select-String -Context 0,4 'lfc-pinned-e27909a76'
+```
+
+Success: HEAD `e27909a764e96931c9ea38d6fba8202af8fc2b67`; status prints nothing (the code refuses on any
+untracked or modified file); the worktree entry shows
+`locked LFC session-0 pinned tip e27909a76 (deadline 2026-10-25T00Z + scope-date guard r2; Fable-reviewed 2026-10-13; master-approved pin; owner logistics row 2026-10-13)`. Anything else: **stop**.
+
+### 3.2 Interpreter and imports
+
+```powershell
+& $python -c "import sys, weather, weather.paths, weather.market.lfc_cli as c; print(sys.version.split()[0]); print(weather.__file__); print(c.__file__); print(weather.paths.REPO_ROOT)"
+& $python -c "import importlib.metadata as m; print(m.version('polymarket-client'))"
+& $python -c "import sys, weather.market.lfc_cli, weather.market.re1_evidence, weather.market.re1_owner_checks, weather.market.re1_rehearsal, weather.market.re1_transport, weather.market.wallet_reader_client; print('econ_loaded=' + str('weather.market.exchange_economics' in sys.modules))"
+```
+
+Success, exactly:
+- `3.11.9`;
+- `C:\wt\lfc-pinned-e27909a76\weather\__init__.py`;
+- `C:\wt\lfc-pinned-e27909a76\src\weather\market\lfc_cli.py`;
+- `C:\wt\lfc-pinned-e27909a76`;
+- `0.6.0`;
+- `econ_loaded=False` (P2 scan).
+
+If any path points at `C:\Users\Michael\Documents\github\weather`, the
+`PYTHONPATH` or working directory is wrong: **stop**. The venv's editable
+install points at the main checkout; only the setup block above makes the
+pinned code load.
+
+### 3.3 Host assignment
+
+```powershell
+. .\scripts\ops\workload_admission.ps1
+$a = Get-Content .\config\international_live_execution_host.json -Raw | ConvertFrom-Json
+$h = Get-WeatherExecutionHostId; $p = Get-WeatherExecutionPrincipalId
+"status=$($a.assignment_status) host_match=$($h -eq $a.active_portable_execution_host_id) principal_match=$($p -eq $a.active_portable_execution_principal_id) not_capture=$($h -ne $a.dedicated_capture_execution_host_id)"
+```
+
+Success: `status=ASSIGNED host_match=True principal_match=True not_capture=True`
+(else `live` refuses `wrong_workstation_or_principal`).
+
+### 3.4 Heavy-work mutex: freeze, then check before every run (settled)
+
+Settled by master-agent and the owner 2026-10-09: freeze plus a check before
+each run replaces "hold the mutex for the session".
+
+`preflight` and `live` take the host mutex `Global\WeatherProjectHeavyWorkloadV1`
+**themselves**, without waiting, and refuse `host_mutex_busy_or_abandoned` if it
+is held or abandoned, or `host_workload_recovery_required` if the poison file
+exists. **Do not hold the mutex from another window**: that makes every run
+refuse. "Holding it for the session" means:
+
+1. Tell the master and every workstation agent session: **no qtest, pytest,
+   compileall, replay or training on this machine until session 0 is reported
+   done.** Wait for any running job to finish.
+2. Before every `preflight` and every `live`, in window B:
+
+   ```powershell
+   Test-HostFree
+   ```
+
+   Success: `holder=null` (or an empty holder), `poison=False`, `queued=0`,
+   `MUTEX FREE` (or `MUTEX WAS ABANDONED (now cleared)` right after 0c).
+3. `poison=True` with no holder is an interrupted heavy job. **Do not delete the
+   file by hand**; recovery is owned by the
+   [host load policy](../operations/HOST_LOAD_POLICY.md). Stop session 0 for the
+   day if it cannot be recovered.
+
+### 3.5 Machine
+
+- Sleep off while attending (Settings > System > Power: screen and sleep
+  "Never" on AC). Owner checks by eye.
+- Notifications on for PowerShell/Windows toasts (Focus assist off). The toast
+  is checked by hand at each run end (S0-8).
+
+### 3.6 Wallet reader for the workstation — OWNER ONLY, after the owner's direct yes
+
+**Design** (owner decision 2026-10-09 ~20:45): one reader instance, the
+existing one on port 8765, accepts any PC on the LAN as a caller. The pinned
+tip carries that code (`b818d187c`, cherry-picked as `388043de5`): `serve`
+admits any RFC1918 or loopback IPv4 source, `--allow` is optional, and
+`GET /open-orders?fresh=1` is the no-cache read the S0 §5 helper uses. There
+is **no second instance**.
+
+- The reader server runs on this workstation, with the L2 credentials and the
+  reader token from the common checkout's `.env`. The capture host is also its
+  client.
+- The bind stays a literal RFC1918 address (never loopback), so the
+  workstation's own client URL is `http://<workstation LAN IP>:8765`, never
+  127.0.0.1.
+
+No agent runs these steps, opens `.env`, or opens the client file. Owner rule,
+verbatim: "we must NEVER upload credentials to github". The file is under the
+gitignored `config/local/`.
+
+1. Find the workstation LAN IPv4:
+
+   ```powershell
+   Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)' } | Select-Object IPAddress, InterfaceAlias
+   ```
+
+2. **Restart the reader on the any-LAN code** (elevated PowerShell at the main
+   checkout; the owner picks the time, since it briefly interrupts the capture
+   host's reads). Steps from the any-LAN handback and the
+   [wallet reader](../operations/wallet-reader.md) "Restart serve after
+   updating":
+   1. Create a detached reader worktree at **master as it stands after the
+      N8 merge** (it contains the master merge of `b818d187c`; master-agent
+      sends the full sha on the morning of 10-13; no other commit, never the
+      pinned LFC tip: the reader serves the capture host too, so it must run
+      master code):
+      `git worktree add --detach ..\weather-wallet-reader-<sha8> <sha>`. Set
+      `$wt` to it and `$sha` to the full SHA.
+   2. `& "<old reader worktree>\scripts\ops\register_wallet_reader_logon_task.ps1" -Unregister`.
+      This also stops the reader. Confirm
+      `Get-NetTCPConnection -LocalPort 8765 -State Listen` is empty.
+   3. `& "$wt\scripts\ops\register_wallet_reader_logon_task.ps1" -RepoRoot $wt -ExpectedCommit $sha -Bind <ws LAN IP> -SignatureType <2|3> -WhatIf`,
+      then the same without `-WhatIf`. **No `-AllowIp`** (any-LAN).
+   4. `Start-ScheduledTask -TaskName WeatherWalletReader`.
+   5. Check `wallet_reader_client summary` from the capture host and from the
+      workstation (step 4 below). Keep the existing firewall rule: the
+      workstation's own calls are same-machine traffic, and the rule still
+      blocks other remote PCs. Keep the old reader worktree and its
+      `data\wallet_reader\` journal (account-read evidence).
+
+3. Write the client config (window A). The token is the same reader token the
+   capture host's client uses (`.env` field `POLYMM_READER_TOKEN`); the owner
+   types it.
+
+   ```powershell
+   # OWNER ONLY. <ws ip> = the address from step 1. The token never appears in any shared output.
+   New-Item -ItemType Directory -Force C:\wt\lfc-pinned-e27909a76\config\local | Out-Null
+   $tok = Read-Host 'reader token (64 hex)'
+   [IO.File]::WriteAllText('C:\wt\lfc-pinned-e27909a76\config\local\wallet_reader_client.json', (@{ url = 'http://<ws ip>:8765'; token = $tok } | ConvertTo-Json -Compress))
+   Remove-Variable tok
+   git -C C:\wt\lfc-pinned-e27909a76 check-ignore -v config/local/wallet_reader_client.json
+   git -C C:\wt\lfc-pinned-e27909a76 status --porcelain --untracked-files=normal
+   ```
+
+   Success: `check-ignore` names `.gitignore` (`config/local/`); status still
+   prints nothing (else `live` refuses on code identity).
+
+4. **Reader up** — part of the T − 40 min pre-flight, and again before each
+   run (owner-run only):
+
+   ```powershell
+   Get-NetTCPConnection -LocalPort 8765 -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess
+   $c = Get-Content C:\wt\lfc-pinned-e27909a76\config\local\wallet_reader_client.json -Raw | ConvertFrom-Json
+   Invoke-RestMethod -Uri ($c.url.TrimEnd('/') + '/health') -Headers @{ Authorization = 'Bearer ' + $c.token }; Remove-Variable c
+   Get-OpenOrderCount
+   ```
+
+   Success: a listener on `<ws ip>:8765`; `/health` answers through the LFC
+   client config (it proves the server responds, not venue access; the client
+   module has no `health` command, hence the direct request); and
+   `Get-OpenOrderCount` prints a number (expected `0`). `ERR http_403`,
+   `ERR http_400` or `ERR refused` means the reader still runs the old
+   one-IP code: do step 2 first.
+
+**Limits of the reader:**
+- One cap of 30 upstream attempts per 60 s for the whole server, **shared
+  with the capture host's 5-minute journal reads**. Every `Get-OpenOrderCount`
+  is a fresh read and counts. Keep LFC reads to the plan in this runbook; the
+  time-to-zero loop makes at most 8.
+- Cached routes (`summary`, `positions`, plain `open-orders`) keep the 30 s
+  success cache (failures 10 s). The fresh read bypasses it and refreshes it.
+- **Plain HTTP** carries the token and account data unencrypted on the LAN;
+  that is the owner's accepted scope (wallet-reader doc).
+
+### 3.7 Ledger (once, at the first step of T − 24 h)
+
+```powershell
+& $python -m weather.market.lfc_cli init-ledger
+```
+
+Success: `status: CREATED`, `ledger: <...>\.weather-lfc-20261009\ledger.jsonl`.
+Confirm that path equals `$root`. Run it once only; the ledger spans the whole
+campaign (L ≤ 100 pUSD, session 0 included).
+
+## 4. Wallet snapshots and the no-trade window
+
+Owner statement (relayed 2026-10-09 ~20:35), verbatim: "Just snapshot my wallet
+before and after the run, you don't need to know any before or after. I will
+not trade during that window."
+
+| When | Command | Purpose |
+| --- | --- | --- |
+| T − 24 h (10-15, ~15:00Z, 11:00 EDT) | `init-ledger` (section 3.7; already ran on 10-13, once only, not repeated), then `Save-OwnerSnapshot t24` then `& $python -m weather.market.lfc_cli baseline --label t24` | record only; session 0 does not use t24 |
+| T − 40 min (10-16, ~14:20Z, 10:20 EDT, before 0a) | `Save-OwnerSnapshot t40`, then `shadow-scope-union` (section 2), then `baseline --label t40` and record the **session-start baseline** (block below) | owner-private before-snapshot; the `$scope` file and its sha256; the start baseline for R-D1 |
+| before **each** sub-run (≤ 90 min before its start) | `& $python -m weather.market.lfc_cli baseline --label t40`, then `Compare-T40ToStart` (section 5) | ledger-bound baseline the start checks; compare since the session start |
+| after the last sub-run | `baseline --label t40` and `Compare-T40ToStart` (section 7), then `Save-OwnerSnapshot after-session0` | final compare; owner-private after-snapshot |
+| after settlement of any session-0 lot | `Save-OwnerSnapshot after-settlement` | **only if a session-0 order filled**; if nothing filled, the end-of-session snapshot suffices (owner, 2026-10-09 evening; D9) |
+
+**Session-start baseline (R-D1 (a)).** Window A, right after the first
+`baseline --label t40` of 10-16 prints `status: PASS`:
+
+```powershell
+$t40Start = Get-LatestT40Row
+"t40_start file=$($t40Start.file) sha256=$($t40Start.sha256)"
+```
+
+Record that line (the same file name and sha256 that `baseline` printed as
+`baseline` and `sha256`). It stays the start baseline for the whole day,
+repeats included. In a new window, set it again from the record:
+`$t40Start = [pscustomobject]@{ file = '<file>'; sha256 = '<sha256>' }`.
+
+- **Two checks.** The code refuses `wallet_activity_outside_pilot` only for a
+  change since the **latest** t40 (`lfc_ledger.py:518-524`), and t40 is
+  retaken before every sub-run. `Compare-T40ToStart` covers the gaps: it
+  compares the latest t40 with the start baseline on `maker_address`,
+  `open_order_ids`, `positions` outside the ledger's own `leg_intent` tokens
+  (the pilot's journaled orders, excluded exactly as the code excludes them),
+  and `available_collateral` while no leg of ours has matched. **`STOP`
+  means stop session 0**: no further preflight or `live`; report the STOP line
+  to master. A `collateral_changed_without_pilot_fill` STOP can also come from
+  a credit to the wallet; the owner explains it in writing before anything
+  continues. The baseline file has no trade or activity field, so a manual
+  trade that leaves positions and cash unchanged is covered only by the
+  owner's no-trade statement (D5).
+- **No-trade window:** from the T − 24 h snapshot to the last snapshot, the
+  owner places no manual order and cancels nothing, except the two 0b test
+  orders this runbook asks for (section 6, 0b), and nothing at all during 0g.
+- **Owner approvals, 2026-10-09 evening** (relayed by master-agent; draft D9):
+  "I hold no positions, 10-12 confirmed" (said of the old date; the owner
+  re-confirms at T − 40 min on 10-16); no after-settlement snapshot if
+  nothing filled; and the two 0b test orders (the foreign order on a market
+  outside the session, per C6) may be placed inside the no-trade window as
+  part of the test.
+- S0-6 and L are judged **only** against our order IDs and the baselines.
+  Nothing outside the window is reconciled, and the agents never need the
+  owner's activity outside it.
+- `baseline` success: `status: PASS`, `open_orders: 0`. It exits 1 with
+  `FAIL_FOREIGN_OPEN_ORDERS` if any order is open; that snapshot is still
+  recorded, and the next start refuses `baseline_foreign_open_orders` until a
+  clean `baseline --label t40` is taken.
+- A position change outside our tokens since the latest t40 makes `live`
+  refuse `wallet_activity_outside_pilot`; a change since the session start
+  makes `Compare-T40ToStart` print `STOP`.
+- Share only the printed SHA-256 lines of `Save-OwnerSnapshot`, never the
+  files.
+
+## 5. The per-run cycle
+
+Every sub-run R uses this cycle unless section 6 says otherwise.
+
+```powershell
+# window B
+Test-HostFree                                             # MUTEX FREE, before every preflight and live
+Get-NetTCPConnection -LocalPort 8765 -State Listen        # reader up (section 3.6)
+Get-OpenOrderCount                                        # fresh read; must print 0
+# window A
+& $python -m weather.market.lfc_cli baseline --label t40  # retaken before EVERY sub-run: PASS, open_orders 0
+Compare-T40ToStart $t40Start.file $t40Start.sha256        # R-D1 (a): must print PASS; STOP = stop session 0
+& $python -m weather.market.lfc_cli preflight @s0 --run R # replace R; a fresh PASS before every live
+```
+
+`preflight` success: it prints `open_sessions: []`, `unresolved_legs: []` and
+`stop_reason: null`, then `PASS` steps, and its summary ends `status: PASS`.
+The receipt is `$root\preflight-<UTC stamp>\preflight.json`.
+
+```powershell
+# window A, only after a PASS preflight
+& $python -m weather.market.lfc_cli live @s0 --run R
+```
+
+- It prints the selection (condition, `event_slug`, quote, size, run,
+  minutes, L figures, `available_collateral`) and `Type: go <6 hex>`.
+- Check the event is one of your listed off-panel events, and that the
+  printed condition's row in the latest PASS preflight's `selection.json` has
+  `neg_risk` false on both tokens (D8; screened, not code-enforced):
+
+  ```powershell
+  $pf = Get-ChildItem $root -Directory -Filter 'preflight-*' | Sort-Object LastWriteTime | Select-Object -Last 1
+  $sel = Get-Content "$($pf.FullName)\selection.json" -Raw | ConvertFrom-Json
+  $sel.rows | Where-Object { $_.condition_id -eq '<condition as printed>' } | ForEach-Object { $_.snapshot.rules.PSObject.Properties | ForEach-Object { "neg_risk=$($_.Value.neg_risk)" } }
+  ```
+
+  Both lines must read `neg_risk=False`; otherwise press Ctrl+C at the prompt
+  (nothing is posted). Then type the phrase exactly. A wrong phrase refuses
+  with nothing posted.
+- The run then needs no input. It ends with an `LFC-RESULT ...` line and a
+  toast.
+- Outputs: `$root\session0\<R>\` for the first run of R, or
+  `$root\session0\<R>-<session id>\` for a repeat: `attempt.json`,
+  `selection.json`, `journal.jsonl`, `submit-N.intent.json`,
+  `submit-N.ack.json` and `session_end.json`. Ledger rows go to
+  `$root\ledger.jsonl`, `$root\l_ledger.json` and `$root\notifications.jsonl`.
+
+After every run (window B, then A):
+
+```powershell
+Get-OpenOrderCount                                        # S0-1 (fresh read): must print 0
+$dir = Get-ChildItem "$root\session0" -Directory | Sort-Object LastWriteTime | Select-Object -Last 1
+Get-Content "$($dir.FullName)\session_end.json"            # reason, cleanup_ok, panic, L, open_orders, fills
+Get-Content "$($dir.FullName)\journal.jsonl" | Select-String '"submit_request"' | ForEach-Object { ($_.Line | ConvertFrom-Json).request | Select-Object token_id, side, size, price, post_only, expiration }
+& $python -m weather.market.lfc_cli verify
+```
+
+- S0-3: `reason` as in the table below, `cleanup_ok: true`, no `PANIC` line in
+  window A.
+- S0-7 (**manual**, settled 2026-10-09): the owner checks by eye that every
+  `expiration` equals the session start + run duration + 60 s (one value per
+  run). No code check exists.
+- `verify`: `our_open_orders: []`, `foreign_open_orders: []`, no open
+  session, `status: PASS`.
+
+**Record for each run:** run, folder name, session id (`S0<run>-<UTC stamp>`),
+the `LFC-RESULT` line, end reason, `cleanup_ok`, the helper count after the
+run, whether the toast arrived, and any refusal code.
+
+## 6. Run order and run specifics
+
+The code does not enforce an order. Run **0a, 0b, 0c, 0d, 0e, (0f), 0g** —
+0g last, because its failure halts the campaign for good.
+
+| Run | Length | Accepted end reason | Pass needs |
+| --- | --- | --- | --- |
+| 0a | 20 min fixed | `fixed_end` | band posted (2 legs, 2 tokens, order IDs) |
+| 0b | ≤ 10 min | `foreign_open_order` | band posted before the foreign order |
+| 0c | ≤ 10 min | `reconciled_after_crash` (via `reconcile`) | band posted; S0-2 ≤ 20 s |
+| 0d | ≤ 10 min | `heartbeat_stale` or `order_no_longer_resting` | band posted |
+| 0e | < 2 min | `l_budget_refused` | no leg intent recorded, no submit |
+| 0f | optional | — (not part of the pass gate) | — |
+| 0g | ≤ 10 min | `venue_deadman_cancelled` | band posted; no cancel from us after the drop |
+
+Every pass also needs `cleanup_ok: true` and an uncounted ledger session.
+
+### 0a — fixed end
+
+Standard cycle. Wait the full 20 min. Pass: `fixed_end`.
+
+### 0b — foreign order (two parts)
+
+The foreign order goes on a token **outside the session** (C6): any
+International Polymarket market that is off every panel and not one of the
+three listed candidate events. It is a small limit BUY at the market minimum
+size, far below the mid so it cannot fill.
+
+**Pre-part (S0-4):**
+1. Window B: `Test-HostFree`, `Get-OpenOrderCount` → `0`.
+2. Owner places the foreign order in the Polymarket UI. `Get-OpenOrderCount`
+   → `1`.
+3. Window A: `& $python -m weather.market.lfc_cli preflight @s0 --run 0b`.
+   Success: it **fails** with `account_has_open_orders` and a non-zero exit;
+   `status: FAIL`. Record the `preflight-<stamp>` folder. No submit exists
+   (preflight never submits).
+4. Owner cancels that order in the UI. `Get-OpenOrderCount` → `0`.
+
+**Run part:**
+5. `Test-HostFree`, `baseline --label t40` → PASS. Then a **fresh**
+   `preflight @s0 --run 0b` → must be **PASS** (settled 2026-10-09). The failed
+   receipt from step 3 is now the latest one, and `live` accepts only the
+   latest receipt.
+6. `live @s0 --run 0b`, type `go <6 hex>`.
+7. Window B: repeat `Get-OpenOrderCount` until it prints `2` (both legs rest,
+   N-1). Only then place the same foreign order again.
+8. The script must end `foreign_open_order` within about 30 s. Its cleanup
+   cancels account-wide, so it also cancels the owner's foreign order; that is
+   expected.
+
+Halt: a 0b that ends `foreign_open_order` before the helper read `2` does not
+pass; repeat it. If the foreign order fills, stop: S0-6 fails. The code's
+refusal does not see it once t40 is retaken (it compares with the latest t40);
+the next `Compare-T40ToStart` prints `STOP` (R-D1).
+
+### 0c — crash (binding S0-2)
+
+1. Standard cycle up to `live @s0 --run 0c` and `go <6 hex>`.
+2. Window B: wait until `Get-OpenOrderCount` prints `2` (each call is a fresh
+   read; a few seconds apart is enough). After it prints `2`, make **no
+   further reader call** until the kill. Then find the process:
+
+   ```powershell
+   $ps = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'weather\.market\.lfc_cli\s+live' })
+   $top = @($ps | Where-Object { $ps.ProcessId -notcontains $_.ParentProcessId })
+   $ps | Format-Table ProcessId, ParentProcessId, ExecutablePath -AutoSize
+   $top.Count   # must be 1 (the venv launcher; its child is the interpreter)
+   ```
+
+3. Kill and measure in **one** paste:
+
+   ```powershell
+   Wait-ReaderQuiet; $t0 = (Get-Date).ToUniversalTime(); taskkill /F /T /PID $top[0].ProcessId; "kill_utc=$($t0.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"))"; Measure-TimeToZero $t0
+   ```
+
+   `Wait-ReaderQuiet` holds the kill until it is ≥ 60 s after a 5-minute
+   boundary (and ≤ 270 s into it) and ≥ 60 s after the last reader call from
+   window B, then prints `READER_QUIET ...` (a wait of up to about 4 min; the
+   0c run is 10 min long). Record that line.
+
+   `taskkill /F /T` (settled 2026-10-09) kills the launcher and its
+   interpreter child. atexit does not run, and only the venue's dead-man can
+   clear the orders. `Measure-TimeToZero` reads `GET /open-orders?fresh=1`
+   at once and then every 3 s for up to 21 s; every read reaches the venue, so
+   no cache wait is needed; the only wait is the reader-cap window above.
+4. **Record:** `kill_utc`, the full `open=0 seconds=<s> ... helper_zero_utc=<T>`
+   line. `helper_zero_utc` is the value for `--s0-2-helper-zero-utc` (N-10).
+5. Window B: `Test-HostFree`. Expect `MUTEX WAS ABANDONED (now cleared)`
+   (clearing the abandoned mutex is settled, 2026-10-09). Without this step the
+   next `preflight` or `live` refuses once and writes a FAIL receipt.
+6. Window A: `& $python -m weather.market.lfc_cli reconcile`. Success: exit 0,
+   the 0c session id in `closed_sessions`, `our_open_orders: []`, no
+   mismatches, no adoption refusals, no unacknowledged intents.
+   `session_end.json` appears with `reconciled_after_crash`, and a toast
+   (S0-8).
+7. `verify` → PASS.
+
+Halt and repeat: `open` is not `0` when the 21 s loop ends (or it prints
+`ERR`), or `seconds` > 20, or the timestamp gap in section 8 exceeds 20 s. That is an S0-2 fail: run
+`cancel-ours` (section 9) if any of our orders rest, then `reconcile`, and
+repeat 0c. S0-2 measured on 0c is the gate for every unattended session.
+
+### 0d — heartbeat drop
+
+1. Standard cycle; `live @s0 --run 0d`. **At the `go` prompt, before typing
+   `go`:** window B runs `Wait-ReaderQuiet 125`. The drop follows the post by
+   120 s (`lfc_pilot.py:721`) and the post follows `go` within seconds, so
+   type `go` as soon as it prints `READER_QUIET`.
+2. Window B: read `Get-OpenOrderCount` → `2` **once, within 60 s of the
+   post**, then make no reader call until the drop. Wait for the drop row,
+   check the window, then measure (fresh reads every 3 s):
+
+   ```powershell
+   $j = Join-Path (Get-ChildItem "$root\session0" -Directory | Sort-Object LastWriteTime | Select-Object -Last 1).FullName 'journal.jsonl'
+   while (-not (Select-String -Path $j -SimpleMatch 'heartbeat_sends_stopped' -Quiet)) { Start-Sleep -Milliseconds 500 }
+   $tDrop = (Get-Date).ToUniversalTime(); Test-DropWindow $j 'heartbeat_sends_stopped'; Measure-TimeToZero $tDrop
+   ```
+
+   Record the `DROP_WINDOW` line. `MISSED` with a loop that read `0` within
+   20 s and no `ERR` is still a valid measurement (`ERR` never counts as 0);
+   `MISSED` with `ERR` or no `0`: repeat 0d.
+
+3. The script ends `heartbeat_stale` (its own 8 s stale cleanup) or
+   `order_no_longer_resting` (the venue was first).
+4. Evidence rows, in order:
+
+   ```powershell
+   Select-String -Path $j -Pattern 'heartbeat_sends_stopped|lfc_first_terminal_order_read|lfc_session0_safety_cancel|cleanup_cancel_response' | ForEach-Object Line
+   ```
+
+   `lfc_first_terminal_order_read` (taken before the cleanup cancel) tells a leg
+   already terminal from one the script cancelled. `evidence_complete: false`
+   on a REST-path end is expected (N-4).
+
+S0-2 for 0d: `seconds` ≤ 20 from the drop. Fail: repeat 0d (blocks session 1).
+
+### 0e — L refusal
+
+Standard cycle; `live @s0 --run 0e`. The script sets the L budget just below
+the quote's reserve and must refuse before any submit. Pass:
+`l_budget_refused`, no `submit-*` file, no `submit_request` row, and no leg in
+the ledger (S0-5). `Get-OpenOrderCount` stays `0` throughout. 0e has no
+kill and no drop (it refuses before any intent, `lfc_pilot.py:501-504`), so
+no reader-cap wait applies.
+
+### 0f — main-loop stall (optional)
+
+Same as 0d, with `--run 0f`, including `Wait-ReaderQuiet 125` at the `go`
+prompt: the main loop stalls 25 s about 120 s after posting, and the
+heartbeats must stop. Its drop row is the `main_loop_stall` test flag, so the
+wait loop and the check line use `'main_loop_stall'` in place of
+`'heartbeat_sends_stopped'`. It is not in the pass gate; skip it if
+time is short.
+
+### 0g — venue-only dead-man (last)
+
+**MANUAL TRADING PAUSED.** From before `preflight @s0 --run 0g` until the 0g
+result is read, the owner places no order and cancels nothing, in the UI or
+anywhere else. An owner cancel would counterfeit the proof. Both
+`preflight --run 0g` and the 0g `go` prompt print this rule.
+
+1. Standard cycle with `--run 0g`, including `Wait-ReaderQuiet 125` at the
+   `go` prompt, as for 0d.
+2. Heartbeat sends stop 120 s after posting, and the script's own stale cleanup
+   is off. Only the venue can cancel. The script reads our orders at the first
+   control checkpoint ≥ 30 s after the drop.
+3. Window B may run the 0d wait, check and measure block (reads only; one
+   `Get-OpenOrderCount` within 60 s of the post, none after it until the
+   drop).
+4. Evidence rows:
+
+   ```powershell
+   Select-String -Path $j -Pattern 'heartbeat_sends_stopped|lfc_venue_deadman_first_terminal|lfc_venue_deadman_not_observed|lfc_first_terminal_order_read|lfc_session0_safety_cancel' | ForEach-Object Line
+   ```
+
+   Pass: `lfc_venue_deadman_first_terminal` with `all_terminal: true` and
+   `own_cancel_requests_since_drop: 0`; end reason `venue_deadman_cancelled`.
+
+| 0g outcome | Meaning |
+| --- | --- |
+| `venue_deadman_cancelled` | pass |
+| `order_no_longer_resting`, `fill`, `venue_deadman_requote_needed` | no pass; repeat 0g |
+| `venue_deadman_not_observed` | **PERMANENT HALT** (Q-C2, signed): the ledger records a halt; every later start refuses. The cleanup's safety cancel still runs. Resuming needs a new ledger and a further clarification. |
+
+## 7. After the runs
+
+```powershell
+& $python -m weather.market.lfc_cli verify
+& $python -m weather.market.lfc_cli wallet-verify
+& $python -m weather.market.lfc_cli baseline --label t40  # final t40, AFTER wallet-verify
+Compare-T40ToStart $t40Start.file $t40Start.sha256        # R-D1 (a): PASS, else STOP and report
+Save-OwnerSnapshot after-session0
+```
+
+- The final `baseline --label t40` comes after `wallet-verify`, because
+  `wallet-verify` judges S0-6 against the latest t40. Its compare covers the
+  last sub-run (0g), which no later start checks.
+
+- `verify` success: `status: PASS`, `session0_passed: true`,
+  `session0_runs_missing: []`. `session0_attestation` shows it is still
+  missing until section 8.
+- `wallet-verify` success: exit 0, S0-1 and S0-6 PASS,
+  `positions_reader_status` `OBSERVED` (or `PARTIAL` meeting C7). The default
+  `--since` is the ledger genesis, before any of our orders.
+- The owner judges S0-1..S0-8 from the records before attesting.
+
+## 8. Attestation
+
+`session0-attest` writes `$root\session0\pass.json` once (schema
+`lfc_session0_pass_v0.1`). Both flags are required at `acd052a2d` (draft D1):
+
+```powershell
+& $python -m weather.market.lfc_cli session0-attest --s0-2-seconds <S> --s0-2-helper-zero-utc <helper_zero_utc of the passing 0c>
+```
+
+1. Before typing the phrase, read the printed `s0_2_0c_last_journal_row_utc`
+   and compute the gap:
+
+   ```powershell
+   $last = '<s0_2_0c_last_journal_row_utc as printed>'; $zero = '<helper_zero_utc>'
+   [math]::Ceiling(([datetimeoffset]::Parse($zero) - [datetimeoffset]::Parse($last)).TotalSeconds)
+   ```
+
+2. `S` must be ≥ the gap and ≤ 20, and should be
+   `ceil(max(0c loop seconds, gap))`. The last journal row is at or before the
+   kill, so the gap is at least the true kill-to-zero time. If the gap is
+   above `S`, press Ctrl+C and rerun with the larger `S`. If it is above 20,
+   S0-2 fails: repeat 0c.
+3. Type `attest session0 <first 6 hex of ledger.previous>` as printed.
+   Success: `status: ATTESTED`, the file path and its `sha256`. Refusals write
+   nothing: `session0_runs_missing_<runs>`, `session0_s0_2_above_20_seconds`,
+   `session0_s0_2_below_timestamp_gap`, `session0_s0_2_timestamps_invalid`,
+   `owner_confirmation_refused`.
+4. `& $python -m weather.market.lfc_cli verify` → `session0_attestation` with
+   no refusal.
+
+**Send to master** (one message): per run the folder, session id, end reason,
+`cleanup_ok` and the `LFC-RESULT` line; the 0b pre-part receipt folder; 0c
+`kill_utc`, `helper_zero_utc`, loop seconds, gap and `S`; 0d loop seconds; the
+0g evidence row values (`seconds_after_drop`, `own_cancel_requests_since_drop`,
+`all_terminal`); the `verify` and `wallet-verify` status lines; the
+`pass.json` sha256 and `ledger_previous_sha256`; the `t40_start` line and every
+`Compare-T40ToStart` PASS/STOP line; the `READER_QUIET` and `DROP_WINDOW`
+lines; the snapshot hash lines; toast
+yes/no per run; any refusal code. **Never** raw positions, balances, addresses
+or snapshot files: only rows for session 0's own order IDs, under the read
+clearance.
+
+## 9. Abort and emergency cancel — OWNER ONLY
+
+Use when anything looks wrong while our orders may rest.
+
+1. **Ctrl+C** in window A. The script's cleanup cancels each of our orders, then
+   cancels account-wide, then reconciles. Wait for its end line.
+2. If the process is gone or the cleanup printed `PANIC`:
+
+   ```powershell
+   & $python -m weather.market.lfc_cli cancel-ours
+   ```
+
+   It cancels only orders whose IDs are in the ledger and writes
+   `$root\cancel-ours-<stamp>.json`. Success: `remaining_ours: []`.
+3. Last resort, if an order of ours still rests or an unacknowledged intent may
+   have posted: cancel it in the Polymarket UI. During 0g this voids the run
+   (and an owner cancel can never count as the venue dead-man).
+4. Then:
+
+   ```powershell
+   & $python -m weather.market.lfc_cli reconcile
+   & $python -m weather.market.lfc_cli verify
+   & $python -m weather.market.lfc_cli wallet-verify
+   Get-OpenOrderCount
+   ```
+
+5. Backstop: every order is GTD at run end + 60 s.
+
+Any refusal from the CLI ends with
+`action: If orders may rest, run cancel-ours, then verify.` — do that.
+
+**Rollback.** There is none for money: session 0 counts in L, repeats
+included. The rollback is to stop: leave the pinned worktree as it is, take
+`Save-OwnerSnapshot after-session0`, and report to master. Session 1 does not
+start.
+
+## 10. Halt table
+
+| Condition | Effect |
+| --- | --- |
+| 0g `venue_deadman_not_observed` | permanent campaign halt (ledger halt) |
+| `l_stop_at_cap` (L reaches 100 pUSD) | permanent halt (PR §6) |
+| `l_reconciliation_mismatch` / any trade mismatch | permanent halt (PR §6) |
+| `ledger_halted` at any start | the halt above is in force; stop |
+| S0-1, S0-2 or S0-6 fail | blocks session 1; fix and repeat that run |
+| `cleanup_ok: false` or `PANIC` | emergency path (section 9), then repeat |
+| `ledger_unacknowledged_intent_needs_reconcile` or an open session | run `reconcile`; if it keeps refusing, stop for a written fix (C3) |
+| `cancel_not_terminal` | leg stays in L; `reconcile`, then repeat |
+| a wrong end reason for the run | no pass; repeat the run |
+| `host_mutex_busy_or_abandoned`, `host_workload_recovery_required` | section 3.4 |
+| `clean_final_tip_preflight_required` | rerun `preflight` to PASS (same UTC date, same commit) |
+| `baseline_t40_age`, `baseline_foreign_open_orders` | take `baseline --label t40` again |
+| `wallet_activity_outside_pilot` | stop; owner activity changed positions |
+| `past_hard_stop_2350z` | too late in the UTC day (23:50Z, 19:50 EDT); session 0 ends for that UTC day (10-16); any other date is an owner decision |
+| `session0_deadline_passed` | 2026-10-25T00:00Z (10-24 20:00 EDT) reached (DECISION_LOG 2026-10-13 rows; was 2026-10-15T00:00Z); session 0 cannot run any more (D10) |
+| `shadow_scope_date_mismatch` | a date named by the `--shadow-scope` file (its file name, or a `"date"` field) is not the session's UTC date: rebuild with `shadow-scope-union --date <today's UTC date>` (after 20:00 EDT that is tomorrow's date), named `shadow_scope_<YYYYMMDD>.json` |
+| `shadow_scope_date_unrecorded` | the scope file names no date (no `YYYYMMDD` or `YYYY-MM-DD` in its file name and no `"date"` field): rename it with its build date |
+| `shadow_scope_date_unreadable` | the scope file has a `"date"` field that is not `YYYY-MM-DD` |
+| `condition_file_not_regular` | **session-1 pin onward (`6bc6f2bec`); not in the session-0 pin.** `--extra-conditions` or `--shadow-scope` is absent, not a regular file, or reached through a symlink or junction |
+
+## 11. Differences between the signed docs and the code at acd052a2d
+
+Status as of 2026-10-09 evening. **Settled** = approved by master-agent and
+the owner; **closed** = no longer a difference at `acd052a2d`, or carried in
+draft D; **open** = still a runbook-only note.
+
+1. **Mutex — settled.** The FIX1 deployment note says to hold the mutex for the
+   session. The code takes it per run without waiting, so a pre-held mutex
+   refuses every run. Section 3.4: a freeze and a check before each run.
+2. **0c kill — settled.** S0 §4 says `taskkill /F /PID <script pid>`. The CLI
+   prints no PID, and the venv `python.exe` is a launcher with an interpreter
+   child. Section 6 finds the launcher and kills the tree with `/T`.
+3. **0c leaves the mutex abandoned — settled.** The next `preflight`/`live`
+   refuses once (and a failed preflight becomes the latest receipt) unless the
+   probe clears it first (section 6, 0c step 5).
+4. **0b pre-part — settled.** Its intended preflight failure becomes the latest
+   receipt, so a fresh PASS preflight is needed before `live --run 0b`.
+5. **0b foreign order location — closed.** S0 §4 says "on the session-0
+   market"; C6 says a token outside the session. This runbook follows C6, and
+   the owner approved the two 0b orders on that basis (D9).
+6. **t40 age — settled.** The code needs a t40 baseline ≤ 90 min old at every
+   start, so it is retaken before each sub-run.
+7. **Baseline sources — open (note).** PR §5 baselines are
+   `wallet_reader_client` reads; the code's `baseline` reads the venue and the
+   public data-api. This runbook takes both.
+8. **Attest flag — closed (D1).** The code also requires
+   `--s0-2-helper-zero-utc` and refuses when `S` is below the
+   last-journal-row-to-helper-zero gap.
+9. **Session-0 deadline — closed (D10).** Enforced in code:
+   `session0_deadline_passed` at or after `SESSION0_DEADLINE_UTC`, now
+   2026-10-25T00:00Z (DECISION_LOG 2026-10-13 rows; in the pin `e27909a76`;
+   it was 2026-10-15T00:00Z at `acd052a2d`).
+10. **Wording in C — closed (D2-D4).** The N-6 rule; "0d and 0g journal";
+    "0e recorded no leg intent".
+11. **Extra conditions and shadow scope — closed.** The 88a file is accepted as
+    is, and `shadow-scope-union` generates the scope file (section 2).
+12. **Run order — open (note).** Not enforced; this runbook puts 0g last.
+13. **0d S0-2 — open (note).** Judged from the drop row and the loop; the
+    script's own 8 s cleanup normally ends 0d before the venue does.
+14. **0b owner orders in the no-trade window — closed (D9).** Owner-approved
+    2026-10-09 evening.
+15. **S0 §5 commands — open (note).** They use `.\venv\Scripts\python.exe`
+    from the repository root; the pinned worktree has no venv, so this runbook
+    uses the main venv's interpreter with the pinned `PYTHONPATH`.
+16. **Reader topology — closed (D6.3).** The pinned tip carries the any-LAN
+    reader as cherry-pick `388043de5` of `b818d187c`; the 8765 reader is
+    restarted on master after the N8 merge (it contains master-agent's
+    merge of `b818d187c`; sha sent 10-13 morning), never on the
+    pinned tip (section 3.6).
+17. **Reader cache vs S0-2 — closed (D6).** D6 changes three signed S0 §5
+    values: the cached `open-orders` read becomes `GET /open-orders?fresh=1`,
+    the 2 s poll becomes 3 s, and the 60 s bound becomes 21 s. 3 s keeps the
+    loop inside the shared cap and only lengthens the measured time. The cap
+    is safe only with no held positions and no other reader call in the same
+    60 s; hence `Wait-ReaderQuiet` before the 0c kill and the 0d/0f/0g drops.
+18. **S0-7 — settled.** Checked by hand (section 5); no code check.
+19. **C8 — closed (D7).** The maker-fee class rule replaces "fee rate 0";
+    session 0 must be FEE_FREE, its event's other markets fee-free on Gamma
+    fields only. D7 widens C8: weather bands (`base_fee` 1000, refused by C8)
+    are admitted as WEATHER_TAKER_ONLY; the residual if the venue metadata
+    lied is ≤ about 4.2 pUSD, with cash still ≤ L.
+20. **Neg-risk — open (known limit, D8).** The session-0 picks are expected
+    to be plain binary markets; this is screened (section 5, before `go`),
+    not code-enforced. Session 0 then does not exercise the neg-risk signing
+    path; session 1 is the first neg-risk signing, under the existing hard
+    limits.
+21. **Start refusal scope — closed (D5, R-D1 (a)).** The code checks
+    positions since the latest t40; `Compare-T40ToStart` checks since the
+    session-start t40 (section 4).
+22. **Known LOW code items N-11 and N-12 — open (note).** Delta-3 review
+    section 6; fixed before session 1, not before session 0. N-11:
+    `FeeEvidenceBooks.fee_evidence` can swallow a control-checkpoint
+    `HoldEnd` and end a run `fee_fields_unreadable` (or `market_rules`); if a
+    run ends so while its journal shows the expected terminal event in the
+    same second, it is N-11, not a venue fact: repeat the sub-run. N-12: a
+    duplicate `refusal=` keyword on the selection-phase fee row; unreachable
+    in production (the selector refuses first), and if reached it ends as
+    `exception` with nothing posted.
+
+## 12. Owner inputs still needed
+
+Done: the event slugs (section 2), the `$extra` path, the session-0 pin
+`e27909a76` (section 3.0, 2026-10-13), the after-settlement answer and the 0b
+approval (D9). The session-0 day (this variant: 2026-10-16) is the owner's chat
+answer.
+
+1. Done 2026-10-13: the Fable reviews and the main session's locked pin
+   `C:\wt\lfc-pinned-e27909a76` (section 3.0); the owner re-enters the
+   client config in the new path (section 3.6 step 3).
+2. The restart of the 8765 reader on the any-LAN code at a time the owner
+   picks; then the direct yes and the workstation LAN IP for the client config
+   (section 3.6; written by the owner, never uploaded).
+3. At T − 40 min on 10-16 (14:20Z, 10:20 EDT): `shadow-scope-union` PASS and
+   its sha256 recorded.
+4. Signature of draft clarification D (the delta-3 review at `320ac22a9`
+   passed the code; its D fixes R-D1..R-D4 are applied) before session 1.

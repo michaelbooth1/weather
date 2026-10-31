@@ -739,3 +739,7 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# Public name for the artifact payload builder (tests use it).
+artifact_payload = _artifact_payload

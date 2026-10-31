@@ -435,6 +435,67 @@ def test_admission_ages_snapshot_heartbeat_on_utc_instants_across_fall_back(tmp_
     }
 
 
+# A worker rewrites its status file in place, so admission can read it mid-write.
+# Get-Content is shadowed to return a torn status for the first $env:TORN_READS
+# reads of loop_status.json; only the snapshot worker's files exist.
+TORN_READ_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-HealthyCaptureWorkerCount')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$RepoRoot = $env:WEATHER_BOUNDED_SUITE_ROOT
+$snapshotRoot = Join-Path $RepoRoot 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $snapshotRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$now = [datetimeoffset]::UtcNow
+[IO.File]::WriteAllText((Join-Path $snapshotRoot '.loop_status.json.writer.lock'),
+    (@{ pid = $PID } | ConvertTo-Json -Compress), $utf8)
+[IO.File]::WriteAllText((Join-Path $snapshotRoot 'loop_status.json'),
+    ('{"pid": ' + $PID + ', "last_heartbeat": "' + $now.ToString('o') + '"}'), $utf8)
+$script:tornLeft = [int]$env:TORN_READS
+$script:statusReads = 0
+function Get-Content {
+    param([string]$LiteralPath, [switch]$Raw)
+    if ((Split-Path -Leaf $LiteralPath) -eq 'loop_status.json') {
+        $script:statusReads++
+        if ($script:tornLeft -gt 0) { $script:tornLeft--; return '{"pid": 12' }
+    }
+    [IO.File]::ReadAllText($LiteralPath)
+}
+$healthy = Get-HealthyCaptureWorkerCount -Now $now -RetryDelaySeconds 0
+[pscustomobject]@{ healthy = [int]$healthy; status_reads = $script:statusReads } | ConvertTo-Json -Compress
+"""
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+@pytest.mark.parametrize(("torn_reads", "healthy", "status_reads"), [(0, 1, 1), (2, 1, 3), (3, 0, 3)])
+def test_admission_rereads_a_torn_status_before_refusing(tmp_path, torn_reads, healthy, status_reads):
+    env = os.environ.copy()
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_ROOT"] = str(tmp_path / "repo")
+    env["TORN_READS"] = str(torn_reads)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", TORN_READ_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    # Two torn reads recover on the third; three exhaust the attempts. The missing
+    # clob and observation files are judged at once, never retried.
+    assert payload == {"healthy": healthy, "status_reads": status_reads}
+
 def _function_text(path: Path, name: str) -> str | None:
     text = path.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
     match = re.search(r"(?ms)^function " + re.escape(name) + r" \{\n.*?^\}\n", text)
@@ -550,7 +611,8 @@ function Get-CommitPercent {
     if ($env:WEATHER_BOUNDED_SUITE_BREACH -ceq 'commit') { return 67 }
     return 60
 }
-function Get-HealthyCaptureWorkerCount {
+function Get-ConfirmedHealthyCaptureWorkerCount {
+    param([string]$Phase)
     if ($env:WEATHER_BOUNDED_SUITE_BREACH -ceq 'capture') { return 2 }
     return 3
 }
@@ -1599,3 +1661,295 @@ def test_every_merge_evidence_reader_refuses_an_override_log(verdict_logs):
             "SUITE GATE REFUSED: suite task action passes -InterpreterPath; "
             "an interpreter qualification run is not merge evidence"
         ), outcome[name]
+
+
+# Get-ConfirmedHealthyCaptureWorkerCount over scripted per-worker polls (host
+# 2026-10-18: three suite refusals from single bad polls under pytest load, no
+# worker restarted). A worker must fail two consecutive polls to count as
+# unhealthy; a dead pid counts at once; every unhealthy row is logged.
+CONFIRM_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('Get-ConfirmedHealthyCaptureWorkerCount', 'Assert-HostAdmission')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+# PS 5.1 ConvertFrom-Json emits a JSON array as one object; enumerate it explicitly.
+$script:polls = @()
+foreach ($entry in (ConvertFrom-Json $env:WEATHER_CONFIRM_POLLS)) { $script:polls += $entry }
+$script:pollIndex = 0
+$script:sleeps = 0
+$script:logs = New-Object System.Collections.Generic.List[string]
+$script:readArgs = ''
+function Get-HealthyCaptureWorkerCount {
+    param([switch]$Detail, [int]$ReadAttempts, [int]$RetryDelaySeconds)
+    $script:readArgs = "detail=$([bool]$Detail) attempts=$ReadAttempts delay=$RetryDelaySeconds"
+    $poll = $script:polls[$script:pollIndex]
+    $script:pollIndex++
+    foreach ($name in @('loop_status.json', 'clob_loop_status.json', 'observation_trigger_status.json')) {
+        $state = [string]$poll.$name
+        [pscustomobject]@{
+            Name = $name; Healthy = ($state -ceq 'ok'); Dead = ($state -ceq 'dead')
+            Reason = $(if ($state -ceq 'ok') { '' } else { "fake $state" })
+        }
+    }
+}
+function Start-Sleep { param([int]$Seconds) $script:sleeps++ }
+# Like the real logger, the mock also emits its line to the pipeline.
+function Write-SuiteLog { param([string]$Message) $script:logs.Add($Message); Write-Output $Message }
+function Get-CommitPercent { return 50 }
+$count = Get-ConfirmedHealthyCaptureWorkerCount -Phase 'chunk-7-running'
+$countPolls = $script:pollIndex
+$countSleeps = $script:sleeps
+$failure = $null
+$script:pollIndex = 0
+try { $null = Assert-HostAdmission -CommitCeiling 66 -Phase 'chunk-7-running' } catch { $failure = $_.Exception.Message }
+[pscustomobject]@{
+    count = $count; count_type = $count.GetType().Name; polls = [int]$countPolls; sleeps = [int]$countSleeps
+    logs = @($script:logs); failure = $failure; read_args = $script:readArgs
+} | ConvertTo-Json -Compress -Depth 4
+"""
+
+OK = {"loop_status.json": "ok", "clob_loop_status.json": "ok", "observation_trigger_status.json": "ok"}
+
+
+def _poll(**states):
+    return {**OK, **{name + ".json": state for name, state in states.items()}}
+
+
+REFUSED = "chunk-7-running refused: expected three healthy capture workers, found 2"
+CONFIRM_CASES = {
+    # one transient bad poll on one worker passes after a single re-read
+    "transient": ([_poll(clob_loop_status="stale"), OK], 3, 2, None),
+    # the same worker unhealthy on two consecutive polls refuses
+    "persistent": ([_poll(clob_loop_status="stale"), _poll(clob_loop_status="stale")], 2, 2, REFUSED),
+    # a dead pid refuses on the first poll, with no re-read
+    "dead": ([_poll(loop_status="dead")], 2, 1, REFUSED),
+    # different workers on consecutive polls: the second must also fail twice
+    "moving_then_clean": ([_poll(loop_status="stale"), _poll(clob_loop_status="stale"), OK], 3, 3, None),
+    "moving_then_repeat": ([_poll(loop_status="stale"), _poll(clob_loop_status="stale"),
+                            _poll(clob_loop_status="stale")], 2, 3, REFUSED),
+    "all_healthy": ([OK], 3, 1, None),
+}
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", sorted(CONFIRM_CASES))
+def test_capture_admission_confirms_a_bad_poll_before_refusing(case):
+    polls, count, n_polls, failure = CONFIRM_CASES[case]
+    env = dict(os.environ)
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_CONFIRM_POLLS"] = json.dumps(polls)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", CONFIRM_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["count_type"] == "Int32"
+    assert payload["count"] == count
+    assert payload["polls"] == n_polls
+    assert payload["sleeps"] == n_polls - 1
+    assert payload["failure"] == failure
+    assert payload["read_args"] == "detail=True attempts=5 delay=2"
+    bad = sum(1 for poll in polls for state in poll.values() if state != "ok")
+    # every unhealthy row is logged, once per call (the count probe and Assert-HostAdmission)
+    unhealthy = [line for line in payload["logs"] if "capture worker unhealthy" in line]
+    assert len(unhealthy) == 2 * bad
+    assert all(line.startswith("chunk-7-running capture worker unhealthy (poll ") for line in unhealthy)
+    assert all(": fake " in line for line in unhealthy)
+
+
+# -Detail against a real data\snapshots tree: a dead pid is flagged Dead with a
+# reason, a stale heartbeat and a pid mismatch carry their own reasons, and the
+# plain count (no -Detail) is unchanged.
+DETAIL_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('ConvertTo-StatusInstant', 'ConvertTo-StatusUtcInstant', 'Get-HealthyCaptureWorkerCount')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$RepoRoot = $env:WEATHER_BOUNDED_SUITE_ROOT
+$snapshotRoot = Join-Path $RepoRoot 'data\snapshots'
+New-Item -ItemType Directory -Force -Path $snapshotRoot | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$now = [datetimeoffset]::UtcNow
+$exited = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'exit 0' -PassThru -WindowStyle Hidden
+$exited.WaitForExit()
+$deadPid = $exited.Id
+function Write-Worker([string]$Name, [int]$StatusPid, [int]$LockPid, [datetimeoffset]$Beat) {
+    [IO.File]::WriteAllText((Join-Path $snapshotRoot $Name),
+        ('{"pid": ' + $StatusPid + ', "last_heartbeat": "' + $Beat.ToString('o') + '"}'), $utf8)
+    [IO.File]::WriteAllText((Join-Path $snapshotRoot ".$Name.writer.lock"), ('{"pid": ' + $LockPid + '}'), $utf8)
+}
+Write-Worker 'loop_status.json' $deadPid $deadPid $now
+Write-Worker 'clob_loop_status.json' $PID $PID $now.AddSeconds(-600)
+Write-Worker 'observation_trigger_status.json' $PID ($PID + 1) $now
+$rows = @(Get-HealthyCaptureWorkerCount -Now $now -Detail -RetryDelaySeconds 0)
+[pscustomobject]@{
+    rows = $rows; count = [int](Get-HealthyCaptureWorkerCount -Now $now -RetryDelaySeconds 0); dead_pid = $deadPid
+} | ConvertTo-Json -Compress -Depth 4
+"""
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+def test_capture_worker_detail_names_each_failure(tmp_path):
+    env = dict(os.environ)
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_ROOT"] = str(tmp_path)
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", DETAIL_HARNESS],
+        cwd=REPO_ROOT, env=env, check=False, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    rows = {row["Name"]: row for row in payload["rows"]}
+    assert payload["count"] == 0
+    assert rows["loop_status.json"]["Dead"] is True and not rows["loop_status.json"]["Healthy"]
+    assert rows["loop_status.json"]["Reason"] == f"pid {payload['dead_pid']} is not running"
+    assert rows["clob_loop_status.json"]["Dead"] is False
+    assert rows["clob_loop_status.json"]["Reason"].startswith("heartbeat age 600")
+    assert rows["clob_loop_status.json"]["Reason"].endswith("outside 0..180 s")
+    assert rows["observation_trigger_status.json"]["Dead"] is False
+    assert rows["observation_trigger_status.json"]["Reason"].startswith("pid mismatch: status ")
+
+
+# The suite's hermetic Git (no system/global config) cannot see the filter.lfs.*
+# driver that `git lfs install` writes to global config. When a worktree was
+# checked out WITH smudge and an LFS file is racily clean (its mtime is not older
+# than the index), `status` re-hashes the real bytes and, without the clean
+# filter, reports ` M` against the pointer blob (pregate receipt
+# pg-7b875bb88d2d-20261025T051118-56812, 2026-10-25). The harness runs the real
+# Invoke-SuiteCheckedLocalGit from the script's AST against a temporary repo.
+HERMETIC_STATUS_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'bounded suite does not parse' }
+foreach ($name in @('Test-WeatherQualificationSensitiveEnvironmentName',
+                    'Test-SuiteGitAmbientEnvironmentName',
+                    'Invoke-SuiteCheckedLocalGit')) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$GitExecutablePath = ''
+$ExpectedGitExecutableSha256 = ''
+$ExpectedGitExecutableFileVersion = ''
+function Get-SuiteGitExecutable { param($Path, $ExpectedSha256, $ExpectedFileVersion)
+    return $env:WEATHER_TEST_GIT }
+$rows = @((Invoke-SuiteCheckedLocalGit -Root $env:WEATHER_TEST_REPO `
+    -Arguments @('status', '--porcelain') -Label 'test status').Rows)
+ConvertTo-Json -Compress -InputObject @($rows)
+"""
+
+LFS_FILTER_CONFIG = (
+    "-c", "filter.lfs.clean=git-lfs clean -- %f",
+    "-c", "filter.lfs.smudge=git-lfs smudge -- %f",
+    "-c", "filter.lfs.process=git-lfs filter-process",
+    "-c", "filter.lfs.required=true",
+)
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.spawns
+@pytest.mark.parametrize("smudged", [True, False], ids=["smudged", "pointer"])
+def test_hermetic_status_keeps_a_racily_clean_lfs_file_clean(tmp_path, smudged):
+    import shutil
+
+    git = shutil.which("git")
+    if git is None or shutil.which("git-lfs") is None:
+        pytest.skip("requires git and git-lfs")
+    empty_global = tmp_path / "empty.gitconfig"
+    empty_global.write_text("", encoding="utf-8")
+    env = {
+        name: value for name, value in os.environ.items()
+        if not name.upper().startswith("GIT_")
+    }
+    # Normal (non-hermetic) setup: the LFS driver stands in for global config.
+    env.update({
+        "GIT_CONFIG_GLOBAL": str(empty_global),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_LFS_SKIP_SMUDGE": "0" if smudged else "1",
+    })
+
+    def run_git(cwd, *args):
+        result = subprocess.run(
+            [git, *LFS_FILTER_CONFIG, "-c", "user.name=t", "-c", "user.email=t@t",
+             "-c", "core.autocrlf=false", *args],
+            cwd=cwd, env=env, check=False, capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 0, (args, result.stdout, result.stderr)
+        return result.stdout
+
+    source = tmp_path / "source"
+    source.mkdir()
+    run_git(source, "init", "-q", "-b", "main")
+    (source / ".gitattributes").write_text("*.pkl filter=lfs diff=lfs merge=lfs -text\n",
+                                           encoding="utf-8")
+    payload = bytes(range(256)) * 64
+    (source / "model.pkl").write_bytes(payload)
+    run_git(source, "add", ".gitattributes", "model.pkl")
+    run_git(source, "commit", "-q", "-m", "seed")
+    assert run_git(source, "cat-file", "-p", "HEAD:model.pkl").startswith(
+        "version https://git-lfs.github.com/spec/v1")
+
+    worktree = tmp_path / "wt"
+    run_git(source, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
+    on_disk = (worktree / "model.pkl").read_bytes()
+    assert (on_disk == payload) is smudged
+    # Deterministic non-racy index: file stat old, index written now.
+    old = (worktree / "model.pkl").stat().st_mtime_ns - 100 * 10**9
+    os.utime(worktree / "model.pkl", ns=(old, old))
+    run_git(worktree, "update-index", "-q", "--refresh")
+    index = Path(run_git(worktree, "rev-parse", "--git-path", "index").strip())
+    if not index.is_absolute():
+        index = worktree / index
+
+    def hermetic_status():
+        harness_env = env.copy()
+        harness_env.update({
+            "WEATHER_BOUNDED_SUITE_SCRIPT": str(SCRIPT),
+            "WEATHER_TEST_GIT": git,
+            "WEATHER_TEST_REPO": str(worktree),
+        })
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+             HERMETIC_STATUS_HARNESS],
+            cwd=REPO_ROOT, env=harness_env, check=False, capture_output=True,
+            text=True, timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
+    assert hermetic_status() == []
+    # Racy: the index is no newer than the file, so Git must re-hash the content.
+    os.utime(index, ns=(old, old))
+    assert hermetic_status() == []

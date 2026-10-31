@@ -13,6 +13,7 @@ from weather.sources.nbm_probabilistic_tmax import (
     nbp_station_archive_row,
     nbp_text_url,
     parse_nbp_station_tmax,
+    parse_nbp_station_tmax_v1,
     qmd_grib_idx_url,
     qmd_grib_url,
     replay_nbp_station_archive_row,
@@ -280,15 +281,16 @@ def test_cdf_probability_clamps_below_and_above_and_sorts_percentiles():
 def test_slot_index_for_target_skips_a_missing_forecast_hour():
     """A slot with no max forecast hour is skipped, not treated as the end of the search (review K, A07).
 
-    Driven through the public parser: slot 0 has no forecast hour, so the 30 h slot (valid 05-31 06Z, the
-    05-30 maximum) must be chosen and its values read.
+    Driven through the v1 parser: slot 0 has no forecast hour, so the 30 h slot (valid 05-31 06Z, the
+    05-30 maximum) must be chosen and its values read. The module default is parser v2 (#190), which reads only
+    configured stations with complete rows, so this v1 slot-search property is pinned on v1 explicitly.
     """
     text = (
         " KXYZ    NBM V5.0 NBP GUIDANCE    5/30/2026  0000 UTC\n"
         "FHR         |  30  42\n"
         "TXNP5  70  58|  73  62\n"
     )
-    payload = parse_nbp_station_tmax(text, "KXYZ", date(2026, 5, 30))
+    payload = parse_nbp_station_tmax_v1(text, "KXYZ", date(2026, 5, 30))
     assert payload["available"] is True
     assert payload["forecast_hour"] == 30
     assert payload["valid_time_utc"] == "2026-05-31T06:00:00+00:00"

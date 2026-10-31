@@ -58,7 +58,8 @@ infrastructure work remains.
 | 7 | [Bucket Boundary Logic [COMPLETE - TRANSITION PRIOR LIVE]](items/item-07-bucket-boundary-logic.md) |
 | 8 | [Late-Day Tail Model [COMPLETE - CONTINUATION BLEND LIVE]](items/item-08-late-day-tail-model.md) |
 | 9 | [Analog Search [COMPLETE]](items/item-09-analog-search.md) |
-| 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - SCOPE QUESTION FOR THE OWNER]](items/item-337-no-metar-observed-floor-gap.md) |
+| 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]](items/item-337-no-metar-observed-floor-gap.md) |
+| 339 | [EDGE-1 Model-Edge Pre-Registration Family [OPEN 2026-10-21 - OWNER APPROVED; SIGNING AFTER THE THURSDAY FABLE DELTA]](items/item-339-edge1-model-edge-preregistration.md) |
 
 ### Dashboard Improvements
 
@@ -82,7 +83,7 @@ infrastructure work remains.
 | 333 | [Signed Native Temperature Band Parser [PARTIAL]](items/item-333-signed-native-temperature-band-parser.md) |
 | 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
 | 331 | [Overnight Reliability Program [PARTIAL 2026-09-12 - LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN]](items/item-331-overnight-reliability-program.md) |
-| 336 | [Landing Preflight [PARTIAL 2026-10-06 - WORKSTATION TOOL IN REVIEW; LANDING AND ADOPTION OPEN]](items/item-336-landing-preflight.md) |
+| 336 | [Landing Preflight [PARTIAL 2026-10-08 - LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN]](items/item-336-landing-preflight.md) |
 
 ### Market Expansion
 

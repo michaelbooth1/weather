@@ -10,7 +10,9 @@ live ``source_scope_files`` closures.  The class is predicted from
    the head lands and on the landing tree (execution-tape entries included by
    default); the graph is built from source text, nothing is imported;
 3. the schema-registry family rule: ``src/weather/schema_registry*.py`` is
-   always sensitive.
+   always sensitive. ``src/weather/schema_families/*.py`` (the PL-2 split) gets
+   no special class: it is roll-free exactly when neither the snapshot nor the
+   static graph reaches it, and a row that is reached says so as a PL-2 violation.
 
 Candidates are chosen exactly as roll_verdict chooses them: changed ``*.py``
 under ``src/`` or ``weather/`` and not under ``tests/``.  Classes (F9/F13):
@@ -41,8 +43,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from weather.operations.landing_preflight_rollclass_schema import (
+    SCHEMA_PART_CORE,
     SchemaAdditiveResult,
     classify_schema_change,
+    classify_schema_path,
     is_schema_family,
 )
 
@@ -548,6 +552,12 @@ def classify(
             reasons.append("static graph (landing): " + " -> ".join(chain_landing))
         if family:
             reasons.append("schema_registry* family: always roll-sensitive")
+        schema_part = classify_schema_path(path)
+        if schema_part is not None and schema_part.part != SCHEMA_PART_CORE:
+            if in_snapshot or chain_base or chain_landing:
+                reasons.append("PL-2 violation: a capture loop reaches a schema_families module")
+            else:
+                reasons.append(schema_part.reason)
         if in_snapshot or chain_base or chain_landing or family:
             expected = ROLL_SENSITIVE
         elif not known:

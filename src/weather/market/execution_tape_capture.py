@@ -10,6 +10,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import queue
+import random
+import struct
 import sys
 import threading
 import time
@@ -46,6 +49,13 @@ DEFAULT_CONNECT_TIMEOUT_SECONDS = 30.0
 DEFAULT_RECONNECT_BASE_SECONDS = 1.0
 DEFAULT_RECONNECT_MAX_SECONDS = 30.0
 DEFAULT_MAX_TOKENS_PER_CONNECTION = 100
+# A failed session that had proven its routes for this long resets the
+# reconnect backoff; a venue that confirms and then drops at once cannot.
+DEFAULT_STABLE_SESSION_SECONDS = 60.0
+# Received frames waiting for the tape writer.  The socket reader blocks only
+# when this many frames are behind, so a disk or lock stall no longer stops it
+# from draining the socket and sending PING.
+DEFAULT_MAX_PENDING_FRAMES = 4096
 
 
 class ExecutionTapeSeedError(ExecutionTapeError):
@@ -315,6 +325,127 @@ def _timeout_exceptions() -> tuple[type[BaseException], ...]:
     return (TimeoutError, websocket.WebSocketTimeoutException)
 
 
+class VenueCloseError(ConnectionError):
+    """The venue sent a websocket close frame; its code and reason are kept."""
+
+    def __init__(self, code: int | None, reason: str) -> None:
+        self.code = code
+        self.reason = reason
+        super().__init__(f"venue closed the websocket: code={code} reason={reason!r}")
+
+
+_EMPTY_DATA_FRAME = object()
+
+
+def _receive(connection: Any) -> Any:
+    """Return one inbound data frame, telling a venue close from empty data.
+
+    ``websocket-client``'s ``recv()`` returns ``""`` for a close frame and for an
+    empty text frame alike.  Reading the opcode keeps the close code in the gap
+    reason and lets an empty data frame count as inbound liveness.  Test doubles
+    without ``recv_data`` keep the plain ``recv()`` contract.
+    """
+
+    recv_data = getattr(connection, "recv_data", None)
+    if recv_data is None:
+        return connection.recv()
+    opcode, data = recv_data()
+    if opcode == websocket.ABNF.OPCODE_CLOSE:
+        payload = bytes(data or b"")
+        code = struct.unpack("!H", payload[:2])[0] if len(payload) >= 2 else None
+        raise VenueCloseError(code, payload[2:].decode("utf-8", errors="replace"))
+    if opcode == websocket.ABNF.OPCODE_TEXT:
+        text = data.decode("utf-8") if isinstance(data, bytes) else data
+        return text or _EMPTY_DATA_FRAME
+    if opcode == websocket.ABNF.OPCODE_BINARY:
+        return data or _EMPTY_DATA_FRAME
+    return ""
+
+
+class _TapeWriter:
+    """Apply coordinator work for one session in arrival order, off the reader.
+
+    Tape appends, status writes and the coordinator mutex can stall behind a
+    slow fsync.  The socket reader only stamps ``received_at`` and enqueues, so
+    venue timestamps, receipt times and row order are what they were when the
+    reader did this work inline.
+    """
+
+    _STOP = object()
+
+    def __init__(
+        self,
+        coordinator: ExecutionTapeCoordinator,
+        route_keys: tuple[str, ...],
+        *,
+        session_id: str,
+        max_pending: int,
+    ) -> None:
+        self.coordinator = coordinator
+        self.route_keys = route_keys
+        self.session_id = session_id
+        self.error: BaseException | None = None
+        self._queue: queue.Queue = queue.Queue(maxsize=max(1, int(max_pending)))
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"execution-tape-writer-{session_id[:8]}",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def raise_error(self) -> None:
+        if self.error is not None:
+            raise self.error
+
+    def _put(self, item: Any) -> None:
+        while True:
+            self.raise_error()
+            try:
+                self._queue.put(item, timeout=0.5)
+                return
+            except queue.Full:
+                continue
+
+    def connected(self, route_keys: tuple[str, ...], *, at: datetime) -> None:
+        self._put(("connected", route_keys, at))
+
+    def heartbeat(self, *, at: datetime) -> None:
+        self._put(("heartbeat", at))
+
+    def frame(self, raw: Any, *, at: datetime) -> None:
+        self._put(("frame", raw, at))
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is self._STOP:
+                return
+            if self.error is not None:
+                continue
+            try:
+                kind = item[0]
+                if kind == "connected":
+                    self.coordinator.mark_connected(item[1], session_id=self.session_id, at=item[2])
+                elif kind == "heartbeat":
+                    self.coordinator.heartbeat(self.route_keys, at=item[1])
+                else:
+                    self.coordinator.heartbeat(self.route_keys, at=item[2], message_seen=True)
+                    self.coordinator.ingest_frame(
+                        item[1],
+                        session_id=self.session_id,
+                        received_at=item[2],
+                    )
+            except BaseException as exc:  # the reader raises it and ends the session
+                self.error = exc
+
+    def close(self) -> None:
+        """Finish every queued item, then stop; a received frame is never dropped."""
+
+        if self._thread.is_alive():
+            self._queue.put(self._STOP)
+            self._thread.join()
+
+
 def run_connection_once(
     coordinator: ExecutionTapeCoordinator,
     seeds: tuple[MarketDaySeed, ...],
@@ -327,8 +458,17 @@ def run_connection_once(
     now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     monotonic_fn: Callable[[], float] = time.monotonic,
     max_messages: int | None = None,
+    max_pending_frames: int = DEFAULT_MAX_PENDING_FRAMES,
+    session_outcome: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run one documented websocket session; reconnect policy is owned above."""
+    """Run one documented websocket session; reconnect policy is owned above.
+
+    This thread only reads the socket, sends ``PING`` and proves routes.  Tape
+    work runs on a per-session writer in arrival order, so a slow disk cannot
+    starve the socket.  Inbound silence is judged only when a receive has just
+    timed out, so a local stall is never mistaken for a silent server.
+    ``session_outcome``, when given, records when every route was proven.
+    """
 
     if float(heartbeat_seconds) <= 0:
         raise ValueError("heartbeat_seconds must be positive")
@@ -340,18 +480,25 @@ def run_connection_once(
     route_keys = tuple(seed.key for seed in seeds)
     session_id = uuid.uuid4().hex
     coordinator.begin_connecting(route_keys, session_id=session_id, at=now_fn())
-    websocket = None
+    connection = None
+    writer: _TapeWriter | None = None
     messages = 0
     reason = "session_ended"
     try:
-        websocket = websocket_factory(CLOB_WS_URL, timeout=float(connect_timeout_seconds))
+        connection = websocket_factory(CLOB_WS_URL, timeout=float(connect_timeout_seconds))
         recv_timeout = max(0.1, min(float(heartbeat_seconds), 1.0))
         try:
-            websocket.settimeout(recv_timeout)
+            connection.settimeout(recv_timeout)
         except AttributeError:
             pass
+        writer = _TapeWriter(
+            coordinator,
+            route_keys,
+            session_id=session_id,
+            max_pending=max_pending_frames,
+        )
         frame = subscription_payload(seeds)
-        websocket.send(json.dumps(frame, sort_keys=True))
+        connection.send(json.dumps(frame, sort_keys=True))
         required_assets_by_route = {
             seed.key: set(seed.asset_ids)
             for seed in seeds
@@ -365,30 +512,33 @@ def run_connection_once(
         last_inbound_monotonic = monotonic_fn()
         next_ping = monotonic_fn() + float(heartbeat_seconds)
         while not stop_event.is_set():
+            writer.raise_error()
             if unconfirmed_route_keys and monotonic_fn() >= confirmation_deadline:
                 raise TimeoutError("subscription was not confirmed by a routed market frame")
-            if (
-                not unconfirmed_route_keys
-                and monotonic_fn() - last_inbound_monotonic
-                >= float(inbound_silence_timeout_seconds)
-            ):
-                raise TimeoutError("no inbound server heartbeat or market frame before silence deadline")
             if max_messages is not None and messages >= int(max_messages):
                 reason = "message_limit_reached"
                 break
             if monotonic_fn() >= next_ping:
-                websocket.send("PING")
+                connection.send("PING")
                 next_ping = monotonic_fn() + float(heartbeat_seconds)
-                coordinator.heartbeat(route_keys, at=now_fn())
+                writer.heartbeat(at=now_fn())
             try:
-                raw = websocket.recv()
+                raw = _receive(connection)
             except _timeout_exceptions():
+                if (
+                    not unconfirmed_route_keys
+                    and monotonic_fn() - last_inbound_monotonic
+                    >= float(inbound_silence_timeout_seconds)
+                ):
+                    raise TimeoutError(
+                        "no inbound server heartbeat or market frame before silence deadline"
+                    ) from None
                 continue
             if raw in (None, "", b""):
                 raise ConnectionError("websocket returned an empty frame")
             last_inbound_monotonic = monotonic_fn()
-            if raw in ("PONG", b"PONG"):
-                coordinator.heartbeat(route_keys, at=now_fn())
+            if raw is _EMPTY_DATA_FRAME or raw in ("PONG", b"PONG"):
+                writer.heartbeat(at=now_fn())
                 continue
             received_at = now_fn()
             for route_key, asset_ids in confirmed_subscription_assets(raw, seeds).items():
@@ -401,17 +551,16 @@ def run_connection_once(
                 )
             }
             if newly_confirmed:
-                coordinator.mark_connected(
-                    tuple(sorted(newly_confirmed)),
-                    session_id=session_id,
-                    at=received_at,
-                )
+                writer.connected(tuple(sorted(newly_confirmed)), at=received_at)
                 unconfirmed_route_keys.difference_update(newly_confirmed)
-            coordinator.heartbeat(route_keys, at=received_at, message_seen=True)
-            coordinator.ingest_frame(raw, session_id=session_id, received_at=received_at)
+                if not unconfirmed_route_keys and session_outcome is not None:
+                    session_outcome["routes_confirmed_monotonic"] = monotonic_fn()
+            writer.frame(raw, at=received_at)
             messages += 1
         if stop_event.is_set():
             reason = "stop_requested"
+        writer.close()
+        writer.raise_error()
         return {
             "session_id": session_id,
             "messages": messages,
@@ -422,8 +571,12 @@ def run_connection_once(
         reason = f"{type(exc).__name__}: {exc}"
         raise
     finally:
+        # The gap opens when reading stopped.  Frames already received are
+        # written first, with their own receipt times, then the gap row.
         disconnected_at = now_fn()
         try:
+            if writer is not None:
+                writer.close()
             coordinator.mark_disconnected(
                 route_keys,
                 session_id=session_id,
@@ -431,11 +584,21 @@ def run_connection_once(
                 reason=reason,
             )
         finally:
-            if websocket is not None:
+            if connection is not None:
                 try:
-                    websocket.close()
+                    connection.close()
                 except Exception:
                     pass
+
+
+def reconnect_delay_seconds(
+    delay: float,
+    *,
+    random_fn: Callable[[], float] = random.random,
+) -> float:
+    """Jitter one backoff step into [delay/2, delay] so connections stagger."""
+
+    return float(delay) * (0.5 + 0.5 * float(random_fn()))
 
 
 def connection_worker(
@@ -449,10 +612,15 @@ def connection_worker(
     connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
     reconnect_base_seconds: float = DEFAULT_RECONNECT_BASE_SECONDS,
     reconnect_max_seconds: float = DEFAULT_RECONNECT_MAX_SECONDS,
+    stable_session_seconds: float = DEFAULT_STABLE_SESSION_SECONDS,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+    random_fn: Callable[[], float] = random.random,
 ) -> None:
     route_keys = tuple(seed.key for seed in seeds)
-    delay = max(0.1, float(reconnect_base_seconds))
+    base = max(0.1, float(reconnect_base_seconds))
+    delay = base
     while not stop_event.is_set():
+        outcome: dict[str, Any] = {}
         try:
             run_connection_once(
                 coordinator,
@@ -462,14 +630,25 @@ def connection_worker(
                 heartbeat_seconds=heartbeat_seconds,
                 inbound_silence_timeout_seconds=inbound_silence_timeout_seconds,
                 connect_timeout_seconds=connect_timeout_seconds,
+                monotonic_fn=monotonic_fn,
+                session_outcome=outcome,
             )
-            delay = max(0.1, float(reconnect_base_seconds))
+            delay = base
         except Exception:
             if stop_event.is_set():
                 break
+            confirmed_at = outcome.get("routes_confirmed_monotonic")
+            if (
+                confirmed_at is not None
+                and monotonic_fn() - confirmed_at >= float(stable_session_seconds)
+            ):
+                # A long proven session is not a failing venue; its gap should
+                # last the base delay, not a backoff escalated hours earlier.
+                delay = base
+            wait_for = reconnect_delay_seconds(delay, random_fn=random_fn)
             waited = 0.0
-            while waited < delay and not stop_event.is_set():
-                step = min(1.0, delay - waited)
+            while waited < wait_for and not stop_event.is_set():
+                step = min(1.0, wait_for - waited)
                 stop_event.wait(step)
                 waited += step
                 coordinator.heartbeat(route_keys, at=datetime.now(timezone.utc))

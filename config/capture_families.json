@@ -1,0 +1,132 @@
+{
+  "format_version": 1,
+  "scope": "Passive public capture families recorded by weather.market.maker_evidence_capture --family <id>, each in its own root data/maker_evidence_families/<id>. Minute books and reward terms only: no websocket, no ranking, no model, fair value, quoting or settlement input. Owner: docs/operations/passive-maker-evidence-capture.md.",
+  "families": {
+    "lowest_temperature": {
+      "source": "Lowest-temperature desk study 2026-10-02 (branch claude/lowest-temp-desk-study-20261002): fleet F1 SURVIVES, GO for passive capture after 10-14 for every city whose own F1 is not FALSIFIED.",
+      "markets": {
+        "toronto": "lowest-temperature-in-toronto-on",
+        "nyc": "lowest-temperature-in-nyc-on",
+        "atlanta": "lowest-temperature-in-atlanta-on",
+        "austin": "lowest-temperature-in-austin-on",
+        "dallas": "lowest-temperature-in-dallas-on",
+        "denver": "lowest-temperature-in-denver-on",
+        "houston": "lowest-temperature-in-houston-on",
+        "los-angeles": "lowest-temperature-in-los-angeles-on",
+        "miami": "lowest-temperature-in-miami-on",
+        "san-francisco": "lowest-temperature-in-san-francisco-on",
+        "seattle": "lowest-temperature-in-seattle-on"
+      },
+      "excluded_markets": {
+        "chicago": "F1 FALSIFIED on its own: undercut after 09:00 on 32.2% of days [30.9, 33.8] (desk study 2026-10-02); owner may override."
+      },
+      "day_ahead": [0, 1, 2],
+      "max_conditions": 600,
+      "reward_sweep_minutes": 15,
+      "max_reward_reads_per_cycle": 40,
+      "stop_below_free_gib": 70
+    }
+  },
+  "core_recorder_only": {
+    "scope": "Data layer v2 S2+S9 pilot P1 (VR-1). Read only by the core 88a recorder (weather.market.maker_evidence_capture, default path, re-read every cycle, whole-file SHA-256 stamped on every pilot row). Recorder-only: minute books, change-triggered reward records and public trades in 'pilot' partitions; top ten reward-ranked bands per city across horizons 0-2. Never a built-in, never a capture-family event, never a model, fair-value, quoting or settlement input. Owner Q16: outside the 10-01 maker-P&L pre-registration's 12-market stratum. Switches (config-only): pilot on|off, rewards_sweep on|off, built_in_reward_cadence legacy|event_driven; all land off/legacy, and built-ins stay legacy before 2026-10-31T00:00Z whatever this says. Contract: docs/operations/DATA_LAYER_V2_CONTRACT.md 'Recorder-only rows'.",
+    "pilot": "off",
+    "rewards_sweep": "off",
+    "built_in_reward_cadence": "legacy",
+    "rows": [
+      {"id": "london", "location_id": "london", "series": "highest", "slug_prefix": "highest-temperature-in-london-on", "tz": "Europe/London", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "shanghai", "location_id": "shanghai", "series": "highest", "slug_prefix": "highest-temperature-in-shanghai-on", "tz": "Asia/Shanghai", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "paris", "location_id": "paris", "series": "highest", "slug_prefix": "highest-temperature-in-paris-on", "tz": "Europe/Paris", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "seoul", "location_id": "seoul", "series": "highest", "slug_prefix": "highest-temperature-in-seoul-on", "tz": "Asia/Seoul", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"},
+      {"id": "tokyo", "location_id": "tokyo", "series": "highest", "slug_prefix": "highest-temperature-in-tokyo-on", "tz": "Asia/Tokyo", "horizons": [0, 1, 2], "band_policy": "top10_reward_ranked"}
+    ]
+  },
+  "platform": {
+    "contract": "docs/operations/DATA_LAYER_V2_CONTRACT.md",
+    "scope": "Data layer v2 platform registry (PL-3). Read by roll_verdict.ps1 and staleness_sweep.ps1 (roll_closures), health-checked by status.ps1 (CAPTURE_REGISTRY warn) and checked by tests/operations/test_capture_registry.py. The capture-family recorders above read only the families block; this block never selects, ranks or enumerates a market.",
+    "embargo": {
+      "windows": "maker_core.shadow.admission:EMBARGO_WINDOWS",
+      "mg1": "weather.mg1_reserved_window:window",
+      "rule": "No dates in this file: the windows live only in the two named modules (no third copy). Readers and fetch-side guards import them."
+    },
+    "roll_closures": [
+      {"id": "snapshot", "status_path": "data/snapshots/loop_supervisor_status.json", "task": "WeatherSnapshotLoopSupervisor", "arming": "always"},
+      {"id": "clob", "status_path": "data/snapshots/clob_loop_supervisor_status.json", "task": "WeatherClobBookLoopSupervisor", "arming": "always"},
+      {"id": "observation-trigger", "status_path": "data/snapshots/observation_trigger_supervisor_status.json", "task": "WeatherObservationTriggerSupervisor", "arming": "always"},
+      {"id": "clob-enrichment", "status_path": "data/snapshots/clob_enrichment_status.json", "task": "WeatherClobEnrichmentLoop", "arming": "always", "note": "Task retired; kept so the verdict output is unchanged. Dropping it is a separate reviewed change."},
+      {"id": "execution-tape", "status_path": "data/snapshots/execution_tape_supervisor_status.json", "task": "WeatherExecutionTapeSupervisor", "arming": "while_armed_or_active", "worker_status": "data/snapshots/execution_tape_status.json", "writer_lock": "data/snapshots/.execution_tape_status.json.writer.lock"}
+    ],
+    "evidence_families": [
+      {
+        "id": "snapshot_capture", "plan_family": "FC-9, OB-4, DS-1", "task": "WeatherSnapshotLoopSupervisor", "entry_module": "weather.collection.snapshot_tracker",
+        "status_path": "data/snapshots/loop_supervisor_status.json", "adoption": "stale_code_readoption", "roll_class": "RS",
+        "ram_cap": "not_declared", "byte_budget": "not_declared", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
+        "licence": "Open-Meteo free API (risk accepted in DECISION_LOG.md), NWS/AWC/ECCC public, WU public page",
+        "storage": [
+          {"path": "data/snapshots/<event>/snapshots.jsonl", "artifact_family": "snapshot_jsonl_evidence"},
+          {"path": "data/snapshots/<event>/replay_inputs.jsonl", "artifact_family": "replay_inputs"},
+          {"path": "data/snapshots/<event>/observation_payloads.jsonl", "artifact_family": "observation_payload_evidence"},
+          {"path": "data/forecast_payload_cas/sha256/<prefix>/<sha256>.blob", "artifact_family": "shared_forecast_payload_cas"}
+        ]
+      },
+      {
+        "id": "clob_capture", "plan_family": "VR-6, VR-7, VR-8", "task": "WeatherClobBookLoopSupervisor", "entry_module": "weather.market.market_microstructure",
+        "status_path": "data/snapshots/clob_loop_supervisor_status.json", "adoption": "stale_code_readoption", "roll_class": "RS",
+        "ram_cap": "not_declared", "byte_budget": "not_declared", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
+        "licence": "Polymarket public API",
+        "storage": [
+          {"path": "data/snapshots/<event>/order_books.jsonl", "artifact_family": "clob_raw_evidence"},
+          {"path": "data/snapshots/<event>/clob_tokens.csv", "artifact_family": "clob_token_map"},
+          {"path": "data/snapshots/<event>/clob_capture_status.jsonl", "artifact_family": "clob_capture_status_evidence"}
+        ]
+      },
+      {
+        "id": "observation_trigger", "plan_family": "OB-1 (S10 convergence)", "task": "WeatherObservationTriggerSupervisor", "entry_module": "weather.operations.observation_trigger",
+        "status_path": "data/snapshots/observation_trigger_supervisor_status.json", "adoption": "stale_code_readoption", "roll_class": "RS",
+        "ram_cap": "not_declared", "byte_budget": "not_declared", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
+        "licence": "AWC/NWS public",
+        "storage": [
+          {"path": "data/snapshots/observation_triggers.jsonl", "artifact_family": "snapshot_jsonl_evidence"}
+        ]
+      },
+      {
+        "id": "execution_tape", "plan_family": "VR-2 (frames discarded today)", "task": "WeatherExecutionTapeSupervisor", "entry_module": "weather.operations.execution_tape_supervisor",
+        "status_path": "data/snapshots/execution_tape_status.json", "adoption": "adopt_execution_tape_after_merge", "roll_class": "RS",
+        "ram_cap": "not_declared", "byte_budget": "not_declared", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
+        "licence": "Polymarket public market channel",
+        "storage": [
+          {"path": "data/snapshots/<event>/execution_tape/trades-<part>.jsonl", "artifact_family": "execution_tape_evidence"},
+          {"path": "data/snapshots/execution_tape_status.json", "artifact_family": "operator_status_json"}
+        ]
+      },
+      {
+        "id": "maker_evidence_core", "plan_family": "VR-1 (88a)", "task": "WeatherMakerEvidenceCapture", "entry_module": "weather.market.maker_evidence_capture",
+        "status_path": "data/maker_evidence/status.json", "adoption": "explicit_restart_88a", "roll_class": "88a-R",
+        "ram_cap": "weather.market.maker_evidence_store:MAX_RAW_BYTES", "byte_budget": "weather.market.maker_evidence_store:DEFAULT_STREAM_CAP", "request_budget": "not_declared", "embargo_scope": "capture_outcome_blind",
+        "licence": "Polymarket public API",
+        "storage": [
+          {"path": "data/maker_evidence/<utc_day>/<segment>.jsonl", "artifact_family": "passive_maker_evidence"},
+          {"path": "data/maker_evidence/<utc_day>/<hour>/manifest.json", "artifact_family": "passive_maker_evidence"},
+          {"path": "data/maker_evidence/status.json", "artifact_family": "passive_maker_status"}
+        ]
+      },
+      {
+        "id": "capture_family_recorders", "plan_family": "VR-1 recorder-only rows (families block)", "task": "WeatherMakerEvidence<PascalId>", "entry_module": "weather.market.maker_evidence_capture",
+        "status_path": "data/maker_evidence_families/<family>/status.json", "adoption": "explicit_restart", "roll_class": "RF",
+        "ram_cap": "not_declared", "byte_budget": "not_declared", "request_budget": "families.<family>.max_reward_reads_per_cycle", "embargo_scope": "capture_outcome_blind",
+        "licence": "Polymarket public API",
+        "storage": [
+          {"path": "data/maker_evidence_families/<family>/<utc_day>/<hour>/<segment>.jsonl", "artifact_family": "passive_capture_family_evidence"},
+          {"path": "data/maker_evidence_families/<family>/status.json", "artifact_family": "passive_capture_family_status"}
+        ]
+      }
+    ],
+    "storage_pending": [
+      {"path": "data/snapshots/loop_supervisor_status.json", "today": "unclassified", "needs": "operator_cache row in weather.operations.storage_classes"},
+      {"path": "data/snapshots/execution_tape_supervisor_status.json", "today": "unclassified", "needs": "operator_cache row in weather.operations.storage_classes"},
+      {"path": "data/snapshots/clob_loop_supervisor_status.json", "today": "clob_raw_evidence", "needs": "operator_cache row ahead of the snapshots/clob*.json glob"},
+      {"path": "data/snapshots/clob_enrichment_status.json", "today": "clob_raw_evidence", "needs": "operator_cache row ahead of the snapshots/clob*.json glob"},
+      {"path": "data/snapshots/observation_trigger_supervisor_status.json", "today": "snapshot_jsonl_evidence", "needs": "operator_cache row ahead of the snapshots/observation_trigger*.json glob"},
+      {"path": "data/maker_shadow/tapes/<day>-<run>.tape.jsonl", "today": "unclassified", "needs": "VR-9 canonical_evidence row"}
+    ]
+  }
+}

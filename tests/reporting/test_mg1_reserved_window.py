@@ -8,7 +8,7 @@ Guards: MG-1 reserved window (docs/operations/reserved-confirmation-window.md) o
 no reserved target date (slug, resolved link, settlement or row) reaches an outcome join or a metric.
 """
 import ast
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import inspect
 import json
@@ -33,7 +33,11 @@ WINDOW = SRC / "weather/mg1_reserved_window.py"
 RESERVATION_DOC = REPO / "docs/operations/reserved-confirmation-window.md"
 MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
           "november", "december"]
-RESERVED = [date(2026, 10, 15), date(2026, 11, 30), date(2027, 3, 1)]
+# Owner decision 2026-10-16 (option 2, BOUND): D0 is final; the provisional last date may only move later.
+OWNER_D0 = date(2026, 10, 15)
+OWNER_LAST_FLOOR = date(2026, 11, 28)  # D0 + 44 days: the 45th date if every date from D0 is countable.
+# First, an interior and the provisional last date: reserved under every allowed recording (LAST only moves later).
+RESERVED = [date(2026, 10, 15), date(2026, 11, 1), date(2026, 11, 28)]
 ALLOWED = [date(2026, 10, 14), date(2026, 6, 23)]
 
 
@@ -81,16 +85,31 @@ def payload_seen(module, root, days, monkeypatch):
 
 # --- the window -------------------------------------------------------------------------------
 
-def test_window_is_open_ended_from_the_floor_and_allowlist_is_empty():
-    assert mg1.MG1_FLOOR == date(2026, 10, 15)
-    assert mg1.MG1_D0 is None and mg1.MG1_LAST is None and mg1.MG1_RESERVED_COUNT == 45
-    # No MG-1 look entry point is registered as code yet; adding one is a reviewed edit of this pin.
-    assert mg1.MG1_CONFIRMATION_ENTRY_POINTS == {}
-    assert mg1.window() == (date(2026, 10, 15), None)
-    for day in RESERVED + [date(2099, 1, 1)]:
+def test_window_is_bounded_from_d0_to_the_recorded_last_and_allowlist_is_the_mg1_look():
+    assert mg1.MG1_FLOOR == date(2026, 10, 15) and mg1.MG1_RESERVED_COUNT == 45
+    # The one registered look (R3, 2026-10-26) at its current source sha; any change is a reviewed edit of this pin.
+    look = SRC / "weather/calibration/mg1_look.py"
+    assert mg1.MG1_CONFIRMATION_ENTRY_POINTS == {
+        "weather.calibration.mg1_look": hashlib.sha256(look.read_bytes()).hexdigest()}
+    assert mg1.window() == (mg1.MG1_D0, mg1.MG1_LAST)
+    for day in RESERVED + [mg1.MG1_LAST]:
         assert mg1.is_reserved(day) and mg1.is_reserved(day.isoformat())
-    for day in ALLOWED:
-        assert not mg1.is_reserved(day)
+    for day in ALLOWED + [mg1.MG1_D0 - timedelta(days=1), mg1.MG1_LAST + timedelta(days=1)]:
+        assert not mg1.is_reserved(day) and not mg1.is_reserved(day.isoformat())
+
+
+def test_owner_bound_d0_is_fixed_and_last_may_only_move_later():
+    """Owner 2026-10-16: D0 = 2026-10-15, provisional last >= D0 + 44 days that may only move later.
+
+    Missed promotion-countable dates push the 45th countable date later (MG-1 §3 counts without skipping), so
+    MG1_LAST may be extended; it may never be set earlier than 2026-11-28, and D0 may not move.
+    """
+    assert type(mg1.MG1_D0) is date and type(mg1.MG1_LAST) is date
+    assert mg1.MG1_D0 == OWNER_D0, "MG-1 D0 is the owner's dated start; it may not move"
+    assert mg1.MG1_LAST >= OWNER_LAST_FLOOR, "MG1_LAST may only move later than the provisional 2026-11-28"
+    assert mg1.MG1_LAST >= mg1.MG1_D0 + timedelta(days=mg1.MG1_RESERVED_COUNT - 1)
+    assert OWNER_LAST_FLOOR == OWNER_D0 + timedelta(days=44)  # 45 inclusive calendar dates
+    assert (OWNER_LAST_FLOOR - OWNER_D0).days + 1 == mg1.MG1_RESERVED_COUNT
 
 
 def test_window_only_narrows_and_inconsistent_recordings_fail_wide():
@@ -170,11 +189,14 @@ def test_real_run_scores_pre_window_dates_and_discloses_counts_only(tmp_path):
     assert payload["coverage"]["target_dates"] == ["2026-06-23"]
     assert payload["coverage"]["row_count"] == 3
     disclosed = payload["mg1_reserved_window"]
-    assert disclosed == {"window_start": "2026-10-15", "window_end": None, "listed_folder_count": 4,
+    assert disclosed == {"window_start": "2026-10-15", "window_end": mg1.MG1_LAST.isoformat(), "listed_folder_count": 4,
                          "reserved_folders_dropped": 1, "unreadable_folders_dropped": 0,
                          "folders_refused_by_own_target_date": 2, "reserved_rows_dropped": 0, "unreadable_rows_dropped": 0}
     # The disclosure states the policy floor (window_start); nothing else may name a dropped date.
-    text = json.dumps({key: value for key, value in payload.items() if key != "mg1_reserved_window"})
+    # The run clock and the temp root are not disclosures, and either can carry today's date, so both are
+    # scrubbed first; folder names below the temp root are still checked.
+    kept = {key: value for key, value in payload.items() if key not in ("mg1_reserved_window", "generated_at_utc")}
+    text = json.dumps(kept).replace(json.dumps(str(tmp_path))[1:-1], "<tmp>")
     for leaked in ("2026-10-15", "2026-10-16", "2026-10-24", "october-16"):
         assert leaked not in text, leaked  # Counts only: no reserved date is disclosed.
 

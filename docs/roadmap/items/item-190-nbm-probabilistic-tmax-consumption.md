@@ -233,8 +233,8 @@ model and market on settled US slices.
 
 The settlement scorer is an NBM-guidance-to-band candidate under the
 [MG-1 reservation](../../operations/reserved-confirmation-window.md), so it never
-scores a reserved local target date (2026-10-15 onward until D0 and its last
-date are recorded in `weather.mg1_reserved_window`):
+scores a reserved local target date (2026-10-15 through the recorded last
+date in `weather.mg1_reserved_window`; dated 2026-10-16, last provisional):
 
 - `build_payload` drops, before any outcome join, every folder whose slug date
   (or the slug date it resolves to through a link) is reserved or unreadable.

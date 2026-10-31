@@ -493,6 +493,79 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertIn("Calibration ECE", report)
         self.assertIn("Directional bias mean error", report)
 
+    def test_build_progress_row_records_settlement_audit_blocker_classes(self):
+        # Owner decision 2026-10-16: the ledger records why the barrier blocked
+        # (per-row audit blocker class) and any Option 1 non-countable deferral.
+        audit_result = {
+            "status": "BLOCK",
+            "target_date": "2026-06-20",
+            "target_date_gate_blockers": [
+                "2026-06-20:atlanta:SOURCE_DISAGREEMENT",
+                "2026-06-20:nyc:PROVISIONAL",
+            ],
+            "target_date_deferred_non_countable": [
+                "2026-06-20:toronto:SOURCE_DISAGREEMENT:not_closed",
+            ],
+        }
+        daily_refresh = {
+            "status": "error",
+            "generated_at_utc": "2026-06-21T12:00:00+00:00",
+            "summary": {"labels": {"total": 3, "quality_counts": {"complete": 3}}},
+            "steps": [
+                {"name": "settlement_source_audit", "status": "ok", "result": audit_result},
+                {
+                    "name": "settled_day_analysis_barrier",
+                    "status": "error",
+                    "root_cause_class": "settled_day_analysis_barrier",
+                    "error": "settled-day analysis barrier blocked target_date=2026-06-20",
+                },
+                {"name": "promotion_refresh", "status": "error", "root_cause_class": "blocked_by_disk"},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row = build_progress_row(
+                backtest_root=root / "backtest",
+                snapshots_root=root / "snapshots",
+                daily_refresh_status=daily_refresh,
+            )
+
+        blockers = json.loads(row["daily_refresh_blockers"])
+        barrier = next(item for item in blockers if item["step"] == "settled_day_analysis_barrier")
+        self.assertEqual(barrier["root_cause_class"], "settled_day_analysis_barrier")
+        self.assertEqual(barrier["audit_blocker_classes"], ["PROVISIONAL", "SOURCE_DISAGREEMENT"])
+        disk = next(item for item in blockers if item["step"] == "promotion_refresh")
+        self.assertNotIn("audit_blocker_classes", disk)
+        self.assertEqual(json.loads(row["settlement_audit_target_date_blockers"]), [
+            {"target_date": "2026-06-20", "market_id": "atlanta", "blocker_class": "SOURCE_DISAGREEMENT"},
+            {"target_date": "2026-06-20", "market_id": "nyc", "blocker_class": "PROVISIONAL"},
+        ])
+        self.assertEqual(json.loads(row["settlement_audit_deferred_non_countable"]), [{
+            "target_date": "2026-06-20",
+            "market_id": "toronto",
+            "blocker_class": "SOURCE_DISAGREEMENT",
+            "reconciliation_status": "not_closed",
+            "countable": False,
+        }])
+
+    def test_build_progress_row_settlement_audit_fields_empty_without_audit_step(self):
+        daily_refresh = {
+            "status": "ok",
+            "generated_at_utc": "2026-06-21T12:00:00+00:00",
+            "steps": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "backtest").mkdir()
+            row = build_progress_row(
+                backtest_root=root / "backtest",
+                snapshots_root=root / "snapshots",
+                daily_refresh_status=daily_refresh,
+            )
+        self.assertEqual(json.loads(row["settlement_audit_target_date_blockers"]), [])
+        self.assertEqual(json.loads(row["settlement_audit_deferred_non_countable"]), [])
+        self.assertEqual(json.loads(row["daily_refresh_blockers"]), [])
+
     def test_write_progress_outputs_appends_jsonl_csv_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

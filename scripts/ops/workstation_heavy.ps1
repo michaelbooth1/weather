@@ -1,10 +1,15 @@
 # Run approved offline heavy Python work on a non-capture workstation while
 # holding the same host-global mutex as a portable International live stage.
 #
-# Without -Queue a busy lease is refused immediately (unchanged). With -Queue the
-# caller takes a FIFO ticket and waits up to -QueueTimeoutSeconds (default 4 h);
-# a timeout exits 75 without starting anything. The child tree is owned by a
-# kill-on-close Job either way.
+# Admission takes one of -SlotCount concurrent workstation slots (default 3).
+# Slot 1 is the legacy single lease that older wrapper copies take, so their
+# holders count as one slot. A slot is admitted only with at least
+# -MinAvailableMemoryGB of available physical memory (default 6) and commit
+# charge at or below -MaxCommitPercent (default 90). Without -Queue a full or
+# guarded admission is refused immediately. With -Queue the caller takes a FIFO
+# ticket and waits up to -QueueTimeoutSeconds (default 4 h) for any free slot
+# that passes the guard; a timeout exits 75 without starting anything. The child
+# tree is owned by a kill-on-close Job either way.
 
 [CmdletBinding()]
 param(
@@ -17,7 +22,10 @@ param(
     [switch]$Queue,
     [ValidateRange(1, 86400)][int]$QueueTimeoutSeconds = 14400,
     [ValidateRange(100, 60000)][int]$QueuePollMilliseconds = 2000,
-    [ValidateRange(1, 3600)][int]$QueueReportSeconds = 60
+    [ValidateRange(1, 3600)][int]$QueueReportSeconds = 60,
+    [ValidateRange(1, 8)][int]$SlotCount = 3,
+    [ValidateRange(0, 1024)][double]$MinAvailableMemoryGB = 6,
+    [ValidateRange(1, 100)][double]$MaxCommitPercent = 90
 )
 
 $ErrorActionPreference = "Stop"
@@ -142,6 +150,7 @@ switch ($Kind) {
 
 $workloadName = "WorkstationOffline-{0}-{1}" -f $Kind, $PID
 $queueTimeoutExitCode = 75
+$minAvailableMemoryBytes = [long][Math]::Floor($MinAvailableMemoryGB * 1GB)
 if ($Queue) {
     $lease = Enter-WeatherHeavyWorkloadLeaseQueued `
         -RepoRoot $RepoRoot `
@@ -149,7 +158,10 @@ if ($Queue) {
         -ExecutionHostProfile "workstation_offline_v1" `
         -TimeoutSeconds $QueueTimeoutSeconds `
         -PollMilliseconds $QueuePollMilliseconds `
-        -ReportSeconds $QueueReportSeconds
+        -ReportSeconds $QueueReportSeconds `
+        -SlotCount $SlotCount `
+        -MinAvailableMemoryBytes $minAvailableMemoryBytes `
+        -MaxCommitPercent $MaxCommitPercent
     if ($null -eq $lease) {
         [Console]::Error.WriteLine((
             "workstation-heavy queue wait timed out after {0} s; nothing was started" -f
@@ -159,14 +171,40 @@ if ($Queue) {
     }
 }
 else {
-    $lease = Enter-WeatherHeavyWorkloadLease `
+    # The "Enter-WeatherHeavyWorkloadLease" contract of slot 1 is unchanged; the
+    # slot entry point takes it, or an extra slot, under the same rules.
+    $lease = Enter-WeatherWorkstationHeavySlotLease `
         -RepoRoot $RepoRoot `
         -Workload $workloadName `
-        -ExecutionHostProfile "workstation_offline_v1"
+        -SlotCount $SlotCount `
+        -MinAvailableMemoryBytes $minAvailableMemoryBytes `
+        -MaxCommitPercent $MaxCommitPercent
     if ($null -eq $lease) {
-        throw "workstation-heavy execution is blocked by another heavy or portable live lease"
+        throw (
+            "workstation-heavy execution is blocked by another heavy or portable " +
+            "live lease ({0})"
+        ) -f $script:WeatherWorkstationSlotRefusal
     }
 }
+$slotId = [int]$lease.WorkstationSlotId
+# Per-job BLAS/OpenMP thread cap so concurrent slots share the cores; a caller
+# may lower it but never raise it.
+$threadCap = Resolve-WeatherWorkstationThreadCap -SlotCount $SlotCount
+$threadCapRecord = [ordered]@{
+    cap = $threadCap.Cap
+    logical_processors = $threadCap.LogicalProcessors
+    values = $threadCap.Values
+}
+[Console]::Out.WriteLine((
+    "workstation-heavy: admitted to slot {0} of {1} (busy before: {2})" -f
+    $slotId, $SlotCount, ((@($lease.BusySlotsAtAdmission)) -join ",")
+))
+[Console]::Out.WriteLine((
+    "workstation-heavy: thread cap {0} of {1} logical processors ({2})" -f
+    $threadCap.Cap, $threadCap.LogicalProcessors,
+    ((@($threadCap.Values.Keys | ForEach-Object { "{0}={1}" -f $_, $threadCap.Values[$_] })) -join " ")
+))
+[Console]::Out.Flush()
 
 $job = $null
 $child = $null
@@ -177,6 +215,18 @@ try {
     [Environment]::SetEnvironmentVariable(
         "WEATHER_WORKSTATION_WRAPPER_ACTIVE",
         "1",
+        "Process"
+    )
+    foreach ($threadVariable in @($threadCap.Values.Keys)) {
+        [Environment]::SetEnvironmentVariable(
+            $threadVariable,
+            [string]$threadCap.Values[$threadVariable],
+            "Process"
+        )
+    }
+    [Environment]::SetEnvironmentVariable(
+        "WEATHER_WORKSTATION_WRAPPER_SLOT",
+        [string]$slotId,
         "Process"
     )
     [Environment]::SetEnvironmentVariable(
@@ -229,8 +279,13 @@ finally {
 }
 if ($Queue) {
     Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "finish" `
-        -Ticket ([long]$lease.QueueTicket) -Position 1 `
+        -Ticket ([long]$lease.QueueTicket) -Position ([int]$lease.QueuePosition) `
         -WaitedSeconds ([double]$lease.QueueWaitedSeconds) -Workload $workloadName `
-        -Extra @{ exit_code = $exitCode }
+        -Extra @{
+            exit_code = $exitCode
+            slot_id = $slotId
+            slot_count = $SlotCount
+            thread_cap = $threadCapRecord
+        }
 }
 exit $exitCode

@@ -10,3 +10,7 @@ artifacts/models/hgb/*.pkl filter=lfs diff=lfs merge=lfs -text
 docs/roadmap/execution-tape-pilot-*.json -text
 docs/roadmap/execution-tape-pilot-*.jsonl -text
 docs/roadmap/repair-ceiling-single-environment-runtime-bundle-*.zip filter=lfs diff=lfs merge=lfs -text
+
+# Byte-exact NOAA NBP station blocks (space-padded rows and separator line are the
+# bulletin format the parser tests read); git diff --check must not flag them.
+tests/fixtures/nbm_target_fix/p0/*.txt -whitespace

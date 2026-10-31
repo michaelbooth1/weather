@@ -1,0 +1,374 @@
+{
+  "branch": "codex/nbm-target-fix-20260921",
+  "base": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9",
+  "tool": "scripts/ops/roll_verdict.ps1 -Branch codex/nbm-target-fix-20260921 -Base origin/master",
+  "verdict": "UNDECIDABLE",
+  "reason": "No live closure evidence; see roll-verdict.txt",
+  "files": [
+    {
+      "path": ".codex/hooks/pre_tool_use_host_load.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/operations/AGENT_CONTEXT.md",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/operations/nbm-target-period-contract.md",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/operations/README.md",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/agent-report-2026-09-83a-workstation-read-the-guidance-for-the-right-day.md",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/contracts.json",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/fixture-hashes.json",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/inputs.csv",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/p0.json",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/roll-inventory.json",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/roll-verdict.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/selectors.json",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/train-serve-feature-parity.json",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "docs/roadmap/nbm-target-fix-20260921/verification.json",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "scripts/ops/workload_admission.ps1",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "src/weather/model/model_features.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "src/weather/model/model_sources.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "src/weather/operations/forecast_payload_cas_migration.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "src/weather/schema_registry_data.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "src/weather/sources/nbm_probabilistic_tmax.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KATL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KAUS.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KBKF.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KDAL.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KHOU.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLAX.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KMIA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KORD.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSEA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSFO.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-PGUM.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-KLGA.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-PGUM.txt",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/fixtures/nbm_target_fix/README.md",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/operations/test_codex_host_load_hook.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/operations/test_schema_registry.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tests/sources/test_nbm_target_fix.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    },
+    {
+      "path": "tools/research/nbm_target_fix.py",
+      "verdict": "UNDECIDABLE",
+      "closure_memberships": null
+    }
+  ]
+}

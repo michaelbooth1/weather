@@ -1712,7 +1712,13 @@ try {
     if ($heavyWorkload.Active) {
         $ownerName = [string]$heavyWorkload.Owner.workload
         $ownerPid = [int]$heavyWorkload.Owner.pid
-        $warns.Add("heavy workload lease active: $ownerName (pid $ownerPid)")
+        $leaseWarning = "heavy workload lease active: $ownerName (pid $ownerPid)"
+        # Workstation only: the lease state lists every busy heavy slot.
+        if ($heavyWorkload.PSObject.Properties.Name -contains "Slots") {
+            $leaseWarning += "; workstation slots busy: " + (
+                (@($heavyWorkload.Slots | ForEach-Object { [string]$_.SlotId })) -join ",")
+        }
+        $warns.Add($leaseWarning)
     }
 }
 catch { $flags.Add("heavy-workload lease state could not be read") }
@@ -4965,6 +4971,117 @@ if ((Test-Path -LiteralPath $makerEvidencePath) -or $makerEvidenceTask) {
     catch { $flags.Add("MAKER_EVIDENCE: status unreadable or missing") }
 }
 
+# Running-vs-disk code identity of the 88a recorder (data layer v2 Q11, owner 2026-10-15: new
+# capture families adopt code by explicit restart, with this identity shown in status). The
+# recorder stamps source_sha256 for every weather.* module it loaded at start; a STALE identity
+# is adopted only by the explicit 88a-R restart (restart_maker_evidence_capture.ps1, 00:30-01:00).
+function Get-MakerEvidenceCodeIdentity {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot, $SourceSha256)
+    if ($null -eq $SourceSha256) {
+        return [pscustomobject]@{ state = "UNKNOWN"; modules = 0; stale = @(); error = "no source_sha256 in status" }
+    }
+    $stale = @()
+    $count = 0
+    try {
+        foreach ($property in @($SourceSha256.PSObject.Properties)) {
+            $name = [string]$property.Name
+            if ($name -notmatch '^weather(\.[A-Za-z_][A-Za-z0-9_]*)+$') { throw "unexpected module name: $name" }
+            $count++
+            $relative = "src\" + ($name -replace '\.', '\')
+            $path = Join-Path $RepoRoot ($relative + ".py")
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $path = Join-Path $RepoRoot ($relative + "\__init__.py") }
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $stale += "$name (missing on disk)"; continue }
+            $disk = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($disk -ne ([string]$property.Value).ToLowerInvariant()) { $stale += $name }
+        }
+    }
+    catch {
+        return [pscustomobject]@{ state = "UNKNOWN"; modules = $count; stale = @(); error = $_.Exception.Message }
+    }
+    if ($count -eq 0) {
+        return [pscustomobject]@{ state = "UNKNOWN"; modules = 0; stale = @(); error = "empty source_sha256" }
+    }
+    $state = if ($stale.Count -gt 0) { "STALE" } else { "CURRENT" }
+    return [pscustomobject]@{ state = $state; modules = $count; stale = @($stale | Select-Object -First 20); error = $null }
+}
+$makerEvidenceCode = $null
+if ($makerEvidence) {
+    $makerSource = if ($makerEvidence.PSObject.Properties.Name -contains "source_sha256") { $makerEvidence.source_sha256 } else { $null }
+    $makerEvidenceCode = Get-MakerEvidenceCodeIdentity -RepoRoot $repo -SourceSha256 $makerSource
+    if ($makerEvidenceCode.state -eq "STALE") {
+        $warns.Add(("MAKER_EVIDENCE_CODE: running 88a code differs from disk in {0} module(s) ({1}) - adopt only by the explicit 88a-R restart 00:30-01:00" -f
+            @($makerEvidenceCode.stale).Count, (@($makerEvidenceCode.stale) -join ", ")))
+    }
+    $makerNames = @($makerEvidence.PSObject.Properties.Name)
+    if ($makerNames -contains "raw_working_fraction" -and $makerNames -contains "raw_working_warn_fraction" -and
+        [double]$makerEvidence.raw_working_fraction -ge [double]$makerEvidence.raw_working_warn_fraction) {
+        $warns.Add(("MAKER_EVIDENCE_LATCH: peak raw working bytes at {0:P0} of the stop latch" -f [double]$makerEvidence.raw_working_fraction))
+    }
+    if ($makerNames -contains "recorder_only" -and [string]$makerEvidence.recorder_only.state -in @("DEGRADED", "CONFIG_ERROR")) {
+        $warns.Add(("MAKER_EVIDENCE_PILOT: recorder-only rows {0} (built-ins unaffected)" -f $makerEvidence.recorder_only.state))
+    }
+}
+
+# Capture families (config/capture_families.json), each in data\maker_evidence_families\<id>.
+# weather.reporting.market.capture_family_status owns the 88a-equivalent alarms and the
+# family disk-floor stop (a WARN, not a capture failure); this block only hands it the
+# Scheduler states and renders its verdicts.
+$captureFamilies = @()
+try {
+    $familyTaskArgs = @(Get-ScheduledTask -TaskName "Weather*" -ErrorAction SilentlyContinue |
+        ForEach-Object { "--task-state"; ("{0}={1}" -f $_.TaskName, $_.State) })
+    $familyRaw = @(& $py -m weather.reporting.market.capture_family_status @familyTaskArgs 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw "capture family status exited $LASTEXITCODE" }
+    $familyStatus = (($familyRaw -join "`n") | ConvertFrom-Json)
+    $captureFamilies = @($familyStatus.families)
+    foreach ($familyFlag in @($familyStatus.flags)) { if ($familyFlag) { $flags.Add([string]$familyFlag) } }
+    foreach ($familyWarn in @($familyStatus.warns)) { if ($familyWarn) { $warns.Add([string]$familyWarn) } }
+}
+catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }
+
+# Capture registry health (data layer v2 platform block, docs/operations/DATA_LAYER_V2_CONTRACT.md).
+# roll_verdict.ps1 and staleness_sweep.ps1 read platform.roll_closures fail-closed, so a broken
+# registry does not stop capture but makes every roll verdict UNDECIDABLE and leaves the sweep
+# checking no closure. Same acceptance rule as roll_verdict.ps1; a WARN, never the verdict.
+function Get-CaptureRegistryHealth {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+    $relative = "config\capture_families.json"
+    try {
+        $registry = Get-Content -LiteralPath (Join-Path $RepoRoot $relative) -Raw -ErrorAction Stop |
+            ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $registry -or $registry.PSObject.Properties.Name -notcontains "platform") { throw "no platform block" }
+        $platform = $registry.platform
+        if ($null -eq $platform -or $platform.PSObject.Properties.Name -notcontains "roll_closures") { throw "no platform.roll_closures" }
+        $rows = @($platform.roll_closures)
+        if ($rows.Count -eq 0) { throw "no roll_closures rows" }
+        $ids = @()
+        foreach ($row in $rows) {
+            $names = @($row.PSObject.Properties.Name)
+            $rowPath = if ($names -contains "status_path") { [string]$row.status_path } else { "" }
+            $rowArming = if ($names -contains "arming") { [string]$row.arming } else { "" }
+            if ($rowPath -notmatch '^data/[A-Za-z0-9_./-]+\.json$' -or $rowPath -match '\.\.' -or
+                $rowArming -notin @("always", "while_armed_or_active")) {
+                throw "malformed roll_closures row: $rowPath"
+            }
+            # Same rule as roll_verdict.ps1: an optional producer is judged by its task's state.
+            if ($rowArming -eq "while_armed_or_active" -and
+                -not $(if ($names -contains "task") { [string]$row.task } else { "" })) {
+                throw "malformed roll_closures row: $rowPath (optional producer without a task)"
+            }
+            $ids += $(if ($names -contains "id") { [string]$row.id } else { $rowPath })
+        }
+        return [pscustomobject]@{ ok = $true; path = $relative; closures = @($ids); error = $null }
+    }
+    catch {
+        return [pscustomobject]@{ ok = $false; path = $relative; closures = @(); error = $_.Exception.Message }
+    }
+}
+$captureRegistry = Get-CaptureRegistryHealth -RepoRoot $repo
+if (-not $captureRegistry.ok) {
+    $warns.Add(("CAPTURE_REGISTRY: {0} platform.roll_closures unreadable ({1}) - roll_verdict.ps1 is UNDECIDABLE and the staleness sweep checks no closure until it is fixed" -f
+        $captureRegistry.path, $captureRegistry.error))
+}
+
 # ---- merged branch retirement (git-workflow branch lifecycle; hygiene, never the verdict) ----
 # Merged codex/* branches are retired within 7 days of landing through a recorded retirement.
 # Read-only over cached remote-tracking refs; production executes the deletions.
@@ -5014,6 +5131,9 @@ if ($Json) {
         capture  = $capState; capture_runtime = $captureRuntimeState
         execution_tape = $executionTapeState
         maker_evidence = $makerEvidence
+        maker_evidence_code = $makerEvidenceCode
+        capture_families = @($captureFamilies)
+        capture_registry = $captureRegistry
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         memory_guard = $memoryGuardState
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
@@ -5167,8 +5287,18 @@ else {
 }
 Write-Output ("  DOCS      : {0}" -f $documentationStr)
 if ($makerEvidence) {
-    Write-Output ("  MAKER     : {0}, {1} bands, disk {2}, stream capped={3}" -f `
-        $makerEvidence.state, $makerEvidence.universe_size, $makerEvidence.disk_band, $makerEvidence.stream_capped)
+    Write-Output ("  MAKER     : {0}, {1} bands, disk {2}, stream capped={3}, code {4}, peak raw {5} MB" -f `
+        $makerEvidence.state, $makerEvidence.universe_size, $makerEvidence.disk_band, $makerEvidence.stream_capped,
+        $(if ($makerEvidenceCode) { $makerEvidenceCode.state } else { "UNKNOWN" }),
+        $(if (@($makerEvidence.PSObject.Properties.Name) -contains "peak_raw_working_bytes") { [int]([double]$makerEvidence.peak_raw_working_bytes / 1MB) } else { "?" }))
+    if (@($makerEvidence.PSObject.Properties.Name) -contains "recorder_only") {
+        Write-Output ("  PILOT     : {0}, {1} bands, cities {2}" -f `
+            $makerEvidence.recorder_only.state, $makerEvidence.recorder_only.universe_size,
+            (@($makerEvidence.recorder_only.markets) -join ","))
+    }
+}
+foreach ($captureFamily in $captureFamilies) {
+    Write-Output ("  FAMILY    : {0}" -f $captureFamily.line)
 }
 Write-Output ("  ALERTS    : last {0}" -f $alertStr)
 if ($upcoming.Count -gt 0) {

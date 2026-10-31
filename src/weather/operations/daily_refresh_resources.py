@@ -6,6 +6,7 @@ import os
 import math
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -394,6 +395,189 @@ def build_stage_a_step_admission(args, step_name, budget, *, phase="before"):
         "capture_loops": loops,
         "blockers": blockers,
     }
+
+
+# Post-step transient-degradation retry (2026-10-23). A capture loop whose only
+# degradation is a just-recorded loop error (consecutive_errors and/or
+# last_error_present) while its heartbeat stays fresh is usually one failed
+# cycle that the next cycle clears. Deferring the whole Stage-A day on that
+# single sample cost 10-23 (and likely 10-21) its finalization, so the
+# post-step check re-samples for a bounded time before deferring. Everything
+# else -- inactive loop, stale or missing heartbeat, any other degraded reason,
+# any memory/commit blocker -- still defers immediately.
+TRANSIENT_CAPTURE_DEGRADED_REASONS = frozenset({"consecutive_errors", "last_error_present"})
+POST_STEP_TRANSIENT_RETRY_INTERVAL_SECONDS = 30.0
+POST_STEP_TRANSIENT_RETRY_MAX_SECONDS = 600.0
+# Mirrors scripts/ops/daily_refresh.ps1: the evidence stage tears down at
+# 09:00 local, every other stage at 11:55 local, and nothing runs before 00:30.
+STAGE_TEARDOWN_LOCAL_MINUTE = {"evidence": 9 * 60}
+DEFAULT_STAGE_TEARDOWN_LOCAL_MINUTE = 11 * 60 + 55
+STAGE_WINDOW_OPEN_LOCAL_MINUTE = 30
+
+
+def transient_capture_degradation_only(admission):
+    """True when the sole blockers are retryable capture-loop error flags.
+
+    Each blocker must be ``capture_loop_not_fresh`` for a loop that is active,
+    has a fresh heartbeat, and whose degraded reasons are a non-empty subset of
+    ``TRANSIENT_CAPTURE_DEGRADED_REASONS``. Any other blocker, or a blocker
+    without a matching loop receipt, is not transient.
+    """
+    blockers = list((admission or {}).get("blockers") or [])
+    if not blockers:
+        return False
+    loops = {
+        loop.get("name"): loop
+        for loop in (admission or {}).get("capture_loops") or []
+        if isinstance(loop, dict)
+    }
+    for blocker in blockers:
+        if not isinstance(blocker, dict) or blocker.get("code") != "capture_loop_not_fresh":
+            return False
+        loop = loops.get(blocker.get("loop"))
+        if loop is None:
+            return False
+        if loop.get("active") is not True or loop.get("heartbeat_fresh") is not True:
+            return False
+        for reasons in (blocker.get("degraded_reasons"), loop.get("degraded_reasons")):
+            reasons = set(reasons or [])
+            if not reasons or not reasons <= TRANSIENT_CAPTURE_DEGRADED_REASONS:
+                return False
+    return True
+
+
+def stage_teardown_deadline_utc(args, now_utc):
+    """The wrapper's child-tree teardown instant for this run, in UTC.
+
+    ``args._stage_a_teardown_deadline_utc`` overrides it (tests, recovery
+    slices). Outside the 00:30-deadline window the deadline is ``now_utc``
+    itself, so a manual out-of-window run never waits.
+    """
+    override = getattr(args, "_stage_a_teardown_deadline_utc", None)
+    if override is not None:
+        return override
+    stage = str(getattr(args, "stage", "") or "")
+    deadline_minute = STAGE_TEARDOWN_LOCAL_MINUTE.get(stage, DEFAULT_STAGE_TEARDOWN_LOCAL_MINUTE)
+    local_now = now_utc.astimezone()
+    minute = local_now.hour * 60 + local_now.minute
+    if minute < STAGE_WINDOW_OPEN_LOCAL_MINUTE or minute >= deadline_minute:
+        return now_utc
+    local_deadline = local_now.replace(
+        hour=deadline_minute // 60,
+        minute=deadline_minute % 60,
+        second=0,
+        microsecond=0,
+    )
+    return local_deadline.astimezone(timezone.utc)
+
+
+def _default_retry_log(message):
+    print(message, file=sys.stderr, flush=True)
+
+
+def _admission_sample(attempt, at_utc, admission):
+    return {
+        "attempt": attempt,
+        "at_utc": at_utc.isoformat(),
+        "decision": admission.get("decision"),
+        "blockers": [
+            {
+                key: blocker.get(key)
+                for key in ("code", "loop", "state", "degraded_reasons", "heartbeat_age_seconds")
+                if key in blocker
+            }
+            for blocker in admission.get("blockers") or []
+            if isinstance(blocker, dict)
+        ],
+    }
+
+
+def await_transient_capture_recovery(
+    args,
+    step_name,
+    budget,
+    admission,
+    *,
+    admission_fn=None,
+    on_recheck=None,
+):
+    """Re-sample a transiently degraded post-step admission, bounded by time.
+
+    Returns ``(final_admission, record)``. ``record`` is ``None`` when the
+    admission is not eligible (already admitted, or any non-transient
+    blocker), in which case ``final_admission`` is the input unchanged.
+    Otherwise it re-checks every ``POST_STEP_TRANSIENT_RETRY_INTERVAL_SECONDS``
+    for at most ``POST_STEP_TRANSIENT_RETRY_MAX_SECONDS`` and never past the
+    stage teardown deadline, stopping early on a clean admission or on any
+    non-transient blocker. ``args._stage_a_now_fn`` / ``_stage_a_sleep_fn`` /
+    ``_stage_a_retry_log_fn`` are injectable for tests.
+    """
+    if admission.get("decision") == "ADMIT" or not transient_capture_degradation_only(admission):
+        return admission, None
+    admission_fn = admission_fn or build_stage_a_step_admission
+    now_fn = getattr(args, "_stage_a_now_fn", None) or (lambda: datetime.now(timezone.utc))
+    sleep_fn = getattr(args, "_stage_a_sleep_fn", None) or time.sleep
+    log_fn = getattr(args, "_stage_a_retry_log_fn", None) or _default_retry_log
+    interval = float(POST_STEP_TRANSIENT_RETRY_INTERVAL_SECONDS)
+    started = now_fn()
+    deadline = stage_teardown_deadline_utc(args, started)
+    remaining_to_deadline = max(0.0, (deadline - started).total_seconds())
+    wait_budget = min(float(POST_STEP_TRANSIENT_RETRY_MAX_SECONDS), remaining_to_deadline)
+    record = {
+        "policy": "post_step_transient_capture_degradation_retry",
+        "step": step_name,
+        "started_at_utc": started.isoformat(),
+        "interval_seconds": interval,
+        "max_wait_seconds": float(POST_STEP_TRANSIENT_RETRY_MAX_SECONDS),
+        "teardown_deadline_utc": deadline.isoformat(),
+        "wait_budget_seconds": round(wait_budget, 3),
+        "bounded_by_deadline": wait_budget < float(POST_STEP_TRANSIENT_RETRY_MAX_SECONDS),
+        "initial": _admission_sample(0, started, admission),
+        "rechecks": [],
+        "outcome": None,
+        "waited_seconds": 0.0,
+    }
+    log_fn(
+        f"daily_refresh: {step_name} post-step capture check transiently degraded; "
+        f"re-checking every {interval:g}s for up to {wait_budget:g}s "
+        f"(teardown {deadline.isoformat()})"
+    )
+    current = admission
+    outcome = "deadline_exhausted" if wait_budget < float(POST_STEP_TRANSIENT_RETRY_MAX_SECONDS) else "still_degraded"
+    attempt = 0
+    while (now_fn() - started).total_seconds() + interval <= wait_budget:
+        sleep_fn(interval)
+        attempt += 1
+        current = admission_fn(args, step_name, budget, phase="after")
+        at = now_fn()
+        sample = _admission_sample(attempt, at, current)
+        record["rechecks"].append(sample)
+        log_fn(
+            f"daily_refresh: {step_name} post-step re-check {attempt}: "
+            f"{current.get('decision')} "
+            f"{[blocker.get('code') for blocker in sample['blockers']]}"
+        )
+        if on_recheck is not None:
+            on_recheck(record)
+        if current.get("decision") == "ADMIT":
+            outcome = "recovered"
+            break
+        if not transient_capture_degradation_only(current):
+            outcome = "non_transient_blocker"
+            break
+    finished = now_fn()
+    record.update({
+        "outcome": outcome,
+        "finished_at_utc": finished.isoformat(),
+        "waited_seconds": round((finished - started).total_seconds(), 3),
+        "recheck_count": attempt,
+        "final_decision": current.get("decision"),
+    })
+    log_fn(
+        f"daily_refresh: {step_name} post-step transient retry outcome={outcome} "
+        f"after {attempt} re-check(s)"
+    )
+    return current, record
 
 
 def json_safe(value):

@@ -540,6 +540,21 @@ class FeatureModelMixin:
             features["nws_grid_run_age_hours"] = run_age
 
         nbm_prob = nbm_probabilistic_tmax or {}
+        # Missing provenance stays missing: legacy rows are replayable but may
+        # not be admitted as corrected maximum guidance in a future study.
+        if nbm_prob.get("parser_version"):
+            from datetime import datetime
+            from weather.sources.nbm_probabilistic_tmax import nbp_parser_version_number
+            features["nbm_prob_tmax_parser_version"] = float(nbp_parser_version_number(nbm_prob["parser_version"]))
+            valid_time = nbm_prob.get("valid_time_utc")
+            if valid_time:
+                features["nbm_prob_tmax_valid_hour_utc"] = float(datetime.fromisoformat(valid_time.replace("Z", "+00:00")).hour)
+            features["nbm_prob_tmax_cycle_age_hours"] = row_value(
+                nbm_prob, "cycle_age_at_use_hours", "cycle_age_hours"
+            )
+            features["nbm_prob_tmax_maximum_period_flag"] = float(
+                nbm_prob.get("available") is True and nbm_prob.get("period_kind") == "maximum"
+            )
         percentiles = nbm_prob.get("percentiles") or {}
         nbm_feature_values = {
             f"nbm_prob_tmax_p{percentile}": row_value(percentiles, str(percentile), percentile)
@@ -836,11 +851,22 @@ class FeatureModelMixin:
             if feature_latest is not None
             else self.row_temp_native(station_latest)
         )
-        observed_high_context = self.effective_observed_high_context(
-            history,
-            current,
-            station,
-            cutoff_hour,
+        observed_high_context = (
+            self.effective_observed_high_context(
+                history,
+                current,
+                station,
+                cutoff_hour,
+            )
+            if self.high_so_far_shadow_variant is None
+            else self.effective_observed_high_context(
+                history,
+                current,
+                station,
+                cutoff_hour,
+                metar=self.source_data(sources, "metar"),
+                now=now,
+            )
         )
         live_observation_temp = observed_high_context["live_observation_temp"]
         current_max = observed_high_context["current_max"]
@@ -909,8 +935,8 @@ class FeatureModelMixin:
         )
 
         # hours_at_peak
-        first_reached_min = None
-        for r in feature_rows:
+        first_reached_min = observed_high_context.get("shadow_first_reached_minute")
+        for r in (feature_rows if first_reached_min is None else ()):
             if self.row_temp_native(r) == high_so_far and r.get("time"):
                 first_reached_min = self.minute_of_day(r["time"])
                 break

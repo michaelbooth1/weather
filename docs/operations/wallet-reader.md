@@ -269,6 +269,10 @@ The entire server shares a lock and a rolling cap of 30 attempts per 60 seconds.
 Each attempt has a four-second socket timeout and a two-million-byte response
 limit; cursor walks stop after five pages and explicitly refuse incomplete data.
 The service is serial, so concurrent clients do not multiply the budget.
+Observed in LFC session 0 (2026-10-16): three closely spaced reads overlapping the
+capture host's :30 journal burst produced client `TimeoutError`s; a retry after a
+quiet wait was clean. Space post-run reads and treat one `timeout`/`refused` as
+wait-and-retry ([session-0 record](../research/live-fill-calibration-session0-record-2026-10-16.md)).
 Summary/positions admit at most 24 new GETs within the remaining minute budget,
 with a 16-second planning deadline; each socket timeout is clipped to the time
 remaining. No new socket opens after that deadline. This bounds fan-out, not

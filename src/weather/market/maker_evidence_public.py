@@ -21,6 +21,7 @@ GAMMA = "https://gamma-api.polymarket.com"
 CLOB = "https://clob.polymarket.com"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 CONDITION = re.compile(r"0x[0-9a-fA-F]{64}\Z")
+REWARDS_CURRENT_PATH = "/rewards/markets/current"
 
 
 def discovery_projection(payload):
@@ -50,22 +51,27 @@ class PublicReader:
     def close(self):
         self.session.close()
 
-    def read(self, url, *, params=None, body=None, kind="discovery", change_key=None):
+    def read(self, url, *, params=None, body=None, kind="discovery", change_key=None, partition=None,
+             projection=None):
         for attempt in range(2):
             try:
-                return self._read_once(url, params=params, body=body, kind=kind, change_key=change_key)
+                return self._read_once(url, params=params, body=body, kind=kind, change_key=change_key,
+                                       partition=partition, projection=projection)
             except (requests.ConnectionError, requests.Timeout, TimeoutError):
                 if attempt or self.deadline - time.monotonic() <= .25:
                     raise
                 time.sleep(.25)
 
-    def _read_once(self, url, *, params=None, body=None, kind="discovery", change_key=None):
+    def _read_once(self, url, *, params=None, body=None, kind="discovery", change_key=None, partition=None,
+                   projection=None):
+        """``projection`` journals a bounded summary instead of the body (wire hash and size kept)."""
         parsed = urlparse(url)
         allowed = (
             (parsed.netloc == "gamma-api.polymarket.com" and parsed.path in ("/events", "/markets") and body is None)
             or (parsed.netloc == "clob.polymarket.com" and parsed.path == "/books" and isinstance(body, list))
             or (parsed.netloc == "clob.polymarket.com" and parsed.path.startswith("/rewards/markets/")
                 and CONDITION.fullmatch(parsed.path.rsplit("/", 1)[1]) and body is None)
+            or (parsed.netloc == "clob.polymarket.com" and parsed.path == REWARDS_CURRENT_PATH and body is None)
         )
         if not allowed or parsed.scheme != "https" or parsed.query or parsed.fragment or parsed.username:
             raise ValueError("not an allowlisted public read")
@@ -101,12 +107,17 @@ class PublicReader:
                     except (ValueError, KeyError, TypeError):
                         stored_body = None
                         change_key = None
+                elif response.status_code == 200 and projection is not None and payload is not None:
+                    try:
+                        stored_body = encoded(projection(payload))
+                    except (ValueError, KeyError, TypeError):
+                        stored_body = None  # Journal the wire reply when the projection cannot hold.
                 self.store.record(kind, raw, metadata={"url": response.url,
                                   "http_status": response.status_code,
                                   "request_sha256": hashlib.sha256(encoded(body)).hexdigest(),
                                   "latency_seconds": time.monotonic() - start},
                                   change_key=change_key if response.status_code == 200 else None,
-                                  stored_body=stored_body)
+                                  stored_body=stored_body, partition=partition)
                 response.raise_for_status()
                 if response.status_code != 200:
                     raise ValueError("unexpected public response status")
@@ -143,14 +154,15 @@ def unique_rows(rows, *, key, on_duplicate=lambda value: None):
     return list(seen.values())
 
 
-def reward_record(reader, condition):
+def reward_record(reader, condition, *, partition=None):
     if not CONDITION.fullmatch(condition):
         raise ValueError("invalid condition id")
     rows, cursors, cursor = [], set(), None
     for _ in range(10):
         page = reader.read(CLOB + "/rewards/markets/" + condition,
                            params={"next_cursor": cursor} if cursor else None,
-                           kind="rewards", change_key=f"reward:{condition}:{cursor or 'first'}")
+                           kind="rewards", change_key=f"reward:{condition}:{cursor or 'first'}",
+                           partition=partition)
         rows.extend(page["data"])
         cursor = page.get("next_cursor")
         if not cursor or cursor in ("LTE=", "-1"):

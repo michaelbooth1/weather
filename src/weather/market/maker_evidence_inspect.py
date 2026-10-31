@@ -124,9 +124,12 @@ def inspect_capture(root, day):
                         canonical_only += 1
                     if row.get("content_sha256") and digest(encoded(json.loads(body))) != row["content_sha256"]:
                         raise ValueError("canonical content hash mismatch")
-                    if row["kind"] in ("stream_lifecycle", "stream_gap"):
-                        reference = json.loads(body).get("subscription")
-                        if reference:
+                    if row["kind"] in ("stream_lifecycle", "stream_gap", "stream_tokens"):
+                        value = json.loads(body)
+                        for reference in ([value.get("subscription")] if row["kind"] != "stream_tokens"
+                                          else value.get("subscriptions") or []):
+                            if not reference:
+                                continue
                             subscription = body_bytes(read_payload(reference["segment"] + "/" + reference["file"],
                                                                    reference["offset"]), reference["segment"])
                             if digest(subscription) != reference["sha256"]:

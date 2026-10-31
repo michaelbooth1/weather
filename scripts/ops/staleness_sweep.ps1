@@ -61,6 +61,49 @@ function Test-FileAge($name, $relPath, $warnDays, $critDays, $why) {
     Add-Finding $name $sev ("{0} is {1:N1}d old" -f $relPath, $age) $why $age $warnDays
 }
 
+function Get-WeatherStageAChainFinding {
+    # Did the latest Stage-A run COMPLETE? The report mtime cannot answer this: the chain
+    # checkpoints daily_refresh_report.md after every step, so a chain killed at its 11:55
+    # deadline leaves a fresh report. The Stage-A manifest is published COMPLETED only by the
+    # end-of-run write (checkpoints write RUNNING), so it is the authority. The report is a
+    # fallback only when the manifest is missing or unreadable.
+    param([string]$ManifestPath, [string]$ReportPath, [datetime]$Now,
+          [double]$WarnDays = 1, [double]$CritDays = 2)
+    $manifest = $null
+    if (Test-Path -LiteralPath $ManifestPath) {
+        try { $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+        catch { $manifest = $null }
+    }
+    if ($null -ne $manifest -and $manifest.status) {
+        $status = [string]$manifest.status
+        $age = ($Now - (Get-Item -LiteralPath $ManifestPath).LastWriteTime).TotalDays
+        if ($status -eq 'COMPLETED') {
+            $sev = if ($age -gt $CritDays) { 'CRITICAL' } elseif ($age -gt $WarnDays) { 'WARN' } else { 'OK' }
+            $detail = 'latest Stage-A run COMPLETED at {0}; manifest is {1:N1}d old' -f $manifest.completed_at_utc, $age
+        } elseif ($status -eq 'RUNNING' -and $age -le (2 / 24)) {
+            $sev = 'WARN'
+            $detail = 'latest Stage-A run (started {0}) is RUNNING; last checkpoint {1:N1}h ago - in progress, or killed if this persists' -f $manifest.started_at_utc, ($age * 24)
+        } else {
+            $sev = 'CRITICAL'
+            $detail = 'latest Stage-A run (started {0}) never reached COMPLETED: manifest status {1}, last written {2:N1}d ago (a chain killed mid-run still leaves a fresh checkpointed report)' -f $manifest.started_at_utc, $status, $age
+        }
+        return [PSCustomObject]@{ severity = $sev; detail = $detail; age_days = $age; source = 'manifest' }
+    }
+    if (-not (Test-Path -LiteralPath $ReportPath)) {
+        return [PSCustomObject]@{ severity = 'CRITICAL'; detail = 'Stage-A manifest unreadable and report missing'; age_days = $null; source = 'none' }
+    }
+    $age = ($Now - (Get-Item -LiteralPath $ReportPath).LastWriteTime).TotalDays
+    $text = ''
+    try { $text = [string](Get-Content -LiteralPath $ReportPath -Raw -ErrorAction Stop) } catch { $text = '' }
+    if ($text -match 'Status: \*\*running\*\*') {
+        return [PSCustomObject]@{ severity = 'CRITICAL'; age_days = $age; source = 'report'
+            detail = ('Stage-A manifest unreadable; report ({0:N1}d old) is a mid-run checkpoint (Status: running), so the chain did not complete' -f $age) }
+    }
+    $sev = if ($age -gt $CritDays) { 'CRITICAL' } elseif ($age -gt $WarnDays) { 'WARN' } else { 'OK' }
+    return [PSCustomObject]@{ severity = $sev; age_days = $age; source = 'report'
+        detail = ('Stage-A manifest unreadable; report is {0:N1}d old and not a running checkpoint' -f $age) }
+}
+
 function Get-WeatherRewardCaptureFinding {
     param([string]$Root, [object]$Task, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
     $detail = 'no producer registered (WeatherMakerEvidenceCapture)'
@@ -134,31 +177,51 @@ Add-Finding 'capture/reward_records' $rewardFinding.severity $rewardFinding.deta
 # alarm fatigue is what makes the next real one get waved through. So compute the unique surface
 # rather than assert it, and when it is non-empty NAME the files -- those are exactly the ones a
 # merge would roll blind. See RETRACTED_AND_FALSE_LEADS.md section 3.
-$closureFiles = [ordered]@{
-    "snapshot"            = "data\snapshots\loop_supervisor_status.json"
-    "clob"                = "data\snapshots\clob_loop_supervisor_status.json"
-    "observation-trigger" = "data\snapshots\observation_trigger_supervisor_status.json"
-    "clob-enrichment"     = "data\snapshots\clob_enrichment_status.json"
-}
-$executionTask = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
-$executionWorkerStatus = Join-Path $repo "data\snapshots\execution_tape_status.json"
-$executionWriterLock = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
-$executionActive = $false
-if ($executionTask -and [string]$executionTask.State -ne "Disabled") {
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWriterLock) {
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWorkerStatus) {
-    try {
-        $executionWorker = Get-Content -LiteralPath $executionWorkerStatus -Raw | ConvertFrom-Json
-        $executionActive = [string]$executionWorker.state -ne "STOPPED"
+# The closure list is shared with roll_verdict.ps1 through config\capture_families.json
+# (platform.roll_closures, data layer v2 S1). An unreadable registry is itself a CRITICAL
+# finding: with no list, no closure can be checked.
+$closureFiles = [ordered]@{}
+try {
+    $closureRegistry = Get-Content -LiteralPath (Join-Path $repo "config\capture_families.json") -Raw -ErrorAction Stop |
+        ConvertFrom-Json -ErrorAction Stop
+    $closureRows = @($closureRegistry.platform.roll_closures)
+    if ($closureRows.Count -eq 0) { throw "no platform.roll_closures rows" }
+    foreach ($row in $closureRows) {
+        if ([string]$row.id -notmatch '^[a-z][a-z0-9-]*$' -or [string]$row.status_path -notmatch '^data/[A-Za-z0-9_./-]+\.json$' -or
+            [string]$row.arming -notin @("always", "while_armed_or_active")) {
+            throw ("malformed roll_closures row: {0}" -f [string]$row.id)
+        }
+        # Same rule as roll_verdict.ps1: an optional producer is judged by its task's state, so a
+        # row without one is malformed rather than silently "not armed".
+        if ([string]$row.arming -eq "while_armed_or_active" -and
+            -not [string]($row.PSObject.Properties["task"] | ForEach-Object { $_.Value })) {
+            throw ("malformed roll_closures row: {0} (optional producer without a task)" -f [string]$row.id)
+        }
+        $rel = [string]$row.status_path -replace '/', '\'
+        if ([string]$row.arming -eq "always") { $closureFiles[[string]$row.id] = $rel; continue }
+        # Optional producer: required only while armed or still running.
+        $optionalTask = Get-ScheduledTask -TaskName ([string]$row.task) -ErrorAction SilentlyContinue
+        $optionalActive = $false
+        if ($optionalTask -and [string]$optionalTask.State -ne "Disabled") {
+            $optionalActive = $true
+        }
+        elseif ($row.writer_lock -and (Test-Path -LiteralPath (Join-Path $repo ([string]$row.writer_lock -replace '/', '\')))) {
+            $optionalActive = $true
+        }
+        elseif ($row.worker_status -and (Test-Path -LiteralPath (Join-Path $repo ([string]$row.worker_status -replace '/', '\')))) {
+            try {
+                $optionalWorker = Get-Content -LiteralPath (Join-Path $repo ([string]$row.worker_status -replace '/', '\')) -Raw | ConvertFrom-Json
+                $optionalActive = [string]$optionalWorker.state -ne "STOPPED"
+            }
+            catch { $optionalActive = $false }
+        }
+        if ($optionalActive) { $closureFiles[[string]$row.id] = $rel }
     }
-    catch { $executionActive = $false }
 }
-if ($executionActive) {
-    $closureFiles["execution-tape"] = "data\snapshots\execution_tape_supervisor_status.json"
+catch {
+    $closureFiles = [ordered]@{}
+    Add-Finding "closure/registry" "CRITICAL" ("config\capture_families.json platform.roll_closures unreadable: {0}" -f $_.Exception.Message) `
+        "without the registry no capture closure is checked, and roll_verdict.ps1 refuses to judge" $null 1
 }
 function Get-ClosureStatus($path) {
     try { $j = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return $null }
@@ -238,8 +301,12 @@ Test-FileAge "learning/daily_learning" "data\backtest\daily_learning.json" 2 5 `
     "the learning rollup; it sat 27 days stale while the chain reported all steps ok, because it is 21 steps past the settled-day barrier"
 Test-FileAge "learning/market_beating_scoreboard" "data\backtest\market_beating_objective_scoreboard.json" 2 5 `
     "the scorecard for objective #2 -- while this is stale we cannot see the model-vs-market gap at all"
-Test-FileAge "chain/daily_refresh_report" "data\backtest\daily_refresh_report.md" 1 2 `
-    "the chain's own output; if this stops moving the chain is not completing"
+$stageA = Get-WeatherStageAChainFinding `
+    -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json") `
+    -ReportPath (Join-Path $repo "data\backtest\daily_refresh_report.md") -Now $now
+Add-Finding "chain/daily_refresh_report" $stageA.severity $stageA.detail `
+    "the chain's own completion record; per-step checkpoints keep the report fresh even when the chain is killed, so only a COMPLETED Stage-A manifest proves the chain completed" `
+    $stageA.age_days 1
 
 # ---- 3. serving artifacts ----
 # Not a bug on its own -- but an artifact serving a season it never trained on is (see 4b/2).

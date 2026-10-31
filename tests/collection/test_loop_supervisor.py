@@ -291,7 +291,7 @@ class TestEnsureDecision(unittest.TestCase):
             root = Path(tmp)
             calls = {}
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 calls["command"] = command
                 calls["cwd"] = cwd
                 calls["stdout_closed_during_call"] = stdout.closed
@@ -323,7 +323,7 @@ class TestEnsureDecision(unittest.TestCase):
             diagnostics_path.write_text("legacy-diagnostics\n", encoding="utf-8")
             console_path.write_text("legacy-console\n", encoding="utf-8")
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 self.assertFalse(diagnostics_path.exists())
                 self.assertEqual(stdout.tell(), 0)
                 self.assertIs(stdout, stderr)
@@ -353,7 +353,7 @@ class TestEnsureDecision(unittest.TestCase):
             lock_path = root / ".loop_status.json.writer.lock"
             lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 return FakeProcess()
 
             with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", root / "loop_status.json"), \

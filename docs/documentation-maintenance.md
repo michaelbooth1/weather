@@ -29,7 +29,9 @@ changing inventories, metrics, versions, or operational state.
 | Documentation routing/classification | `docs/README.md` |
 | Documentation writing rules | `docs/AGENTS.md` |
 | What the research established, in short mandatory form | `docs/operations/FINDINGS_DIGEST.md` |
+| What must be exhausted before a no-go: taint verdicts, free-source inventory, exit criteria | `docs/operations/EXHAUSTION_REGISTER.md` (rows never deleted; a closed row says how it closed) |
 | Full derivations; claims that were wrong; recurring error shapes | `docs/operations/ESTABLISHED_FINDINGS.md`; `RETRACTED_AND_FALSE_LEADS.md`; `HOW_WE_GET_THINGS_WRONG.md` (reference depth behind the digest) |
+| Data-capture design: family table, budgets, v2 build sequence and its status, open data-layer owner questions | `docs/operations/DATA_LAYER_V2_PLAN.md` (living; edited in place as steps land) |
 | Host windows, leases, heavy-work wrappers | `docs/operations/HOST_LOAD_POLICY.md`; generated numbers in `OPERATING_REFERENCE.md` |
 | Production-host agent role and authority | `docs/operations/OPERATIONS_AGENT_ROLE.md` |
 | Cross-host mission rules | `docs/operations/DELEGATION_CONTRACT.md` |
@@ -43,6 +45,7 @@ changing inventories, metrics, versions, or operational state.
 | Read-only open-PR hygiene report and its roll heuristic | `docs/operations/pr-hygiene.md` |
 | Workstation landing preflight, its exit codes and the night-plan schema | `docs/operations/LANDING_PREFLIGHT.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
+| Venue-rule training/evaluation labels and the dated label station | `docs/operations/venue-rule-labels.md` plus `config/venue_rule_stations.json` |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
 | Read-only wallet LAN routes (including the settlement watcher), startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |

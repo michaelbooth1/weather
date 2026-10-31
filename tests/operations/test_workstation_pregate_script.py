@@ -13,6 +13,9 @@ every head bound for a host landing night in exactly the host suite's mode:
   log; the detached worktree and per-chunk basetemps are removed;
 * nested ("inherited" lease) mode still proves this is the assigned non-capture
   workstation, because the capture host's heavy lease uses the same mutex name;
+* a nested pre-gate under an outer exclusive pre-gate (its own ancestor) is
+  admitted at once as ``inherited_from_exclusive_holder`` and passes, instead of
+  queueing behind its ancestor until timeout (PG-NEST-1);
 * an interrupted run (Ctrl+C) exits non-zero, matching its FAIL receipt;
 * a content-only change to any replaced host statement is refused (pinned hashes).
 
@@ -33,6 +36,7 @@ import site
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -153,9 +157,21 @@ def _git(repo: Path, *args: str) -> str:
 
 
 class _HeldWorkstationMutex:
-    """Hold the host-global workstation mutex unless workstation_heavy already does."""
+    """Hold the host-global workstation mutex unless workstation_heavy already does.
+
+    Inside workstation_heavy.ps1 (WEATHER_WORKSTATION_WRAPPER_ACTIVE=1) the
+    wrapper already holds a proved slot, exported as WEATHER_WORKSTATION_WRAPPER_SLOT,
+    and the nested pre-gate inherits that one. Taking slot 1 here as well would
+    make this test process, an ancestor of the nested pre-gate, hold a slot that
+    the pre-gate must drain, so it would wait out its timeout whenever the
+    wrapper was given a slot other than 1.
+    """
 
     def __enter__(self):
+        self.handle = None
+        self.owned = False
+        if os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") == "1":
+            return self
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.CreateMutexW.restype = ctypes.c_void_p
         kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
@@ -168,6 +184,8 @@ class _HeldWorkstationMutex:
         return self
 
     def __exit__(self, *exc):
+        if self.handle is None:
+            return
         if self.owned:
             self.kernel32.ReleaseMutex(self.handle)
         self.kernel32.CloseHandle(self.handle)
@@ -208,11 +226,13 @@ def _write_assignment(repo: Path, identity: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
+def _fixture_repo(root: Path, probe_out: Path, admission_text: str | None = None) -> dict[str, str]:
     repo = root / "repo"
     (repo / "scripts" / "ops").mkdir(parents=True)
     for name in COPIED_SCRIPTS:
         shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    if admission_text is not None:
+        (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(admission_text, encoding="utf-8")
     (repo / "src" / "weather").mkdir(parents=True)
     (repo / "src" / "weather" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "tests").mkdir()
@@ -286,6 +306,60 @@ def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subproc
         result = _run(command, cwd=root, env=env, timeout=900)
     assert receipt.is_file(), result.stdout + result.stderr
     return result, json.loads(receipt.read_text(encoding="utf-8"))
+
+
+# This process's real ancestry, nearest first: pid and .NET start time (UTC,
+# round-trip format, as the receipt records it). The walk stops at a parent
+# created after its child, which is a reused pid and not an ancestor. Plain CIM
+# and .NET only: deliberately not the admission script's own matcher.
+ANCESTRY_PROBE = r"""
+$ErrorActionPreference = 'Stop'
+$byId = @{}
+foreach ($p in @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate)) {
+    $byId[[int]$p.ProcessId] = $p
+}
+$current = $byId[[int]$env:PG_ANCESTRY_FROM]
+$chain = @()
+while ($null -ne $current) {
+    $start = $null
+    try {
+        $start = [Diagnostics.Process]::GetProcessById([int]$current.ProcessId).StartTime.ToUniversalTime().ToString('o')
+    }
+    catch { }
+    $chain += [ordered]@{ pid = [int]$current.ProcessId; start = $start }
+    $parent = $byId[[int]$current.ParentProcessId]
+    if ($null -eq $parent -or [int]$parent.ProcessId -eq [int]$current.ProcessId -or
+        $parent.CreationDate -gt $current.CreationDate) { break }
+    $current = $parent
+}
+ConvertTo-Json -InputObject @($chain) -Compress
+"""
+
+
+def _ancestry() -> list[dict]:
+    env = {**os.environ, "PG_ANCESTRY_FROM": str(os.getpid())}
+    result = _run([*POWERSHELL, "-Command", ANCESTRY_PROBE], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _assert_lease_mode_matches_context(receipt: dict) -> None:
+    """The nested lease mode follows from the receipt itself (PG-NEST-1).
+
+    No exclusive holder: the run inherited workstation_heavy's slot. A holder:
+    this test process runs inside an outer exclusive pre-gate, which must be a
+    real ancestor (pid plus start time) and the one the host queue records.
+    """
+    holder = receipt["exclusive_holder"]
+    if holder is None:
+        assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+        return
+    assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
+    ancestors = _ancestry()[1:]
+    assert {"pid": holder["pid"], "start": holder["owner_process_start_utc"]} in ancestors, (holder, ancestors)
+    queue_root = Path(os.environ["ProgramData"]) / "WeatherProject" / "heavy_workload_queue_v1"
+    record = json.loads((queue_root / "exclusive_holder_v1.json").read_text(encoding="utf-8-sig"))
+    assert (record["pid"], record["owner_process_start_utc"]) == (holder["pid"], holder["owner_process_start_utc"])
 
 
 def _assert_clean(info: dict, receipt: dict) -> None:
@@ -435,7 +509,7 @@ def test_pregate_passes_a_good_head_in_host_console_mode_and_cleans_up(fixture_r
     assert result.returncode == 0
     assert receipt["schema"] == "weather.workstation_pregate_receipt.v1"
     assert receipt["head"] == fixture_repo["good"]
-    assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+    _assert_lease_mode_matches_context(receipt)
     assert receipt["launch_mode"]["scheduled_task_registered"] is False
     assert receipt["chunk_plan"] == [["tests/test_fixture_console.py", "tests/test_fixture_ok.py"]]
     assert [(c["ordinal"], c["files"], c["logged_files"], c["exit_code"]) for c in receipt["chunks"]] == [
@@ -545,6 +619,91 @@ def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstatio
     assert receipt["git_executable"] is None
     assert receipt["worktree_removed"] is None
     assert not (tmp_path / "wt").exists()
+
+
+# ------------------------------------------------------------------ nested under an exclusive pre-gate
+# Only this test's own copy of workload_admission.ps1 is rewritten: a private
+# mutex name and a fixture-local state file (so the queue and the exclusive
+# holder record live under tmp_path), plus no residual-process or memory veto.
+# The production script honours no redirect of any kind.
+ISOLATED_ADMISSION_OVERRIDES = r"""
+# TEST-ONLY: FIXTURE-LOCAL STATE, NO RESIDUAL-PROCESS OR MEMORY VETO
+function Get-WeatherHeavyWorkloadPoisonPath {
+    param([switch]$CreateIfMissing)
+    $root = '{state_root}'
+    if ($CreateIfMissing) { [void][IO.Directory]::CreateDirectory($root) }
+    Join-Path $root 'heavy_workload_v1.poison'
+}
+function Get-WeatherActiveWorkstationHeavyProcess { param($ProcessSnapshot, $TaskObservation, $DecisionLog) }
+function Get-WeatherWorkstationMemoryReading {
+    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = 16GB; CommitPercent = 40.0 }
+}
+"""
+
+OUTER_EXCLUSIVE_PREGATE = r"""
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$lease = Enter-WeatherWorkstationHeavyExclusiveLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-pregate-outer' `
+    -TimeoutSeconds 60 -PollMilliseconds 100 -ReportSeconds 1
+if ($null -eq $lease) {{ exit 3 }}
+$env:WEATHER_WORKSTATION_WRAPPER_ACTIVE = '1'
+Remove-Item Env:WEATHER_WORKSTATION_WRAPPER_SLOT -ErrorAction SilentlyContinue
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$ErrorActionPreference = 'Continue'
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '{pregate}' -Head '{head}' -RepoRoot '{repo}' `
+    -OutputDirectory '{out}' -ReceiptPath '{receipt}' -WorktreeParent '{worktrees}' -QueueTimeoutSeconds 60 *> '{log}'
+$nestedExit = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+[IO.File]::WriteAllText('{outer}', ([ordered]@{{ pid = $PID; nested_exit = $nestedExit; seconds = $clock.Elapsed.TotalSeconds }} |
+    ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
+Exit-WeatherHeavyWorkloadLease -Lease $lease
+"""
+
+
+def test_a_nested_pregate_under_an_outer_exclusive_pregate_is_admitted_and_passes(tmp_path):
+    # PG-NEST-1: the 2026-10-27 workstation pre-gate hung at chunk 12 because this
+    # module's nested pre-gate queued behind the outer pre-gate that was its own
+    # ancestor. With an outer exclusive holder in place, the nested run must be
+    # admitted at once as its descendant and pass, not wait out its queue timeout.
+    if shutil.disk_usage(tmp_path).free < 55 * 1024**3:
+        pytest.skip("the host suite's 50 GiB disk floor cannot be met on this volume")
+    state_root = tmp_path / "host-state"
+    text = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
+    assert MUTEX_NAME in text
+    admission = text.replace(MUTEX_NAME, "Local\\WeatherPgNestFixture-" + uuid.uuid4().hex)
+    admission += ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", str(state_root))
+    info = _fixture_repo(tmp_path, tmp_path / "probe.json", admission_text=admission)
+    repo = Path(info["repo"])
+    receipt_path, outer_path = tmp_path / "receipt.json", tmp_path / "outer.json"
+    script = OUTER_EXCLUSIVE_PREGATE.format(
+        admission=repo / "scripts" / "ops" / "workload_admission.ps1", repo=repo,
+        pregate=repo / "scripts" / "ops" / "workstation_pregate.ps1", head=info["good"],
+        out=tmp_path / "out", receipt=receipt_path, worktrees=tmp_path / "wt",
+        log=tmp_path / "nested.log", outer=outer_path,
+    )
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WEATHER_WORKSTATION_WRAPPER")}
+    result = _run([*POWERSHELL, "-Command", script], cwd=tmp_path, env=env, timeout=600)
+    nested_log = (tmp_path / "nested.log").read_text(encoding="utf-8", errors="replace") if (tmp_path / "nested.log").exists() else ""
+    assert result.returncode == 0, result.stdout + result.stderr + nested_log
+    outer = json.loads(outer_path.read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "PASS", (receipt["failure_reasons"], nested_log)
+    assert outer["nested_exit"] == 0
+    assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
+    assert receipt["workstation_exclusive"] is True
+    assert receipt["exclusive_holder"]["pid"] == outer["pid"]
+    assert receipt["exclusive_holder"]["workload"] == "WorkstationOffline-pytest-pregate-outer"
+    events = [
+        json.loads(line)
+        for line in (repo / "data" / "logs" / "heavy_workload_queue.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    nested = [event for event in events if event["pid"] != outer["pid"]]
+    assert [event["event"] for event in nested] == ["start"]
+    assert nested[0]["lease_mode"] == "inherited_from_exclusive_holder"
+    _assert_clean(info, receipt)
+    assert not (state_root / "heavy_workload_queue_v1" / "exclusive_holder_v1.json").exists()
 
 
 # ------------------------------------------------------------------ interrupted exit code

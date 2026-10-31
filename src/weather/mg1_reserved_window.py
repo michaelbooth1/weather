@@ -2,7 +2,7 @@
 
 ``docs/operations/reserved-confirmation-window.md`` (MG-1, signed 2026-10-04)
 holds out the first 45 promotion-countable local target dates on or after D0
-(D0 >= 2026-10-15, not yet dated) against every candidate that reads NBM
+(D0 = 2026-10-15, dated by the owner 2026-10-16) against every candidate that reads NBM
 station guidance into band probabilities: such a candidate may not be scored,
 have its outcomes enumerated, or be joined to an outcome on those dates. The
 item-190 settlement scorer (``nbm_probabilistic_tmax_settlement_scoring``)
@@ -17,6 +17,13 @@ Window semantics (identical to ``maker_core.mg1_window`` on the maker-replay
 build line, unit U7):
 - every target date on or after ``MG1_FLOOR`` is reserved while ``MG1_D0`` and
   ``MG1_LAST`` are None;
+- recorded window (owner, 2026-10-16, option 2 BOUND): ``[MG1_D0, MG1_LAST]``
+  inclusive, D0 = 2026-10-15 fixed and a provisional last of D0 + 44 days =
+  2026-11-28, the 45th calendar date. The 45 dates are promotion-countable
+  dates counted from D0 without skipping (MG-1 §3); every date that turns out
+  not to be countable moves the 45th countable date, and so ``MG1_LAST``, one
+  day later. ``MG1_LAST`` may only move later, and must be moved before any
+  date after it is scored by an NBM-guidance-to-band candidate;
 - the window narrows only by a reviewed edit recording both constants; an
   inconsistent recording (D0 before the floor, last earlier than D0 + 44 days,
   only one set, a datetime) fails wide, back to ``[MG1_FLOOR, open)``;
@@ -30,9 +37,11 @@ exception is the registered MG-1 confirmation look itself:
 ``MG1_CONFIRMATION_ENTRY_POINTS`` maps the look's module name, as run with
 ``python -m``, to the SHA-256 of that module's source bytes. A process is
 admitted only when its ``__main__`` module has exactly that name and those
-bytes. The MG-1 pre-registration names no look entry point yet, so the
-allowlist is empty and every caller is refused. Adding the look is an explicit,
-reviewed, tested edit of that constant.
+bytes. The registered look is ``weather.calibration.mg1_look`` (master's R3
+ruling, 2026-10-26): the only writer of MG-1's look receipt, which stamps
+``looked_at_utc`` before its first outcome join. Every edit of that module
+changes its sha256 and so needs an explicit, reviewed, tested edit of the
+constant; until then every caller, the edited look included, is refused.
 
 Convergence: when U7 lands on master, ``maker_core.mg1_window`` becomes the one
 recorded copy of the window constants. This module should then import
@@ -48,14 +57,18 @@ import sys
 
 
 MG1_FLOOR = date(2026, 10, 15)
-# Recorded only from reserved-confirmation-window.md once D0 is dated and the
-# 45 promotion-countable dates are computed. Both None: open-ended from the floor.
-MG1_D0: date | None = None
-MG1_LAST: date | None = None
+# Owner decision 2026-10-16 (option 2, BOUND), recorded with the dated status
+# line of reserved-confirmation-window.md. D0 is final. MG1_LAST is provisional:
+# D0 + 44 days is the 45th date only if every date from D0 is promotion-countable.
+# Each missed countable date pushes the 45th countable date one day later, so
+# MG1_LAST may only move later, never earlier (test-enforced).
+MG1_D0: date | None = date(2026, 10, 15)
+MG1_LAST: date | None = date(2026, 11, 28)
 MG1_RESERVED_COUNT = 45
-# module name (as run with ``python -m``) -> SHA-256 of its source bytes. Empty:
-# the MG-1 confirmation look is not yet registered as code.
-MG1_CONFIRMATION_ENTRY_POINTS: dict[str, str] = {}
+# module name (as run with ``python -m``) -> SHA-256 of its source bytes (LF, as checked out).
+MG1_CONFIRMATION_ENTRY_POINTS: dict[str, str] = {
+    "weather.calibration.mg1_look": "1e691c58b68a203aebaed3f505295971f56821e92555e3bc12ef8a4db23ff305",
+}
 
 
 class MG1Reserved(ValueError):

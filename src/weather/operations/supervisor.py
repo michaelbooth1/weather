@@ -1575,6 +1575,23 @@ def terminate_python_pid(
     return {"pid": normalized, "stopped": True}
 
 
+# OpenBLAS sizes per-thread buffers from the CPU count (about 30 MiB each, up to its build
+# cap of 24), so an uncapped numpy import commits ~700-800 MiB per capture worker. Capture
+# loops do no large linear algebra; one thread is enough. An explicit operator value wins.
+WORKER_THREAD_CAP_ENV = {
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+}
+
+
+def capped_worker_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    env = dict(os.environ if base is None else base)
+    for name, value in WORKER_THREAD_CAP_ENV.items():
+        env.setdefault(name, value)
+    return env
+
+
 def launch_detached(
     command: Sequence[object],
     *,
@@ -1593,6 +1610,7 @@ def launch_detached(
             stdout=log_handle,
             stderr=log_handle,
             creationflags=detached_creationflags() if creationflags is None else creationflags,
+            env=capped_worker_env(),
         )
     finally:
         log_handle.close()

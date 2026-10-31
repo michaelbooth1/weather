@@ -471,7 +471,7 @@ class ObservationTriggerTests(unittest.TestCase):
             root = Path(tmp)
             calls = {}
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 calls["command"] = command
                 calls["cwd"] = cwd
                 calls["stdout_closed_during_call"] = stdout.closed
@@ -512,7 +512,7 @@ class ObservationTriggerTests(unittest.TestCase):
             for path in (events_path, diagnostics_path, console_path):
                 path.write_text(f"legacy-{path.name}\n", encoding="utf-8")
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 self.assertFalse(events_path.exists())
                 self.assertFalse(diagnostics_path.exists())
                 self.assertEqual(stdout.tell(), 0)

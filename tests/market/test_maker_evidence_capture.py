@@ -285,6 +285,15 @@ def test_completed_capture_inspection_verifies_payload_and_detects_tamper(store)
         inspect_capture(store.root, NOW.date().isoformat())
 
 
+def test_inspection_verifies_stream_tokens_subscription_references(store):
+    from weather.market import maker_evidence_stream as module
+    from weather.market.maker_evidence_inspect import inspect_capture
+    module.PublicStream(store, trades_only=True)._journal_tokens([("123",), ("456",)])
+    terminal(store)
+    # Each named subscription is re-read from its referenced offset and its hash checked.
+    assert inspect_capture(store.root, NOW.date().isoformat())["response_records_verified"] == 3
+
+
 def test_handshake_failure_is_recorded_and_retryable(store, monkeypatch):
     from weather.market import maker_evidence_stream as module
     from websocket import WebSocketException

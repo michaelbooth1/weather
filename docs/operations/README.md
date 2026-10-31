@@ -21,6 +21,8 @@ If you add a file, link it here in the same change.
 | [HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md) | Before any heavy command on the capture host. Owns the protected windows, resource limits, the training reservation and the full workstation heavy-wrapper contract. |
 | [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md) | You need a governing constant or protected window with its source location. **Generated — fix the constant, never the doc.** The live timetable is generated separately at `data/alerts/OPERATING_SCHEDULE.md`; verify Task Scheduler before assuming an entry will run. |
 | [reserved-confirmation-window.md](reserved-confirmation-window.md) | Before reading dated evidence or settled market-days. Read its `Status:` line; the rest applies only when a window is reserved, and then it wins over every other document. |
+| [B_FORWARD_TEST_DESIGN.md](B_FORWARD_TEST_DESIGN.md) | Rule B-1, the minimal forward edge test B (MG-2 against the market): bind-ready DRAFT until the 10-27 binding. |
+| [COOL_SEASON_PAPER_TEST_PREREG.md](COOL_SEASON_PAPER_TEST_PREREG.md) | PT-1, the cool-season paper test: DRAFT pre-registration, not bound; its owner questions are open. |
 | [DELEGATION_CONTRACT.md](DELEGATION_CONTRACT.md) | Writing a handoff, executing a delegated mission, verifying a handback, or deciding roll sensitivity. |
 | [AGENT_CONTEXT.md](AGENT_CONTEXT.md) | You need durable domain invariants: settlement, units, source roles, floors, evidence rules. Deliberately excludes metrics, versions and priorities. |
 | [PROJECT_OPERATING_SOP.md](PROJECT_OPERATING_SOP.md) | You need the end-to-end shift-to-release decision flow and which runbook owns each step. |
@@ -43,8 +45,13 @@ citing it in a new decision.
 | [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) | *What is the short version?* — read first for model, measurement or research work; it cites the sections below worth opening. |
 | [ESTABLISHED_FINDINGS.md](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval. Read before model, measurement or research work. |
 | [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not. |
+| [EXHAUSTION_REGISTER.md](EXHAUSTION_REGISTER.md) | *What is left before a no-go?* — which conclusions survive the serving fixes, which free sources were tested, and each open lead's exit criterion. |
+| [LEVER_INVENTORY_2026-10-26.md](LEVER_INVENTORY_2026-10-26.md) | *Which model levers are not yet exhausted?* — dated evidence (2026-10-25): a ranked inventory with flags on stale closures; not current state. |
 | [HOW_WE_GET_THINGS_WRONG.md](HOW_WE_GET_THINGS_WRONG.md) | *What shape do our mistakes take?* — read before designing a gate or trusting a green signal. |
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
+| [MODEL_IMPROVEMENT_METHOD.md](MODEL_IMPROVEMENT_METHOD.md) | *How does a model lane find and measure a candidate?* — locate the loss, OLS + floor baseline first, one ingredient per rung, served → MG-1 → capture-time market read → blend weight, pre-registration discipline. |
+| [DEV_WINDOW_LEDGER.md](DEV_WINDOW_LEDGER.md) | *What has already been scored on the 07-31..09-29 development window?* — one row per candidate, control or read; the reuse count every pre-registration cites and every edge test corrects for. |
+| [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count; enforced by `weather.reporting.scorecards.prereg_check`. |
 
 Open work is **not** tracked here. Owned work lives in numbered roadmap items, surfaced by the
 generated [`../roadmap/active-backlog.md`](../roadmap/active-backlog.md). What is open on the host
@@ -78,7 +85,8 @@ For the independent public maker collector, its task and retention, read
 | [NIGHTLY_RETRAIN_RUNBOOK.md](NIGHTLY_RETRAIN_RUNBOOK.md) | Candidate-only retraining or immutable inactive-release construction. |
 | [EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md) | Publishing, reviewing, accepting or drift-checking exchange rules. |
 | [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) | A handoff has no visible branch and you are about to call it lost. |
-| [HOST_PYTHON_UPGRADE_RUNBOOK.md](HOST_PYTHON_UPGRADE_RUNBOOK.md) | **Proposed, not approved.** Preparing, reviewing or executing the capture host's 3.11.0 to 3.11.9 interpreter upgrade: install, qualification, quiet-window cutover, release re-bind, rollback. |
+| [HOST_PYTHON_UPGRADE_RUNBOOK.md](HOST_PYTHON_UPGRADE_RUNBOOK.md) | **Approved by the owner 2026-10-12 (DECISION_LOG); the night is in the state of play.** Preparing, reviewing or executing the capture host's 3.11.0 to 3.11.9 interpreter upgrade: install, qualification, quiet-window cutover, release re-bind, rollback. |
+| [pyup-c-1021-delta-review.md](pyup-c-1021-delta-review.md) | **Dated review (2026-10-19), evidence only.** Preparing the Phase C night of 10-21/22, which now precedes N12 (chain-r3, including #190, on 10-22/23): what in the runbook went stale, what to re-take, and the open questions. |
 
 Required registration parameters are defined by the scripts under `scripts/ops/`. Read a script's
 `param(...)` block before registration; some production tasks require explicit evidence paths.
@@ -92,6 +100,7 @@ No live trading is authorized by any document here; `STATE_OF_PLAY.md` records c
 | Document | Read when |
 | --- | --- |
 | [INTERNATIONAL_MM_LIVE_PILOT.md](INTERNATIONAL_MM_LIVE_PILOT.md) | Any work toward the bounded International Polymarket maker pilot. Never authorizes Polymarket US and never makes a blocked gate pass. |
+| [MAKER_PILOT_PLAN_2026-10.md](MAKER_PILOT_PLAN_2026-10.md) | The 2026-10 maker pilot plan and readiness checklist: DRAFT, HOLD status, owner questions open. Grants no authority. |
 | [PORTABLE_LIVE_EXECUTION_HOST.md](PORTABLE_LIVE_EXECUTION_HOST.md) | Provisioning, binding or relocating the second-PC attended Stage 0/1 executor. |
 | [maker-incentive-feasibility.md](maker-incentive-feasibility.md) | Evaluating an explicit maker BUY plan against incentives; a pure calculation contract. |
 
@@ -100,6 +109,7 @@ No live trading is authorized by any document here; `STATE_OF_PLAY.md` records c
 | Document | Read when |
 | --- | --- |
 | [config-inventory.md](config-inventory.md) | Adding or changing a checked-in config file; owns classification and freshness. |
+| [venue-rule-labels.md](venue-rule-labels.md) | Building or reading training/evaluation labels for dates from 2026-10-23, or changing a market's label station. Owner: `weather.backtesting.venue_rule_labels`. |
 | [artifact-storage-policy.md](artifact-storage-policy.md) | Git vs Git LFS vs external storage, size thresholds, restore, promotion preflight. |
 | [git-lfs-policy.md](git-lfs-policy.md) | Anything touching LFS. **Never re-add `lfs: true` to a workflow; never delete `.git/lfs`.** |
 | [schema-registry-storage-log-reconciliation.md](schema-registry-storage-log-reconciliation.md) | Mapping a durable schema to its producer and storage/log contract. |
@@ -119,6 +129,9 @@ contract and a reviewed cleanup manifest.
 | [forward-plan-2026-09-23.md](forward-plan-2026-09-23.md) | Choosing the next mission or checking work against the owner's two-pillar strategy. |
 | [informed-maker-design-2026-09-25.md](informed-maker-design-2026-09-25.md) | Building or reviewing maker code, a domain plugin (weather, YouTube) or the replay harness. |
 | [maker-core-contracts.md](maker-core-contracts.md) | Implementing the v0.1 domain-neutral plugin API, conformance, pure proposals or journals. |
+| [DATA_LAYER_V2_PLAN.md](DATA_LAYER_V2_PLAN.md) | Adding or changing any capture family, sizing its RAM/disk/request budget, or landing a v2 build step (S0-S16); its §9 holds the open owner questions. |
+| [DATA_LAYER_V2_CONTRACT.md](DATA_LAYER_V2_CONTRACT.md) | Adding or changing a capture closure, evidence-family row, storage-pending row or embargo reference in the `platform` block of `config/capture_families.json`. |
+| [free-registration-signup-list.md](free-registration-signup-list.md) | Adding a source that needs a free registration key, or checking where such a key may live (never in git). |
 | [storage-plan-2026-09-23.md](storage-plan-2026-09-23.md) | Free space below the green band, a heavy job refusing on disk, or before any compress/archive/reclaim. |
 | [live-testing-plan-2026-09-25.md](live-testing-plan-2026-09-25.md) | Preparing the last RE-1 session or proposing post-RE-1 live experiments. |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | Choosing what to analyse next; naming the question ids a handoff serves; updating rows on handback. |
@@ -142,6 +155,8 @@ contract and a reviewed cleanup manifest.
 | [settlement-source-audit.md](settlement-source-audit.md) | Touching the settlement-source audit, its bounded storage path, source-lineage classification, or the truth-label gate for settlement-scored trading evidence. Owner: `weather.reporting.source_gates.settlement_source_audit`. |
 | [POINT_IN_TIME_EVALUATION.md](POINT_IN_TIME_EVALUATION.md) | Evidence key, materialization, preselection/qualification, folds, locked evaluation. |
 | [PIT_FORECAST_TRAINING_CORPUS.md](PIT_FORECAST_TRAINING_CORPUS.md) | Immutable forecast planning, request-keyed staging, cutoff-safe publication, pooled-retraining consumption. |
+| [NEW_CITY_MODEL_LANE.md](NEW_CITY_MODEL_LANE.md) | Inactive candidate registry, METAR label and print-cutoff rules, new-city corpus builder, fetch blockers, R1 recorder-only enable runbook. |
+| [nbm-target-period-contract.md](nbm-target-period-contract.md) | Parsing or replaying NBP maximum guidance, persisting token provenance, or admitting future guidance rows. |
 | [forecast-source-and-training-population.md](forecast-source-and-training-population.md) | Anyone raises provider licensing or the training population. **Closed: free-tier Open-Meteo only; do not stop a mission on it.** |
 | [the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md) | Touching forecast-archive coverage or the first-retrain corpus. |
 
@@ -185,6 +200,7 @@ git; re-verify before relying on it.
 | [REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md) | CLOSED — thread closed; do not dispatch another historical-reproduction mission | Anyone proposes reconstructing what we served from history. |
 | [mirror-paused-2026-08-12.md](mirror-paused-2026-08-12.md) | **PAUSED** — operator decision; the live answer is the `WeatherDataMirror` task state | Anything touching the off-host mirror, workstation `data\`, or mirror flags in `status.ps1`. |
 | [codex-host-overload-2026-08-23.md](codex-host-overload-2026-08-23.md) | CLOSED — incident trace; prevention lives in `HOST_LOAD_POLICY.md` rule 6 | Why Codex verification is serial and time-gated. |
+| [capture-host-wifi-outage-2026-10-28.md](capture-host-wifi-outage-2026-10-28.md) | CLOSED — incident record | Capture shows no new data while the process-count check is healthy, or the cold-snapshot nightly is blocked by a failed attempt. |
 
 ### History appendices
 

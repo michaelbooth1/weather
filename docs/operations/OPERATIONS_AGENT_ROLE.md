@@ -71,9 +71,9 @@ execution evidence, and power-before-interpretation are not negotiable.
 
 **Never, without a new dated operator decision:**
 
-- **Paid weather-provider access.** Free-tier Open-Meteo only. Do not add credentials, required
-  environment variables, or plans that depend on a paid source. Provider licensing is closed and is
-  **not to be re-raised** — this exact question has halted two missions.
+- **Unapproved paid weather-provider access.** Paid sources only with explicit per-source owner
+  approval recorded in DECISION_LOG (owner 2026-10-23, superseding the earlier closed-licensing rule);
+  otherwise free sources only. Never commit credentials; no plan may depend on an unapproved paid source.
 - **Read or expose the WU sync credential file** in the user profile (`.weathersync.cred`). Never
   print, log, or commit the scraped WU token.
 - **Write to the workstation mirror or `D:\weather-mirror`.**
@@ -238,8 +238,9 @@ seven hours). These rules bind every production and workstation agent:
 2. **Docs-only landings take the light path.** A branch whose `roll_verdict.ps1` result is ROLL-FREE and whose diff is only
    Markdown under `docs/` may land by a plain local merge plus `WeatherOneShotPush`, with a receipt, without the heavy lease
    or quiet window. The receipt records the expected branch tip, proves `HEAD == origin/master` before the merge and that the
-   diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch <b> -ExpectedTip
-   <sha>` does exactly this (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and
+   diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch origin/<b>
+   -ExpectedTip <sha>` does exactly this (pass the `origin/` remote ref: the host's local branch of that name may be stale
+   or absent) (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and
    receipt. Never run the merge tool's `-DryRun` for such a branch (that
    dry run left the 09-24 marker). The morning closeout's correspondence-index regeneration is such a branch:
    `scripts\ops\correspondence_index_closeout.ps1 -Land` prepares and lands it in one idempotent command.

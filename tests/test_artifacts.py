@@ -21,6 +21,10 @@ from weather.artifacts import (
 )
 
 
+# An absent artifact root anchored on this file, never on the process CWD.
+MISSING_ARTIFACT_ROOT = Path(__file__).resolve().parent / "fixtures" / "missing-artifact-root"
+
+
 class TestArtifactPaths(unittest.TestCase):
     def test_candidate_training_path_policy_is_shared_and_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -266,7 +270,8 @@ class TestArtifactPaths(unittest.TestCase):
         self.assertEqual(audit["checks"][0]["artifact_id"], "models/hgb/too_large.pkl")
 
     def test_externalization_manifest_reports_managed_restore_entries(self):
-        manifest = build_artifact_externalization_manifest(root=Path("missing-artifact-root"))
+        self.assertFalse(MISSING_ARTIFACT_ROOT.exists())
+        manifest = build_artifact_externalization_manifest(root=MISSING_ARTIFACT_ROOT)
 
         self.assertEqual(manifest["schema_version"], "model_artifact_externalization_v0.1")
         self.assertEqual(manifest["managed_artifact_count"], 0)
@@ -274,7 +279,7 @@ class TestArtifactPaths(unittest.TestCase):
 
     def test_promotion_preflight_normalizes_repo_variant_registry_path(self):
         payload = build_artifact_promotion_preflight(
-            root=Path("missing-artifact-root"),
+            root=MISSING_ARTIFACT_ROOT,
             variant_registry_path=DEFAULT_VARIANT_REGISTRY_PATH,
             generated_at="2026-06-20T00:00:00+00:00",
         )

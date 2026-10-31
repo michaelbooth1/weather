@@ -1,7 +1,8 @@
 """Isolated NBM NBP parser version 2, run from a pinned detached worktree (111h).
 
-Parser v2 exists only on ``codex/nbm-target-fix-20260921`` @ ``2e17ce0eb``.
-Production code is unchanged: the extractor starts a child interpreter with
+Parser v2 was first built on ``codex/nbm-target-fix-20260921`` @ ``2e17ce0eb``;
+the extractor keeps that pin so every 111h extract reproduces byte for byte,
+whatever parser the running tree carries. It starts a child interpreter with
 ``-P -B`` and ``PYTHONPATH=<pinned>/src`` and refuses to parse unless a probe
 proves the parser module resolves under that exact tree, the worktree HEAD is
 the pinned commit and its tracked files are unmodified.

@@ -92,6 +92,7 @@ These packages are intentionally importable by any owner package:
 - `weather.runtime_identity`
 - `weather.schema_registry`
 - `weather.scoring`
+- `weather.shared_forecast_payload_cas` (the shared market-invariant forecast payload byte store; `weather.collection.forecast_payload_cas` re-exports it)
 - `weather.time`
 - `weather.units`
 - `weather.variant_registry`

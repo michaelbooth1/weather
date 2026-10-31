@@ -35,6 +35,8 @@ def _snapshot(tmp_path, **kwargs):
         work_root=tmp_path / "work",
         decision_log=tmp_path / "DECISION_LOG.md",
         wallet_reader=_refusing_reader,
+        capture_families_config=tmp_path / "capture_families.json",
+        capture_families_root=tmp_path / "maker_evidence_families",
     )
     defaults.update(kwargs)
     return cockpit.collect_cockpit_snapshot(**defaults)
@@ -49,6 +51,7 @@ def test_every_missing_source_is_unavailable_with_a_reason(tmp_path):
     assert "host_health_latest.json" in snapshot["health"]["host"]["reason"]
     assert "disk_free_trail.jsonl" in snapshot["health"]["disk"]["reason"]
     assert "maker_evidence" in snapshot["health"]["maker_evidence"]["reason"]
+    assert "capture_families.json" in snapshot["health"]["capture_families"]["reason"]
     assert "does not exist" in snapshot["work"]["reason"]
     # The exam calendar is constant and needs no source; closed counts are unknown, not zero.
     assert snapshot["exam"]["available"] is True
@@ -196,3 +199,20 @@ def test_reward_total_refuses_unknown_shapes():
     assert cockpit.reward_total({"total": [{"earnings": "x"}]}) is None
     assert cockpit.reward_total({"total": "7"}) is None
     assert cockpit.reward_total({}) is None
+
+
+def test_capture_families_section_reads_each_configured_family_status(tmp_path):
+    (tmp_path / "capture_families.json").write_text(json.dumps({"format_version": 1, "families": {
+        "lowest_temperature": {"max_conditions": 600, "stop_below_free_gib": 70}}}), encoding="utf-8")
+    folder = tmp_path / "maker_evidence_families" / "lowest_temperature"
+    folder.mkdir(parents=True)
+    (folder / "status.json").write_text(json.dumps({
+        "state": "STOPPED_FAMILY_DISK_FLOOR", "free_bytes": 65 * 1024**3,
+        "updated_at_utc": (NOW - timedelta(seconds=20)).isoformat()}), encoding="utf-8")
+
+    families = _snapshot(tmp_path)["health"]["capture_families"]
+
+    assert families["available"] is True
+    [row] = families["families"]
+    assert row["family"] == "lowest_temperature" and row["severity"] == "WARN" and row["disk_floor"] == "stopped"
+    assert "not a capture failure" in row["reason"]

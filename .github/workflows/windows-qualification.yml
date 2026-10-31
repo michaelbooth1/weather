@@ -66,8 +66,10 @@ jobs:
               tests/operations/test_memory_commit_guard_execution.py
               tests/operations/test_daily_refresh_wrapper_execution.py
               tests/operations/test_guidance_all_hours_admission.py
+              tests/operations/test_loss_atlas_admission.py
               tests/operations/test_ps_script_root_param_defaults.py
               tests/operations/test_maker_shadow_ops_scripts.py
+              tests/calibration/test_mg2_input_export.py
             mark: ''
           - shard: launch
             split_file: ''
@@ -89,18 +91,36 @@ jobs:
               tests/operations/test_quiet_window_merge_execution.py
               tests/operations/test_landing_preflight.py
               tests/operations/test_bounded_execution_tape_probe_script.py
+              tests/operations/test_oracle_author_test_run_script.py
+              tests/operations/test_roll_verdict_script.py
+              tests/operations/test_staleness_sweep_script.py
+              tests/operations/test_status_capture_registry_health.py
+              tests/operations/test_schema_families_roll_verdict.py
+              tests/operations/test_status_maker_evidence_code_identity.py
             mark: ''
           - shard: windows-lane-a
             split_file: ''
             split_select: ''
             files: >-
               tests/operations/test_production_baseline_reconciliation.py
+              tests/market/test_maker_counterfactual_tape.py
               tests/operations/test_production_baseline_scheduler_rpc.py
               tests/operations/test_monitoring_fixes.py
+              tests/reporting/test_capture_family_status.py
+              tests/market/test_maker_evidence_status_replace.py
               tests/operations/test_bulk_cold_archive_crypt.py
               tests/operations/test_cold_snapshot_nightly.py
               tests/operations/test_cold_snapshot_nightly_schedule.py
               tests/operations/test_workload_admission_script.py
+              tests/operations/test_workstation_offline_corpus_admission.py
+              tests/operations/test_feature_model_trainer_admission.py
+              tests/operations/test_high_so_far_parity_shadow_admission.py
+              tests/operations/test_mg2_composite_admission.py
+              tests/operations/test_b_scorer_admission.py
+              tests/operations/test_l6_own_state_admission.py
+              tests/operations/test_pooled_residual_model_admission.py
+              tests/operations/test_r0_ols_floor_challenger_admission.py
+              tests/operations/test_ols_floor_ladder_admission.py
               tests/operations/test_long_job_guard.py
               tests/operations/test_replay_cache_compression.py
               tests/operations/test_wait_pr_ci_script.py
@@ -146,6 +166,7 @@ jobs:
               tests/market/test_mm_credential_import_cli.py
               tests/operations/test_codex_host_load_hook_focused_exemption.py
               tests/operations/test_workstation_heavy_queue.py
+              tests/operations/test_workstation_heavy_slots.py
               tests/operations/test_thin_ensure.py
               tests/operations/test_scheduled_task_local_daily_triggers.py
               tests/operations/test_exchange_economics_refresh_script.py

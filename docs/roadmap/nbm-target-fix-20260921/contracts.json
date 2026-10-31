@@ -1,0 +1,145 @@
+{
+  "network_downloads": [
+    {
+      "pass": 1,
+      "url": "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.20260917/07/text/blend_nbptx.t07z"
+    },
+    {
+      "pass": 1,
+      "url": "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.20260917/19/text/blend_nbptx.t19z"
+    },
+    {
+      "pass": 2,
+      "url": "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.20260917/07/text/blend_nbptx.t07z"
+    },
+    {
+      "pass": 2,
+      "url": "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.20260917/19/text/blend_nbptx.t19z"
+    }
+  ],
+  "manifest_probes": [
+    {
+      "pass": 1,
+      "market": "nyc",
+      "target_date": "2026-09-17",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "fcf742340664da3a5b19b729cc51dfa78861b8d82a562aed9a3c1a52fe51ed9c",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    },
+    {
+      "pass": 1,
+      "market": "nyc",
+      "target_date": "2026-09-18",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "4c51054fdc2fa8f8cdc9a52c86a9b9b4729714cb64382d7e09463ff8a87104e4",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    },
+    {
+      "pass": 1,
+      "market": "los-angeles",
+      "target_date": "2026-09-17",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "fcf742340664da3a5b19b729cc51dfa78861b8d82a562aed9a3c1a52fe51ed9c",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    },
+    {
+      "pass": 1,
+      "market": "los-angeles",
+      "target_date": "2026-09-18",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "4c51054fdc2fa8f8cdc9a52c86a9b9b4729714cb64382d7e09463ff8a87104e4",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    },
+    {
+      "pass": 2,
+      "market": "nyc",
+      "target_date": "2026-09-17",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "fcf742340664da3a5b19b729cc51dfa78861b8d82a562aed9a3c1a52fe51ed9c",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    },
+    {
+      "pass": 2,
+      "market": "nyc",
+      "target_date": "2026-09-18",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "4c51054fdc2fa8f8cdc9a52c86a9b9b4729714cb64382d7e09463ff8a87104e4",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    },
+    {
+      "pass": 2,
+      "market": "los-angeles",
+      "target_date": "2026-09-17",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "fcf742340664da3a5b19b729cc51dfa78861b8d82a562aed9a3c1a52fe51ed9c",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    },
+    {
+      "pass": 2,
+      "market": "los-angeles",
+      "target_date": "2026-09-18",
+      "parser_version": "nbm-probabilistic-tmax-parser-v2",
+      "payload_hash": "4c51054fdc2fa8f8cdc9a52c86a9b9b4729714cb64382d7e09463ff8a87104e4",
+      "missing_manifest_fields": [
+        "period_kind",
+        "group_index",
+        "token_index",
+        "cycle_age_hours",
+        "raw_values",
+        "value_rejection_reasons"
+      ]
+    }
+  ],
+  "unique_blob_count": 2,
+  "status": "BLOCK",
+  "reason": "manifest_fields_missing_and_cross_pass_downloads_repeat"
+}

@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -138,6 +139,56 @@ def test_reward_records_not_heartbeat(case, tmp_path):
         assert "no producer registered" in finding["detail"]
 
 
+# (manifest status or None/"malformed", manifest age h, report text or None, report age h, severity, source)
+STAGE_A_CASES = {
+    "completed_fresh": ("COMPLETED", 22, "Status: **ok**", 22, "OK", "manifest"),
+    "completed_old": ("COMPLETED", 36, "Status: **ok**", 36, "WARN", "manifest"),
+    "completed_stale": ("COMPLETED", 60, "Status: **ok**", 60, "CRITICAL", "manifest"),
+    # The defect: killed at 11:55 after per-step checkpoints, so the report is fresh.
+    "killed_with_fresh_report": ("RUNNING", 20, "Status: **running**", 20, "CRITICAL", "manifest"),
+    "killed_report_says_ok": ("RUNNING", 20, "Status: **ok**", 1, "CRITICAL", "manifest"),
+    "running_now": ("RUNNING", 0.5, "Status: **running**", 0.5, "WARN", "manifest"),
+    "error_status": ("ERROR", 20, "Status: **error**", 20, "CRITICAL", "manifest"),
+    "missing_manifest_running_report": (None, 0, "Status: **running**", 1, "CRITICAL", "report"),
+    "missing_manifest_finished_report": (None, 0, "Status: **ok**", 20, "OK", "report"),
+    "malformed_manifest_running_report": ("malformed", 1, "Status: **running**", 1, "CRITICAL", "report"),
+    "missing_both": (None, 0, None, 0, "CRITICAL", "none"),
+}
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", sorted(STAGE_A_CASES))
+def test_stage_a_chain_completion_uses_manifest_not_report_mtime(case, tmp_path):
+    status, manifest_age, report, report_age, severity, source = STAGE_A_CASES[case]
+    now = datetime(2026, 9, 24, 8, 10)
+    manifest_path = tmp_path / "stage_a.json"
+    report_path = tmp_path / "daily_refresh_report.md"
+    if status == "malformed":
+        manifest_path.write_text("{truncated", encoding="utf-8")
+    elif status is not None:
+        manifest_path.write_text(json.dumps(dict(
+            status=status, started_at_utc="2026-09-23T13:30:00+00:00",
+            completed_at_utc="2026-09-23T15:40:00+00:00" if status == "COMPLETED" else None,
+        )), encoding="utf-8")
+    if status is not None:
+        stamp = (now - timedelta(hours=manifest_age)).timestamp()
+        os.utime(manifest_path, (stamp, stamp))
+    if report is not None:
+        report_path.write_text(f"# Daily Refresh\n\n{report}\n", encoding="utf-8")
+        stamp = (now - timedelta(hours=report_age)).timestamp()
+        os.utime(report_path, (stamp, stamp))
+    result = ps("staleness_sweep.ps1", ["Get-WeatherStageAChainFinding"],
+                "Get-WeatherStageAChainFinding -ManifestPath (Join-Path $root 'stage_a.json') "
+                "-ReportPath (Join-Path $root 'daily_refresh_report.md') "
+                f"-Now ([datetime]'{now.isoformat()}') | ConvertTo-Json -Compress", tmp_path)
+    assert result.returncode == 0, result.stderr
+    finding = json.loads(result.stdout)
+    assert (finding["severity"], finding["source"]) == (severity, source), finding
+    source_text = (ROOT / "scripts/ops/staleness_sweep.ps1").read_text(encoding="utf-8-sig")
+    assert 'Test-FileAge "chain/daily_refresh_report"' not in source_text
+    assert "daily_refresh_settlement_truth_manifest.json" in source_text
+
+
 def test_watchdog_rotates_without_rewriting_and_reads_archive_tail(tmp_path):
     log = tmp_path / "host_health_alerts.jsonl"
     old = b'x' * 2048 + b'\n{"ts":"2026-09-24T13:00:00Z","top_severity":"CRITICAL"}\n'
@@ -188,3 +239,49 @@ def test_maker_evidence_age_is_utc_not_local(tmp_path):
         capture_output=True, text=True, check=True,
     ).stdout
     assert abs(int(out)) < 60
+
+
+def _capture_family_block(tmp_path, tasks, payload, exit_code=0):
+    source = (ROOT / "scripts" / "ops" / "status.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("$captureFamilies = @()")
+    end = source.index('catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }')
+    block = source[start:end] + 'catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }'
+    (tmp_path / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+    task_rows = "".join(f"[pscustomobject]@{{TaskName='{name}';State='{state}'}};" for name, state in tasks)
+    runner = tmp_path / "families.ps1"
+    runner.write_text(
+        "$ErrorActionPreference='Stop'\n"
+        "$flags=New-Object System.Collections.Generic.List[string]; $warns=New-Object System.Collections.Generic.List[string]\n"
+        f"function Get-ScheduledTask {{ param($TaskName,$ErrorAction) @({task_rows}) | Where-Object {{ $_.TaskName -like $TaskName }} }}\n"
+        f"function fakepy {{ $global:seen=$args; Get-Content -Raw '{tmp_path / 'payload.json'}'; $global:LASTEXITCODE={exit_code} }}\n"
+        "$py='fakepy'\n" + block + "\n"
+        "[Console]::Out.Write((@{flags=@($flags);warns=@($warns);seen=@($global:seen);rows=@($captureFamilies).Count} | ConvertTo-Json -Compress))\n",
+        encoding="utf-8-sig",
+    )
+    out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(runner)],
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+@pytest.mark.spawns
+def test_status_capture_family_block_forwards_task_states_and_alarm_levels(tmp_path):
+    payload = {"families": [{"family": "lowest_temperature", "line": "x"}],
+               "flags": ["CAPTURE_FAMILY a: state DEGRADED"],
+               "warns": ["CAPTURE_FAMILY b: stopped at its own 70 GiB free-space floor"]}
+    result = _capture_family_block(
+        tmp_path, [("WeatherMakerEvidenceCapture", "Ready"), ("WeatherMakerEvidenceLowestTemperature", "Disabled"),
+                   ("WeatherOther", "Ready"), ("Unrelated", "Ready")], payload)
+
+    assert result["seen"] == ["-m", "weather.reporting.market.capture_family_status",
+                              "--task-state", "WeatherMakerEvidenceCapture=Ready",
+                              "--task-state", "WeatherMakerEvidenceLowestTemperature=Disabled",
+                              "--task-state", "WeatherOther=Ready"]
+    # A disk-floor stop arrives as a WARN and stays a note; it never becomes a FLAG.
+    assert result["flags"] == payload["flags"] and result["warns"] == payload["warns"] and result["rows"] == 1
+
+
+@pytest.mark.spawns
+def test_status_capture_family_block_flags_when_the_reader_fails(tmp_path):
+    result = _capture_family_block(tmp_path, [], {"families": []}, exit_code=1)
+
+    assert result["flags"] == ["CAPTURE_FAMILY status check failed to run"] and result["warns"] == []

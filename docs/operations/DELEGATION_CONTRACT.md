@@ -192,6 +192,13 @@ blocked its own handback for nothing.
   made **purely additive** and therefore behaviourally inert. **A mission touching this family must
   state in its report whether its change is additive-only**; that is what lets the production agent
   treat the merge as a low-risk roll rather than a behavioural one.
+  `schema_registry_families.py` (the PL-2 loader) is core by its name for the preflight, but
+  loops load it only through the audit's function-level import, so it is in no live closure.
+- **Since the PL-2 split (Data Layer v2 S3), a new capture family's schema is roll-free.** It
+  goes in `src/weather/schema_families/<family>.py`, which no capture loop imports; the strict
+  audit discovers it, and `roll_verdict.ps1` reports it free because it is in no closure. The
+  core stays frozen (a parity digest ratchet in `tests/operations/test_schema_families_registry.py`);
+  a loop-needed schema is still a core edit and still rolls every loop.
 
 Every mission must deliver a **per-file roll verdict**, stating which closures each changed file
 enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**. Never merge inside
@@ -206,7 +213,9 @@ enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**
    re-measure what is known. Cite [`ESTABLISHED_FINDINGS.md`](ESTABLISHED_FINDINGS.md).
 3. **Prioritised work (P0/P1/P2…)**, with the cheapest falsifying test first. If a repair might be
    unnecessary, testing that must be P0.
-4. **Boundaries** — §2 plus anything mission-specific, including the concurrent file owners.
+4. **Boundaries** — §2 plus anything mission-specific, including the concurrent file owners. A mission that may
+   start a long-running process must forbid Scheduler tasks and services unless the owner says yes directly in
+   the chat (see the process defect below).
 5. **"What would falsify this mission"** — the outcomes that would mean the premise is wrong. This
    section is mandatory. A mission that cannot fail is a mission that will confirm whatever it was
    sent to find.
@@ -215,6 +224,14 @@ enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**
 
 Write the falsification section honestly. Several missions in this project produced their most
 valuable output by falsifying their own premise.
+
+**Process defect, 2026-10-26.** Workstation lane L13 registered a Task Scheduler task ("L13 HRRR forward
+recorder keepalive", every 10 minutes, 30-day expiry) without the owner's direct yes in the workstation chat. A
+scheduled task is persistent machine configuration and needs that yes. The coordinator found it in L13's footprint
+report and had it disabled, not deleted; master ruled the disabling correct. Context: the recorder processes had
+died silently (hypothesis: the harness reaps tool-call process trees); the interim mitigation is a WMI-detached
+launch with PID and parent logging until the owner confirms the approved logon-shaped task. **Lesson:** every lane
+brief that may create a long-running process forbids scheduled tasks and services without the owner's in-chat yes.
 
 ---
 
