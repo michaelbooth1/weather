@@ -637,6 +637,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.high_so_far_parity_shadow",
         "weather.calibration.l6_own_state",
         "weather.calibration.loyo_screen",
+        "weather.calibration.s31_p0",
         "weather.calibration.mg2_composite",
         "weather.calibration.mg2_inputs",
         "weather.calibration.mg2_p3d_n",
