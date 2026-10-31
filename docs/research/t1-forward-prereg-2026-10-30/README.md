@@ -19,9 +19,13 @@ after the coordinator has been told; the lane never freezes on its own.
 - Rev 4 folds in master's rulings Q-a, Q-b and Q-c of 2026-10-30 (sections 0, 2, 7 and 8).
 - Rev 5 folds in master's ρ ruling of 2026-10-30: planned ρ = 0.28, VIF 1.78 per checklist (f), N = 63
   scored (70 countable) dates at δ_s = 0.030 (section 7 and 8).
-- Rev 6 (this file) folds in master's acceptance of rev 5 with rulings (2026-10-30): the deciding interval is the
+- Rev 6 folds in master's acceptance of rev 5 with rulings (2026-10-30): the deciding interval is the
   AR(1)/VIF-adjusted one with ρ measured on T+1's own accrued d, floored at 0.28; the date-clustered interval is
   descriptive; the R-K back-out file sha is added at the freeze check; the look schedule under rule 9 is explicit
+  (sections 7 and 8).
+- Rev 7 (this file) folds in master's ruling on rev 6 (2026-10-30): the after-the-fact 7/14/21 looks stand, and the
+  (f) power is computed by simulation with the futility path, the AR(1) deciding interval and its VIF floor 1.78
+  exactly as applied. That power is 0.455 at N = 63, so N rises to **75 scored (82 countable) dates**, power 0.505
   (sections 7 and 8). Still NOT frozen.
 
 This is a dated research draft, not canonical guidance.
@@ -260,9 +264,22 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - Power at δ_s is Φ(δ_s·√N/(σ·√VIF·k) − 1.96), with the MDE inflated by k = 1.07 (rule 7, the upper end of 4–7%).
   - Rev 5 (VIF 1.11 → 1.78): at the former N = 40 the primary power falls to 0.35, below 0.5. δ_s is not shrunk;
     more N is the only lever.
-  - The smallest N with power ≥ 0.5 at the primary σ is **N = 63 scored countable dates** (power 0.501), so
-    **70 countable dates** in all with the 7 burn-in dates.
-  - N = 63 ≥ 20, so a PASS is allowed.
+  - Rev 5's analytic N = 63 (power 0.501) left out the futility path and the deciding interval's own VIF. It is
+    superseded by the simulation below.
+  - **Simulated power (rev 7, master ruling 2026-10-30).** Script `power_sim.py` in this folder, sha256
+    `682eb25763db86ce16ef3615122342768feeb25213ac4dc3e4cf889b089e4ae6`; output `C:	\l3t1sim\power_sim_out.json`,
+    sha256 `7794998f8824db612ec925f05cd03b420b93836f4cec976b45a651a8f8932383`. No data is read.
+    - Model: stationary Gaussian AR(1) daily d, ρ = 0.28, marginal sd σ_d·k = 0.085 × 1.07, mean −δ_s = −0.030;
+      100,000 paths, seed 20261030.
+    - Applied exactly as in this rule: the 7/14/21 looks after the fact and the binding 31 look (z with VIF 1.78);
+      at the final look PASS iff mean + 1.96·s·√VIF_look/√N < 0 with VIF_look = max(1.78, (1+ρ̂)/(1−ρ̂)).
+    - Power at N = 63: 0.455 (k = 1.07; 0.507 at k = 1.00). Below 0.5, so N is raised; δ_s is not shrunk.
+    - The smallest N with simulated power ≥ 0.5 at k = 1.07 is **N = 75 scored countable dates** (power 0.505;
+      futility stops 22.9% of paths; 0.549 without futility), so **82 countable dates** in all with the 7 burn-in
+      dates.
+  - N = 75 ≥ 20, so a PASS is allowed.
+
+  The analytic table below (no futility, VIF 1.78) is kept for reference only; the simulated N governs.
 
   | σ_d | Power at δ_s, N = 63 (k = 1.07) | MDE80 at 63 (k = 1.07) | N80 at δ_s (k = 1.07) | N for power 0.5 |
   | --- | --- | --- | --- | --- |
@@ -271,7 +288,8 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   | 0.032 | 1.00 | 0.016 | 19 | 9 |
 
   - (f) fields: sigma_d 0.085 (dev, R-K back-out); rho 0.28 (planned, largest measured market pair); VIF 1.78;
-    delta 0.030; N 63; MDE80 0.043; power 0.50; class SCREEN (δ_s < MDE80); N80 129; intervals AR(1)/VIF-adjusted
+    delta 0.030; N 75; MDE80 0.039 (analytic at 75, k = 1.07); power 0.505 (simulated, futility and deciding
+    interval included); class SCREEN (δ_s < MDE80); N80 129 (analytic, lower bound); intervals AR(1)/VIF-adjusted
     (verdict, ρ floored at 0.28) and date-clustered (descriptive, reported beside it).
 
   - At the primary σ the test is underpowered for 80%, so it stays a SCREEN. That holds whatever the dates.
@@ -315,7 +333,7 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
      This is where the futility path runs: the 7, 14 and 21 looks are applied there along the date-ordered path,
      and the 31-date look is the one that actually binds. **The 7/14/21 looks cannot run earlier.** No PASS here.
      Dates claimed by PT-1 are not read at this look.
-  2. **Final look:** no earlier than 70 countable dates AND after PT-1's look (about late January or early
+  2. **Final look:** no earlier than 82 countable dates AND after PT-1's look (about late January or early
      February 2027 if PT-1 binds as drafted). The verdict is read only here.
   Each look comes strictly after the last look of every test that claims any of the dates it reads:
   - B (look 12-13);
@@ -323,7 +341,7 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - any other test in the look chain (L6_G, MG-3, PT-1) whose claimed dates intersect ours.
 
   The freeze row lists those tests by name and fixes the final look as the later of two dates: the day after the
-  last of their recorded looks, and the date by which 70 countable dates have accrued. If a claiming test's look moves later,
+  last of their recorded looks, and the date by which 82 countable dates have accrued. If a claiming test's look moves later,
   this look moves with it. It is never earlier.
 - **Q1 (read scope at the look): answered by rule 9 (owner 2026-10-30); confirmed by master 2026-10-30 (Q-b).** After
   the last claiming look, the accrued dates join dev, prices included. At the look the scorer reads only the following,
@@ -347,7 +365,8 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
     pinned.
   - If P2 or P3 is not met at P1, the lane reports that and waits. It does not freeze a partial batch.
   - The freeze row carries this file's sha256, the emitter sha, the recorder blobs, the R-K back-out file sha256
-    (the σ_d source, checklist (f)), the claiming-test list and the look schedule. It is written as `pending` before the freeze commit.
+    (the σ_d source, checklist (f)), the power simulation script sha256 and its output sha256 (section 7),
+    the claiming-test list and the look schedule. It is written as `pending` before the freeze commit.
 
 ## 9. Not done under this rule
 
