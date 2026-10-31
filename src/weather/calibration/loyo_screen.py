@@ -40,6 +40,11 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
     R-Q B as a market-residual P0 (``weather.calibration.rqb_spread_p0``, rule 844c2eb5, ledger row 88): the
     captured GEFS ``day_member_high_spread_80`` (type S) at 00-06, K = 1, the same placebo and BH machinery. Dev
     window only.
+``toronto-eccc-p0``
+    Toronto native guidance against the market (``weather.calibration.toronto_eccc_p0``, rule b8718b46, ledger
+    row 90): captured Open-Meteo GEM seamless day high and the ECCC citypage forecast high (type C, native °C)
+    at 07-12 on the row 77 Toronto table, K = 2, the same placebo and BH machinery. ``--selection-only`` is the
+    outcome-free coverage check. Reads sha-pinned replay, tape and WU label files; no network. Dev window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -405,6 +410,13 @@ def build_parser():
     rq.add_argument("--replay-root", required=True, help="captured replay inputs (replay-inputs-le0929)")
     rq.add_argument("--out", required=True)
     rq.add_argument("--allow-dirty", action="store_true")
+    te = sub.add_parser("toronto-eccc-p0", help="Toronto ECCC GEM / citypage P0 (rule b8718b46): 07-12, dev")
+    te.add_argument("--replay-root", required=True, help="captured replay inputs (replay-inputs-le0929)")
+    te.add_argument("--tapes-root", required=True, help="Toronto tapes (tapes-toronto-0801-0929)")
+    te.add_argument("--labels-root", required=True, help="repository root holding the pinned data/ WU label files")
+    te.add_argument("--out", required=True)
+    te.add_argument("--selection-only", action="store_true", help="outcome-free coverage check only")
+    te.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -433,6 +445,20 @@ def main(argv=None):
                                     allow_dirty=args.allow_dirty)
         print(json.dumps({"line": receipt["line"], "controls": {k: v["verdict"] for k, v in
                                                                receipt["controls"].items()}}, indent=1))
+        return 0
+    if args.command == "toronto-eccc-p0":
+        from weather.calibration import toronto_eccc_p0
+
+        if args.selection_only:
+            receipt = toronto_eccc_p0.selection_check(replay_root=args.replay_root, out_dir=args.out)
+            print(json.dumps({"snapshots": receipt["snapshots"], "n_dates": receipt["n_dates"],
+                              "per_block": receipt["per_block"]}, indent=1))
+            return 0
+        receipt = toronto_eccc_p0.run(out_dir=args.out, replay_root=args.replay_root,
+                                      tapes_root=args.tapes_root, repo_root=args.labels_root,
+                                      allow_dirty=args.allow_dirty)
+        print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
+                                                                 receipt["controls"].items()}}, indent=1))
         return 0
     if args.command == "marine-p0":
         from weather.calibration import marine_p0
