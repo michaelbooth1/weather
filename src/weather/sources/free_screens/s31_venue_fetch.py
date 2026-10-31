@@ -408,21 +408,30 @@ def parse_candles(body, market_ticker, end_ts_exclusive):
 
 
 def parse_pair_time(text, tz_name=None):
-    """ISO-8601 ``pair_time``. Naive values need an explicit ``tz_name`` (documented zone), else refuse."""
+    """ISO-8601 ``pair_time`` as ``(declared_utc, conservative_utc)``.
+
+    Naive values need an explicit ``tz_name`` (documented zone), else refuse. For a naive value the
+    conservative UTC is the latest-UTC reading among the US market zones (Pacific), whatever zone is declared,
+    so a mis-declared zone cannot admit a fill past the bound (master F8). For an aware value both are equal.
+    """
     try:
         value = datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
     except ValueError as err:
         raise FormatRefused(f"pair_time {text!r} is not ISO-8601; file refused") from err
-    if value.tzinfo is None:
-        if not tz_name:
-            raise FormatRefused(f"pair_time {text!r} has no time zone and none was documented")
-        value = value.replace(tzinfo=ZoneInfo(tz_name))
-    return value.astimezone(timezone.utc)
+    if value.tzinfo is not None:
+        utc = value.astimezone(timezone.utc)
+        return utc, utc
+    if not tz_name:
+        raise FormatRefused(f"pair_time {text!r} has no time zone and none was documented")
+    declared = value.replace(tzinfo=ZoneInfo(tz_name)).astimezone(timezone.utc)
+    conservative = max(value.replace(tzinfo=ZoneInfo(tz)).astimezone(timezone.utc) for tz in TIMEZONES)
+    return declared, max(declared, conservative)
 
 
 def parse_pairs(body, bound_utc, pair_time_tz=None):
     """Allowlist C. Per row, ``expiration_date`` and ``pair_time`` are read first; a row expiring after
-    2026-09-29 or filled at/after ``bound_utc`` is dropped without its price being read."""
+    2026-09-29 or filled at/after ``bound_utc`` is dropped without its price being read. A naive ``pair_time``
+    is tested on its conservative (latest, Pacific) UTC reading, and both readings are recorded (master F8)."""
     reader = csv.reader(io.StringIO(body.decode("utf-8-sig")))
     header = tuple(next(reader, ()))
     if header != FEX_HEADER:
@@ -436,12 +445,15 @@ def parse_pairs(body, bound_utc, pair_time_tz=None):
             expiry = date.fromisoformat(rec[col["expiration_date"]].strip()[:10])
         except ValueError as err:
             raise FormatRefused(f"pairs line {line_no}: expiration_date unparseable") from err
-        filled = parse_pair_time(rec[col["pair_time"]], pair_time_tz)
-        if expiry > DEV_LAST or filled >= bound_utc:
-            dropped.append({"line": line_no, "expiration_date": expiry.isoformat(), "pair_time_utc": filled.isoformat()})
+        filled, conservative = parse_pair_time(rec[col["pair_time"]], pair_time_tz)
+        times = {"pair_time_utc": filled.isoformat()}
+        if conservative != filled:
+            times["pair_time_utc_conservative"] = conservative.isoformat()
+        if expiry > DEV_LAST or conservative >= bound_utc:
+            dropped.append({"line": line_no, "expiration_date": expiry.isoformat(), **times})
             continue
         rows.append({"event_contract": rec[col["event_contract"]], "expiration_date": expiry.isoformat(),
-                     "yes_price": float(rec[col["yes_price"]]), "pair_time_utc": filled.isoformat()})
+                     "yes_price": float(rec[col["yes_price"]]), **times})
     return rows, dropped
 
 

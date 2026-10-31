@@ -301,3 +301,25 @@ def test_main_refuses_bad_plan_json(tmp_path, capsys):
     plan.write_text("[{not json", encoding="utf-8")
     assert s31.main(["--plan", str(plan), "--out", str(tmp_path / "out"), "--archive-root", str(tmp_path / "a")]) == 2
     assert "REFUSED" in capsys.readouterr().err
+
+
+# ------------------------------------------------------- master F8: naive pair_time under a wrong zone
+
+def test_naive_pair_time_declared_et_past_bound_on_pacific_reading_dropped():
+    # 22:00 naive read as ET is 02:00Z (inside the bound); read as Pacific it is 05:00Z (past it): dropped.
+    body = (PAIRS_HEADER + "1,NYC_0929_80,2026-09-29,1,GARBAGE,0.5,2026-09-29T22:00\n").encode()
+    rows, dropped = s31.parse_pairs(body, s31.GLOBAL_BOUND_UTC, pair_time_tz="America/New_York")
+    assert rows == []
+    assert dropped == [{"line": 2, "expiration_date": "2026-09-29",
+                        "pair_time_utc": "2026-09-30T02:00:00+00:00",
+                        "pair_time_utc_conservative": "2026-09-30T05:00:00+00:00"}]
+
+
+def test_naive_pair_time_records_both_readings_when_kept():
+    body = (PAIRS_HEADER + "1,NYC_0929_80,2026-09-29,1,0.5,0.5,2026-09-29T20:00\n").encode()
+    rows, dropped = s31.parse_pairs(body, s31.GLOBAL_BOUND_UTC, pair_time_tz="America/New_York")
+    assert dropped == []
+    assert rows[0]["pair_time_utc"] == "2026-09-30T00:00:00+00:00"
+    assert rows[0]["pair_time_utc_conservative"] == "2026-09-30T03:00:00+00:00"
+    aware, conservative = s31.parse_pair_time("2026-09-29T20:00:00Z", "America/New_York")
+    assert aware == conservative == datetime(2026, 9, 29, 20, 0, tzinfo=timezone.utc)
