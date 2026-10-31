@@ -187,9 +187,22 @@ else {
     }
 }
 $slotId = [int]$lease.WorkstationSlotId
+# Per-job BLAS/OpenMP thread cap so concurrent slots share the cores; a caller
+# may lower it but never raise it.
+$threadCap = Resolve-WeatherWorkstationThreadCap -SlotCount $SlotCount
+$threadCapRecord = [ordered]@{
+    cap = $threadCap.Cap
+    logical_processors = $threadCap.LogicalProcessors
+    values = $threadCap.Values
+}
 [Console]::Out.WriteLine((
     "workstation-heavy: admitted to slot {0} of {1} (busy before: {2})" -f
     $slotId, $SlotCount, ((@($lease.BusySlotsAtAdmission)) -join ",")
+))
+[Console]::Out.WriteLine((
+    "workstation-heavy: thread cap {0} of {1} logical processors ({2})" -f
+    $threadCap.Cap, $threadCap.LogicalProcessors,
+    ((@($threadCap.Values.Keys | ForEach-Object { "{0}={1}" -f $_, $threadCap.Values[$_] })) -join " ")
 ))
 [Console]::Out.Flush()
 
@@ -204,6 +217,13 @@ try {
         "1",
         "Process"
     )
+    foreach ($threadVariable in @($threadCap.Values.Keys)) {
+        [Environment]::SetEnvironmentVariable(
+            $threadVariable,
+            [string]$threadCap.Values[$threadVariable],
+            "Process"
+        )
+    }
     [Environment]::SetEnvironmentVariable(
         "WEATHER_WORKSTATION_WRAPPER_SLOT",
         [string]$slotId,
@@ -261,6 +281,11 @@ if ($Queue) {
     Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "finish" `
         -Ticket ([long]$lease.QueueTicket) -Position ([int]$lease.QueuePosition) `
         -WaitedSeconds ([double]$lease.QueueWaitedSeconds) -Workload $workloadName `
-        -Extra @{ exit_code = $exitCode; slot_id = $slotId; slot_count = $SlotCount }
+        -Extra @{
+            exit_code = $exitCode
+            slot_id = $slotId
+            slot_count = $SlotCount
+            thread_cap = $threadCapRecord
+        }
 }
 exit $exitCode

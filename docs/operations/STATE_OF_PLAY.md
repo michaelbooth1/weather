@@ -1,92 +1,92 @@
 # State of play
 
-**Last updated: 2026-10-22 America/Toronto (owner GO: Python C night 10-23/24; N12 10-22/23; N13 10-24/25; S2+S9
-10-25/26; EDGE-1 D0 10-28 under amendments (s)/(s-C), pending the owner).**
+**Last updated: 2026-10-31 America/Toronto (morning: 09-30..10-14 released and row 80 exported; S31 venue prices approved;
+everything ruled out archived; research review; night 10-30/31 landed AIFS and the cold-snapshot fix; Rule B-1 bound 10-28, D0 10-29).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
-> **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** This file owns
-> current decisions and current truth. `status.ps1` flags it when its declared date is more than 3 days old. Live readings
-> (free space, commit, capture health) come from `status.ps1` and `Get-Volume -DriveLetter C`, not from this file.
+> **REWRITTEN, never appended. At most 95 lines and about 9 KB, one fact per bullet, detail in the linked owner.** `status.ps1` flags
+> it when its date is over 3 days old. Live readings (free space, commit, capture health) come from `status.ps1` and `Get-Volume`.
 
-## Objectives (owner, 2026-09-23, refined 2026-09-25/27 and 2026-10-19)
+## Objectives (owner 10-23 hard directive, sharpened by option B 10-25 and 10-30)
 
-Precondition: protect capture and settlement evidence. **A. Forecast:** as good as our own free information allows, and now
-the focus: find out fairly and fast whether the model can develop an edge over market prices (owner 10-19). **B. An informed,
-domain-neutral market maker**; if the model shows no edge after every option is exhausted, the maker work may move to YouTube
-views (owner 10-19). Plan: [informed maker design](informed-maker-design-2026-09-25.md).
+Precondition: protect capture and settlement evidence. **The goal is model improvement**: exhaust the model levers and run one
+minimal forward edge test (B) against market prices ("We exhaust all options on model improvements", owner 10-25). **A B FAIL ends
+this candidate's edge claim, not the project** (owner Q2 10-25, DL); work continues down the [lever inventory](LEVER_INVENTORY_2026-10-26.md).
+**Iterate fast** (owner 10-30, nine decisions, DL): kill on history and dev in days, no serial 45-day forward tests; rules in
+[MODEL_IMPROVEMENT_METHOD](MODEL_IMPROVEMENT_METHOD.md) §5. 88a, bundle B, plugin core and YouTube stay paused.
+
+## Headline
+
+- **Free public data looks already priced:** every free source scored against the market on dev is null or harmful ([register](EXHAUSTION_REGISTER.md) §6 X44-X82; mostly "KILL at edge size").
+- About two thirds of P3d's 07-12 excess (64%) survives re-centring and tempering (EF §10ag derivation); calling it sharpness is an interpretation.
+- **Against the market the model adds nothing yet:** walk-forward log-pool weight on MG-1 w ≈ 0.008 (EF §10ad).
+- Independent [research review](../research/research-review-2026-10-31/review.md) (10-31, dated): nothing reversed; untried upside = S31 prices, the atlas, T+1.
 
 ## Current authority
 
-- **Live trading paused** (owner 09-25); **LFC campaign backlogged** (owner 10-19): no t24, no sessions; no agent places,
-  cancels or signs orders.
-- Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges
-  01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
-- 88a changes follow the host roll verdict like any other code. Owner decisions since 09-30 are rows in [DECISION_LOG](DECISION_LOG.md).
-- **Testing (owner 10-04, PR #205):** focused + affected tests, PR CI (Windows lane #262 on 3.11.0) as full-suite evidence;
-  every night head pre-gated on its stacked base; host-only behaviour needs a host run.
-- **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md));
-  relayed owner approvals bind it for serving-model and merges, never money or credentials; credentials never committed.
-- **Workstation tracks** (owner 10-19): the model-edge programme first (harness v3, development screens, EDGE-1 drafts,
-  retrain sizing memo by 11-06; bundle B decided 10-21); YouTube-maker scoping in parallel, documents only. Testing-side work is parked on its branches.
+- **Live maker pilot POSTPONED** (owner 10-30, DL) until a candidate is worth testing; pin, locked worktree and runbook stay as of
+  10-28. Owner sessions only; no agent places, cancels or signs orders. Other live trading paused (owner 09-25).
+- Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md); a one-off wrapper refuses a `$null`
+  lease); roll-sensitive merges 01:00-04:00; roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
+- Owner decisions are rows in [DECISION_LOG](DECISION_LOG.md); master's rulings are labelled as master's, never as the owner's.
+- **Weather data:** paid only per DECISION_LOG-approved source (10-23); free official data needs no ask; ask for packages, logins, payment (10-24).
+- **Other venues' public prices** (S31, owner 10-30, DL): read-only research input; metadata endpoints only, no account, key or
+  trading; their prices follow the same embargo. International Polymarket stays the only trading venue.
+- **Workstation: one Claude Code chat directed by the production agent** ([preamble](WORKSTATION_SESSION_PREAMBLE.md)); parallel
+  lanes, one branch each; heavy work via `workstation_heavy.ps1`; every WS scheduled task needs the owner's yes there.
+- **Record and keep every rule-out** (owner 10-25, 10-30): register §6 row plus the never-cleaned WS archive `C:\archive\ruled-out`
+  (method §5 rule 13); the WS records its own pre-registered kills (10-30); master audits.
 - **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
 
 ## Current truth
 
-- **Production source:** read `origin/master` with git. N12 (`claude/integration-20261019-chain-r3` `739c03eff`, which
-  carries the #190 parser v2 refresh `1f8c2f2c1`) lands the night 10-22/23 (DL 10-20; C did not swap, so N12 lands on 3.11.0).
-- **Forward maker shadow ACTIVE** (`WeatherMakerShadowRunner`, 24/7, 12 bands, paper only); stop only with
-  `data\maker_shadow\STOP`. Scoring embargo: `maker_shadow_panel.py` refuses UTC 09-30..10-15 and 10-15..11-13 (end stays 11-13: #263 N_req 706, DL 10-14).
-  **Descriptive reads of 10-16..11-13 are refused everywhere until the panel closes** (owner 10-17).
-- **Journal pin:** `WeatherManualOrderJournal` pins five files incl. `wallet_reader_client.py`; a merge touching one makes it
-  exit 3 until re-registered ([runbook](manual-order-journal.md)).
-- **Wallet reader (8765)** on `a1014edab` (any-LAN code) since 10-13; serial ([wallet reader](wallet-reader.md)).
-- **Host Python:** Phase B PASS 10-16 (qualified tip `90b2e1844`, an ancestor of master; roll verdict ROLL-FREE); venv
-  still 3.11.0; C 10-21/22 NO-GO at C2, nothing swapped. **C GO night 10-23/24 (owner 10-22, DL):** start 00:30; up to 2
-  same-night retries until 03:30 only for failures before C3 (zero capture gap); a failure after the swap undoes itself and
-  waits for the owner. Runbook `claude/pyup-c-followup-20261022` (light path 10-23), kit `claude/night-plans-pyup-c-next-20261022`. ([runbook](HOST_PYTHON_UPGRADE_RUNBOOK.md))
-- **Unregistered until C passes:** `WeatherMakerEvidenceLowestTemperature`, `WeatherEvidenceHost` (S4, owner yes 10-16),
-  U6 replay-bundle export (owner yes 10-15). S2+S9 lands 10-25/26 from `17439f7c8`; the C night now precedes it, so its 88a restart is the night after (10-26/27) via the restart script (never re-register).
-- **LFC:** session 0 ATTESTED 10-16; backlogged 10-19; pin `21cf1ed42` idle ([record](../research/live-fill-calibration-session0-record-2026-10-16.md)).
-- **Build line** `codex/maker-replay-v2-build-20261003` = `1fd0c295f`; the export nightly stays unregistered.
-- **Maker replay v2** (panel 09-30..10-14 never read): spec v3.4; handout r1 signed 10-12; parked; lapse 10-30 (owner 10-15).
-- **Model-edge programme** (owner 10-19): harness v3 (`claude/harness-v3-20261019`); dates <= 09-29 are development only.
-  **Bundle B decided 10-21, every default** (DL; questions as listed at `d138c3c54`): absent arms neither block nor satisfy NO-GO; Gate 1
-  folds into 12-21 (H-A0, H-A1 UNTESTABLE), so NO-GO rests on MG-1; T1 = NWS hourly; E3 UNTESTABLE; retrain waived for
-  12-21 (best case futility-only R0 from 11-17), its reservation narrow ([RCW](reserved-confirmation-window.md)). **12-21
-  primary, overturn-only 2027-01-25.** Dev replay base is current code, not served (EF §10v); NBM reaches no band (EF §10u).
-- **Model windows:** MG-1 `b044e0f1` scored >= 10-15, BOUND D0 10-15, provisional last 11-28 (owner 10-16). t3-r3 13-16
-  prereg SIGNED 10-16. Evening-fix scorer read 10-29 `--no-market`. SOURCE_DISAGREEMENT Option 1 (SD-1 `ecec210c2`) and the
-  MG-1 bound (`e342baca1`) land in N13 (`d04fe82fc`) night 10-24/25, MG-1 bound first, under a roll verdict (DL 10-20, 10-22). **DST:** OD30 holds 11-01, lapses 11-02.
-- **No-go bar:** [exhaustion register](EXHAUSTION_REGISTER.md) (10-14; the owner keeps the no-go). Stratum-C and Aug-Sep gap numbers are tainted.
-- **Live seals** must be RESEALED before any sealed-lane attempt (#229). **Pinned:** watchdog `1794fd3b`, cold snapshot (91a `6e5ff47`), exam U6 `89618c30`.
-- **88a retention hold:** keep UTC 09-27..10-15 (v2) and 10-15..10-30 (desk-study panel); lossless compression ok.
+- **Production source:** read `origin/master` with git (`5f4d87818` before this batch). Night 10-30/31 landed the AIFS capture-only
+  fix and the cold-snapshot resolver (the 10-30 refusal is RESOLVED); its combo failed repo-wide audits and is rebuilt for 10-31/11-01.
+- **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev.
+  **09-30..10-14 released once for kill-only/atlas reads** (owner 10-30, DL): row 80's look first; boundary = local target date;
+  Austin 10-03 out; MG-2/B outputs out; maker economics stay closed (embargo code unedited). 10-16..11-13 descriptive reads refused (10-17).
+- **Row 80 export done 10-31** under the lease (`C:\xfer\released-0930-1014-20261031\row80`, receipt `6c0f4a1d…`); C1-C3 export follows its receipt.
+- **MG-1** bound, forward shadow; single look after 11-28 ([reserved window](reserved-confirmation-window.md)); outputs never read before it.
+- **MG-2 / Rule B-1 BOUND 10-28** ([design](B_FORWARD_TEST_DESIGN.md); DL 10-28): D0 10-29, N = 45 countable dates, 45th date 12-12,
+  NI margin +0.0027; single look 12-13 after MG-1's. Daily WS pull/receive runs (10-30 verified 10-31 06:30).
+- **B's serial correlation** (dev ρ about 0.22): B's verdict stands as bound; a frozen post-look module may only label a PASS
+  "fragile" (master ruling (b), `b_post_look_serial` frozen `fa380db09`). B's floor counts SPECI from 10-23; its Brier carries that cost.
+- **Kill scopes (master):** R-I fitted temperature/scale maps only; R-G/R-J Aug-Sep only; kill-only dev/history reads need power >= 0.5 at edge size.
+- **Labels (master 10-25):** WU before 10-23, venue rule (routine METAR, WU fallback) from it. **Denver >= 10-23: KDEN, out of MG-2 and B.**
+- **Evening-fix scoring read postponed** (scorer never landed; prereg §5): lands night 10-31/11-01, host replay after; targets
+  10-16..10-27 (+10-28 extension only); two stages, condition 3 after MG-1's look ([Clarification 1](DECISION_LOG.md), master).
+- **Defect lane:** fix 10 (high_so_far train/serve parity, row 33 −0.0088) and fix 11 (no SPECI in the floor from 10-23) are built on
+  `-after-b` branches; they land only after 12-13 and a byte-identity check of the MG-2 export (master).
+- **WS forward recorders** (receipt-dated, owner yes each): ENS and GEM complete from 10-31 00Z; ENS, GEM and IEM MOS run unregistered.
+- **No forecast_history / open_meteo_archives / reanalysis cache rebuild until `a399941e` lands (after 12-21)** (master).
+- **L6_G forward screen** (owner ok, DL 10-28): outcome-blind, N = 45, one look after B; D0 10-31, WS task from 11-01.
+- **More markets** (owner 10-23, DL): R1 pilot cities recorder-only, R2 from 11-01; the R1+R2 config branch lands night 10-31/11-01.
+- **91a nightly** policy `eca4064a…` (expires 11-27). **Maker shadow ACTIVE** (paper; `data\maker_shadow\STOP`). **88a hold:** UTC 09-27..10-30. **DST ends 11-01.**
 
 ## Ordered critical path
 
-1. **Model-edge programme:** EDGE-1 D0 10-28 (N13 serves after the 10-24 clock; DL 10-22); signed bundle-B copies before D0;
-   retrain column-allowlist head (build 10-27, land 10-30); Open-Meteo Previous Runs fetch (owner yes); lever 6 on the workstation.
-2. **Host nights:** N12 10-22/23; C 10-23/24; N13 = MG-1 bound + SD-1 + DST label fix (EF §10w; deferred past 12-21 if that chain fails) 10-24/25; S2+S9 10-25/26; 88a restart 10-26/27; then the waiting registrations.
-3. **YouTube-maker scoping** (documents only): owner actions O1-O5 in the 10-23 bundle.
-4. **Item 337:** host no-METAR replay after C; on PASS flip, bump, quiet window (owner yes).
-5. **Data layer v2:** [plan](DATA_LAYER_V2_PLAN.md); S2+S9 10-25/26; P1 and S4 re-dated after C.
+1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
+2. **Released window:** row 80 look, then the atlas (served-vs-market re-base), C1-C3 kill-only screens; S31 cross-venue P0 (row 99).
+3. **T+1 forward prereg:** the C3 88a kill-tier read first; freeze after it or on schedule (WS decides by 11-02). R-ODC P1 (row 72) runs.
+4. **MG-1 look after 11-28**, then B 12-13; **PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); dates 12-12..01-25) bound before its D0.
 
 ## Open commitments (every row: owner, due, verify)
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| RF policy A (owner 10-15): roll-free heads land on workstation pre-gate + Windows CI once #274, #276/#284 green; then #209 deselect build | T4; workstation | after C | DL row; lane green |
-| Evening-fix scorer `8cdcb62ec` lands (prereg SIGNED 10-13, sha256 in DL; read 10-29 `--no-market`, item 337 owns it) | T3 | 10-28 | scorer on master |
-| Pinned watchdog redeploy from master, re-register only the watchdog task (owner yes 10-15) | production | after C, by 10-28 | watchdog CURRENT |
-| U6 replay-bundle export registered 04:10 from the 3.11.9 build-line tip (owner yes 10-15) | production | first night after C PASS (earliest 10-25 04:10) | task registered; first receipt |
-| 91a policy renewal unchanged (owner A 10-15; CP-5 LZX later, own change) | production | ~10-27 (expires 10-30) | new policy sha |
-| Signed bundle-B copies (GNG, EDGE-1 and methods annexes) land with their signing rows, after the Fable delta | production; workstation | before D0 | DL signing rows |
-| Retrain column allowlist head `claude/retrain-column-allowlist-20261021` (bundle-B prerequisite; R0 drops pressure, base models only, DL 10-21) | workstation | build 10-27, land 10-30 | roll verdict; on master |
-| Open-Meteo Previous Runs fetch 2021-2023 Oct-Dec US11 (owner yes 10-21, (j)) under `workstation_heavy.ps1` | workstation | before R0 11-17 | corpus in `data/training/pit_forecast_corpus/` |
+| PT-1 bound: PT_D0, G = 15 s, rule sha; decide fixes 10/11 candidate-side; Miami floor | master | before PT_D0 | binding commit; DL row |
+| MG-1 look: rulings A1-A14 and b_transfer T1-T5; scorer review; b_transfer/1 writer review | master | 11-03; 11-20; 12-01 | notes |
+| Look-chain clarification (closed list: MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
+| Evening-fix Stage 1 read after the scorer lands | master + WS | 11-01 | scorer receipt |
+| Delete the row 80 staging copy after the WS verifies it | production | after WS check | staging gone |
+| WU-vs-venue measurement 08-11..09-29 on the host (owner 10-23) | production | open | research doc; DL row |
+| L6_G first daily emission | workstation L2 | 11-01 | first receipt |
+| R1+R2 on; 24 h S2+S9 receipts (88a RSS, REST rate, partitions sealed, built-ins unchanged) | master | 11-02 | receipt doc |
 
 ## Standing decisions
 
-- International Polymarket only; no paid weather sources; backups deprioritized; streak contiguity is a diagnostic. Capture-host
-  heavy work is serial, admitted and time-gated; pushing never rolls capture; worktrees `GIT_LFS_SKIP_SMUDGE=1`.
+- International Polymarket only; paid weather sources only per owner-approved source; backups deprioritized; streak contiguity is
+  a diagnostic. Capture-host heavy work is serial, admitted and time-gated; pushing never rolls capture; worktrees `GIT_LFS_SKIP_SMUDGE=1`.
 - Native units, WU cutoffs, probability mass, train/serve parity, replay, release binding and evidence retention stay mandatory.
 
 ## Update this file when

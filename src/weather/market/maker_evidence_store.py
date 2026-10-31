@@ -22,6 +22,11 @@ DEFAULT_STREAM_CAP = 300_000_000
 MAX_RAW_BYTES = 500_000_000
 ROTATE_BYTES = 100_000_000
 MAX_LINE_BYTES = 16 * 1024**2
+# Grouped fsync (data layer v2 S2): appends flush to the OS at once; a background flusher
+# fsyncs every dirty journal within this deadline, before each seal and at close. The
+# execution tape's precedent: three consecutive failed sync passes stop the writer.
+GROUP_FSYNC_SECONDS = 1.0
+MAX_CONSECUTIVE_FSYNC_FAILURES = 3
 # A Windows reader (status.ps1, the cockpit) holding the target makes os.replace fail with
 # PermissionError (access denied / sharing violation) until it closes the file.
 REPLACE_ATTEMPTS = 5
@@ -102,6 +107,10 @@ class RawFootprintLimit(RuntimeError):
     pass
 
 
+class JournalSyncFailure(RuntimeError):
+    pass
+
+
 class WriterLock:
     def __init__(self, root):
         self.path = Path(root) / ".writer.lock"
@@ -130,7 +139,7 @@ class WriterLock:
 
 class EvidenceStore:
     def __init__(self, root, *, stream_cap=DEFAULT_STREAM_CAP, clock=utc_now,
-                 max_raw_bytes=MAX_RAW_BYTES, rotate_bytes=ROTATE_BYTES):
+                 max_raw_bytes=MAX_RAW_BYTES, rotate_bytes=ROTATE_BYTES, group_fsync=False):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.clock, self.stream_cap = clock, stream_cap
@@ -140,6 +149,8 @@ class EvidenceStore:
         self.bytes_written = self.raw_bytes = self.peak_raw_bytes = 0
         self.stream_bytes, self.stream_capped = 0, False
         self.failure = None
+        self.group_fsync, self.dirty = group_fsync, set()
+        self.appends = self.fsync_calls = self.fsync_failures = self.fsync_consecutive_failures = 0
         self.files, self.latest, self.subscriptions = {}, {}, {}
         self.sequence = self.segment_bytes = 0
         self._recover()
@@ -234,7 +245,12 @@ class EvidenceStore:
                 raise ValueError("journal changed outside writer")
             handle.write(raw)
             handle.flush()
-            os.fsync(handle.fileno())
+            if self.group_fsync:
+                self.dirty.add(self.folder / filename)
+            else:
+                os.fsync(handle.fileno())
+                self.fsync_calls += 1
+        self.appends += 1
         self._update_stats(stats, raw, row)
         self.files[filename] = stats
         self.raw_bytes += len(raw)
@@ -338,9 +354,66 @@ class EvidenceStore:
             return {"sha256": key, "segment": str(self.folder.relative_to(self.root)).replace("\\", "/"),
                     **self.subscriptions[key]}
 
+    def _sync(self):
+        """Fsync every dirty journal once; three consecutive failed passes stop the writer."""
+        pending = sorted(self.dirty)
+        try:
+            for path in pending:
+                # Any write handle flushes the file's buffers. No O_CREAT: a sync never creates,
+                # truncates or writes a journal (the 88a hold: add files only, held segments untouched).
+                handle = os.open(path, os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0))
+                try:
+                    os.fsync(handle)
+                finally:
+                    os.close(handle)
+                self.fsync_calls += 1
+                self.dirty.discard(path)
+        except OSError as exc:
+            self.fsync_failures += 1
+            self.fsync_consecutive_failures += 1
+            if self.fsync_consecutive_failures >= MAX_CONSECUTIVE_FSYNC_FAILURES:
+                self.failure = "journal fsync failed"
+                raise JournalSyncFailure(self.failure) from exc
+            return False
+        self.fsync_consecutive_failures = 0
+        return True
+
+    def sync(self):
+        with self.lock:
+            return self._sync()
+
+    def sync_metrics(self):
+        return {"group_fsync": self.group_fsync, "group_fsync_seconds": GROUP_FSYNC_SECONDS if self.group_fsync else None,
+                "appends": self.appends, "fsync_calls": self.fsync_calls, "fsync_failures": self.fsync_failures,
+                "fsync_consecutive_failures": self.fsync_consecutive_failures, "dirty_journals": len(self.dirty)}
+
+    def record_changed(self, kind, values, *, partition=None, metadata=None):
+        """Append ``{key: value}`` rows only when a value differs from this segment's latest.
+
+        Each segment (hour or 100 MB) starts with a full baseline because ``latest``
+        resets at every roll, so any sealed hour is self-contained.
+        """
+        written = 0
+        with self.lock:
+            for key in sorted(values):
+                self._roll()
+                raw = encoded(values[key])
+                change_key = f"{kind}:{partition or ''}:{key}"
+                prior = self.latest.get(change_key)
+                if prior and prior[0] == digest(raw):
+                    continue
+                self.record(kind, raw, change_key=change_key, partition=partition,
+                            metadata={"key": str(key), **(metadata or {})})
+                written += 1
+        return written
+
     def _seal(self):
         if self.folder is None:
             return None
+        if self.dirty:
+            # A manifest is only written over durable journals; a failed pass refuses the seal.
+            if not self._sync():
+                raise JournalSyncFailure("journal fsync failed before seal")
         files = {name: {key: value for key, value in stats.items() if key != "hash"}
                  | {"sha256": stats["hash"].hexdigest()} for name, stats in self.files.items()}
         info = {"schema_version": SCHEMA, "sealed_at_utc": self.clock().isoformat(), "files": files,

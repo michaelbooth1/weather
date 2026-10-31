@@ -19,16 +19,31 @@ generated reports for dynamic state.
   Toronto is the canonical Celsius market; the built-in U.S. markets use
   Fahrenheit. Legacy identifiers ending in `_c` may predate this contract and
   must be interpreted through their schema/producer, not their name alone.
-- The modeled settlement source is the highest whole-degree value printed by
-  the configured Weather Underground history source for the market's local
-  target date. Rounding and band parsing use the canonical unit helpers.
+- The label of a built-in market-date is the venue's own: the highest
+  whole-degree WU history value before 2026-10-23 (the venue paid the WU band on
+  626/626 measured 08-01..09-29 market-days) and the venue-rule value from it.
+  Read it with `weather.backtesting.venue_label_reader` (on the cutover branch
+  until it lands). Rounding and band parsing use the canonical unit helpers.
+- **Training and evaluation labels for built-in markets follow the venue rule
+  for target dates on or after 2026-10-23:** the highest routine METAR
+  temperature on the local date (SPECI excluded, remark T-group tenths with a
+  body fallback, half-up in the native unit), from the dated per-market label
+  station, with WU only as the fallback. Earlier dates keep the WU label. Serving
+  and its WU floor are unchanged. Contract:
+  [venue-rule labels](venue-rule-labels.md).
 - The venue's own source is declared per location in `config/locations.json`
   `settlement`. Hong Kong settles on a 0.1 °C HKO value that the venue
   truncates (`band_mapping: floor_to_whole_degree`), so the release
   settlement-rules contract declares rounding per location
   (`settlement_band_degree` in `weather.operations.release_candidate_contract`);
   never apply half-up rounding to an HKO value.
-- WU history is the settlement proxy and may establish a hard observed floor.
+- Label-source amendment (owner 2026-10-23, [DECISION_LOG](DECISION_LOG.md)):
+  new cities whose venue source is a METAR report (the more-markets phase-2
+  tranches) are labelled from free IEM METAR, not WU. The amendment covers
+  only those new cities. Owner 2026-10-25 ("Switching to the venue's own labels"):
+  the built-ins label as the venue resolves each date; history is not relabelled
+  with the routine-only rule (8 band flips 08-11..09-29, all paid on the WU band).
+- WU history is the serving floor source and may establish a hard observed floor.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a
   target-date, cutoff-aligned current station observation or its captured
@@ -70,9 +85,10 @@ generated reports for dynamic state.
   are kept as before. Rows captured under `metar-parser-v3` are not rewritten;
   their raw payloads retain `obsTime` for an explicit v4 re-derivation.
 
-Paid weather-provider access is unsupported. Do not add credentials, required
-environment variables, operator commands, or roadmap dependencies for paid
-weather data. WU labels come from retained local artifacts, the public
+Paid weather data is allowed only per source with explicit owner approval
+recorded in DECISION_LOG (owner 2026-10-23). Never commit credentials, and add
+no environment variables, operator commands, or roadmap dependencies for an
+unapproved paid source. WU labels come from retained local artifacts, the public
 page-backed collector, or an explicit reviewed manual-override policy.
 Free WU history access that sends the apiKey token scraped from WU's public web
 page is acceptable under this rule: no account, purchase or issued credential

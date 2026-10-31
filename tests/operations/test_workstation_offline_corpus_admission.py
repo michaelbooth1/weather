@@ -1,7 +1,8 @@
 """Workstation allowlist admits the 2026-10-23 offline scorecard and corpus builders, and no fetcher.
 
 Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope; master ruling
-2026-10-23 lane W) - dev_scorecard, new_city_corpus and forecast_training_corpus are admitted by
+2026-10-23 lane W; lane L5 pre-authorisation 2026-10-24) - dev_scorecard, new_city_corpus,
+forecast_training_corpus and l5_subset_scores are admitted by
 exact module name; network fetch modules and unknown modules stay refused by the real wrapper.
 """
 import argparse
@@ -21,7 +22,9 @@ from tests.powershell_host import run_command as run_powershell_command
 ROOT = Path(__file__).resolve().parents[2]
 ADMISSION = ROOT / "scripts" / "ops" / "workload_admission.ps1"
 ADDED = (
+    "weather.calibration.l5_subset_scores",
     "weather.calibration.new_city_corpus",
+    "weather.calibration.upstream_obs_screen",
     "weather.reporting.scorecards.dev_scorecard",
     "weather.sources.forecast_training_corpus",
 )
@@ -33,6 +36,7 @@ REFUSED = (
     "weather.sources.forecast_history",
     "weather.backtesting.venue_rule_labels",
     "weather.sources.not_a_real_module",
+    "weather.sources.free_screens.iem_upstream",
 )
 
 

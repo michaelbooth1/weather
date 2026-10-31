@@ -274,6 +274,8 @@ $receipt = [ordered]@{
     git_executable = $null
     lease_mode = $null
     workstation_slot_id = $null
+    workstation_exclusive = $false
+    exclusive_holder = $null
     launch_mode = [ordered]@{
         driver = "Start-WeatherProcessInJob -OutputCapture (CREATE_SUSPENDED|CREATE_NO_WINDOW, stdio pipes, kill-on-close Job), as integration_attempt_suite.ps1 launches the host suite"
         chunks = "host bounded suite statements replayed from its AST: Start-WeatherProcessInJob (CREATE_SUSPENDED|CREATE_NO_WINDOW, no inherited handles, kill-on-close Job)"
@@ -302,6 +304,7 @@ $receipt = [ordered]@{
 $failures = New-Object System.Collections.Generic.List[string]
 $exitCode = 1
 $lease = $null
+$exclusiveHold = $null
 $worktreeCreated = $false
 $plan = $null
 $gitExe = $null
@@ -323,12 +326,25 @@ try {
         }
         $receipt.lease_mode = "inherited_from_workstation_heavy"
         $receipt.workstation_slot_id = [int]$slotProbe.SlotId
-    }
-    else {
-        $lease = Enter-WeatherHeavyWorkloadLeaseQueued `
+        # The pre-gate is exclusive even when nested: it also takes every
+        # other slot (master ruling 2026-10-24 W3a).
+        $exclusiveHold = Enter-WeatherWorkstationHeavyExclusiveLease `
             -RepoRoot $RepoRoot `
             -Workload ("WorkstationOffline-pytest-pregate-{0}-{1}" -f $sha12, $PID) `
-            -ExecutionHostProfile "workstation_offline_v1" `
+            -TimeoutSeconds $QueueTimeoutSeconds `
+            -InheritedSlotId ([int]$slotProbe.SlotId)
+        if ($null -eq $exclusiveHold) {
+            $exitCode = $queueTimeoutExitCode
+            throw "workstation heavy-work exclusive wait timed out after $QueueTimeoutSeconds s; nothing was started"
+        }
+        $receipt.workstation_exclusive = $true
+    }
+    else {
+        # Exclusive: every workstation slot, waiting until all are free while new
+        # slot jobs are refused or queued behind it (master ruling 2026-10-24 W3a).
+        $lease = Enter-WeatherWorkstationHeavyExclusiveLease `
+            -RepoRoot $RepoRoot `
+            -Workload ("WorkstationOffline-pytest-pregate-{0}-{1}" -f $sha12, $PID) `
             -TimeoutSeconds $QueueTimeoutSeconds
         if ($null -eq $lease) {
             $exitCode = $queueTimeoutExitCode
@@ -336,6 +352,28 @@ try {
         }
         $receipt.lease_mode = "workstation_queue"
         $receipt.workstation_slot_id = [int]$lease.WorkstationSlotId
+        $receipt.workstation_exclusive = $true
+    }
+    if ($null -ne $lease -and
+        $lease.PSObject.Properties.Name -contains "InheritedFromExclusiveHolder" -and
+        $lease.InheritedFromExclusiveHolder) {
+        # A descendant of the exclusive holder got an empty hold, not a lease.
+        $exclusiveHold = $lease
+        $lease = $null
+        $receipt.workstation_slot_id = $null
+    }
+    if ($null -ne $exclusiveHold -and
+        $exclusiveHold.PSObject.Properties.Name -contains "InheritedFromExclusiveHolder" -and
+        $exclusiveHold.InheritedFromExclusiveHolder) {
+        # Already inside a live ancestor's exclusive hold (PG-NEST-1): admitted
+        # at once, no ticket and no mutex of its own.
+        $receipt.lease_mode = "inherited_from_exclusive_holder"
+        $receipt.workstation_exclusive = $true
+        $receipt.exclusive_holder = [ordered]@{
+            pid = [int]$exclusiveHold.ExclusiveHolderPid
+            owner_process_start_utc = [string]$exclusiveHold.ExclusiveHolderStartUtc
+            workload = [string]$exclusiveHold.ExclusiveHolderWorkload
+        }
     }
 
     # ------------------------------------------------------------ git identity
@@ -547,6 +585,10 @@ finally {
         if (-not $receipt.worktree_removed) { $failures.Add("pre-gate worktree was not removed") }
     }
 
+    if ($null -ne $exclusiveHold) {
+        try { Exit-WeatherWorkstationHeavyExclusiveHold -Hold $exclusiveHold }
+        catch { $failures.Add("workstation exclusive hold release error: $($_.Exception.Message)") }
+    }
     if ($null -ne $lease) {
         try {
             Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null

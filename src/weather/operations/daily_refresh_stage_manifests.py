@@ -204,6 +204,52 @@ def _write_stage_manifest(
     return path, manifest
 
 
+def write_stage_checkpoint(args, payload, *, stage, after_step, written_at_utc, render_report=None):
+    """Publish an in-progress Stage-A manifest (and report) after a step.
+
+    The scheduled wrapper kills the child tree at the 11:55 deadline, so the
+    end-of-run manifest and report were lost whenever a late learning step
+    overran. A checkpoint keeps both current without claiming completion: the
+    manifest status is the running payload status upper-cased (``RUNNING``),
+    never ``COMPLETED``, ``completed_at_utc`` stays empty, ``completed_steps``
+    lists only steps that actually ran, and no ``evidence_trigger`` is
+    published. Every consumer that requires ``COMPLETED`` (the Stage-B start
+    gate, the production-evidence ledger) therefore still fails closed. The
+    end-of-run write replaces it. Best effort: a checkpoint failure never fails
+    the run, because the final publication remains authoritative.
+    """
+
+    if stage != STAGE_SETTLEMENT:
+        return None
+    snapshot = dict(payload)
+    if snapshot.get("status") in {"ok", "critical"}:
+        # Only the end-of-run write may publish a terminal status.
+        snapshot["status"] = "running"
+    snapshot["finished_at_utc"] = None
+    snapshot["generated_at_utc"] = written_at_utc
+    snapshot["lanes"] = lane_summary(args, snapshot.get("steps") or [])
+    path = _stage_manifest_path(args, stage)
+    try:
+        report_path = None
+        if render_report is not None:
+            report_path = render_report(getattr(args, "report_out", ""), snapshot)
+        manifest = _stage_manifest_payload(
+            args,
+            snapshot,
+            stage=stage,
+            report_path=report_path,
+        )
+        manifest["checkpoint"] = {
+            "final": False,
+            "after_step": after_step,
+            "written_at_utc": written_at_utc,
+        }
+        write_json_atomic(path, manifest, trailing_newline=True)
+    except Exception:  # noqa: BLE001 - checkpoints are best effort by contract
+        return None
+    return path
+
+
 def _stage_b_start_gate(args):
     target_date = getattr(args, "settled_analysis_target_date", "") or ""
     stage_a_path = Path(

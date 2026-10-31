@@ -185,6 +185,52 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
   guidance-shaped input looked like a lead. Score a source as a paired increment over the best no-source or captured-data
   control.
 
+### R-D blend "a 07-12 win for the NBM family" — WRONG INCUMBENT, SUPERSEDED (2026-10-25)
+
+- **What it looked like:** lane L2's R-D, a walk-forward hour-wise blend of MG-1 and P3d_N_fix, beat MG-1 at 07-12 by
+  −0.0467 [−0.0665, −0.0257] (crossed [−0.0835, −0.0134]) with every hour below 0, a pre-registered WIN.
+- **What is true:** MG-1 is not the composite's pre-13 arm; L6 (MG-1 plus the own-observation stack) is. Re-asked
+  against L6 under R-F, both blends are NULL: blend(MG-1, P3d_N_fix) − L6 +0.0243 [−0.0033, +0.0523] and
+  blend(L6, P3d_N_fix) − L6 −0.0096 [−0.0187, +0.0003]. No Clarification was written. `ESTABLISHED_FINDINGS.md` §10af.
+- **Why it fooled us:** the comparator was the family's historical reference, not the arm actually in the candidate.
+  Score every rung against the strongest incumbent that would be replaced.
+
+### "A season-matched P3d_N beats MG-2 at 13-16 by about 0.05" — WRONG COMPARATOR, RETRACTED (2026-10-27)
+
+- **What it looked like:** SM-N (the P3d_N spec refitted on Oct-Dec 2021-25 rows) beat "MG-2's P3d_N" at 13-15 by
+  about 0.05 Brier (SM_N − P3d_N −0.0519 [−0.0590, −0.0454], reported beside SM-H's row 48), and was flagged as a
+  season-matched gain MG-2 was missing at 13-16.
+- **What is true:** the comparator was the dev state `dff5d797…`, which was never bound. Against MG-2's served arm
+  (P3d_N_fwd through the `c6cc39f7…` state) SM-N is worse: +0.00356 [+0.00185, +0.00523] at 13-16 (C10-sel rule
+  `8c59c1b6…`, DEV_WINDOW_LEDGER row 50 on `claude/l2-dev-ledger-rows-20261026`). The season gain is already in
+  `c6cc39f7` (P3d_N_fwd − dev state −0.0569 [−0.0631, −0.0505]). C10 was opened and not adopted. SM-H's own −0.0669 was
+  against the same dev state; re-decided against the served arm it is −0.01273 [−0.01625, −0.00936] (row 51).
+  `ESTABLISHED_FINDINGS.md` §10al; register X40.
+- **Why it fooled us:** the same shape as the R-D blend: the comparator was a convenient state of the family, not the
+  arm actually served. Score every candidate against the bound, served state it would replace.
+
+### "Toronto has no NBM guidance" — SOURCE PROPERTY CONFUSED WITH CAPTURE SCOPE, RETRACTED (2026-10-26)
+
+- **What it looked like:** the exhaustion register (S1 "no coverage", S13 "Toronto has no NBM", §5 order 12 "because it
+  has no NBM") and EF §10h's "none for Toronto" read as a fact about the sources.
+- **What is true:** the NBP bulletin carries CYYZ ("CYYZ NBM V4.1 NBP GUIDANCE"), the NBS and NBH bulletins carry CYYZ,
+  and HRRR's CONUS grid contains it. Only production's NBM-family capture is US-only (lever inventory F1; the
+  replay ablation files NBM under the `official_us_guidance` family). Toronto has never had an NBM-family guidance control because nothing captured
+  one, not because none exists. [Lever inventory](LEVER_INVENTORY_2026-10-26.md) F1 and row 1.
+- **Why it fooled us:** "absent from our capture" was written as "absent". State coverage as a property of the capture
+  and check the source's own station list before calling a market uncovered.
+### Dead-bucket stage A "$0.37/day, worth a forward paper test" — LOOK-AHEAD, RETRACTED (2026-10-25)
+
+- **What it looked like:** lane L11's stage A (rule r2, 13-16 local, 08-10..09-29) bought NO on buckets the observed
+  running max had already killed and showed $0.37/day [0.12, 0.69] on 57 trades, lower CI above 0.
+- **What is true:** the code dated a bucket's death at the METAR's observation time plus an assumed 10 minutes, not at
+  when the capture held the report. Re-dated by receipt (rule r4, `fac8cd72…`), the same mechanism gives
+  **$0.03/day [0.00, 0.09] on 21 trades**; Toronto under r4 gives $0.00 on 0 trades. The 57 trades were the late-receipt
+  tail: the book rows were read before the system had the killing report. The mechanism is closed fleet-wide.
+  `ESTABLISHED_FINDINGS.md` §10ad; [stage A results and audit](../research/market-blend-l11-2026-10-25/results-deadbucket-stage-a.md).
+- **Why it fooled us:** "observed at or before the book row" was checked; "received at or before the book row" was
+  assumed. Date every input by its receipt in the capture. The same audit found P3d_N's `last_in_hour` emitter (§10ad).
+
 ---
 
 ## 2. Statistical traps

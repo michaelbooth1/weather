@@ -45,6 +45,7 @@ changing inventories, metrics, versions, or operational state.
 | Read-only open-PR hygiene report and its roll heuristic | `docs/operations/pr-hygiene.md` |
 | Workstation landing preflight, its exit codes and the night-plan schema | `docs/operations/LANDING_PREFLIGHT.md` |
 | Config classifications/freshness | `docs/operations/config-inventory.md` plus config/code |
+| Venue-rule training/evaluation labels and the dated label station | `docs/operations/venue-rule-labels.md` plus `config/venue_rule_stations.json` |
 | Operational topology and procedures | `docs/operations/README.md` and linked runbooks |
 | Read-only wallet LAN routes (including the settlement watcher), startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |

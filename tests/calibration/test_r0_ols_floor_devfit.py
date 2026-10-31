@@ -1,9 +1,15 @@
+"""R0 OLS + floor dev fit (weather.calibration.r0_ols_floor_devfit; lane L3).
+
+Guards: pre-declared L3 pick rule and blocked leave-one-year-out validation; train/serve feature parity of the floor.
+"""
 import json
 
 import pandas as pd
 import pytest
 
-from weather.calibration import r0_ols_floor_devfit as devfit
+from tests.host_guard import import_or_skip_on_capture_host
+
+devfit = import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_devfit")
 
 
 def _snaps(n_dates=40):

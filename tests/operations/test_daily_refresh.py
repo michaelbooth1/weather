@@ -6577,5 +6577,156 @@ class TestDailyRefresh(unittest.TestCase):
         )
 
 
+
+class _SimulatedDeadlineKill(BaseException):
+    """Stands in for the wrapper's kill-on-close teardown: escapes run_step."""
+
+
+class TestStageACheckpoint(unittest.TestCase):
+    """Stage-A checkpoint: early manifest/report writes stay honest under a kill."""
+
+    def _settlement_args(self, tmp, **overrides):
+        root = Path(tmp) / "backtest"
+        values = dict(
+            stage="settlement",
+            stage_a_manifest=str(root / "stage_a.json"),
+            stage_b_manifest=str(root / "stage_b.json"),
+            settled_analysis_target_date="2026-08-20",
+            disable_stage_trigger=True,
+            skip_daily_progress_ledger=True,
+        )
+        values.update(overrides)
+        return _args(tmp, **values)
+
+    def test_kill_after_checkpoint_leaves_running_manifest_and_report(self):
+        observed = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._settlement_args(tmp)
+
+            def killed(_args):
+                observed["manifest"] = json.loads(
+                    Path(args.stage_a_manifest).read_text(encoding="utf-8")
+                )
+                observed["report"] = Path(args.report_out).read_text(encoding="utf-8")
+                raise _SimulatedDeadlineKill()
+
+            with self.assertRaises(_SimulatedDeadlineKill):
+                run_daily_refresh(
+                    args,
+                    runners=[
+                        ("reanalysis_recent_refresh", lambda _args: {"status": "PASS"}),
+                        ("ingest_quality_gate", killed),
+                    ],
+                )
+            on_disk = json.loads(Path(args.stage_a_manifest).read_text(encoding="utf-8"))
+            # The overnight Stage B reads this manifest through its start gate.
+            evidence_args = self._settlement_args(
+                tmp,
+                stage="evidence",
+                status_out=str(Path(tmp) / "backtest" / "stage_b_status.json"),
+                report_out=str(Path(tmp) / "backtest" / "stage_b_report.md"),
+            )
+            evidence, _status, _report = run_daily_refresh(
+                evidence_args,
+                runners=[("promotion_refresh", lambda _args: {"status": "OK"})],
+            )
+            gate = evidence["stage_gate"]
+
+        manifest = observed["manifest"]
+        self.assertEqual(manifest, on_disk)
+        self.assertEqual(manifest["status"], "RUNNING")
+        self.assertEqual(manifest["payload_status"], "running")
+        self.assertIsNone(manifest["completed_at_utc"])
+        self.assertEqual(manifest["completed_steps"], ["reanalysis_recent_refresh"])
+        self.assertEqual(manifest["step_count"], 1)
+        self.assertNotIn("evidence_trigger", manifest)
+        self.assertEqual(
+            manifest["checkpoint"]["after_step"], "reanalysis_recent_refresh"
+        )
+        self.assertFalse(manifest["checkpoint"]["final"])
+        self.assertEqual(manifest["target_date"], "2026-08-20")
+        self.assertIn("Status: **running**", observed["report"])
+        self.assertIn("reanalysis_recent_refresh", observed["report"])
+        self.assertNotIn("ingest_quality_gate", observed["report"])
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["skip_reason"], "stage_a_not_completed")
+
+    def test_completed_run_replaces_checkpoint_with_terminal_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._settlement_args(tmp)
+            payload, _status_path, report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("reanalysis_recent_refresh", lambda _args: {"status": "PASS"}),
+                    ("ingest_quality_gate", lambda _args: {"status": "PASS"}),
+                ],
+            )
+            manifest = json.loads(Path(args.stage_a_manifest).read_text(encoding="utf-8"))
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertIn(payload["status"], {"ok", "critical"})
+        self.assertEqual(manifest["status"], "COMPLETED")
+        self.assertNotIn("checkpoint", manifest)
+        self.assertIsNotNone(manifest["completed_at_utc"])
+        self.assertEqual(
+            manifest["completed_steps"],
+            ["reanalysis_recent_refresh", "ingest_quality_gate"],
+        )
+        self.assertNotIn("Status: **running**", report)
+
+    def test_no_checkpoint_for_bounded_dry_or_unsplit_runs(self):
+        for overrides in (
+            {"stop_after_step": "reanalysis_recent_refresh"},
+            {"dry_run": True},
+            {"stage": "all"},
+        ):
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as tmp:
+                args = self._settlement_args(tmp, **overrides)
+                with patch(
+                    "weather.operations.daily_refresh.write_stage_checkpoint"
+                ) as checkpoint:
+                    run_daily_refresh(
+                        args,
+                        runners=[
+                            ("reanalysis_recent_refresh", lambda _args: {"status": "PASS"}),
+                        ],
+                    )
+                checkpoint.assert_not_called()
+
+    def test_checkpoint_written_after_every_settlement_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._settlement_args(tmp)
+            with patch(
+                "weather.operations.daily_refresh.write_stage_checkpoint"
+            ) as checkpoint:
+                run_daily_refresh(
+                    args,
+                    runners=[
+                        ("reanalysis_recent_refresh", lambda _args: {"status": "PASS"}),
+                        ("ingest_quality_gate", lambda _args: {"status": "PASS"}),
+                    ],
+                )
+        self.assertEqual(
+            [call.kwargs["after_step"] for call in checkpoint.call_args_list],
+            ["reanalysis_recent_refresh", "ingest_quality_gate"],
+        )
+
+    def test_checkpoint_failure_never_fails_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._settlement_args(tmp)
+            with patch(
+                "weather.operations.daily_refresh_stage_manifests.write_json_atomic",
+                side_effect=[OSError("checkpoint disk failure"), None, None],
+            ):
+                payload, _status_path, _report_path = run_daily_refresh(
+                    args,
+                    runners=[
+                        ("reanalysis_recent_refresh", lambda _args: {"status": "PASS"}),
+                    ],
+                )
+
+        self.assertIn(payload["status"], {"ok", "critical"})
+        self.assertNotIn("stage_manifest_error", payload)
+
 if __name__ == "__main__":
     unittest.main()

@@ -312,6 +312,9 @@ Retryable failures remain pending, and terminal results are published to
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
+# Venue-rule labels for dates from 2026-10-23 (docs/operations/venue-rule-labels.md):
+.\venv\Scripts\python.exe -m weather.backtesting.venue_rule_labels build --market nyc
+.\venv\Scripts\python.exe -m weather.market.market_day_labels finalize --label-rule venue
 .\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.daily.daily_learning
@@ -505,7 +508,12 @@ R0 candidate manifest and the research release provenance bind per market.
 - The cutoff-hour HGB/LR and the report are written to a new directory under
   that root, plus `feature_model_blocked_validation_rows_<market>.jsonl`: one
   row per scored blocked-validation (cutoff hour, date) with the baseline, LR
-  and HGB log loss, so research comparisons can cluster by date.
+  and HGB log loss, so research comparisons can cluster by date. Each row also
+  carries `observed_floor_bucket` (round-half-up of the trainer's printed high
+  so far at the cutoff) and the same arms scored after the serving hard floor
+  (buckets below it times 1e-6, renormalised): `baseline_floored_log_loss`,
+  `lr_floored_log_loss`, `hgb_floored_log_loss`, `hgb_floored_brier`. The
+  served distribution path is not changed.
 - Late-day continuation is not trained, so the served late-day models stay as
   they are.
 - Nothing is written to `artifacts/models/`.
@@ -513,7 +521,7 @@ R0 candidate manifest and the research release provenance bind per market.
   releases, `src/`, the repository root and existing output.
 - It cannot be combined with `--late-day-only` or `--item27-report-only`.
 
-Three research-only training-input options need `--output-root`, so the served
+These research-only options need `--output-root`, so the served
 path is unchanged without it:
 
 - `--target-date YYYY-MM-DD` pins the centre date of the prior-year +/-7-day
@@ -532,6 +540,9 @@ path is unchanged without it:
   20. Both artifacts record `hgb_hyperparameters`, a non-default value appears
   in `served_model_differences.hyperparameters`, and the R0 candidate manifest
   binds it (`hgb_min_samples_leaf`, one value per candidate).
+- `--validation-row-distributions` adds each row's blended HGB distribution
+  (`hgb_distribution`), the raw `observed_high` and the `actual_bucket` to the
+  per-row file so others can post-process. The trained bundles are unchanged.
 
 Both artifacts then carry a `training_inputs` record (centre date, years, days
 per year, forecast source, corpus ids and manifest hashes). An R0 fit is
@@ -599,6 +610,21 @@ shared lease:
 .\venv\Scripts\python.exe -m weather.backtesting.metar_keying_replay --date 2026-08-29 --date 2026-09-19 --date 2026-09-28 --market miami --market nyc --market chicago --out scratch\metar_keying_replay\m0-v3-vs-v4.jsonl
 ```
 
+R0 full-year versus windowed (research only; workstation, through
+`scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`).
+`weather.calibration.r0_full_year run --market <us11> --centre-date <date>
+--pit-forecast-corpus-manifest <m> ... --output-root <dir outside data and
+artifacts> [--leaves 20,10,5] [--arms windowed,full_year]` scores the R0 HGB by
+blocked leave-one-year-out on the held-out years' window days, trained either
+on the window (the trainer's rows) or on every covered 2021-2025 day plus
+`doy_sin`/`doy_cos`; season corpora that share years are read by date
+([PIT corpus guide](docs/operations/PIT_FORECAST_TRAINING_CORPUS.md)). `score
+--rows-root <dir> --markets <list> [--reference-root <trainer output>] --out
+<json>` applies the pre-declared comparison (date-clustered bootstrap, 2,000
+draws, seed 20261024) and checks the windowed rows against the trainer's
+`feature_model_blocked_validation_rows_<market>.jsonl`. It writes no model
+artifact; its seasonal columns are not served features.
+
 ### Trading Simulations
 
 The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls
@@ -658,7 +684,9 @@ That command replaces both daily tasks. It intentionally omits the FULL
 production-evidence contract and does not assert production readiness.
 
 Scheduled settlement/evidence refresh, event-config refresh, exchange-economics
-refresh, analysis, host guards, and
+refresh, analysis, host guards, the MG-2 input export
+(`register_mg2_input_export.ps1`, owner approval first; see the
+[operations topology](docs/operations/OPERATIONS_DESIGN.md)), and
 candidate training are separate registrations. Their script parameter blocks
 are the source of truth for names, cadence, and required inputs. On a dedicated
 single host, use the bounded training-window topology; do not also enable the

@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from weather.calibration import ols_floor_ladder as lad
+from tests.host_guard import import_or_skip_on_capture_host
+
+lad = import_or_skip_on_capture_host("weather.calibration.ols_floor_ladder")
 
 
 def test_overnight_low_uses_high_so_far_rows_and_checks_them():
@@ -72,4 +74,13 @@ def test_no_production_code_imports_the_ladder():
                 continue
             if "ols_floor_ladder" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(root).as_posix())
-    assert hits == ["scripts/ops/workload_admission.ps1"]
+    # Every allowed importer, with its reason; any other module that names the ladder fails this test.
+    ws_only = ("WS-only scorer, scores host-exported bundles; cannot import on the capture host by design "
+               "(master ruling 2026-10-26)")
+    expected = {
+        "scripts/ops/workload_admission.ps1": "the workstation allowlist names the module (it admits it)",
+        "src/weather/calibration/mg2_p3d_n.py": ws_only,
+        "src/weather/calibration/pooled_residual_model.py": "lane L2, lazily, only in its research dev emitters",
+        "src/weather/calibration/r0_ols_floor_challenger.py": "lazily, only for its research dev variants",
+    }
+    assert sorted(hits) == sorted(expected)

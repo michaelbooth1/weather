@@ -10,7 +10,10 @@ from pathlib import Path
 import pytest
 
 from weather.calibration import feature_model as fm
-from weather.calibration import r0_ols_floor_challenger as ch
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+ch = import_or_skip_on_capture_host("weather.calibration.r0_ols_floor_challenger")
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -233,9 +236,22 @@ def test_no_production_code_imports_the_challenger():
                 continue
             if "r0_ols_floor_challenger" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())
-    # The workstation allowlist names the module (it admits it); only its own dev-fit companion
-    # (research-only, same capture-host guard) imports it.
-    assert sorted(hits) == ["scripts/ops/workload_admission.ps1", "src/weather/calibration/r0_ols_floor_devfit.py"]
+    # Every allowed importer, with its reason; any other module that names the challenger fails this test.
+    ws_only = ("WS-only scorer, scores host-exported bundles; cannot import on the capture host by design "
+               "(master ruling 2026-10-26)")
+    expected = {
+        "scripts/ops/workload_admission.ps1": "the workstation allowlist names the module (it admits it)",
+        "src/weather/calibration/b_scorer.py": ws_only,
+        # L3's frozen-state fitter imports the challenger only for its capture-host import guard; its bytes are
+        # pinned by the C9 state provenance (module cf398143...), so it is pinned here rather than edited.
+        "src/weather/calibration/l6_own_state.py": "L3's offline L6 own-state fitter, capture-host guard only",
+        "src/weather/calibration/mg2_composite.py": ws_only,
+        "src/weather/calibration/mg2_p3d_n.py": ws_only,
+        "src/weather/calibration/ols_floor_ladder.py": "lane L9's ladder, research-only, same capture-host guard",
+        "src/weather/calibration/pooled_residual_model.py": "lane L2, lazily, only in its research dev emitters",
+        "src/weather/calibration/r0_ols_floor_devfit.py": "its own dev-fit companion, research-only",
+    }
+    assert sorted(hits) == sorted(expected)
 
 
 def _metar(nominal, raw_time, temp):

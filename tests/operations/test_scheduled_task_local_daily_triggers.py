@@ -40,6 +40,7 @@ DAILY_REGISTRARS = {
     "register_daily_refresh.ps1": ["09:30", "00:35"],
     "register_exchange_economics_refresh.ps1": ["06:50"],
     "register_location_config_refresh.ps1": ["00:00", "06:00", "12:00", "18:00"],
+    "register_mg2_input_export.ps1": ["04:15", "07:00"],
     "register_training_window.ps1": ["04:15"],
 }
 

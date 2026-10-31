@@ -2,7 +2,8 @@
 
 Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope; master
 pre-authorisation 2026-10-24 for lane L2) - workload_admission.ps1 and the Codex hook admit exactly
-the same modules, this module but no child or sibling; no src module imports it.
+the same modules, this module but no child or sibling; no src module imports it, except the one reviewed
+entry in ``LOADS_PINNED_SOURCE`` (L8 ratchet fix, 2026-10-27, master re-reviews each entry).
 """
 import importlib.util
 import json
@@ -17,8 +18,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = "weather.calibration.pooled_residual_model"
-# The module itself, and lane L15's offline rung (itself admission-guarded, never imported by src).
-RESEARCH_IMPORTERS = ("pooled_residual_model.py", "spread_information_rung.py")
+LOADS_PINNED_SOURCE = {
+    # MG-2's P3d_N parity proof loads the L2 source FILE at a pinned sha256 (``_load_upstream``), never the
+    # installed module; it is WS-only and refuses to import on the capture host (mg2_composite's guard).
+    "src/weather/calibration/mg2_p3d_n.py": "MG-2 P3d_N: pinned-sha upstream source load for its parity proof",
+}
 
 
 def _hook():
@@ -57,7 +61,7 @@ def test_no_src_module_imports_it():
         for path in (ROOT / "src").rglob("*.py")
         if path.name not in RESEARCH_IMPORTERS and pattern.search(path.read_text(encoding="utf-8", errors="ignore"))
     ]
-    assert offenders == []
+    assert sorted(offenders) == sorted(path.replace("/", os.sep) for path in LOADS_PINNED_SOURCE)
 
 
 @pytest.mark.spawns
