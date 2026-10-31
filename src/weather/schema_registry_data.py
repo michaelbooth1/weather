@@ -303,6 +303,7 @@ REGISTERED_SCHEMAS = (
         "active",
         "Promotion gate requiring daily-first blocked candidate validation.",
     ),
+    SchemaSpec("b_post_look_serial", "b_post_look_serial_v1", "weather.calibration.b_post_look_serial", "active"),
     SchemaSpec("canonical_history_guardrails", "canonical_history_guardrails_v0.1", "weather.sources.canonical_history_guardrails", "active"),
     SchemaSpec(
         "clob_capture_status",

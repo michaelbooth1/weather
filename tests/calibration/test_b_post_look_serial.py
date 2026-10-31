@@ -1,4 +1,8 @@
-"""Ruling (b) post-look analysis on synthetic per-date paths only (no repository data is read)."""
+"""Ruling (b) post-look analysis on synthetic per-date paths only (no repository data is read).
+
+Guards: docs/research/b-look-prep-2026-10-31/master-ruling-b-post-look.md (master ruling (b) and ruling (i), frozen
+module pins).
+"""
 
 from __future__ import annotations
 

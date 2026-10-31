@@ -3,6 +3,9 @@
 Each test builds B's own synthetic look world (``test_b_scorer._look_inputs``), runs ``b_scorer.look`` on it, then
 extracts. The extractor must read only the bytes B read, reproduce B's printed rows, and feed the frozen post-look
 module.
+
+Guards: docs/research/b-look-prep-2026-10-31/master-ruling-b-post-look.md (master ruling (b) and ruling (i), frozen
+module pins).
 """
 import ast
 import json

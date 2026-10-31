@@ -128,3 +128,28 @@ Conditions met before the freeze:
   - `tests/operations/test_loss_atlas_admission.py` (the ps1 mirror proof): 2 passed, basetemp
     `C:\t\l8blook\bt-20261030T230837`.
 - Each basetemp and `C:\t\l8blook` were deleted afterwards.
+
+## Revision 2026-10-31: test-file re-pin (Guards docstring line)
+
+Test files only: a Guards docstring line, per master ruling 2026-10-31 (i)(a); module shas unchanged and frozen.
+
+The repo-wide hygiene ratchet (`guards_declaration`) failed on both frozen test files because neither module docstring
+had a `Guards:` line. Master ruled (i)(a) on 2026-10-31, relayed by the coordinator: add that line and re-pin the
+tests. No ratchet baseline was grown. Nothing else in either test file changed.
+
+The new test pins, which supersede the test-file pins above and in `look-chain-clarification-DRAFT.md`:
+
+- `tests/calibration/test_b_post_look_serial.py` sha256
+  `42976969d7e7c2518fafa4adc44abb0f2f8bbab4b2e8676d53da5eae73730a66` (was `7ceb952c…`);
+- `tests/calibration/test_b_look_per_date.py` sha256
+  `b54cd895ff731db3ededd1b9242cb2e86efae49358dcda100a40447f6f893fce` (was `92f738ef…`).
+
+The module pins are unchanged and still match:
+
+- `src/weather/calibration/b_post_look_serial.py` sha256
+  `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`;
+- `src/weather/calibration/b_look_per_date.py` sha256
+  `a28d2e65e8ae0ca4239bec7b641ed4d0fcb3758d2e31c6970a2ed29b68762d66`.
+
+In the same change, master approved (ii): `b_post_look_serial_v1` is registered in `src/weather/schema_registry_data.py`.
+This change touches neither module.
