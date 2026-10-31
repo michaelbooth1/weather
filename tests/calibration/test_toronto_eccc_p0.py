@@ -5,7 +5,8 @@ Guards: the record reader (a non-``ok`` source or an out-of-range value gives no
 target date, last complete record wins, a truncated line skipped); the tape rule (native °C only, book_time <=
 capture, a partition, the displayed-price rule); the pinned WU labels; the outcome-free selection check (reads no
 label or price, never overwrites); the constants; and the whole run on a synthetic Toronto table (a planted
-type C signal survives and reaches the w gate, a null one is a KILL, no overwrite).
+type C signal survives and reaches the w gate, a null one is a KILL, no overwrite); and amendment 1's
+--controls-only mode (w = 0 identity, row 77 reproduction, synthetic SYN+ / SYN-, KILL STANDS vs VOID).
 """
 import hashlib
 import importlib
@@ -292,3 +293,164 @@ def test_loyo_screen_dispatches_selection_only(tmp_path, monkeypatch):
     assert te.ls.main(["toronto-eccc-p0", "--replay-root", "r", "--tapes-root", "t", "--labels-root", "l",
                        "--out", str(tmp_path / "o"), "--selection-only"]) == 0
     assert seen == {"replay_root": "r", "out_dir": str(tmp_path / "o")}
+
+
+# ----------------------------------------------------------------------------- amendment 1: controls only
+
+LABEL_OF = [18, 21, 23, 25, 27]  # one integer label inside each of the five bins
+
+
+def _daily_frame(seed=13, n_dates=40):
+    """Winner fixed per date (as a real label is); flat-ish markets."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for day in (str(x.date()) for x in pd.date_range("2026-08-01", periods=n_dates)):
+        winner = int(rng.integers(0, 5))
+        for hour in range(7, 13):
+            for j in range(6):
+                pm = np.array([0.15, 0.2, 0.3, 0.2, 0.15]) * rng.uniform(0.9, 1.1, 5)
+                pm /= pm.sum()
+                rows.append({"row_key": f"toronto|{day}T{hour:02d}{j}", "date": day, "market": "toronto",
+                             "local_hour": hour, "captured_at_utc": f"{day}T{hour + 4:02d}:{j * 9:02d}:00+00:00",
+                             "pm": pm, "winner": winner, "x_info": 22.5})
+    return pd.DataFrame(rows)
+
+
+def _controls(tmp_path, monkeypatch, out, row77_verdict="PASS"):
+    frame = _daily_frame()
+    dates = sorted(frame.date.unique())
+    fit_t, score_t = FakeTable(frame, dates), FakeTable(frame, [d for d in dates if d >= "2026-08-08"])
+    clean = {"git_head": "c" * 40, "worktree": "w", "dirty": False, "dirty_paths": []}
+    monkeypatch.setattr(te.ls, "code_state", lambda *a: clean)
+    rng = np.random.default_rng(3)
+    vals = rng.normal(22.5, 2, len(fit_t.snaps))
+    snaps = pd.DataFrame({"row_key": fit_t.snaps.row_key.to_numpy(), "gem": vals, "city": vals[::-1].copy(),
+                          "rc_gem": fit_t.snaps.captured_at_utc.to_numpy(),
+                          "rc_city": fit_t.snaps.captured_at_utc.to_numpy()})
+    meta = {"extract_stats": {}, "malformed": [], "market_reasons": {}, "table_drops": {}}
+    monkeypatch.setattr(te, "build_tables", lambda *a, **k: (snaps, fit_t, score_t, dates[:7], dates[7:], meta))
+    labels = {d: LABEL_OF[int(w)] for d, w in zip(frame.date, frame.winner)}
+    monkeypatch.setattr(te, "load_labels", lambda *a, **k: labels)
+    monkeypatch.setattr(te.sw, "boot_counts", lambda n: np.random.default_rng(2).multinomial(
+        n, np.ones(n) / n, size=500))
+    monkeypatch.setattr(te, "row77_reproduction", lambda *a, **k: {"verdict": row77_verdict, "max_abs_diff": 0.0})
+    return te.controls_only(out_dir=tmp_path / out, row77_dir=tmp_path, replay_root=tmp_path, tapes_root=tmp_path,
+                            repo_root=tmp_path), fit_t, labels
+
+
+def test_controls_only_synthetic_passes_and_negation_reads_negative(tmp_path, monkeypatch):
+    rec, fit_t, _ = _controls(tmp_path, monkeypatch, "c1")
+    c = rec["controls"]
+    assert c["1_w0_identity"]["verdict"] == "PASS"
+    assert set(c["1_w0_identity"]["by_candidate"]) == {"GEM-SEAMLESS", "CITYPAGE-FH", "SYN+"}
+    plus, minus = c["3_synthetic_positive"]["results"]["SYN+"], c["3_synthetic_positive"]["results"]["SYN-"]
+    assert plus["verdict"] == "SURVIVE" and plus["p0"]["ci95"][0] > 0 and plus["w_gate"]["verdict"] == "PASS (w)"
+    assert minus["p0"]["delta"] < 0 and minus["verdict"] == "KILL"
+    assert c["3_synthetic_positive"]["verdict"] == "PASS"
+    assert rec["outcome"] == "ROW 90 KILL STANDS" and rec["amendment_1_sha256"] == te.AMENDMENT_1_SHA256
+    assert (tmp_path / "c1" / "toronto_eccc_p0_controls.json").exists()
+    with pytest.raises(te.TorontoEcccError, match="overwrite"):
+        te.controls_only(out_dir=tmp_path / "c1", row77_dir=tmp_path, replay_root=tmp_path, tapes_root=tmp_path,
+                         repo_root=tmp_path)
+
+
+def test_controls_only_any_failed_control_voids_row_90(tmp_path, monkeypatch):
+    rec, _, _ = _controls(tmp_path, monkeypatch, "c2", row77_verdict="FAIL")
+    assert rec["outcome"] == "ROW 90 VOID"
+
+
+def test_synthetic_values_are_seeded_and_mirror_about_mu():
+    frame = _daily_frame()
+    t = FakeTable(frame, sorted(frame.date.unique()))
+    labels = {d: LABEL_OF[int(w)] for d, w in zip(frame.date, frame.winner)}
+    geo = te.sw.band_geometry(t)
+    a, meta = te.synthetic_values(t, labels, geo)
+    b, _ = te.synthetic_values(t, labels, geo)
+    assert np.array_equal(a["SYN+"], b["SYN+"]) and meta["seed"] == te.SYN_SEED == 20261031
+    assert np.allclose(a["SYN+"] + a["SYN-"], 2 * geo["mu"])
+    r = np.array([labels[d] for d in t.snaps.date]) - geo["mu"]
+    assert meta["sigma_r"] == pytest.approx(float(np.std(r)))
+
+
+def test_inject_vectors_floor_mask_and_renormalise():
+    frame = _daily_frame(n_dates=2)
+    t = FakeTable(frame, sorted(frame.date.unique()))
+    t.impossible = np.zeros(len(t.y), bool)
+    t.impossible[0] = True  # band 0 of snapshot 0 is floor-impossible
+    rk0, rk1 = t.snaps.row_key[0], t.snaps.row_key[1]
+    c, cov = te.inject_vectors(t, {rk0: [0.2, 0.2, 0.2, 0.2, 0.2], rk1: [0.1, 0.1, 0.1, 0.1, 0.6]})
+    assert cov[:3].tolist() == [True, True, False]
+    assert c[:5].tolist() == pytest.approx([0.0, 0.25, 0.25, 0.25, 0.25])
+    assert c[5:10].tolist() == pytest.approx([0.1, 0.1, 0.1, 0.1, 0.6])
+    assert np.array_equal(c[10:15], t.p_market[10:15])
+    with pytest.raises(te.TorontoEcccError, match="band count"):
+        te.inject_vectors(t, {rk0: [0.5, 0.5]})
+
+
+def _row77_files(tmp_path, monkeypatch, fit_t, score_t, scored, perturb=0.0):
+    rng = np.random.default_rng(9)
+    arms = {"c": {rk: {"A": list(rng.dirichlet(np.ones(5))), "B": list(rng.dirichlet(np.ones(5)))}
+                  for rk in fit_t.snaps.row_key}, "meta": {}}
+    counts = te.sw.boot_counts(len(scored))
+    donors = {s: te.sw.donor_positions(fit_t, s) for s in te.sw.PLACEBO_SEEDS}
+    results = {}
+    for a in ("A", "B"):
+        c_fit, cov = te.inject_vectors(fit_t, {rk: v[a] for rk, v in arms["c"].items()})
+        got = te.vector_p0(fit_t, score_t, c_fit, cov, np.array(scored), counts, donors)
+        p0 = dict(got["p0"])
+        p0["delta"] += perturb
+        results[a] = {"coverage": got["coverage"], "p0": p0, "diagnostic_c_deranged": {"rho": got["diagnostic_rho"]}}
+    receipt = {"n_fit_snapshots": len(fit_t.snaps), "n_score_snapshots": len(score_t.snaps),
+               "scored_dates": [scored[0], scored[-1], len(scored)], "results": results}
+    d = tmp_path / f"r77_{perturb}"
+    d.mkdir()
+    (d / "arms.json").write_text(json.dumps(arms), encoding="utf-8")
+    (d / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+    monkeypatch.setattr(te, "ROW77_ARMS_SHA256", _sha((d / "arms.json").read_bytes()))
+    monkeypatch.setattr(te, "ROW77_RECEIPT_SHA256", _sha((d / "receipt.json").read_bytes()))
+    return d
+
+
+def test_row77_reproduction_matches_counts_and_stats_and_fails_on_a_miss(tmp_path, monkeypatch):
+    frame = _daily_frame()
+    dates = sorted(frame.date.unique())
+    scored = [d for d in dates if d >= "2026-08-08"]
+    fit_t, score_t = FakeTable(frame, dates), FakeTable(frame, scored)
+    seen = {}
+
+    def fake_build(*a, **k):
+        seen.update(k)
+        return None, fit_t, score_t, dates[:7], scored, {}
+
+    monkeypatch.setattr(te, "build_tables", fake_build)
+    monkeypatch.setattr(te.sw, "boot_counts", lambda n: np.random.default_rng(2).multinomial(
+        n, np.ones(n) / n, size=300))
+    ok = te.row77_reproduction(tmp_path, tmp_path, tmp_path,
+                               _row77_files(tmp_path, monkeypatch, fit_t, score_t, scored))
+    assert seen["hours"] == te.ROW77_HOURS == (7, 16)
+    assert ok["verdict"] == "PASS" and ok["max_abs_diff"] < 1e-12
+    bad = te.row77_reproduction(tmp_path, tmp_path, tmp_path,
+                                _row77_files(tmp_path, monkeypatch, fit_t, score_t, scored, perturb=1e-3))
+    assert bad["verdict"] == "FAIL" and not bad["stats"]["A.delta"]["ok"]
+    monkeypatch.setattr(te, "ROW77_ARMS_SHA256", "0" * 64)
+    with pytest.raises(te.TorontoEcccError, match="pinned"):
+        te.row77_reproduction(tmp_path, tmp_path, tmp_path, tmp_path / "r77_0.001")
+
+
+def test_loyo_screen_dispatches_controls_only(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake(**kw):
+        seen.update(kw)
+        return {"lines": [], "outcome": "ROW 90 KILL STANDS"}
+
+    monkeypatch.setattr(te, "controls_only", fake)
+    monkeypatch.setattr(te, "run", lambda **kw: pytest.fail("run must not be called with --controls-only"))
+    base = ["toronto-eccc-p0", "--replay-root", "r", "--tapes-root", "t", "--labels-root", "l",
+            "--out", str(tmp_path / "o"), "--controls-only"]
+    with pytest.raises(SystemExit, match="row77-dir"):
+        te.ls.main(base)
+    assert te.ls.main(base + ["--row77-dir", "p"]) == 0
+    assert seen == {"out_dir": str(tmp_path / "o"), "row77_dir": "p", "replay_root": "r", "tapes_root": "t",
+                    "repo_root": "l", "allow_dirty": False}
+    assert te.AMENDMENT_1_SHA256.startswith("40b90e72")

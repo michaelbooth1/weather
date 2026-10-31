@@ -20,6 +20,12 @@ to °F. ``selection_check`` is outcome-free: it reads no observation, label or p
 
     python -m weather.calibration.loyo_screen toronto-eccc-p0 --out C:/t/l8tor/eccc_p0
     python -m weather.calibration.loyo_screen toronto-eccc-p0 --selection-only --out C:/t/l8tor/eccc_sel
+    python -m weather.calibration.loyo_screen toronto-eccc-p0 --controls-only --row77-dir C:/t/l8tor/p0_out
+        --out C:/t/l8tor/eccc_ctrl   (one command line)
+
+``--controls-only`` is row 90 amendment 1 (``amendment_1.md``, sha256 ``AMENDMENT_1_SHA256``): the w = 0 identity,
+the row 77 reproduction through the ported table at 07-16, and the synthetic positive control (SYN+ / SYN-).
+Same pinned inputs and verdict rule; it decides only whether the row 90 KILL stands or row 90 is VOID.
 """
 from __future__ import annotations
 
@@ -45,6 +51,12 @@ SCHEMA = "toronto_eccc_p0/1"
 GATE = "TORONTO-ECCC-P0"
 RULE_SHA256 = "b8718b46d0244054be26834a0a35d28f0ff2ed45d8056e0393334ce5df4b0b0d"
 LEDGER_ROW = 90
+AMENDMENT_1_SHA256 = "40b90e72d14285900c883b0b66d7136da87781f3b758e0807785d639acf71141"
+ROW77_HOURS = (7, 16)
+ROW77_ARMS_SHA256 = "16ba22cfcd14dd7ecb6c53e42237ca5ddceb2f98d2f7865e1849d422ac2ee3d5"
+ROW77_RECEIPT_SHA256 = "6baa2703f144fc8bcf0226d6e5542a2ca11903edef83fee89368290037c7876b"
+ROW77_TOL = 5e-5
+SYN_SEED = 20261031
 TZ = "America/Toronto"
 MARKET = "toronto"
 FIRST, LAST, BURN_LAST = date(2026, 8, 1), date(2026, 9, 29), date(2026, 8, 14)
@@ -460,11 +472,11 @@ def build_layout(snaps, mk, labels):
     return lay, dict(drops)
 
 
-def build_tables(replay_root, tapes_root, repo_root=_REPO):
-    """Snapshots, market vectors, labels and the fit / score tables."""
+def build_tables(replay_root, tapes_root, repo_root=_REPO, hours=HOURS):
+    """Snapshots, market vectors, labels and the fit / score tables (local ``hours``; 07-12 unless a control)."""
     from weather.reporting.scorecards import dev_scorecard as sc
 
-    snaps, malformed, stats = extract(replay_root)
+    snaps, malformed, stats = extract(replay_root, hours=hours)
     mk, reasons = market_vectors(tapes_root, snaps)
     labels = load_labels(repo_root)
     lay, drops = build_layout(snaps, mk, labels)
@@ -556,4 +568,197 @@ def run(*, out_dir, replay_root=DEFAULT_REPLAY, tapes_root=DEFAULT_TAPES, repo_r
     receipt["rows_sha256"] = ls.sha256_file(out / "toronto_eccc_p0_rows.jsonl")
     (out / "toronto_eccc_p0.json").write_text(json.dumps(receipt, indent=1, sort_keys=True, default=mg._default),
                                               encoding="utf-8")
+    return receipt
+
+
+# ----------------------------------------------------------------------------- amendment 1: controls only
+
+def _close(got, want, tol=ROW77_TOL):
+    return got is not None and want is not None and abs(float(got) - float(want)) < tol
+
+
+def inject_vectors(fit_t, vectors):
+    """Row 77's injection: band vectors on the snapshots they cover (floor-impossible bands 0, renormalised to 1),
+    the market elsewhere -> (c_fit, covered)."""
+    m_fit = fit_t.p_market
+    c_fit = m_fit.copy()
+    covered = np.zeros(len(fit_t.snaps), bool)
+    for i, rk in enumerate(fit_t.snaps.row_key):
+        v = vectors.get(rk)
+        if v is None:
+            continue
+        if len(v) != fit_t.n[i]:
+            raise TorontoEcccError(f"band count mismatch for {rk}")
+        c_fit[fit_t.offsets[i]:fit_t.offsets[i] + fit_t.n[i]] = v
+        covered[i] = True
+    c_fit = np.where(fit_t.impossible, 0.0, c_fit)
+    tot = np.bincount(fit_t.band_snap, weights=c_fit, minlength=len(fit_t.snaps))
+    c_fit = np.where(covered[fit_t.band_snap], c_fit / np.where(tot > 0, tot, 1.0)[fit_t.band_snap], m_fit)
+    return c_fit, covered
+
+
+def vector_p0(fit_t, score_t, c_fit, covered, scored, counts, donors):
+    """Row 77's P0 for a band-vector candidate: placebos, population, paired Delta and the c-deranged rho."""
+    from weather.calibration import market_blend as mb
+
+    cov_float = np.repeat(covered.astype(float), fit_t.n)
+    placebos, donor_ok = [], np.ones(len(fit_t.snaps), bool)
+    for seed in sw.PLACEBO_SEEDS:
+        pl, _ = sw.disagreement_placebo(fit_t, c_fit, seed, donors[seed])
+        dcov = cov_float[donors[seed][0]]
+        donor_ok &= np.bincount(fit_t.band_snap, weights=dcov, minlength=len(fit_t.snaps)) == fit_t.n
+        placebos.append(pl)
+    pop = mb.restrict_snap(fit_t, score_t, covered & donor_ok)
+    band = pop[score_t.band_snap]
+    m, e = score_t.p_market, score_t.y - score_t.p_market
+    didx = np.searchsorted(scored, score_t.snaps.date.astype(str).to_numpy())[score_t.band_snap]
+    nd = len(scored)
+    c = mb.restrict(fit_t, score_t, c_fit)
+    sums_c = sw.date_sums((c - m)[band], e[band], didx[band], nd)
+    sums_pl = [sw.date_sums((mb.restrict(fit_t, score_t, p) - m)[band], e[band], didx[band], nd) for p in placebos]
+    p0 = sw.paired_delta(sums_c, sums_pl, counts)
+    a_fit = c_fit[donors[sw.PLACEBO_SEEDS[0]][0]]
+    sums_a = sw.date_sums((mb.restrict(fit_t, score_t, a_fit) - m)[band], e[band], didx[band], nd)
+    return {"coverage": {"fit_snapshots": int(len(covered)), "fit_covered": int(covered.sum()),
+                         "population_snapshots": int(pop.sum()), "population_dates": int((sums_c[0] > 0).sum()),
+                         "score_snapshots": int(len(score_t.snaps))},
+            "p0": {k: v for k, v in p0.items() if k != "rho_pl_by_seed"},
+            "diagnostic_rho": float(mg._rho(*sums_a.sum(axis=1)))}
+
+
+def row77_reproduction(replay_root, tapes_root, repo_root, row77_dir):
+    """Control 2: rebuild the 07-16 table and reproduce row 77's printed P0 lines from its own arm vectors."""
+    arms_path, rec_path = Path(row77_dir) / "arms.json", Path(row77_dir) / "receipt.json"
+    for path, want_sha in ((arms_path, ROW77_ARMS_SHA256), (rec_path, ROW77_RECEIPT_SHA256)):
+        if _sha(path) != want_sha:
+            raise TorontoEcccError(f"{path} sha256 is not the pinned {want_sha}")
+    arms = json.loads(arms_path.read_text(encoding="utf-8"))["c"]
+    want = json.loads(rec_path.read_text(encoding="utf-8"))
+    _, fit_t, score_t, _, scored, meta = build_tables(replay_root, tapes_root, repo_root, hours=ROW77_HOURS)
+    score_dates = np.array(scored)
+    counts = sw.boot_counts(len(score_dates))
+    donors = {seed: sw.donor_positions(fit_t, seed) for seed in sw.PLACEBO_SEEDS}
+    checks = {"n_fit_snapshots": (int(len(fit_t.snaps)), want["n_fit_snapshots"]),
+              "n_score_snapshots": (int(len(score_t.snaps)), want["n_score_snapshots"]),
+              "n_scored_dates": (len(scored), want["scored_dates"][2])}
+    stat_diffs, arms_out = {}, {}
+    for a in ("A", "B"):
+        c_fit, covered = inject_vectors(fit_t, {rk: v[a] for rk, v in arms.items() if v.get(a) is not None})
+        got = vector_p0(fit_t, score_t, c_fit, covered, score_dates, counts, donors)
+        exp = want["results"][a]
+        arms_out[a] = got
+        for k in ("fit_covered", "fit_snapshots", "population_snapshots", "population_dates", "score_snapshots"):
+            checks[f"{a}.{k}"] = (got["coverage"][k], exp["coverage"][k])
+        pairs = {"rho_c": (got["p0"]["rho_c"], exp["p0"]["rho_c"]),
+                 "rho_pl_mean": (got["p0"]["rho_pl_mean"], exp["p0"]["rho_pl_mean"]),
+                 "delta": (got["p0"]["delta"], exp["p0"]["delta"]),
+                 "ci95_lo": (got["p0"]["ci95"][0], exp["p0"]["ci95"][0]),
+                 "ci95_hi": (got["p0"]["ci95"][1], exp["p0"]["ci95"][1]),
+                 "p_one_sided": (got["p0"]["p_one_sided"], exp["p0"]["p_one_sided"]),
+                 "deranged_rho": (got["diagnostic_rho"], exp["diagnostic_c_deranged"]["rho"])}
+        for k, (g, w) in pairs.items():
+            ok = _close(g, w)
+            stat_diffs[f"{a}.{k}"] = {"got": g, "expected": w,
+                                      "abs_diff": None if g is None or w is None else abs(float(g) - float(w)),
+                                      "ok": ok}
+    counts_ok = all(g == w for g, w in checks.values())
+    stats_ok = all(v["ok"] for v in stat_diffs.values())
+    diffs = [v["abs_diff"] for v in stat_diffs.values() if v["abs_diff"] is not None]
+    return {"verdict": "PASS" if counts_ok and stats_ok else "FAIL", "hours": list(ROW77_HOURS),
+            "counts": {k: {"got": g, "expected": w, "ok": g == w} for k, (g, w) in checks.items()},
+            "stats": stat_diffs, "max_abs_diff": max(diffs) if diffs else None,
+            "tolerance": ROW77_TOL, "arms": arms_out, "table_meta": meta,
+            "inputs": {"arms_json": ROW77_ARMS_SHA256, "receipt_json": ROW77_RECEIPT_SHA256}}
+
+
+def synthetic_values(fit_t, labels, geo, seed=SYN_SEED):
+    """SYN+ and SYN- values per fit snapshot: mu +/- (r + eps), r = Y - mu, eps ~ N(0, sd(r)^2)."""
+    mu = geo["mu"]
+    y = np.array([labels[d] for d in fit_t.snaps.date.astype(str)], float)
+    r = y - mu
+    sigma = float(np.std(r))
+    eps = np.random.default_rng(seed).normal(0.0, sigma, len(r))
+    return ({"SYN+": mu + (r + eps), "SYN-": mu - (r + eps)},
+            {"sigma_r": sigma, "mean_r": float(np.mean(r)), "seed": seed, "n": int(len(r))})
+
+
+def controls_only(*, out_dir, row77_dir, replay_root=DEFAULT_REPLAY, tapes_root=DEFAULT_TAPES, repo_root=_REPO,
+                  allow_dirty=False):
+    """Row 90 amendment 1: controls 1-3; writes ``toronto_eccc_p0_controls.json`` (never overwrites)."""
+    code = ls.require_clean(ls.code_state(), allow_dirty)
+    from weather.calibration import market_blend as mb
+
+    out = _fresh_out(out_dir)
+    if mg.BLOCKS.get(W_BLOCK) != HOURS:
+        raise TorontoEcccError("mr_gate.BLOCKS must carry the 07-12 block")
+    snaps, fit_t, score_t, burn, scored, meta = build_tables(replay_root, tapes_root, repo_root)
+    if set(fit_t.markets) != {MARKET}:
+        raise TorontoEcccError("the population is Toronto only")
+    feats = snaps[["row_key", "gem", "rc_gem", "city", "rc_city"]]
+    values = candidate_values(fit_t.snaps, feats)
+    geo = sw.band_geometry(fit_t)
+    score_dates = np.array(scored)
+    counts = sw.boot_counts(len(score_dates))
+    donors = {seed: sw.donor_positions(fit_t, seed) for seed in sw.PLACEBO_SEEDS}
+
+    # control 1 on the real candidates (P0 recomputed only to obtain c_fit; reported against the first run)
+    c1, real = {}, {}
+    for cid, kind, sign, _, _ in CANDIDATES:
+        res, vecs = sw.p0_candidate(cid, kind, sign, values[cid], fit_t, score_t, geo, counts, score_dates, donors)
+        real[cid] = {"delta": res["p0"]["delta"], "rho_c": res["p0"]["rho_c"]}
+        c1[cid] = (mb.w0_identity(score_t, mb.restrict(fit_t, score_t, vecs["c_fit"])) if vecs is not None
+                   else {"verdict": "FAIL", "reason": "untestable"})
+
+    # control 3
+    syn_vals, syn_meta = synthetic_values(fit_t, load_labels(repo_root), geo)
+    syn, kept = {}, {}
+    for cid in ("SYN+", "SYN-"):
+        res, vecs = sw.p0_candidate(cid, "C", 1, syn_vals[cid], fit_t, score_t, geo, counts, score_dates, donors)
+        res.pop("_rows", None)
+        res.pop("placebo_meta", None)
+        syn[cid] = res
+        kept[cid] = vecs
+    decide(syn, ["SYN+", "SYN-"])
+    plus, minus = syn["SYN+"], syn["SYN-"]
+    if kept["SYN+"] is not None:
+        c1["SYN+"] = mb.w0_identity(score_t, mb.restrict(fit_t, score_t, kept["SYN+"]["c_fit"]))
+        g = mg.gate_candidate("SYN+", W_BLOCK, fit_t, score_t, kept["SYN+"]["c_fit"], kept["SYN+"]["covered"],
+                              p_placebo_fit=kept["SYN+"]["pl0_fit"])
+        plus["w_gate"] = {"verdict": "PASS (w)" if g["w"]["pass"] else "KILL (w)", "rows": g["rows"],
+                          "w": {"summary": g["w"]["summary"], "checks": g["w"]["checks"]}}
+    else:
+        c1["SYN+"] = {"verdict": "FAIL", "reason": "SYN+ untestable"}
+    plus_ok = bool(plus.get("survive") and plus["p0"]["delta"] is not None and plus["p0"]["delta"] > 0
+                   and c1["SYN+"]["verdict"] == "PASS" and plus.get("w_gate", {}).get("verdict") == "PASS (w)")
+    minus_ok = bool(minus.get("testable") and minus["p0"]["delta"] is not None and minus["p0"]["delta"] < 0)
+    control3 = {"verdict": "PASS" if plus_ok and minus_ok else "FAIL", "SYN+_pass": plus_ok, "SYN-_pass": minus_ok,
+                "synthetic": syn_meta, "results": syn}
+    control1 = {"verdict": "PASS" if all(v["verdict"] == "PASS" for v in c1.values()) else "FAIL", "by_candidate": c1}
+
+    # control 2
+    control2 = row77_reproduction(replay_root, tapes_root, repo_root, row77_dir)
+
+    controls = {"1_w0_identity": control1, "2_row77_reproduction": control2, "3_synthetic_positive": control3}
+    all_pass = all(c["verdict"] == "PASS" for c in controls.values())
+    outcome = "ROW 90 KILL STANDS" if all_pass else "ROW 90 VOID"
+    md = control2["max_abs_diff"]
+    lines = [f"control 1 w=0 identity: {control1['verdict']}",
+             f"control 2 row 77 reproduction (07-16): {control2['verdict']} (max |diff| "
+             f"{'n/a' if md is None else format(md, '.2e')})",
+             f"control 3 synthetic: {control3['verdict']} (SYN+ {sw.line_for(plus)}; SYN- {sw.line_for(minus)})",
+             outcome]
+    receipt = {"schema": SCHEMA + "/controls", "gate": GATE, "rule_sha256": RULE_SHA256,
+               "amendment_1_sha256": AMENDMENT_1_SHA256, "ledger_row": LEDGER_ROW, "code": code,
+               "module_sha256": {"toronto_eccc_p0": ls.sha256_file(__file__), "mr_sweep": ls.sha256_file(sw.__file__),
+                                 "mr_gate": ls.sha256_file(mg.__file__), "market_blend": ls.sha256_file(mb.__file__)},
+               "inputs": {"replay_sha256sums_sha256": REPLAY_SUMS_SHA256, "tape_sha256sums_sha256": TAPE_SUMS_SHA256,
+                          "label_files": {rel: sha for rel, sha in LABEL_FILES}},
+               "population": {"burn_in_dates": burn, "scored_first": scored[0], "scored_last": scored[-1],
+                              "n_scored_dates": len(scored), "n_fit_snapshots": int(len(fit_t.snaps)),
+                              "n_score_snapshots": int(len(score_t.snaps))},
+               "table_meta": meta, "real_candidates_recomputed": real, "controls": controls, "outcome": outcome,
+               "lines": lines}
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "toronto_eccc_p0_controls.json").write_text(
+        json.dumps(receipt, indent=1, sort_keys=True, default=mg._default), encoding="utf-8")
     return receipt

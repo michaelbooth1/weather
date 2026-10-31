@@ -44,7 +44,9 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
     Toronto native guidance against the market (``weather.calibration.toronto_eccc_p0``, rule b8718b46, ledger
     row 90): captured Open-Meteo GEM seamless day high and the ECCC citypage forecast high (type C, native °C)
     at 07-12 on the row 77 Toronto table, K = 2, the same placebo and BH machinery. ``--selection-only`` is the
-    outcome-free coverage check. Reads sha-pinned replay, tape and WU label files; no network. Dev window only.
+    outcome-free coverage check; ``--controls-only --row77-dir`` runs row 90 amendment 1 (w = 0 identity, row 77
+    reproduction, synthetic positive control). Reads sha-pinned replay, tape and WU label files; no network. Dev
+    window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -416,6 +418,8 @@ def build_parser():
     te.add_argument("--labels-root", required=True, help="repository root holding the pinned data/ WU label files")
     te.add_argument("--out", required=True)
     te.add_argument("--selection-only", action="store_true", help="outcome-free coverage check only")
+    te.add_argument("--controls-only", action="store_true", help="row 90 amendment 1: controls 1-3 only")
+    te.add_argument("--row77-dir", help="row 77 p0_out (arms.json, receipt.json; sha-pinned); --controls-only")
     te.add_argument("--allow-dirty", action="store_true")
     return parser
 
@@ -453,6 +457,14 @@ def main(argv=None):
             receipt = toronto_eccc_p0.selection_check(replay_root=args.replay_root, out_dir=args.out)
             print(json.dumps({"snapshots": receipt["snapshots"], "n_dates": receipt["n_dates"],
                               "per_block": receipt["per_block"]}, indent=1))
+            return 0
+        if args.controls_only:
+            if not args.row77_dir:
+                raise SystemExit("--controls-only needs --row77-dir")
+            receipt = toronto_eccc_p0.controls_only(out_dir=args.out, row77_dir=args.row77_dir,
+                                                    replay_root=args.replay_root, tapes_root=args.tapes_root,
+                                                    repo_root=args.labels_root, allow_dirty=args.allow_dirty)
+            print(json.dumps({"lines": receipt["lines"], "outcome": receipt["outcome"]}, indent=1))
             return 0
         receipt = toronto_eccc_p0.run(out_dir=args.out, replay_root=args.replay_root,
                                       tapes_root=args.tapes_root, repo_root=args.labels_root,
