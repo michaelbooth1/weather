@@ -46,7 +46,10 @@ The atlas, C1, C2, C3 and every kill-only screen open these cells only after ste
 Only the row 80 subset is needed: US11 (nyc, atlanta, austin, chicago, dallas, denver, houston, los-angeles,
 miami, san-francisco, seattle), local targets 2026-10-01..2026-10-14, and Austin 10-03 excluded. Folders are
 exported whole, with all hours. There is no capture-time cut: target-10-14 rows captured on UTC 10-15 are
-released.
+released. By C5 the export holds no 10-15 folder, so the extract's bulletin index, which reads manifests for
+targets `--from` - 1 day through `--to` + 1 day (`guidance_extract.py:192`), sees no 10-15 manifests: bulletins
+listed only there are missing and some first-seen times can be later, so v2 guidance for the latest 10-14
+captures can differ from an extract over the full data root.
 
 | Exported path (relative to the export data root) | Read by |
 | --- | --- |
@@ -56,12 +59,16 @@ released.
 | `snapshots/<slug>/forecast_payloads.jsonl` and/or `forecast_payloads_long.csv` | extract NBM manifest rows (`:171-174`) |
 | `snapshots/<slug>/settlement.json` (if present) | label sidecar fallback (`settlement_io.py:439`) |
 | `settlements/<market>/ledger.jsonl`, US11, rows for targets 10-01..10-14 only, minus Austin 10-03 | labels (`guidance_extract.py:465`, `settlement_io.resolve_market_day_label`) |
-| `forecast_payload_cas/<payload_ref>`, refs named by the exported manifest rows only | NBM bulletins (`:215`) |
+| `snapshots/<slug>/forecast_payloads.jsonl` and/or `forecast_payloads_long.csv` for the 11 US11 target-09-30 lookback folders (manifests only; no tape, ledger rows or sidecar) | extract bulletin index only (`:192`, `--from` - 1 day); never a market-day, since the extraction loop covers `--from`..`--to` only (`:482`) |
+| `forecast_payload_cas/<payload_ref>`, refs named by the exported manifest rows, exported whole with no time cut | NBM bulletins (`:215`) |
 
 Stage the export at a fresh workstation path whose name contains neither `88a` nor `panel`, for example
 `C:\t\r80\data`. Verify every file against the sub-manifest sha256 before step 2, and write
 `C:\t\r80\import_receipt.json` with the sub-manifest sha and any missing file. A missing file is recorded, never
 substituted.
+
+**Record the C5 gap.** `import_receipt.json`, and the look receipt after it, record the note
+`10-15 manifests absent by C5; extract not identical to a full-root extract` (see the C5 sentence above).
 
 **The staging reader drops Austin 10-03.** If the export holds the Austin 10-03 folder or ledger row, leave it
 out of `C:\t\r80\data` and record that in `import_receipt.json`. `r80_layout.py` refuses an extract that still

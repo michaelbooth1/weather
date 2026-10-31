@@ -120,7 +120,7 @@ Market and target sets by consumer. The union is all 12 markets, targets 09-25..
 | --- | --- | --- | --- |
 | `settlements/<market>/ledger.jsonl`, 12 markets | Row 80/atlas labels (`dev_scorecard_data.py:56`, `DEFAULT_LABEL_SOURCE`); layout builder (`guidance_extract.py:465`); C1/C3 (`maker_plugin_sources.py:211`); C2 | Only rows for targets 09-25..10-14, minus Austin 10-03 (§2 label rule). A row-filtered copy, never the whole ledger. | host to fill |
 | `snapshots/observation_triggers.jsonl` | C1/C3 (`maker_plugin_sources.py:185`); C2 | targets ≤ 10-14 (no capture-time cut); readers drop Austin 10-03 | host to fill |
-| `forecast_payload_cas/<payload_ref>` | Layout builder NBM bulletins (`guidance_extract.py:215`); C1/C3 (`maker_plugin_sources.py:284`) | Only refs named by exported manifest rows whose availability time is before 10-15T00Z | host to fill |
+| `forecast_payload_cas/<payload_ref>` | Layout builder NBM bulletins (`guidance_extract.py:215`); C1/C3 (`maker_plugin_sources.py:284`) | Only refs named by exported manifest rows, exported whole with no time cut (master's target-date ruling; late target-10-14 captures can name bulletins first seen on UTC 10-15) | host to fill |
 
 ### 4.3 88a sealed capture: `maker_evidence/<UTC day>/<HH>-<12 hex>/`
 
