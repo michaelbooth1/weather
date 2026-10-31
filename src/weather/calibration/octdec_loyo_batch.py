@@ -1,6 +1,6 @@
 r"""Lane L17 ledger row 95: Oct-Dec history LOYO batch W1 / X13 / X18 / X20 on the SM-L6 incumbent. History only.
 
-Rule ``docs/research/p5-screens-2026-10-31/rule_octdec_loyo_batch.md`` (Amendment A2, sha pinned below). The
+Rule ``docs/research/p5-screens-2026-10-31/rule_octdec_loyo_batch.md`` (Amendment A3, sha pinned below). The
 incumbent A0 and its strict nesting are row 92's (``permarket_octdec``): the SM-L6 OWN HGB fitted on Oct-Dec of
 the other four years, the frozen MG-2 l6_stack, Gaussian integer-bucket Brier floored at the observed running max.
 Every lever parameter for held-out year Y is fitted only on inner predictions of the years X != Y (fits outside
@@ -10,6 +10,15 @@ columns at 07-12; X20 the same at 13-14 on the unstacked A0' (S1 conditional). S
 netted per draw. Verdicts: "SCREEN" or "KILL at edge size"; UNTESTABLE and VOID are non-verdicts. Planted controls
 are built in memory only, labelled CONTROL, never candidates. Nothing dated 2026 is read; no network; output only
 below ``--out`` (under ``C:/t/l17/octdec``), write-once.
+
+A3 (master rulings): W1's gamma_h is the best fit-fold Brier among the grid values whose fit-row |mean ln(sigma'/
+sigma)| <= 0.02 (gamma = 0 always qualifies), recorded per fold and hour with its logmult; C-d is one check per arm
+on its own fit objective (W1 Brier, the OLS centre arms in-sample squared error, each <= the zero lever's); X20 is
+decided only inside the incumbent's training support (hours 07-12), so with its rows at 13-14 it is UNTESTABLE and
+the 13-14 read is context only ("incumbent extrapolated"); X13 lows are in the market's native unit (US11, deg F;
+Toronto is not in the rows and the run refuses it); any 2026 date after 09-29 is refused. B-bound files are
+sha-checked against the A3 pins (``pooled_residual_model`` = rung0712 6488c7a3's version) at start and before the
+receipt, which records the git tree sha and those file shas.
 """
 from __future__ import annotations
 
@@ -17,14 +26,21 @@ import argparse
 import hashlib
 import json
 import math
+import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-RULE_SHA256 = "0a1be8b0a6e6c0826cebc1b4c1df09b1f0907848fbb0993745d765de0066ddf5"
+RULE_SHA256 = "9867afcb0f171f71327b480f4ce529ed3037adfef7fcaac792c86cd85e872a86"
 OUT_ROOT = Path("C:/t/l17/octdec")
 DATE_MIN, DATE_MAX = "2021-01-01", "2025-12-31"
 LAST_LOCAL = date(2025, 12, 31)
+CUTOFF_2026 = "2026-09-29"  # A3: any 2026 date after 09-29 is refused in code (LOYO years are <= 2025)
+INCUMBENT_SUPPORT_HOURS = tuple(range(7, 13))  # A3: the SM-L6 incumbent's training support
+X20_REOPEN_IF = "an incumbent trained on 13-14"
+X20_CONTEXT_LABEL = "incumbent extrapolated"
+X13_UNIT = "degF"
+SSE_TOL = 1e-9
 ARMS = ("W1", "X13", "X18", "X20")
 K = len(ARMS)
 BH_Q = 0.10
@@ -49,6 +65,34 @@ X13_COLUMNS = ("low_so_far_minus_mu", "low_prev_evening_minus_mu")
 RG_FEATURES = ("t_trend3", "t_trend3_miss", "t_amp", "t_path_gap")
 VERDICT_SCREEN = "SCREEN"
 VERDICT_KILL = "KILL at edge size"
+# A3 B-bound pins: imported read-only from this tree; pooled_residual_model is rung0712 6488c7a3's version (named in
+# A3), the rest are master 035f5bb19's. The run refuses on any mismatch.
+BBOUND_NAMES = frozenset({
+    "mg2_composite.py", "mg2_p3d_n.py", "r0_ols_floor_devfit.py", "l6_stack.py", "mg1.py", "upstream_obs_screen.py",
+    "r0_ols_floor_challenger.py", "observed_running_max.py", "mg_serve_core.py", "dev_scorecard.py",
+    "dev_scorecard_data.py", "loss_atlas.py", "mg2_inputs.py", "mg2_input_allowlist.py",
+    "guidance_extract_parser.py", "b_scorer.py", "pooled_residual_model.py"})
+BBOUND_PINS = {
+    "src/weather/calibration/pooled_residual_model.py":
+        "f85690616824f129a3316d8541614a8eb80481e8a7c5eca40128b8a2aaa0e049",
+    "src/weather/calibration/r0_ols_floor_challenger.py":
+        "e2edb49e1433d8855ec1c9a77a0da9bd8ddc651a8481b7a5e1fd98a53bfc5dc6",
+    "src/weather/calibration/upstream_obs_screen.py":
+        "f82b6fc0269e3b379910942fb5c17a7901855147eaed112e53ff2b24393604b5",
+    "src/weather/model/mg_serve_core.py":
+        "179fcbe495f36f6fd194c1bd0052ed6e150b0f016adbe0f8e9bb6128bd42e5d8",
+    "src/weather/reporting/scorecards/dev_scorecard.py":
+        "6447876a0956eac4f67132bc69dba48c26a672f7554ec46e8bfbe94ffe801b56",
+    "src/weather/reporting/scorecards/dev_scorecard_data.py":
+        "90627f7a9cc365c10115593b2a012aa2e63252db057606c3e649ac3e3e2f1220",
+    "src/weather/reporting/scorecards/loss_atlas.py":
+        "d18d173e63971ebac12bcc4873286ac09db3cabc89afbf30a51c0e39313a2320",
+}
+RUN_IMPORTS = ("weather.calibration.cool_season_audit", "weather.calibration.permarket_octdec",
+               "weather.calibration.pooled_residual_model", "weather.calibration.season_matched_l6",
+               "weather.calibration.upstream_obs_screen", "weather.calibration.rz_hrrr_spread",
+               "weather.calibration.successor_odc_low", "weather.calibration.market_blend",
+               "weather.calibration.ols_floor_ladder", "weather.model.mg_serve_core")
 
 
 class OctDecBatchError(RuntimeError):
@@ -73,10 +117,67 @@ def check_out_dir(out):
 
 
 def check_dates(dates, what):
-    """Refuse any local date outside 2021-01-01..2025-12-31."""
-    bad = sorted({str(d)[:10] for d in dates if not (DATE_MIN <= str(d)[:10] <= DATE_MAX)})
+    """Refuse any local date outside 2021-01-01..2025-12-31, and (A3, explicitly) any 2026 date after 09-29."""
+    ds = {str(d)[:10] for d in dates}
+    late = sorted(d for d in ds if d > CUTOFF_2026)
+    if late:
+        raise OctDecBatchError(f"{what}: {len(late)} date(s) after {CUTOFF_2026} refused (A3), first {late[0]}")
+    bad = sorted(d for d in ds if not (DATE_MIN <= d <= DATE_MAX))
     if bad:
         raise OctDecBatchError(f"{what}: {len(bad)} date(s) outside {DATE_MIN}..{DATE_MAX}, first {bad[0]}")
+
+
+def check_years(years):
+    """LOYO years for Oct-Dec are <= 2025 (A3)."""
+    bad = [y for y in years if int(y) > 2025 or int(y) < 2021]
+    if bad:
+        raise OctDecBatchError(f"LOYO years outside 2021..2025 refused: {bad}")
+
+
+def bbound_check(repo_root, pins=BBOUND_PINS, modules=None):
+    """Every loaded B-bound file under ``repo_root`` must be pinned, and match its pin; returns {path: sha}."""
+    root = Path(repo_root).resolve()
+    seen = {}
+    for mod in list((modules if modules is not None else sys.modules).values()):
+        f = getattr(mod, "__file__", None)
+        if not f or Path(f).name not in BBOUND_NAMES:
+            continue
+        p = Path(f).resolve()
+        try:
+            rel = p.relative_to(root).as_posix()
+        except ValueError:
+            raise OctDecBatchError(f"B-bound file {p} is loaded from outside the run tree {root}") from None
+        seen[rel] = _sha(p)
+    unpinned = sorted(set(seen) - set(pins))
+    if unpinned:
+        raise OctDecBatchError(f"B-bound files loaded without an A3 pin: {unpinned}")
+    bad = {k: v for k, v in seen.items() if v != pins[k]}
+    if bad:
+        raise OctDecBatchError(f"B-bound files differ from their A3 pins: {bad}")
+    return dict(sorted(seen.items()))
+
+
+def git_tree(repo_root):
+    proc = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "HEAD^{tree}"], capture_output=True, text=True,
+                          timeout=60, check=False)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def check_x13_native_unit(markets, stations):
+    """A3: X13 lows must be in each market's native settlement unit. The rows are the US11 (deg F) markets read
+    from raw METAR in deg F; Toronto (deg C, CYYZ) is refused rather than converted via deg F."""
+    ms = {str(m) for m in markets}
+    st = {str(s) for s in stations}
+    if "toronto" in ms or any(s.upper() in ("CYYZ", "YYZ") for s in st):
+        raise OctDecBatchError("X13 rows include Toronto (deg C); A3 allows US11 deg F only")
+    return {"unit": X13_UNIT, "markets": sorted(ms), "note": "US11 only; Toronto absent"}
+
+
+def x20_support(hours):
+    """Rows inside the incumbent's training support (A3 ruling 3)."""
+    import numpy as np
+
+    return np.isin(np.asarray(hours, int), INCUMBENT_SUPPORT_HOURS)
 
 
 def _write(out_dir, name, payload):
@@ -185,10 +286,15 @@ def centre_arm(X_by_fold, ctx, zero=False):
             p = {h: (np.zeros_like(b), m, n) for h, (b, m, n) in p.items()}
         params[y] = p
         mu_arm[test] = ctx["mu0"][test] + centre_shift(X, ctx["hour"], test, p)[test]
-        shifted = mu_fit[fit] + centre_shift(X, ctx["hour"], fit, p)[fit]
-        b1 = float(np.mean(brier(shifted, ctx["sig"][fit], ctx["R"][fit], ctx["dmax"][fit])))
-        b0 = float(np.mean(brier(mu_fit[fit], ctx["sig"][fit], ctx["R"][fit], ctx["dmax"][fit])))
-        train_ok[str(y)] = {"brier_lever": b1, "brier_zero": b0, "pass": bool(not (b1 > b0))}
+        # C-d (A3): the arm's own fit objective - in-sample squared error of the residual on the rows the OLS used,
+        # against the zero lever's (beta = 0) on the same rows
+        resid = ctx["dmax"] - mu_fit
+        used = fit & complete_rows(X) & np.isfinite(resid)
+        shift = centre_shift(X, ctx["hour"], used, p)
+        sse1 = float(np.sum((resid[used] - shift[used]) ** 2))
+        sse0 = float(np.sum(resid[used] ** 2))
+        train_ok[str(y)] = {"objective": "in-sample squared error (OLS)", "sse_lever": sse1, "sse_zero": sse0,
+                            "rows": int(used.sum()), "pass": bool(sse1 <= sse0 * (1 + SSE_TOL) + SSE_TOL)}
     return mu_arm, params, train_ok
 
 
@@ -223,8 +329,9 @@ def zbar_rows(markets, hour, z, fit):
 
 def w1_arm(z_by_fold, ctx, zero=False):
     """Nested LOYO W1. ``z_by_fold[Y]`` carries the inner-fit z on fit rows and the outer z on test rows.
-    gamma_h is the grid minimiser of the fit-row Brier (ties to the smallest); the LOGMULT guard sets gamma_h = 0
-    when the fit-row mean ln(sigma'/sigma) of that hour exceeds 0.02 in magnitude."""
+    A3 LOGMULT rule: gamma_h is the grid value with the best fit-row Brier among those whose fit-row (that hour)
+    |mean ln(sigma'/sigma)| <= 0.02 (ties to the smallest; gamma = 0 always qualifies). Recorded per fold and hour:
+    the chosen gamma and its logmult, and the unconstrained best with its logmult."""
     import numpy as np
 
     sig_arm = ctx["sig"].copy()
@@ -237,27 +344,34 @@ def w1_arm(z_by_fold, ctx, zero=False):
         zbar = zbar_rows(ctx["markets"], ctx["hour"], z, fit)
         zc_test[test] = (z - zbar)[test]
         hours = sorted(set(ctx["hour"][fit].tolist()))
-        means = {}
+        means, lms = {}, {}
+        fh_rows = {h: ctx["hour"][fit] == h for h in hours}
         for g in GAMMA_GRID:
             sp = w1_sigma(ctx["sig"][fit], z[fit], zbar[fit], g)
             b = brier(mu_fit[fit], sp, ctx["R"][fit], ctx["dmax"][fit])
+            lr = np.log(sp / ctx["sig"][fit])
             for h in hours:
-                means[(g, h)] = float(np.mean(b[ctx["hour"][fit] == h]))
+                means[(g, h)] = float(np.mean(b[fh_rows[h]]))
+                lms[(g, h)] = float(np.mean(lr[fh_rows[h]]))
         gam, guard = {}, {}
         for h in hours:
-            best = min(means[(g, h)] for g in GAMMA_GRID)
-            g_h = min(g for g in GAMMA_GRID if means[(g, h)] == best)
-            fh = fit & (ctx["hour"] == h)
-            lm = float(np.mean(np.log(w1_sigma(ctx["sig"][fh], z[fh], zbar[fh], g_h) / ctx["sig"][fh])))
-            guard[str(h)] = {"gamma_fitted": g_h, "mean_log_multiplier": lm, "guarded": bool(abs(lm) > LOGMULT_MAX)}
-            gam[h] = 0.0 if (zero or abs(lm) > LOGMULT_MAX) else g_h
-        params[y] = {"gamma": {str(h): gam[h] for h in hours}, "logmult_guard": guard}
+            ok_g = [g for g in GAMMA_GRID if g == 0.0 or abs(lms[(g, h)]) <= LOGMULT_MAX]
+            best = min(means[(g, h)] for g in ok_g)
+            g_h = min(g for g in ok_g if means[(g, h)] == best)
+            u_best = min(means[(g, h)] for g in GAMMA_GRID)
+            g_u = min(g for g in GAMMA_GRID if means[(g, h)] == u_best)
+            gam[h] = 0.0 if zero else g_h
+            guard[str(h)] = {"gamma_chosen": gam[h], "logmult_chosen": lms[(gam[h], h)],
+                             "gamma_unconstrained": g_u, "logmult_unconstrained": lms[(g_u, h)],
+                             "constraint_bound": bool(g_u != g_h), "qualifying": len(ok_g)}
+        params[y] = {"gamma": {str(h): gam[h] for h in hours}, "logmult": guard}
         for h in hours:
             th = test & (ctx["hour"] == h)
             sig_arm[th] = w1_sigma(ctx["sig"][th], z[th], zbar[th], gam[h])
         b1 = sum(means[(gam[h], h)] * int((fit & (ctx["hour"] == h)).sum()) for h in hours)
         b0 = sum(means[(0.0, h)] * int((fit & (ctx["hour"] == h)).sum()) for h in hours)
-        train_ok[str(y)] = {"brier_lever_sum": b1, "brier_zero_sum": b0, "pass": bool(not (b1 > b0))}
+        train_ok[str(y)] = {"objective": "fit-row Brier", "brier_lever_sum": b1, "brier_zero_sum": b0,
+                            "pass": bool(not (b1 > b0))}
     return sig_arm, params, train_ok, zc_test
 
 
@@ -541,9 +655,15 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
     from weather.calibration import upstream_obs_screen as l6
     from weather.model import mg_serve_core as core
 
-    got = _sha(rule)
+    import importlib
+
+    got = _sha(rule) if Path(rule).is_file() else None
     if got != RULE_SHA256:
         raise OctDecBatchError(f"rule sha {got} != {RULE_SHA256}")
+    repo_root = Path(__file__).resolve().parents[3]
+    for name in RUN_IMPORTS:
+        importlib.import_module(name)
+    bb_start = bbound_check(repo_root)
     out_dir = check_out_dir(out)
     cs._pin(nbm_corpus, sm.NBM_CORPUS_SHA256, "NBM corpus")
     cs._pin(mg2_coefficients, cs.MG2_COEF_SHA256, "MG-2 coefficients")
@@ -551,6 +671,7 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
     out_dir.mkdir(parents=True, exist_ok=False)
     coef = json.loads(Path(mg2_coefficients).read_text(encoding="utf-8"))["l6_stack"]["coef"]
     years = tuple(cs.YEARS)
+    check_years(years)
 
     train, prov = sm.training_rows(research_root)
     check_dates(train.local_date, "training rows")
@@ -572,6 +693,7 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
         if iem[m][0] and date.fromordinal(max(iem[m][2])) > LAST_LOCAL:
             raise OctDecBatchError(f"IEM reports after {LAST_LOCAL} for {m}")
     rtz = {m: ZoneInfo(timezones[m]) for m in markets}
+    x13_unit = check_x13_native_unit(rows.market, rows.station)
     low, prev, x13_stats = x13_columns(rows, g_station, tz_station)
     x18 = {y: rg_columns_for_fold(rows, iem, rtz, timezones, y) for y in years}
     x20 = {y: rg_columns_for_fold(late, iem, rtz, timezones, y) for y in years}
@@ -595,13 +717,17 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
                  "min_rows": X20_MIN_ROWS, "min_dates": X20_MIN_DATES, "min_s_finite": X20_S_FINITE_MIN}
     x20_block["pass"] = bool(len(late) >= X20_MIN_ROWS and late_dates >= X20_MIN_DATES
                              and x20_block["s_finite_fraction"] >= X20_S_FINITE_MIN)
+    in_support = x20_support(late.hour) if len(late) else np.zeros(0, bool)
+    x20_block["in_support_rows"] = int(in_support.sum())
+    x20_block["support_hours"] = list(INCUMBENT_SUPPORT_HOURS)
     testable = {a: bool(cov[a][0] >= COVERAGE_MIN) for a in ARMS}
-    testable["X20"] = bool(testable["X20"] and x20_block["pass"])
+    # A3 ruling 3: X20 is decided only inside the incumbent's training support; its 13-14 rows have none
+    testable["X20"] = bool(testable["X20"] and x20_block["pass"] and in_support.any())
     s1 = {"label": "ledger row 95 S1 coverage (outcome-free; before any Brier or residual)",
           "rule_sha256": RULE_SHA256, "module_sha256": _sha(__file__), "coverage_min": COVERAGE_MIN,
           "arms": {a: {"coverage": cov[a][0], "rows_lever_zero_missing_column": cov[a][1], "testable": testable[a]}
                    for a in ARMS},
-          "x20_13_14_block": x20_block, "x13_adapter": x13_stats,
+          "x20_13_14_block": x20_block, "x13_adapter": x13_stats, "x13_unit": x13_unit,
           "rg_stats": {"X18": {str(y): x18[y][1] for y in years}, "X20": {str(y): x20[y][1] for y in years}},
           "rows_07_12": int(len(rows)), "rows_13_14": int(len(late))}
     _write(out_dir, "s1_coverage.json", s1)
@@ -725,6 +851,14 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
         if not testable[arm] or not c["ok"].any():
             rec["status"] = "UNTESTABLE"
             pvals[arm] = 1.0
+            if arm == "X20":
+                rec["reason"] = "no rows inside the incumbent's training support (hours 07-12)"
+                rec["reopen_if"] = X20_REOPEN_IF
+                if c["ok"].any() and x20_block["pass"]:  # context only: not in BH, no verdict
+                    mu_a, par, tr = centre_arm(X[arm], c)
+                    rec["context_13_14"] = {"label": X20_CONTEXT_LABEL, "in_bh": False, "verdict": None,
+                                            "betas": betas(par), "fit_objective": tr,
+                                            "stats": bootstrap(d_of(c, key, mu=mu_a), c["dates"][c["ok"]])}
             arms[arm] = rec
             continue
         if arm == "W1":
@@ -766,8 +900,12 @@ def run(*, research_root, nbm_corpus, mg2_coefficients, rule, c1_receipt, out):
                          "delta_upper_lt_0": st["ci95"][1] < 0, "d_net_upper_lt_0": st["d_net"]["ci95"][1] < 0,
                          "no_worse_cells": not rec["cells"]["ci_worse_cells"]}
         rec["verdict"] = VERDICT_SCREEN if all(rec["checks"].values()) else VERDICT_KILL
+    bb_end = bbound_check(repo_root)
+    if bb_end != bb_start:
+        raise OctDecBatchError("B-bound files changed during the run")
     payload = {"label": "ledger row 95: Oct-Dec LOYO batch W1/X13/X18/X20 on SM-L6, history only",
-               "rule_sha256": RULE_SHA256, "module_sha256": _sha(__file__),
+               "rule_sha256": RULE_SHA256, "module_sha256": _sha(__file__), "git_tree": git_tree(repo_root),
+               "bbound_sha256": bb_start, "x13_unit": x13_unit,
                "verdicts": {a: arms[a]["verdict"] for a in ARMS}, "arms": arms, "controls": controls,
                "bh": {"q": BH_Q, "K": K}, "s1": s1["arms"], "rows_scored_07_12": int(c07["ok"].sum()),
                "rows_scored_13_14": int(c13["ok"].sum()), "train_rows": int(len(train)),

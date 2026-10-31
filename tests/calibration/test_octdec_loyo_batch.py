@@ -1,12 +1,16 @@
-"""Oct-Dec history LOYO batch W1 / X13 / X18 / X20 (lane L17, 2026-10-31; ledger row 95, rule A2).
+"""Oct-Dec history LOYO batch W1 / X13 / X18 / X20 (lane L17, 2026-10-31; ledger row 95, rule A3).
 
 Synthetic frames only, no real rows.
-Guards: rule_octdec_loyo_batch A2 sections 1-4 and (a) - the nested-fit index sets (no inner fit trains on X or
+Guards: rule_octdec_loyo_batch A2 sections 1-4 and (a), as amended by A3 - the nested-fit index sets (no inner fit trains on X or
 Y; fold fit rows carry only the {X, Y} inner prediction); the W1 sigma' floor and the LOGMULT guard; the C-b
 identity for centre and width arms; the C-c planted centre control and its negation (opposite beta, identical
 d) and the planted W1 control; the placebo derangement (no fixed point, within market, hour and year); the
 date-cluster bootstrap matching upstream_obs_screen.cluster_ci and its placebo-net draw; BH; the write-once out
 dir below C:/t/l17/octdec; the 2021-2025 date refusal; the rule pin refusing before the out dir is touched.
+A3: the constrained LOGMULT selection (best fit-fold Brier among |logmult| <= 0.02, gamma 0 always qualifies) and
+the toy planted W1 C-c at sigma 2.0 passing under it; C-d on each arm's own objective (OLS in-sample squared
+error); X20 support hours 07-12; the X13 native-unit (US11 deg F) refusal of Toronto; the explicit 2026-09-29
+cutoff and LOYO years <= 2025; the B-bound pin check.
 """
 import importlib
 
@@ -99,30 +103,61 @@ def test_w1_sigma_floor_is_never_weakened_and_gamma_zero_is_identity():
     assert ob.w1_z([70.0, 70.1], [70.0, 72.0])[0] == pytest.approx(np.log(0.25))
 
 
-def test_logmult_guard_zeroes_gamma_when_the_floor_makes_it_a_global_widening():
+def test_logmult_rule_picks_the_best_qualifying_gamma_and_records_it_per_fold():
+    """A3: gamma_h = best fit-fold Brier among grid values with |mean ln(sigma'/sigma)| <= 0.02 (0 qualifies)."""
     c = toy_ctx(sig_value=1.0)  # every row on the 1 deg F floor: sigma' can only widen
     ref = resid_ref(c)
     z = {y: np.log(np.maximum(np.abs(ref[y]), 0.25)) for y in YEARS}
     sig_a, par, tr, _ = ob.w1_arm(z, c)
-    guards = [g for y in YEARS for g in par[y]["logmult_guard"].values()]
-    assert any(g["gamma_fitted"] > 0 for g in guards)
-    assert any(g["guarded"] for g in guards)
-    for y in YEARS:
-        for h, g in par[y]["logmult_guard"].items():
-            if g["guarded"]:
-                assert par[y]["gamma"][h] == 0.0
-                th = (c["year"] == y) & (c["hour"] == int(h))
-                np.testing.assert_array_equal(sig_a[th], c["sig"][th])
-    assert all(v["pass"] for v in tr.values())
+    recs = [(y, h, g) for y in YEARS for h, g in par[y]["logmult"].items()]
+    assert any(g["constraint_bound"] for _, _, g in recs)
+    for y, h, g in recs:
+        assert par[y]["gamma"][h] == g["gamma_chosen"]
+        assert g["gamma_chosen"] == 0.0 or abs(g["logmult_chosen"]) <= ob.LOGMULT_MAX
+        assert g["gamma_chosen"] <= g["gamma_unconstrained"] or not g["constraint_bound"]
+        assert g["qualifying"] >= 1
+        th = (c["year"] == y) & (c["hour"] == int(h))
+        if g["gamma_chosen"] == 0.0:
+            np.testing.assert_array_equal(sig_a[th], c["sig"][th])
+    assert all(v["pass"] and v["objective"] == "fit-row Brier" for v in tr.values())
+
+
+def test_logmult_rule_choice_is_the_constrained_argmin():
+    c = toy_ctx(sig_value=2.0)
+    ref = resid_ref(c)
+    z = {y: np.log(np.maximum(np.abs(ref[y]), 0.25)) for y in YEARS}
+    _, par, _, _ = ob.w1_arm(z, c)
+    y = YEARS[0]
+    fit = c["year"] != y
+    zz = z[y]
+    zbar = ob.zbar_rows(c["markets"], c["hour"], zz, fit)
+    for h in ("7", "8"):
+        fh = fit & (c["hour"] == int(h))
+        best = None
+        for g in ob.GAMMA_GRID:
+            sp = ob.w1_sigma(c["sig"][fh], zz[fh], zbar[fh], g)
+            lm = float(np.mean(np.log(sp / c["sig"][fh])))
+            if g != 0.0 and abs(lm) > ob.LOGMULT_MAX:
+                continue
+            b = float(np.mean(ob.brier(c["mu_fit"][y][fh], sp, c["R"][fh], c["dmax"][fh])))
+            if best is None or b < best[0]:
+                best = (b, g, lm)
+        assert par[y]["gamma"][h] == best[1]
+        assert par[y]["logmult"][h]["logmult_chosen"] == pytest.approx(best[2])
 
 
 def test_planted_w1_signal_passes_p0_and_the_gate_and_its_negation_fits_gamma_zero():
-    c = toy_ctx(n_dates=60, sig_value=3.5)  # a regime where the literal LOGMULT guard does not bind
+    """A3 pre-freeze toy: the planted W1 C-c at sigma 2.0 passes under the constrained LOGMULT rule (the
+    constraint binds in every fold; eps sd = sd of the pooled clean fit-row z, as in run())."""
+    c = toy_ctx(n_dates=60, sig_value=2.0)
     ref = resid_ref(c)
-    rng = np.random.default_rng(ob.PLANT_SEED)
-    eps = rng.normal(0, 1.0, len(c["mu0"]))
-    zp = {y: np.log(np.maximum(np.abs(ref[y]), 0.25)) + eps for y in YEARS}
-    s_p, _, _, zc = ob.w1_arm(zp, c)
+    z0 = {y: np.log(np.maximum(np.abs(ref[y]), ob.Z_FLOOR)) for y in YEARS}
+    sd = float(np.std(np.concatenate([z0[y][c["year"] != y] for y in YEARS])))
+    eps = np.random.default_rng(ob.PLANT_SEED).normal(0, sd, len(c["mu0"]))
+    zp = {y: z0[y] + eps for y in YEARS}
+    s_p, gp, _, zc = ob.w1_arm(zp, c)
+    assert all(g["constraint_bound"] and 0 < g["gamma_chosen"] and abs(g["logmult_chosen"]) <= ob.LOGMULT_MAX
+               for y in YEARS for g in gp[y]["logmult"].values())
     p0 = ob.w1_p0(zc, c)
     assert p0["pass"] and p0["rho"] > 0.2
     st = ob.bootstrap(d_of(c, sig=s_p), c["dates"], draws=2000)
@@ -183,6 +218,9 @@ def test_c_c_planted_centre_passes_and_its_negation_flips_beta_with_identical_d(
     assert np.max(np.abs(d_n - d_p)) <= ob.NEG_IDENTICAL_TOL
     assert ob.control_pass(ob.bootstrap(d_p, c["dates"], draws=2000))
     assert all(v["pass"] for v in tr.values())
+    for v in tr.values():  # A3 C-d: OLS in-sample squared error <= the zero lever's
+        assert v["objective"] == "in-sample squared error (OLS)" and v["sse_lever"] <= v["sse_zero"]
+        assert v["rows"] > 0
 
 
 # ----------------------------------------------------------------------------- placebo, statistic, BH
@@ -245,9 +283,62 @@ def test_out_dir_must_be_new_and_strictly_below_the_root(tmp_path, monkeypatch):
 
 def test_dates_outside_2021_2025_refuse():
     ob.check_dates(["2021-01-01", "2025-12-31"], "ok")
-    for bad in ("2020-12-31", "2026-01-01", "2026-09-30"):
+    for bad in ("2020-12-31", "2026-01-01", "2026-09-29"):
         with pytest.raises(ob.OctDecBatchError):
             ob.check_dates(["2023-10-01", bad], "rows")
+    for late in ("2026-09-30", "2026-10-15", "2027-01-01"):
+        with pytest.raises(ob.OctDecBatchError, match="after 2026-09-29 refused"):
+            ob.check_dates(["2023-10-01", late], "rows")
+    ob.check_years((2021, 2022, 2023, 2024, 2025))
+    for bad in ((2021, 2026), (2020, 2021)):
+        with pytest.raises(ob.OctDecBatchError):
+            ob.check_years(bad)
+
+
+def test_x13_native_unit_refuses_toronto_and_records_us11_degf():
+    rec = ob.check_x13_native_unit(["austin", "miami"], ["KAUS", "KMIA"])
+    assert rec["unit"] == "degF" and rec["markets"] == ["austin", "miami"]
+    for markets, stations in ((["toronto"], ["KAUS"]), (["austin"], ["CYYZ"])):
+        with pytest.raises(ob.OctDecBatchError, match="Toronto"):
+            ob.check_x13_native_unit(markets, stations)
+
+
+def test_x20_has_no_rows_inside_the_incumbent_support():
+    assert ob.INCUMBENT_SUPPORT_HOURS == (7, 8, 9, 10, 11, 12)
+    assert not ob.x20_support(np.array(ob.X20_HOURS)).any()
+    assert ob.x20_support(np.array([7, 12])).all()
+    assert (ob.X20_REOPEN_IF, ob.X20_CONTEXT_LABEL) == ("an incumbent trained on 13-14", "incumbent extrapolated")
+
+
+def test_bbound_check(tmp_path):
+    import types
+
+    f = tmp_path / "src" / "pooled_residual_model.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("x = 1\n", encoding="utf-8")
+    mods = {"m": types.SimpleNamespace(__file__=str(f)), "n": types.SimpleNamespace(__file__=None)}
+    with pytest.raises(ob.OctDecBatchError, match="without an A3 pin"):
+        ob.bbound_check(tmp_path, pins={}, modules=mods)
+    with pytest.raises(ob.OctDecBatchError, match="differ"):
+        ob.bbound_check(tmp_path, pins={"src/pooled_residual_model.py": "0" * 64}, modules=mods)
+    good = {"src/pooled_residual_model.py": ob._sha(f)}
+    assert ob.bbound_check(tmp_path, pins=good, modules=mods) == good
+    with pytest.raises(ob.OctDecBatchError, match="outside the run tree"):
+        ob.bbound_check(tmp_path / "src" / "sub", pins=good, modules=mods)
+
+
+def test_bbound_pins_match_this_tree_including_the_rung0712_pooled_residual_model():
+    from pathlib import Path
+
+    root = Path(ob.__file__).resolve().parents[3]
+    for rel, sha in ob.BBOUND_PINS.items():
+        assert ob._sha(root / rel) == sha, rel
+    assert ob.BBOUND_PINS["src/weather/calibration/pooled_residual_model.py"].startswith("f8569061")
+    import importlib
+
+    for name in ob.RUN_IMPORTS:
+        importlib.import_module(name)
+    ob.bbound_check(root)
 
 
 def test_rule_pin_refuses_before_the_out_dir_is_touched(tmp_path, monkeypatch):
