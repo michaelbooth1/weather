@@ -32,7 +32,7 @@ FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "reporting" / "dev_
     "hard_floor_snapshot_deltas.csv.gz"
 BANDS = (("lte", 77, 77), ("eq", 78, 79), ("eq", 80, 81), ("eq", 82, 83), ("gte", 84, 84))
 HOURS = (0, 7, 10, 14, 18)
-RULING = "owner 2026-10-30 yes to both (DECISION_LOG 2026-10-30 release row)"
+RULING = "owner 2026-10-30 release of 2026-09-30..10-14 (DECISION_LOG 2026-10-30 row, origin/master 5f4d87818)"
 NETWORK = {"socket", "requests", "urllib", "http", "httpx", "aiohttp", "ftplib", "smtplib"}
 
 
