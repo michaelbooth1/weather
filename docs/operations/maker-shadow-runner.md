@@ -382,7 +382,8 @@ scoring belongs to a pre-registered look (maker replay v2, the maker P&L desk
 study), not to this diagnostic.
 
 **Embargo.** `score` refuses, before opening any tape or 88a byte, UTC days
-2026-09-30..2026-10-15 (maker replay v2 panel and settlement day) and
+2026-10-15 (maker replay v2 settlement-only day; the panel days 2026-09-30..2026-10-14
+were released on 2026-10-30) and
 2026-10-15..2026-11-13 (desk-study decision panel and its pre-registered
 extension), and any day not yet closed in UTC. The windows live in
 `maker_core.shadow.admission.EMBARGO_WINDOWS` (re-exported by

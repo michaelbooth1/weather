@@ -177,7 +177,7 @@ def test_panel_rejects_changed_evidence_and_skips_unsealed(tmp_path):
         MakerEvidencePanel(tmp_path / "me", "2026-09-28", {YES})
 
 
-@pytest.mark.parametrize("day", ["2026-09-30", "2026-10-14", "2026-10-15", "2026-10-30", "2026-11-13"])
+@pytest.mark.parametrize("day", ["2026-10-15", "2026-10-30", "2026-11-13"])
 def test_embargoed_days_refused_before_any_read(tmp_path, capsys, day):
     assert embargo_reason(day)
     code = maker_shadow.main(["score", "--day", day, "--tape-root", str(tmp_path / "missing"),
@@ -187,6 +187,7 @@ def test_embargoed_days_refused_before_any_read(tmp_path, capsys, day):
 
 def test_embargo_windows_and_open_day(tmp_path, capsys):
     assert embargo_reason("2026-09-29") is None and embargo_reason("2026-11-14") is None
+    assert embargo_reason("2026-09-30") is None and embargo_reason("2026-10-14") is None  # released 2026-10-30
     assert all(start <= end for start, end, _ in EMBARGOED_UTC_DAYS)
     today = max(datetime.now(timezone.utc).date().isoformat(), "2026-11-14")
     assert maker_shadow.main(["score", "--day", today, "--tape-root", str(tmp_path)]) == 2

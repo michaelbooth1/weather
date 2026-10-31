@@ -130,7 +130,7 @@ changes, change the code owner first, then this table.
 <!-- embargo-table:start -->
 | Owner | First day | Last day | Scope |
 | --- | --- | --- | --- |
-| maker_core | 2026-09-30 | 2026-10-15 | full |
+| maker_core | 2026-10-15 | 2026-10-15 | full |
 | maker_core | 2026-10-15 | 2026-11-13 | outcome |
 | mg1 | 2026-10-15 | 2026-11-28 | mg1_reserved |
 <!-- embargo-table:end -->

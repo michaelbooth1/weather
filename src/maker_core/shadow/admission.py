@@ -27,8 +27,12 @@ SCOPE_RANK = {OUTCOME: 1, FULL: 2}
 
 # (first UTC day, last UTC day, scope, reason); inclusive. Each window comes from a signed or owner-approved plan.
 EMBARGO_WINDOWS = (
-    ("2026-09-30", "2026-10-15", FULL,
-     "maker replay v2 panel (UTC 09-30..10-14) and settlement-only day 10-15 (DECISION_LOG 2026-10-03)"),
+    # UTC 09-30..10-14 (the maker replay v2 panel) was released by the owner on 2026-10-30 (relayed by master):
+    # weather kill-only and atlas reads. Market-day exclusions (Austin 10-03) cannot be expressed here; the readers
+    # and the export manifest own them.
+    ("2026-10-15", "2026-10-15", FULL,
+     "maker replay v2 settlement-only day 10-15, the UTC spill kept out of the 2026-10-30 panel release "
+     "(DECISION_LOG 2026-10-03)"),
     ("2026-10-15", "2026-11-13", OUTCOME,
      "maker P&L desk-study decision panel: T+1/T+2 quote days for events 10-17..10-30 and its pre-registered "
      "extension to at most 28 event dates (pre-registration 2026-10-01, read only after the 10-31 look)"),

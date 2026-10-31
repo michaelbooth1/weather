@@ -43,9 +43,11 @@ def tape(day, *, run_id="20310312T101500Z-0123abcd", commit=S, dirty=False, erro
 
 def test_real_windows_keep_their_dates_and_scope_w1_full_w2_outcome():
     assert [(s, e, scope) for s, e, scope, _ in EMBARGO_WINDOWS] == [
-        ("2026-09-30", "2026-10-15", FULL), ("2026-10-15", "2026-11-13", OUTCOME)]
+        ("2026-10-15", "2026-10-15", FULL), ("2026-10-15", "2026-11-13", OUTCOME)]
     assert EMBARGOED_UTC_DAYS == tuple((s, e, r) for s, e, _, r in EMBARGO_WINDOWS)
     assert embargo_scope("2026-10-15") == FULL  # the shared day takes the most restrictive scope
+    # The 2026-10-30 release: the panel days UTC 09-30..10-14 are no longer embargoed.
+    assert embargo_scope("2026-09-30") is None and embargo_scope("2026-10-14") is None
 
 
 def test_weather_panel_reexports_the_core_windows():
@@ -389,7 +391,7 @@ def test_replace_on_a_minted_admission_is_revalidated(changes, error):
 
 def test_dropping_injected_windows_keeps_the_permanent_ones():
     assert adm._windows_with_defaults(())[:len(EMBARGO_WINDOWS)] == EMBARGO_WINDOWS
-    assert admit_parity_day("2026-10-01", CLOCK, now=NOW, windows=()).refused == "embargoed_utc_day"
+    assert admit_parity_day("2026-10-15", CLOCK, now=NOW, windows=()).refused == "embargoed_utc_day"
     w2 = admit_parity_day("2026-10-20", parity_clock_from(clock_mapping(
         freeze_utc="2026-10-18T09:00:00Z", restart_run_id="20261018T101500Z-0123abcd")), now=NOW, windows=())
     assert w2.admitted and w2.withhold_outcomes
@@ -476,7 +478,7 @@ def test_an_eq_overriding_window_entry_cannot_drop_the_permanent_windows(tmp_pat
     assert adm._windows_with_defaults(evil)[:len(EMBARGO_WINDOWS)] == EMBARGO_WINDOWS
     early = parity_clock_from(clock_mapping(freeze_utc="2026-09-01T00:00:00Z",
                                             restart_run_id="20260901T000000Z-0123abcd"))
-    assert admit_parity_day("2026-10-01", early, now=NOW, windows=evil).refused == "embargoed_utc_day"
+    assert admit_parity_day("2026-10-15", early, now=NOW, windows=evil).refused == "embargoed_utc_day"
     w2 = admit_parity_day("2026-10-20", early, now=NOW, windows=evil)
     assert w2.admitted and w2.withhold_outcomes
     with pytest.raises(ValueError, match="parity_report_not_allowlisted"):
