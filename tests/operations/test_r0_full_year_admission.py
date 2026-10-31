@@ -28,6 +28,7 @@ PINNED = [
     "weather.calibration.l5_subset_scores",
     "weather.calibration.market_blend",
     "weather.calibration.c3_kill_tier",  # L16's C3 T+1 fair-value kill tier (claude/c3-t1-fv-kill-tier-20261031, 10-31)
+    "weather.calibration.c3_frozen_launcher",  # L16's C3 frozen d937b34 builder/scorer launcher, master ruling (d) (claude/c3-t1-fv-kill-tier-run-20261031, 10-31)
     "weather.calibration.dead_bucket",
     "weather.calibration.dead_bucket_toronto",
     "weather.calibration.new_city_corpus",

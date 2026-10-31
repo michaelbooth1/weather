@@ -2,6 +2,8 @@
 
 Synthetic fixtures only: no real price, label, snapshot or bundle is opened. Rule: the C3 kill-tier DRAFT
 (docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-DRAFT.md) as amended by REVISION-1 (master D1) REVISION-2 (wider of date-clustered and block-3 bounds) and REVISION-3 (step 5 too).
+
+Guards: the C3 kill-tier rule (DRAFT section 6 refusals R1-R5, controls K1-K3) and its frozen REVISION-3 decision order.
 """
 import ast
 import copy
