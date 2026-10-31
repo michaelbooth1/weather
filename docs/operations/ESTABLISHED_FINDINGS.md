@@ -4555,6 +4555,13 @@ Introduced in `fdd7ddc75`, fixed in `e40804dfe` (the C7/C8 line).
   already does for Markdown. It lands in the 10-26/27 chain; its `tests/AGENTS.md` note lives on that branch.
 - **Lesson:** a negative test must be shown to fail on a planted violation before it is trusted.
 - **Reopen if:** a control byte is found in a `.ps1` file or another type the ratchet does not cover.
+- **Reopened and widened (master ruling 10-30):** TAB/FF/CR reached a `.ps1` comment and broke a launcher, and
+  `"C:\t..."` became a TAB in ledger and register paths. The same test, on `claude/control-char-ratchet-20261030`,
+  now reads the index blobs of every tracked `.ps1`, `.psm1`, `.md`, `.json` and `.py` file. It normalises CRLF, then
+  refuses every control character other than LF and tab, lone CR included, with a justified `ALLOWLIST`. Its first
+  run found a single offender on `origin/master`: `"\restart"` had become CR + `estart` in two command lines of
+  `passive-maker-evidence-capture.md`. That has been fixed. The docs audit allows CR but forbids tab in docs
+  Markdown, so it is stricter for tab in its own scope and missed the CR.
 
 ### 10ak. Lane reads of 2026-10-26: R-P killed, R-PD and R-N closed at 00-06, R-L stopped on an NBS format fact, R-R a dev WIN at 07-12 — workstation, recorded 2026-10-26
 
