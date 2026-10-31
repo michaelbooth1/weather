@@ -5,6 +5,7 @@ when the archive is present, control C-d on row 80's archived rows. No r80 layou
 """
 from __future__ import annotations
 
+import argparse
 import ast
 import inspect
 import hashlib
@@ -41,7 +42,8 @@ def test_the_module_imports_no_network_library():
 
 def test_pinned_blobs_and_rule_files_match_the_run_tree():
     assert len(p0.check_blobs()) == len(p0.BLOBS)
-    assert set(p0.check_rule_files()) == {p0.RULE_PATH, p0.CLARIFICATION_PATH, p0.CLARIFICATION2_PATH}
+    assert set(p0.check_rule_files()) == {p0.RULE_PATH, p0.CLARIFICATION_PATH, p0.CLARIFICATION2_PATH,
+                                          p0.CLARIFICATION3_PATH}
 
 
 def test_a_changed_blob_is_refused(tmp_path):
@@ -139,8 +141,8 @@ def test_look_refuses_a_wrong_coef_sha_before_reading_any_layout(tmp_path, monke
     monkeypatch.setattr(p0, "check_origin", lambda: {})
     monkeypatch.setattr(p0, "code_state", lambda: {"dirty": False})
     monkeypatch.setattr(p0, "OUT_ROOT", tmp_path / "rodc")
-    monkeypatch.setattr(p0, "check_out_dir", lambda out: p0.Path(out))
-    monkeypatch.setattr(p0, "check_no_prior_look", lambda: True)
+    monkeypatch.setattr(p0, "check_out_dir", lambda out, root=None: p0.Path(out))
+    monkeypatch.setattr(p0, "check_look2_guard", lambda: {})
     touched = []
     monkeypatch.setattr(p0, "control_cd", lambda: touched.append("cd"))
     coef = tmp_path / "coef.json"
@@ -155,7 +157,7 @@ def test_look_refuses_a_wrong_coef_sha_before_reading_any_layout(tmp_path, monke
                   ["--coef-sha", coef_sha, "--parity", str(tmp_path / "missing.json"), "--parity-sha", par_sha],
                   ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", "0" * 64],
                   ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", par_sha]):   # parity1, not parity2
-        rc = p0.main(base + extra + ["--approval", "coordinator admission 2026-10-31"])
+        rc = p0.main(base + extra + ["--approval", p0.LOOK2_APPROVAL])
         assert rc == 2 and not touched and not (tmp_path / "rodc").exists()
     rc = p0.main(base + ["--coef-sha", coef_sha, "--parity", str(par), "--parity-sha", par_sha,
                          "--approval", "short"])
@@ -721,7 +723,7 @@ def test_projected_power_at_us10_n():
 def _look_src():
     import inspect
 
-    return inspect.getsource(p0.stage_look)
+    return inspect.getsource(p0.look_front) + inspect.getsource(p0.look_tail)
 
 
 def test_coverage_floor_override_is_live_before_band_scoring():
@@ -764,41 +766,50 @@ def test_fix3_look_started_marker_blocks_a_second_look(tmp_path):
 
 
 def test_fix3_look_started_is_written_before_the_release_layout_load():
-    src = inspect.getsource(p0.stage_look)
-    started = src.index("begin_look(out, args.approval)")
-    assert src.index("check_out_dir(args.out)") < started < src.index("data.load_layout(R80_LAYOUT")
-    assert started < src.index("write_look_rows(out, rows_out)") < src.index("write_look_receipt(out, receipt)")
-    assert "mkdir" not in src                         # begin_look owns the look's only mkdir
-    assert src.count("begin_look(") == 1
+    look = inspect.getsource(p0.stage_look)
+    front = inspect.getsource(p0.look_front)
+    assert look.index("check_look2_guard()") < look.index("check_out_dir(args.out, LOOK2_ROOT)") < \
+        look.index("begin_look(o, args.approval)") < look.index("look_tail(args, ctx, out)")
+    assert front.index("mark(out) if mark is not None") < front.index("data.load_layout(R80_LAYOUT")
+    assert "mkdir" not in look and "mkdir" not in front and "mkdir" not in inspect.getsource(p0.look_tail)
+    tail = inspect.getsource(p0.look_tail)
+    assert tail.index("write_look_rows(out, rows_out)") < tail.index("write_look_receipt(out, receipt)")
+
+
+def _roots(tmp_path, monkeypatch):
+    rodc, look2 = tmp_path / "rodc", tmp_path / "rodc-look2"
+    monkeypatch.setattr(p0, "OUT_ROOT", rodc)
+    monkeypatch.setattr(p0, "LOOK2_ROOT", look2)
+    return rodc, look2
 
 
 def test_fix3_begin_look_creates_the_dir_and_marker_and_a_second_begin_refuses(tmp_path, monkeypatch):
-    monkeypatch.setattr(p0, "OUT_ROOT", tmp_path)
-    out = p0.check_out_dir(tmp_path / "look1", tmp_path)
-    sha = p0.begin_look(out, "admission ref")
+    _, look2 = _roots(tmp_path, monkeypatch)
+    out = p0.check_out_dir(look2 / "l2", look2)
+    sha = p0.begin_look(out, p0.LOOK2_APPROVAL)
     marker = out / p0.LOOK_STARTED
     assert out.is_dir() and marker.is_file() and sha == hashlib.sha256(marker.read_bytes()).hexdigest()
     rec = json.loads(marker.read_text(encoding="utf-8"))
-    assert rec["schema"] == p0.SCHEMA + "/look_started" and rec["approval"] == "admission ref"
-    with pytest.raises(p0.Refused, match="second look"):        # same out
-        p0.begin_look(out, "admission ref")
-    with pytest.raises(p0.Refused, match="second look"):        # a fresh out under the same root
-        p0.begin_look(tmp_path / "look2", "admission ref")
-    assert not (tmp_path / "look2").exists()
+    assert rec["schema"] == p0.SCHEMA + "/look_started" and rec["approval"] == p0.LOOK2_APPROVAL
+    with pytest.raises(p0.Refused, match="no look3"):            # same out
+        p0.begin_look(out, p0.LOOK2_APPROVAL)
+    with pytest.raises(p0.Refused, match="no look3"):            # a fresh out under the same root
+        p0.begin_look(look2 / "l3", p0.LOOK2_APPROVAL)
+    assert not (look2 / "l3").exists()
 
 
 def test_fix3_begin_look_refuses_an_existing_out_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(p0, "OUT_ROOT", tmp_path)
-    (tmp_path / "look1").mkdir()
+    _, look2 = _roots(tmp_path, monkeypatch)
+    (look2 / "l2").mkdir(parents=True)
     with pytest.raises(FileExistsError):
-        p0.begin_look(tmp_path / "look1", "admission ref")
-    assert not (tmp_path / "look1" / p0.LOOK_STARTED).exists()
+        p0.begin_look(look2 / "l2", p0.LOOK2_APPROVAL)
+    assert not (look2 / "l2" / p0.LOOK_STARTED).exists()
 
 
 def test_fix3_the_look_tail_writes_into_the_begun_out(tmp_path, monkeypatch):
-    monkeypatch.setattr(p0, "OUT_ROOT", tmp_path)
-    out = p0.check_out_dir(tmp_path / "look1", tmp_path)
-    started = p0.begin_look(out, "admission ref")
+    _, look2 = _roots(tmp_path, monkeypatch)
+    out = p0.check_out_dir(look2 / "l2", look2)
+    started = p0.begin_look(out, p0.LOOK2_APPROVAL)
     rows = [{"arm": "X13", "n": np.int64(3), "ok": np.bool_(True)}, {"arm": "R", "x": np.float64(0.5)}]
     rows_sha = p0.write_look_rows(out, rows)
     receipt = {"schema": p0.SCHEMA + "/look", "look_started_sha256": started, "flag": np.bool_(False)}
@@ -812,8 +823,8 @@ def test_fix3_the_look_tail_writes_into_the_begun_out(tmp_path, monkeypatch):
         p0.write_look_rows(out, rows)
     with pytest.raises(FileExistsError):
         p0.write_look_receipt(out, receipt)
-    with pytest.raises(p0.Refused, match="second look"):
-        p0.check_no_prior_look(tmp_path)
+    with pytest.raises(p0.Refused, match="no look3"):
+        p0.check_look2_guard()
 
 
 def test_fix3_each_stage_mkdirs_once_after_check_out_dir_and_before_its_first_write():
@@ -848,3 +859,211 @@ def test_fix2_x13_lows_are_wu_whole_degrees():
     lo, prev = p0.x13_lows({"rows": rows}, target_date=date(2026, 10, 5), tz=NY, unit="F", cutoff_hour=9,
                            now=datetime(2026, 10, 5, 9, 0, tzinfo=NY))
     assert (lo, prev) == (57.0, 55.0)
+
+
+# ----------------------------------------------------------------------------- Clarification 3
+
+def test_clarification_3_is_pinned():
+    assert p0.check_rule_files()[p0.CLARIFICATION3_PATH] == p0.CLARIFICATION3_SHA256
+    assert p0.LOOK2_APPROVAL == ("master 10-31 R-ODC row 103 look2: one bounded C-g WU-scale repair (Clarification 3) "
+                                 "after look1 refused at C-g before any statistic; rehearsal PASS required; no look3")
+    assert p0.LOOK1_MARKER_SHA256 == "1f3ee224f8a1775f4360a00543e7a7fbf91a75c7af11ea6344529cbf204d8b93"
+    assert p0.LOOK1_REFUSAL_LOG_SHA256 == "68755c85f13da8edbf88758368147c563f9c222bf7cc6f0deb40ebc78b7c871d"
+
+
+def test_look1_marker_and_refusal_log_on_this_host_match_the_pins():
+    marker = p0.OUT_ROOT / "look1" / p0.LOOK_STARTED
+    log = p0.OUT_ROOT.parent / "rodc-look1-console.log"
+    if not marker.is_file():
+        pytest.skip("look1 marker is not on this host")
+    assert hashlib.sha256(marker.read_bytes()).hexdigest() == p0.LOOK1_MARKER_SHA256
+    if log.is_file():
+        assert hashlib.sha256(log.read_bytes()).hexdigest() == p0.LOOK1_REFUSAL_LOG_SHA256
+
+
+def test_cg_compares_on_the_wu_whole_scale_and_counts_what_the_frozen_check_would_refuse():
+    out = p0.control_cg([_sf(7, 65, 65, 64.94, market="atlanta", day="2026-10-01"),
+                         _sf(8, 65, 66, 66.02, market="atlanta", day="2026-10-01"),
+                         _sf(7, 79, 79, 78.98, market="miami", day="2026-10-01")])
+    assert out["verdict"] == "PASS" and out["scale"] == "wu_whole_f half_up on both sides"
+    assert out["frozen_raw_high_would_refuse"] == {"snapshots_low_above_raw_high": 2, "cells_check_bounds_refuses": 2,
+                                                   "snapshots_dropped_or_flagged": 0}
+    with pytest.raises(p0.Refused, match="C-g"):                  # a real violation still refuses
+        p0.control_cg([_sf(7, 66, 66, 64.94)])
+    with pytest.raises(p0.Refused, match="C-g"):                  # and so does a rising running minimum
+        p0.control_cg([_sf(7, 60, 61, 64.94), _sf(8, 62, 62, 64.94)])
+
+
+def test_wu_whole_rounding_is_monotone_on_tgroup_values():
+    from weather.model.mg_serve_core import wu_whole_f
+
+    raw = sorted(round(c / 10 * 9 / 5 + 32, 2) for c in range(-450, 500))
+    whole = [wu_whole_f(v, "half_up") for v in raw]
+    assert all(a <= b for a, b in zip(whole, whole[1:]))
+
+
+def test_check_bounds_never_drops_or_flags_and_is_not_in_the_feature_path():
+    from weather.calibration import odc_metar_features as odc
+
+    for fn in (odc.odc_features, odc.kept_rows):
+        assert "check_bounds" not in inspect.getsource(fn)
+    for fn in (p0.snapshot_features, p0.x13_lows, p0.look_front, p0.look_tail):
+        assert "check_bounds" not in inspect.getsource(fn)
+    callers = [n for n, fn in vars(p0).items() if inspect.isfunction(fn) and fn.__module__ == p0.__name__
+               and "odc.check_bounds(" in inspect.getsource(fn)]
+    assert callers == ["control_cg"]
+    by_hour = {7: {"low_so_far": 50, "high_so_far": 55, "current_temp": 52}}
+    assert odc.check_bounds(by_hour) == 1 and by_hour == {7: {"low_so_far": 50, "high_so_far": 55,
+                                                              "current_temp": 52}}
+    with pytest.raises(odc.OdcMetarRefused):
+        odc.check_bounds({7: {"low_so_far": 65, "high_so_far": 64.94, "current_temp": 65}})
+
+
+def _fake_marker(rodc, monkeypatch, name="look1", content=b'{"m": 1}\n'):
+    (rodc / name).mkdir(parents=True, exist_ok=True)
+    (rodc / name / p0.LOOK_STARTED).write_bytes(content)
+    monkeypatch.setattr(p0, "LOOK1_MARKER_SHA256", hashlib.sha256(content).hexdigest())
+
+
+def test_look2_guard_functional(tmp_path, monkeypatch):
+    rodc, look2 = _roots(tmp_path, monkeypatch)
+    assert p0.check_look2_guard()["look1_marker"] is None
+    _fake_marker(rodc, monkeypatch)
+    g = p0.check_look2_guard()
+    assert g["look1_marker"].endswith("look_started.json") and g["look1_marker_sha256"] == p0.LOOK1_MARKER_SHA256
+    (look2 / "l2" / "deeper").mkdir(parents=True)
+    assert p0.check_look2_guard()                                   # a dir alone is not a look
+    (look2 / "l2" / "deeper" / "look_anything.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(p0.Refused, match="no look3"):
+        p0.check_look2_guard()
+
+
+@pytest.mark.parametrize("case", ["receipt_in_look1", "second_marker", "changed_marker"])
+def test_look2_guard_refuses_anything_but_look1s_marker_under_rodc(tmp_path, monkeypatch, case):
+    rodc, _ = _roots(tmp_path, monkeypatch)
+    _fake_marker(rodc, monkeypatch)
+    if case == "receipt_in_look1":
+        (rodc / "look1" / p0.LOOK_RECEIPT).write_text("{}", encoding="utf-8")
+    elif case == "second_marker":
+        (rodc / "lookx").mkdir()
+        (rodc / "lookx" / p0.LOOK_STARTED).write_bytes(b'{"m": 1}\n')
+    else:
+        (rodc / "look1" / p0.LOOK_STARTED).write_bytes(b'{"m": 2}\n')
+    with pytest.raises(p0.Refused, match="not look1's marker alone"):
+        p0.check_look2_guard()
+    with pytest.raises(p0.Refused):
+        p0.begin_look(p0.LOOK2_ROOT / "l2", p0.LOOK2_APPROVAL)
+    assert not p0.LOOK2_ROOT.exists()
+
+
+def test_look_refuses_any_other_approval_before_any_guard_or_read(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("touched")
+    for name in ("check_look2_guard", "check_out_dir", "look_front", "stage_guards"):
+        monkeypatch.setattr(p0, name, boom)
+    for approval in ("coordinator admission 2026-10-31", p0.LOOK2_APPROVAL + " ", p0.LOOK2_APPROVAL[:-1]):
+        args = p0.build_parser().parse_args(["look", "--out", "x", "--coef", "c", "--coef-sha", "s", "--parity", "p",
+                                             "--parity-sha", "q", "--approval", approval])
+        with pytest.raises(p0.Refused, match="pinned look2 approval"):
+            p0.stage_look(args)
+
+
+def _names(fn):
+    tree = ast.parse(inspect.getsource(fn).lstrip())
+    return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | \
+        {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+
+
+def test_rehearsal_never_reaches_the_table_c_c_or_the_statistic(tmp_path, monkeypatch):
+    from weather.calibration import mr_sweep as sw
+    from weather.reporting.scorecards import dev_scorecard as sc
+
+    forbidden = {"Table", "control_cc", "p0_candidate", "look_tail", "begin_look", "band_geometry", "write_look_rows",
+                 "write_look_receipt", "eps_sensitivity", "wider_interval"}
+    assert not (_names(p0.look_front) | _names(p0.stage_rehearse)) & forbidden
+    rodc, look2 = _roots(tmp_path, monkeypatch)
+    monkeypatch.setattr(p0, "REHEARSE_ROOT", tmp_path / "rodc-rehearse")
+
+    def boom(*a, **k):
+        raise AssertionError("the rehearsal reached the table / C-c / the statistic")
+    monkeypatch.setattr(sc, "Table", boom)
+    monkeypatch.setattr(sw, "p0_candidate", boom)
+    for name in ("control_cc", "look_tail", "begin_look", "write_look_rows", "write_look_receipt"):
+        monkeypatch.setattr(p0, name, boom)
+    seen = {}
+
+    def front(args, out, mark=None):
+        seen.update(out=out, mark=mark)
+        return {"gd": {"origin": {}, "code": {}, "blobs": {}, "rules": {}, "pin_identity": {}}, "after": {},
+                "controls": {"C-g": {"verdict": "PASS", "frozen_raw_high_would_refuse": {}}},
+                "feats": {"k": {"n_implausible": 2, "n_rows": 10}}, "reasons": {"ok": 1},
+                "parity": {"parity_limited": {a: False for a in p0.ARMS}},
+                "power_projection": {a: {"n_arm": 5, "power": 0.5} for a in p0.ARMS}, "dates": ["2026-10-01"],
+                "dropped": 0, "hashed": {}, "malformed": [], "override": {}, "serve_override": {}}
+    monkeypatch.setattr(p0, "look_front", front)
+    out = tmp_path / "rodc-rehearse" / "r1"
+    rc = p0.main(["rehearse-to-table", "--out", str(out), "--coef", "c", "--coef-sha", "s", "--parity", "p",
+                  "--parity-sha", "q"])
+    assert rc == 0 and seen == {"out": out, "mark": None}
+    rec = json.loads((out / p0.REHEARSE_RECEIPT).read_text(encoding="utf-8"))
+    assert rec["schema"] == p0.SCHEMA + "/rehearse" and rec["controls"]["C-g"]["verdict"] == "PASS"
+    assert rec["power_projection_us10"][p0.ARM_X13] == {"n_arm": 5, "power": 0.5}
+    assert rec["serve_rows_outside_frozen_30F_125F"] == {"count": 2, "kept_window_rows": 10}
+    assert not list(tmp_path.rglob("look_*"))
+    assert sorted(q.name for q in out.iterdir()) == [p0.REHEARSE_RECEIPT]
+    assert p0.main(["rehearse-to-table", "--out", str(out), "--coef", "c", "--coef-sha", "s", "--parity", "p",
+                    "--parity-sha", "q"]) == 2                       # an existing --out refuses
+    assert p0.main(["rehearse-to-table", "--out", str(look2 / "r1"), "--coef", "c", "--coef-sha", "s", "--parity",
+                    "p", "--parity-sha", "q"]) == 2                  # only below REHEARSE_ROOT
+
+
+def test_look_tail_functional_on_a_synthetic_layout(tmp_path, monkeypatch):
+    """Drives the real tail from sc.Table through rows.jsonl and look_receipt.json (synthetic layout, floors 1/1)."""
+    from tests.reporting.test_released_window_served_market_blocks import write_layout
+
+    from weather.calibration import mr_sweep as sw
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    root = write_layout(tmp_path / "lay", date(2026, 8, 1), 12)
+    lay = data.load_layout(root, data.DEV_FIRST, date(2026, 8, 12))
+    man_sha = hashlib.sha256((root / data.MANIFEST).read_bytes()).hexdigest()
+    for name, value in (("R80_LAYOUT", root), ("DEV_LAYOUT", root), ("R80_LAYOUT_MANIFEST_SHA256", man_sha),
+                        ("DEV_LAYOUT_MANIFEST_SHA256", man_sha), ("MIN_DATES", 1), ("MIN_SNAPS", 1)):
+        monkeypatch.setattr(p0, name, value)
+    monkeypatch.setattr(sw, "MIN_DATES", sw.MIN_DATES)
+    monkeypatch.setattr(sw, "MIN_SNAPS", sw.MIN_SNAPS)
+    _, look2 = _roots(tmp_path, monkeypatch)
+    out = p0.check_out_dir(look2 / "l2", look2)
+    started = p0.begin_look(out, p0.LOOK2_APPROVAL)
+    rng = np.random.default_rng(11)
+    feats, coef = {}, {"arms": {a: {} for a in p0.ARMS}}
+    for r in lay.snaps.itertuples(index=False):
+        if int(r.local_hour) in p0.HOURS:
+            feats[str(r.row_key)] = {"odc_low_so_far": float(rng.integers(55, 65)), "dewpoint_c": float(rng.integers(5, 15)),
+                                     "x13_low_so_far": float(rng.integers(55, 65)),
+                                     "low_prev_evening": float(rng.integers(55, 65))}
+            for arm in p0.ARMS:
+                cols = list(p0.arm_columns(arm, feats[str(r.row_key)]))
+                coef["arms"][arm][f"{r.market}|{int(r.local_hour)}"] = {
+                    "columns": cols, "beta": [0.3] * len(cols), "means": [60.0, 10.0, 60.0][:len(cols)]}
+    dates = sorted(str(d) for d in lay.dates)
+    ctx = {"gd": {"origin": {}, "code": {}, "blobs": {}, "rules": {}, "pin_identity": {}}, "after": {},
+           "controls": {"C-e": {}, "C-g": {"verdict": "PASS", "scale": "wu_whole_f half_up on both sides"}},
+           "lay": lay, "dates": dates, "feats": feats, "reasons": {"ok": len(feats)}, "coef": coef,
+           "parity": {"parity_limited": {a: False for a in p0.ARMS}}, "cc_paths": {}, "serve_override": {},
+           "power_projection": {}, "override": {}, "hashed": {}, "malformed": [], "dropped": 0,
+           "look_started_sha": started, "look2_guard": {"look1_marker": None}}
+    args = argparse.Namespace(approval=p0.LOOK2_APPROVAL, parity_sha="q" * 64, coef_sha="c" * 64)
+    receipt = p0.look_tail(args, ctx, out)
+    names = sorted(q.name for q in out.iterdir())
+    assert names == sorted([p0.LOOK_STARTED, "rows.jsonl", p0.LOOK_RECEIPT])
+    on_disk = json.loads((out / p0.LOOK_RECEIPT).read_text(encoding="utf-8"))
+    assert on_disk["rows_sha256"] == hashlib.sha256((out / "rows.jsonl").read_bytes()).hexdigest()
+    assert on_disk["look_started_sha256"] == started and on_disk["controls"]["C-c"]["verdict"] == "PASS"
+    assert on_disk["clarification_3"]["look1_refusal_log_sha256"] == p0.LOOK1_REFUSAL_LOG_SHA256
+    assert on_disk["clarification_3"]["approval_pinned"] == p0.LOOK2_APPROVAL
+    for arm in p0.ARMS:
+        e = receipt["arms"][arm]
+        assert e["label"] and "eps_sensitivity" in e and "bh" in e and e["covered_snapshots"] > 0
+    with pytest.raises(p0.Refused, match="no look3"):
+        p0.check_look2_guard()

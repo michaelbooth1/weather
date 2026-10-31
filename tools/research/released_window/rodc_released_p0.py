@@ -19,9 +19,11 @@ tree, ``PYTHONPATH=<run tree>\src``)::
     python -m tools.research.released_window.rodc_released_p0 fit  --out C:\t\l16\rodc\<new>
     python -m tools.research.released_window.rodc_released_p0 parity --out C:\t\l16\rodc\<new>
     python -m tools.research.released_window.rodc_released_p0 parity2 --out C:\t\l16\rodc\<new>
-    python -m tools.research.released_window.rodc_released_p0 look --out C:\t\l16\rodc\<new> \
+    python -m tools.research.released_window.rodc_released_p0 rehearse-to-table --out C:\t\l16\rodc-rehearse\<new> \
         --coef <fit out>\coef.json --coef-sha <sha256 of coef.json> \
-        --parity <parity2 out>\parity2_receipt.json --parity-sha <its sha256> --approval "<coordinator admission ref>"
+        --parity <parity2 out>\parity2_receipt.json --parity-sha <its sha256>
+    python -m tools.research.released_window.rodc_released_p0 look --out C:\t\l16\rodc-look2\<new> \
+        <the same --coef / --coef-sha / --parity / --parity-sha> --approval "<LOOK2_APPROVAL, exactly>"
 
 Master's 2026-10-31 rulings: every stage also checks the pin identity (ruling 1); ``parity`` is the pre-look,
 outcome-free train/serve parity of the lows (ruling 4) whose ``parity_limited`` flags the look appends to the
@@ -29,7 +31,10 @@ affected arm's label. Clarification 2 (``CLARIFICATION2_SHA256``) then rules: C-
 exact identities, the m < EPS count and a non-deciding all-m >= EPS sensitivity that turns an unreproduced KILL into
 UNRESOLVED; the serve-side 30..125 F filter is a defect, so the look uses the trainer's rule (none, hence the
 physical bound >= -40) through a scoped override, and reads only the ``parity2`` receipt; Denver is excluded from
-both arms (US10); the projected power at the US10 N is printed and recorded before any Delta.
+both arms (US10); the projected power at the US10 N is printed and recorded before any Delta. Clarification 3
+(``CLARIFICATION3_SHA256``): look1 refused at C-g before any statistic, so C-g compares both sides on the WU whole
+scale, ``rehearse-to-table`` runs the look2 front and stops before ``sc.Table``, and look2 lives under a new guard
+root with a pinned approval. It is the only repair; there is no look3.
 
 ``preflight`` reads no data: origin, clean tree, rule and blob shas. ``fit`` reads only the L9 Oct-Dec history
 caches (and L3's centre 11-24 rows for control C-f). ``look`` is the single look: controls C-a, C-b, C-d, C-e on
@@ -65,10 +70,20 @@ CLARIFICATION_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_1.
 CLARIFICATION_SHA256 = "064c4f267fab1e70d5b046c00da2b9796adae77031918ce08caee2030cd48be6"
 CLARIFICATION2_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_2.md"
 CLARIFICATION2_SHA256 = "cec81d4fa556866a162e47ee990385f5c471973ced9a1fd35a93d98deef182c2"
+CLARIFICATION3_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_3.md"
+CLARIFICATION3_SHA256 = "e9664e4ab24b1ad7ea98324bd0e9ca2013a32f1e86db0f9f82e6d10dc1c0465c"
 
 OUT_ROOT = Path(r"C:\t\l16\rodc")
 LOOK_RECEIPT = "look_receipt.json"
 LOOK_STARTED = "look_started.json"        # exclusive-created before the release layout is loaded
+# Clarification 3: look1 refused at C-g before any statistic; one bounded repair, look2 under a new guard root.
+LOOK2_ROOT = Path(r"C:\t\l16\rodc-look2")
+REHEARSE_ROOT = Path(r"C:\t\l16\rodc-rehearse")
+REHEARSE_RECEIPT = "rehearse_receipt.json"
+LOOK1_MARKER_SHA256 = "1f3ee224f8a1775f4360a00543e7a7fbf91a75c7af11ea6344529cbf204d8b93"
+LOOK1_REFUSAL_LOG_SHA256 = "68755c85f13da8edbf88758368147c563f9c222bf7cc6f0deb40ebc78b7c871d"
+LOOK2_APPROVAL = ("master 10-31 R-ODC row 103 look2: one bounded C-g WU-scale repair (Clarification 3) after look1 "
+                  "refused at C-g before any statistic; rehearsal PASS required; no look3")
 FIT_RECEIPT = "fit_receipt.json"
 
 # Inputs (read only).
@@ -240,7 +255,7 @@ def check_blobs(tree=TREE, blobs=None):
 def check_rule_files(tree=TREE):
     out = {}
     for rel, want in ((RULE_PATH, RULE_SHA256), (CLARIFICATION_PATH, CLARIFICATION_SHA256),
-                      (CLARIFICATION2_PATH, CLARIFICATION2_SHA256)):
+                      (CLARIFICATION2_PATH, CLARIFICATION2_SHA256), (CLARIFICATION3_PATH, CLARIFICATION3_SHA256)):
         got = sha256_file(Path(tree) / rel)
         if got != want:
             raise Refused(f"refused: {rel} sha256 {got} is not the pinned {want}")
@@ -358,6 +373,23 @@ def check_no_prior_look(root=OUT_ROOT):
     if prior:
         raise Refused(f"refused: a look already ran ({prior[0]}); there is no second look")
     return True
+
+
+def check_look2_guard(look2_root=None, rodc_root=None):
+    """Clarification 3 point 4: refuses when any look_* file exists under the look2 root, or when anything other
+    than look1's marker (by sha256) exists under ``rodc_root/*/look_*``. Read-only."""
+    look2_root = Path(LOOK2_ROOT if look2_root is None else look2_root)
+    rodc_root = Path(OUT_ROOT if rodc_root is None else rodc_root)
+    in_look2 = sorted(str(q) for q in look2_root.rglob("look_*")) if look2_root.is_dir() else []
+    if in_look2:
+        raise Refused(f"refused: a look2 already started ({in_look2[0]}); there is no look3")
+    found = sorted(rodc_root.glob("*/look_*")) if rodc_root.is_dir() else []
+    others = [str(q) for q in found if q.name != LOOK_STARTED or sha256_file(q) != LOOK1_MARKER_SHA256]
+    if others or len(found) > 1:
+        raise Refused(f"refused: {others or [str(q) for q in found]} under {rodc_root} is not look1's marker alone")
+    return {"look2_root": str(look2_root), "rodc_root": str(rodc_root),
+            "look1_marker": str(found[0]) if found else None,
+            "look1_marker_sha256": LOOK1_MARKER_SHA256 if found else None}
 
 
 def check_coef(path, want_sha):
@@ -715,29 +747,47 @@ def increment(coef_cell, cols):
 
 def control_cg(snaps_feats):
     """C-g (label-free): odc ``check_bounds`` per (market, date) over the last snapshot of each hour, and
-    low_so_far <= the layout's high_so_far wherever both exist."""
+    low_so_far <= the layout's high_so_far wherever both exist. Clarification 3 point 1: both sides on the WU whole
+    scale, i.e. the layout high goes through ``wu_whole_f(high_so_far, "half_up")`` (low and current already do).
+    Rounding is monotone, so raw low <= raw high still implies rounded low <= rounded high. The counts of what the
+    frozen raw-high comparison would have refused are recorded; ``check_bounds`` never drops or flags a snapshot."""
     from weather.calibration import odc_metar_features as odc
+    from weather.model.mg_serve_core import wu_whole_f
 
-    by_cell = defaultdict(dict)
-    violations = []
+    by_cell, by_cell_raw = defaultdict(dict), defaultdict(dict)
+    violations, raw_snaps = [], 0
     for s in sorted(snaps_feats, key=lambda s: s["captured"]):
         f = s["feats"]
         low = f.get("odc_low_so_far")
         hsf = s.get("high_so_far")
-        if low is not None and hsf is not None and math.isfinite(hsf) and low > hsf + odc.TOL:
-            violations.append((s["market"], s["date"], s["local_hour"], "layout_high_so_far", low, hsf))
-        by_cell[(s["market"], s["date"])][s["local_hour"]] = {
-            "low_so_far": low, "current_temp": f.get("current_temp"),
-            "high_so_far": hsf if hsf is not None and math.isfinite(hsf) else None}
+        raw = float(hsf) if hsf is not None and math.isfinite(hsf) else None
+        whole = wu_whole_f(raw, "half_up") if raw is not None else None
+        if low is not None and raw is not None and low > raw + odc.TOL:
+            raw_snaps += 1
+        if low is not None and whole is not None and low > whole + odc.TOL:
+            violations.append((s["market"], s["date"], s["local_hour"], "layout_high_so_far_wu_whole", low, whole))
+        base = {"low_so_far": low, "current_temp": f.get("current_temp")}
+        by_cell[(s["market"], s["date"])][s["local_hour"]] = dict(base, high_so_far=whole)
+        by_cell_raw[(s["market"], s["date"])][s["local_hour"]] = dict(base, high_so_far=raw)
     checked, refused = 0, []
     for cell, by_hour in sorted(by_cell.items()):
         try:
             checked += odc.check_bounds(by_hour)
         except odc.OdcMetarRefused as exc:
             refused.append((cell, str(exc)))
+    raw_cells = 0
+    for cell, by_hour in sorted(by_cell_raw.items()):
+        try:
+            odc.check_bounds(by_hour)
+        except odc.OdcMetarRefused:
+            raw_cells += 1
     if violations or refused:
         raise Refused(f"refused: C-g feature bounds failed: {violations[:3]} {refused[:3]}")
-    return {"cells": len(by_cell), "hours_checked": checked, "verdict": "PASS"}
+    return {"cells": len(by_cell), "hours_checked": checked, "scale": "wu_whole_f half_up on both sides",
+            "frozen_raw_high_would_refuse": {"snapshots_low_above_raw_high": raw_snaps,
+                                             "cells_check_bounds_refuses": raw_cells,
+                                             "snapshots_dropped_or_flagged": 0},
+            "verdict": "PASS"}
 
 
 def read_export(root, sums_sha, wanted):
@@ -1064,10 +1114,10 @@ def check_coverage_floor_live(sw):
 
 
 def begin_look(out, approval):
-    """Marks the single look before the release layout is loaded: refuses on any prior look marker or receipt
-    under ``OUT_ROOT``, creates ``out`` (it must not exist; ``check_out_dir`` checked that) and exclusive-creates
+    """Marks the single look before the release layout is loaded: refuses unless the look2 guard passes
+    (Clarification 3 point 4), creates ``out`` (it must not exist; ``check_out_dir`` checked that) and exclusive-creates
     ``look_started.json``. Its sha256 goes into the look receipt. This is the look's only mkdir."""
-    check_no_prior_look(OUT_ROOT)
+    check_look2_guard()
     out = Path(out)
     out.mkdir(parents=True)
     return write_exclusive(out / LOOK_STARTED, {
@@ -1090,12 +1140,53 @@ def write_look_receipt(out, receipt):
 
 
 def stage_look(args):
+    """look2 (Clarification 3): the pinned approval, the look2 guard, ``--out`` under ``LOOK2_ROOT``, then the
+    shared front (``begin_look`` before the release layout load) and the tail."""
+    if args.approval != LOOK2_APPROVAL:
+        raise Refused("refused: --approval is not the pinned look2 approval (Clarification 3 point 4)")
+    guard = check_look2_guard()
+    out = check_out_dir(args.out, LOOK2_ROOT)
+    ctx = look_front(args, out, mark=lambda o: begin_look(o, args.approval))
+    ctx["look2_guard"] = guard
+    return look_tail(args, ctx, out)
+
+
+def stage_rehearse(args):
+    """Clarification 3 point 3: the exact look2 front (guards, C-a, C-b, C-d, C-e, release layout load, features,
+    C-g, power projection), stopping before ``sc.Table``: no sc.Table, C-c or p0_candidate, no Delta, no look_*
+    file. Writes only ``rehearse_receipt.json`` below ``REHEARSE_ROOT``."""
+    out = check_out_dir(args.out, REHEARSE_ROOT)
+    guard = check_look2_guard()
+    ctx = look_front(args, out, mark=None)
+    guard_after = check_look2_guard()
+    out.mkdir(parents=True)
+    gd, feats = ctx["gd"], ctx["feats"]
+    receipt = {
+        "schema": SCHEMA + "/rehearse", "ledger_row": LEDGER_ROW, "stage": "rehearse-to-table",
+        "stopped_before": "sc.Table (no C-c, no p0_candidate, no Delta, no look_* marker)",
+        "origin": gd["origin"], "origin_after_imports": ctx["after"], "code": gd["code"], "blobs": gd["blobs"],
+        "rules": gd["rules"], "pin_identity": gd["pin_identity"], "module_sha256": sha256_file(__file__),
+        "coef_sha256": args.coef_sha, "parity_receipt_sha256": args.parity_sha,
+        "parity_limited": ctx["parity"]["parity_limited"], "look2_guard": {"before": guard, "after": guard_after},
+        "controls": ctx["controls"], "feature_reasons": dict(ctx["reasons"]),
+        "power_projection_us10": ctx["power_projection"], "dates": ctx["dates"],
+        "snapshots_dropped_austin_1003": ctx["dropped"], "export_files_hashed": len(ctx["hashed"]),
+        "malformed": ctx["malformed"], "override_in_process": ctx["override"], "serve_rule": ctx["serve_override"],
+        "serve_rows_outside_frozen_30F_125F": {"count": sum(f.get("n_implausible", 0) for f in feats.values()),
+                                               "kept_window_rows": sum(f.get("n_rows", 0) or 0
+                                                                       for f in feats.values())},
+    }
+    sha = write_exclusive(out / REHEARSE_RECEIPT, receipt)
+    print(json.dumps({"rehearse_receipt_sha256": sha, "C-g": ctx["controls"]["C-g"],
+                      "power_projection_us10": ctx["power_projection"]}, default=_default))
+    return receipt
+
+
+def look_front(args, out, mark=None):
+    """The look2 path up to, not including, ``sc.Table``: guards, coef / parity / C-c-path checks, controls C-a,
+    C-b, C-d, C-e, ``mark(out)`` (``begin_look`` in the look, None in the rehearsal) before the release layout load,
+    the feature loop under the trainer rule, C-g and the US10 power projection. Never builds the r80 table."""
     gd = stage_guards()
-    origin, state, blobs, rules = gd["origin"], gd["code"], gd["blobs"], gd["rules"]
-    if not args.approval or len(args.approval.strip()) < MIN_APPROVAL:
-        raise Refused("refused: --approval needs the coordinator's admission reference for this look")
-    check_no_prior_look()
-    out = check_out_dir(args.out)
     coef = check_coef(args.coef, args.coef_sha)
     parity = check_parity(args.parity, args.parity_sha)
     cc_paths = check_cc_paths()
@@ -1103,9 +1194,7 @@ def stage_look(args):
     import pandas as pd
 
     from weather.calibration import mr_gate as mg
-    from weather.calibration import mr_sweep as sw
     from weather.market.market_registry import spec_for_id
-    from weather.reporting.scorecards import dev_scorecard as sc
     from weather.reporting.scorecards import dev_scorecard_data as data
     from tools.research.released_window import served_market_blocks as smb
 
@@ -1128,7 +1217,7 @@ def stage_look(args):
 
     # The release layout (local target dates 10-01..10-14), Austin 10-03 dropped.
     smb.check_release_manifest(R80_LAYOUT)
-    look_started_sha = begin_look(out, args.approval)
+    look_started_sha = mark(out) if mark is not None else None
     with smb.released_dev_last(RELEASE_LAST) as override:
         lay = data.load_layout(R80_LAYOUT, RELEASE_FIRST, RELEASE_LAST)
     if lay.manifest_sha256 != R80_LAYOUT_MANIFEST_SHA256:
@@ -1177,9 +1266,31 @@ def stage_look(args):
                                arm_columns(arm, feats[k])) is not None
         power_projection[arm] = projected_power(n_arm, n_row80)
     print(json.dumps({"power_projection_us10": power_projection}, default=_default), flush=True)
+    return {"gd": gd, "after": after, "controls": controls, "lay": lay, "dates": dates, "feats": feats,
+            "reasons": reasons, "coef": coef, "parity": parity, "cc_paths": cc_paths, "serve_override": serve_override,
+            "power_projection": power_projection, "override": override, "hashed": hashed, "malformed": malformed,
+            "dropped": dropped, "look_started_sha": look_started_sha}
+
+
+def look_tail(args, ctx, out, t=None):
+    """From ``sc.Table`` (labels and prices are read from here on) to rows.jsonl and look_receipt.json in the
+    ``out`` that ``begin_look`` made. ``t`` is built from ``ctx["lay"]`` unless given (functional test)."""
+    from weather.calibration import mr_sweep as sw
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    gd, after, controls, lay, dates = ctx["gd"], ctx["after"], ctx["controls"], ctx["lay"], ctx["dates"]
+    origin, state, blobs, rules = gd["origin"], gd["code"], gd["blobs"], gd["rules"]
+    feats, reasons, coef, parity, cc_paths = ctx["feats"], ctx["reasons"], ctx["coef"], ctx["parity"], ctx["cc_paths"]
+    serve_override, power_projection, override = ctx["serve_override"], ctx["power_projection"], ctx["override"]
+    hashed, malformed, dropped, look_started_sha = ctx["hashed"], ctx["malformed"], ctx["dropped"], \
+        ctx["look_started_sha"]
+    r80_manifest = R80_LAYOUT / data.MANIFEST
+    dev_manifest = DEV_LAYOUT / data.MANIFEST
 
     # The r80 table (labels and prices are read from here on).
-    t = sc.Table(lay, dates)
+    if t is None:
+        t = sc.Table(lay, dates)
     geo = sw.band_geometry(t)
     controls["C-c"] = control_cc(t, geo)
     controls["C-e"]["fit_equals_score"] = control_restrict_identity(t)
@@ -1253,6 +1364,9 @@ def stage_look(args):
         "dev_layout_manifest_sha256": DEV_LAYOUT_MANIFEST_SHA256, "export_sums_sha256": R80_SUMS_SHA256,
         "export_files_hashed": len(hashed), "malformed": malformed, "override_in_process": override,
         "look_started_sha256": look_started_sha,
+        "clarification_3": {"look2_guard": ctx.get("look2_guard"), "look1_marker_sha256": LOOK1_MARKER_SHA256,
+                            "look1_refusal_log_sha256": LOOK1_REFUSAL_LOG_SHA256, "approval_pinned": LOOK2_APPROVAL,
+                            "c_g_scale": controls.get("C-g", {}).get("scale")},
         "dates": dates, "snapshots_dropped_austin_1003": dropped, "feature_reasons": dict(reasons),
         "controls": controls, "k": len(ARMS), "bh_q": BH_Q, "delta_edge": DELTA_EDGE, "power_min": POWER_MIN,
         "coverage_floor": {"dates": MIN_DATES, "snapshots": MIN_SNAPS}, "mechanism": MECHANISM,
@@ -1580,7 +1694,7 @@ def build_parser():
     ap = argparse.ArgumentParser(prog="tools.research.released_window.rodc_released_p0",
                                  description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="stage", required=True)
-    for name in ("preflight", "fit", "parity", "parity2", "look"):
+    for name in ("preflight", "fit", "parity", "parity2", "look", "rehearse-to-table"):
         p = sub.add_parser(name)
         if name != "preflight":
             p.add_argument("--out", required=True)
@@ -1590,11 +1704,12 @@ def build_parser():
         if name in ("parity", "parity2"):
             p.add_argument("--cache-dir", default=str(L9_CACHE))
             p.add_argument("--metar-dir", default=str(METAR_HISTORY))
-        if name == "look":
+        if name in ("look", "rehearse-to-table"):
             p.add_argument("--coef", required=True)
             p.add_argument("--coef-sha", required=True)
             p.add_argument("--parity", required=True)
             p.add_argument("--parity-sha", required=True)
+        if name == "look":
             p.add_argument("--approval", required=True)
     return ap
 
@@ -1603,7 +1718,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         {"preflight": stage_preflight, "fit": stage_fit, "parity": stage_parity, "parity2": stage_parity2,
-         "look": stage_look}[args.stage](args)
+         "look": stage_look, "rehearse-to-table": stage_rehearse}[args.stage](args)
     except Refused as exc:
         print(str(exc), file=sys.stderr)
         return 2
