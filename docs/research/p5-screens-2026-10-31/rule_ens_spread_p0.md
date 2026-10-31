@@ -63,6 +63,36 @@ other A1 bullet stands.**
   self-admitted.
 - **Kill line (section 7).** Unchanged in scope; the kill is "KILL at edge size" for ρ 0.2236.
 
+**Amendment A3 (2026-10-31, pre-run; applies master's A3 rulings relayed by the coordinator; no outcome,
+price or label was read to write it). A3 supersedes A2 only where it says so. A2 is left unedited; every
+other A1 and A2 bullet stands.**
+
+- **Verdict (supersedes A2's labels).** Fixed at the P0 stage of section 6: **"KILL at edge size"** or
+  **"P0 survivor; w underpowered (0.28-0.31), context only"**. UNTESTABLE and VOID keep their meaning. A
+  survivor's w gate still runs in its own block as context only and cannot change the verdict.
+- **Runtime `00-06` block accepted.** The runtime addition of `"00-06": (0, 6)` to `mr_gate.BLOCKS`
+  (A2 disclosure) is accepted. `mr_gate.py` stays unedited, and the receipt records the override.
+- **Run branch.** `claude/p5-ens-run-20261031-r2`: a NEW branch that merges `origin/master`
+  `035f5bb19` into the A2 run branch (`claude/p5-ens-run-20261031` @
+  `30bde9751278ccfa5f437b34186e74769653377b`, left untouched). The B-bound files are master's.
+- **B-bound code (master ruling, binds every row).** A research run may import a non-master version of a
+  B-bound file only if this rule NAMES that exact version. At run start the module sha-checks every
+  imported B-bound file against the pins below and refuses on a mismatch, an unpinned B-bound file, or one
+  loaded from outside the run tree; it checks again before the receipt. The receipt records the git tree
+  sha and the file shas. The run never writes to production paths or B outputs.
+- **Pins (row 93, all master `035f5bb19`):**
+  - `src/weather/calibration/pooled_residual_model.py` `52c497a95a69c3fbf78dbfe030b3190d93e940f180b81867a241552b3932a170`
+  - `src/weather/reporting/scorecards/dev_scorecard.py` `6447876a0956eac4f67132bc69dba48c26a672f7554ec46e8bfbe94ffe801b56`
+  - `src/weather/reporting/scorecards/dev_scorecard_data.py` `90627f7a9cc365c10115593b2a012aa2e63252db057606c3e649ac3e3e2f1220`
+  - `src/weather/reporting/scorecards/loss_atlas.py` `d18d173e63971ebac12bcc4873286ac09db3cabc89afbf30a51c0e39313a2320`
+- **Tests.** The A2 module's 10 tests re-run on the r2 tree, plus 2 for the pin check (12).
+- **Admission.** The run branch carries the module in its own tree and, as a separate commit, the one-line
+  offline-module allowlist entry (the `ece13f3d` pattern: `.codex/hooks/pre_tool_use_host_load.py`
+  `_OFFLINE_WEATHER_MODULES`, `scripts/ops/workload_admission.ps1` `Get-WeatherWorkstationOfflineModule`,
+  `tests/operations/test_r0_full_year_admission.py` `PINNED`). That commit is not planned to land on master.
+  No real-data run happens until the coordinator admits that run explicitly.
+- **Ledger.** Rows 93-95 count in the dev reuse count (they now run).
+
 ## 0. Data check (task P5 (c), outcome-free; no download, no rebuild)
 
 Dev-window ECMWF ENS **per-member** values exist locally, and they were obtained free from an official

@@ -1,6 +1,6 @@
 r"""ECMWF ENS member spread against the market: kill-only P0 (lane L17, 2026-10-31; dev-window ledger row 93).
 
-Rule ``docs/research/p5-screens-2026-10-31/rule_ens_spread_p0.md`` (Amendment A2, sha256 ``RULE_SHA256``,
+Rule ``docs/research/p5-screens-2026-10-31/rule_ens_spread_p0.md`` (Amendment A3, sha256 ``RULE_SHA256``,
 branch ``claude/p5-screens-20261031``). Machinery: ``mr_sweep`` (rule 85f8192c) sections 1-5, imported unchanged;
 ``mr_gate.gate_candidate`` for a survivor only.
 
@@ -13,19 +13,25 @@ rebuilt; rows with target_date > 2026-09-29 are filtered out at read time and ne
 
 Order: the parent controls (served R, MG-1 07-12 excess, w = 0 identity) and the A4 synthetic sign controls
 (SYN+ must SURVIVE and SYN- must read Delta < 0, per block, labelled CONTROL, in memory only) run before any
-candidate is scored; any failure writes a VOID receipt and no candidate row. Verdicts (A2): "SCREEN" for a P0
-survivor (testable, BH q 0.10 over K = 2 rejects, Delta lower bound > 0), "KILL at edge size" otherwise, or
-UNTESTABLE. A survivor's w gate (A2: reported context only, it cannot change the verdict) runs in its own block;
-``mr_gate.BLOCKS`` gains "00-06" at runtime (disclosed in A2) without editing ``mr_gate``.
+candidate is scored; any failure writes a VOID receipt and no candidate row. Verdicts (A3, fixed at P0):
+"P0 survivor; w underpowered (0.28-0.31), context only" for a P0 survivor (testable, BH q 0.10 over K = 2
+rejects, Delta lower bound > 0), "KILL at edge size" otherwise, or UNTESTABLE. A survivor's w gate (context only,
+it cannot change the verdict) runs in its own block; ``mr_gate.BLOCKS`` gains "00-06" at runtime (accepted in
+A3; recorded in the receipt) without editing ``mr_gate``.
 
-No network I/O. Writes once under ``--out``, which must lie below ``C:/t/l17/ens/`` and must not exist.
+No network I/O. B-bound files are imported read-only from this tree (master 035f5bb19 versions, A3) and
+sha-checked against the A3 pins at start and before the receipt; the receipt records the git tree sha and those
+file shas. Writes once under ``--out``, which must lie below ``C:/t/l17/ens/`` and must not exist.
 
     python -m weather.calibration.ens_spread_p0 --layout C:/swarm/v3layout --out C:/t/l17/ens/run1
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -40,7 +46,7 @@ SCHEMA = "ens_spread_p0/1"
 GATE = "ENS-SPREAD-P0"
 LEDGER_ROW = 93
 RULE_PATH = "docs/research/p5-screens-2026-10-31/rule_ens_spread_p0.md"
-RULE_SHA256 = "1bacff1d4bda363b160cb2e7aeff4d9e425c879b68e49ed8c5f27aa555c1fe2a"
+RULE_SHA256 = "25fc62bd2208fab2a88f1c51d2338456887bc6a51acabca0b6950dd6f2174c92"
 POINTS_SHA256 = "bd761fa52869d244addda7fb3746276e1eb6aad2416ac2fdc3291750d7320a7e"
 DEFAULT_POINTS = r"C:\Users\Michael\Documents\github\weather\data\research\free_sources\ecmwf_ens\points.parquet"
 OUT_ROOT = Path("C:/t/l17/ens")
@@ -54,7 +60,28 @@ CANDIDATES = (
     ("ENS-SD-0712", "07-12", 0, (7, 12)),
     ("ENS-SD-0006", "00-06", 1, (0, 6)),
 )
-EXTRA_BLOCKS = {"00-06": (0, 6)}  # runtime addition to mr_gate.BLOCKS (A2 disclosure)
+EXTRA_BLOCKS = {"00-06": (0, 6)}  # runtime addition to mr_gate.BLOCKS (A2 disclosure, accepted in A3)
+VERDICT_SURVIVOR = "P0 survivor; w underpowered (0.28-0.31), context only"
+VERDICT_KILL = "KILL at edge size"
+# A3 B-bound pins: imported read-only (master 035f5bb19 versions); the run refuses on any mismatch.
+BBOUND_NAMES = frozenset({
+    "mg2_composite.py", "mg2_p3d_n.py", "r0_ols_floor_devfit.py", "l6_stack.py", "mg1.py", "upstream_obs_screen.py",
+    "r0_ols_floor_challenger.py", "observed_running_max.py", "mg_serve_core.py", "dev_scorecard.py",
+    "dev_scorecard_data.py", "loss_atlas.py", "mg2_inputs.py", "mg2_input_allowlist.py",
+    "guidance_extract_parser.py", "b_scorer.py", "pooled_residual_model.py"})
+BBOUND_PINS = {
+    "src/weather/calibration/pooled_residual_model.py":
+        "52c497a95a69c3fbf78dbfe030b3190d93e940f180b81867a241552b3932a170",
+    "src/weather/reporting/scorecards/dev_scorecard.py":
+        "6447876a0956eac4f67132bc69dba48c26a672f7554ec46e8bfbe94ffe801b56",
+    "src/weather/reporting/scorecards/dev_scorecard_data.py":
+        "90627f7a9cc365c10115593b2a012aa2e63252db057606c3e649ac3e3e2f1220",
+    "src/weather/reporting/scorecards/loss_atlas.py":
+        "d18d173e63971ebac12bcc4873286ac09db3cabc89afbf30a51c0e39313a2320",
+}
+RUN_IMPORTS = ("weather.calibration.market_blend", "weather.calibration.gap_to_market_atlas",
+               "weather.reporting.scorecards.dev_scorecard", "weather.reporting.scorecards.dev_scorecard_data",
+               "weather.reporting.scorecards.loss_atlas", "weather.sources.free_screens.common")
 
 
 class EnsError(mg.GateError):
@@ -104,6 +131,39 @@ def station_map(markets):
         else:
             raise EnsError(f"layout market {mk!r} has no US station mapping")
     return out
+
+
+def _sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def bbound_check(repo_root, pins=BBOUND_PINS, modules=None):
+    """Every loaded B-bound file under ``repo_root`` must be pinned, and match its pin; returns {path: sha}."""
+    root = Path(repo_root).resolve()
+    seen = {}
+    for mod in list((modules if modules is not None else sys.modules).values()):
+        f = getattr(mod, "__file__", None)
+        if not f or Path(f).name not in BBOUND_NAMES:
+            continue
+        p = Path(f).resolve()
+        try:
+            rel = p.relative_to(root).as_posix()
+        except ValueError:
+            raise EnsError(f"B-bound file {p} is loaded from outside the run tree {root}") from None
+        seen[rel] = _sha(p)
+    unpinned = sorted(set(seen) - set(pins))
+    if unpinned:
+        raise EnsError(f"B-bound files loaded without an A3 pin: {unpinned}")
+    bad = {k: v for k, v in seen.items() if v != pins[k]}
+    if bad:
+        raise EnsError(f"B-bound files differ from their A3 pins: {bad}")
+    return dict(sorted(seen.items()))
+
+
+def git_tree(repo_root):
+    proc = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "HEAD^{tree}"], capture_output=True, text=True,
+                          timeout=60, check=False)
+    return proc.stdout.strip() if proc.returncode == 0 else None
 
 
 # ----------------------------------------------------------------------------- capture-time values
@@ -237,7 +297,7 @@ def _population(cid, values_fit, fit_t, geo, donors):
 # ----------------------------------------------------------------------------- decision
 
 def decide(results):
-    """BH over K = 2 and the A2 verdict labels; mutates and returns ``results``."""
+    """BH over K = 2 and the A3 verdict labels (fixed at P0); mutates and returns ``results``."""
     ids = [c[0] for c in CANDIDATES]
     adj, reject = sw.bh_adjust([results[c]["p0"]["p_one_sided"] for c in ids])
     for cid, q, rj in zip(ids, adj, reject):
@@ -245,7 +305,8 @@ def decide(results):
         lo = r["p0"]["ci95"][0]
         r["bh_q"], r["bh_reject"] = float(q), bool(rj)
         r["survive"] = bool(r["testable"] and rj and lo is not None and lo > 0)
-        r["verdict"] = "SCREEN" if r["survive"] else ("UNTESTABLE" if not r["testable"] else "KILL at edge size")
+        r["verdict"] = (VERDICT_SURVIVOR if r["survive"] else
+                        ("UNTESTABLE" if not r["testable"] else VERDICT_KILL))
     return results
 
 
@@ -273,13 +334,19 @@ def _write(out, name, payload):
 # ----------------------------------------------------------------------------- the run
 
 def run(*, layout, out_dir, points=DEFAULT_POINTS, allow_dirty=False, repo_root=None):
+    import importlib
+
     code = ls.require_clean(ls.code_state(), allow_dirty)
+    root = Path(repo_root or Path(__file__).resolve().parents[3])
+    rule = root / RULE_PATH
+    if not rule.is_file() or ls.sha256_file(rule) != RULE_SHA256:
+        raise EnsError(f"rule {rule} is not the pinned A3 rule {RULE_SHA256}")
+    for name in RUN_IMPORTS:
+        importlib.import_module(name)
+    bb_start = bbound_check(root)
     from weather.calibration import market_blend as mb
     from weather.reporting.scorecards import dev_scorecard as sc
 
-    rule = Path(repo_root or Path(__file__).resolve().parents[3]) / RULE_PATH
-    if ls.sha256_file(rule) != RULE_SHA256:
-        raise EnsError(f"rule {rule} is not the pinned A2 rule {RULE_SHA256}")
     out = check_out_dir(out_dir)
     pts, points_sha = load_points(points)
     for block, hours in EXTRA_BLOCKS.items():
@@ -290,7 +357,9 @@ def run(*, layout, out_dir, points=DEFAULT_POINTS, allow_dirty=False, repo_root=
     smap = station_map(fit_t.markets)
     out.mkdir(parents=True)
     base = {"schema": SCHEMA, "gate": GATE, "rule_sha256": RULE_SHA256, "ledger_row": LEDGER_ROW, "code": code,
-            "evidence_class": "development (dev window, kill-only P0; verdict SCREEN or KILL at edge size)",
+            "git_tree": git_tree(root), "bbound_sha256": bb_start,
+            "evidence_class": ("development (dev window, kill-only P0; verdict fixed at P0: "
+                               f"{VERDICT_KILL!r} or {VERDICT_SURVIVOR!r})"),
             "points_sha256": points_sha, "layout_manifest_sha256": lay.manifest_sha256,
             "module_sha256": {"ens_spread_p0": ls.sha256_file(__file__), "mr_sweep": ls.sha256_file(sw.__file__),
                               "mr_gate": ls.sha256_file(mg.__file__), "market_blend": ls.sha256_file(mb.__file__)},
@@ -339,13 +408,15 @@ def run(*, layout, out_dir, points=DEFAULT_POINTS, allow_dirty=False, repo_root=
             _write(out, "ens_spread_p0_VOID.json", {**base, "verdict": "VOID", "controls": controls})
             raise mb.ControlFailed(f"refused: w = 0 identity failed for {cid}")
         g = mg.gate_candidate(cid, block, fit_t, score_t, vec["c_fit"], vec["covered"], p_placebo_fit=vec["pl0_fit"])
-        results[cid]["w_gate"] = {"role": "context only (A2: edge-size power < 0.5, cannot change the verdict)",
+        results[cid]["w_gate"] = {"role": "context only (A3: w underpowered 0.28-0.31, cannot change the verdict)",
                                   "verdict": "PASS (w)" if g["w"]["pass"] else "FAIL (w)", "w": g["w"],
                                   "rows": g["rows"], "per_hour": g["per_hour"], "coverage": g["coverage"]}
     (out / "ens_spread_p0_rows.jsonl").write_text(
         "".join(json.dumps(r, sort_keys=True, default=mg._default) + "\n" for r in rows), encoding="utf-8")
     (out / "ens_spread_p0_market_rows.jsonl").write_text(
         "".join(json.dumps(r, sort_keys=True, default=mg._default) + "\n" for r in mrows), encoding="utf-8")
+    if bbound_check(root) != bb_start:
+        raise EnsError("B-bound files changed during the run")
     receipt = {**base, "controls": controls, "results": results,
                "lines": [line_for(results[c[0]]) for c in CANDIDATES],
                "rows_sha256": ls.sha256_file(out / "ens_spread_p0_rows.jsonl"),

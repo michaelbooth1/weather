@@ -4,7 +4,8 @@ Synthetic frames only, no real rows.
 Guards: rule_ens_spread_p0 A2 sections 4, 8 and (a) - the covered-iff rule (receipt after capture, n_members != 51, a
 non-finite value, the block, D vs D-1 run selection); the ICAO-to-market map (toronto uncovered, an unknown
 market refuses); the points pin (a wrong sha refuses, rows after 2026-09-29 never reach the reader); the
-write-once out dir below C:/t/l17/ens; the rule pin refusing before any layout is read; the A2 verdict labels;
+write-once out dir below C:/t/l17/ens; the rule pin refusing before any layout is read; the A3 verdict labels;
+the A3 B-bound pin check;
 and the A4 synthetic sign control on a toy market (SYN+ survives, its negation SYN- reads Delta < 0, both
 labelled CONTROL).
 """
@@ -114,7 +115,7 @@ def test_run_refuses_wrong_rule_before_layout(tmp_path):
     rule = tmp_path / ens.RULE_PATH
     rule.parent.mkdir(parents=True)
     rule.write_text("not the rule\n", encoding="utf-8")
-    with pytest.raises(ens.EnsError, match="pinned A2 rule"):
+    with pytest.raises(ens.EnsError, match="pinned A3 rule"):
         ens.run(layout=tmp_path / "no-layout", out_dir=tmp_path / "x", allow_dirty=True, repo_root=tmp_path)
 
 
@@ -123,7 +124,8 @@ def test_decide_labels():
         return {"testable": testable, "p0": {"p_one_sided": p, "ci95": [lo, 0.5]}}
 
     r = ens.decide({"ENS-SD-0712": res(0.001, 0.01), "ENS-SD-0006": res(0.4, -0.02)})
-    assert r["ENS-SD-0712"]["verdict"] == "SCREEN"
+    assert r["ENS-SD-0712"]["verdict"] == ens.VERDICT_SURVIVOR
+    assert ens.VERDICT_SURVIVOR == "P0 survivor; w underpowered (0.28-0.31), context only"
     assert r["ENS-SD-0006"]["verdict"] == "KILL at edge size"
     r = ens.decide({"ENS-SD-0712": res(1.0, None, False), "ENS-SD-0006": res(0.001, -0.01)})
     assert r["ENS-SD-0712"]["verdict"] == "UNTESTABLE"
@@ -220,3 +222,29 @@ def test_synthetic_control_fails_on_a_null_signal(toy, monkeypatch):
     out = ens.synthetic_controls(fit_t, score_t, geo, counts, score_dates, donors,
                                  {"07-12": (fit_t.local_hour >= 7) & (fit_t.local_hour <= 12)})
     assert out["07-12"]["verdict"] == "FAIL"
+
+
+# ----------------------------------------------------------------------------- A3 B-bound pin check
+
+def test_bbound_check(tmp_path):
+    import types
+
+    f = tmp_path / "src" / "loss_atlas.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("x = 1\n", encoding="utf-8")
+    mods = {"m": types.SimpleNamespace(__file__=str(f)), "n": types.SimpleNamespace(__file__=None)}
+    with pytest.raises(ens.EnsError, match="without an A3 pin"):
+        ens.bbound_check(tmp_path, pins={}, modules=mods)
+    with pytest.raises(ens.EnsError, match="differ"):
+        ens.bbound_check(tmp_path, pins={"src/loss_atlas.py": "0" * 64}, modules=mods)
+    assert ens.bbound_check(tmp_path, pins={"src/loss_atlas.py": ens._sha(f)}, modules=mods) == {
+        "src/loss_atlas.py": ens._sha(f)}
+
+
+def test_bbound_pins_match_this_tree():
+    from pathlib import Path
+
+    root = Path(ens.__file__).resolve().parents[3]
+    for rel, sha in ens.BBOUND_PINS.items():
+        assert ens._sha(root / rel) == sha, rel
+    ens.bbound_check(root)
