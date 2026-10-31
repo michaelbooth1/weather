@@ -75,4 +75,46 @@ over 1 minute or 1 GB goes through `workstation_heavy.ps1 -Queue`.
 
 ## 3. Freeze addendum
 
-Written after the calibration; it records only toy (synthetic) results. Pending.
+Written after the calibration. It records only toy (synthetic) results; no real row was read.
+
+**FROZEN plant scale: s = 0.75.** It replaces `SYN_SHRINK` 0.5 for C5 in every block.
+
+**Calibration** (draw seed 20261031, concentration 4). Toy population SYN+ Δ by s:
+
+| s | POOL-0712 | F2-1316 | POOL-0006 |
+| --- | --- | --- | --- |
+| 0.50 | 0.1869 | 0.1770 | 0.1997 |
+| 0.55 | 0.2040 | 0.1951 | 0.2181 |
+| 0.60 | 0.2206 | 0.2127 | 0.2359 |
+| 0.65 | 0.2366 | 0.2297 | 0.2529 |
+| 0.70 | 0.2519 | 0.2459 | 0.2693 |
+| 0.75 | **0.2666** | **0.2615** | **0.2848** |
+
+s = 0.75 is the first grid value with toy Δ ≥ 0.25 in every block; its minimum is 0.2615 (F2-1316).
+
+**Verification** (s = 0.75, concentration 4, draw seeds 11, 12 and 13). C5 PASSES in all 9 block-draws:
+
+| check | worst case over the 9 block-draws | where |
+| --- | --- | --- |
+| SYN+ lower bound (bar: > 0) | +0.2016 | seed 12, F2-1316 |
+| SYN+ wider upper bound (bar: ≥ 0.2236) | 0.2913 | seed 12, F2-1316 |
+| SYN− upper bound (bar: < 0) | −0.1496 | seed 11, POOL-0712 |
+
+The lowest SYN+ Δ point estimate was 0.2468 (seed 12, F2-1316).
+
+For contrast, the old fixed 0.5 on seed 11 failed POOL-0712 (wider upper 0.2207) and F2-1316 (0.2133).
+
+**Provenance.**
+- Toy script `C:/t/l17/a3/c5_plant_calib.py`, sha256
+  `f13e25a62294e3f43a99fef339a5c9f29f420b49c415bb000cb5836b8dc2557b`.
+- Output `c5_plant_calib_output.json`, sha256
+  `e298a4def878db6427c95e97dc9891f0ce27ef4318cf8c4b7323cde55e74b332`.
+- It imported `pooled_subbar_wgate` (`6c8d5c10a04ad695165ca5ce7a9929525f72c30d52548195f434ad4b4873673b`) and
+  the module test toy (`b7e03fc90f83676fd055ec82c2d6b448f012909603baf0069ee148eda8445f2f`) read-only, with
+  `SYN_SHRINK` set in memory.
+- Cost: 24.8 s elapsed, peak working set 173.4 MB. That is a light toy (under 1 min and 1 GB), run directly,
+  with a 55 s self-abort guard.
+- Archived in `C:rchiveuled-out\_p5-subbar\c5_calibration_c1`.
+
+**The module is not changed yet.** Setting `SYN_SHRINK = 0.75` in the module is part of the build that master
+gates after the cost estimate. Until then the run branch still carries 0.5, and that branch is not admitted.
