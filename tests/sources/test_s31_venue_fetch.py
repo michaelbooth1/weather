@@ -33,6 +33,17 @@ def receipts(tmp_path):
     return [json.loads(x) for x in (tmp_path / "out" / "receipts.jsonl").read_text(encoding="utf-8").splitlines()]
 
 
+SPEC_LINE = "Region NYC: New York City, LaGuardia Airport station KLGA\n"
+
+
+def confirm_nyc(tmp_path, fetcher, line=SPEC_LINE):
+    """Write an archived filing-text fixture and run the V0.3 station pre-step for NYC."""
+    spec = tmp_path / "forecastex" / "cftc" / "ptc_fixture.txt"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text(line, encoding="utf-8")
+    return fetcher.fex_stations([str(spec)], [{"city": "NYC", "region": "NYC", "station": "KLGA"}])
+
+
 # ------------------------------------------------------------------------------------------ window refusal
 
 @pytest.mark.parametrize("day", [date(2026, 9, 30), date(2026, 7, 31), date(2026, 10, 15)])
@@ -100,13 +111,15 @@ PAIRS_HEADER = "pair_id,event_contract,expiration_date,quantity,yes_price,no_pri
 
 def test_late_pairs_rows_dropped_unparsed(tmp_path):
     body = (PAIRS_HEADER
-            + "1,NYC_0915_80,2026-09-15,10,0.42,0.58,2026-09-14T15:00:00Z\n"
-            + "2,NYC_1001_80,2026-10-01,10,GARBAGE,0.5,2026-09-14T15:00:00Z\n"
-            + "3,NYC_0929_80,2026-09-29,10,GARBAGE,0.5,2026-09-30T04:00:00Z\n").encode()
-    rows = make(tmp_path, FakeTransport(body=body)).fex_pairs(date(2026, 9, 14))
-    assert rows == [{"event_contract": "NYC_0915_80", "expiration_date": "2026-09-15", "yes_price": 0.42,
+            + "1,UHNYC_20260915_80,2026-09-15,10,0.42,0.58,2026-09-14T15:00:00Z\n"
+            + "2,UHNYC_20261001_80,2026-10-01,10,GARBAGE,0.5,2026-09-14T15:00:00Z\n"
+            + "3,UHNYC_20260929_80,2026-09-29,10,GARBAGE,0.5,2026-09-30T04:00:00Z\n").encode()
+    fetcher = make(tmp_path, FakeTransport(body=body))
+    confirm_nyc(tmp_path, fetcher)
+    rows = fetcher.fex_pairs(date(2026, 9, 14))
+    assert rows == [{"event_contract": "UHNYC_20260915_80", "expiration_date": "2026-09-15", "yes_price": 0.42,
                      "pair_time_utc": "2026-09-14T15:00:00+00:00"}]
-    rec = receipts(tmp_path)[0]
+    rec = receipts(tmp_path)[-1]
     assert rec["n_dropped_late"] == 2 and [d["line"] for d in rec["dropped_late"]] == [3, 4]
 
 
@@ -271,6 +284,8 @@ def test_correct_series_tz_late_city_still_ends_at_global_bound(tmp_path):
 ])
 def test_refused_body_quarantined_and_receipted(tmp_path, call, body):
     fetcher = make(tmp_path, FakeTransport(body=body))
+    if call == "pairs":
+        confirm_nyc(tmp_path, fetcher)
     with pytest.raises(s31.FormatRefused):
         if call == "markets":
             fetcher.kalshi_markets(EVENT)
@@ -278,7 +293,7 @@ def test_refused_body_quarantined_and_receipted(tmp_path, call, body):
             fetcher.kalshi_candles(SERIES, MARKET, TZ, "live")
         else:
             fetcher.fex_pairs(date(2026, 9, 14))
-    rec = receipts(tmp_path)[0]
+    rec = receipts(tmp_path)[-1]
     assert rec["stop"] == "format_refused" and rec["refused"]
     assert "_quarantine_refused" in rec["archive"]
     assert rec["archive"].startswith(str(tmp_path / "archive" / "raw" / "t" / "_quarantine_refused"))
@@ -323,3 +338,256 @@ def test_naive_pair_time_records_both_readings_when_kept():
     assert rows[0]["pair_time_utc_conservative"] == "2026-09-30T03:00:00+00:00"
     aware, conservative = s31.parse_pair_time("2026-09-29T20:00:00Z", "America/New_York")
     assert aware == conservative == datetime(2026, 9, 29, 20, 0, tzinfo=timezone.utc)
+
+
+# ---------------------------------------------- master ruling (a): pre-cutoff Kalshi jobs (Clarification 4)
+
+HIST_EVENT = "KXHIGHNY-26AUG10"
+META_BODY = json.dumps({"competition": "c", "image_url": "i", "settlement_sources": [{"name": "n", "url": "u"}],
+                        "market_details": [{"market_ticker": f"{HIST_EVENT}-B72.5", "color_code": "x",
+                                            "image_url": "y"}]}).encode()
+
+
+@pytest.mark.parametrize("call", ["meta", "hist_markets"])
+@pytest.mark.parametrize("ticker", ["KXHIGHNY-26SEP30", "KXHIGHNY-26JUL31", "KXHIGHTCYYZ-26AUG10", "KXHIGHNY"])
+def test_new_kalshi_jobs_refuse_bound_before_request(tmp_path, call, ticker):
+    fake = FakeTransport(body=META_BODY)
+    fetcher = make(tmp_path, fake)
+    with pytest.raises(s31.WindowRefused):
+        (fetcher.kalshi_event_metadata if call == "meta" else fetcher.kalshi_historical_markets)(ticker)
+    assert fake.calls == []
+
+
+def test_event_metadata_allowlist_m_keeps_tickers_only(tmp_path):
+    fake = FakeTransport(body=META_BODY)
+    rows = make(tmp_path, fake).kalshi_event_metadata(HIST_EVENT)
+    assert fake.calls[0][0] == f"https://{s31.KALSHI_HOST}/trade-api/v2/events/{HIST_EVENT}/metadata"
+    assert rows == [{"event_ticker": HIST_EVENT, "market_ticker": f"{HIST_EVENT}-B72.5"}]
+    extract = (tmp_path / "out" / "event_markets.jsonl").read_text(encoding="utf-8")
+    for banned in ("settlement_sources", "color_code", "image_url", "competition"):
+        assert banned not in extract
+    with pytest.raises(s31.FormatRefused):
+        s31.parse_event_metadata(json.dumps({"market_details": [{"market_ticker": "KXHIGHNY-26AUG11-B70"}]}).encode(),
+                                 HIST_EVENT)
+
+
+def test_historical_markets_exact_path_and_allowlist_a(tmp_path):
+    market = {k: f"v_{k}" for k in s31.ALLOW_A}
+    market.update(event_ticker=HIST_EVENT, last_price=55, result="yes", volume=9, settlement_value=1,
+                  expiration_value="80")
+    fake = FakeTransport(body=json.dumps({"markets": [market], "cursor": ""}).encode())
+    rows = make(tmp_path, fake).kalshi_historical_markets(HIST_EVENT)
+    assert fake.calls[0][0].startswith(f"https://{s31.KALSHI_HOST}/trade-api/v2/historical/markets?")
+    assert set(rows[0]) == set(s31.ALLOW_A)
+    extract = (tmp_path / "out" / "v0_markets_hist.jsonl").read_text(encoding="utf-8")
+    for banned in ("last_price", "result", "volume", "settlement_value", "expiration_value"):
+        assert banned not in extract
+
+
+@pytest.mark.parametrize("url", [
+    "https://api.elections.kalshi.com/trade-api/v2/historical/trades",
+    "https://api.elections.kalshi.com/trade-api/v2/historical/markets/KXHIGHNY-26AUG10-B72.5",
+    "https://api.elections.kalshi.com/trade-api/v2/historical/fills",
+    "https://api.elections.kalshi.com/trade-api/v2/historical/markets/x/y",
+])
+def test_only_exact_historical_paths_allowlisted(tmp_path, url):
+    fake = FakeTransport()
+    with pytest.raises(s31.EndpointRefused):
+        make(tmp_path, fake).get(url, "x")
+    assert fake.calls == []
+
+
+def test_historical_candles_bound_late_drop_and_cutoff(tmp_path):
+    market = f"{HIST_EVENT}-B72.5"
+    win = s31.candle_window(date(2026, 8, 10), TZ)
+    body = json.dumps({"candlesticks": [
+        {"end_period_ts": win.end_ts - 60, "yes_bid": {"close": 0.3}, "yes_ask": {"close": 0.4}},
+        {"end_period_ts": win.end_ts, "yes_bid": {"close": "GARBAGE"}}]}).encode()
+    fake = FakeTransport(body=body)
+    fetcher = make(tmp_path, fake)
+    rows = fetcher.kalshi_candles(SERIES, market, TZ, "historical")
+    assert "/trade-api/v2/historical/markets/" in fake.calls[0][0] and len(rows) == 1
+    rec = receipts(tmp_path)[-1]
+    assert rec["n_dropped_late"] == 1 and "_quarantine_late" in rec["archive"]
+    with pytest.raises(s31.WindowRefused):  # a window starting after the cutoff is never historical-tier
+        fetcher.kalshi_candles(SERIES, "KXHIGHNY-26SEP15-B72.5", TZ, "historical")
+    with pytest.raises(s31.WindowRefused):
+        fetcher.kalshi_candles(SERIES, "KXHIGHNY-26SEP30-B72.5", TZ, "historical")
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("call", ["meta", "hist_markets", "hist_candles"])
+def test_new_kalshi_jobs_auth_stop(tmp_path, call):
+    fetcher = make(tmp_path, FakeTransport(status=403, body=b'{"error": "unauthorized"}'))
+    with pytest.raises(s31.AuthRequired):
+        if call == "meta":
+            fetcher.kalshi_event_metadata(HIST_EVENT)
+        elif call == "hist_markets":
+            fetcher.kalshi_historical_markets(HIST_EVENT)
+        else:
+            fetcher.kalshi_candles(SERIES, f"{HIST_EVENT}-B72.5", TZ, "historical")
+    rec = receipts(tmp_path)[-1]
+    assert rec["stop"] == "auth_required" and rec["complete"] is False
+
+
+@pytest.mark.parametrize("call", ["meta", "hist_markets"])
+def test_new_kalshi_jobs_archive_exclusive_create(tmp_path, call):
+    body = META_BODY if call == "meta" else b'{"markets": []}'
+    fetcher = make(tmp_path, FakeTransport(body=body))
+    (fetcher.kalshi_event_metadata if call == "meta" else fetcher.kalshi_historical_markets)(HIST_EVENT)
+    archived = Path(receipts(tmp_path)[-1]["archive"])
+    assert archived.read_bytes() == body and archived.is_relative_to(tmp_path / "archive" / "raw" / "t")
+    fetcher._seq -= 1
+    with pytest.raises(FileExistsError):
+        fetcher._archive(archived.name.split("_", 1)[1], b"other", quarantine=False)
+    assert archived.read_bytes() == body
+
+
+def test_http_429_stops_and_leaves_job_incomplete(tmp_path):
+    fetcher = make(tmp_path, FakeTransport(status=429, body=b"slow down"))
+    with pytest.raises(s31.HttpStop):
+        fetcher.kalshi_event_metadata(HIST_EVENT)
+    assert receipts(tmp_path)[-1]["complete"] is False
+
+
+# ------------------------------------------------------------------------------ resume (Clarification 4)
+
+def _resumer(tmp_path, transport, run_id):
+    limiter = s31.RateLimiter(clock=lambda: 0.0, sleep=lambda s: None)
+    return s31.Fetcher(tmp_path / "out", tmp_path / "archive", transport=transport, limiter=limiter, run_id=run_id)
+
+
+def test_resume_skips_completed_jobs_new_run_folder(tmp_path):
+    jobs = [{"kind": "kalshi_event_metadata", "event_ticker": HIST_EVENT},
+            {"kind": "kalshi_markets", "event_ticker": EVENT}]
+    first = FakeTransport(body=META_BODY)
+    s31.run_plan(_resumer(tmp_path, first, "r1"), jobs[:1])
+    second = FakeTransport(body=b'{"markets": []}')
+    summary = s31.run_plan(_resumer(tmp_path, second, "r2"), jobs)
+    assert len(first.calls) == 1 and len(second.calls) == 1 and "/markets?" in second.calls[0][0]
+    assert summary["skipped_done"] == 1 and summary["run"] == 1
+    assert (tmp_path / "archive" / "raw" / "r1").is_dir() and (tmp_path / "archive" / "raw" / "r2").is_dir()
+    with pytest.raises(ValueError):  # a used run_id is never reused
+        _resumer(tmp_path, second, "r1")
+
+
+def test_resume_refetches_partial_job_whole_and_records_it(tmp_path, monkeypatch):
+    fetcher = _resumer(tmp_path, FakeTransport(body=META_BODY), "r1")
+
+    def crash(*args, **kwargs):  # the run dies after the request, before the receipt
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(fetcher, "finish", crash)
+    with pytest.raises(KeyboardInterrupt):
+        fetcher.kalshi_event_metadata(HIST_EVENT)
+    (tmp_path / "out" / "event_markets.jsonl").write_text(
+        json.dumps({"event_ticker": HIST_EVENT, "market_ticker": "stale", "job": f"event_meta:{HIST_EVENT}",
+                    "run_id": "r1"}) + "\n", encoding="utf-8")  # a partial extract row left by the dead run
+    again = FakeTransport(body=META_BODY)
+    summary = s31.run_plan(_resumer(tmp_path, again, "r2"),
+                           [{"kind": "kalshi_event_metadata", "event_ticker": HIST_EVENT}])
+    assert summary["run"] == 1 and len(again.calls) == 1
+    rec = receipts(tmp_path)[-1]
+    assert rec["refetched_after_partial"] == ["r1"] and rec["complete"] is True
+    rows = s31.load_extract(tmp_path / "out", "event_markets.jsonl")
+    assert [r["market_ticker"] for r in rows] == [f"{HIST_EVENT}-B72.5"] and rows[0]["run_id"] == "r2"
+
+
+# ---------------------------------------------------------- master ruling (c): ForecastEx staging
+
+GOOD_PAIRS = (PAIRS_HEADER
+              + "1,UHNYC_20260915_80,2026-09-15,10,0.42,0.58,2026-09-14T15:00:00Z\n"
+              + "2,UHCHI_20260915_80,GARBAGE,10,GARBAGE,0.5,GARBAGE\n"
+              + "3,ULNYC_20260915_60,GARBAGE,10,GARBAGE,0.5,GARBAGE\n"
+              + "4,odd-contract,GARBAGE,10,GARBAGE,0.5,GARBAGE\n").encode()
+
+
+def test_pairs_refused_before_station_receipt_exists(tmp_path):
+    fake = FakeTransport(body=GOOD_PAIRS)
+    fetcher = make(tmp_path, fake)
+    with pytest.raises(s31.OrderRefused):
+        fetcher.fex_pairs(date(2026, 9, 14))
+    assert fake.calls == [] and not (tmp_path / "out" / "receipts.jsonl").exists()
+
+
+def test_station_prestep_unconfirmed_city_blocks_pairs(tmp_path):
+    fake = FakeTransport(body=GOOD_PAIRS)
+    fetcher = make(tmp_path, fake)
+    payload = confirm_nyc(tmp_path, fetcher, line="Region NYC: New York City (station not named)\n")
+    assert payload["confirmed_regions"] == {} and payload["claims"][0]["found_in"] is None
+    assert payload["sources"][0]["sha256"]
+    with pytest.raises(s31.OrderRefused):
+        fetcher.fex_pairs(date(2026, 9, 14))
+    assert fake.calls == []
+    with pytest.raises(s31.OrderRefused):  # the station receipt is never rewritten
+        confirm_nyc(tmp_path, fetcher)
+
+
+@pytest.mark.parametrize("name", ["notices_to_members_x.txt", "forecastex_markets.html", "ptc.pdf"])
+def test_station_prestep_reads_only_archived_filing_text(tmp_path, name):
+    bad = tmp_path / "forecastex" / name
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_text(SPEC_LINE, encoding="utf-8")
+    claim = [{"city": "NYC", "region": "NYC", "station": "KLGA"}]
+    with pytest.raises(s31.EndpointRefused):
+        make(tmp_path, FakeTransport()).fex_stations([str(bad)], claim)
+    outside = tmp_path / "elsewhere" / "ptc_x.txt"
+    outside.parent.mkdir(parents=True)
+    outside.write_text(SPEC_LINE, encoding="utf-8")
+    with pytest.raises(s31.EndpointRefused):
+        s31.Fetcher(tmp_path / "out2", tmp_path / "archive", transport=FakeTransport(),
+                    run_id="t2").fex_stations([str(outside)], claim)
+    assert not (tmp_path / "out" / "fex_stations.json").exists()
+
+
+def test_station_prestep_different_station_not_confirmed(tmp_path):
+    fetcher = make(tmp_path, FakeTransport())
+    spec = tmp_path / "forecastex" / "ptc_x.txt"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("Region NYC station KJFK\n", encoding="utf-8")
+    payload = fetcher.fex_stations([str(spec)], [{"city": "NYC", "region": "NYC", "station": "KJFK"}])
+    assert payload["claims"][0]["found_in"] and payload["claims"][0]["confirmed"] is False
+
+
+def test_city_filter_drops_non_twin_rows_unparsed(tmp_path):
+    fetcher = make(tmp_path, FakeTransport(body=GOOD_PAIRS))
+    confirm_nyc(tmp_path, fetcher)
+    rows = fetcher.fex_pairs(date(2026, 9, 14))  # GARBAGE fields in non-twin rows would raise if parsed
+    assert [r["event_contract"] for r in rows] == ["UHNYC_20260915_80"]
+    rec = receipts(tmp_path)[-1]
+    assert rec["n_dropped_non_twin"] == 2 and rec["n_dropped_undecodable"] == 1
+    extract = (tmp_path / "out" / "fex_pairs.jsonl").read_text(encoding="utf-8")
+    assert "UHCHI" not in extract and "ULNYC" not in extract
+    v04 = json.loads((tmp_path / "out" / "fex_v04.json").read_text(encoding="utf-8"))
+    assert v04["passed"] is True and v04["pair_time_zone"] == "explicit" and v04["first_region"] == "NYC"
+
+
+@pytest.mark.parametrize("first_row", [
+    "1,UHNYC_20260915_80,2026-09-15,1,0.5,0.5,2026-09-14\n",          # no minute resolution
+    "1,UHNYC_20260915_80,2026-09-15,1,0.5,0.5,2026-09-14T15:00:00\n",  # naive, no documented zone
+    "1,NYC-SEP15-80,2026-09-15,1,0.5,0.5,2026-09-14T15:00:00Z\n",      # event_contract does not decode
+])
+def test_v04_refuses_file_and_fex_lineage(tmp_path, first_row):
+    body = (PAIRS_HEADER + first_row).encode()
+    fake = FakeTransport(body=body)
+    fetcher = make(tmp_path, fake)
+    confirm_nyc(tmp_path, fetcher)
+    with pytest.raises(s31.FormatRefused):
+        fetcher.fex_pairs(date(2026, 9, 14))
+    rec = receipts(tmp_path)[-1]
+    assert rec["stop"] == "format_refused" and "_quarantine_refused" in rec["archive"]
+    assert not (tmp_path / "out" / "fex_pairs.jsonl").exists()
+    assert json.loads((tmp_path / "out" / "fex_v04.json").read_text(encoding="utf-8"))["passed"] is False
+    with pytest.raises(s31.OrderRefused):  # later files are refused before any request
+        fetcher.fex_pairs(date(2026, 9, 15))
+    assert len(fake.calls) == 1
+
+
+def test_v04_per_row_bound_check_still_applies(tmp_path):
+    body = (PAIRS_HEADER + "1,UHNYC_20260929_80,2026-09-29,1,0.5,0.5,2026-09-29T20:00:00\n"
+            + "2,UHNYC_20260929_81,2026-09-29,1,GARBAGE,0.5,2026-09-29T22:00:00\n").encode()
+    fetcher = make(tmp_path, FakeTransport(body=body))
+    confirm_nyc(tmp_path, fetcher)
+    rows = fetcher.fex_pairs(date(2026, 9, 29), pair_time_tz="America/New_York")
+    assert [r["event_contract"] for r in rows] == ["UHNYC_20260929_80"]
+    assert receipts(tmp_path)[-1]["n_dropped_late"] == 1
