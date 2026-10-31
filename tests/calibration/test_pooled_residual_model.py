@@ -4,6 +4,8 @@ Guards: L2 pre-declared rule (C:/t/l2/rule.md) - in-fold bias and normals, the h
 probability mass, R0-identical row keys, date-clustered bootstrap, fail-closed import off the capture
 host and no output inside the repository.
 """
+import hashlib
+import importlib
 import json
 import math
 
@@ -376,3 +378,158 @@ def test_frozen_state_features_reproduce_mean_model():
         m = state["hours"][13]["mean"]
         yhat = mu0 + np.array([1.0, g, max(g, 0.0)]) @ m["ols"] + m["hgb"].predict(X)[0]
         assert abs(yhat - pred[i]) < 1e-9
+
+
+def test_rung_latest_snapshot_at_or_before_own_capture_time():
+    from datetime import datetime, timedelta, timezone
+
+    t0 = datetime(2026, 8, 3, 14, 0, tzinfo=timezone.utc)
+    index = [(t0 + timedelta(minutes=m), m, 1) for m in (0, 10, 50)]
+    assert prm.latest_at_or_before(index, t0 + timedelta(minutes=9))[1] == 0
+    assert prm.latest_at_or_before(index, t0 + timedelta(minutes=10))[1] == 10
+    assert prm.latest_at_or_before(index, t0 + timedelta(minutes=49))[1] == 10  # never the later 50
+    assert prm.latest_at_or_before(index, t0 - timedelta(minutes=1)) is None
+
+
+def test_rung_simple_baseline_is_ols_only_with_constant_scale():
+    frame = _frame()
+    fitted = prm.fit_pooled(frame, market_id=False, doy=True, raw_columns=False, simple=True)
+    assert fitted["mean"].hgb is None
+    assert isinstance(fitted["scale"], prm.ConstantScale)
+    yhat, X = fitted["mean"].predict(frame)
+    mu0, g, _, _ = fitted["mean"]._anchors(frame)
+    design = np.column_stack([np.ones_like(g), g, np.maximum(g, 0.0)])
+    assert np.allclose(yhat, mu0 + design @ fitted["mean"].ols)
+    s = fitted["scale"].predict(X)
+    assert np.all(s == s[0])
+
+
+def test_rung_blend_weight_is_exact_brier_minimiser_and_walk_forward():
+    a = np.array([0.9, 0.1, 0.8, 0.2])
+    b = np.array([0.5, 0.5, 0.5, 0.5])
+    y = np.array([1.0, 0.0, 1.0, 0.0])
+    offsets, n = np.array([0, 2]), np.array([2, 2])
+    A, B = prm.blend_weight(a, b, y, offsets, n)
+    w = prm.solve_weight(A, B)
+    grid = np.linspace(0, 1, 1001)
+    losses = [np.mean(((g * a + (1 - g) * b) - y) ** 2) for g in grid]
+    assert abs(w - grid[int(np.argmin(losses))]) < 1e-3
+    dates = np.array(["2026-08-01", "2026-08-02"])
+    hours = np.array([7, 7])
+    ws = prm.walk_forward_weights(dates, hours, np.array([True, True]), A, B, ["2026-08-01", "2026-08-02"],
+                                  hour_set=(7,))
+    assert ws[(7, "2026-08-01")] == 0.0  # nothing strictly before the first date
+    assert ws[(7, "2026-08-02")] == prm.solve_weight(A[:1], B[:1])
+
+
+def test_rung_rf_l6_frozen_state_refuses_a_changed_coefficient_part(tmp_path):
+    part = {"coef": {"7": [0.1, 0.5, 10]}, "column": "n_own"}
+    path = tmp_path / "coef.json"
+    path.write_text(json.dumps({"l6_stack": part}), encoding="utf-8")
+    sha = hashlib.sha256(json.dumps(part, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                         .encode("utf-8")).hexdigest()
+    state, got = prm.l6_frozen_state(path, expected=sha)
+    assert got == sha and state == {"coef": {7: (0.1, 0.5, 10)}, "column": "n_own"}
+    with pytest.raises(prm.PooledModelError):
+        prm.l6_frozen_state(path)  # the real frozen sha does not match this toy part
+
+
+def test_rung_g_trajectory_features_use_only_reports_at_or_before_capture():
+    from datetime import date as _date
+
+    day = _date(2025, 8, 10).toordinal()
+    instants = [0.0, 3600.0, 5400.0, 7200.0, 9000.0]
+    temps = [70.0, 72.0, 73.0, 74.0, 99.0]  # the last report is after capture and must be ignored
+    days = [day - 1, day, day, day, day]
+    out = prm.trajectory_features(instants, temps, days, 7200.0, day)
+    assert out["overnight_min"] == 72.0  # the previous local day's 70 is not overnight
+    assert abs(out["trend3"] - 2.0) < 1e-9  # 72, 73, 74 at half-hour steps
+    assert out["n_3h"] == 4
+    sparse = prm.trajectory_features([0.0, 3600.0, 20000.0], [60.0, 61.0, 62.0], [day] * 3, 20000.0, day)
+    assert sparse["trend3"] is None  # the last three span more than 3 h
+
+
+def test_rung_g_extra_ols_columns_enter_the_baseline_design():
+    rng = np.random.default_rng(0)
+    n = 400
+    frame = pd.DataFrame({
+        "market": "atlanta", "centre": "2026-08-23", "season": "aug_sep", "year": np.repeat([2021, 2022], n // 2),
+        "F": rng.normal(80, 3, n), "fh": rng.normal(85, 3, n), "lat": 33.6, "lon": -84.4, "elev": 300.0,
+        "doy_sin": 0.0, "doy_cos": 1.0, "t_x": rng.normal(0, 1, n)})
+    frame["y"] = frame["fh"] + 3.0 * frame["t_x"]
+    base = prm.MeanModel(market_id=False, doy=True, raw_columns=False, use_hgb=False).fit(frame)
+    extra = prm.MeanModel(market_id=False, doy=True, raw_columns=False, use_hgb=False, extra_ols=("t_x",)).fit(frame)
+    err_base = np.mean((base.predict(frame)[0] - frame["y"]) ** 2)
+    err_extra = np.mean((extra.predict(frame)[0] - frame["y"]) ** 2)
+    assert len(extra.ols) == 4 and err_extra < 0.1 * err_base
+
+
+def test_rung_h_regime_tags_use_only_reports_at_or_before_capture():
+    def row(direction, speed, pressure, cover):
+        return {"wind_dir": direction, "wind_speed": speed, "pressure_hpa": pressure, "cover": cover}
+
+    obs = [(0.0, row(200, 8, 1012.0, "CLR")), (3 * 3600.0, row(320, 10, 1012.5, "OVC")),
+           (4 * 3600.0, row(250, 9, 1008.0, "BKN"))]
+    at_3h = prm.rh_obs_tags(obs, 3 * 3600.0, "los-angeles")
+    # wind shift 200 -> 320 (120 deg, both >= 6 kt) over 3 h is a front; the 4 h report is not visible yet
+    assert at_3h == {"front": "front", "cloud": "overcast", "onshore": "not_onshore"}
+    assert prm.rh_obs_tags(obs, 4 * 3600.0, "los-angeles")["onshore"] == "onshore"
+    assert prm.rh_obs_tags(obs, 4 * 3600.0, "chicago")["onshore"] == "n/a"
+    assert prm.rh_obs_tags(obs, -1.0, "los-angeles")["front"] == "unknown"
+    assert prm._bin(2.0, -2.0, 2.0) == "warm" and prm._bin(float("nan"), -2.0, 2.0) == "unknown"
+
+
+def test_rung_i_temperature_keeps_zero_bands_and_mass_and_ties_go_to_one():
+    p = np.array([0.0, 0.2, 0.5, 0.3, 0.1, 0.9])
+    offsets, n = np.array([0, 4]), np.array([4, 2])
+    q = prm.ri_temper(p, offsets, n, np.full(6, 2.0))
+    assert q[0] == 0.0
+    assert abs(q[:4].sum() - 1.0) < 1e-12 and abs(q[4:].sum() - 1.0) < 1e-12
+    assert q[2] > p[2]  # tau > 1 sharpens toward the mode
+    assert np.allclose(prm.ri_temper(p, offsets, n, np.ones(6)), np.r_[p[:4], p[4:] / p[4:].sum()])
+    assert prm.ri_pick_tau([3.0] * len(prm.RI_TAU_GRID)) == 1.0
+    losses = prm._ri_dict_losses([0.2, 0.6, 0.2], 1)
+    assert losses[prm.RI_TAU_GRID.index(1.0)] == pytest.approx(0.04 + 0.16 + 0.04)
+    assert prm.ri_pick_tau(losses) > 1.0
+
+
+def test_rung_i_recentre_moves_median_to_reference_and_respects_impossible_bands():
+    p = np.array([0.6, 0.3, 0.1, 0.0])
+    ref = np.array([0.0, 0.1, 0.2, 0.7])
+    out = prm.ri_recentre(p, ref, np.array([0]), np.array([4]), np.array([True, False, False, False]))
+    assert out[0] == 0.0 and abs(out.sum() - 1.0) < 1e-12
+    assert int(np.argmax(np.cumsum(out) >= 0.5)) == 3
+
+
+def test_rung_j_loyo_summary_pools_only_the_gate_hours():
+    rows = [{"hour": h, "date": f"2021-08-0{d}", "B_G_brier": 1.0 - (0.1 if h in (13, 14) else -0.1),
+             "B_N_brier": 1.0, "B_G_log": 0.0, "B_N_log": 0.0} for h in (13, 14, 15, 16) for d in (1, 2, 3)]
+    out = prm.rg_loyo_summary(rows, pairs=(("B_G", "B_N"),), pooled=(prm.RJ_GATE, prm.RJ_SECONDARY))
+    assert out["B_G-B_N|13-14|brier"]["estimate"] == pytest.approx(-0.1)
+    assert out["B_G-B_N|15-16|brier"]["estimate"] == pytest.approx(0.1)
+    assert out["B_G-B_N|13-14|brier"]["n"] == 6
+    default = prm.rg_loyo_summary(rows, pairs=(("B_G", "B_N"),))
+    assert default["B_G-B_N|07-12|brier"]["n"] == len(rows)  # R-G's pooled label still means every row
+
+
+def test_p3dn_diag_summary_flags_receipt_lookahead_and_share_keeps_negative_denominators():
+    def row(hour, orig_snap, cap, f_o, f_f, c_o, c_f):
+        return {"hour": hour, "differing_columns": [c for c, d in (("F", f_o != f_f), ("x_high_so_far", f_o != f_f),
+                                                                    ("x_current_temp", c_o != c_f)) if d],
+                "captured_utc": cap, "orig_snapshot_local": orig_snap, "fix_snapshot_local": "2026-08-20T13:00:00+00:00",
+                "orig_snapshot_after_capture": orig_snap > cap, "orig_obs_after_capture": False,
+                "orig_latest_obs_local": "2026-08-20T12:55:00+00:00", "fix_latest_obs_local": "2026-08-20T12:55:00+00:00",
+                "orig_n_rows": 9, "fix_n_rows": 8, "orig_F": f_o, "fix_F": f_f, "orig_x_current_temp": c_o,
+                "fix_x_current_temp": c_f, "fix_raw_high": f_f, "fix_raw_current": c_f}
+
+    rows = [row(13, "2026-08-20T13:50:00+00:00", "2026-08-20T13:10:00+00:00", 81.0, 80.0, 79.0, 79.0),
+            row(14, "2026-08-20T14:00:00+00:00", "2026-08-20T14:30:00+00:00", 82.0, 82.0, 80.5, 81.0)]
+    out = prm.p3dn_input_summary(rows)
+    assert out["13-14"]["rows"] == 2 and out["13-14"]["orig_snapshot_after_capture"] == 1
+    assert out["13-14"]["orig_snapshot_minutes_after_capture"]["max"] == 40.0
+    assert out["13"]["columns"]["F"]["rows_differing"] == 1 and out["14"]["columns"]["F"]["rows_differing"] == 0
+    assert out["14"]["columns"]["x_current_temp"]["mean_orig_minus_fix"] == -0.5
+    w = np.array([[1.0, 0.0], [0.0, 1.0]])
+    share = prm._share_interval(w, np.array([1.0, 1.0]), np.array([2.0, -1.0]))
+    assert share["estimate"] == 2.0 and share["draws_denominator_le_0"] == 1
+    assert share["ci95"][0] < 0 < share["ci95"][1]
