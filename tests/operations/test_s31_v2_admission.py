@@ -2,8 +2,8 @@
 
 Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope; master pre-authorisation
 2026-10-24 for a lane's own offline research module; the coordinator's admit of 2026-10-31 for lane L14's S31
-v2, ledger row 102). ``workload_admission.ps1`` is executed, not read: its listed set must equal the hook's and it must admit the
-module but no sibling.
+v2, ledger row 102). ``workload_admission.ps1`` is executed, not read: its listed set must equal the hook's and
+it must admit the module but no sibling.
 """
 import importlib.util
 import json

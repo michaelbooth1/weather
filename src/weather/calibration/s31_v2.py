@@ -496,7 +496,8 @@ def in_run_power_gate(res, delta=sp.DELTA_EDGE):
     if not res.get("testable"):
         return None
     se = (res.get("bounds") or {}).get("se_widest")
-    power = 0.0 if not se or not math.isfinite(se) or se <= 0 else         0.5 * (1 + math.erf((delta / se - 1.96) / math.sqrt(2)))
+    ok = bool(se) and math.isfinite(se) and se > 0
+    power = 0.5 * (1 + math.erf((delta / se - 1.96) / math.sqrt(2))) if ok else 0.0
     gate = {"se_widest": se, "power_at_edge": power, "delta_edge": delta, "power_min": POWER_MIN,
             "realised_dates": res["coverage"]["population_dates"],
             "realised_snapshots": res["coverage"]["population_snapshots"], "pass": bool(power >= POWER_MIN)}
@@ -600,7 +601,8 @@ def run(*, layout, out_dir, twin_dir=sp.DEFAULT_TWIN_DIR, v0_live=sp.DEFAULT_V0_
                        "missing_bin_position": scan["missing_bin_position"],
                        "five_quoted": int((scan["covered"] & (scan["n_quoted"] == 5)).sum()),
                        "six_quoted": int((scan["covered"] & (scan["n_quoted"] == 6)).sum())},
-        "constants": {"k_min": K_MIN, "j_min": J_MIN, "power_min": POWER_MIN, "placebo_seeds": list(ms.PLACEBO_SEEDS), "bh_q": ms.BH_Q,
+        "constants": {"k_min": K_MIN, "j_min": J_MIN, "power_min": POWER_MIN,
+                      "placebo_seeds": list(ms.PLACEBO_SEEDS), "bh_q": ms.BH_Q,
                       "draws": ms.DRAWS, "seed": ms.SEED, "min_dates": ms.MIN_DATES, "min_snapshots": ms.MIN_SNAPS,
                       "quote_window_s": sp.QUOTE_WINDOW_S, "max_spread": sp.MAX_SPREAD,
                       "delta_edge": sp.DELTA_EDGE, "circular_b": sp.CIRC_B, "circular_seed": sp.CIRC_SEED},
