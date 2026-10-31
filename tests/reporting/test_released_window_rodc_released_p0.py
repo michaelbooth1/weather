@@ -1194,3 +1194,86 @@ def test_scored_values_are_byte_identical_with_and_without_the_running_max(tmp_p
                                                                      default=p0._default)))
     assert cgs[0]["snapshots_reference_above_own_high"] > 0 == cgs[1]["snapshots_reference_above_own_high"]
     assert outs[0] == outs[1] and outs[0][0]
+
+
+# ----------------------------------------------------------------------------- method rule 16
+
+
+def _table(tmp_path, tag="t"):
+    from tests.reporting.test_released_window_served_market_blocks import write_layout
+
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    root = write_layout(tmp_path / f"lay{tag}", date(2026, 8, 1), 12)
+    lay = data.load_layout(root, data.DEV_FIRST, date(2026, 8, 12))
+    dates = sorted(str(d) for d in lay.dates)
+    return lay, dates, sc.Table(lay, dates)
+
+
+def test_rule16_snapshot_donors_equal_the_table_placebo_donors(tmp_path):
+    from weather.calibration import mr_sweep as sw
+
+    lay, dates, t = _table(tmp_path)
+    frame = lay.snaps[lay.snaps.date.astype(str).isin(dates)].reset_index(drop=True)
+    assert list(frame.row_key) == list(t.snaps.row_key)
+    for seed in sw.PLACEBO_SEEDS[:5]:
+        pos, _ = sw.donor_positions(t, seed)
+        has = t.n > 0
+        want = t.band_snap[pos[t.offsets[has]]]
+        assert (p0.snapshot_donors(frame, seed)[has] == want).all()
+
+
+def test_rule16_population_mask_equals_p0_candidate_population(tmp_path, monkeypatch):
+    from weather.calibration import mr_sweep as sw
+
+    lay, dates, t = _table(tmp_path)
+    geo = sw.band_geometry(t)
+    monkeypatch.setattr(sw, "MIN_DATES", 10 ** 6)          # untestable early return, after the population count
+    srcs = {seed: p0.snapshot_donors(t.snaps, seed) for seed in sw.PLACEBO_SEEDS}
+    rng = np.random.default_rng(5)
+    for frac in (1.0, 0.8, 0.3, 0.0):
+        g = np.where(rng.random(len(t.snaps)) < frac, 0.1, np.nan)
+        res, _ = sw.p0_candidate("x", "C", 1, geo["mu"] + g, t, t, geo, sw.boot_counts(len(dates)),
+                                 np.array(dates), None)
+        pop, _ = p0.population_mask(np.isfinite(g), t.n, srcs)
+        assert res["coverage"]["population_snapshots"] == int(pop.sum())
+        assert res["coverage"]["fit_covered_snapshots"] == int(np.isfinite(g).sum())
+
+
+def test_rule16_uncovered_donors_give_population_zero_the_x13_case(tmp_path, monkeypatch):
+    ctx, _ = _tail_ctx(tmp_path, monkeypatch, "x")
+    lay, dates, feats, coef = ctx["lay"], ctx["dates"], ctx["feats"], ctx["coef"]
+    frame = lay.snaps[lay.snaps.date.astype(str).isin(dates)].reset_index(drop=True)
+    one_date = set(frame.row_key[frame.date.astype(str) == dates[0]].astype(str))
+    full = p0.realised_population(frame, feats, coef, 4123)
+    only = p0.realised_population(frame, {k: v for k, v in feats.items() if k in one_date}, coef, 4123)
+    for arm in p0.ARMS:
+        assert full[arm]["population_snapshots"] == full[arm]["covered_snapshots"] > 0
+        assert full[arm]["population_dates"] == len(dates) and full[arm]["power_at_population"] is not None
+        o = only[arm]
+        assert o["covered_snapshots"] > 0 and o["population_snapshots"] == 0 and o["population_dates"] == 0
+        assert o["donor_failures"]["covered_with_any_uncovered_donor"] == o["covered_snapshots"]
+        assert o["power_at_population"] is None and o["meets_coverage_floor"] is False
+
+
+def test_rule16_the_rehearsal_computes_and_reports_the_realised_population(tmp_path, monkeypatch):
+    front = inspect.getsource(p0.look_front)
+    assert front.index("realised_population(table_snaps, feats, coef, n_row80)") < front.index('return {"realised')
+    assert "arm_increments(arm, keys, hours, markets, feats, coef)" in inspect.getsource(p0.look_tail)
+    forbidden = {"Table", "control_cc", "p0_candidate", "band_geometry", "eps_sensitivity", "wider_interval"}
+    for fn in (p0.realised_population, p0.snapshot_donors, p0.population_mask, p0.arm_increments):
+        assert not _names(fn) & forbidden
+    rodc, look2 = _roots(tmp_path, monkeypatch)
+    monkeypatch.setattr(p0, "REHEARSE_ROOT", tmp_path / "rodc-rehearse")
+    pop = {a: {"covered_snapshots": 3051, "population_snapshots": 0, "population_dates": 0} for a in p0.ARMS}
+    monkeypatch.setattr(p0, "look_front", lambda args, out, mark=None: {
+        "gd": {"origin": {}, "code": {}, "blobs": {}, "rules": {}, "pin_identity": {}}, "after": {},
+        "controls": {"C-g": {"verdict": "PASS"}}, "feats": {}, "reasons": {}, "realised_population": pop,
+        "parity": {"parity_limited": {a: False for a in p0.ARMS}}, "power_projection": {}, "dates": [],
+        "dropped": 0, "hashed": {}, "malformed": [], "override": {}, "serve_override": {}})
+    out = tmp_path / "rodc-rehearse" / "r9"
+    assert p0.main(["rehearse-to-table", "--out", str(out), "--coef", "c", "--coef-sha", "s", "--parity", "p",
+                    "--parity-sha", "q"]) == 0
+    rec = json.loads((out / p0.REHEARSE_RECEIPT).read_text(encoding="utf-8"))
+    assert rec["realised_population_rule16"][p0.ARM_X13]["population_snapshots"] == 0

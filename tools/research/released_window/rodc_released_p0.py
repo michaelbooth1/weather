@@ -892,6 +892,92 @@ def control_cg(snaps_feats, reference=None):
             "verdict": "PASS"}
 
 
+def arm_increments(arm, keys, hours, markets, feats, coef):
+    """The arm's frozen increment g per snapshot (NaN = uncovered): hours 07-12, the arm's markets, a fitted cell and
+    every column present. Shared by ``look_tail`` and the rehearsal population (method rule 16)."""
+    g = np.full(len(keys), np.nan)
+    for i, (k, h, mk) in enumerate(zip(keys, hours, markets)):
+        if int(h) not in HOURS or mk in ARM_EXCLUDED_MARKETS[arm] or k not in feats:
+            continue
+        inc = increment(coef["arms"].get(arm, {}).get(f"{mk}|{int(h)}"), arm_columns(arm, feats[k]))
+        if inc is not None:
+            g[i] = inc
+    return g
+
+
+def snapshot_donors(snaps, seed):
+    """``market_blend.placebo_vector``'s donor snapshot for every snapshot of ``snaps`` (the scored-date snapshot
+    frame in ``sc.Table`` order), from the snapshot frame alone: no Table, no label, no price. Same sort, same
+    derangement draws in the same (market, hour) order, same rank rule; equality with the Table path is tested."""
+    import pandas as pd
+
+    from weather.calibration import market_blend as mb
+
+    df = pd.DataFrame({"i": np.arange(len(snaps)), "d": snaps.date.astype(str).to_numpy(),
+                       "m": snaps.market.astype(str).to_numpy(), "h": snaps.local_hour.to_numpy(int),
+                       "t": snaps.captured_at_utc.astype(str).to_numpy(), "k": snaps.row_key.astype(str).to_numpy()})
+    df = df.sort_values(["m", "h", "d", "t", "k"], kind="mergesort").reset_index(drop=True)
+    df["r"] = df.groupby(["m", "h", "d"], sort=False).cumcount()
+    rng = np.random.default_rng(seed)
+    src = np.arange(len(snaps))
+    for _, g in df.groupby(["m", "h"], sort=True):
+        ds = sorted(g.d.unique())
+        if len(ds) < 2:
+            continue
+        perm = mb.derangement(len(ds), rng)
+        donor = dict(zip(ds, (ds[j] for j in perm)))
+        first = g.groupby("d").i.apply(list).to_dict()
+        for i, d, r in zip(g.i.to_numpy(), g.d.to_numpy(), g.r.to_numpy()):
+            pool_ = first[donor[d]]
+            src[i] = pool_[min(r, len(pool_) - 1)]
+    n = snaps.n_bands.to_numpy(int)
+    if (n[src] != n).any():
+        raise Refused("refused: placebo donor has a different band count")
+    return src
+
+
+def population_mask(covered, n_bands, donor_srcs):
+    """``mr_sweep.p0_candidate``'s population, snapshot form: covered AND, under every placebo seed, the donor
+    snapshot covered (a snapshot with no bands passes the donor test, as the band bincount there gives 0 == 0).
+    -> (mask, {seed: covered snapshots whose donor is uncovered})."""
+    covered = np.asarray(covered, bool)
+    n_bands = np.asarray(n_bands, int)
+    ok, fails = np.ones(len(covered), bool), {}
+    for seed, src in donor_srcs.items():
+        d_ok = covered[src] | (n_bands == 0)
+        fails[seed] = int((covered & ~d_ok).sum())
+        ok &= d_ok
+    return covered & ok, fails
+
+
+def realised_population(table_snaps, feats, coef, n_row80, seeds=None):
+    """Method rule 16 (master, 2026-10-31): per arm, the statistic's FULL population rule, outcome-free (snapshot
+    frame, features and coefficients only): covered snapshots, the realised population (snapshots, dates) under
+    ``population_mask``, the donor-failure counts and the projected power at the realised population. A covered
+    count alone is not a projection. Assumes the band geometry mu is finite (it is a weighted band sum)."""
+    from weather.calibration import mr_sweep as sw
+
+    snaps = table_snaps.reset_index(drop=True)
+    seeds = sw.PLACEBO_SEEDS if seeds is None else seeds
+    keys = snaps.row_key.astype(str).to_numpy()
+    hours, markets = snaps.local_hour.to_numpy(int), snaps.market.astype(str).to_numpy()
+    n_bands, dates = snaps.n_bands.to_numpy(int), snaps.date.astype(str).to_numpy()
+    srcs = {seed: snapshot_donors(snaps, seed) for seed in seeds}
+    out = {}
+    for arm in ARMS:
+        covered = np.isfinite(arm_increments(arm, keys, hours, markets, feats, coef))
+        pop, fails = population_mask(covered, n_bands, srcs)
+        n_pop, n_dates = int(pop.sum()), len(set(dates[pop & (n_bands > 0)]))
+        out[arm] = {"covered_snapshots": int(covered.sum()), "population_snapshots": n_pop,
+                    "population_dates": n_dates,
+                    "donor_failures": {"covered_with_any_uncovered_donor": int((covered & ~pop).sum()),
+                                       "by_seed_max": max(fails.values()) if fails else 0,
+                                       "by_seed_min": min(fails.values()) if fails else 0},
+                    "meets_coverage_floor": n_dates >= MIN_DATES and n_pop >= MIN_SNAPS,
+                    "power_at_population": projected_power(n_pop, n_row80) if n_pop > 0 else None}
+    return out
+
+
 def read_export(root, sums_sha, wanted):
     """Stream every replay_inputs.jsonl of the wanted slugs once, hashing as it reads (refuses on a mismatch with
     the export SHA256SUMS), and return {row_key: record} for the wanted snapshots, plus malformed lines."""
@@ -1275,6 +1361,7 @@ def stage_rehearse(args):
                              "layout_high_so_far_decreases": ctx["controls"]["C-g"].get(
                                  "layout_high_so_far_decreases")},
         "power_projection_us10": ctx["power_projection"], "dates": ctx["dates"],
+        "realised_population_rule16": ctx.get("realised_population"),
         "snapshots_dropped_austin_1003": ctx["dropped"], "export_files_hashed": len(ctx["hashed"]),
         "malformed": ctx["malformed"], "override_in_process": ctx["override"], "serve_rule": ctx["serve_override"],
         "serve_rows_outside_frozen_30F_125F": {"count": sum(f.get("n_implausible", 0) for f in feats.values()),
@@ -1283,7 +1370,8 @@ def stage_rehearse(args):
     }
     sha = write_exclusive(out / REHEARSE_RECEIPT, receipt)
     print(json.dumps({"rehearse_receipt_sha256": sha, "C-g": ctx["controls"]["C-g"],
-                      "power_projection_us10": ctx["power_projection"]}, default=_default))
+                      "power_projection_us10": ctx["power_projection"],
+                      "realised_population_rule16": ctx.get("realised_population")}, default=_default))
     return receipt
 
 
@@ -1379,7 +1467,12 @@ def look_front(args, out, mark=None):
                                arm_columns(arm, feats[k])) is not None
         power_projection[arm] = projected_power(n_arm, n_row80)
     print(json.dumps({"power_projection_us10": power_projection}, default=_default), flush=True)
-    return {"gd": gd, "after": after, "controls": controls, "lay": lay, "dates": dates, "feats": feats,
+    # Method rule 16: the realised population under the statistic's full rule, on the sc.Table snapshot frame
+    # (the scored-date layout snapshots, in layout order), outcome-free.
+    table_snaps = lay.snaps[lay.snaps.date.astype(str).isin(dates)].reset_index(drop=True)
+    population = realised_population(table_snaps, feats, coef, n_row80)
+    print(json.dumps({"realised_population_rule16": population}, default=_default), flush=True)
+    return {"realised_population": population, "gd": gd, "after": after, "controls": controls, "lay": lay, "dates": dates, "feats": feats,
             "reasons": reasons, "coef": coef, "parity": parity, "cc_paths": cc_paths, "serve_override": serve_override,
             "power_projection": power_projection, "override": override, "hashed": hashed, "malformed": malformed,
             "dropped": dropped, "look_started_sha": look_started_sha}
@@ -1415,13 +1508,7 @@ def look_tail(args, ctx, out, t=None):
     keys, hours, markets = t.snaps.row_key.astype(str).to_numpy(), t.local_hour, t.markets
     results, rows_out, pvals, sens_p = {}, [], [], []
     for arm in ARMS:
-        g = np.full(len(keys), np.nan)
-        for i, (k, h, mk) in enumerate(zip(keys, hours, markets)):
-            if int(h) not in HOURS or mk in ARM_EXCLUDED_MARKETS[arm] or k not in feats:
-                continue
-            inc = increment(coef["arms"].get(arm, {}).get(f"{mk}|{int(h)}"), arm_columns(arm, feats[k]))
-            if inc is not None:
-                g[i] = inc
+        g = arm_increments(arm, keys, hours, markets, feats, coef)
         check_coverage_floor_live(sw)
         res, _ = sw.p0_candidate(arm, "C", 1, geo["mu"] + g, t, t, geo, counts, score_dates, donors)
         arm_rows = res.pop("_rows", None) or []
