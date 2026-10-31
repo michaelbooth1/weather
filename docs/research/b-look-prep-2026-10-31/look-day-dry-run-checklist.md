@@ -37,8 +37,15 @@ Before the step:
 - [ ] The MG-1 window has closed: `MG1_LAST` = 2026-11-28 in `weather.mg1_reserved_window`.
 - [ ] The MG-1 scoring is built into the entry point and re-registered (the registered `1e691c58…` cannot score:
   its `run` refuses).
-- [ ] B's `MG1_LOOK_ENTRY_SHA256` is set by the dated B-1 clarification. Until then it is the `UNRECORDED`
-  sentinel, which equals no sha, so every receipt fails VOID 5 (`b_scorer.py` lines 127-133).
+- [ ] **Expected in any rehearsal before the clarification: VOID 5 fires.**
+  - B's `MG1_LOOK_ENTRY_SHA256` is the `UNRECORDED` sentinel BY DESIGN (master ruling (iii), 2026-10-31). It
+    equals no sha, so every receipt fails VOID 5 (`b_scorer.py` lines 127-133).
+  - Master writes the dated B-1 clarification that sets the constant once MG-1's look receipt exists
+    (2026-11-29..12-12).
+  - So, until that commit, a full synthetic chain ends in `VOID` with conditions `[5]` (or with 5 among them).
+    That VOID is the correct result, not a defect. `test_void_5_fails_a_receipt_whose_entry_sha_is_not_the_recorded_one`
+    exercises it.
+  - After the clarification, VOID 5 must no longer fire on the real receipt.
 
 Refusals and VOIDs, with the synthetic test that exercises each (`tests/calibration/test_mg1_look.py`):
 
@@ -118,21 +125,24 @@ After the guard, every exit writes `b_look.json` and `b_look_receipt.json`:
 Output: `b_look.json` (its `decision` holds `estimate`, `ci95`, `verdict` and `label`), and `b_look_receipt.json`
 (`b_decision`).
 
-## 4. Post-look analysis (ruling (b)) — STUB until the module is frozen
+## 4. Per-date extraction, then the post-look analysis (ruling (b))
 
-Module: `src/weather/calibration/b_post_look_serial.py` (not frozen; its sha is pinned in
-`master-ruling-b-post-look.md` after the coordinator's check and the queued test run).
+Module: `src/weather/calibration/b_post_look_serial.py`, FROZEN at `fa380db09980692f6afe50eb48b949b6c21aa88a`
+(sha256 `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`, pinned in `master-ruling-b-post-look.md`).
 
 - [ ] Run it only on a scored verdict. It refuses VOID, ABORTED and any other verdict.
 - [ ] Inputs: B's `b_look.json` (or its `decision` object), plus a per-date 07-16 table of S_t (the sum of cell
   differences) and n_t (cell count) for B's surviving dates. Optionally add the 07-12 and 13-16 tables for the
   descriptive VAR(1).
-- [ ] **Open item for master: the per-date table is not in B's output.** `b_look.json` carries only aggregate
-  `rows` (estimate and interval), not per-date S_t and n_t. Producing the table needs a post-look extractor that
-  rebuilds B's cell table from the same transfer: `build_table`, `arm`, `Table.cells` per (date, market). That
-  extractor would read B-bound code read-only and open the transferred labels and prices a second time, after the
-  look. Whether that read is permitted, and who builds the extractor, is master's ruling. This lane has not built
-  it.
+- [ ] **The per-date extractor (master ruling (i), 2026-10-31: PERMITTED).** `b_look.json` carries only
+  aggregate `rows`, so the per-date S_t and n_t come from a separate extractor.
+  - It runs in the SAME look session, immediately after the B scorer, on the SAME sha-pinned `b_transfer` bytes the
+    scorer consumed. It reads no byte B did not.
+  - It outputs only the per-date S_t and n_t (07-16, plus the 07-12 and 13-16 splits), receipted with B's look.
+  - It must reproduce B's printed Δ.
+  - It imports `build_table` and `arm` read-only and edits no B-bound file.
+  - It is being built by this lane (its sha goes here once frozen). A look-chain clarification note puts it on the
+    closed list.
 - [ ] Refusals (`tests/calibration/test_b_post_look_serial.py`):
   - a repeated date, non-ISO date, non-positive or non-integer n_t, or non-finite S_t;
   - fewer than 3 dates, or fewer than 2 consecutive-date pairs;

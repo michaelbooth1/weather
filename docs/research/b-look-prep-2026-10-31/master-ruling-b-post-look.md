@@ -50,8 +50,34 @@ B's NOT-WORSE label is defined at `docs/operations/B_FORWARD_TEST_DESIGN.md` lin
 
 ## Freeze status
 
-The post-look module is NOT yet frozen. Its sha is pinned here only after master's OK on the open implementation
-choices, relayed by the coordinator.
+**FROZEN 2026-10-31 at commit `fa380db09980692f6afe50eb48b949b6c21aa88a`.** The pins:
+
+- `src/weather/calibration/b_post_look_serial.py` sha256
+  `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`;
+- `tests/calibration/test_b_post_look_serial.py` sha256
+  `7ceb952c1b40f9911ac2260f72428c8d24c96a302c4731cad4321359f137414f`.
+
+Any later change to either file is a new revision and needs a new ruling.
+
+**Master's OK on the implementation choices (a)-(f), verbatim, relayed by the coordinator 2026-10-31:** "(a)-(f) are
+all OK as written. (b) is correct: 3·var(block means)/var(e) is MBB variance over iid variance, and the re-centring
+follows row 84."
+
+The choices (a)-(f) are:
+- (a) ρ̂ is the mean over consecutive-calendar-date pairs of (e_t−ē)(e_{t+1}−ē), divided by the ddof-0 variance of e.
+  A gap breaks a pair.
+- (b) block-3 ratio² = 3·var(block means)/var(e), both ddof 0. These are exact moving blocks, re-centred, with no
+  resampling. Gaps are ignored for blocks.
+- (c) SD(e) uses ddof 1.
+- (d) The extra refusals:
+  - fewer than 3 dates, or fewer than 2 consecutive pairs;
+  - a bad date or cell count, or a non-finite S;
+  - zero variance;
+  - Δ ≠ ΣS/Σn (to 1e-9);
+  - a verdict outside PASS, FAIL and INCONCLUSIVE;
+  - an existing `--out`.
+- (e) The VAR(1) on the 07-12 and 13-16 tables is descriptive only.
+- (f) Input is JSON `{"primary": [...], "splits": {...}}` plus `b_look.json` or its decision object.
 
 ## Synthetic test runs (module sha256 `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed`)
 
