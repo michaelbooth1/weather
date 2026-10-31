@@ -11,7 +11,8 @@ and docs only; no data was read.
 ## 1. What the release can and cannot give
 
 - **Post-fix dates.** The release covers local targets up to 10-14, so the post-10-09 dates are **10-10..10-14 only
-  (5 dates)**. Target 10-14 may also lose US labels to the tape-sha binding (runbook §1).
+  (5 dates)**. Under master's target-date ruling (2026-10-31), target 10-14 is released whatever its capture
+  time, so its folders are exported whole and keep their tape sha (runbook §1).
 - **Markets.** The extract is US °F only, so the layout path covers **US11, not 12 markets**. Toronto needs a
   separate °C extract path, which does not exist on master.
 - **Pre-fix dates.** 10-01..10-09 are pre-fix served output. They are useful as a contrast stratum, not as order 1
@@ -24,10 +25,10 @@ and docs only; no data was read.
 | 2: §1f position split under a rank-based disagreement gate (B and C separate), then the tail recomputed on post-10-09 served output | **Not ready** | The §1f split code was not located on master or the harness branch. The tail recompute shares order 1's 5-date limit. |
 | 6: one owner-signed prereg on ≥45 post-10-09 dates (114-cell edge map, §1c bound, shrinkage locator) | **Not ready** | The prereg is not drafted. It must state whether 10-10..10-14 count, because any order 1 read on them makes them non-fresh for order 6. |
 
-**Recommendation.** Before any order 1 read, master or the owner should decide one of two options:
-
-- (a) run order 1 as a labelled descriptive slice on 10-10..10-14, and have order 6's prereg exclude those dates;
-- (b) hold 10-10..10-14 fresh for order 6, and read only the pre-fix stratum now.
+**Ruled (master, 2026-10-31): option (a).** 10-10..10-14 are read now as a descriptive order 1 slice, and
+order 6 excludes them; order 6 waits until spent dates rejoin dev. The wrapper therefore runs with
+`--strata pre+post`. The other option, holding 10-10..10-14 fresh and reading only the pre-fix stratum, was not
+chosen.
 
 ## 2. Why the existing atlas cannot be pointed at the release
 
@@ -42,20 +43,25 @@ An in-process override of `RANGE` and `DEV_LAST` would make the positive control
 expected values do not apply, so it would raise `ControlFailed`. Overriding the control would defeat it. The
 rep.py-style in-process override is therefore not enough here. **A new wrapper module is needed.**
 
-## 3. The proposed wrapper module (needs the coordinator's allowlist check)
+## 3. The wrapper module (awaits the coordinator's allowlist check)
 
-**`tools/research/released_window/served_market_blocks.py`** does not exist yet. It edits no B-bound file. It
-imports `dev_scorecard_data` / `dev_scorecard` and `loss_atlas` read-only, from a clean pinned worktree. It does
-only this, in order:
+**`tools/research/released_window/served_market_blocks.py`** is on `claude/released-window-tools-20261031` @
+`25c8d3a3517e64a4fa906c41ce9e5ed2ee9a0a82` (sha256
+`b2430135bda4c7ba6a4f66665146b16769b881b456f994659daf81f1304d9fe4`). It has not been run. It edits no B-bound
+file, and imports `dev_scorecard_data`, `dev_scorecard` and `loss_atlas` read-only. Before step 1 it refuses
+unless the row 80 receipt exists, is ledger row 80 with a verdict, and names the same release layout manifest
+sha. Then it does only this, in order:
 
 1. **EF §3 floor control.** It runs the dev scorecard control floor unchanged, on dev dates ≤ 09-29: baseline
    `1.6639158425`, hard `1.4979600580`, fixture sha `8ac77c08…`. It refuses on a mismatch.
 2. **Atlas positive control.** It runs `loss_atlas.positive_control` on the unchanged dev layout
    `C:\swarm\v3layout`. That layout is read only, never rebuilt. It refuses on `ControlFailed`.
-3. **Release scope.** Only after 1 and 2 pass, and only if row 80's `out_rep/look/receipt.json` exists, it sets
-   `data.DEV_LAST = date(2026, 10, 14)` in-process. This is the same mechanism as `rep.py:232-235`, and no file is
-   edited. It then loads the **release layout** built by `r80_layout.py` (`C:\t\r80\layout`). It refuses any date
-   outside 10-01..10-14.
+3. **Release scope.** Only after 1 and 2 pass, it checks the release layout manifest. A target of 10-15 or
+   later is refused whatever its capture time (master's ruling, 2026-10-31), and so is any date outside
+   10-01..10-14. It then sets `data.DEV_LAST = date(2026, 10, 14)` in-process for the read and restores it
+   afterwards. This is the same mechanism as `rep.py:232-235`, and no file is edited. It loads the **release
+   layout** built by `r80_layout.py` (`C:\t\r80\build\layout`). The reader drops Austin 10-03 and records how
+   many snapshots that removed.
 4. **Scoring.** It computes `sc.Table(layout, dates)` and `sc.score_rows(table, table.p_served, True)` per block and
    per market. The blocks are `00-05, 06-09, 10-12, 13-16, 17-23` plus `00-12, 00-16, all`. It reports crossed and
    fixed-market intervals, and `powered` against `CLUSTER_FLOOR`.

@@ -9,6 +9,18 @@ only; no data was read.
 - **Where its inputs come from.** The host export is described in
   [export-manifest-0930-1014.md](export-manifest-0930-1014.md).
 
+**Master's rulings, 2026-10-31:**
+
+- **The boundary is the local target date.** A target of 10-14 or earlier is released, including a 10-14 label
+  recorded on UTC 10-15. A target of 10-15 or later stays embargoed whatever its capture time (C5).
+- **The embargo edit `0f9929736` does not land.** Row 80 does not need it.
+- **Admission.** The guidance extract is existing packaged code and needs no allowlist entry. It runs under
+  `workstation_heavy.ps1` if it is heavy. The look takes a heavy slot through the queue.
+- **The `--approval` string** is `owner 2026-10-30 yes to both (DECISION_LOG 2026-10-30 release row)`. Master
+  sends the exact row text once it lands.
+- **Austin 10-03 is dropped by the readers.**
+- **The export.** Master runs the row 80 sub-manifest export, with a size precheck.
+
 **This look is the FIRST read of US11 snapshots and labels for 10-01..10-14 (rule 9; claim check C4).** Nothing
 in this runbook before step 4 computes a score, a Brier value, a ratio or any label-versus-forecast comparison.
 The atlas, C1, C2, C3 and every kill-only screen open these cells only after step 4's `receipt.json` exists.
@@ -23,6 +35,7 @@ The atlas, C1, C2, C3 and every kill-only screen open these cells only after ste
 | Run env (sys.path from ftr; the statistic is `mr_sweep.p0_candidate`) | `C:\wt\l3loyoenv`, clean | HEAD `8bb0f9563582885c4d01d34b67476f2563260e43` |
 | Interpreter used for t3ext and devcheck | `C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe` (`-I`) | — |
 | Layout builder code (HARNESS v3) | `claude/harness-v3-20261019` @ `2f3f3e8e6b542a419204afe802dae4545abc10d7` | `harness_sha256` must equal the rule's `8db69adc…9f74` |
+| Layout wrapper `r80_layout.py` | `claude/released-window-tools-20261031` @ `25c8d3a3517e64a4fa906c41ce9e5ed2ee9a0a82` | `31750c1c254b87fb0868c29e272ff8af7e5f2a2109d256c68b201e5a692017f2` |
 | Guidance extract | `src/weather/reporting/research/guidance_extract.py` on master `1a78e1ba0c8f57c0d420fca96a9528cfb1d8e9de` | record at run time |
 | NBM parser worktree (extract `--parser-worktree`) | a clean detached worktree at `2e17ce0eb` (`harness.PARSER_HEAD`) | record its HEAD |
 
@@ -31,8 +44,9 @@ The atlas, C1, C2, C3 and every kill-only screen open these cells only after ste
 ## 1. Inputs from the host export (row 80 sub-manifest)
 
 Only the row 80 subset is needed: US11 (nyc, atlanta, austin, chicago, dallas, denver, houston, los-angeles,
-miami, san-francisco, seattle), local targets 2026-10-01..2026-10-14, and Austin 10-03 excluded. All hours are
-included, with the capture cut (rows captured at or after 2026-10-15T00:00Z dropped).
+miami, san-francisco, seattle), local targets 2026-10-01..2026-10-14, and Austin 10-03 excluded. Folders are
+exported whole, with all hours. There is no capture-time cut: target-10-14 rows captured on UTC 10-15 are
+released.
 
 | Exported path (relative to the export data root) | Read by |
 | --- | --- |
@@ -49,17 +63,21 @@ Stage the export at a fresh workstation path whose name contains neither `88a` n
 `C:\t\r80\import_receipt.json` with the sub-manifest sha and any missing file. A missing file is recorded, never
 substituted.
 
-**Known loss: target 10-14 labels.** A ledger row that records `snapshot_tape_sha256` is honoured only when the
-folder's `snapshots_long.csv` still has that sha (`settlement_io.py:373-387`). The capture cut rewrites the 10-14
-tapes, because US evening hours fall on UTC 10-15. Those market-days then fail as `folder_error` in the extract
-(`guidance_extract.py:483-488`) and are dropped. The rule allows this: "Dates without labels or layout rows are
-dropped, not replaced" (rule §4). The look stays testable if at least 10 dates and 1,000 snapshots remain. The
-host receipt should state which ledgers carry `snapshot_tape_sha256`.
+**The staging reader drops Austin 10-03.** If the export holds the Austin 10-03 folder or ledger row, leave it
+out of `C:\t\r80\data` and record that in `import_receipt.json`. `r80_layout.py` refuses an extract that still
+holds it.
+
+**Tape-sha binding.** A ledger row that records `snapshot_tape_sha256` is honoured only when the folder's
+`snapshots_long.csv` still has that sha (`settlement_io.py:373-387`). Under the target-date ruling, folders are
+exported whole, so the tapes keep their sha. Any market-day whose tape still differs fails as `folder_error` in
+the extract (`guidance_extract.py:483-488`) and is dropped, not replaced (rule §4). The look stays testable if at
+least 10 dates and 1,000 snapshots remain. Master's export receipt names the ledgers that carry
+`snapshot_tape_sha256`.
 
 ## 2. Guidance extract on the staged copy (workstation)
 
-Do not use `guidance_extract_run.ps1`. It reads the live production data root (`:97`), which would include the
-UTC 10-15 rows (C5).
+Do not use `guidance_extract_run.ps1`. It always reads the production data root (`:97`), not the staged export.
+The extract's `--from` and `--to` keep it to targets 10-01..10-14.
 
 ```text
 python -m weather.reporting.research.guidance_extract --data-root C:\t\r80\data --out C:\t\r80\extract ^
@@ -68,33 +86,44 @@ python -m weather.reporting.research.guidance_extract --data-root C:\t\r80\data 
 
 - **Run it from master's tree.** It writes `guidance_rows.jsonl.gz`, `market_days.jsonl.gz`, `manifest.json` and
   `SHA256SUMS`. Its status must be `COMPLETE`.
-- **It is not on the `weather_heavy` allowlist** (`scripts/ops/workload_admission.ps1`, the offline module list).
-  Admission therefore needs either master's allowlist entry and `workstation_heavy.ps1 -Kind weather_heavy
-  -Queue -MinAvailableMemoryGB 3`, or a coordinator ruling that it is light.
+- **Admission (master, 2026-10-31).** It is existing packaged code and needs no allowlist entry. If it is heavy, it
+  runs under `workstation_heavy.ps1 -Queue -MinAvailableMemoryGB 3`, with the coordinator's admission.
 - **It computes no score.** It writes the settled label into each row, which is plumbing and not a look.
 
 ## 3. Build the HARNESS v3 layout (10-01..10-14 only)
 
 The dev builder refuses every date after 09-29. The refusals are at `harness.py:46` (`LAST_TARGET_DATE`), `:195`,
 `:289` and `:572`, and at `v3_outcomes.py:28` and `:71-72`. `rep.py` is frozen and cannot carry a builder
-override. The B-bound dev scorecard files must not be edited. A **new wrapper module** is therefore needed. It
-needs the coordinator's allowlist check.
+override. The B-bound dev scorecard files must not be edited. A **new wrapper module** is therefore needed.
 
-**Proposed: `tools/research/released_window/r80_layout.py`.** It does not exist yet. It runs from a clean
-worktree of `2f3f3e8e6b542a419204afe802dae4545abc10d7`. It does only this:
+**`tools/research/released_window/r80_layout.py`** is on `claude/released-window-tools-20261031` @
+`25c8d3a3517e64a4fa906c41ce9e5ed2ee9a0a82`. It has not been run yet and awaits the coordinator's allowlist check.
+It imports the harness from a clean worktree of `2f3f3e8e6b542a419204afe802dae4545abc10d7`. Run it as a script
+with an isolated interpreter, never with `-m`:
 
-1. It refuses unless the extract is `COMPLETE` and `harness.verify_extract` passes.
-2. It refuses unless every extract target date is within 10-01..10-14 and every market is in US11, with no Austin
-   10-03 row and no `captured_at_utc` at or after 2026-10-15T00:00Z.
-3. In-process only, it sets `harness.LAST_TARGET_DATE = "2026-10-14"` and `v3_outcomes.DEV_LAST_DATE = "2026-10-14"`.
-   Both are module globals that are read at call time; no file is edited.
-4. It calls `harness.build_cache(root=C:\t\r80\extract, cache=C:\t\r80\cache)`. It never uses the default
-   `C:\swarm\cache` (the dev cache) and never `force`.
-5. It calls `v3_outcomes.split_v2_cache(C:\t\r80\layout, cache=C:\t\r80\cache)`.
-6. It asserts that the manifest's `source.harness_sha256` equals the rule's `8db69adc…9f74`, and that every file's
-   `dates` list is within 10-01..10-14.
-7. It writes `C:\t\r80\layout_receipt.json` holding the extract sha, cache receipt, layout manifest sha and the
-   overrides used. It prints no score.
+```text
+python -I tools\research\released_window\r80_layout.py --harness-worktree <clean 2f3f3e8e worktree> ^
+  --extract C:\t\r80\extract --out C:\t\r80\build
+```
+
+It does only this:
+
+1. It refuses unless the harness worktree is a clean checkout of the pin, `harness_sha256` equals the rule's
+   `8db69adc…9f74`, and `PARSER_HEAD` is `2e17ce0eb`.
+2. It refuses any path naming `88a` or `panel`, any `--out` under `C:\swarm`, and a `--out` that is not new or
+   empty.
+3. It refuses unless the extract is `COMPLETE` and `harness.verify_extract` passes.
+4. It refuses unless every extract target date is within 10-01..10-14 and every market is in US11, with no
+   Austin 10-03 row. A target of 10-15 or later is refused whatever its capture time; capture time is not
+   checked.
+5. In-process only, it sets `harness.LAST_TARGET_DATE` and `v3_outcomes.DEV_LAST_DATE` to `"2026-10-14"`. It
+   restores both afterwards. Both are module globals that are read at call time; no file is edited.
+6. It calls `harness.build_cache(root=<extract>, cache=<out>\cache)`, never with `force`, and then
+   `v3_outcomes.split_v2_cache(<out>\layout, cache=<out>\cache)`.
+7. It asserts that the manifest's `source.harness_sha256` equals the rule's value, and that every file's `dates`
+   list is within 10-01..10-14.
+8. It writes `<out>\layout_receipt.json` holding the extract verification, cache receipt sha, layout manifest
+   sha and the overrides used. It prints no score.
 
 It does not touch B's control layout (manifest `4d53fdbdc551…`), `C:\swarm\v3layout` or any default fold.
 
@@ -103,15 +132,16 @@ It does not touch B's control layout (manifest `4d53fdbdc551…`), `C:\swarm\v3l
 ```text
 cd C:\t\l8ftr
 C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe -I rep.py look ^
-  --layout C:\t\r80\layout --replay C:\t\r80\data --approval "<DECISION_LOG row of the owner's 2026-10-30 release>"
+  --layout C:\t\r80\build\layout --replay C:\t\r80\data ^
+  --approval "owner 2026-10-30 yes to both (DECISION_LOG 2026-10-30 release row)"
 ```
 
 - `--path` defaults to `q3`, and the forward path is refused (`rep.py:219-221`).
 - `--replay` is the staged data root, because `rep.py:119` reads `<replay>/snapshots/<slug>/replay_inputs.jsonl`.
-- The approval text is master's DL reference. `rep.py:217-218` refuses anything shorter than 8 characters.
-- **Admission.** The look reads 14 dates at hours 13-16. The devcheck and t3ext stages ran directly as light
-  scripts. The coordinator decides whether the look is light (sha recorded) or goes through the queue.
-  `rep.py` is a script, not an allowlisted `-m` module.
+- Use the approval text above, or the exact DECISION_LOG row text if master has sent it by then.
+  `rep.py:217-218` refuses anything shorter than 8 characters.
+- **Admission (master, 2026-10-31).** The look takes a heavy slot through the queue, with the coordinator's
+  admission.
 
 Guards inside `rep.py` (frozen; nothing to set by hand):
 
