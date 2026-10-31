@@ -1,3 +1,9 @@
+# ============================================================================
+# DO NOT RUN until the owner answers the PT5M question (Swarm P audit F2, 2026-10-07).
+# This registrar writes a PT1M trigger. The intended and live interval is PT5M
+# (owner-approved efficiency audit 2026-09-27). Re-running it unchanged silently
+# reverts the host to PT1M. See docs/operations/passive-maker-evidence-capture.md.
+# ============================================================================
 # Register only after production integration and dependency verification.
 # Public-data capture only. Editing/testing this registrar does not arm it.
 [CmdletBinding(SupportsShouldProcess = $true)]
