@@ -44,6 +44,11 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
     MOS against the market as a market-residual P0 (``weather.calibration.mos_p0``, rule 952cfc52, ledger row 89):
     GFS MOS and NAM MOS daytime-max ``n_x`` (type C) at 07-12, K = 2, a +1 h availability sensitivity arm, the same
     placebo and BH machinery. Reads the sha-pinned IEM MOS archive; no network. Dev window only.
+``mrms-p0``
+    MRMS echo against the market as a market-residual P0 (``weather.calibration.mrms_p0``, rule b0f170a5, ledger
+    row 91): the 25 km composite reflectivity maximum and the >= 35 dBZ flag (type D, sign -1) at 13-16, K = 2, a
+    descriptive 50 km arm, the same placebo and BH machinery. Reads the sha-pinned MRMS station table; no network.
+    Dev window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -414,6 +419,11 @@ def build_parser():
     mo.add_argument("--mos-root", required=True, help="the A-IEM-2 IEM MOS archive (C:/swarm/data/iem/mos)")
     mo.add_argument("--out", required=True)
     mo.add_argument("--allow-dirty", action="store_true")
+    mr = sub.add_parser("mrms-p0", help="MRMS echo against the market P0 (rule b0f170a5): 13-16, dev window")
+    mr.add_argument("--layout", required=True, help="dev scorecard layout (C:/swarm/v3layout)")
+    mr.add_argument("--refl", required=True, help="the sha-pinned MRMS station table (station_refl.parquet)")
+    mr.add_argument("--out", required=True)
+    mr.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -448,6 +458,13 @@ def main(argv=None):
 
         receipt = mos_p0.run(layout=args.layout, out_dir=args.out, mos_root=args.mos_root,
                              allow_dirty=args.allow_dirty)
+        print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
+                                                                 receipt["controls"].items()}}, indent=1))
+        return 0
+    if args.command == "mrms-p0":
+        from weather.calibration import mrms_p0
+
+        receipt = mrms_p0.run(layout=args.layout, out_dir=args.out, refl_path=args.refl, allow_dirty=args.allow_dirty)
         print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
                                                                  receipt["controls"].items()}}, indent=1))
         return 0
