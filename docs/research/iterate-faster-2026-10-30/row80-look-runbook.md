@@ -16,8 +16,8 @@ only; no data was read.
 - **The embargo edit `0f9929736` does not land.** Row 80 does not need it.
 - **Admission.** The guidance extract is existing packaged code and needs no allowlist entry. It runs under
   `workstation_heavy.ps1` if it is heavy. The look takes a heavy slot through the queue.
-- **The `--approval` string** is `owner 2026-10-30 yes to both (DECISION_LOG 2026-10-30 release row)`. Master
-  sends the exact row text once it lands.
+- **The `--approval` string** is `owner 2026-10-30 release of 2026-09-30..10-14 (DECISION_LOG 2026-10-30 row, origin/master 5f4d87818)`, as issued
+  by master once the owner decision rows landed on origin/master 5f4d87818.
 - **Austin 10-03 is dropped by the readers.**
 - **The export.** Master runs the row 80 sub-manifest export, with a size precheck.
 
@@ -133,7 +133,7 @@ It does not touch B's control layout (manifest `4d53fdbdc551…`), `C:\swarm\v3l
 cd C:\t\l8ftr
 C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe -I rep.py look ^
   --layout C:\t\r80\build\layout --replay C:\t\r80\data ^
-  --approval "owner 2026-10-30 yes to both (DECISION_LOG 2026-10-30 release row)"
+  --approval "owner 2026-10-30 release of 2026-09-30..10-14 (DECISION_LOG 2026-10-30 row, origin/master 5f4d87818)"
 ```
 
 - `--path` defaults to `q3`, and the forward path is refused (`rep.py:219-221`).
