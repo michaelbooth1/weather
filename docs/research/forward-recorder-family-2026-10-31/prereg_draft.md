@@ -1,6 +1,6 @@
 # Forward P0 family on the recorder sources: pre-registration draft (NOT frozen), lane L3, 2026-10-31
 
-Status: DRAFT for the coordinator, who takes it to master. It is not frozen and has no ledger row, because nothing
+Status: **master ruled NO FREEZE (2026-10-31); the empty family is recorded as a FINDING.** Drafted for the coordinator. It is not frozen and has no ledger row, because nothing
 is computed from data. The power figures below are arithmetic on intervals already in the register, plus date counts.
 
 Data reads behind this draft:
@@ -83,3 +83,11 @@ If master wants a family anyway, the frozen text would carry what the standing r
 - the (g) futility looks.
 
 Its pre-stated verdict would be SCREEN, never POWERED.
+
+## 5. Master's ruling and digest line (2026-10-31)
+
+Master ruled NO FREEZE and recorded the empty family as a FINDING. Master's digest line for the batch, verbatim:
+
+> Forward market-residual screens at 07-12 cannot reach power 0.5 before 01-26 even at E = 0.038 (the best dev near
+> miss): N80 ≈ 218 dates multi-market, ≈ 2,900 single-market (draft ebecf601, VIF 1.78). Forward screening is only
+> feasible for effects well above any seen on dev.
