@@ -6,7 +6,8 @@ It refreshes §3 of `remaining-lever-map.md` at `5395f8b1f0a9d7685becae7e27261e7
 edit, after the 2026-10-30 rows and notes. The register, SoP, digest and EF are unchanged; the coordinator's
 morning docs batch owns those.
 
-**No eligible edge-bearing lever remains in the dev window as of 10-31.**
+**No eligible edge-bearing lever remains in the dev window as of 10-31.** This is true of the enumerated inventory
+only; S31, T+1/T+2, foreign cities and the post-fix atlas are outside it (caveat added 2026-10-31, docs batch).
 
 ## 1. Disposition of the nine ELIGIBLE NOW items (map §3)
 

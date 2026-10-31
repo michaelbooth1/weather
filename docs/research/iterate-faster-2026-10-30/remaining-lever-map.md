@@ -58,7 +58,7 @@ The sources are [the lever inventory](../../operations/LEVER_INVENTORY_2026-10-2
 | 6 | NBS | BLOCKED | Diagnostic: NBS-TXN diagnostic first |
 | 7 | NBH 13-16 | KILLED | X30, X67, X69 |
 | 8 | t3-r3 stack | BLOCKED | Row 80 replication (owner Q3) |
-| 9 | Multi-model dispersion sharpness | KILLED | X54 OM-MM-SPREAD, X55 OM-GM-SPREAD (rule `85f8192c…`, ledger row 78; 07-12 blocks are already in receipt `02c46630…`); ledger row 81 |
+| 9 | Multi-model dispersion sharpness | CLOSED BY RULE, not by measurement (corrected 2026-10-31; [lever inventory](../../operations/LEVER_INVENTORY_2026-10-26.md) row 9) | Market-residual P0 only: X54 OM-MM-SPREAD, X55 OM-GM-SPREAD (rule `85f8192c…`, ledger row 78; 07-12 blocks are already in receipt `02c46630…`); ledger row 81 |
 | 10a | Overnight low, Oct-Dec | KILLED | Ledger row 85 (C1 DROP) |
 | 10b | Dewpoint / trajectory, Oct-Dec | ELIGIBLE NOW | LOYO. Kill-only. Batch it with the §6 Oct-Dec lines |
 | 11 | DST / standard-time audit | ELIGIBLE NOW | S1 |
