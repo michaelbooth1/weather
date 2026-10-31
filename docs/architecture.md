@@ -165,7 +165,12 @@ bounded counterfactual detail is governed by the
   exits 3 when any row puts more mass below the anchor than before.
   `python -m weather.backtesting.evening_fix_scorer` scores those rows once,
   behind a read gate (signed pre-registration; no read before 2026-10-29
-  without a token recorded in the decision log).
+  without a token recorded in the decision log). With `--no-market` (the
+  replay's flag nulls every band price at source) it is Stage 1 of
+  Clarification 1; in transfer mode `weather.backtesting.evening_fix_transfer`
+  opens the host's replay and whole ledger rows in stages (forecast fields
+  only, B2 reproduction stop, ledger hash chain, metadata-only window check,
+  then labels). The window is 2026-10-16..10-27 plus 10-28; 10-29 is never read.
 - Public facade names and compatibility shims can remain stable, but new logic
   belongs to the documented owner module and must not import back through its
   facade.

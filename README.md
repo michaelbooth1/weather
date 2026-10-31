@@ -482,6 +482,17 @@ decision log, refuses any 2026-09-30..10-15 row, and writes nothing on refusal
 .\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --replay scratch\lockin_anchor_replay\evening-fix.jsonl --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\result.json
 ```
 
+The no-market read on host-transferred outputs (Clarification 1, Stage 1) takes
+the `lockin_anchor_replay --no-market` file per replay commit and the whole
+transferred ledger rows. It refuses any row on 2026-10-29 or later, and stops
+with exit 4 before any label is opened when no single commit reproduces at least
+99% of rows (the output is the per-date match table) or when the window would
+need 10-29:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --no-market --replay <commit>=scratch\transfer\replay.jsonl --ledger-rows scratch\transfer\ledger_rows.jsonl --served-commits scratch\transfer\served.json --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\stage1.json
+```
+
 `weather.calibration.feature_model` trains one market/unit-family at a time.
 Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use

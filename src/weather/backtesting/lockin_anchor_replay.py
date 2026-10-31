@@ -17,7 +17,8 @@ Read-only contract:
   ``replay_inputs_reconstructed.jsonl``) under the snapshots root, plus the
   folder's ``snapshots_long.csv`` band rows when present, so each row also
   carries both arms' band probabilities (computed exactly as production records
-  them) and the band's captured market price. It never reads settlement.
+  them) and the band's captured market price. With ``--no-market`` the price column is never read and every
+  band's ``market_yes`` is null at source. It never reads settlement.
 - It writes exactly one new file, ``--out``, which must not exist and must lie
   outside the runtime ``data/`` tree. It never writes production state.
 - Replayable target dates are closed days (before today, Toronto) in two ranges:
@@ -33,7 +34,7 @@ CLI:
   python -m weather.backtesting.lockin_anchor_replay --out <path.jsonl>
       [folder ...] [--snapshots-root data/snapshots] [--market MARKET]
       [--from-date YYYY-MM-DD] [--through-date YYYY-MM-DD]
-      [--include-reconstructed] [--with-v3-arm]
+      [--include-reconstructed] [--with-v3-arm] [--no-market]
 """
 from __future__ import annotations
 
@@ -178,8 +179,8 @@ def _number(value):
     return number if math.isfinite(number) else None
 
 
-def band_descriptor(band):
-    """The outcome-free description of one captured band row."""
+def band_descriptor(band, no_market=False):
+    """The outcome-free description of one captured band row (``market_yes`` null under no_market)."""
     value = band.get("bin_value_c")
     if value in (None, ""):
         value = band.get("bin_value")
@@ -188,7 +189,7 @@ def band_descriptor(band):
         "kind": band.get("bin_kind"),
         "value": _number(value),
         "value_hi": _number(row_band_value_hi(band)),
-        "market_yes": _number(band.get("market_yes")),
+        "market_yes": None if no_market else _number(band.get("market_yes")),
     }
 
 
@@ -220,7 +221,7 @@ def _replay(model, record, *, legacy, bands=None, pre_lockin_floor=True):
 
 
 def compare_record(model, record, market_id, *, bands=None, event_slug=None, v3_arm=False,
-                   today=None):
+                   today=None, no_market=False):
     """One old-vs-new comparison row, or None when the record has no inputs."""
     if not record.get("sources"):
         return None
@@ -258,7 +259,7 @@ def compare_record(model, record, market_id, *, bands=None, event_slug=None, v3_
         "new_final": {str(k): v for k, v in sorted(new.items())},
     }
     if bands is not None:
-        row["bands"] = [band_descriptor(band) for band in bands]
+        row["bands"] = [band_descriptor(band, no_market=no_market) for band in bands]
         row["old_band_p"] = old_band_p
         row["new_band_p"] = new_band_p
     if v3_arm:
@@ -306,16 +307,21 @@ BAND_COLUMNS = (
     "snapshot_id", "range_label", "bin_kind", "bin_value_c", "bin_value",
     "bin_value_hi_c", "bin_value_hi", "market_yes",
 )
+NO_MARKET_BAND_COLUMNS = tuple(column for column in BAND_COLUMNS if column != "market_yes")
 
 
-def load_band_rows(folder):
-    """Captured band rows per snapshot from ``snapshots_long.csv`` (outcome-free columns only)."""
+def load_band_rows(folder, no_market=False):
+    """Captured band rows per snapshot from ``snapshots_long.csv`` (outcome-free columns only).
+
+    With ``no_market`` the ``market_yes`` column is never read (nulled at source).
+    """
     path = Path(folder) / "snapshots_long.csv"
     if not path.exists():
         return {}
     import pandas as pd
 
-    frame = pd.read_csv(path, usecols=lambda column: column in BAND_COLUMNS)
+    columns = NO_MARKET_BAND_COLUMNS if no_market else BAND_COLUMNS
+    frame = pd.read_csv(path, usecols=lambda column: column in columns)
     if "snapshot_id" not in frame:
         return {}
     frame = frame.astype(object).where(frame.notna(), None)
@@ -326,7 +332,7 @@ def load_band_rows(folder):
 
 
 def run(folders, out_path, *, include_reconstructed=False, model_factory=None, v3_arm=False,
-        today=None):
+        today=None, no_market=False):
     if model_factory is None:
         from weather.model.toronto_model import TorontoHighTempModel
 
@@ -343,7 +349,7 @@ def run(folders, out_path, *, include_reconstructed=False, model_factory=None, v
             if refusal:
                 raise ReplayRefused(f"refused: {Path(folder).name}: {refusal}")
             records = index_records_by_snapshot(load_replay_records(folder))
-            band_rows = load_band_rows(folder)
+            band_rows = load_band_rows(folder, no_market=no_market)
             if market_id not in models:
                 models[market_id] = model_factory(market_id)
             for snapshot_id in sorted(records):
@@ -354,6 +360,7 @@ def run(folders, out_path, *, include_reconstructed=False, model_factory=None, v
                     models[market_id], record, market_id,
                     bands=band_rows.get(str(snapshot_id)),
                     event_slug=Path(folder).name, v3_arm=v3_arm, today=today,
+                    no_market=no_market,
                 )
                 if row is None:
                     continue
@@ -382,6 +389,8 @@ def build_parser():
     parser.add_argument("--with-v3-arm", action="store_true",
                         help="Also replay v3 without the v4 pre-lock-in floor "
                              "(pre_lockin_same_day_floor = False).")
+    parser.add_argument("--no-market", action="store_true",
+                        help="Never read captured market prices: band market_yes is null at source.")
     parser.add_argument("--out", required=True,
                         help="New JSONL file outside data/ (never overwritten).")
     return parser
@@ -399,7 +408,7 @@ def main(argv=None):
         )
         check_out_path(args.out)
         summary = run(folders, args.out, include_reconstructed=args.include_reconstructed,
-                      v3_arm=args.with_v3_arm)
+                      v3_arm=args.with_v3_arm, no_market=args.no_market)
     except ReplayRefused as exc:
         print(str(exc), file=sys.stderr)
         return 2

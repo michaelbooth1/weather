@@ -197,7 +197,9 @@ def test_void_when_too_few_qualifying_dates_even_after_extension():
     rows = _rows(_window(5))
     result = scorer.evaluate(rows, _labels(rows))
     assert result["outcome"] == "VOID"
-    assert result["window_dates"][-1] == "2026-10-29"
+    # Master 2026-10-31: the extension adds 10-28 only; 10-29 is another read's day 0.
+    assert result["window_dates"][-1] == "2026-10-28"
+    assert "never added" in " ".join(result["void_reasons"])
 
 
 def test_extension_adds_only_the_dates_needed():
