@@ -220,6 +220,24 @@ def test_b2_stop_emits_the_per_date_table_when_no_commit_reproduces():
     assert receipt.commit == "bbb"
 
 
+def test_reproduction_table_shows_vector_coverage_per_date_and_in_the_summary():
+    rows = _rows(_window(2), markets=("atlanta",))   # 3 rows per date
+    for row in rows[3:5]:                             # 10-17: only one row keeps its recorded vector
+        row["l1_new_vs_recorded"] = None
+    receipt = transfer.select_reproducing_commit({"aaa": rows})   # the pass rule is unchanged
+    info = receipt.table["commits"]["aaa"]
+    assert info["pass"] is True
+    full = info["per_date"]["2026-10-16"]
+    assert (full["all_rows"], full["rows_with_vector"], full["vector_coverage"]) == (3, 3, 1.0)
+    thin = info["per_date"]["2026-10-17"]
+    assert (thin["all_rows"], thin["rows_with_vector"]) == (3, 1)
+    assert thin["vector_coverage"] == pytest.approx(1 / 3)
+    assert (info["all_rows"], info["rows_with_vector"]) == (6, 4)
+    assert info["vector_coverage"] == pytest.approx(4 / 6)
+    for day in info["per_date"].values():
+        assert {"all_rows", "rows_with_vector", "vector_coverage"} <= set(day)
+
+
 def test_ledger_hash_chain_is_verified_and_tampering_refuses(tmp_path):
     slugs = {"atlanta|2026-10-16", "nyc|2026-10-16"}
     path = _ledger(tmp_path, slugs)

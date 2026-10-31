@@ -135,12 +135,19 @@ def load_replays(paths_by_commit):
 
 
 def reproduction_table(rows_by_commit, served_commits=None):
-    """Per date x commit: rows with a recorded vector, rows within L1 1e-9, share; plus served versions."""
+    """Per date x commit: rows with a recorded vector, rows within L1 1e-9, share; plus served versions.
+
+    Receipt only (master 2026-10-31): each date and each commit summary also shows ``all_rows``,
+    ``rows_with_vector`` and ``vector_coverage`` (= rows_with_vector / all_rows), so a pass on a thin
+    vector subset is visible. The pass rule is unchanged.
+    """
     dates = sorted({row["target_date"] for rows in rows_by_commit.values() for row in rows})
     table = {"threshold_l1": REPRODUCTION_L1, "threshold_share": REPRODUCTION_SHARE, "commits": {}, "dates": {}}
     for commit, rows in rows_by_commit.items():
         per_date = defaultdict(lambda: [0, 0])
+        all_per_date = defaultdict(int)
         for row in rows:
+            all_per_date[row["target_date"]] += 1
             value = row.get("l1_new_vs_recorded")
             if value is None:
                 continue
@@ -148,11 +155,16 @@ def reproduction_table(rows_by_commit, served_commits=None):
             per_date[row["target_date"]][1] += value <= REPRODUCTION_L1
         total = sum(n for n, _ in per_date.values())
         within = sum(k for _, k in per_date.values())
+        all_rows = sum(all_per_date.values())
         table["commits"][commit] = {
             "rows": total, "within": within, "share": within / total if total else None,
             "pass": bool(total) and within / total >= REPRODUCTION_SHARE,
+            "all_rows": all_rows, "rows_with_vector": total,
+            "vector_coverage": total / all_rows if all_rows else None,
             "per_date": {d: {"rows": per_date[d][0], "within": per_date[d][1],
-                             "share": per_date[d][1] / per_date[d][0] if per_date[d][0] else None}
+                             "share": per_date[d][1] / per_date[d][0] if per_date[d][0] else None,
+                             "all_rows": all_per_date[d], "rows_with_vector": per_date[d][0],
+                             "vector_coverage": per_date[d][0] / all_per_date[d] if all_per_date[d] else None}
                          for d in dates},
         }
     for d in dates:
