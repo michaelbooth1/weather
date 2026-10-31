@@ -40,7 +40,7 @@ def test_constants_match_the_draft_and_open_points_are_provisional():
     assert (c3.MIN_DATES, c3.MIN_EVENT_HOURS, c3.MEAN_W_MIN) == (10, 200, 0.05)
     assert set(c3.PROVISIONAL) == {"OP1_burn_in_dates", "OP2_kill_scope", "OP3_min_markets", "OP4_austin_option"}
     assert (c3.BURN_IN_DATES, c3.MIN_MARKETS, c3.AUSTIN_OPTION) == (4, 5, "a")
-    assert c3.ROW80_RECEIPT_SHA256 is None          # pinned by master at freeze, never before
+    assert c3.ROW80_RECEIPT_SHA256 == "6c0f4a1d4b5e5e12445fc79203b2c6ab66dbe1e0e21e7451ac1e6cb3bbc54504"  # master 2026-10-31
 
 
 def test_no_network_imports():
@@ -182,7 +182,7 @@ def test_r4_receipt_required_pinned_and_matching(tmp_path):
     with pytest.raises(c3.Refused, match="R4"):
         c3.check_row80(None, pinned="0" * 64)
     with pytest.raises(c3.Refused, match="R4"):
-        c3.check_row80(receipt)                     # not pinned in the driver yet
+        c3.check_row80(receipt)                     # does not match the pinned receipt
     with pytest.raises(c3.Refused, match="R4"):
         c3.check_row80(receipt, pinned="0" * 64)
     assert c3.check_row80(receipt, pinned=hashlib.sha256(b"receipt").hexdigest())["sha256"]

@@ -39,7 +39,7 @@ RULE_PATH = "docs/research/iterate-faster-2026-10-30/c3-t1-fair-value-kill-tier-
 TARGET_START, TARGET_END = date(2026, 9, 25), date(2026, 10, 8)    # R1
 DAY_START, DAY_END = date(2026, 9, 23), date(2026, 10, 7)          # R2, UTC bundle days
 EXCLUDED_CELLS = (("austin", "2026-10-03"),)                       # R3, export manifest C7
-ROW80_RECEIPT_SHA256 = None  # R4: master pins the row 80 look receipt sha256 here at freeze; None refuses
+ROW80_RECEIPT_SHA256 = "6c0f4a1d4b5e5e12445fc79203b2c6ab66dbe1e0e21e7451ac1e6cb3bbc54504"  # R4: row 80 export receipt.json, pinned by master 2026-10-31 (PROVISIONAL)
 
 EPS = 1e-4
 GAP_DAYS = 1
