@@ -40,6 +40,10 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
     R-Q B as a market-residual P0 (``weather.calibration.rqb_spread_p0``, rule 844c2eb5, ledger row 88): the
     captured GEFS ``day_member_high_spread_80`` (type S) at 00-06, K = 1, the same placebo and BH machinery. Dev
     window only.
+``mos-p0``
+    MOS against the market as a market-residual P0 (``weather.calibration.mos_p0``, rule 952cfc52, ledger row 89):
+    GFS MOS and NAM MOS daytime-max ``n_x`` (type C) at 07-12, K = 2, a +1 h availability sensitivity arm, the same
+    placebo and BH machinery. Reads the sha-pinned IEM MOS archive; no network. Dev window only.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -405,6 +409,11 @@ def build_parser():
     rq.add_argument("--replay-root", required=True, help="captured replay inputs (replay-inputs-le0929)")
     rq.add_argument("--out", required=True)
     rq.add_argument("--allow-dirty", action="store_true")
+    mo = sub.add_parser("mos-p0", help="MOS against the market P0 (rule 952cfc52): 07-12, dev window")
+    mo.add_argument("--layout", required=True, help="dev scorecard layout (C:/swarm/v3layout)")
+    mo.add_argument("--mos-root", required=True, help="the A-IEM-2 IEM MOS archive (C:/swarm/data/iem/mos)")
+    mo.add_argument("--out", required=True)
+    mo.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -433,6 +442,14 @@ def main(argv=None):
                                     allow_dirty=args.allow_dirty)
         print(json.dumps({"line": receipt["line"], "controls": {k: v["verdict"] for k, v in
                                                                receipt["controls"].items()}}, indent=1))
+        return 0
+    if args.command == "mos-p0":
+        from weather.calibration import mos_p0
+
+        receipt = mos_p0.run(layout=args.layout, out_dir=args.out, mos_root=args.mos_root,
+                             allow_dirty=args.allow_dirty)
+        print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
+                                                                 receipt["controls"].items()}}, indent=1))
         return 0
     if args.command == "marine-p0":
         from weather.calibration import marine_p0
