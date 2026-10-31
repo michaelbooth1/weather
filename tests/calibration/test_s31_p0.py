@@ -4,7 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from datetime import datetime, timezone
+import pathlib
+from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -223,8 +224,8 @@ def test_twin_values_cover_only_kept_kal_snapshots_at_t_eff():
 
 # ----------------------------------------------------------------------------- block-3, BH, FEX and labels
 
-def test_block_counts_draw_consecutive_blocks_of_three():
-    c = p0.block_counts(10, draws=200, seed=1)
+def test_block_counts_c1_draw_non_circular_blocks_of_three():
+    c = p0.block_counts_c1(10, draws=200, seed=1)
     assert (c.sum(axis=1) == 10).all()
     rng = np.random.default_rng(1)
     starts = rng.integers(0, 8, 4)
@@ -232,9 +233,59 @@ def test_block_counts_draw_consecutive_blocks_of_three():
     assert (c[0] == first).all()
 
 
-def _res(testable=True, p=0.01, ci=(0.01, 0.05), b3=(0.0, 0.06)):
-    return {"candidate": "A", "testable": testable, "p0": {"p_one_sided": p, "delta": 0.03, "ci95": list(ci)},
-            "block3": {"ci95": list(b3)}, "coverage": {"population_dates": 40, "population_snapshots": 5000}}
+def _c3_reference_block_counts(n_dates, b=2000, seed=20261024, length=3):
+    """Verbatim ``c3_kill_tier.block_counts`` at 1b65f11ee (BOOT_B 2000, BOOT_SEED 20261024, BLOCK_LEN 3)."""
+    k = -(-n_dates // length)
+    starts = np.random.default_rng(seed).integers(n_dates, size=(b, k))
+    idx = ((starts[:, :, None] + np.arange(length)) % n_dates).reshape(b, -1)[:, :n_dates]
+    return np.stack([np.bincount(r, minlength=n_dates) for r in idx]).astype(float)
+
+
+@pytest.mark.parametrize("n", [3, 7, 14, 43, 46])
+def test_circular_block_counts_equal_the_c3_reference(n):
+    got = p0.block_counts_circular(n)
+    want = _c3_reference_block_counts(n)
+    assert got.shape == (2000, n) and np.array_equal(got, want)
+    assert (got.sum(axis=1) == n).all()
+    assert (p0.CIRC_B, p0.CIRC_SEED, p0.BLOCK_LEN) == (2000, 20261024, 3)
+    if n >= 7:
+        assert np.allclose(got.mean(axis=0), 1.0, atol=0.15)  # circular: no edge under-weighting
+
+
+def test_circular_blocks_wrap_past_the_last_date():
+    c = p0.block_counts_circular(5, b=50, seed=3)
+    starts = np.random.default_rng(3).integers(5, size=(50, 2))
+    idx = ((starts[0][:, None] + np.arange(3)) % 5).ravel()[:5]
+    assert (c[0] == np.bincount(idx, minlength=5)).all()
+
+
+def _rows(n, rng, shift=0.0):
+    out = []
+    for i in range(n):
+        base = rng.uniform(1, 2, 6)
+        out.append({"date": f"2026-08-{15 + i:02d}" if i < 17 else f"2026-09-{i - 16:02d}", "n_entries": 5,
+                    "sums_c": (base + rng.normal(shift, 0.3, 6)).tolist(),
+                    "sums_pl": [(base + rng.normal(0, 0.3, 6)).tolist() for _ in range(20)]})
+    return out
+
+
+def test_bounds_take_the_widest_of_three_intervals():
+    rng = np.random.default_rng(5)
+    rows = _rows(30, rng)
+    rows[3]["n_entries"] = 0  # no entries: not in the block intervals
+    b = p0.bounds(rows, p0.ms.boot_counts(30))
+    parts = [b["date_clustered"], b["block3_c1"], b["block3_circular"]]
+    assert b["n_block_dates"] == 29
+    assert b["block3_c1"]["valid_draws"] <= p0.ms.DRAWS and b["block3_circular"]["valid_draws"] <= p0.CIRC_B
+    assert b["ci95_widest"] == [min(p["ci95"][0] for p in parts), max(p["ci95"][1] for p in parts)]
+    assert b["se_widest"] == max(p["se"] for p in parts)
+    assert b["scheme"]["block3_circular"][:2] == [2000, 20261024]
+
+
+def _res(testable=True, p=0.01, widest=(0.01, 0.05)):
+    return {"candidate": "A", "testable": testable, "p0": {"p_one_sided": p, "delta": 0.03, "ci95": [0.02, 0.04]},
+            "bounds": {"ci95_widest": list(widest)},
+            "coverage": {"population_dates": 40, "population_snapshots": 5000}}
 
 
 def test_fex_is_untestable_with_p_one_in_a_k3_bh_family():
@@ -246,16 +297,23 @@ def test_fex_is_untestable_with_p_one_in_a_k3_bh_family():
     assert "Reopen-if" in p0.register_line(results[p0.FEX_ID])
 
 
-def test_labels_use_the_wider_upper_bound():
-    r = _res(p=0.5, ci=(-0.05, 0.20), b3=(-0.06, 0.23))
+def test_labels_use_the_widest_upper_bound():
+    # the date-clustered p0 ci95 alone (0.02, 0.04) would say KILL at edge size; the widest upper decides
+    r = _res(p=0.5, widest=(-0.06, 0.23))
     p0.apply_bh({"A": r}, ["A"])
     assert r["label"] == p0.LABEL_NULL and r["label_upper"] == 0.23
-    r = _res(p=0.5, ci=(-0.05, 0.20), b3=(-0.04, 0.19))
+    r = _res(p=0.5, widest=(-0.06, 0.224))
+    p0.apply_bh({"A": r}, ["A"])
+    assert r["label"] == p0.LABEL_NULL  # >= edge is null
+    r = _res(p=0.5, widest=(-0.04, 0.20))
     p0.apply_bh({"A": r}, ["A"])
     assert r["label"] == p0.LABEL_KILL_EDGE and r["label_upper"] == 0.20
-    r = _res(p=0.01, ci=(-0.01, 0.05))  # BH rejects but the lower bound is not > 0
+    r = _res(p=0.01, widest=(-0.01, 0.05))  # BH rejects but the widest lower bound is not > 0
     p0.apply_bh({"A": r}, ["A"])
-    assert r["label"] == p0.LABEL_KILL_EDGE
+    assert r["label"] == p0.LABEL_KILL_EDGE and not r["survive"]
+    r = _res(p=0.01, widest=(None, None))
+    p0.apply_bh({"A": r}, ["A"])
+    assert not r["survive"] and r["label"] == p0.LABEL_NULL
     r = _res(testable=False)
     p0.apply_bh({"A": r}, ["A"])
     assert r["label"] == p0.LABEL_UNTESTABLE
@@ -271,3 +329,190 @@ def test_cities_bind_series_zone_and_station_to_the_fetch_module_and_config():
         assert vf.SERIES_TZ[series] == tz == by_id[city]["timezone"]
         assert by_id[city]["settlement"]["station_id"] == station
         assert code == "CLI" + station[1:]
+
+
+# ----------------------------------------------------------------------------- start assertion (module origins)
+
+def test_module_origins_resolve_under_the_run_tree():
+    got = p0.check_origins(paths.REPO_ROOT)
+    assert got["verdict"] == "PASS" and set(got["modules"]) == set(p0.ORIGIN_MODULES)
+    root = paths.REPO_ROOT.resolve()
+    assert all(pathlib.Path(v).is_relative_to(root) for v in got["modules"].values())
+
+
+def test_module_origins_outside_the_run_tree_refuse(tmp_path):
+    with pytest.raises(p0.P0Error, match="outside the run tree"):
+        p0.check_origins(tmp_path)
+
+
+# ----------------------------------------------------------------------------- socket-blocked end to end
+
+SCORED = [str(date(2026, 8, 15) + timedelta(days=i)) for i in range(30)]
+STRIKES = ((None, 70), (70, 71), (72, 73), (74, 75), (76, 77), (77, None))
+BANDS = (("lte", None, 69), ("eq", 70, 71), ("eq", 72, 73), ("eq", 74, 75), ("eq", 76, 77), ("gte", 78, None))
+
+
+def _synthetic_world(tmp_path, rng):
+    """One KAL city (atlanta / KATL), burn-in 08-14 plus 30 scored dates, 48 snapshots a day, and a twin with
+    six quoted markets every 30 minutes. An 08-13 CLI event with cents-coded candles must never be read."""
+    from types import SimpleNamespace
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("America/New_York")
+    snaps, bands, labels, market, live, candles = [], [], [], [], [], []
+    for d in ["2026-08-14"] + SCORED:
+        day = date.fromisoformat(d)
+        tag = f"26{day:%b}{day.day:02d}".upper()
+        rows = _event("KXHIGHTATL", tag, TWC_RULE.format(code=" (CLIATL)", day=d), STRIKES)
+        live += rows
+        mids = np.clip(rng.dirichlet(np.full(6, 3.0)), 0.03, 0.9)
+        t0 = int(datetime(day.year, day.month, day.day, tzinfo=zone).timestamp())
+        for r, m in zip(rows, mids):
+            for k in range(48):
+                candles.append({"job": "candles:1m:" + r["ticker"], "run_id": "r1", "ticker": r["ticker"],
+                                "end_period_ts": t0 + 1800 * k, "yes_bid_close": round(float(m) - 0.01, 4),
+                                "yes_ask_close": round(float(m) + 0.01, 4)})
+        for h in range(24):
+            for mm in (10, 40):
+                key = f"atlanta|{d}|{h:02d}{mm}"
+                tc = datetime(day.year, day.month, day.day, h, mm, tzinfo=zone).astimezone(timezone.utc)
+                snaps.append({"row_key": key, "date": d, "market": "atlanta", "station": "KATL", "n_bands": 6,
+                              "local_hour": h, "cutoff_hour": h + 1, "captured_at_utc": tc.isoformat(),
+                              "guidance_physical_floor": np.nan, "high_so_far": np.nan,
+                              "trusted_current_max": np.nan})
+                pm = rng.dirichlet(np.full(6, 2.0))
+                ps = rng.dirichlet(np.full(6, 2.0))
+                for b, (kind, lo, hi) in enumerate(BANDS):
+                    bands.append({"row_key": key, "band_index": b, "kind": kind,
+                                  "low": np.nan if lo is None else lo, "high": np.nan if hi is None else hi,
+                                  "p_served": ps[b]})
+                    market.append({"row_key": key, "band_index": b, "p_market_yes": pm[b]})
+                labels.append({"row_key": key, "winner": int(rng.choice(6, p=pm))})
+    cli = _event("KXHIGHTATL", "26AUG13", CLI_RULE, STRIKES)
+    live += cli
+    candles += [{"job": "candles:1m:" + r["ticker"], "run_id": "r1", "ticker": r["ticker"], "end_period_ts": 1,
+                 "yes_bid_close": 45.0, "yes_ask_close": 47.0} for r in cli]
+    lay = SimpleNamespace(snaps=pd.DataFrame(snaps), bands=pd.DataFrame(bands), labels=pd.DataFrame(labels),
+                          market=pd.DataFrame(market), manifest_sha256="synthetic")
+
+    twin = tmp_path / "twin"
+    twin.mkdir()
+    (twin / "kalshi_candles.jsonl").write_text("".join(json.dumps(r) + "\n" for r in candles), encoding="utf-8")
+    (twin / "v0_markets_hist.jsonl").write_text("", encoding="utf-8")
+    (twin / "event_markets.jsonl").write_text("", encoding="utf-8")
+    jobs = sorted({r["job"] for r in candles})
+    (twin / "receipts.jsonl").write_text("".join(
+        json.dumps({"job": j, "run_id": "r1", "complete": True, "extract": "kalshi_candles.jsonl"}) + "\n"
+        for j in jobs), encoding="utf-8")
+    v0_live = tmp_path / "v0_markets.jsonl"
+    v0_live.write_text("".join(json.dumps(r) + "\n" for r in live), encoding="utf-8")
+    pins = {n: p0.ls.sha256_file(twin / n) for n in p0.INPUT_SHA256 if n != "v0_live"}
+    pins["v0_live"] = p0.ls.sha256_file(v0_live)
+    return lay, twin, v0_live, pins
+
+
+def test_p0_runs_end_to_end_with_the_network_blocked(tmp_path, monkeypatch):
+    import inspect
+    import socket
+    import urllib.request
+
+    from weather.reporting.scorecards import dev_scorecard as sc
+    from weather.sources.free_screens import s31_venue_fetch as vf
+
+    lay, twin, v0_live, pins = _synthetic_world(tmp_path, np.random.default_rng(20261031))
+
+    def no_network(*a, **k):
+        raise AssertionError("network used")
+
+    class NoSocket:
+        def __init__(self, *a, **k):
+            raise AssertionError("socket opened")
+
+    monkeypatch.setattr(socket, "socket", NoSocket)
+    monkeypatch.setattr(socket, "create_connection", no_network)
+    monkeypatch.setattr(urllib.request, "urlopen", no_network)
+
+    used = []
+    allowed = {"load_extract", "kalshi_ticker_date"}
+    for name, obj in list(vars(vf).items()):
+        if getattr(obj, "__module__", None) != vf.__name__ or not callable(obj):
+            continue
+        if inspect.isclass(obj) and issubclass(obj, BaseException):
+            continue  # exception types stay raisable
+        if name in allowed:
+            def spy(*a, _f=obj, _n=name, **k):
+                used.append(_n)
+                return _f(*a, **k)
+            monkeypatch.setattr(vf, name, spy)
+        else:
+            def forbidden(*a, _n=name, **k):
+                raise AssertionError(f"s31_venue_fetch.{_n} used")
+            monkeypatch.setattr(vf, name, forbidden)
+
+    def build(layout):
+        assert layout is lay
+        kal_fit = sc.Table(lay, ["2026-08-14"] + SCORED)
+        return "synthetic", ["2026-08-14"], SCORED, kal_fit, sc.Table(lay, SCORED), {"synthetic": {"verdict": "PASS"}}
+
+    monkeypatch.chdir(paths.REPO_ROOT)
+    monkeypatch.setenv("PYTHONPATH", str(paths.REPO_ROOT / "src"))
+    out = tmp_path / "out"
+    rec = p0.run(layout=lay, out_dir=out, twin_dir=twin, v0_live=v0_live, allow_dirty=True, input_pins=pins,
+                 build=build, require_pythonpath=True)
+
+    assert set(used) == allowed and used.count("load_extract") == 3
+    assert rec["module_origins"]["verdict"] == rec["module_origins_end"]["verdict"] == "PASS"
+    assert json.loads((out / "s31_p0.json").read_text(encoding="utf-8"))["labels"] == rec["labels"]
+    assert (out / p0.AMENDMENT_FILE).read_bytes() == paths.docs_path(*p0.DOC_DIR, p0.AMENDMENT_FILE).read_bytes()
+    assert rec["clarification5_sha256"] == p0.CLARIFICATION5_SHA256
+    assert "KXHIGHTATL-26AUG13" not in rec["v0"]["events"]
+    assert rec["population"]["uncovered_reasons"] == {"covered": 31 * 48}
+    fex = rec["results"][p0.FEX_ID]
+    assert fex["p0"]["p_one_sided"] == 1.0 and rec["labels"][p0.FEX_ID] == p0.LABEL_UNTESTABLE
+    for cid in ("KAL-MEAN", "KAL-WIDTH"):
+        r = rec["results"][cid]
+        assert r["testable"], r
+        b = r["bounds"]
+        assert b["n_block_dates"] <= 30 and b["se_widest"] is not None
+        parts = [b[k] for k in ("date_clustered", "block3_c1", "block3_circular")]
+        assert b["ci95_widest"] == [min(p["ci95"][0] for p in parts), max(p["ci95"][1] for p in parts)]
+        assert rec["labels"][cid] in (p0.LABEL_SURVIVOR, p0.LABEL_KILL_EDGE, p0.LABEL_NULL)
+
+
+def test_first_party_names_cover_every_package_under_src():
+    names = p0.first_party_names(paths.REPO_ROOT)
+    assert {"weather", "maker_core"} <= set(names)
+
+
+def test_a_loaded_first_party_module_outside_the_run_tree_refuses(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    stray = types.ModuleType("maker_core._stray_probe")
+    stray.__file__ = str(tmp_path / "maker_core" / "_stray_probe.py")
+    monkeypatch.setitem(sys.modules, "maker_core._stray_probe", stray)
+    with pytest.raises(p0.P0Error, match="_stray_probe"):
+        p0.check_origins(paths.REPO_ROOT)
+
+
+def test_a_first_party_package_path_outside_the_run_tree_refuses(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    pkg = types.ModuleType("maker_core._stray_pkg")
+    pkg.__path__ = [str(paths.REPO_ROOT / "src" / "maker_core"), str(tmp_path)]
+    monkeypatch.setitem(sys.modules, "maker_core._stray_pkg", pkg)
+    with pytest.raises(p0.P0Error, match=r"_stray_pkg\.__path__"):
+        p0.check_origins(paths.REPO_ROOT)
+
+
+def test_the_cli_origin_check_requires_pythonpath_at_the_run_tree_src(monkeypatch):
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    with pytest.raises(p0.P0Error, match="PYTHONPATH"):
+        p0.check_origins(paths.REPO_ROOT, require_pythonpath=True)
+    monkeypatch.setenv("PYTHONPATH", str(paths.REPO_ROOT.parent / "elsewhere" / "src"))
+    with pytest.raises(p0.P0Error, match="PYTHONPATH"):
+        p0.check_origins(paths.REPO_ROOT, require_pythonpath=True)
+    monkeypatch.setenv("PYTHONPATH", str(paths.REPO_ROOT / "src"))
+    got = p0.check_origins(paths.REPO_ROOT, require_pythonpath=True)
+    assert got["verdict"] == "PASS" and got["pythonpath"] == str(paths.REPO_ROOT / "src")

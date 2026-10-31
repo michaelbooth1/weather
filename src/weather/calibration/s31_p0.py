@@ -1,7 +1,7 @@
 r"""S31 P0: does the Kalshi twin's capture-time price predict OUR market's error? (lane L14, 2026-10-31).
 
 Rule ``docs/research/s31-other-venue-prices-2026-10-31/rule_s31_p0.md`` (sha256 ``d50112cc…``) with
-Clarifications 1-4 and master AMENDMENT 1 (``amendment_s31_1.md``, sha256 ``AMENDMENT_SHA256``); dev-window
+Clarifications 1-5 and master AMENDMENT 1 (``amendment_s31_1.md``, sha256 ``AMENDMENT_SHA256``); dev-window
 ledger row 99. Where the amendment and the rule disagree, the amendment wins. Development evidence only; nothing
 after 2026-09-29 is read.
 
@@ -15,11 +15,16 @@ after 2026-09-29 is read.
 - **Arms (K = 3).** KAL-MEAN (type C, x = mu_t), KAL-WIDTH (type S, g = sigma_t - sigma_m), FEX-MEAN
   (UNTESTABLE, p = 1). P0, placebo, bootstrap, BH and the survivors' w gate are rule_mr_sweep ``85f8192c`` via
   ``mr_sweep`` and ``mr_gate``, unchanged. The controls run first on the unamended tables and refuse on a miss.
+- **Deciding bounds (Clarification 5).** The widest of three Delta intervals: date-clustered (rule §5),
+  Clarification 1's non-circular block-3, and REV-2 circular block-3 (B 2000). Lower = min, upper = max, SE = max.
+  Survivor iff BH (date-clustered p) rejects and the widest lower bound > 0.
 - **Labels (Clarification 2, D3).** Survivor / KILL at edge size / screen null; underpowered for information /
-  UNTESTABLE, on the wider of the date-clustered and block-3 upper bounds.
+  UNTESTABLE, on the widest upper bound.
 
 Every governing document is sha-pinned and the amendment is copied byte-identically into ``--out``; a mismatch
-refuses. Writes ``s31_p0.json`` (never overwritten) and ``s31_p0_rows.jsonl``. A dirty tree refuses.
+refuses. The run first asserts that ``weather`` and every first-party module it uses resolve under the run tree
+(the working directory; RepoRoot under ``workstation_heavy.ps1 -Queue``) and records that in the receipt. Writes
+``s31_p0.json`` (never overwritten) and ``s31_p0_rows.jsonl``. A dirty tree refuses.
 
     python -m weather.calibration.s31_p0 --layout C:/swarm/v3layout --out C:/t/l14p0/run1
 """
@@ -48,6 +53,8 @@ LEDGER_ROW = 99
 DOC_DIR = ("research", "s31-other-venue-prices-2026-10-31")
 AMENDMENT_FILE = "amendment_s31_1.md"
 AMENDMENT_SHA256 = "4c29c0bf4023b2a4121a4adda0fb37e6d1bf1814ee8987923d5a8f14967f5666"
+CLARIFICATION5_FILE = "clarification_s31_p0_5.md"
+CLARIFICATION5_SHA256 = "15e1c92022026ba7002bc69510b7ba49e809ceac82dae07dc0940ebd80664f78"
 DOC_SHA256 = {
     "rule_s31_p0.md": "d50112ccf2a22b2f02140e06c68bbbe36936a2ac9dc8e16351a7188ee2ea856e",
     "clarification_s31_p0_1.md": "b7bb9f2aafb654bd68389c170416f3efae64b33696723a6c54572ce22e177e5d",
@@ -55,6 +62,7 @@ DOC_SHA256 = {
     "clarification_s31_p0_3.md": "654408acbc40fa981b30947547863ae7140694f530f559f1bb9fefe94db0a340",
     "clarification_s31_p0_4.md": "ee35f782f89934095bad84e1c4ad92906c1a1b77ae687ec6d388879c89bc4c2c",
     AMENDMENT_FILE: AMENDMENT_SHA256,
+    CLARIFICATION5_FILE: CLARIFICATION5_SHA256,
 }
 
 # Amendment §3: the KAL event range and burn-in. Scored dates are the scorecard's (08-15..09-29).
@@ -68,6 +76,8 @@ TAIL_W = 2.0
 N_MARKETS_PER_EVENT = 6
 DELTA_EDGE = 0.224
 BLOCK_LEN = 3
+CIRC_B = 2000        # Clarification 5: REV-2 circular block-3 (c3_kill_tier at 1b65f11ee)
+CIRC_SEED = 20261024
 N80 = 78
 TWC = "the weather company"
 CLI_MARKERS = ("national weather service", "climatological report")
@@ -151,6 +161,81 @@ def pin_amendment_copy(src, out_dir, want=AMENDMENT_SHA256):
     if got != want:
         raise P0Error(f"refused: pinned copy {dst} did not write byte-identically")
     return dst, got
+
+
+ORIGIN_MODULES = ("weather", "weather.paths", "weather.calibration.s31_p0", "weather.calibration.mr_sweep",
+                  "weather.calibration.mr_gate", "weather.calibration.loyo_screen",
+                  "weather.calibration.market_blend", "weather.reporting.scorecards.dev_scorecard",
+                  "weather.sources.free_screens.s31_venue_fetch")
+
+
+def first_party_names(root):
+    """Top-level first-party import names: the packages and modules under ``<run tree>/src`` and under the src
+    that ``weather.paths`` was loaded from (so a foreign tree still names its packages)."""
+    names = set()
+    for src in {Path(root) / "src", Path(paths.SRC_ROOT)}:
+        if not src.is_dir():
+            continue
+        names |= {x.name for x in src.iterdir() if x.is_dir() and (x / "__init__.py").exists()}
+        names |= {x.stem for x in src.glob("*.py")}
+        if (src / "__init__.py").exists():
+            names.add("src")
+    return sorted(names - {"__init__"})
+
+
+def _under(p, root):
+    return Path(p).resolve().is_relative_to(root)
+
+
+def check_origins(root=None, modules=ORIGIN_MODULES, require_pythonpath=False):
+    """Origin assertion (master's condition; coordinator 2026-10-31 after L17). The run tree is the working
+    directory under plain ``-m`` with cwd = RepoRoot. Refuses unless all of these resolve under it:
+
+    - ``weather``, this module and every first-party module the P0 uses (``modules``, imported here);
+    - every loaded first-party module (any ``sys.modules`` entry whose top-level name is a package or module
+      under ``<run tree>/src``), by ``__file__``, and every entry of every first-party package's ``__path__``;
+    - ``weather.paths.REPO_ROOT``.
+
+    With ``require_pythonpath`` (the CLI), ``PYTHONPATH`` must be exactly ``<run tree>/src``: without it the
+    venv's editable .pth appends the main checkout's src, so a package other than ``weather`` could resolve there.
+    Returns the record for the receipt."""
+    import importlib
+    import os
+
+    root = Path(root if root is not None else Path.cwd()).resolve()
+    bad = []
+    pythonpath = os.environ.get("PYTHONPATH")
+    if require_pythonpath and (not pythonpath or Path(pythonpath).resolve() != root / "src"):
+        bad.append(f"PYTHONPATH is {pythonpath!r}, not {root / 'src'}")
+    found = {}
+    for name in modules:
+        origin = Path(importlib.import_module(name).__file__).resolve()
+        found[name] = str(origin)
+        if not origin.is_relative_to(root):
+            bad.append(f"{name} -> {origin}")
+    tops = first_party_names(root)
+    loaded, pkg_paths = {}, {}
+    for name, mod in sorted(sys.modules.items()):
+        if mod is None or name.split(".")[0] not in tops:
+            continue
+        f = getattr(mod, "__file__", None)
+        loaded[name] = None if f is None else str(Path(f).resolve())
+        if f is not None and not _under(f, root):
+            bad.append(f"{name} -> {Path(f).resolve()}")
+        if hasattr(mod, "__path__"):
+            entries = [str(Path(e).resolve()) for e in list(mod.__path__)]
+            pkg_paths[name] = entries
+            bad += [f"{name}.__path__ -> {e}" for e in entries if not _under(e, root)]
+            if f is None and not entries:
+                bad.append(f"{name} has neither __file__ nor __path__")
+    repo_root = Path(paths.REPO_ROOT).resolve()
+    if repo_root != root:
+        bad.append(f"weather.paths.REPO_ROOT -> {repo_root}")
+    if bad:
+        raise P0Error(f"refused: modules resolve outside the run tree {root}: " + "; ".join(bad))
+    return {"verdict": "PASS", "run_tree": str(root), "repo_root": str(repo_root), "pythonpath": pythonpath,
+            "first_party": tops, "modules": found, "loaded_first_party": loaded, "package_paths": pkg_paths,
+            "maker_core_loaded": any(k == "maker_core" or k.startswith("maker_core.") for k in sys.modules)}
 
 
 def check_inputs(twin_dir, v0_live, pins=None):
@@ -405,9 +490,9 @@ def twin_values(snaps, v0, candles):
 
 # ----------------------------------------------------------------------------- block-3 interval and labels
 
-def block_counts(n_dates, draws=ms.DRAWS, seed=ms.SEED, block=BLOCK_LEN):
-    """Moving-block bootstrap date counts (Clarification 1: blocks of 3 consecutive dates, start uniform on
-    0..n-3, concatenated and cut to n)."""
+def block_counts_c1(n_dates, draws=ms.DRAWS, seed=ms.SEED, block=BLOCK_LEN):
+    """Clarification 1 block-3 (non-circular moving block): blocks of 3 consecutive dates with starts uniform on
+    0..n-3, concatenated and cut to n; 10,000 draws, seed 20261024."""
     rng = np.random.default_rng(seed)
     n_blocks = -(-n_dates // block)
     out = np.zeros((draws, n_dates), int)
@@ -419,26 +504,74 @@ def block_counts(n_dates, draws=ms.DRAWS, seed=ms.SEED, block=BLOCK_LEN):
     return out
 
 
-def block3_interval(rows):
-    """The paired-delta 95% interval under the block-3 draws, over the dates that have entries (date order)."""
+def block_counts_circular(n_dates, b=CIRC_B, seed=CIRC_SEED, length=BLOCK_LEN):
+    """REV-2 circular block-3, copied from ``c3_kill_tier.block_counts`` at 1b65f11ee (Clarification 5):
+    ceil(n / length) blocks of ``length`` consecutive dates (wrapping), truncated to n, as per-date counts."""
+    k = -(-n_dates // length)
+    starts = np.random.default_rng(seed).integers(n_dates, size=(b, k))
+    idx = ((starts[:, :, None] + np.arange(length)) % n_dates).reshape(b, -1)[:, :n_dates]
+    return np.stack([np.bincount(r, minlength=n_dates) for r in idx]).astype(float)
+
+
+def delta_draws(sums_c, sums_pl, counts):
+    """Bootstrap Delta draws exactly as ``mr_sweep.paired_delta`` builds them (draw b pairs placebo b mod J)."""
+    boot_c = mg._rho(*(counts @ sums_c.T).T)
+    j_b = np.arange(len(counts)) % len(sums_pl)
+    boot_pl = np.empty(len(counts))
+    for j, s in enumerate(sums_pl):
+        sel = j_b == j
+        boot_pl[sel] = mg._rho(*(counts[sel] @ s.T).T)
+    return boot_c - boot_pl
+
+
+def _summary(draws):
+    fin = draws[np.isfinite(draws)]
+    if len(fin) < 2:
+        return {"ci95": [None, None], "se": None, "p_one_sided": 1.0, "valid_draws": int(len(fin))}
+    return {"ci95": np.quantile(fin, [0.025, 0.975]).tolist(), "se": float(np.std(fin, ddof=1)),
+            "p_one_sided": float((1 + np.sum(fin <= 0)) / (len(fin) + 1)), "valid_draws": int(len(fin))}
+
+
+def _arrays(rows):
+    sums_c = np.array([r["sums_c"] for r in rows], float).T
+    sums_pl = [np.array([r["sums_pl"][j] for r in rows], float).T for j in range(len(rows[0]["sums_pl"]))]
+    return sums_c, sums_pl
+
+
+def bounds(rows, dc_counts):
+    """The three Delta intervals and the widest deciding bounds (Clarification 5): lower = min, upper = max,
+    SE = max. ``dc_counts`` are the rule's date-clustered draws over all scored dates (the P0's own)."""
     rows = sorted(rows, key=lambda r: r["date"])
+    dc = _summary(delta_draws(*_arrays(rows), dc_counts))
     keep = [r for r in rows if r["n_entries"] > 0]
-    sums_c = np.array([r["sums_c"] for r in keep], float).T
-    sums_pl = [np.array([r["sums_pl"][j] for r in keep], float).T for j in range(len(keep[0]["sums_pl"]))]
-    res = ms.paired_delta(sums_c, sums_pl, block_counts(len(keep)))
-    return {"ci95": res["ci95"], "p_one_sided": res["p_one_sided"], "n_dates": len(keep), "block": BLOCK_LEN}
+    sc_, sp = _arrays(keep)
+    c1 = _summary(delta_draws(sc_, sp, block_counts_c1(len(keep))))
+    circ = _summary(delta_draws(sc_, sp, block_counts_circular(len(keep))))
+    parts = {"date_clustered": dc, "block3_c1": c1, "block3_circular": circ}
+    los = [p["ci95"][0] for p in parts.values()]
+    his = [p["ci95"][1] for p in parts.values()]
+    ses = [p["se"] for p in parts.values()]
+    return {**parts, "n_block_dates": len(keep),
+            "ci95_widest": [None if None in los else min(los), None if None in his else max(his)],
+            "se_widest": None if None in ses else max(ses),
+            "scheme": {"date_clustered": [ms.DRAWS, ms.SEED], "block3_c1": [ms.DRAWS, ms.SEED, "non-circular"],
+                       "block3_circular": [CIRC_B, CIRC_SEED, "circular, c3_kill_tier 1b65f11ee"]}}
+
+
+def widest(res):
+    """[lower, upper] deciding bounds: the Clarification 5 widest interval."""
+    return (res.get("bounds") or {}).get("ci95_widest", [None, None])
 
 
 def label(res):
-    """Clarification 2 (D3) label from a scored result (testable, survive, ci95, block3)."""
+    """Clarification 2 (D3) label, on the Clarification 5 widest upper bound."""
     if not res.get("testable"):
         return LABEL_UNTESTABLE
     if res.get("survive"):
         return LABEL_SURVIVOR
-    uppers = [res["p0"]["ci95"][1], (res.get("block3") or {}).get("ci95", [None, None])[1]]
-    upper = max(u for u in uppers if u is not None)
+    upper = widest(res)[1]
     res["label_upper"] = upper
-    return LABEL_KILL_EDGE if upper < DELTA_EDGE else LABEL_NULL
+    return LABEL_NULL if upper is None or upper >= DELTA_EDGE else LABEL_KILL_EDGE
 
 
 def fex_result():
@@ -450,10 +583,11 @@ def fex_result():
 
 
 def apply_bh(results, ids):
+    """BH over K on the rule's date-clustered p; survivor iff BH rejects and the widest lower bound > 0."""
     adj, reject = ms.bh_adjust([results[c]["p0"]["p_one_sided"] for c in ids])
     for cid, q, rj in zip(ids, adj, reject):
         r = results[cid]
-        lo = r["p0"]["ci95"][0]
+        lo = widest(r)[0]
         r["bh_q"] = float(q)
         r["bh_reject"] = bool(rj)
         r["survive"] = bool(r["testable"] and rj and lo is not None and lo > 0)
@@ -465,10 +599,11 @@ def register_line(r, amendment_sha=AMENDMENT_SHA256):
     head = f"S31 {r['candidate']} (rule d50112cc + amendment {amendment_sha[:8]}, ledger row {LEDGER_ROW})"
     if not r["testable"]:
         return f"{head}: {LABEL_UNTESTABLE}. Reopen-if: {r.get('reopen_if') or 'coverage floors met'}"
-    ci = r["p0"]["ci95"]
-    return (f"{head}: {r['label']}; delta {r['p0']['delta']:+.4f} [{ci[0]:+.4f}, {ci[1]:+.4f}], "
-            f"label upper {r.get('label_upper', ci[1]):+.4f} vs edge {DELTA_EDGE}; realised N "
-            f"{r['coverage']['population_dates']} dates (N80 {N80}); BH q {r['bh_q']:.3f}")
+    lo, hi = widest(r)
+    f = (lambda v: "n/a" if v is None else f"{v:+.4f}")
+    return (f"{head}: {r['label']}; delta {r['p0']['delta']:+.4f}, widest [{f(lo)}, {f(hi)}] (Clarification 5) "
+            f"vs edge {DELTA_EDGE}; realised N {r['coverage']['population_dates']} dates (N80 {N80}); "
+            f"BH q {r['bh_q']:.3f}")
 
 
 # ----------------------------------------------------------------------------- the run
@@ -477,7 +612,23 @@ def _jsonl(path):
     return [json.loads(x) for x in Path(path).read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
-def run(*, layout, out_dir, twin_dir=DEFAULT_TWIN_DIR, v0_live=DEFAULT_V0_LIVE, allow_dirty=False):
+def build_tables(layout):
+    """Controls first on the unamended tables (amendment §3), then the KAL fit table (08-14 + scored)."""
+    from weather.reporting.scorecards import dev_scorecard as sc
+
+    lay, folds, burn, scored, fit_t, score_t = mg.build_tables(layout)
+    if set(fit_t.markets) & {"toronto"}:
+        raise P0Error("toronto is not in the rule population")
+    if KAL_BURN_IN[0] not in burn or scored[0] <= KAL_BURN_IN[-1]:
+        raise P0Error("the KAL burn-in 2026-08-14 must be a burn-in date before the scored dates")
+    controls = mg.market_controls(fit_t, score_t)
+    return lay.manifest_sha256, burn, scored, sc.Table(lay, list(KAL_BURN_IN) + scored), score_t, controls
+
+
+def run(*, layout, out_dir, twin_dir=DEFAULT_TWIN_DIR, v0_live=DEFAULT_V0_LIVE, allow_dirty=False,
+        input_pins=None, build=build_tables, require_pythonpath=False):
+    """The P0. ``input_pins`` and ``build`` exist for the synthetic end-to-end test only; the CLI never sets them."""
+    origins = check_origins(require_pythonpath=require_pythonpath)
     code = ls.require_clean(ls.code_state(), allow_dirty)
     from weather.calibration import market_blend as mb
     from weather.reporting.scorecards import dev_scorecard as sc
@@ -487,16 +638,10 @@ def run(*, layout, out_dir, twin_dir=DEFAULT_TWIN_DIR, v0_live=DEFAULT_V0_LIVE, 
     if (out / "s31_p0.json").exists():
         raise P0Error(f"refusing to overwrite {out / 's31_p0.json'}")
     docs = check_docs()
-    inputs = check_inputs(twin_dir, v0_live)
+    inputs = check_inputs(twin_dir, v0_live, input_pins)
     copy_path, copy_sha = pin_amendment_copy(paths.docs_path(*DOC_DIR, AMENDMENT_FILE), out)
 
-    lay, folds, burn, scored, fit_t, score_t = mg.build_tables(layout)
-    if set(fit_t.markets) & {"toronto"}:
-        raise P0Error("toronto is not in the rule population")
-    if KAL_BURN_IN[0] not in burn or scored[0] <= KAL_BURN_IN[-1]:
-        raise P0Error("the KAL burn-in 2026-08-14 must be a burn-in date before the scored dates")
-    controls = mg.market_controls(fit_t, score_t)  # unamended tables (amendment §3)
-    kal_fit = sc.Table(lay, list(KAL_BURN_IN) + scored)
+    manifest_sha, burn, scored, kal_fit, score_t, controls = build(layout)
     snaps = kal_fit.snaps
     if "target_date" in snaps.columns and (snaps.target_date.astype(str) != snaps.date.astype(str)).any():
         raise P0Error("snapshot target_date differs from date")
@@ -526,7 +671,7 @@ def run(*, layout, out_dir, twin_dir=DEFAULT_TWIN_DIR, v0_live=DEFAULT_V0_LIVE, 
                                     donors)
         arm_rows = res.pop("_rows", [])
         if res["testable"]:
-            res["block3"] = block3_interval(arm_rows)
+            res["bounds"] = bounds(arm_rows, counts)
         rows += arm_rows
         results[cid] = res
         if vecs is not None:
@@ -548,15 +693,17 @@ def run(*, layout, out_dir, twin_dir=DEFAULT_TWIN_DIR, v0_live=DEFAULT_V0_LIVE, 
             if row["candidate"] == cid:
                 row["w"] = g["w"]["w_by_date"].get(row["date"])
 
+    origins_end = check_origins(require_pythonpath=require_pythonpath)  # again, after every lazy import
     receipt = {
         "schema": SCHEMA, "gate": GATE, "ledger_row": LEDGER_ROW, "code": code,
+        "module_origins": origins, "module_origins_end": origins_end,
         "evidence_class": "development (dev window, provisional; class SCREEN, N80 78)",
-        "doc_sha256": docs, "amendment_sha256": AMENDMENT_SHA256,
+        "doc_sha256": docs, "amendment_sha256": AMENDMENT_SHA256, "clarification5_sha256": CLARIFICATION5_SHA256,
         "amendment_copy": {"path": str(copy_path), "sha256": copy_sha},
         "module_sha256": {"s31_p0": ls.sha256_file(__file__), "mr_sweep": ls.sha256_file(ms.__file__),
                           "mr_gate": ls.sha256_file(mg.__file__), "market_blend": ls.sha256_file(mb.__file__),
                           "s31_venue_fetch": ls.sha256_file(vf.__file__)},
-        "scorecard_code_sha256": sc.code_sha256(), "layout_manifest_sha256": lay.manifest_sha256,
+        "scorecard_code_sha256": sc.code_sha256(), "layout_manifest_sha256": manifest_sha,
         "input_sha256": inputs,
         "v0": {"events": v0, "n_events": len(v0), "n_kept": sum(v["kept"] for v in v0.values())},
         "population": {"control_burn_in_dates": burn, "kal_burn_in_dates": list(KAL_BURN_IN),
@@ -567,7 +714,8 @@ def run(*, layout, out_dir, twin_dir=DEFAULT_TWIN_DIR, v0_live=DEFAULT_V0_LIVE, 
         "constants": {"draws": ms.DRAWS, "seed": ms.SEED, "placebo_seeds": list(ms.PLACEBO_SEEDS),
                       "bh_q": ms.BH_Q, "k": len(ids), "sigma2_floor": ms.SIGMA2_FLOOR, "min_dates": ms.MIN_DATES,
                       "min_snapshots": ms.MIN_SNAPS, "quote_window_s": QUOTE_WINDOW_S, "max_spread": MAX_SPREAD,
-                      "tail_w": TAIL_W, "delta_edge": DELTA_EDGE, "block_len": BLOCK_LEN, "n80": N80},
+                      "tail_w": TAIL_W, "delta_edge": DELTA_EDGE, "block_len": BLOCK_LEN, "circular_b": CIRC_B,
+                      "circular_seed": CIRC_SEED, "n80": N80},
         "controls": controls, "results": results,
         "labels": {c: results[c]["label"] for c in ids},
         "register_lines": [register_line(results[c]) for c in ids if results[c]["label"] != LABEL_SURVIVOR],
@@ -592,7 +740,7 @@ def main(argv=None):
 
     try:
         rec = run(layout=a.layout, out_dir=a.out, twin_dir=a.twin_dir, v0_live=a.v0_live,
-                  allow_dirty=a.allow_dirty)
+                  allow_dirty=a.allow_dirty, require_pythonpath=True)
     except mb.ControlFailed as exc:
         print(f"S31 P0 refused (controls): {exc}", file=sys.stderr)
         return 7
