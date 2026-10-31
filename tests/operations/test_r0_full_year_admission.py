@@ -17,6 +17,7 @@ PINNED = [
     "tools.research.morning_guidance.run",
     "tools.research.nbm_target_trace.run",
     "tools.research.nbm_target_fix",
+    "tools.research.released_window.served_market_blocks",  # L8 released-window served blocks, row 80 follow-on (10-31)
     "weather.backtesting.backtest",
     "weather.backtesting.replay",
     "weather.backtesting.replay_ablation",
