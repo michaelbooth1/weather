@@ -34,7 +34,11 @@ physical bound >= -40) through a scoped override, and reads only the ``parity2``
 both arms (US10); the projected power at the US10 N is printed and recorded before any Delta. Clarification 3
 (``CLARIFICATION3_SHA256``): look1 refused at C-g before any statistic, so C-g compares both sides on the WU whole
 scale, ``rehearse-to-table`` runs the look2 front and stops before ``sc.Table``, and look2 lives under a new guard
-root with a pinned approval. It is the only repair; there is no look3.
+root with a pinned approval. It is the only repair; there is no look3. Clarification 3a
+(``CLARIFICATION3A_SHA256``) amends point 1 after rehearsal r1: inside C-g only, the reference high is the
+point-in-time running maximum of the layout's high_so_far over all captures of the same (market, date) at or before
+this capture instant (EF 1k ``-09-70a``/``-09-71a``: high_so_far is not a running maximum), on the WU whole scale;
+the layout-wide decrease counts are disclosed in the C-g control. No arm input or scored value changes.
 
 ``preflight`` reads no data: origin, clean tree, rule and blob shas. ``fit`` reads only the L9 Oct-Dec history
 caches (and L3's centre 11-24 rows for control C-f). ``look`` is the single look: controls C-a, C-b, C-d, C-e on
@@ -72,6 +76,8 @@ CLARIFICATION2_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_2
 CLARIFICATION2_SHA256 = "cec81d4fa556866a162e47ee990385f5c471973ced9a1fd35a93d98deef182c2"
 CLARIFICATION3_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_3.md"
 CLARIFICATION3_SHA256 = "e9664e4ab24b1ad7ea98324bd0e9ca2013a32f1e86db0f9f82e6d10dc1c0465c"
+CLARIFICATION3A_PATH = "docs/research/rodc-released-p0-2026-10-31/clarification_3a.md"
+CLARIFICATION3A_SHA256 = "fcb31f6ea6351d1fba1bf7b271a751abca6eab4ecdca8b430f245f16faf0321a"
 
 OUT_ROOT = Path(r"C:\t\l16\rodc")
 LOOK_RECEIPT = "look_receipt.json"
@@ -255,7 +261,8 @@ def check_blobs(tree=TREE, blobs=None):
 def check_rule_files(tree=TREE):
     out = {}
     for rel, want in ((RULE_PATH, RULE_SHA256), (CLARIFICATION_PATH, CLARIFICATION_SHA256),
-                      (CLARIFICATION2_PATH, CLARIFICATION2_SHA256), (CLARIFICATION3_PATH, CLARIFICATION3_SHA256)):
+                      (CLARIFICATION2_PATH, CLARIFICATION2_SHA256), (CLARIFICATION3_PATH, CLARIFICATION3_SHA256),
+                      (CLARIFICATION3A_PATH, CLARIFICATION3A_SHA256)):
         got = sha256_file(Path(tree) / rel)
         if got != want:
             raise Refused(f"refused: {rel} sha256 {got} is not the pinned {want}")
@@ -745,29 +752,121 @@ def increment(coef_cell, cols):
     return float(sum(b * (float(v) - m) for b, v, m in zip(coef_cell["beta"], vals, coef_cell["means"])))
 
 
-def control_cg(snaps_feats):
+def _finite(v):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def _instant_groups(rows):
+    """rows: [(captured, key, raw)] of one (market, date) -> lists of rows sharing one capture instant, in capture
+    order (ties broken by str(key) inside an instant; an instant is one group, so the result is tie-insensitive)."""
+    rows = sorted(rows, key=lambda r: (r[0], str(r[1])))
+    groups = []
+    for r in rows:
+        if groups and groups[-1][0][0] == r[0]:
+            groups[-1].append(r)
+        else:
+            groups.append([r])
+    return groups
+
+
+def running_max_reference(captures):
+    """Clarification 3a point 1: ``captures`` is an iterable of (key, market, date, captured, raw high_so_far).
+    Returns {key: wu_whole_f(max raw high_so_far over every capture of the same (market, date) at or before this
+    capture instant, "half_up")}, None when no finite value exists yet. Captures sharing an instant see each other
+    (all are known at that instant). Rounding is monotone, so this equals the running maximum of the whole values."""
+    from weather.model.mg_serve_core import wu_whole_f
+
+    by_cell = defaultdict(list)
+    for key, market, day, captured, raw in captures:
+        by_cell[(str(market), str(day))].append((captured, key, _finite(raw)))
+    ref = {}
+    for rows in by_cell.values():
+        best = None
+        for group in _instant_groups(rows):
+            for _, _, raw in group:
+                if raw is not None:
+                    best = raw if best is None else max(best, raw)
+            whole = wu_whole_f(best, "half_up") if best is not None else None
+            for _, key, _ in group:
+                ref[key] = whole
+    return ref
+
+
+def high_so_far_decreases(captures):
+    """Clarification 3a point 2 (disclosure only, no threshold): per market, the snapshots whose high_so_far is
+    below the maximum over strictly earlier capture instants of the same (market, date), and the (market, date)
+    cells with at least one, on the raw T-group scale and on the WU whole scale."""
+    from weather.model.mg_serve_core import wu_whole_f
+
+    by_cell = defaultdict(list)
+    for key, market, day, captured, raw in captures:
+        by_cell[(str(market), str(day))].append((captured, key, _finite(raw)))
+    out = {}
+    for scale in ("raw", "wu_whole"):
+        per = defaultdict(lambda: {"snapshots": 0, "snapshots_below_earlier": 0, "cells": 0,
+                                   "cells_with_decrease": 0})
+        for (market, _), rows in sorted(by_cell.items()):
+            rec, best, hit = per[market], None, False
+            rec["snapshots"] += len(rows)
+            rec["cells"] += 1
+            for group in _instant_groups(rows):
+                vals = [r for _, _, r in group if r is not None]
+                if scale == "wu_whole":
+                    vals = [wu_whole_f(v, "half_up") for v in vals]
+                if best is not None:
+                    n = sum(1 for v in vals if v < best - 1e-9)
+                    rec["snapshots_below_earlier"] += n
+                    hit = hit or n > 0
+                if vals:
+                    best = max(vals) if best is None else max(best, max(vals))
+            rec["cells_with_decrease"] += int(hit)
+        out[scale] = {m: dict(per[m]) for m in sorted(per)}
+        out[f"total_{scale}"] = {k: sum(v[k] for v in per.values())
+                                 for k in ("snapshots", "snapshots_below_earlier", "cells", "cells_with_decrease")}
+    return out
+
+
+def control_cg(snaps_feats, reference=None):
     """C-g (label-free): odc ``check_bounds`` per (market, date) over the last snapshot of each hour, and
-    low_so_far <= the layout's high_so_far wherever both exist. Clarification 3 point 1: both sides on the WU whole
-    scale, i.e. the layout high goes through ``wu_whole_f(high_so_far, "half_up")`` (low and current already do).
-    Rounding is monotone, so raw low <= raw high still implies rounded low <= rounded high. The counts of what the
-    frozen raw-high comparison would have refused are recorded; ``check_bounds`` never drops or flags a snapshot."""
+    low_so_far <= the reference high wherever both exist. Clarification 3 point 1: both sides on the WU whole scale.
+    Clarification 3a point 1: the reference high is the point-in-time running maximum of the layout's high_so_far
+    over all captures of the same (market, date) at or before this capture (``running_max_reference``; ``reference``
+    is {row_key: whole}, built from every layout capture by ``look_front``; without it, from ``snaps_feats`` alone).
+    A low above that running maximum still refuses. This touches no arm input and no scored value. The counts of
+    what the frozen raw-high comparison and the Clarification 3 own-snapshot comparison would have refused are
+    recorded; ``check_bounds`` never drops or flags a snapshot."""
     from weather.calibration import odc_metar_features as odc
     from weather.model.mg_serve_core import wu_whole_f
 
+    keyed = [(s.get("row_key", i), s) for i, s in enumerate(snaps_feats)]
+    if reference is None:
+        reference = running_max_reference((k, s["market"], s["date"], s["captured"], s.get("high_so_far"))
+                                          for k, s in keyed)
     by_cell, by_cell_raw = defaultdict(dict), defaultdict(dict)
-    violations, raw_snaps = [], 0
-    for s in sorted(snaps_feats, key=lambda s: s["captured"]):
+    violations, raw_snaps, own_snaps, lifted = [], 0, 0, 0
+    for key, s in sorted(keyed, key=lambda ks: (ks[1]["captured"], str(ks[0]))):
+        if key not in reference:
+            raise Refused(f"refused: C-g has no running-maximum reference for {key}")
         f = s["feats"]
         low = f.get("odc_low_so_far")
-        hsf = s.get("high_so_far")
-        raw = float(hsf) if hsf is not None and math.isfinite(hsf) else None
-        whole = wu_whole_f(raw, "half_up") if raw is not None else None
+        raw = _finite(s.get("high_so_far"))
+        own = wu_whole_f(raw, "half_up") if raw is not None else None
+        ref = reference[key]
+        if ref is not None and own is not None and ref > own + odc.TOL:
+            lifted += 1
         if low is not None and raw is not None and low > raw + odc.TOL:
             raw_snaps += 1
-        if low is not None and whole is not None and low > whole + odc.TOL:
-            violations.append((s["market"], s["date"], s["local_hour"], "layout_high_so_far_wu_whole", low, whole))
+        if low is not None and own is not None and low > own + odc.TOL:
+            own_snaps += 1
+        if low is not None and ref is not None and low > ref + odc.TOL:
+            violations.append((s["market"], s["date"], s["local_hour"], "layout_high_so_far_running_max_wu_whole",
+                               low, ref))
         base = {"low_so_far": low, "current_temp": f.get("current_temp")}
-        by_cell[(s["market"], s["date"])][s["local_hour"]] = dict(base, high_so_far=whole)
+        by_cell[(s["market"], s["date"])][s["local_hour"]] = dict(base, high_so_far=ref)
         by_cell_raw[(s["market"], s["date"])][s["local_hour"]] = dict(base, high_so_far=raw)
     checked, refused = 0, []
     for cell, by_hour in sorted(by_cell.items()):
@@ -784,6 +883,9 @@ def control_cg(snaps_feats):
     if violations or refused:
         raise Refused(f"refused: C-g feature bounds failed: {violations[:3]} {refused[:3]}")
     return {"cells": len(by_cell), "hours_checked": checked, "scale": "wu_whole_f half_up on both sides",
+            "reference": "point-in-time running max of layout high_so_far per (market, date), WU whole (C3a)",
+            "snapshots_reference_above_own_high": lifted,
+            "own_snapshot_wu_whole_would_refuse": own_snaps,
             "frozen_raw_high_would_refuse": {"snapshots_low_above_raw_high": raw_snaps,
                                              "cells_check_bounds_refuses": raw_cells,
                                              "snapshots_dropped_or_flagged": 0},
@@ -1169,6 +1271,9 @@ def stage_rehearse(args):
         "coef_sha256": args.coef_sha, "parity_receipt_sha256": args.parity_sha,
         "parity_limited": ctx["parity"]["parity_limited"], "look2_guard": {"before": guard, "after": guard_after},
         "controls": ctx["controls"], "feature_reasons": dict(ctx["reasons"]),
+        "clarification_3a": {"c_g_reference": ctx["controls"]["C-g"].get("reference"),
+                             "layout_high_so_far_decreases": ctx["controls"]["C-g"].get(
+                                 "layout_high_so_far_decreases")},
         "power_projection_us10": ctx["power_projection"], "dates": ctx["dates"],
         "snapshots_dropped_austin_1003": ctx["dropped"], "export_files_hashed": len(ctx["hashed"]),
         "malformed": ctx["malformed"], "override_in_process": ctx["override"], "serve_rule": ctx["serve_override"],
@@ -1249,9 +1354,17 @@ def look_front(args, out, mark=None):
             reasons[f.get("reason") or "ok"] += 1
             feats[str(r.row_key)] = f
             hsf = pd.to_numeric(pd.Series([getattr(r, "high_so_far", None)]), errors="coerce").iloc[0]
-            snaps_feats.append({"market": str(r.market), "date": str(r.date), "local_hour": int(r.local_hour),
-                                "captured": captured, "feats": f, "high_so_far": float(hsf)})
-    controls["C-g"] = control_cg(snaps_feats)
+            snaps_feats.append({"row_key": str(r.row_key), "market": str(r.market), "date": str(r.date),
+                                "local_hour": int(r.local_hour), "captured": captured, "feats": f,
+                                "high_so_far": float(hsf)})
+    # Clarification 3a: the C-g reference sees every layout capture of the (market, date), not only HOURS.
+    all_caps = [(str(r.row_key), str(r.market), str(r.date), _utc(r.captured_at_utc), getattr(r, "high_so_far", None))
+                for r in snaps.itertuples(index=False)]
+    if any(c[3] is None for c in all_caps):
+        raise Refused("refused: a layout capture has no capture time (C-g running-maximum reference)")
+    reference = running_max_reference(all_caps)
+    controls["C-g"] = control_cg(snaps_feats, reference=reference)
+    controls["C-g"]["layout_high_so_far_decreases"] = high_so_far_decreases(all_caps)
 
     # Clarification 2 point 3: projected power at the US10 N, from features and coefficients only, before any Delta.
     n_row80 = row80_population()
@@ -1367,6 +1480,9 @@ def look_tail(args, ctx, out, t=None):
         "clarification_3": {"look2_guard": ctx.get("look2_guard"), "look1_marker_sha256": LOOK1_MARKER_SHA256,
                             "look1_refusal_log_sha256": LOOK1_REFUSAL_LOG_SHA256, "approval_pinned": LOOK2_APPROVAL,
                             "c_g_scale": controls.get("C-g", {}).get("scale")},
+        "clarification_3a": {"c_g_reference": controls.get("C-g", {}).get("reference"),
+                             "layout_high_so_far_decreases": controls.get("C-g", {}).get(
+                                 "layout_high_so_far_decreases")},
         "dates": dates, "snapshots_dropped_austin_1003": dropped, "feature_reasons": dict(reasons),
         "controls": controls, "k": len(ARMS), "bh_q": BH_Q, "delta_edge": DELTA_EDGE, "power_min": POWER_MIN,
         "coverage_floor": {"dates": MIN_DATES, "snapshots": MIN_SNAPS}, "mechanism": MECHANISM,

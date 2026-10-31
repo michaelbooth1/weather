@@ -43,7 +43,7 @@ def test_the_module_imports_no_network_library():
 def test_pinned_blobs_and_rule_files_match_the_run_tree():
     assert len(p0.check_blobs()) == len(p0.BLOBS)
     assert set(p0.check_rule_files()) == {p0.RULE_PATH, p0.CLARIFICATION_PATH, p0.CLARIFICATION2_PATH,
-                                          p0.CLARIFICATION3_PATH}
+                                          p0.CLARIFICATION3_PATH, p0.CLARIFICATION3A_PATH}
 
 
 def test_a_changed_blob_is_refused(tmp_path):
@@ -751,7 +751,7 @@ def test_look_order_controls_before_prices_and_power_before_delta():
     src = _look_src()
     t_at = src.index("t = sc.Table(lay, dates)")
     for before in ('controls["C-d"] = control_cd()', 'controls["C-e"] = control_ce()',
-                   'controls["C-g"] = control_cg(snaps_feats)', "power_projection_us10",
+                   'controls["C-g"] = control_cg(snaps_feats, reference=reference)', "power_projection_us10",
                    "with serve_rule(LOOK_SERVE_RULE)", "smb.released_dev_last(RELEASE_LAST)"):
         assert src.index(before) < t_at
     assert t_at < src.index("control_cc(t, geo)") < src.index("sw.p0_candidate(")
@@ -1067,3 +1067,130 @@ def test_look_tail_functional_on_a_synthetic_layout(tmp_path, monkeypatch):
         assert e["label"] and "eps_sensitivity" in e and "bh" in e and e["covered_snapshots"] > 0
     with pytest.raises(p0.Refused, match="no look3"):
         p0.check_look2_guard()
+
+
+# ----------------------------------------------------------------------------- Clarification 3a
+
+
+def test_clarification_3a_is_pinned_and_cites_the_known_class():
+    text = (p0.TREE / p0.CLARIFICATION3A_PATH).read_text(encoding="utf-8")
+    assert hashlib.sha256((p0.TREE / p0.CLARIFICATION3A_PATH).read_bytes()).hexdigest() == p0.CLARIFICATION3A_SHA256
+    for needle in ("-09-70a", "-09-71a", "line 49", "still FAILS C-g", p0.CLARIFICATION3_SHA256,
+                   "stay EXACTLY as frozen and as row 80", "7922", "7879"):
+        assert needle in text
+
+
+def _cap(minute, hsf, key, market="austin", day="2026-10-14"):
+    return (key, market, day, datetime(2026, 10, 14, 11, 0, tzinfo=timezone.utc) + timedelta(minutes=minute), hsf)
+
+
+def test_running_max_reference_is_point_in_time_with_capture_order_ties():
+    caps = [_cap(0, 78.98, "a"), _cap(10, 78.08, "b"), _cap(20, 80.06, "c"), _cap(30, float("nan"), "d"),
+            _cap(40, 79.0, "e1"), _cap(40, 81.32, "e2"), _cap(5, 70.0, "z", market="nyc")]
+    ref = p0.running_max_reference(caps)
+    assert ref == {"a": 79, "b": 79, "c": 80, "d": 80, "e1": 81, "e2": 81, "z": 70}
+    assert p0.running_max_reference(list(reversed(caps))) == ref            # input order does not matter
+    swapped = [(("e2" if k == "e1" else "e1" if k == "e2" else k), m, d, c, h) for k, m, d, c, h in caps]
+    assert p0.running_max_reference(swapped) == {**ref, "e1": 81, "e2": 81}  # nor does the order inside a tie
+    assert p0.running_max_reference([_cap(0, None, "n")]) == {"n": None}
+    # a later capture never lowers an earlier reference (point in time: earlier captures do not see later ones)
+    assert p0.running_max_reference(caps[:2])["a"] == 79 and p0.running_max_reference([caps[0], caps[2]])["a"] == 79
+
+
+def _sfc(minute, low, cur, hsf, hour=7, key=None):
+    cap = datetime(2026, 10, 14, 11, 0, tzinfo=timezone.utc) + timedelta(minutes=minute)
+    return {"row_key": key or f"k{minute}", "market": "austin", "date": "2026-10-14", "local_hour": hour,
+            "captured": cap, "feats": {"odc_low_so_far": low, "current_temp": cur}, "high_so_far": hsf}
+
+
+def test_cg_passes_the_r1_case_and_a_low_above_the_running_max_still_refuses():
+    r1 = [_sfc(0, 79, 79, 78.98, hour=6), _sfc(98, 79, 79, 78.08, hour=7), _sfc(170, 79, 80, 80.06, hour=8)]
+    out = p0.control_cg(r1)
+    assert out["verdict"] == "PASS" and out["snapshots_reference_above_own_high"] == 1
+    assert out["own_snapshot_wu_whole_would_refuse"] == 1
+    assert out["frozen_raw_high_would_refuse"]["snapshots_low_above_raw_high"] == 2
+    with pytest.raises(p0.Refused, match="layout_high_so_far_running_max_wu_whole"):
+        p0.control_cg(r1[:1] + [_sfc(98, 80, 80, 78.08, hour=7)])           # low 80 above the running max 79
+    with pytest.raises(p0.Refused, match="C-g"):                             # running min still checked
+        p0.control_cg([_sfc(0, 78, 79, 78.98, hour=6), _sfc(98, 79, 79, 80.06, hour=7)])
+    with pytest.raises(p0.Refused, match="no running-maximum reference"):
+        p0.control_cg(r1, reference={"k0": 79})
+
+
+def test_cg_reference_comes_from_every_layout_capture_and_only_reaches_cg():
+    front = inspect.getsource(p0.look_front)
+    assert "for r in snaps.itertuples(index=False)]" in front
+    assert front.index("reference = running_max_reference(all_caps)") < \
+        front.index('controls["C-g"] = control_cg(snaps_feats, reference=reference)')
+    for fn in (p0.snapshot_features, p0.x13_lows, p0.look_tail, p0.arm_columns, p0.increment):
+        src = inspect.getsource(fn)
+        assert "running_max_reference(" not in src and " high_so_far_decreases(" not in src and "reference=" not in src
+
+
+def test_high_so_far_decreases_counts_by_market():
+    caps = [_cap(0, 78.98, "a"), _cap(10, 78.08, "b"), _cap(20, 80.06, "c"), _cap(30, 79.7, "d"),
+            _cap(0, 60.0, "x", market="nyc"), _cap(10, 61.0, "y", market="nyc"),
+            _cap(0, 50.0, "p", market="nyc", day="2026-10-13"), _cap(0, 49.0, "q", market="nyc", day="2026-10-13")]
+    out = p0.high_so_far_decreases(caps)
+    assert out["raw"]["austin"] == {"snapshots": 4, "snapshots_below_earlier": 2, "cells": 1, "cells_with_decrease": 1}
+    assert out["wu_whole"]["austin"]["snapshots_below_earlier"] == 1          # 79.7 -> 80 equals the earlier 80
+    assert out["raw"]["nyc"] == {"snapshots": 4, "snapshots_below_earlier": 0, "cells": 2, "cells_with_decrease": 0}
+    assert out["total_raw"]["snapshots_below_earlier"] == 2
+
+
+def _tail_ctx(tmp_path, monkeypatch, tag):
+    from tests.reporting.test_released_window_served_market_blocks import write_layout
+
+    from weather.calibration import mr_sweep as sw
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    root = write_layout(tmp_path / f"lay{tag}", date(2026, 8, 1), 12)
+    lay = data.load_layout(root, data.DEV_FIRST, date(2026, 8, 12))
+    man_sha = hashlib.sha256((root / data.MANIFEST).read_bytes()).hexdigest()
+    for name, value in (("R80_LAYOUT", root), ("DEV_LAYOUT", root), ("R80_LAYOUT_MANIFEST_SHA256", man_sha),
+                        ("DEV_LAYOUT_MANIFEST_SHA256", man_sha), ("MIN_DATES", 1), ("MIN_SNAPS", 1)):
+        monkeypatch.setattr(p0, name, value)
+    monkeypatch.setattr(sw, "MIN_DATES", sw.MIN_DATES)
+    monkeypatch.setattr(sw, "MIN_SNAPS", sw.MIN_SNAPS)
+    rng = np.random.default_rng(11)
+    feats, coef, sf, idx = {}, {"arms": {a: {} for a in p0.ARMS}}, [], {}
+    for r in lay.snaps.sort_values(["market", "date", "captured_at_utc"]).itertuples(index=False):
+        if int(r.local_hour) in p0.HOURS:
+            k = str(r.row_key)
+            feats[k] = {"odc_low_so_far": float(rng.integers(55, 65)), "dewpoint_c": float(rng.integers(5, 15)),
+                        "x13_low_so_far": float(rng.integers(55, 65)), "low_prev_evening": float(rng.integers(55, 65))}
+            for arm in p0.ARMS:
+                cols = list(p0.arm_columns(arm, feats[k]))
+                coef["arms"][arm][f"{r.market}|{int(r.local_hour)}"] = {
+                    "columns": cols, "beta": [0.3] * len(cols), "means": [60.0, 10.0, 60.0][:len(cols)]}
+            cell = (str(r.market), str(r.date))
+            idx[cell] = idx.get(cell, -1) + 1
+            sf.append({"row_key": k, "market": cell[0], "date": cell[1], "local_hour": int(r.local_hour),
+                       "captured": p0._utc(r.captured_at_utc), "high_so_far": 90.0 - 1.5 * idx[cell],   # falling
+                       "feats": {"odc_low_so_far": 40.0, "current_temp": 65.0}})
+    dates = sorted(str(d) for d in lay.dates)
+    ctx = {"gd": {"origin": {}, "code": {}, "blobs": {}, "rules": {}, "pin_identity": {}}, "after": {},
+           "controls": {"C-e": {}}, "lay": lay, "dates": dates, "feats": feats, "reasons": {"ok": len(feats)},
+           "coef": coef, "parity": {"parity_limited": {a: False for a in p0.ARMS}}, "cc_paths": {},
+           "serve_override": {}, "power_projection": {}, "override": {}, "hashed": {}, "malformed": [],
+           "dropped": 0, "look_started_sha": None, "look2_guard": {}}
+    return ctx, sf
+
+
+def test_scored_values_are_byte_identical_with_and_without_the_running_max(tmp_path, monkeypatch):
+    from weather.model.mg_serve_core import wu_whole_f
+
+    args = argparse.Namespace(approval=p0.LOOK2_APPROVAL, parity_sha="q" * 64, coef_sha="c" * 64)
+    outs, cgs = [], []
+    for tag, running in (("a", True), ("b", False)):
+        ctx, sf = _tail_ctx(tmp_path, monkeypatch, tag)
+        own = {s["row_key"]: wu_whole_f(s["high_so_far"], "half_up") for s in sf}
+        ctx["controls"]["C-g"] = p0.control_cg(sf) if running else p0.control_cg(sf, reference=own)
+        cgs.append(ctx["controls"]["C-g"])
+        out = tmp_path / f"out{tag}"
+        out.mkdir()
+        receipt = p0.look_tail(args, ctx, out)
+        outs.append(((out / "rows.jsonl").read_bytes(), json.dumps(receipt["arms"], sort_keys=True,
+                                                                     default=p0._default)))
+    assert cgs[0]["snapshots_reference_above_own_high"] > 0 == cgs[1]["snapshots_reference_above_own_high"]
+    assert outs[0] == outs[1] and outs[0][0]
