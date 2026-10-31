@@ -47,6 +47,7 @@ PINNED = [
     "weather.calibration.l6_own_state",  # L3's one-time L6 own-state fit, master D2 (i) (1d69a87f1, 10-26)
     "weather.calibration.loyo_screen",  # L3 generic nested-LOYO history screen, master YES (10-30)
     "weather.calibration.s31_p0",  # L14 S31 cross-venue twin P0, admitted by the coordinator (10-31)
+    "weather.calibration.s31_v2",  # L14 S31 v2 cross-venue twin P0, admitted by the coordinator (10-31, row 102)
     "weather.market.maker_evidence_inspect",
     "weather.market.maker_counterfactual_tape",
     "weather.operations.base_retrain",
