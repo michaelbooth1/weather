@@ -175,12 +175,14 @@ The rationale is the dated [iterate-faster plan](../research/iterate-faster-2026
 11. **The workstation records pre-registered kills itself** (ledger row and register row); master audits them daily.
 12. **Record first.** Free forward-only sources start recording before any dev win; a standing defect lane runs alongside.
 
-Rules 13-15 are a DRAFT from the 2026-10-31 research review (`claude/research-review-20261031` @ `acaf441b4`), pending
-master review; they bind only once master accepts them.
+Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 and 15 are master's rulings of
+2026-10-31, from the dated [research review](../research/research-review-2026-10-31/review.md); they are not owner decisions.
 
-13. **Archive what is ruled out.** Every ruled-out candidate keeps its rule, result record, receipts and ledger/register
-    pointers under `C:\archive\ruled-out\<folder>` (workstation; copies, never moves), indexed by `INDEX.md` and
-    `index.json` there and built by its `build_index.py`. A register or ledger kill cites its archive folder.
+13. **Archive what is ruled out.** Every ruled-out candidate, retro-filled for older rows, keeps its pre-registration or
+    draft, script commit sha, raw outputs, receipts and logs under `C:\archive\ruled-out\<folder>` (workstation; copies,
+    never moves), indexed by `INDEX.md` and `index.json` there with per-file sha256, built by its `build_index.py`.
+    A register or ledger kill cites its archive folder. Nothing under the archive root is deleted; scratch work
+    lives outside it.
 14. **Intake prior: already priced.** No new single free-source T+0 screen on the US11 opens unless its S0 names a
     mechanism by which the *market* lacks the information at that hour. "It beats served" is not a mechanism: on the dev
     scorecard served is 1.53x (00-16) to 1.77x (all hours) the market's Brier (EF §10aa; 1.77x on the 111h table too,

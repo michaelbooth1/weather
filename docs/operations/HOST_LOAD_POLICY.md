@@ -100,6 +100,16 @@ lease, protected windows, capture health and memory gates; neither permits
 source deletion or changes ordinary heavy-work admission. Direct module
 launches remain classified as heavy by the Codex launch guard.
 
+An agent's one-off wrapper on the capture host, such as a single export copy,
+takes the lease with `Enter-WeatherHeavyWorkloadLease` and must refuse when it
+returns `$null`. The function returns `$null` without throwing when another
+workload owns the mutex, and every repository caller checks for it. On
+2026-10-31 an unchecked wrapper copied for 45 s while the 06:00 clob tiering
+retry held the lease. Start such a job only when `Get-WeatherHeavyWorkloadLeaseState`
+reports the lease free, keep it clear of the 04:15 and 06:50 lease tasks, and
+stop it by ending its child process so that the wrapper's `finally` releases the
+lease.
+
 ## Workstation focused runs, FIFO queue and xdist (owner decision 2026-10-04)
 
 Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](DECISION_LOG.md) row of 2026-10-04;
