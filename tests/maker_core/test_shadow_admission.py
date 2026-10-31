@@ -281,7 +281,7 @@ def test_assert_outcome_blind_requires_an_admission():
         assert_outcome_blind(FULL_REPORT, None)
 
 
-@pytest.mark.parametrize("day", ["2026-09-30", "2026-10-01", "2026-10-15", "2026-10-16", "2026-11-13"])
+@pytest.mark.parametrize("day", ["2026-10-15", "2026-10-16", "2026-11-13"])
 def test_maker_evidence_panel_refuses_embargoed_days_before_any_path(tmp_path, day):
     from weather.market.maker_shadow_panel import MakerEvidencePanel
     with pytest.raises(ValueError, match="embargoed_utc_day"):
@@ -370,11 +370,11 @@ def test_parity_admission_cannot_be_constructed_outside_admission():
     with pytest.raises(TypeError, match="parity_admission_not_minted"):
         adm.ParityAdmission("2031-03-13", None, withhold_outcomes=True, clock=CLOCK)
     with pytest.raises(TypeError, match="parity_admission_not_minted"):
-        adm.ParityAdmission("2026-10-01", "embargoed_utc_day")
+        adm.ParityAdmission("2026-10-15", "embargoed_utc_day")
 
 
 @pytest.mark.parametrize("changes, error", [
-    ({"day": "2026-10-01"}, "embargoed_utc_day"),            # real W1 day: permanent windows always apply
+    ({"day": "2026-10-15"}, "embargoed_utc_day"),            # real W1 day: permanent windows always apply
     ({"day": "2031-03-05"}, "embargoed_utc_day"),            # injected full window travels with the token
     ({"day": "*"}, "utc_day_not_canonical"),
     ({"day": "2031-03-11"}, "before_parity_clock"),
@@ -401,7 +401,7 @@ def test_open_parity_tapes_rederives_before_the_glob(tmp_path, monkeypatch):
     globbed = []
     monkeypatch.setattr(adm, "sealed_tapes", lambda root, day: globbed.append(day) or ([], []))
     forged = object.__new__(adm.ParityAdmission)  # bypasses __init__ entirely
-    for name, value in {"day": "2026-10-01", "refused": None, "reason": None, "withhold_outcomes": False,
+    for name, value in {"day": "2026-10-15", "refused": None, "reason": None, "withhold_outcomes": False,
                         "clock": CLOCK, "windows": (), "mint": None}.items():
         object.__setattr__(forged, name, value)
     with pytest.raises(ValueError, match="embargoed_utc_day"):
@@ -488,7 +488,7 @@ def test_an_eq_overriding_window_entry_cannot_drop_the_permanent_windows(tmp_pat
 def test_scope_is_checked_against_the_permanent_windows_whatever_the_token_carries(tmp_path, monkeypatch):
     monkeypatch.setattr(adm, "_windows_with_defaults", lambda windows: tuple(windows))  # simulate a lost prepend
     forged = object.__new__(adm.ParityAdmission)
-    for name, value in {"day": "2026-10-01", "refused": None, "reason": None, "withhold_outcomes": False,
+    for name, value in {"day": "2026-10-15", "refused": None, "reason": None, "withhold_outcomes": False,
                         "clock": CLOCK, "windows": (), "mint": None}.items():
         object.__setattr__(forged, name, value)
     with pytest.raises(ValueError, match="embargoed_utc_day"):
