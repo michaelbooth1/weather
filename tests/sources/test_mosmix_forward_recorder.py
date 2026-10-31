@@ -1,6 +1,8 @@
 """Lane L13: DWD MOSMIX forward-capture recorder (tools/research/mosmix_forward_recorder.py).
 
-Offline: a clock-driven fake opendata.dwd.de serving synthetic KMZ files. Guards: the pinned station map (ids,
+Guards: docs/research/mosmix-forward-recorder-2026-10-29.md (the recorder's capture contract).
+
+Offline: a clock-driven fake opendata.dwd.de serving synthetic KMZ files. It pins the station map (ids,
 coordinates, the 12 markets), the issue schedule, byte-exact S subsets, the point-in-time receipt (IssueTime,
 Last-Modified, our fetch time, sha256) and ``issue_available``, forward issues only, a 404 before publication is not
 a failure, slots close as missing at the retention horizon, day manifests pin every kept file by sha256, raw S
