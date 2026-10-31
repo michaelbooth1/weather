@@ -135,6 +135,11 @@ VENUE_ROUTINE_FLOOR_MARKETS = frozenset(spec.id for spec in BUILTIN_SPECS)
 class DistributionMixin(DistributionSignalMixin):
     """The probability engine: priors, blending, live signals, caps, weighting."""
 
+    # Research/test-only (fix 11 counterfactual): serving never assigns it; only
+    # tests and the research shadow replay move the cutover earlier on their own
+    # model instance (ratchet: tests/model/test_venue_routine_floor.py).
+    venue_routine_floor_from = VENUE_ROUTINE_FLOOR_FROM
+
     def estimate_distribution_result(self, sources, now=None):
         return self._estimate_distribution_result(sources, now=now)
 
@@ -1294,7 +1299,7 @@ class DistributionMixin(DistributionSignalMixin):
         target = getattr(self, "target_date", None)
         return (
             target is not None
-            and target >= VENUE_ROUTINE_FLOOR_FROM
+            and target >= self.venue_routine_floor_from
             and getattr(self.spec, "id", None) in VENUE_ROUTINE_FLOOR_MARKETS
         )
 

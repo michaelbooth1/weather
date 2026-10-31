@@ -115,3 +115,39 @@ def test_features_keep_every_observation():
     _, metar, station, _, _ = _floor(day, _payload(day))
     assert any(row["raw"].startswith("SPECI") for row in station["rows"])
     assert abs(metar["same_day_max_native"] - _f(SPECI_C)) < 1e-9
+
+
+# --- the research/test-only cutover parameter (fix 11 counterfactual) ---
+
+def test_the_cutover_parameter_moves_the_rule_only_on_its_own_instance():
+    day = date(2026, 9, 20)
+    model, metar, station, served, fixed = _floor(day, _payload(day))
+    assert fixed == served and abs(served - _f(SPECI_C)) < 1e-9  # production cutover: unchanged
+    model.venue_routine_floor_from = date(2026, 8, 15)
+    context = model.effective_observed_high_context({}, {}, station, CUTOFF)
+    assert abs(model.venue_routine_observed_floor_high(context, {}, {}, station, metar, CUTOFF)
+               - _f(28.0)) < 1e-9
+    assert TorontoHighTempModel(market_id="miami").venue_routine_floor_from == VENUE_ROUTINE_FLOOR_FROM
+
+
+def test_only_tests_and_the_research_replay_assign_the_cutover_parameter():
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    allowed = {"src/weather/model/model_distribution.py", "src/weather/calibration/high_so_far_parity_shadow.py"}
+    setters = set()
+    for path in (root / "src").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            targets = node.targets if isinstance(node, ast.Assign) else (
+                [node.target] if isinstance(node, (ast.AnnAssign, ast.AugAssign)) else [])
+            hit = any((isinstance(t, ast.Attribute) and t.attr == "venue_routine_floor_from")
+                      or (isinstance(t, ast.Name) and t.id == "venue_routine_floor_from")
+                      for target in targets for t in ast.walk(target))
+            hit = hit or (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                          and node.func.id == "setattr" and len(node.args) >= 2
+                          and isinstance(node.args[1], ast.Constant)
+                          and node.args[1].value == "venue_routine_floor_from")
+            if hit:
+                setters.add(path.relative_to(root).as_posix())
+    assert setters == allowed

@@ -161,7 +161,7 @@ def run_once(model, record, variant):
         model.high_so_far_shadow_variant = None
 
 
-def emit_market(*, layout, replay_root, market, start, end, out_dir, log=print):
+def emit_market(*, layout, replay_root, market, start, end, out_dir, log=print, venue_routine_floor_from=None):
     import pandas as pd
 
     from weather.market.market_registry import spec_for_id
@@ -180,6 +180,12 @@ def emit_market(*, layout, replay_root, market, start, end, out_dir, log=print):
     out = Path(out_dir) / market
     out.mkdir(parents=True, exist_ok=True)
     model = TorontoHighTempModel(market_id=market)
+    if venue_routine_floor_from is not None:
+        # fix 11 counterfactual: the routine-only floor cutover moved early on this instance only
+        cutover = date.fromisoformat(venue_routine_floor_from)
+        if not (DEV_FIRST <= cutover <= DEV_LAST):
+            raise ShadowError(f"refused: --venue-routine-floor-from {cutover} is outside the dev window")
+        model.venue_routine_floor_from = cutover
     totals = {"snapshots": 0, "errors": 0, "base_exact_recorded": 0, "fix_changed": 0, "folders": 0}
     for target, folder in event_folders(replay_root, market):
         if not (start <= target <= end):
@@ -224,7 +230,8 @@ def emit_market(*, layout, replay_root, market, start, end, out_dir, log=print):
         totals["folders"] += 1
         log(f"TIMING folder={folder.name} snapshots={n} seconds={time.time() - t0:.1f}")
     audit = {"schema": EMIT_SCHEMA, "market": market, "range": [start.isoformat(), end.isoformat()],
-             "variant": VARIANT, "layout_snapshots_sha256": sha256_file(Path(layout) / "inputs_snapshots.parquet"),
+             "variant": VARIANT, "venue_routine_floor_from": str(model.venue_routine_floor_from),
+             "layout_snapshots_sha256": sha256_file(Path(layout) / "inputs_snapshots.parquet"),
              "module_sha256": sha256_file(__file__), "this_invocation": totals,
              "files": {p.name: sha256_file(p) for p in sorted(out.glob("*.jsonl"))}}
     (out / "_audit.json").write_text(json.dumps(audit, indent=1, sort_keys=True), encoding="utf-8")
@@ -618,6 +625,8 @@ def build_parser():
     e.add_argument("--from", dest="start", default="2026-08-15")
     e.add_argument("--to", dest="end", default="2026-09-29")
     e.add_argument("--out-dir", required=True)
+    e.add_argument("--venue-routine-floor-from", help="fix 11 counterfactual only: move the routine-only "
+                   "floor cutover to this dev date on the replay model (default: the production cutover)")
     s = sub.add_parser("sidestep")
     s.add_argument("--layout", required=True)
     s.add_argument("--emit-dir", required=True)
@@ -642,7 +651,8 @@ def main(argv=None):
         for market in args.market:
             audit = emit_market(layout=args.layout, replay_root=args.replay_root, market=market,
                                 start=args.start, end=args.end, out_dir=args.out_dir,
-                                log=lambda m: print(m, flush=True))
+                                log=lambda m: print(m, flush=True),
+                                venue_routine_floor_from=args.venue_routine_floor_from)
             print(json.dumps(audit["this_invocation"] | {"market": market}), flush=True)
         return 0
     if args.command == "sidestep":
