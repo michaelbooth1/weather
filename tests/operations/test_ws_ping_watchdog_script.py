@@ -1,4 +1,9 @@
-"""ws_ping_watchdog.ps1 on simulated probes only: no network probe, no toast, no scheduled task."""
+"""ws_ping_watchdog.ps1 on simulated probes only: no network probe, no toast, no scheduled task.
+
+Guards: docs/operations/WS_PING_WATCHDOG.md (alert after 2 consecutive misses, one reminder,
+recovery, ws_offline never counts a miss, and gaps between runs are logged), after the
+2026-10-28 capture-host Wi-Fi outage that went unnoticed for about 67 minutes.
+"""
 from __future__ import annotations
 
 import json
@@ -22,6 +27,7 @@ def _run(state_dir: Path, probe: str, now: str) -> tuple[int, dict]:
     return proc.returncode, json.loads(lines[-1])
 
 
+@pytest.mark.spawns
 def test_alert_once_remind_then_recover(tmp_path: Path) -> None:
     seq = [("down", "2026-10-28T16:00:00Z", 0, None), ("down", "2026-10-28T16:05:00Z", 2, "ALERT"),
            ("down", "2026-10-28T16:10:00Z", 0, None), ("ws_offline", "2026-10-28T16:15:00Z", 0, None),
@@ -37,6 +43,7 @@ def test_alert_once_remind_then_recover(tmp_path: Path) -> None:
     assert misses[:4] == [1, 2, 3, 3]  # ws_offline neither counts a miss nor resets the count
 
 
+@pytest.mark.spawns
 def test_single_miss_never_alerts_and_gaps_are_logged(tmp_path: Path) -> None:
     for probe, now in (("down", "2026-10-28T16:00:00Z"), ("up", "2026-10-28T16:05:00Z"),
                        ("down", "2026-10-28T16:10:00Z"), ("up", "2026-10-28T18:10:00Z")):
