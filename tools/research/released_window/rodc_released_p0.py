@@ -187,23 +187,41 @@ def _under(path, root):
     return a == b or a.startswith(b + os.sep)
 
 
-def check_origin(tree=TREE, environ=None, cwd=None, weather_file=None):
-    """The editable-.pth trap: PYTHONPATH must be exactly <tree>\\src, cwd the tree, and ``weather`` imported
-    from under <tree>\\src."""
+def loaded_weather_files(modules=None):
+    """{name: __file__} of every loaded ``weather.*`` submodule (the package itself excluded)."""
+    modules = sys.modules if modules is None else modules
+    return {n: str(m.__file__) for n, m in sorted(modules.items())
+            if n.startswith("weather.") and getattr(m, "__file__", None)}
+
+
+def check_origin(tree=TREE, environ=None, cwd=None, weather_file=None, submodule_files=None):
+    """The editable-.pth trap: PYTHONPATH must be exactly <tree>\\src and cwd the tree; ``weather`` is either the
+    tree's repo-root shim (<tree>\\weather\\__init__.py, which prepends <tree>\\src\\weather to ``__path__``) or
+    <tree>\\src\\weather; and every loaded ``weather.*`` submodule resolves under <tree>\\src."""
     environ = os.environ if environ is None else environ
     cwd = os.getcwd() if cwd is None else cwd
     if weather_file is None:
         import weather
+        import weather.calibration  # noqa: F401  (a real submodule, so the shim's __path__ is exercised)
         weather_file = weather.__file__
+    submodule_files = loaded_weather_files() if submodule_files is None else submodule_files
     src = Path(tree) / "src"
     pp = environ.get("PYTHONPATH")
     if pp is None or _norm(pp) != _norm(src):
         raise Refused(f"refused: PYTHONPATH is {pp!r}, not {src}")
     if _norm(cwd) != _norm(tree):
         raise Refused(f"refused: cwd {cwd} is not the run tree {tree}")
-    if not _under(Path(weather_file).resolve(), src.resolve()):
-        raise Refused(f"refused: weather imported from {weather_file}, not under {src}")
-    return {"tree": str(tree), "pythonpath": pp, "cwd": str(cwd), "weather_file": str(weather_file)}
+    shim = Path(tree) / "weather" / "__init__.py"
+    wf = Path(weather_file).resolve()
+    if not (_norm(wf) == _norm(shim.resolve()) or _under(wf, src.resolve())):
+        raise Refused(f"refused: weather imported from {weather_file}, not this tree's shim or {src}")
+    if not submodule_files:
+        raise Refused("refused: no weather submodule loaded to check")
+    stray = {n: f for n, f in submodule_files.items() if not _under(Path(f).resolve(), src.resolve())}
+    if stray:
+        raise Refused(f"refused: weather submodules imported from outside {src}: {dict(list(stray.items())[:3])}")
+    return {"tree": str(tree), "pythonpath": pp, "cwd": str(cwd), "weather_file": str(weather_file),
+            "weather_submodules_checked": len(submodule_files)}
 
 
 def code_state(tree=TREE):
@@ -389,6 +407,7 @@ def stage_fit(args):
     caches = lad.load_caches(cache_dir, US11, OCTDEC_CENTRES)
     coef, n_samples = fit_coefficients(caches)
     pl = placebo_beta(caches)
+    after = check_origin()
     out.mkdir(parents=True)
     coef_payload = {"schema": SCHEMA + "/coef", "ledger_row": LEDGER_ROW, "arms": coef, "hours": list(HOURS),
                     "centres": list(OCTDEC_CENTRES), "markets": list(US11), "min_fit_rows": MIN_FIT_ROWS,
@@ -397,7 +416,7 @@ def stage_fit(args):
                     "cache_sha256": cache_files, "residual_rows": n_samples}
     coef_sha = write_exclusive(out / "coef.json", coef_payload)
     receipt = {"schema": SCHEMA + "/fit", "ledger_row": LEDGER_ROW, "stage": "fit", "origin": origin,
-               "code": state, "blobs": blobs, "rules": rules, "module_sha256": sha256_file(__file__),
+               "origin_after_imports": after, "code": state, "blobs": blobs, "rules": rules, "module_sha256": sha256_file(__file__),
                "control_cf": cf, "placebo_column": pl, "coef_sha256": coef_sha,
                "cells": {arm: len(v) for arm, v in coef.items()}}
     write_exclusive(out / FIT_RECEIPT, receipt)
@@ -794,6 +813,7 @@ def stage_look(args):
     from weather.reporting.scorecards import dev_scorecard_data as data
     from tools.research.released_window import served_market_blocks as smb
 
+    after = check_origin()
     if data.DEV_LAST != date(2026, 9, 29):
         raise Refused(f"refused: dev scorecard DEV_LAST is {data.DEV_LAST} before the controls")
     r80_manifest = R80_LAYOUT / data.MANIFEST
@@ -897,7 +917,7 @@ def stage_look(args):
         for r in rows_out:
             fh.write(json.dumps(r, sort_keys=True, default=_default) + "\n")
     receipt = {
-        "schema": SCHEMA + "/look", "ledger_row": LEDGER_ROW, "stage": "look", "approval": args.approval,
+        "schema": SCHEMA + "/look", "ledger_row": LEDGER_ROW, "stage": "look", "approval": args.approval, "origin_after_imports": after,
         "evidence_class": "kill-only on released dates; no label is an edge claim",
         "origin": origin, "code": state, "blobs": blobs, "rules": rules, "module_sha256": sha256_file(__file__),
         "coef_sha256": args.coef_sha, "r80_layout_manifest_sha256": R80_LAYOUT_MANIFEST_SHA256,
@@ -929,7 +949,9 @@ def stage_preflight(args):
         from weather.calibration import odc_metar_features  # noqa: F401
         from weather.calibration import ols_floor_ladder  # noqa: F401
         from tools.research.released_window import served_market_blocks  # noqa: F401
-    out = {"stage": "preflight", "origin": origin, "code": state, "rules": rules, "blobs_checked": len(blobs),
+    after = check_origin()                      # every weather.* module the run imports, now loaded
+    out = {"stage": "preflight", "origin": origin, "origin_after_imports": after, "code": state, "rules": rules,
+           "blobs_checked": len(blobs),
            "module_sha256": sha256_file(__file__), "verdict": "PASS"}
     print(json.dumps(out, indent=1, sort_keys=True))
     return out

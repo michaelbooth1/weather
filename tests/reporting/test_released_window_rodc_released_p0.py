@@ -55,22 +55,37 @@ def test_a_changed_blob_is_refused(tmp_path):
 
 def test_origin_assertion(tmp_path):
     tree = tmp_path / "tree"
-    (tree / "src" / "weather").mkdir(parents=True)
+    (tree / "src" / "weather" / "calibration").mkdir(parents=True)
+    (tree / "weather").mkdir()
     wf = tree / "src" / "weather" / "__init__.py"
-    wf.write_text("", encoding="utf-8")
+    shim = tree / "weather" / "__init__.py"
+    sub = tree / "src" / "weather" / "calibration" / "__init__.py"
+    for f in (wf, shim, sub):
+        f.write_text("", encoding="utf-8")
+    subs = {"weather.calibration": str(sub)}
     env = {"PYTHONPATH": str(tree / "src")}
-    assert p0.check_origin(tree, env, str(tree), str(wf))["tree"] == str(tree)
+    assert p0.check_origin(tree, env, str(tree), str(wf), subs)["tree"] == str(tree)
+    assert p0.check_origin(tree, env, str(tree), str(shim), subs)["weather_submodules_checked"] == 1
     with pytest.raises(p0.Refused, match="PYTHONPATH"):
-        p0.check_origin(tree, {}, str(tree), str(wf))
+        p0.check_origin(tree, {}, str(tree), str(wf), subs)
     with pytest.raises(p0.Refused, match="PYTHONPATH"):
-        p0.check_origin(tree, {"PYTHONPATH": str(tmp_path / "other" / "src")}, str(tree), str(wf))
+        p0.check_origin(tree, {"PYTHONPATH": str(tmp_path / "other" / "src")}, str(tree), str(wf), subs)
     with pytest.raises(p0.Refused, match="cwd"):
-        p0.check_origin(tree, env, str(tmp_path), str(wf))
-    other = tmp_path / "site" / "weather" / "__init__.py"
+        p0.check_origin(tree, env, str(tmp_path), str(wf), subs)
+    other = tmp_path / "site" / "weather" / "calibration" / "__init__.py"
     other.parent.mkdir(parents=True)
     other.write_text("", encoding="utf-8")
     with pytest.raises(p0.Refused, match="weather imported"):
-        p0.check_origin(tree, env, str(tree), str(other))
+        p0.check_origin(tree, env, str(tree), str(other.parent.parent / "__init__.py"), subs)
+    with pytest.raises(p0.Refused, match="outside"):        # the editable-.pth trap: shim here, code elsewhere
+        p0.check_origin(tree, env, str(tree), str(shim), {"weather.calibration": str(other)})
+    with pytest.raises(p0.Refused, match="no weather submodule"):
+        p0.check_origin(tree, env, str(tree), str(shim), {})
+
+
+def test_origin_in_this_process_resolves_every_weather_module_to_the_run_tree():
+    files = p0.loaded_weather_files()
+    assert files and all(p0._under(Path(f).resolve(), (p0.TREE / "src").resolve()) for f in files.values())
 
 
 def test_out_dir_must_be_new_and_below_the_root(tmp_path):
