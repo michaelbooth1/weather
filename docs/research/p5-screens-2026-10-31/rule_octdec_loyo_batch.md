@@ -72,6 +72,60 @@ other A1 bullet stands.**
   coordinator before any run, and the run is never self-admitted. The 15 HGB fits are heavy and run only
   through `scripts\ops\workstation_heavy.ps1 -Queue` after admission.
 
+**Amendment A3 (2026-10-31, pre-run; applies master's A3 rulings relayed by the coordinator; no outcome,
+price or label was read to write it). A3 supersedes A2 only where it says so. A2 is left unedited; every
+other A1 and A2 bullet stands.**
+
+- **Run (unchanged from A2).** All four arms run at δ 0.00562 with the √2 SE (0.000812).
+- **1. LOGMULT clarification (supersedes the literal guard).** For each fold and hour, γ_h is the grid value
+  with the best FIT-fold Brier among those whose fit-row mean ln(σ'/σ) for that hour is ≤ 0.02 in
+  magnitude (ties to the smallest). γ = 0 always qualifies. The receipt records per fold and hour the chosen
+  γ and its logmult, and the unconstrained best γ and its logmult.
+  - **Pre-freeze toy (synthetic only).** The planted W1 signal at σ 2.0 (two markets, hours 7-8, five
+    years, 60 dates; ε sd = sd of the pooled clean fit-row z, as in the run) passes C-c under this rule:
+    SYN+ passes P0 (ρ 0.675) and the gate (95% CI [−0.0610, −0.0482]); the negation fits γ = 0 in 5/5 folds
+    at both hours with an upper bound ≥ 0. The constraint binds in every fold (chosen γ 0.35-0.40 at
+    logmult 0.0115-0.0200; unconstrained 0.45-0.50 at 0.028-0.054). With ε sd 1.0 and with 40 dates it also
+    passes. This is the module's test `test_planted_w1_signal_passes_p0_and_the_gate_and_its_negation_fits_gamma_zero`.
+- **2. C-d: one sanity check per arm on that arm's own fit objective (supersedes C-d's Brier for the centre
+  arms).** W1: the fit-row Brier with the fitted γ ≤ the γ = 0 Brier. X13, X18, X20 (OLS centre arms): the
+  in-sample squared error of the residual on the rows the OLS used ≤ the squared error at β = 0 on the same
+  rows. A failure still VOIDs.
+- **3. X20 support.** X20 is decided only inside the incumbent's training support, local hours 07-12. Its
+  rows are at 13-14, so it has no in-support rows: **X20 is UNTESTABLE** (p = 1 in BH, K stays 4),
+  Reopen-if: an incumbent trained on 13-14. The 13-14 read is computed as context only, labelled
+  "incumbent extrapolated", outside BH, with no placebos and no verdict.
+- **4. X13 native unit.** X13 is US11 only: the rows come from `cool_season_audit.l6_rows`, which excludes
+  `CYYZ` (`EXCLUDED_STATIONS`), so Toronto is not in X13. The lows are in °F, each US11 market's native
+  settlement unit, read from the pinned IEM METAR obs (T-group °F when present, else `tmpf`). The module
+  refuses any Toronto market or `CYYZ` station in the X13 rows rather than converting via °F.
+- **5. Dates.** The module refuses in code any 2026 date after 09-29 (and, as before, any date outside
+  2021-01-01..2025-12-31). LOYO years for Oct-Dec are ≤ 2025, checked in code.
+- **Disclosure.** No arm uses PIT `gfs_seamless` or any Previous Runs seamless field (coordinator: answer
+  accepted; the (b) gfs hold is released for prep).
+- **B-bound code (master ruling, binds every row).** A research run may import a non-master version of a
+  B-bound file only if this rule NAMES that exact version. At run start the module sha-checks every
+  imported B-bound file against the pins below and refuses on a mismatch, an unpinned B-bound file, or one
+  loaded from outside the run tree; it checks again before the receipt. The receipt records the git tree
+  sha and the file shas. The run never writes to production paths or B outputs.
+- **Pins (row 95).** `pooled_residual_model.py` is **rung0712 `6488c7a31623c859631099a882ffee2fd065a925`'s
+  version** (named here per the ruling); the rest are master `035f5bb19`'s:
+  - `src/weather/calibration/pooled_residual_model.py` `f85690616824f129a3316d8541614a8eb80481e8a7c5eca40128b8a2aaa0e049` (rung0712 `6488c7a3`)
+  - `src/weather/calibration/r0_ols_floor_challenger.py` `e2edb49e1433d8855ec1c9a77a0da9bd8ddc651a8481b7a5e1fd98a53bfc5dc6`
+  - `src/weather/calibration/upstream_obs_screen.py` `f82b6fc0269e3b379910942fb5c17a7901855147eaed112e53ff2b24393604b5`
+  - `src/weather/model/mg_serve_core.py` `179fcbe495f36f6fd194c1bd0052ed6e150b0f016adbe0f8e9bb6128bd42e5d8`
+  - `src/weather/reporting/scorecards/dev_scorecard.py` `6447876a0956eac4f67132bc69dba48c26a672f7554ec46e8bfbe94ffe801b56`
+  - `src/weather/reporting/scorecards/dev_scorecard_data.py` `90627f7a9cc365c10115593b2a012aa2e63252db057606c3e649ac3e3e2f1220`
+  - `src/weather/reporting/scorecards/loss_atlas.py` `d18d173e63971ebac12bcc4873286ac09db3cabc89afbf30a51c0e39313a2320`
+- **Run branch.** `claude/p5-octdec-run-20261031` (A2 tip `65b70b46042a230b2b1721fa5b0efd04d096dcf0`) plus
+  the A3 code commit and the separate allowlist commit.
+- **Admission.** The run branch carries the module in its own tree and, as a separate commit, the one-line
+  offline-module allowlist entry (the `ece13f3d` pattern: `.codex/hooks/pre_tool_use_host_load.py`
+  `_OFFLINE_WEATHER_MODULES`, `scripts/ops/workload_admission.ps1` `Get-WeatherWorkstationOfflineModule`,
+  `tests/operations/test_r0_full_year_admission.py` `PINNED`). That commit is not planned to land on master.
+  No real-data run happens until the coordinator admits that run explicitly.
+- **Ledger.** Rows 93-95 count in the dev reuse count (they now run).
+
 ## 0. Why this batch exists (scope rulings)
 
 - **R9** (EF §10af, master 2026-10-25) scopes the R-I kill. It covers only fitted temperature or scale

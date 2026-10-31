@@ -31,6 +31,22 @@ no longer provisional.
   edge δ 0.00562 at the SYN bar (0.149 B-style), power 1.00. RUN after admission. Cells read `pending`.
 - The arithmetic is in each rule's Amendment A2.
 
+**Amendment A3 (2026-10-31, pre-run; master's A3 rulings).** A2 is left unedited. A3 supersedes A2's
+row 94 NOT RUN line and its cells: all three rows now RUN after the coordinator's explicit admission per
+run, and all three count in the dev reuse count.
+
+- **Row 93 (c):** RUN. Verdict fixed at P0: "KILL at edge size" or "P0 survivor; w underpowered
+  (0.28-0.31), context only". Run branch `claude/p5-ens-run-20261031-r2` (master `035f5bb19` merged).
+  Cells read `pending`.
+- **Row 94 (a):** RUN, rescoped to P0 only on the ρ scale (edge ρ 0.2236); the w legs are dropped from
+  the decision and not run. Outcomes "KILL at edge size" (wider Δ upper bound < 0.2236) or "P0
+  survivor; w untested (underpowered)". As pinned, every block is UNTESTABLE (no attested capture-time
+  member emit). Run branch `claude/p5-subbar-run-20261031`. Cells read `pending`.
+- **Row 95 (b):** RUN, all four arms at δ 0.00562 with the √2 SE; X20 is UNTESTABLE inside the
+  incumbent's 07-12 support (13-14 context only, "incumbent extrapolated"). Run branch
+  `claude/p5-octdec-run-20261031`. Cells read `pending`.
+- The detail, B-bound pins and admission rules are in each rule's Amendment A3.
+
 Evidence class of all three rows: SCREEN. A pass earns a forward pre-registration only. It is never a
 promotion, a release input or an edge claim.
 

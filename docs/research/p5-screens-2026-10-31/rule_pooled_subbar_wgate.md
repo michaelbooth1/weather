@@ -65,6 +65,64 @@ other A1 bullet stands.**
   `C:\archive\ruled-out\_p5-subbar` beside the A1 files, with a new `SHA256SUMS_A2`. Nothing there is
   overwritten or deleted.
 
+**Amendment A3 (2026-10-31, pre-run; applies master's A3 rulings relayed by the coordinator; no outcome,
+price or label was read to write it). A3 supersedes A2 only where it says so. A2 is left unedited; every
+other A1 and A2 bullet stands.**
+
+- **Rescope: P0 only (master ruling, supersedes A2's NOT RUN decision and its Brier-scale binding).** Per
+  block the decision is the `rule_mr_sweep` P0 on the ρ scale against the capture-time market, edge
+  ρ = √0.05 = 0.2236 (A2 power 1.00). The four w-gate legs (section 4 step 4, section 5) are DROPPED from
+  the decision and are NOT run, not even as context.
+- **Outcomes per block.** **"KILL at edge size"** when the wider of the two 95% upper bounds of Δ (the
+  date-clustered bootstrap and a moving-block bootstrap of 3 consecutive scored dates) is below 0.2236;
+  otherwise **"P0 survivor; w untested (underpowered)"**. The survivor label carries no claim; it only
+  queues a powered w read. UNTESTABLE (no testable member, or below the `mr_sweep` minimum of 20 dates and
+  1,000 snapshots) and VOID (a control failed) keep their meaning. BH (q 0.10, K = 3) is reported as
+  context only and does not enter the label.
+- **Module.** `src/weather/calibration/pooled_subbar_wgate.py` (`python -m
+  weather.calibration.pooled_subbar_wgate`), on run branch `claude/p5-subbar-run-20261031` off
+  `bcec89965fb97d4babbf50b0974d365049dc09ee` (the ENS r2 base: master `035f5bb19` machinery). It imports
+  no member code: each member enters only as a dev band emit file. It writes only under `--out`, below
+  `C:/t/l17/pool/`, which must not exist.
+- **Pooled candidate.** As section 2: the geometric mean of the members' [EPS, 1]-clipped band vectors,
+  impossible bands set to 0, renormalised per snapshot, on the intersection of member coverage; the market
+  elsewhere. P0 is a local copy of `mr_sweep.p0_candidate`'s placebo and paired-Δ steps (20 calibration-
+  matched disagreement placebos, `donor_ok`, `paired_delta`), taking the pooled vector directly.
+- **Member emit pins (supersedes section 2's code-commit column for the run).** A member is testable only
+  with an A3-pinned dev band emit (path and sha256, checked at run start) that is attested capture-time.
+  - R-Q A: `C:/t/l15/rq/emit0712/dev_P3d_N_fix_Q.jsonl`, sha256
+    `98a31cb757e44d332ca70a680d40200ebf66b4899d408002330ee4a98728f038`. It is pinned but NOT attested
+    capture-time (P3d_N family, `last_in_hour` snapshots), so it is UNTESTABLE as pinned.
+  - R-I, X17, A2, ASOS, F2, R-PD, R-N: no pinned emit, so UNTESTABLE.
+  - **Consequence as pinned: all three blocks are UNTESTABLE** (p = 1, each keeps its K slot) until a
+    dated Clarification pins capture-time member emits. A run as pinned would read no outcome for any
+    candidate; the coordinator decides whether it runs.
+- **A2 member captured-column disclosure.** The A2 member (L5 linear + overnight-low anomaly) uses the
+  captured `open_meteo` 00-08 min and `forecast_high` columns: a single post-2024 regime, backing model
+  unverified.
+- **Controls.** `mr_gate.market_controls` (served R, MG-1 07-12 excess, MG-1 w = 0 identity); C3, the
+  w = 0 identity of every pooled candidate; C5, a planted Gaussian SYN+ and SYN- per block (CONTROL, in
+  memory only): SYN+ must be testable with a Δ lower bound > 0 and a wider upper bound ≥ 0.2236, SYN- must
+  read Δ < 0. Any failure writes a VOID receipt and no candidate row. **C4 (reproduction of each member's
+  recorded headline) is NOT implemented**: it needs per-member scorers the module does not import. It is
+  recorded as not run, and no member headline is claimed reproduced.
+- **B-bound code (master ruling, binds every row).** A research run may import a non-master version of a
+  B-bound file only if this rule NAMES that exact version. At run start the module sha-checks every
+  imported B-bound file against the pins below and refuses on a mismatch, an unpinned B-bound file, or one
+  loaded from outside the run tree; it checks again before the receipt. The receipt records the git tree
+  sha and the file shas. The run never writes to production paths or B outputs.
+- **Pins (row 94, all master `035f5bb19`):**
+  - `src/weather/calibration/pooled_residual_model.py` `52c497a95a69c3fbf78dbfe030b3190d93e940f180b81867a241552b3932a170`
+  - `src/weather/reporting/scorecards/dev_scorecard.py` `6447876a0956eac4f67132bc69dba48c26a672f7554ec46e8bfbe94ffe801b56`
+  - `src/weather/reporting/scorecards/dev_scorecard_data.py` `90627f7a9cc365c10115593b2a012aa2e63252db057606c3e649ac3e3e2f1220`
+  - `src/weather/reporting/scorecards/loss_atlas.py` `d18d173e63971ebac12bcc4873286ac09db3cabc89afbf30a51c0e39313a2320`
+- **Admission.** The run branch carries the module in its own tree and, as a separate commit, the one-line
+  offline-module allowlist entry (the `ece13f3d` pattern: `.codex/hooks/pre_tool_use_host_load.py`
+  `_OFFLINE_WEATHER_MODULES`, `scripts/ops/workload_admission.ps1` `Get-WeatherWorkstationOfflineModule`,
+  `tests/operations/test_r0_full_year_admission.py` `PINNED`). That commit is not planned to land on master.
+  No real-data run happens until the coordinator admits that run explicitly.
+- **Ledger.** Rows 93-95 count in the dev reuse count (they now run).
+
 ## 0. Selection disclosure (read this first)
 
 **The member set was chosen because each member's dev point estimate was helpful.** The review
