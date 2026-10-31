@@ -299,3 +299,65 @@ def test_module_doc_states_mechanism_and_dropped_gate():
 
 def test_pinned_freeze_doc_and_s0_spec():
     assert f8.check_pinned_docs() == {f8.FREEZE_DOC_PATH: f8.FREEZE_DOC_SHA256, f8.S0_SPEC_PATH: f8.S0_SPEC_SHA256}
+
+
+# ----------------------------------------------------------------------------- Clarification 1 (non-deciding)
+
+def test_clarification_1_pinned_and_scope_verbatim():
+    assert f8.check_clarifications() == {f8.CLARIFICATION_1_PATH: f8.CLARIFICATION_1_SHA256}
+    text = (f8.TREE / f8.CLARIFICATION_1_PATH).read_text(encoding="utf-8")
+    assert ("01-06 book mass above H on cooling nights (midnight-set max, ≥ 3°F drop), broader than the frontal "
+            "story") in text
+    assert "closes the broad version only" in text and "OUTCOME-DEFINED" in text
+
+
+def _deciding(out):
+    return json.dumps({"result": out["result"], "d3": out["d3"], "label": out["label"],
+                       "frozen_disclosure": out["disclosure_non_deciding"], "control": out["control_zero_tilt"]},
+                      sort_keys=True, default=str)
+
+
+@pytest.mark.parametrize("signal", ["h_info", "h_null"])
+def test_clarification_disclosure_never_changes_the_verdict(table, signal):
+    f, t = table
+    h = f[signal].to_numpy(float)
+    rng = np.random.default_rng(5)
+    day_max = np.where(rng.random(len(f)) < 0.5, np.round(h), np.round(h) + 2)
+    day_max[:3] = np.nan
+    without = f8.run_statistic(t, h, clarification_disclosure=False)
+    with_none = f8.run_statistic(t, h)
+    with_dm = f8.run_statistic(t, h, day_max=day_max)
+    assert "disclosure" not in without
+    assert _deciding(without) == _deciding(with_none) == _deciding(with_dm)
+    disc = with_dm["disclosure"]
+    assert disc["non_deciding"] is True and disc["clarification_sha256"] == f8.CLARIFICATION_1_SHA256
+    band = disc["hour_band"]
+    assert band["hours_01_03"]["snapshots"] + band["hours_04_06"]["snapshots"] == len(f)
+    dm = disc["day_max_vs_H"]
+    assert dm["available"] and dm["outcome_defined"] and dm["missing_day_max"] == 3
+    assert dm["day_max_eq_H_frontal"]["snapshots"] + dm["day_max_ne_H"]["snapshots"] == len(f) - 3
+    assert with_none["disclosure"]["day_max_vs_H"] == {"available": False, "outcome_defined": True}
+
+
+def test_day_max_split_uses_wu_whole_scale():
+    eq, ne, missing = f8.day_max_split_masks([50.0, 50.0, 50.0, 50.0], [49.6, 50.4, 51.0, float("nan")])
+    assert eq.tolist() == [True, True, False, False] and ne.tolist() == [False, False, True, False] and missing == 1
+
+
+def test_disclosure_error_does_not_change_the_verdict(table, monkeypatch):
+    f, t = table
+    h = f.h_info.to_numpy(float)
+    base = f8.run_statistic(t, h, clarification_disclosure=False)
+
+    def boom(*a, **k):
+        raise RuntimeError("disclosure failure")
+
+    monkeypatch.setattr(f8, "clarification_1_disclosure", boom)
+    out = f8.run_statistic(t, h, day_max=np.round(h))
+    assert _deciding(out) == _deciding(base) and "error" in out["disclosure"] and out["disclosure"]["non_deciding"]
+
+
+def test_labels_day_max_is_gated():
+    f8.close_look_gate()
+    with pytest.raises(f8.Refused, match="look gate"):
+        f8.labels_day_max(object(), [])

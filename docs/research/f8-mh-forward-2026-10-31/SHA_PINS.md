@@ -16,3 +16,19 @@ the code and the tests. Git blob shas of the vendored, unchanged statistic modul
 
 Base: `origin/master` @ `4e0939833f2d5cbef4de04de7caa8e06933591af`; ledger row 104 commit `1da8d747586067d683f55dd12d0fe505193c2e22`.
 Tests: 24 passed (synthetic only), through `workstation_heavy.ps1 -Queue`, basetemp under `C:\t\l16`, deleted.
+
+## Clarification 1 (2026-10-31, master ruling (b), before any forward read; non-deciding disclosure only)
+
+The rows above stay the record of the freeze commit. The code and the tests changed for Clarification 1; their
+current pins are below. `freeze.md`, `s0_spec.md` and the S0 receipt are unchanged, and S0 was not re-run. The code
+pins the clarification's sha256 as `CLARIFICATION_1_SHA256`.
+
+| File | sha256 | git blob |
+| --- | --- | --- |
+| `docs/research/f8-mh-forward-2026-10-31/clarification_1.md` | `eef842e8a40da1f9041a038bec6ab6ece6103d16235cb2b58c0231f3e115d260` | `da59b1e64276f24c587b36e028c89bd627071ed5` |
+| `tools/research/forward_f8/f8_mh.py` (current) | `c325149ff2e0f5bbcb2d82169fcf293980a02d5f10cc60abec3990b025b509cd` | `0aa48b64f4cd7a92b9e9351b5df87074899a7b48` |
+| `tests/reporting/test_forward_f8_mh.py` (current) | `28928821ace01c7574aef782e5839c3b4eb29a662cfe4cba095fcc5a52dbb75c` | `50d3e388bf1c4cbbaa5037da5a39b48de0eacb3b` |
+
+Tests: 30 passed (synthetic only), through `workstation_heavy.ps1 -Queue`, basetemp `C:\t\l16\f8c1-pytest`, deleted.
+They include the proof that the label, the D3 numbers, the result, the frozen disclosure and the control are identical
+with and without Clarification 1's disclosure, and also when the disclosure raises an error.

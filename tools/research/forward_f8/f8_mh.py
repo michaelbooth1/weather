@@ -32,6 +32,13 @@ Stages (only through ``scripts\ops\workstation_heavy.ps1 -Queue`` after main adm
 
 ``preflight`` reads no data. ``look`` is the single look; its receipts are exclusive-create. Evidence class: a screen
 (method §5 rule 8), never an edge claim.
+
+Clarification 1 (master ruling (b), 2026-10-31, before any forward read;
+``docs/research/f8-mh-forward-2026-10-31/clarification_1.md``, pinned by ``CLARIFICATION_1_SHA256``): scope "01-06
+book mass above H on cooling nights (midnight-set max, >= 3°F drop), broader than the frontal story"; a KILL closes
+the broad version only. Two disclosure splits, non-deciding, under the statistic's ``"disclosure"`` key: hour band
+01-03 vs 04-06, and day max equal to H on the WU whole scale or not (OUTCOME-DEFINED, from the labels at the look
+only, never a label). The frozen regime and the verdict path are unchanged.
 """
 from __future__ import annotations
 
@@ -55,6 +62,8 @@ FREEZE_DOC_PATH = "docs/research/f8-mh-forward-2026-10-31/freeze.md"
 FREEZE_DOC_SHA256 = "273c1070df0cb87c9c25366d5f8b37d61b766e2f0f2faa550c633e2a19523316"
 S0_SPEC_PATH = "docs/research/f8-mh-forward-2026-10-31/s0_spec.md"
 S0_SPEC_SHA256 = "795dd5091fdbaec702bd74ed650748f892e906710869140f3f8e42631ff026e8"
+CLARIFICATION_1_PATH = "docs/research/f8-mh-forward-2026-10-31/clarification_1.md"
+CLARIFICATION_1_SHA256 = "eef842e8a40da1f9041a038bec6ab6ece6103d16235cb2b58c0231f3e115d260"
 
 
 class Refused(Exception):
@@ -172,6 +181,13 @@ def check_pinned_docs(tree=TREE):
         if not p.is_file() or sha256_file(p) != sha:
             raise Refused(f"refused: {rel} is not the frozen file (sha256 {sha})")
     return {FREEZE_DOC_PATH: FREEZE_DOC_SHA256, S0_SPEC_PATH: S0_SPEC_SHA256}
+
+
+def check_clarifications(tree=TREE):
+    p = Path(tree) / CLARIFICATION_1_PATH
+    if not p.is_file() or sha256_file(p) != CLARIFICATION_1_SHA256:
+        raise Refused(f"refused: {CLARIFICATION_1_PATH} is not the pinned file (sha256 {CLARIFICATION_1_SHA256})")
+    return {CLARIFICATION_1_PATH: CLARIFICATION_1_SHA256}
 
 
 # ----------------------------------------------------------------------------- frozen constants
@@ -434,9 +450,12 @@ def wider_interval(sw, rows, n_dates):
             "se_wider": se_w, "power_at_edge": power_at(DELTA_EDGE, se_w)}
 
 
-def run_statistic(t, h_values, score_dates=None):
+def run_statistic(t, h_values, score_dates=None, day_max=None, clarification_disclosure=True):
     """The frozen arm on a regime-only table ``t`` (``dev_scorecard.Table`` or an equivalent): type C toward H.
-    Returns the result dict with the D3 interval, the label and the non-deciding disclosures."""
+    Returns the result dict with the D3 interval, the label and the non-deciding disclosures.
+
+    ``day_max`` (the labels' settlement high per table snapshot, look only) and ``clarification_disclosure`` feed
+    Clarification 1's ``"disclosure"`` key only; they are used after the label is fixed and never reach it."""
     import numpy as np
 
     from weather.calibration import mr_sweep as sw
@@ -482,7 +501,75 @@ def run_statistic(t, h_values, score_dates=None):
                       "ci95": (sub.get("p0") or {}).get("ci95")}
     out["disclosure_non_deciding"] = disc
     out["control_zero_tilt"] = control_zero_tilt(sw, t, geo, counts, score_dates, donors)
+    if clarification_disclosure:
+        try:
+            out["disclosure"] = clarification_1_disclosure(sw, t, h, geo, counts, score_dates, donors, day_max)
+        except Exception as exc:  # noqa: BLE001 - a disclosure problem never stops or changes the look
+            out["disclosure"] = {"non_deciding": True, "clarification": CLARIFICATION_1_PATH,
+                                 "clarification_sha256": CLARIFICATION_1_SHA256, "error": repr(exc)}
     return out
+
+
+def _zero_tilt_split(sw, name, mask, h, t, geo, counts, score_dates, donors):
+    """Delta with zero tilt (value = the market mean) outside ``mask``, on the same population (freeze §7 method)."""
+    import numpy as np
+
+    if not mask.any():
+        return {"snapshots": 0, "delta": None, "ci95": None}
+    sub, _ = sw.p0_candidate(f"{ARM}:{name}", "C", 1, np.where(mask, h, geo["mu"]), t, t, geo, counts, score_dates,
+                             donors)
+    sub.pop("_rows", None)
+    p0 = sub.get("p0") or {}
+    return {"snapshots": int(mask.sum()), "dates": int(len(set(np.asarray(t.snaps.date.astype(str))[mask]))),
+            "delta": p0.get("delta"), "ci95": p0.get("ci95")}
+
+
+def day_max_split_masks(h, day_max):
+    """Clarification 1 (b), OUTCOME-DEFINED: day max (WU whole scale, ``wu_whole_f`` half up) equal to H or not.
+    A missing or non-finite day max is in neither mask."""
+    import numpy as np
+
+    dm = np.asarray(day_max, float)
+    whole = np.array([msc.wu_whole_f(v, WU_RULE) if math.isfinite(v) else np.nan for v in dm], float)
+    known = np.isfinite(whole)
+    eq = known & (whole == np.asarray(h, float))
+    return eq, known & ~eq, int((~known).sum())
+
+
+def clarification_1_disclosure(sw, t, h, geo, counts, score_dates, donors, day_max):
+    """Clarification 1 §2, non-deciding: (a) hour band 01-03 vs 04-06; (b) day max == H on the WU whole scale or not
+    (outcome-defined, from the labels at the look only). Never a label, filter or gate."""
+    import numpy as np
+
+    hours = np.asarray(t.local_hour, int)
+    band = {"hours_01_03": (hours >= 1) & (hours <= 3), "hours_04_06": (hours >= 4) & (hours <= 6)}
+    out = {"non_deciding": True, "clarification": CLARIFICATION_1_PATH,
+           "clarification_sha256": CLARIFICATION_1_SHA256,
+           "hour_band": {k: _zero_tilt_split(sw, k, m, h, t, geo, counts, score_dates, donors)
+                         for k, m in band.items()}}
+    if day_max is None:
+        out["day_max_vs_H"] = {"available": False, "outcome_defined": True}
+        return out
+    if len(day_max) != len(h):
+        out["day_max_vs_H"] = {"available": False, "outcome_defined": True, "reason": "length mismatch"}
+        return out
+    eq, ne, missing = day_max_split_masks(h, day_max)
+    out["day_max_vs_H"] = {"available": True, "outcome_defined": True, "missing_day_max": missing,
+                           "day_max_eq_H_frontal": _zero_tilt_split(sw, "day_max_eq_H", eq, h, t, geo, counts,
+                                                                    score_dates, donors),
+                           "day_max_ne_H": _zero_tilt_split(sw, "day_max_ne_H", ne, h, t, geo, counts, score_dates,
+                                                            donors)}
+    return out
+
+
+def labels_day_max(lay, row_keys):
+    """Look only (after the verdict inputs are fixed): the labels' ``settlement_high`` per row_key, or None when the
+    labels carry no such column (Clarification 1 (b) is then recorded unavailable)."""
+    require_look_gate()
+    if "settlement_high" not in lay.labels.columns:
+        return None
+    lab = lay.labels.drop_duplicates("row_key").set_index(lay.labels.drop_duplicates("row_key").row_key.astype(str))
+    return lab.settlement_high.reindex(list(row_keys)).to_numpy(float)
 
 
 def control_zero_tilt(sw, t, geo, counts, score_dates, donors):
@@ -607,7 +694,7 @@ def git_state(tree=TREE):
 
 def guards(tree=TREE):
     return {"b_manifest": check_b_manifest(tree), "b_loaded": check_b_imports(tree), "blobs": check_blobs(tree),
-            "docs": check_pinned_docs(tree), "git": git_state(tree)}
+            "docs": check_pinned_docs(tree), "clarifications": check_clarifications(tree), "git": git_state(tree)}
 
 
 def look(args, today=None):
@@ -657,7 +744,11 @@ def look(args, today=None):
     t = sc.Table(rlay, rlay.dates)
     h_by_key = {r["row_key"]: r["H"] for r in kept}
     h = np.array([h_by_key[k] for k in t.snaps.row_key.astype(str)], float)
-    stat = run_statistic(t, h)
+    try:
+        day_max = labels_day_max(rlay, t.snaps.row_key.astype(str))
+    except Exception:  # noqa: BLE001 - Clarification 1 (b): a disclosure problem never stops the look
+        day_max = None
+    stat = run_statistic(t, h, day_max=day_max)
     controls["zero_tilt"] = stat.pop("control_zero_tilt")
     if not all(c["pass"] for c in controls.values()):
         stat["label"] = UNTESTABLE + " (a control failed; master rules, freeze §7 rule (e))"
