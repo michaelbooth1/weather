@@ -11,8 +11,13 @@ S31 market-residual P0. Master's conditions (relayed 2026-10-31), each enforced 
   contract expires after 2026-09-29) is dropped without its price fields being read, and recorded.
 - **R13 archive.** Every raw response body is archived, exclusive-create and never overwritten or deleted, under
   ``--archive-root`` (default ``C:\\archive\\ruled-out\\_s31-intake\\s2_fetch``). A body holding any dropped
-  late item goes to a ``_quarantine_late`` sub-folder that nothing reads. Scratch and extracts go under
+  late item goes to a ``_quarantine_late`` sub-folder that nothing reads; a body a parser refuses (bad shape,
+  undecodable JSON) goes to ``_quarantine_refused`` with a receipt row (master F6). This archive is the one
+  permitted write root besides ``--out`` (S31 Clarification 3). Scratch and extracts go under
   ``--out``, which must lie outside the archive root.
+- **Global bound and series zones (master F5).** A candle window also ends at or before ``GLOBAL_BOUND_UTC``
+  (2026-09-30T04:00Z, the earliest city end), and each Kalshi series is bound to its city zone in code; a plan
+  declaring another zone is refused before any request.
 - **No auth.** Requests carry only ``User-Agent`` and ``Accept``. A 401/403, or a body asking for
   authentication, raises :class:`AuthRequired` and the run stops.
 - **Metadata and data endpoints only, through field allowlists A/B/C.** Hosts and paths are allowlisted; no
@@ -61,6 +66,24 @@ ALLOWED_PATHS = {
     ),
 }
 TIMEZONES = frozenset({"America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles"})
+# The earliest local end of 2026-09-29 among the market zones (EDT midnight). Every candle window ends at or
+# before it whatever zone a plan declares (master F5, 2026-10-31): never the latest city end.
+GLOBAL_BOUND_UTC = datetime(2026, 9, 30, 4, 0, tzinfo=timezone.utc)
+# Each Kalshi twin series is bound to its city's zone in code (s0-s1 inventory table). A plan that declares a
+# different zone, or a ticker outside these series, is refused before any request (master F5).
+SERIES_TZ = {
+    "KXHIGHNY": "America/New_York",      # NYC
+    "KXHIGHCHI": "America/Chicago",      # Chicago
+    "KXHIGHTATL": "America/New_York",    # Atlanta
+    "KXHIGHAUS": "America/Chicago",      # Austin
+    "KXHIGHTDAL": "America/Chicago",     # Dallas
+    "KXHIGHDEN": "America/Denver",       # Denver
+    "KXHIGHTHOU": "America/Chicago",     # Houston
+    "KXHIGHLAX": "America/Los_Angeles",  # Los Angeles
+    "KXHIGHMIA": "America/New_York",     # Miami
+    "KXHIGHTSFO": "America/Los_Angeles",  # San Francisco
+    "KXHIGHTSEA": "America/Los_Angeles",  # Seattle
+}
 
 # Allowlist A: Kalshi /markets (V0 only). Everything else, including every price, volume, open-interest,
 # result and settlement field, is dropped.
@@ -94,11 +117,35 @@ class FormatRefused(ValueError):
     """A response whose shape breaks the rule (e.g. an unexpected pairs header or pair_time format)."""
 
 
+class SeriesRefused(WindowRefused):
+    """A ticker outside the bound series, or a declared zone that differs from the series' city zone."""
+
+
 # ----------------------------------------------------------------------------------------------- date guards
 
 def global_bound_utc():
     """The earliest local end of 2026-09-29 among the US market time zones (Eastern): the strictest bound."""
-    return min(local_day_end_utc(tz, DEV_LAST) for tz in TIMEZONES)
+    bound = min(local_day_end_utc(tz, DEV_LAST) for tz in TIMEZONES)
+    if bound != GLOBAL_BOUND_UTC:
+        raise WindowRefused(f"computed bound {bound.isoformat()} disagrees with GLOBAL_BOUND_UTC")
+    return GLOBAL_BOUND_UTC
+
+
+def series_of(ticker):
+    """The bound series of an event or market ticker (the part before the first ``-``)."""
+    series = (ticker or "").split("-", 1)[0]
+    if series not in SERIES_TZ:
+        raise SeriesRefused(f"ticker {ticker!r} is not in a bound Kalshi twin series")
+    return series
+
+
+def check_series_tz(series, market_ticker, tz_name):
+    """The plan's series, the market ticker's series and the declared zone must all agree with SERIES_TZ."""
+    if series_of(market_ticker) != series:
+        raise SeriesRefused(f"market {market_ticker!r} is not in series {series!r}")
+    if SERIES_TZ[series] != tz_name:
+        raise SeriesRefused(f"series {series} is bound to {SERIES_TZ[series]}, plan declared {tz_name!r}")
+    return tz_name
 
 
 def check_target(day):
@@ -136,8 +183,8 @@ def candle_window(target, tz_name, days_before=2):
         raise WindowRefused(f"time zone {tz_name!r} not a US market zone")
     zone = ZoneInfo(tz_name)
     start = datetime.combine(target - timedelta(days=days_before), dtime(0, 0), tzinfo=zone).astimezone(timezone.utc)
-    end = local_day_end_utc(tz_name, target)
-    if end > local_day_end_utc(tz_name, DEV_LAST):
+    end = min(local_day_end_utc(tz_name, target), global_bound_utc())
+    if end > local_day_end_utc(tz_name, DEV_LAST) or end <= start:
         raise WindowRefused(f"window end {end.isoformat()} after local end of {DEV_LAST}")
     return Window(start, end)
 
@@ -232,10 +279,10 @@ class Fetcher:
         with open(self._out_path(name), "a", encoding="utf-8", newline="\n") as stream:
             stream.write(json.dumps(row, sort_keys=True) + "\n")
 
-    def _archive(self, label, body, quarantine):
+    def _archive(self, label, body, quarantine, sub=None):
         self._seq += 1
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", label)[:120]
-        folder = self.archive_root / "raw" / self.run_id / ("_quarantine_late" if quarantine else "")
+        folder = self.archive_root / "raw" / self.run_id / (sub or ("_quarantine_late" if quarantine else ""))
         folder.mkdir(parents=True, exist_ok=True)
         target = folder / f"{self._seq:05d}_{safe}"
         with open(target, "xb") as stream:  # exclusive create: never overwrite
@@ -261,6 +308,21 @@ class Fetcher:
             raise AuthRequired(f"{url} answered {status}: authentication wanted; STOP and report")
         return status, body, receipt
 
+    def parse_or_quarantine(self, receipt, body, parser, *args):
+        """Run ``parser``; a refused or undecodable body is archived to ``_quarantine_refused`` (nothing reads
+        it) and receipted before the refusal propagates as :class:`FormatRefused` (master F6)."""
+        try:
+            return parser(body, *args)
+        except ValueError as err:  # FormatRefused, JSONDecodeError, UnicodeDecodeError, float() failures
+            receipt["archive"] = self._archive(receipt["label"] + ".refused", body, quarantine=True,
+                                               sub="_quarantine_refused")
+            receipt["stop"] = "format_refused"
+            receipt["refused"] = f"{type(err).__name__}: {err}"[:500]
+            self._append("receipts.jsonl", receipt)
+            if isinstance(err, FormatRefused):
+                raise
+            raise FormatRefused(f"{receipt['url']}: body refused ({type(err).__name__})") from err
+
     def finish(self, receipt, body, dropped, extract_name, rows):
         receipt["n_kept"] = len(rows)
         receipt["n_dropped_late"] = len(dropped)
@@ -274,15 +336,17 @@ class Fetcher:
 
     # -- V0: Kalshi /markets, allowlist A ----------------------------------------------------------------
     def kalshi_markets(self, event_ticker):
+        series_of(event_ticker)
         check_target(kalshi_ticker_date(event_ticker))
         url = (f"https://{KALSHI_HOST}/trade-api/v2/markets?"
                + urllib.parse.urlencode({"event_ticker": event_ticker, "limit": 100}))
         status, body, receipt = self.get(url, f"markets_{event_ticker}.json")
-        rows = parse_markets(body, event_ticker) if status == 200 else []
+        rows = self.parse_or_quarantine(receipt, body, parse_markets, event_ticker) if status == 200 else []
         return self.finish(receipt, body, [], "v0_markets.jsonl", rows)
 
     # -- Kalshi candles, allowlist B ---------------------------------------------------------------------
     def kalshi_candles(self, series, market_ticker, tz_name, tier):
+        check_series_tz(series, market_ticker, tz_name)
         target = kalshi_ticker_date(market_ticker)
         win = candle_window(target, tz_name)
         query = urllib.parse.urlencode({"start_ts": win.start_ts, "end_ts": win.end_ts - 1, "period_interval": 1})
@@ -294,7 +358,8 @@ class Fetcher:
             raise ValueError(f"tier {tier!r}")
         status, body, receipt = self.get(f"https://{KALSHI_HOST}{path}?{query}", f"candles_{market_ticker}.json")
         receipt.update(window_start=win.start_utc.isoformat(), window_end=win.end_utc.isoformat(), tier=tier)
-        rows, dropped = parse_candles(body, market_ticker, win.end_ts) if status == 200 else ([], [])
+        rows, dropped = (self.parse_or_quarantine(receipt, body, parse_candles, market_ticker, win.end_ts)
+                         if status == 200 else ([], []))
         return self.finish(receipt, body, dropped, "kalshi_candles.jsonl", rows)
 
     # -- ForecastEx pairs, allowlist C -------------------------------------------------------------------
@@ -302,7 +367,8 @@ class Fetcher:
         check_fex_file_date(file_date)
         url = f"https://{FEX_HOST}/pairs/pairs_{file_date:%Y%m%d}.csv"
         status, body, receipt = self.get(url, f"pairs_{file_date:%Y%m%d}.csv")
-        rows, dropped = (parse_pairs(body, global_bound_utc(), pair_time_tz) if status == 200 else ([], []))
+        rows, dropped = (self.parse_or_quarantine(receipt, body, parse_pairs, global_bound_utc(), pair_time_tz)
+                         if status == 200 else ([], []))
         return self.finish(receipt, body, dropped, "fex_pairs.jsonl", rows)
 
 
@@ -401,16 +467,16 @@ def main(argv=None):
     parser.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
     parser.add_argument("--network", action="store_true", help="allow real requests (only after master's review)")
     args = parser.parse_args(argv)
-    jobs = json.loads(Path(args.plan).read_text(encoding="utf-8"))
-    fetcher = Fetcher(Path(args.out), Path(args.archive_root),
-                      transport=urllib_transport if args.network else refuse_network)
     try:
+        jobs = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+        fetcher = Fetcher(Path(args.out), Path(args.archive_root),
+                          transport=urllib_transport if args.network else refuse_network)
         run_plan(fetcher, jobs)
     except AuthRequired as err:
         print(f"STOP: {err}", file=sys.stderr)
         return 3
-    except (WindowRefused, EndpointRefused, FormatRefused) as err:
-        print(f"REFUSED: {err}", file=sys.stderr)
+    except ValueError as err:  # WindowRefused, SeriesRefused, EndpointRefused, FormatRefused, bad plan values
+        print(f"REFUSED: {type(err).__name__}: {err}", file=sys.stderr)
         return 2
     return 0
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -221,3 +222,82 @@ def test_rate_limiter_spaces_one_second():
     assert slept == [pytest.approx(0.75)]
     with pytest.raises(ValueError):
         s31.RateLimiter(min_interval=0.5)
+
+
+# ------------------------------------------------------------- master F5: global bound and series zones
+
+def test_global_bound_constant_is_earliest_city_end():
+    assert s31.GLOBAL_BOUND_UTC == datetime(2026, 9, 30, 4, 0, tzinfo=timezone.utc)
+    assert s31.global_bound_utc() == s31.GLOBAL_BOUND_UTC
+    assert set(s31.SERIES_TZ.values()) <= s31.TIMEZONES
+
+
+@pytest.mark.parametrize("tz", ["America/Chicago", "America/Denver", "America/Los_Angeles"])
+def test_wrong_declared_tz_cannot_extend_past_global_bound(tz):
+    # A New York market mis-declared as a western zone would otherwise end up to 3 h into local 09-30.
+    win = s31.candle_window(date(2026, 9, 29), tz)
+    assert win.end_utc == s31.GLOBAL_BOUND_UTC
+
+
+def test_wrong_declared_tz_for_series_refused_before_request(tmp_path):
+    fake = FakeTransport(body=b'{"candlesticks": []}')
+    fetcher = make(tmp_path, fake)
+    with pytest.raises(s31.SeriesRefused):
+        fetcher.kalshi_candles(SERIES, "KXHIGHNY-26SEP29-B72.5", "America/Los_Angeles", "live")
+    with pytest.raises(s31.SeriesRefused):
+        fetcher.kalshi_candles("KXHIGHLAX", MARKET, "America/Los_Angeles", "historical")
+    with pytest.raises(s31.SeriesRefused):
+        fetcher.kalshi_candles("KXHIGHOTHER", "KXHIGHOTHER-26SEP15-B70", TZ, "live")
+    with pytest.raises(s31.SeriesRefused):
+        fetcher.kalshi_markets("KXHIGHTCYYZ-26SEP15")
+    assert fake.calls == []
+    assert issubclass(s31.SeriesRefused, s31.WindowRefused)
+
+
+def test_correct_series_tz_late_city_still_ends_at_global_bound(tmp_path):
+    fake = FakeTransport(body=b'{"candlesticks": []}')
+    make(tmp_path, fake).kalshi_candles("KXHIGHLAX", "KXHIGHLAX-26SEP29-B80.5", "America/Los_Angeles", "live")
+    assert f"end_ts={int(s31.GLOBAL_BOUND_UTC.timestamp()) - 1}" in fake.calls[0][0]
+    assert receipts(tmp_path)[0]["window_end"] == "2026-09-30T04:00:00+00:00"
+
+
+# ------------------------------------------------------ master F6: refused bodies archived and receipted
+
+@pytest.mark.parametrize("call,body", [
+    ("markets", b"not json at all"),
+    ("candles", b'{"candlesticks": [truncated'),
+    ("pairs", b"a,b\n1,2\n"),
+    ("pairs", b"\xff\xfe\x00bad-utf8"),
+])
+def test_refused_body_quarantined_and_receipted(tmp_path, call, body):
+    fetcher = make(tmp_path, FakeTransport(body=body))
+    with pytest.raises(s31.FormatRefused):
+        if call == "markets":
+            fetcher.kalshi_markets(EVENT)
+        elif call == "candles":
+            fetcher.kalshi_candles(SERIES, MARKET, TZ, "live")
+        else:
+            fetcher.fex_pairs(date(2026, 9, 14))
+    rec = receipts(tmp_path)[0]
+    assert rec["stop"] == "format_refused" and rec["refused"]
+    assert "_quarantine_refused" in rec["archive"]
+    assert rec["archive"].startswith(str(tmp_path / "archive" / "raw" / "t" / "_quarantine_refused"))
+    assert Path(rec["archive"]).read_bytes() == body
+    assert rec["raw_sha256"] == s31.sha256_bytes(body)
+
+
+def test_main_returns_refused_on_json_decode_error(tmp_path, monkeypatch, capsys):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps([{"kind": "kalshi_markets", "event_ticker": EVENT}]), encoding="utf-8")
+    monkeypatch.setattr(s31, "refuse_network", FakeTransport(body=b"<html>not json</html>"))
+    code = s31.main(["--plan", str(plan), "--out", str(tmp_path / "out"), "--archive-root", str(tmp_path / "archive")])
+    assert code == 2
+    assert "REFUSED" in capsys.readouterr().err
+    assert receipts(tmp_path)[0]["stop"] == "format_refused"
+
+
+def test_main_refuses_bad_plan_json(tmp_path, capsys):
+    plan = tmp_path / "plan.json"
+    plan.write_text("[{not json", encoding="utf-8")
+    assert s31.main(["--plan", str(plan), "--out", str(tmp_path / "out"), "--archive-root", str(tmp_path / "a")]) == 2
+    assert "REFUSED" in capsys.readouterr().err
