@@ -82,6 +82,7 @@ accepts `<name>.gz` (`Reader.variant`). Export whichever exists, and record whic
 | `forecasts_long.csv` | C1/C3 support (`maker_plugin_sources.py:409`; lookback) | capture cut | host to fill |
 | `snapshot_explanations.jsonl` | C1/C3 support (`maker_plugin_sources.py:410`) | capture cut | host to fill |
 | `observation_payloads.jsonl` | C1/C3 support (`maker_plugin_sources.py:412`) | capture cut | host to fill |
+| `settlement.json` (if present) | Row 80 and atlas label sidecar fallback (`settlement_io.py:439`, via `resolve_market_day_label`) | none; US11 targets 10-01..10-14 only, minus Austin 10-03 | host to fill |
 | `clob_tokens.jsonl` or `clob_tokens.csv` | C1/C3 band tokens (`maker_plugin_sources.py:34`, `:218-226`) | none (token metadata) | host to fill |
 | `forecast_payloads/sha256/<2>/<hash>.json` | C1/C3 legacy bulletins (`maker_plugin_sources.py:342`). Only hashes named by exported manifest rows. | file-level: only referenced hashes | host to fill |
 | `order_books.jsonl` (gz variant), `order_books_summary.csv` (gz variant) | C2 (`fill_toxicity_desk_study.py:53-83` on `de76a4a9b67b25781c6c6f33b10691841e8630cc`) | capture cut | host to fill |
@@ -133,12 +134,26 @@ Union of 88a days: **UTC 2026-09-23..2026-10-14**. Row 80 reads no 88a.
    (`dev_scorecard_data.py:40`, refusal at `:137-150`). Both files are B-bound and read-only until 12-13. An atlas
    read of 10-01..10-14 needs either an in-process override like row 80's driver
    (`rep.py:227-235` sets `data.DEV_LAST`) or a ruling. Do not edit the files.
+   Settled in [atlas-readiness-0930-1014.md](atlas-readiness-0930-1014.md): an override alone would fail the
+   atlas positive control, so a new wrapper module is proposed. The layout builder needs one too; see
+   [row80-look-runbook.md](row80-look-runbook.md) §3.
 4. **The label recorded-time question** in §2.
 5. **The rule-6 order also binds C2 and C3.** C2 and C3 read US11 labels for targets 10-01..10-08, which are row 80
    cells, so they wait for row 80's receipt as well.
 6. **A second date guard.** `src/weather/market/maker_counterfactual_tape.py:94-95, :138, :160` keeps its own
    `RESERVED_FIRST..RESERVED_LAST` = 09-30..10-15 guard. Any consumer that goes through it still refuses. It is
    not part of C1–C3 as traced and is not edited here.
+
+7. **The tape-sha binding drops 10-14 US labels.** A ledger row that records `snapshot_tape_sha256` is honoured
+   only when the folder's `snapshots_long.csv` still has that sha (`settlement_io.py:373-387`). The capture cut
+   rewrites the 10-14 US tapes, because US evening hours fall on UTC 10-15. Those market-days then fail as
+   `folder_error` in the extract (`guidance_extract.py:483-488`) and are dropped, not replaced. The host receipt
+   should state which ledgers carry `snapshot_tape_sha256`.
+8. **The guidance extract runs on the workstation, not through the host wrapper.**
+   `scripts/ops/guidance_extract_run.ps1:97` always passes the production `data` root, which would include the
+   UTC 10-15 rows. The extract module (`weather.reporting.research.guidance_extract`) must run on the staged
+   export with `--data-root`. It is not on the `weather_heavy` allowlist, so it needs an allowlist entry or a
+   light ruling. It also needs a clean parser worktree at `2e17ce0eb`.
 
 ## 6. Delivery and receipts
 
