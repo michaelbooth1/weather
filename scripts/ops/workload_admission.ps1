@@ -620,6 +620,7 @@ function Get-WeatherWorkstationOfflineModule {
         "tools.research.morning_guidance.run",
         "tools.research.nbm_target_trace.run",
         "tools.research.nbm_target_fix",
+        "tools.research.released_window.rodc_released_p0",
         "tools.research.released_window.served_market_blocks",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",

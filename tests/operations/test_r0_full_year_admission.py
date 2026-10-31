@@ -17,6 +17,7 @@ PINNED = [
     "tools.research.morning_guidance.run",
     "tools.research.nbm_target_trace.run",
     "tools.research.nbm_target_fix",
+    "tools.research.released_window.rodc_released_p0",  # L16 R-ODC / X13 released-cell P0, ledger row 103 (10-31)
     "tools.research.released_window.served_market_blocks",  # L8 released-window served blocks, row 80 follow-on (10-31)
     "weather.backtesting.backtest",
     "weather.backtesting.replay",
