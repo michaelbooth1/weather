@@ -4,6 +4,8 @@
 [MODEL_IMPROVEMENT_METHOD](../../operations/MODEL_IMPROVEMENT_METHOD.md) §5 rule 10 and DECISION_LOG 2026-10-30
 decision (3) require before the one-time read. Master decides the read; this file does not authorise one.
 
+**Update 2026-10-31:** C1/C2 maker-economics reads closed per DL 2026-10-30; release used for row 80, the atlas and weather kill-only reads only.
+
 **How it was made.** Docs and code reads only, at canon commit `e759a55d10e31dd48559ef99b9d2959c41271fd3`
 (`claude/docs-owner-20261030`). Where a claiming text lives only on its own branch, the commit is named. No data was
 read: no label, price, snapshot, panel, 88a or settlement file. No data directory was listed.

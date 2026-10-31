@@ -31,7 +31,7 @@ never pooled across the 2026-07-31 provenance boundary.
 
 ## Model and forecast: what is established
 
-- The served in-season gap to market mid is **1.423246x [1.2426, 1.6590]**; the older clean-regime 1.24x is a different panel and must not be equated with it. EF §1. **TAINTED as a description of the model served today** (register §1 row 1): it stands only for the frozen June artifacts; no served-vs-market ratio exists for the post-10-09 path.
+- The served in-season gap to market mid is **1.423246x [1.2426, 1.6590]**; the older clean-regime 1.24x is a different panel and must not be equated with it. EF §1. **TAINTED as a description of the model served today** (register §1 row 1): it stands only for the frozen June artifacts; no served-vs-market ratio exists for the post-10-09 path. Today's served path re-based on released dates: about 1.5 at 00-16 (EF §10ao).
 - The gap is information-dominated: recalibration is bounded at **16.494%** of the gap and is not distinguishable from zero (the older 98.88% / 1.12% split is retired). EF §1c.
 - Shrinking toward the market closes the gap by construction; it locates missing information and is never an improvement or an edge. EF §1c, §5.
 - The serving floor moved the served ratio **1.6639 → 1.4980**, crossed CI [−0.3553, −0.0698]; about 2.2% of it landed in the primary window. These numbers are the positive control for any skill tracker. EF §3.

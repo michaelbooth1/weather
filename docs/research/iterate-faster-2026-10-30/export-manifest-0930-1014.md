@@ -4,6 +4,8 @@ Status: DRAFT for master's single host export. Lane L8, 2026-10-31. This is rese
 document. It was written from code and repository text only. No data file, data directory or capture host was
 read or listed.
 
+**Update 2026-10-31:** C1/C2 maker-economics reads closed per DL 2026-10-30; release used for row 80, the atlas and weather kill-only reads only.
+
 Authority: the owner's yes at about 23:5x on 2026-10-30, relayed by master. It releases 09-30..10-14 for weather
 kill-only and atlas reads, covering C1, C2 and C3. C5, C7 and the MG-2/B outputs stay excluded. Row 80's look (C4)
 is the first read. Claim ids follow `docs/research/iterate-faster-2026-10-30/claim-check-0930-1014.md` on

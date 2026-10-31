@@ -128,6 +128,7 @@ sequence numbers, not calendar dates.
 | 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market; R-S KILL at gate 2 (NBM-published spread closed) |
 | 10al | Reads 2026-10-26/27: R-U CLOSED at P0 (HRRR 3x3 spread as width closed at all hours); C10 opened, not adopted; SM-H selected for MG-3 13-15 (h15 unresolved); CS-1 P3d_H 13-16 transfers, P3d_H 07-12 does not; R-V gate 2 (a) capture-proposal PASS, (b) KILL |
 | 10an | Open-Meteo `gfs_seamless` is HRRR over the US inside HRRR's horizon (provider docs; X63 probe ~57 h): "GFS" and "HRRR" from the multimodel feed are one source; row 78 effective K 16, no verdict change; Previous Runs history composition not established |
+| 10ao | Released-window re-base of served vs market, out of sample and not countable (powered=False): R at 00-16 1.455 pre / 1.513 post, inside the dev positive-control CIs; the dev gap persists on released dates; row 101 (D) |
 
 ---
 
@@ -4724,6 +4725,24 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   "GFS" history is a time-varying blend. That is a parity question for the owning lane.
 - **Do not re-chase** the equality as a capture defect (X63).
 - **Reopen if** Open-Meteo changes seamless blending, or a capture window extends past the HRRR horizon.
+
+### 10ao. On released dates the served path's loss to the market stays about 1.5x at 00-16, inside the dev positive-control CIs: atlas re-base P1, ledger row 101 (D), 2026-10-31
+
+- **Master's text (verbatim).** "Released-window re-base, out of sample, not countable (powered=False: 9 and 5
+  dates). Served/market loss R at 00-16 = 1.455 pre and 1.513 post; all-block 1.648 / 1.514. Both sit inside the
+  dev positive-control CIs, and every pooled block CI excludes 1. The dev served-vs-market gap persists on
+  released dates. The 17-23 block is degenerate (market loss about 0 after the print). Per-market ordering is
+  unstable between strata."
+- **Support.** Rule `docs/research/iterate-faster-2026-10-30/atlas-rebase-rule-2026-10-31.md`, sha256
+  `ece56e836cee9d3bf037e0e2c0b0847bd37a7cf2d60865a1ce949c18fd772bf7` (frozen by master 2026-10-31). Receipt
+  `d3e9db76c4761007290cac3ca114d41339536a755ccf7e7eec9b0c46e0db09ca`; archive `C:\archive\ruled-out\_atlas\row101_p1\`,
+  SHA256SUMS `e378991d24d3287d5707c1d4fcd967176633bb92006492e8cb9b884334f56a4d`. P1 only: US11, local targets
+  10-01..10-14 minus Austin 10-03, strata `pre` 10-01..10-09 and `post` 10-10..10-14, never pooled. P2 and P3 are
+  NOT RUNNABLE.
+- **Reading.** Descriptive only: no candidate, no fit, not counted in the dev reuse count, and nothing here kills
+  or closes anything (rule §8). It is consistent with row 80 NOT REPLICATED, and it implies no new lever.
+- **Relation to the dev number.** The TAINTED dev ratio 1.423246x (§1) is unchanged; this section describes
+  today's served path on released dates, which that ratio cannot.
 
 ## Related
 
