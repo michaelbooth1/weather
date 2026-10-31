@@ -67,7 +67,7 @@ MG1_LAST: date | None = date(2026, 11, 28)
 MG1_RESERVED_COUNT = 45
 # module name (as run with ``python -m``) -> SHA-256 of its source bytes (LF, as checked out).
 MG1_CONFIRMATION_ENTRY_POINTS: dict[str, str] = {
-    "weather.calibration.mg1_look": "2e619d09628f6ffaf3c844f86a2a3419d32dc1f1876a580ff6faf2576bad3e62",
+    "weather.calibration.mg1_look": "16ecad3586f0d87e9f6148e4bef76630ea7727786fad7a569a431482ea70e00b",
 }
 
 

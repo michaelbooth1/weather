@@ -358,9 +358,9 @@ def outcome_blind_checks(snaps, bands, frame, shadow=None):
     if "v2_parser_version" in s:
         bad = int((used & (pd.to_numeric(s.v2_parser_version, errors="coerce").to_numpy(float) != PARSER_VERSION))
                   .sum())
-        checks["parser"] = {"pass": bad == 0, "used_not_v2": bad, "status": "checked"}
+        checks["parser"] = {"pass": bad == 0, "used_parser_not_2": bad, "status": "checked"}
     else:
-        checks["parser"] = {"pass": False, "used_not_v2": None, "status": "no v2_parser_version column"}
+        checks["parser"] = {"pass": False, "used_parser_not_2": None, "status": "no v2_parser_version column"}
     checks["replay"] = replay_check(frame, shadow)
     # PROVISIONAL (A7): no code can prove the absence of an earlier outcome join; master attests it in the look log.
     checks["window_leakage"] = {"pass": True, "status": "attested in the look log by master; not provable in code"}
