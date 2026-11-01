@@ -28,7 +28,7 @@ PATTERN = re.compile(r"core\.hookspath|--no-verify", re.IGNORECASE)
 # predates the ratchet; none of them commits to a real repository.
 _READ_ONLY = "pre-existing; read-only git plumbing (status/rev-parse/ls-files), never commits"
 LEGACY: dict[tuple[str, str], str] = {
-    ("scripts/ops/bounded_worktree_test_suite.ps1", '"-c", "core.hooksPath=NUL"'): _READ_ONLY,
+    ("scripts/ops/bounded_worktree_test_suite.ps1", '"-c", "core.hooksPath=NUL",'): _READ_ONLY,
     ("scripts/ops/workstation_pregate.ps1",
      "$rows = @(& $GitExe -c core.fsmonitor=false -c core.hooksPath=NUL @Arguments 2>&1 |"): _READ_ONLY,
     ("scripts/ops/international_live_templates/stage0.py.tmpl", 'f"core.hooksPath={os.devnull}",'):
