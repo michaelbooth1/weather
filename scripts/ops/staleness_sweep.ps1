@@ -241,15 +241,25 @@ function Get-WeatherTaskResults {
     }
     catch { $failures.Add(('scheduled_tasks.json unreadable: {0}' -f $_.Exception.Message)) }
     foreach ($n in @($ExtraNames)) { if ($n -and -not $names.Contains([string]$n)) { $names.Add([string]$n) } }
+    # One enumeration (under a second on a typical host) instead of one CIM query per name;
+    # a per-name query of an unregistered task costs about half a second to fail.
+    $byName = @{}
+    $listed = $true
+    try {
+        foreach ($t in @(Get-ScheduledTask -ErrorAction Stop)) {
+            $key = [string]$t.TaskName
+            if ($key -and -not $byName.ContainsKey($key)) { $byName[$key] = $t }
+        }
+    }
+    catch {
+        $listed = $false
+        $failures.Add(('task list unreadable: {0}' -f $_.Exception.Message))
+    }
     foreach ($name in $names) {
         $row = [ordered]@{ name = $name; last_run_utc = $null; result_hex = $null; state = $null }
         try {
-            $task = $null
-            try { $task = @(Get-ScheduledTask -TaskName $name -ErrorAction Stop) | Select-Object -First 1 }
-            catch {
-                if ([string]$_.CategoryInfo.Category -ne 'ObjectNotFound') { throw }
-                $task = $null
-            }
+            if (-not $listed) { $rows.Add([pscustomobject]$row); continue }
+            $task = if ($byName.ContainsKey($name)) { $byName[$name] } else { $null }
             if ($null -eq $task) { $row.state = 'NotRegistered' }
             else {
                 $row.state = [string]$task.State
@@ -268,7 +278,7 @@ function Get-WeatherTaskResults {
         catch { $failures.Add(('{0}: {1}' -f $name, $_.Exception.Message)) }
         $rows.Add([pscustomobject]$row)
     }
-    return [pscustomobject]@{ rows = @($rows); failures = @($failures) }
+    return [pscustomobject]@{ rows = $rows.ToArray(); failures = $failures.ToArray() }
 }
 
 # ---- reward producer: required even before registration ----

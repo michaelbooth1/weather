@@ -355,17 +355,17 @@ $shipped=@($knownCriticals | ForEach-Object {
 
 TASK_STUBS = """
 function Get-ScheduledTask {
-  [CmdletBinding()] param([string]$TaskName)
-  switch($TaskName){
-    'TaskReady' { [pscustomobject]@{TaskName=$TaskName;State='Ready'} }
-    'TaskNever' { [pscustomobject]@{TaskName=$TaskName;State='Disabled'} }
-    'TaskDenied' { throw [System.UnauthorizedAccessException]'access denied' }
-    default { Write-Error -Message "No MSFT_ScheduledTask objects found" -Category ObjectNotFound }
-  }
+  [CmdletBinding()] param()
+  if($env:R18_LIST_FAILS){ throw [System.UnauthorizedAccessException]'access denied' }
+  [pscustomobject]@{TaskName='TaskReady';State='Ready'}
+  [pscustomobject]@{TaskName='TaskNever';State='Disabled'}
+  [pscustomobject]@{TaskName='TaskDenied';State='Ready'}
+  [pscustomobject]@{TaskName='Unrelated';State='Ready'}
 }
 function Get-ScheduledTaskInfo {
   [CmdletBinding()] param([Parameter(ValueFromPipeline=$true)]$InputObject)
   process {
+    if($InputObject.TaskName -eq 'TaskDenied'){ throw [System.UnauthorizedAccessException]'access denied' }
     if($InputObject.TaskName -eq 'TaskNever'){ [pscustomobject]@{LastRunTime=[datetime]'1999-11-30';LastTaskResult=267011} }
     else { [pscustomobject]@{LastRunTime=[datetime]::SpecifyKind([datetime]'2026-08-13T01:00:00',[DateTimeKind]::Utc);LastTaskResult=-2147024891} }
   }
@@ -374,11 +374,12 @@ function Get-ScheduledTaskInfo {
 
 
 @pytest.mark.spawns
-@pytest.mark.parametrize("case", ["tasks", "unreadable"])
+@pytest.mark.parametrize("case", ["tasks", "unreadable", "list_fails"])
 def test_task_results_snapshot_never_aborts(case, tmp_path):
     config = {"tasks": [{"name": n} for n in ["TaskReady", "TaskNever", "TaskAbsent", "TaskDenied"]]}
-    (tmp_path / "tasks.json").write_text(json.dumps(config) if case == "tasks" else "{truncated", encoding="utf-8")
-    result = ps("staleness_sweep.ps1", ["Get-WeatherTaskResults"], TASK_STUBS + """
+    (tmp_path / "tasks.json").write_text(json.dumps(config) if case != "unreadable" else "{truncated", encoding="utf-8")
+    result = ps("staleness_sweep.ps1", ["Get-WeatherTaskResults"], TASK_STUBS + f"""
+$env:R18_LIST_FAILS='{'1' if case == 'list_fails' else ''}'
 Get-WeatherTaskResults -ConfigPath (Join-Path $root 'tasks.json') -ExtraNames @('TaskReady','TaskExtra') | ConvertTo-Json -Depth 4 -Compress
 """, tmp_path)
     assert result.returncode == 0, result.stderr
@@ -389,11 +390,15 @@ Get-WeatherTaskResults -ConfigPath (Join-Path $root 'tasks.json') -ExtraNames @(
         assert list(rows) == ["TaskReady", "TaskExtra"]
         return
     assert list(rows) == ["TaskReady", "TaskNever", "TaskAbsent", "TaskDenied", "TaskExtra"]
+    if case == "list_fails":
+        assert payload["failures"] == ["task list unreadable: access denied"]
+        assert all(row["state"] is None and row["last_run_utc"] is None for row in rows.values())
+        return
     assert rows["TaskReady"] == {"name": "TaskReady", "last_run_utc": "2026-08-13T01:00:00.0000000Z",
                                  "result_hex": "0x80070005", "state": "Ready"}
     assert rows["TaskNever"]["last_run_utc"] is None and rows["TaskNever"]["result_hex"] == "0x41303"
     assert rows["TaskAbsent"]["state"] == "NotRegistered" and rows["TaskExtra"]["state"] == "NotRegistered"
-    assert rows["TaskDenied"]["state"] is None
+    assert rows["TaskDenied"]["state"] == "Ready" and rows["TaskDenied"]["result_hex"] is None
     assert len(payload["failures"]) == 1 and payload["failures"][0].startswith("TaskDenied:")
     text = SWEEP.read_text(encoding="utf-8-sig")
     assert "Get-WinEvent" not in text and "Get-EventLog" not in text
