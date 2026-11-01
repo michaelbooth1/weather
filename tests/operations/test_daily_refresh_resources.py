@@ -845,10 +845,10 @@ class TestDailyRefreshResources(unittest.TestCase):
         retry = record["pre_step_transient_retry"]
         self.assertEqual(retry["policy"], "pre_step_transient_capture_degradation_retry")
         self.assertEqual(retry["outcome"], "recovered")
-        self.assertEqual(retry["recheck_count"], 1)
+        self.assertEqual(retry["recheck_count"], 2)
         self.assertEqual(retry["initial"]["decision"], "DEFER")
         self.assertNotIn("post_step_transient_retry", record)
-        self.assertEqual(self._sleeps, [30.0])
+        self.assertEqual(self._sleeps, [30.0, 30.0])
         self.assertFalse(payload["terminal"])
 
     def test_transient_prestep_degradation_that_persists_defers_at_the_bound(self):
