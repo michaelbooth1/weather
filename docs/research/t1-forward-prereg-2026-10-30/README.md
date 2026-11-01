@@ -1,6 +1,6 @@
 # T+1 forward test: day-ahead NBM NBP, ECMWF ENS and their blend vs the T+1 market (lane L3)
 
-**Status: DRAFT, not frozen (rev 9).** It freezes only when P1, P2 and P3 all hold (section 8). P1 (the WS T+1
+**Status: DRAFT, not frozen (rev 10).** It freezes only when P1, P2 and P3 all hold (section 8). P1 (the WS T+1
 price recorder's horizon +1 coverage on 3 consecutive closed UTC days) is expected once UTC day 2026-11-02 closes
 (2026-11-03 00:00Z). P2 is expected about 2026-11-02 19:47Z. P3 (the emitter) is not built. So the freeze is no
 earlier than 2026-11-03. The freeze commit pins this file's sha256 in a new ledger row, which is
@@ -32,7 +32,7 @@ after the coordinator has been told; the lane never freezes on its own.
 - Rev 8 adds the null simulation (master ruling 2026-10-30): the rule as applied, with futility, has a
   false-PASS rate of 0.021 at ρ 0.28 (≤ 0.025, so no rule change) and 0.033 at the ρ 0.5 stress case (reported,
   not a gate). N, δ_s and power are unchanged (section 7).
-- Rev 9 (this file, master approval 2026-11-01 of items (a)-(d), no split freeze) is a pre-freeze edit. It makes these
+- Rev 9 (master approval 2026-11-01 of items (a)-(d), no split freeze) is a pre-freeze edit. It makes these
   changes. Still NOT frozen.
   - **P1 redefined** as horizon +1 coverage per market, read from the cycle reason codes (section 8). **What triggered
     it is a recorder-coverage pattern and nothing else.** Under rev 8's wording, P1 could never pass. The only
@@ -55,6 +55,10 @@ after the coordinator has been told; the lane never freezes on its own.
   - The emitter (P3) is not part of rev 9.
   - Typographic fix: the two simulation output paths in section 7 had a literal tab (and, in one, a line break)
     where the path \t belonged. They now read C:\t\l3t1sim\... No sha changes.
+- Rev 10 (2026-11-01, pre-freeze, state review 2026-11-01 item 13) changes section 8 only: a look-order rule on shared
+  dates (claims rank by freeze time), row 72 and F8-MH added to the claiming list, MG-3 removed (dropped by
+  DECISION_LOG 2026-10-30), and the first readable look restated. No arm, N, δ_s, gate or simulation changes. Still
+  NOT frozen.
 
 This is a dated research draft, not canonical guidance.
 
@@ -370,18 +374,30 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - The first target date is the first T whose whole capture day D starts after the freeze commit.
   - A1 and A3 read NBM station guidance into band probabilities, so their dates inside MG-1's reserved window are also
     claimed by MG-1. That changes when they may be read, not whether they accrue.
-- **Look schedule (rules 8 and 9, master ruling 2026-10-30).** T+1 needs labels, and its dates are claimed by B and
-  (A1/A3) MG-1 through 12-12, and by PT-1 from its D0 (about 12-12..01-25, once bound). So:
-  1. **First readable look:** the first date after B's 12-13 look. About 40 scored dates become readable at once.
+- **Look order on shared dates (rule 9 as this test applies it; rev 10, state review 2026-11-01 item 13).** Claims on
+  a date rank by freeze time. T+1 freezes after every test listed below, so it never reads a date before every
+  earlier-frozen claimant of that date has taken its look. A claim binds only over its own scope (markets, dates and
+  inputs): MG-1's claim, for example, covers only NBM-derived reads, which is why it binds A1 and A3 and not A2.
+  Where the scope of a claim cannot be shown not to intersect ours, it is treated as intersecting. This is
+  self-binding on T+1; it widens no other test's rights. Method rule 9 itself is master's to amend.
+- **Look schedule (rules 8 and 9, master ruling 2026-10-30; rev 10).** T+1 needs labels, and its dates are claimed by
+  B and (A1/A3) MG-1 through 12-12, by row 72 (R-ODC, about 10-31..12-14), by F8-MH (11-02..01-25, one look 01-26
+  after PT-1's), and by PT-1 from its D0 (about 12-12..01-25, once bound). So:
+  1. **First readable look:** the first date after the last look of every claimant of the dates it reads: B's 12-13
+     look, MG-1's look (A1/A3) and row 72's recorded look. Dates claimed by F8-MH or PT-1 are not read at this
+     look. If F8-MH's claim intersects all of T+1's accrued dates, nothing is readable before 01-26 and the first
+     readable look merges into the final look. Otherwise up to about 40 scored dates become readable at once.
      This is where the futility path runs: the 7, 14 and 21 looks are applied there along the date-ordered path,
      and the 31-date look is the one that actually binds. **The 7/14/21 looks cannot run earlier.** No PASS here.
-     Dates claimed by PT-1 are not read at this look.
-  2. **Final look:** no earlier than 82 countable dates AND after PT-1's look (about late January or early
-     February 2027 if PT-1 binds as drafted). The verdict is read only here.
+  2. **Final look:** no earlier than 82 countable dates AND after the looks of PT-1 and F8-MH (F8-MH 01-26; about
+     late January or early February 2027 if PT-1 binds as drafted). The verdict is read only here.
   Each look comes strictly after the last look of every test that claims any of the dates it reads:
   - B (look 12-13);
   - MG-1 for A1 and A3;
-  - any other test in the look chain (L6_G, MG-3, PT-1) whose claimed dates intersect ours.
+  - row 72 (R-ODC P1, D0 10-31);
+  - F8-MH (frozen, D0 11-02, look 01-26);
+  - any other test in the look chain (L6_G, PT-1) whose claimed dates intersect ours.
+  MG-3 is not a claimant: DECISION_LOG 2026-10-30 dropped it.
 
   The freeze row lists those tests by name and fixes the final look as the later of two dates: the day after the
   last of their recorded looks, and the date by which 82 countable dates have accrued. If a claiming test's look moves later,
