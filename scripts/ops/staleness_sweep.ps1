@@ -41,6 +41,8 @@ $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 if (-not $JsonOut) { $JsonOut = Join-Path $repo "data\alerts\staleness_sweep.jsonl" }
 if (-not $MarkdownOut) { $MarkdownOut = Join-Path $repo "data\alerts\STALENESS_SWEEP.md" }
 $now = Get-Date
+# File ages use UTC on both sides; a local LastWriteTime is off by up to an hour across DST.
+$nowUtc = [DateTime]::UtcNow
 $findings = @()
 
 function Add-Finding($name, $severity, $detail, $why, $ageDays, $limitDays) {
@@ -56,7 +58,7 @@ function Test-FileAge($name, $relPath, $warnDays, $critDays, $why) {
     if (-not (Test-Path -LiteralPath $path)) {
         Add-Finding $name "CRITICAL" "missing: $relPath" $why $null $warnDays; return
     }
-    $age = ($now - (Get-Item -LiteralPath $path).LastWriteTime).TotalDays
+    $age = ($nowUtc - (Get-Item -LiteralPath $path).LastWriteTimeUtc).TotalDays
     $sev = if ($age -gt $critDays) { "CRITICAL" } elseif ($age -gt $warnDays) { "WARN" } else { "OK" }
     Add-Finding $name $sev ("{0} is {1:N1}d old" -f $relPath, $age) $why $age $warnDays
 }
@@ -245,7 +247,7 @@ foreach ($name in $closureFiles.Keys) {
     $parsed = Get-ClosureStatus $p
     if (-not $parsed) { $closureState[$name] = $null; continue }
     $closureState[$name] = [PSCustomObject]@{
-        Age          = ($now - (Get-Item -LiteralPath $p).LastWriteTime).TotalDays
+        Age          = ($nowUtc - (Get-Item -LiteralPath $p).LastWriteTimeUtc).TotalDays
         Scope        = $parsed.Scope
         State        = $parsed.State
         EnsureStatus = $parsed.EnsureStatus
@@ -312,7 +314,7 @@ Add-Finding "chain/daily_refresh_report" $stageA.severity $stageA.detail `
 # Not a bug on its own -- but an artifact serving a season it never trained on is (see 4b/2).
 $hgb = Join-Path $repo "artifacts\models\hgb\feature_model_hgb.pkl"
 if (Test-Path -LiteralPath $hgb) {
-    $age = ($now - (Get-Item -LiteralPath $hgb).LastWriteTime).TotalDays
+    $age = ($nowUtc - (Get-Item -LiteralPath $hgb).LastWriteTimeUtc).TotalDays
     $sev = if ($age -gt 60) { "WARN" } else { "OK" }
     Add-Finding "model/serving_artifact_age" $sev ("feature_model_hgb.pkl fitted {0:N0}d ago" -f $age) `
         "measured -1.0193 C-eq cool out-of-season vs -0.1848 in-season; age is the proxy for seasonal distance from its training window" $age 60
@@ -520,7 +522,7 @@ if ($opsDocs.Count -gt 0) {
 # because it will be believed; and it stops being readable the moment it starts accreting.
 $sop = Join-Path $repo "docs\operations\STATE_OF_PLAY.md"
 if (Test-Path -LiteralPath $sop) {
-    $age = ($now - (Get-Item -LiteralPath $sop).LastWriteTime).TotalDays
+    $age = ($nowUtc - (Get-Item -LiteralPath $sop).LastWriteTimeUtc).TotalDays
     $lines = @(Get-Content -LiteralPath $sop).Count
     $sev = if ($age -gt 14) { "CRITICAL" } elseif ($age -gt 5) { "WARN" } else { "OK" }
     Add-Finding "docs/state_of_play_age" $sev ("STATE_OF_PLAY.md is {0:N1}d old" -f $age) `
