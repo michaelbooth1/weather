@@ -88,7 +88,7 @@ try {
     if ((Invoke-Generator $worktree @("--check")) -ne 0) { throw "refused: strict --check fails after regeneration" }
 
     Invoke-Git $worktree @("add", "--all", "--", "docs/roadmap/correspondence-index.md", "docs/roadmap/correspondence-index") | Out-Null
-    Invoke-Git $worktree @("-c", "core.hooksPath=", "commit", "--quiet", "-m",
+    Invoke-Git $worktree @("commit", "--quiet", "-m",
         "docs(roadmap): regenerate the correspondence index after landings (closeout)") | Out-Null
     $tip = ([string]@(Invoke-Git $worktree @("rev-parse", "HEAD"))[0]).ToLowerInvariant()
     $tree = [string]@(Invoke-Git $worktree @("rev-parse", "HEAD^{tree}"))[0]
