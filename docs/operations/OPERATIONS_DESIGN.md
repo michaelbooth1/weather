@@ -613,7 +613,8 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   first clean sample. The outcome (`recovered`, `still_degraded`, `deadline_exhausted`,
   `non_transient_blocker`) and every sample are recorded as `post_step_transient_retry` in the step's
   `resource_execution`. Inactive loops, stale or missing heartbeats, any other degraded reason and any
-  memory/commit blocker still defer immediately.
+  memory/commit blocker still defer immediately. The pre-step admission uses the same re-sample (since
+  2026-11-01), recorded as `pre_step_transient_retry`; on a still-blocked outcome the step defers unstarted.
 - **The commit gate is relative to the live commit limit.** Stage A refuses above
   `DEFAULT_STAGE_A_MAX_COMMIT_PERCENT` (70, `daily_refresh_resources.py`; the CLI may only lower it) of the
   host's *current* commit limit, which moves with pagefile size. Never reason from a remembered limit. Read the
