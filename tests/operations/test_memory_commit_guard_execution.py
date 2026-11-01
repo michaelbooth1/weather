@@ -637,10 +637,12 @@ def test_exec_leased_work_stays_admitted_and_unleased_work_does_not(tmp_path: Pa
     assert mixed["status"]["action"] == "killed_agent_member_pid_7300009"
     assert "unadmitted member of a leased tool tree" in mixed["log"]
 
-    # A partly admitted leased tree holds one slot, not two, and is not itself a
-    # concurrency target: only the other tree is reaped; the sibling waits for the window rule.
+    # A partly admitted leased tree holds one slot for its admitted work; its unadmitted
+    # sibling competes for the rest and loses (no slot left), and so does the other tree.
+    # The leased wrapper and its pytest child survive.
     night_mixed = outcome["night_mixed"]
-    assert set(night_mixed["stopped"]) == {7_300_103, 7_300_105, 7_300_107}
+    assert set(night_mixed["stopped"]) == {7_300_009, 7_300_103, 7_300_105, 7_300_107}
+    assert "killed_agent_member_pid_7300009" in night_mixed["status"]["actions"]
 
     # Inside the window the admitted tree holds the single slot, so the unleased tree is
     # reaped although it is OLDER (the age-only rule would have kept it).
@@ -684,6 +686,9 @@ BOUNDED_SUITE = (
     r"powershell.exe -NoProfile -ExecutionPolicy Bypass -File "
     r"C:\weather\scripts\ops\bounded_worktree_test_suite.ps1 -WorktreePath C:\wt\x"
 )
+
+
+CONHOST = r"\??\C:\WINDOWS\system32\conhost.exe 0xffffffff -ForceV1"
 
 
 def _lock(pid: int, *, age: float, file: str = "heavy_workload.lock") -> dict:
@@ -1024,6 +1029,7 @@ def test_exec_commit_emergency_spares_lease_owners_and_their_parents(tmp_path: P
         _proc(base + 1, "claude.exe", CLAUDE, age=300),
         _proc(base + 3, "powershell.exe", TRAINING_WINDOW, age=60, ppid=base + 1),
         _proc(base + 5, "node.exe", r"node C:\scratch\big.js", age=30, private=9 * GIB, ppid=base + 3),
+        _proc(base + 7, "conhost.exe", CONHOST, age=60, private=5 * MIB, ppid=base + 3),
     ]
     parent = 7_930_100
     # claude.exe -> python tools\run_suite.py (9 GiB) -> bounded suite (owner).
@@ -1047,6 +1053,14 @@ def test_exec_commit_emergency_spares_lease_owners_and_their_parents(tmp_path: P
                 leases=[_lock(parent + 5, age=29)],
             ),
             _scenario(tmp_path, "python_unleased", now=night, commit=95.0, processes=python_parent),
+            _scenario(
+                tmp_path,
+                "python_detached",
+                now=night,
+                commit=95.0,
+                processes=[dict(row, ppid=GONE) if row["pid"] == parent + 3 else row for row in python_parent[1:]],
+                leases=[_lock(parent + 5, age=29)],
+            ),
         ],
     )
 
@@ -1059,10 +1073,79 @@ def test_exec_commit_emergency_spares_lease_owners_and_their_parents(tmp_path: P
     assert base + 5 in unleased_row["stopped"]
     assert unleased_row["status"]["actions"] == [f"killed_agent_tree_pid_{base + 1}"]
 
+    # Re-review N1: the 9 GiB parent that launched the owner is stopped alone; the owner
+    # (orphaned) is not. The budget rule reaches it first, as a heavy script python.
     python_row = outcome["python_parent"]
-    assert python_row["stopped"] == []
-    assert "launched a heavy-workload lease owner" in python_row["log"], python_row["log"].splitlines()
+    assert python_row["stopped"] == [parent + 3]
+    assert python_row["status"]["actions"] == [f"killed_agent_ancestor_pid_{parent + 3}"]
+    assert "its subtree is left running" in python_row["log"]
+
+    # Outside any agent tree only the 92% rule sees it: still the single process.
+    detached_row = outcome["python_detached"]
+    assert detached_row["stopped"] == [parent + 3]
+    assert detached_row["status"]["actions"] == [f"killed_python_ancestor_pid_{parent + 3}"]
 
     # Without the lease the same python is the emergency target.
     python_unleased = outcome["python_unleased"]
     assert parent + 3 in python_unleased["stopped"]
+
+
+def test_exec_console_hosts_and_capture_children_are_never_lease_branch_targets(tmp_path: Path) -> None:
+    """Re-review N2/N3: a conhost kill would end the owner's console; capture children are kept."""
+    base = 7_940_000
+    retrain = f"{VENV_PY} -m weather.operations.nightly_retrain --all"
+    # The owner itself holds the memory; its console host and a small job hang off it.
+    owner_hog = [
+        _proc(base + 1, "claude.exe", CLAUDE, age=300),
+        _proc(base + 3, "bash.exe", GIT_BASH.format(command="powershell -File training_window.ps1"), age=61, ppid=base + 1),
+        _proc(base + 5, "powershell.exe", TRAINING_WINDOW, age=60, private=9 * GIB, ppid=base + 3),
+        _proc(base + 7, "conhost.exe", CONHOST, age=60, private=5 * MIB, ppid=base + 5),
+        _proc(base + 9, "python.exe", f'{VENV_PY} -c "run()"', age=10, ppid=base + 5),
+    ]
+    capture = 7_940_100
+    # A 7 GiB capture child restored by training_window, a 1.5 GiB stray, a small retrain.
+    with_capture = [
+        _proc(capture + 1, "claude.exe", CLAUDE, age=300),
+        _proc(capture + 3, "bash.exe", GIT_BASH.format(command="powershell -File training_window.ps1"), age=61, ppid=capture + 1),
+        _proc(capture + 5, "powershell.exe", TRAINING_WINDOW, age=60, ppid=capture + 3),
+        _proc(capture + 7, "python.exe", retrain, age=59, ppid=capture + 5),
+        _proc(capture + 9, "node.exe", r"node C:\scratch\big.js", age=30, private=1536 * MIB, ppid=capture + 3),
+        _proc(
+            capture + 11,
+            "pythonw.exe",
+            f"{VENV_PY} -m weather.collection.snapshot_tracker --ensure",
+            age=5,
+            private=7 * GIB,
+            ppid=capture + 5,
+        ),
+        _proc(capture + 13, "conhost.exe", CONHOST, age=60, private=5 * MIB, ppid=capture + 3),
+    ]
+    night = "2026-11-01T02:00:00"
+    owner_lease = [_lock(base + 5, age=60)]
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "owner_hog", now=night, commit=50.0, processes=owner_hog, leases=owner_lease),
+            _scenario(tmp_path, "owner_hog_critical", now=night, commit=95.0, processes=owner_hog, leases=owner_lease),
+            _scenario(
+                tmp_path,
+                "with_capture",
+                now=night,
+                commit=50.0,
+                processes=with_capture,
+                leases=[_lock(capture + 5, age=60)],
+            ),
+        ],
+    )
+
+    # Nothing off the spine could bring the tree under budget and the hog is the owner:
+    # CRITICAL, nothing stopped (neither the conhost nor the small job is sacrificed).
+    for name in ("owner_hog", "owner_hog_critical"):
+        row = outcome[name]
+        assert row["stopped"] == [], name
+        assert "spared" in row["log"], name
+
+    # The governed capture child is not eligible below the budget; the stray is enough.
+    captured = outcome["with_capture"]
+    assert captured["stopped"] == [capture + 9]
+    assert captured["status"]["actions"] == [f"killed_agent_member_pid_{capture + 9}"]

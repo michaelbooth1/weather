@@ -582,8 +582,9 @@ Stage-A, workstation or live authority is added.
    That covers `workstation_heavy.ps1`, the bounded suite, `training_window.ps1`
    and one-off lease wrappers, including when a script, `py` or a git hook
    launched the wrapper. Each tree holding a live lease owner takes exactly one
-   in-window slot first, even when it also has unadmitted members, and is never a
-   concurrency target itself.
+   in-window slot first for its admitted work; its unadmitted heavy members, if
+   any, compete with the other trees for the remaining slots, oldest first, and a
+   losing leased tree loses only those members.
    The guard reads only the lock files of **its own checkout** plus the
    host-global state files: a lease taken against another checkout or worktree
    is invisible to it unless that profile also writes the host-global record.
@@ -598,18 +599,28 @@ Stage-A, workstation or live authority is added.
    (budget kills then stop heavy members only). An older empty or unparseable
    file is stale and ignored.
    **No guard rule terminates a tree that contains a live lease owner as a
-   whole, nor the owner, its ancestors or the agent root.** Window and
-   concurrency rules stop only unadmitted heavy member subtrees. Over the budget,
-   the guard stops the largest subtrees hanging off the owner's spine (the tree
-   root, each owner and the owner's ancestors), of any process type, until the
-   rest is under budget, so the real hog dies rather than an innocent heavy
-   chunk, and the owner's `finally` (lease release, `training_window`
-   re-enabling capture) still runs. The commit-92% emergency path below spares
-   owners the same way: a Python process whose subtree holds a lease owner is
-   not a candidate, and an agent tree holding an owner offers only its largest
-   subtree off the spine. Known limitation: release leaves the repository lock
-   record on disk (it has no released field), so a former owner that keeps
-   running after release still admits its subtree until it exits.
+   whole, nor the owner or the agent root,** and never a console host
+   (`conhost.exe`, `OpenConsole.exe`), whose termination would end every process
+   on its console, the owner included. Window and concurrency rules stop only
+   unadmitted heavy member subtrees. Over the budget, if the subtrees hanging off
+   the owner's spine (the tree root, each owner and the owner's ancestors) could
+   bring the tree under budget, the guard stops them largest first, of any
+   process type, until it is; a subtree holding a governed `-m weather.*` process
+   (such as capture children restored by `training_window`) is eligible only
+   when it alone reaches the budget. If they could not, the memory sits on the
+   spine: the guard stops the spine's single largest process alone, never its
+   subtree (a parent such as `python toolsun_suite.py` that launched the lease
+   wrapper; the owner is orphaned but runs on, and its `finally` (lease release,
+   `training_window` re-enabling capture) still runs). When that largest process
+   is a lease owner itself, the guard logs CRITICAL and spares it. The
+   commit-92% emergency path below follows the same rules: a Python process
+   whose subtree holds a lease owner is stopped alone, never with its subtree (an
+   owner itself is spared), and an agent tree holding an owner offers its largest
+   off-spine subtree only if that subtree reaches the budget, otherwise its
+   spine's largest non-owner process alone if that reaches the budget. Known
+   limitation: release leaves the repository lock record on disk (it has no
+   released field), so a former owner that keeps running after release still
+   admits its subtree until it exits.
    An agent-owned tool tree without a lease owner is independently terminated
    when its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands

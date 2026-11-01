@@ -436,9 +436,12 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot, [da
             })
         }
         catch {
-            # A parsed record with an unusable identity falls back to the PID rule.
+            # A parsed record with an unusable identity falls back to the PID rule; a
+            # pid that did not even convert (overflow) names no process at all.
             while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
-            $owners.Add([pscustomobject]@{ Pid = $ownerPid; CreationUtc = $null; NotAfterUtc = $writtenUtc; Source = $candidate.Kind })
+            if ($ownerPid -ne 0) {
+                $owners.Add([pscustomobject]@{ Pid = $ownerPid; CreationUtc = $null; NotAfterUtc = $writtenUtc; Source = $candidate.Kind })
+            }
         }
     }
     return [pscustomobject]@{ Owners = $owners.ToArray(); Unreadable = $unreadable.ToArray() }
@@ -492,18 +495,20 @@ function Test-AgentLeaseAdmitted($ProcessRow, $ProcessByPid, $AllProcesses, $Lea
     return (Test-AgentTreeHasLeaseOwner $ProcessRow $AllProcesses $LeaseOwners)
 }
 
-function Get-AgentLeaseBranches($RootRow, $AllProcesses, $ProcessByPid, $RuntimeByPid, $LeaseOwners) {
-    # Disjoint subtrees hanging off the protected spine of a tree that holds a live
-    # lease owner. The spine is the tree root plus every owner and each owner's
-    # verified ancestors inside the tree; nothing on it is ever returned, so the
-    # owner, its parents and the agent root survive whatever is stopped. Returned
-    # largest first by aggregate private bytes, any process type.
-    $tree = @(Get-ProcessTreeRows $RootRow $AllProcesses)
+function Test-AgentConsoleHost($ProcessRow) {
+    # Stopping a console host ends every process attached to its console, which
+    # can include a lease owner elsewhere in the tree: never a stop target here.
+    return ([string]$ProcessRow.Name).ToLowerInvariant() -in @('conhost.exe', 'openconsole.exe')
+}
+
+function Get-AgentLeaseSpine($RootRow, $Tree, $ProcessByPid, $LeaseOwners) {
+    # The protected spine of a tree holding a live lease owner: the tree root plus
+    # every owner and each owner's verified ancestors inside the tree.
     $inTree = @{}
-    foreach ($row in $tree) { $inTree[[uint32]$row.ProcessId] = $row }
+    foreach ($row in $Tree) { $inTree[[uint32]$row.ProcessId] = $row }
     $spine = @{}
     $spine[[uint32]$RootRow.ProcessId] = $true
-    foreach ($row in $tree) {
+    foreach ($row in $Tree) {
         if (-not (Test-AgentLeaseOwnerRow $row $LeaseOwners)) { continue }
         $current = $row
         for ($depth = 0; $depth -lt 64 -and $null -ne $current; $depth++) {
@@ -518,17 +523,52 @@ function Get-AgentLeaseBranches($RootRow, $AllProcesses, $ProcessByPid, $Runtime
             $current = $parent
         }
     }
+    return $spine
+}
+
+function Get-AgentLeaseBranches($RootRow, $AllProcesses, $ProcessByPid, $RuntimeByPid, $LeaseOwners) {
+    # Disjoint subtrees hanging off the protected spine (see Get-AgentLeaseSpine);
+    # nothing on it is ever returned, so the owner, its parents and the tree root
+    # survive whatever is stopped. Console hosts are never returned. Governed is
+    # true when the subtree holds a governed `-m weather.*` process (capture
+    # children restored by training_window, for example). Largest first by
+    # aggregate private bytes, any process type.
+    $tree = @(Get-ProcessTreeRows $RootRow $AllProcesses)
+    $spine = Get-AgentLeaseSpine $RootRow $tree $ProcessByPid $LeaseOwners
     $branches = New-Object System.Collections.Generic.List[object]
     foreach ($row in $tree) {
         $rowId = [uint32]$row.ProcessId
         if ($spine.ContainsKey($rowId)) { continue }
         if (-not $spine.ContainsKey([uint32]$row.ParentProcessId)) { continue }
+        if (Test-AgentConsoleHost $row) { continue }
         $branches.Add([pscustomobject]@{
             Row = $row
             Bytes = [long](Get-ProcessTreePrivateBytes $row $AllProcesses $RuntimeByPid)
+            Governed = (@(Get-ProcessTreeRows $row $AllProcesses | Where-Object { Test-GovernedWeatherProcess $_ }).Count -gt 0)
         })
     }
     return @($branches.ToArray() | Sort-Object @{ Expression = { $_.Bytes }; Descending = $true }, @{ Expression = { [uint32]$_.Row.ProcessId } })
+}
+
+function Get-AgentLeaseSpineHog($RootRow, $AllProcesses, $ProcessByPid, $RuntimeByPid, $LeaseOwners) {
+    # The single spine process holding the most private bytes (agent roots and
+    # console hosts excluded), with whether it is itself a lease owner. A hog that
+    # only launched the owner may be stopped alone; the owner is orphaned but runs
+    # on, and its finally blocks still run. An owner that is the hog is spared.
+    $tree = @(Get-ProcessTreeRows $RootRow $AllProcesses)
+    $spine = Get-AgentLeaseSpine $RootRow $tree $ProcessByPid $LeaseOwners
+    $best = $null
+    foreach ($row in $tree) {
+        if (-not $spine.ContainsKey([uint32]$row.ProcessId)) { continue }
+        if ($agentRootNames -contains ([string]$row.Name).ToLowerInvariant()) { continue }
+        if (Test-AgentConsoleHost $row) { continue }
+        $runtime = $RuntimeByPid[[uint32]$row.ProcessId]
+        $bytes = if ($runtime) { [long]$runtime.PrivateMemorySize64 } else { [long]0 }
+        if ($null -eq $best -or $bytes -gt $best.Bytes) {
+            $best = [pscustomobject]@{ Row = $row; Bytes = $bytes; IsOwner = (Test-AgentLeaseOwnerRow $row $LeaseOwners) }
+        }
+    }
+    return $best
 }
 
 function Get-AgentToolRoot($ProcessRow, $ProcessByPid) {
@@ -642,6 +682,35 @@ function Get-ProcessTreePrivateBytes($RootRow, $AllProcesses, $RuntimeByPid) {
         if ($runtime) { $privateBytes += [long]$runtime.PrivateMemorySize64 }
     }
     return $privateBytes
+}
+
+function Stop-VerifiedSingleProcess($ProcessRow, [string]$Reason) {
+    # One process only, never its subtree: used for a memory hog that launched a
+    # live lease owner, so the owner (orphaned, still running) keeps its finally.
+    $targetId = [uint32]$ProcessRow.ProcessId
+    if ($targetId -eq [uint32]$PID) {
+        Write-GuardLog "CRITICAL" ("refusing to terminate the guard's own process pid {0}" -f $targetId)
+        return $false
+    }
+    if ($agentRootNames -contains ([string]$ProcessRow.Name).ToLowerInvariant() -or (Test-AgentConsoleHost $ProcessRow)) {
+        Write-GuardLog "CRITICAL" ("refusing single-process termination of pid {0} ({1})" -f $targetId, $ProcessRow.Name)
+        return $false
+    }
+    Write-GuardLog "ACTION" ("{0}; terminating verified single process pid {1} (its subtree is left running)" -f $Reason, $targetId)
+    $current = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $targetId) -ErrorAction SilentlyContinue
+    if (-not $current) { return $true }
+    if (([datetime]$current.CreationDate).ToUniversalTime() -ne ([datetime]$ProcessRow.CreationDate).ToUniversalTime()) {
+        Write-GuardLog "ERROR" ("pid {0} creation identity changed before termination" -f $targetId)
+        return $false
+    }
+    try {
+        Stop-Process -Id $targetId -Force -Confirm:$false -ErrorAction Stop
+    }
+    catch {
+        Write-GuardLog "ERROR" ("failed to terminate pid {0}: {1}" -f $targetId, $_.Exception.Message)
+        return $false
+    }
+    return $true
 }
 
 $os = Get-CimInstance Win32_OperatingSystem
@@ -784,13 +853,14 @@ elseif (-not $agentHeavyWindowAllowed) {
 elseif ($heavyToolRoots.Count -gt $MaxConcurrentAgentHeavyWorkloads) {
     $orderedRoots = @($heavyToolRoots.Values |
         Sort-Object @{ Expression = { ([datetime]$_.CreationDate).ToUniversalTime() } }, ProcessId)
-    # Each tree holding a live lease takes exactly one slot first and is never a
-    # concurrency target (a partly admitted one included: its lease already
-    # serializes it); the oldest other trees fill whatever slots remain.
+    # Each tree holding a live lease takes exactly one slot first for its admitted
+    # work. Its unadmitted heavy members, if any, then compete with the other trees
+    # for the remaining slots, oldest first; a losing leased tree loses only those
+    # members (the kill loop below never stops a leased tree as a whole).
     $freeSlots = $MaxConcurrentAgentHeavyWorkloads - $ownerRootKeys.Count
     foreach ($root in $orderedRoots) {
         $key = "{0}|{1}" -f $root.ProcessId, ([datetime]$root.CreationDate).ToUniversalTime().Ticks
-        if ($admittedRootKeys.ContainsKey($key) -or $ownerRootKeys.ContainsKey($key)) { continue }
+        if ($admittedRootKeys.ContainsKey($key)) { continue }
         if ($freeSlots -gt 0) { $freeSlots--; continue }
         $agentTargetMap[$key] = $root
     }
@@ -812,24 +882,45 @@ foreach ($entry in $agentTargetMap.GetEnumerator()) {
         "Codex heavy workload is outside the 00:30-09:00 host window"
     }
     if ($overBudget -and $ownerRootKeys.ContainsKey($entry.Key)) {
-        # Never the whole tree: stop the largest subtrees off the owner's spine (any
-        # process type, so the real hog dies, not an innocent heavy chunk) until the
-        # rest of the tree is back under budget.
-        $remaining = [long]$agentTreeBytes[$entry.Key]
-        $branchKilled = $false
-        foreach ($branch in @(Get-AgentLeaseBranches $target $allProcesses $processByPid $runtimeByPid $leaseOwners)) {
-            if ($remaining -lt $MinKillPrivateBytes) { break }
-            if (Stop-VerifiedProcessTree $branch.Row $allProcesses ("{0} (largest subtree off the lease owner's spine; the owner is spared)" -f $reason) $true) {
-                $guardActions.Add("killed_agent_member_pid_$($branch.Row.ProcessId)")
-                $terminationPerformed = $true
-                $branchKilled = $true
-            } else {
-                $guardActions.Add("kill_failed_agent_member_pid_$($branch.Row.ProcessId)")
+        # Never the whole tree, never an owner. If the subtrees off the owner's spine
+        # can bring the tree back under budget, stop them largest first (any process
+        # type, so the real hog dies, not an innocent heavy chunk; console hosts are
+        # never candidates). A subtree holding a governed weather process (capture
+        # children training_window restores) is eligible only when it alone reaches
+        # the budget. Otherwise the memory sits on the spine: stop its single largest
+        # process unless that process is itself a lease owner.
+        $treeBytes = [long]$agentTreeBytes[$entry.Key]
+        $eligible = @(Get-AgentLeaseBranches $target $allProcesses $processByPid $runtimeByPid $leaseOwners |
+            Where-Object { (-not $_.Governed) -or ([long]$_.Bytes -ge $MinKillPrivateBytes) })
+        $offSpineBytes = [long]0
+        foreach ($branch in $eligible) { $offSpineBytes += [long]$branch.Bytes }
+        if (($treeBytes - $offSpineBytes) -lt $MinKillPrivateBytes) {
+            $remaining = $treeBytes
+            foreach ($branch in $eligible) {
+                if ($remaining -lt $MinKillPrivateBytes) { break }
+                if (Stop-VerifiedProcessTree $branch.Row $allProcesses ("{0} (largest subtree off the lease owner's spine; the owner is spared)" -f $reason) $true) {
+                    $guardActions.Add("killed_agent_member_pid_$($branch.Row.ProcessId)")
+                    $terminationPerformed = $true
+                } else {
+                    $guardActions.Add("kill_failed_agent_member_pid_$($branch.Row.ProcessId)")
+                }
+                $remaining -= [long]$branch.Bytes
             }
-            $remaining -= [long]$branch.Bytes
+            continue
         }
-        if (-not $branchKilled) {
-            Write-GuardLog "WARNING" ("{0}; tool tree pid {1} holds a heavy-workload lease and nothing outside the owner's ancestry could be stopped" -f $reason, $target.ProcessId)
+        $hog = Get-AgentLeaseSpineHog $target $allProcesses $processByPid $runtimeByPid $leaseOwners
+        if ($null -eq $hog) {
+            Write-GuardLog "WARNING" ("{0}; tool tree pid {1} holds a heavy-workload lease and has no stoppable process" -f $reason, $target.ProcessId)
+        }
+        elseif ($hog.IsOwner) {
+            Write-GuardLog "CRITICAL" ("{0}; heavy-workload lease owner pid {1} itself holds {2} MB and is spared; manual attention required" -f `
+                $reason, $hog.Row.ProcessId, [math]::Round([long]$hog.Bytes / 1MB, 0))
+        }
+        elseif (Stop-VerifiedSingleProcess $hog.Row ("{0} (largest process on the lease owner's ancestry; the owner is orphaned, not stopped)" -f $reason)) {
+            $guardActions.Add("killed_agent_ancestor_pid_$($hog.Row.ProcessId)")
+            $terminationPerformed = $true
+        } else {
+            $guardActions.Add("kill_failed_agent_ancestor_pid_$($hog.Row.ProcessId)")
         }
         continue
     }
@@ -947,13 +1038,19 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
         if (-not $adhoc) { return }
         if ($proc.PrivateMemorySize64 -lt $MinKillPrivateBytes) { return }
         # A python whose subtree holds a live lease owner (it launched the lease
-        # wrapper) would take the owner down with it; never a candidate.
+        # wrapper) is stopped alone, never with its subtree: the owner is orphaned
+        # but keeps running its finally. A python that is itself an owner is spared.
+        $single = $false
         if (Test-AgentTreeHasLeaseOwner $_ $allProcesses $leaseOwners) {
-            Write-GuardLog "WARNING" ("commit emergency: python pid {0} launched a heavy-workload lease owner; not a candidate" -f $_.ProcessId)
-            return
+            if (Test-AgentLeaseOwnerRow $_ $leaseOwners) {
+                Write-GuardLog "CRITICAL" ("commit emergency: python pid {0} is a heavy-workload lease owner holding {1} MB; spared" -f $_.ProcessId, [math]::Round($proc.PrivateMemorySize64 / 1MB, 0))
+                return
+            }
+            $single = $true
         }
         [pscustomobject]@{
-            Kind = "python"
+            Kind = if ($single) { "python_ancestor" } else { "python" }
+            Single = $single
             Id = $_.ProcessId
             CreationDate = $_.CreationDate
             RootRow = $_
@@ -976,27 +1073,48 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
         }
         if ($privateBytes -lt $MinKillPrivateBytes) { continue }
         if (Test-AgentTreeHasLeaseOwner $root $allProcesses $leaseOwners) {
-            # Never the agent root, a lease owner or the owner's ancestors: offer the
-            # largest subtree hanging off that spine instead (any process type).
-            $branch = @(Get-AgentLeaseBranches $root $allProcesses $processByPid $runtimeByPid $leaseOwners) |
-                Select-Object -First 1
-            if ($null -eq $branch) {
-                Write-GuardLog "WARNING" ("commit emergency: agent tree pid {0} holds a heavy-workload lease and has nothing outside the owner's ancestry" -f $root.ProcessId)
+            # Never the agent root or a lease owner. Offer the largest subtree off the
+            # owner's spine if it alone reaches the budget (console hosts never);
+            # otherwise the spine's largest process alone, unless it is an owner.
+            $branch = @(Get-AgentLeaseBranches $root $allProcesses $processByPid $runtimeByPid $leaseOwners |
+                Where-Object { [long]$_.Bytes -ge $MinKillPrivateBytes }) | Select-Object -First 1
+            if ($null -ne $branch) {
+                $candidates += [pscustomobject]@{
+                    Kind = "agent_branch"
+                    Single = $false
+                    Id = $branch.Row.ProcessId
+                    CreationDate = $branch.Row.CreationDate
+                    RootRow = $branch.Row
+                    PrivateBytes = [long]$branch.Bytes
+                    PrivateMB = [math]::Round([long]$branch.Bytes / 1MB, 0)
+                    CommandLine = "subtree off a lease owner's spine in agent tree pid $($root.ProcessId)"
+                }
                 continue
             }
-            $candidates += [pscustomobject]@{
-                Kind = "agent_branch"
-                Id = $branch.Row.ProcessId
-                CreationDate = $branch.Row.CreationDate
-                RootRow = $branch.Row
-                PrivateBytes = [long]$branch.Bytes
-                PrivateMB = [math]::Round([long]$branch.Bytes / 1MB, 0)
-                CommandLine = "subtree off a lease owner's spine in agent tree pid $($root.ProcessId)"
+            $hog = Get-AgentLeaseSpineHog $root $allProcesses $processByPid $runtimeByPid $leaseOwners
+            if ($null -ne $hog -and [long]$hog.Bytes -ge $MinKillPrivateBytes) {
+                if ($hog.IsOwner) {
+                    Write-GuardLog "CRITICAL" ("commit emergency: heavy-workload lease owner pid {0} holds {1} MB; spared" -f $hog.Row.ProcessId, [math]::Round([long]$hog.Bytes / 1MB, 0))
+                    continue
+                }
+                $candidates += [pscustomobject]@{
+                    Kind = "agent_ancestor"
+                    Single = $true
+                    Id = $hog.Row.ProcessId
+                    CreationDate = $hog.Row.CreationDate
+                    RootRow = $hog.Row
+                    PrivateBytes = [long]$hog.Bytes
+                    PrivateMB = [math]::Round([long]$hog.Bytes / 1MB, 0)
+                    CommandLine = "process on a lease owner's ancestry in agent tree pid $($root.ProcessId)"
+                }
+                continue
             }
+            Write-GuardLog "WARNING" ("commit emergency: agent tree pid {0} holds a heavy-workload lease and no single subtree or ancestor reaches the budget" -f $root.ProcessId)
             continue
         }
         $candidates += [pscustomobject]@{
             Kind = "agent_tree"
+            Single = $false
             Id = $root.ProcessId
             CreationDate = $root.CreationDate
             RootRow = $root
@@ -1011,7 +1129,12 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
         $reason = "commit at {0}%: {1} pid {2} private {3} MB" -f `
             [math]::Round($commitPercent, 1), $target.Kind, $target.Id, $target.PrivateMB
         $allowWeather = $target.Kind -in @("agent_tree", "agent_branch")
-        if (Stop-VerifiedProcessTree $target.RootRow $allProcesses $reason $allowWeather) {
+        $stopped = if ($target.Single) {
+            Stop-VerifiedSingleProcess $target.RootRow ("{0} (single process; the lease owner it launched is left running)" -f $reason)
+        } else {
+            Stop-VerifiedProcessTree $target.RootRow $allProcesses $reason $allowWeather
+        }
+        if ($stopped) {
             $guardActions.Add("killed_$($target.Kind)_pid_$($target.Id)")
             $terminationPerformed = $true
         }
