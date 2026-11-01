@@ -25,9 +25,12 @@ Its `weather_heavy` kind admits only exact module names from
 fetches can never be listed; network fetchers such as `forecast_training_corpus_fetch`,
 `metar_history` or `venue_rule_labels` run directly, outside the wrapper, master ruling 2026-10-23).
 One subcommand is refused although its module is listed: `weather.calibration.b_scorer look`
-(or a prefix of `look`, or a `look` token after an option that precedes the subcommand) is denied by both the wrapper
+(and, fail-closed, any command text naming b_scorer together with a look-like token, except the exact
+`-m weather.calibration.b_look_wrapper` form and read-only tooling) is denied by both the wrapper
 (`Get-WeatherWorkstationOfflineArgumentRefusal`) and the Codex hook; B's one look runs only as
 `python -m weather.calibration.b_look_wrapper look` (master ruling 2026-11-01, B-1 Clarification 3).
+This is a guard on those two paths only: Claude Code sessions have no hook layer. The binding control stays the
+fixed consumed marker plus the look-day checklist naming only the wrapper command.
 The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the

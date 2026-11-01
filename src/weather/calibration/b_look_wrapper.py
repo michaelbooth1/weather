@@ -28,7 +28,21 @@ Order (Clarification 3 sections 3-4):
    refuses and spends nothing. VOID 5 is NOT in the preflight: an MG-1 entry mismatch is a tripwire and spends the
    look, as do VOID 1, 4, 6 and 7.
 5. ``b_scorer.look`` runs (``look_guard`` consumes the look). The wrapper then writes ``b_look_wrapper_receipt.json``
-   beside B's receipt (mode "x"), including ABORTED when an exception escapes after the look was consumed.
+   beside B's receipt (mode "x"), including ABORTED when an exception escapes after THIS call consumed the look.
+
+Concurrency and the rule bytes (second adversarial pass, 2026-11-01):
+
+* ``--out`` holds an exclusive ``b_look_wrapper.lock`` (mode "x") from before the pins are checked until the call
+  ends, whatever the outcome; only a hard kill leaves it, and then it must be removed by hand once no run is alive.
+  A second run on the same ``--out`` is refused while it exists.
+* ABORTED is attributed to this call only if the fixed marker did not exist at the start, exists now, records this
+  call's resolved ``--out`` and was consumed at or after this call started (another run on another ``--out`` that
+  consumed the look is not this call's abort).
+* The rule is read once into ``b_look_wrapper_rule.md`` inside ``--out``; the pins, the preflight and
+  ``b_scorer.look`` all read that private copy, never the caller's path again. After the look the copy is
+  re-hashed; a change is recorded in the receipt and raised.
+* A refusal before ``look_guard`` removes the lock and the copy, and ``--out`` itself if this call created it, so a
+  refusal leaves nothing behind.
 
 ``python -m weather.calibration.b_look_wrapper look --s0 <bound b_scorer.py bytes> <b_scorer look arguments>``.
 """
@@ -50,6 +64,8 @@ from weather.calibration import mg2_composite as _mg2  # noqa: F401
 NAME = "b_look_wrapper"
 RECEIPT_SCHEMA = "b_look_wrapper_receipt/1"
 RECEIPT = "b_look_wrapper_receipt.json"
+LOCK = "b_look_wrapper.lock"
+RULE_COPY = "b_look_wrapper_rule.md"
 PIN_UNSET = "UNSET: set by the commit that creates S1 (B-1 Clarification 3 section 5)"
 
 # docs/operations/B_FORWARD_TEST_DESIGN.md raw sha256, DECISION_LOG 2026-10-28 (B-1 and MG-2 bound).
@@ -204,6 +220,27 @@ def _write_receipt(out, receipt):
         handle.write(json.dumps(receipt, indent=1, sort_keys=True, default=str) + "\n")
 
 
+def _consumed_by_this_call(fixed, out, started):
+    """The fixed marker exists, names this call's resolved ``--out`` and was consumed at or after ``started``."""
+    try:
+        marker = json.loads(Path(fixed).read_text(encoding="utf-8"))
+        consumed_at = datetime.fromisoformat(marker["consumed_at_utc"])
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+    return marker.get("out") == str(Path(out).resolve()) and consumed_at >= started
+
+
+def _release(out, *, created, keep_copy):
+    """Drop the lock (and the rule copy unless kept); remove ``out`` if this call created it and it is now empty."""
+    out = Path(out)
+    if not keep_copy:
+        (out / RULE_COPY).unlink(missing_ok=True)
+    (out / LOCK).unlink(missing_ok=True)
+    if created:
+        with contextlib.suppress(OSError):
+            out.rmdir()
+
+
 def look(*, s0, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look, transfer, drop_list,
          control_receipt, mg1_look_receipt, out, lih_vectors=None, today=None, now=None, root=None, s1=None,
          scorer=None):
@@ -211,48 +248,83 @@ def look(*, s0, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look,
 
     ``scorer`` is for tests: a module from ``load_verified_scorer`` (re-verified here); the CLI never passes it.
     """
+    started = datetime.now(timezone.utc)
     if not mg1_look_receipt or not Path(mg1_look_receipt).is_file() or Path(mg1_look_receipt).stat().st_size == 0:
         raise WrapperRefused("MG-1's look receipt does not exist: B never reads before MG-1's look (B-1 sections 4, 9)")
-    if (Path(out) / RECEIPT).exists():
-        raise WrapperRefused(f"{Path(out) / RECEIPT} already exists: exactly one look")
-    if scorer is None:
-        scorer = load_verified_scorer(rule=rule, s0=s0, s1=s1)
-    else:
-        edit, _ = verify(rule, s0, scorer.__file__)
-        if getattr(scorer, _VERIFIED, None) != edit:
-            raise WrapperRefused("the scorer module was not executed from these verified S1 bytes")
-    edit = dict(getattr(scorer, _VERIFIED))
-    look_args = dict(rule=rule, mg2_rule=mg2_rule, release_binding=release_binding, layout_root=layout_root,
-                     vectors=vectors, mg2_look=mg2_look, transfer=transfer, drop_list=drop_list,
-                     control_receipt=control_receipt, mg1_look_receipt=mg1_look_receipt, out=out,
-                     lih_vectors=lih_vectors, today=today, now=now, root=root)
-    fixed = scorer.rule_marker(edit["rule_sha256"])
-    receipt = {"schema": RECEIPT_SCHEMA,
-               "wrapper": {"module": f"weather.calibration.{NAME}", "source_sha256": module_sha256(),
-                           "accept_s0_control": ACCEPT_S0_CONTROL},
-               "rule_sha256": edit["rule_sha256"], "entry_edit": edit,
-               "mg1_look_receipt_sha256": scorer.sha256_file(mg1_look_receipt)}
-    with accept_s1(scorer, edit["s0_sha256"], edit["s1_sha256"]):
-        found, inputs = preflight(scorer, rule=rule, mg2_rule=mg2_rule, release_binding=release_binding,
-                                  mg2_look=mg2_look, vectors=vectors, control_receipt=control_receipt, root=root)
-        if found:
-            raise WrapperRefused(f"preflight: VOID conditions {sorted(found)} hold; look_guard did not run and "
-                                 f"nothing was consumed: {found}")
-        receipt["preflight"] = {"checked": [2, 3], "found": {}, "inputs": inputs}
-        consumed_before = fixed.exists()
-        try:
-            payload = scorer.look(**look_args)
-        except BaseException as exc:
-            if not consumed_before and fixed.exists():  # this call consumed the look, then it aborted
-                b_receipt = Path(out) / scorer.RECEIPT
-                _write_receipt(out, {**receipt, "b_look_receipt_sha256": _file_sha(scorer, b_receipt),
-                                     "b_decision": {"verdict": "ABORTED", "error": f"{type(exc).__name__}: {exc}"},
-                                     "written_at_utc": datetime.now(timezone.utc).isoformat()})
-            raise
-    _write_receipt(out, {**receipt, "b_look_receipt_sha256": scorer.sha256_file(Path(out) / scorer.RECEIPT),
-                         "b_decision": payload["decision"],
-                         "written_at_utc": datetime.now(timezone.utc).isoformat()})
-    return payload
+    out = Path(out)
+    if (out / RECEIPT).exists():
+        raise WrapperRefused(f"{out / RECEIPT} already exists: exactly one look")
+    created = not out.exists()
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(out / LOCK, "x", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps({"started_at_utc": started.isoformat()}) + "\n")
+    except FileExistsError as exc:
+        raise WrapperRefused(f"{out / LOCK} exists: another wrapper run holds this --out (or one was killed; remove "
+                             f"the lock by hand once no run is alive)") from exc
+    looked = False
+    try:
+        rule_copy = out / RULE_COPY
+        rule_copy.write_bytes(Path(rule).read_bytes())  # read once; every later reader uses this private copy
+        if scorer is None:
+            scorer = load_verified_scorer(rule=rule_copy, s0=s0, s1=s1)
+        else:
+            edit, _ = verify(rule_copy, s0, scorer.__file__)
+            if getattr(scorer, _VERIFIED, None) != edit:
+                raise WrapperRefused("the scorer module was not executed from these verified S1 bytes")
+        edit = dict(getattr(scorer, _VERIFIED))
+        look_args = dict(rule=rule_copy, mg2_rule=mg2_rule, release_binding=release_binding,
+                         layout_root=layout_root, vectors=vectors, mg2_look=mg2_look, transfer=transfer,
+                         drop_list=drop_list, control_receipt=control_receipt, mg1_look_receipt=mg1_look_receipt,
+                         out=out, lih_vectors=lih_vectors, today=today, now=now, root=root)
+        fixed = scorer.rule_marker(edit["rule_sha256"])
+        receipt = {"schema": RECEIPT_SCHEMA,
+                   "wrapper": {"module": f"weather.calibration.{NAME}", "source_sha256": module_sha256(),
+                               "accept_s0_control": ACCEPT_S0_CONTROL},
+                   "rule_sha256": edit["rule_sha256"], "entry_edit": edit,
+                   "mg1_look_receipt_sha256": scorer.sha256_file(mg1_look_receipt),
+                   "started_at_utc": started.isoformat()}
+        with accept_s1(scorer, edit["s0_sha256"], edit["s1_sha256"]):
+            found, inputs = preflight(scorer, rule=rule_copy, mg2_rule=mg2_rule, release_binding=release_binding,
+                                      mg2_look=mg2_look, vectors=vectors, control_receipt=control_receipt,
+                                      root=root)
+            if found:
+                raise WrapperRefused(f"preflight: VOID conditions {sorted(found)} hold; look_guard did not run and "
+                                     f"nothing was consumed: {found}")
+            receipt["preflight"] = {"checked": [2, 3], "found": {}, "inputs": inputs}
+            consumed_before = fixed.exists()
+            looked = True
+            try:
+                payload = scorer.look(**look_args)
+            except BaseException as exc:
+                if not consumed_before and _consumed_by_this_call(fixed, out, started):
+                    b_receipt = out / scorer.RECEIPT
+                    _write_receipt(out, {**receipt, **_rule_after(rule_copy, edit),
+                                         "b_look_receipt_sha256": _file_sha(scorer, b_receipt),
+                                         "b_decision": {"verdict": "ABORTED",
+                                                        "error": f"{type(exc).__name__}: {exc}"},
+                                         "written_at_utc": datetime.now(timezone.utc).isoformat()})
+                raise
+        after = _rule_after(rule_copy, edit)
+        _write_receipt(out, {**receipt, **after,
+                             "b_look_receipt_sha256": scorer.sha256_file(out / scorer.RECEIPT),
+                             "b_decision": payload["decision"],
+                             "written_at_utc": datetime.now(timezone.utc).isoformat()})
+        if not after["rule_copy"]["unchanged"]:
+            raise RuntimeError(f"{rule_copy} changed while b_scorer.look ran (recorded in {out / RECEIPT}): "
+                               f"{after['rule_copy']}")
+        return payload
+    finally:
+        _release(out, created=created and not looked, keep_copy=looked)
+
+
+def _rule_after(rule_copy, edit):
+    """The private rule copy re-hashed after the look."""
+    try:
+        sha = _sha(Path(rule_copy).read_bytes())
+    except OSError:
+        sha = None
+    return {"rule_copy": {"path": str(rule_copy), "sha256_after_look": sha, "unchanged": sha == edit["rule_sha256"]}}
 
 
 def build_parser():

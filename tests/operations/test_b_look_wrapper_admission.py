@@ -6,7 +6,10 @@ Guards: workstation offline-module allowlist (HOST_LOAD_POLICY workstation scope
 an option precedes the subcommand and a later token is, pointing to the wrapper;
 ``control`` and the other subcommands stay admitted). The Codex hook (``offline_subcommand_refusal``) and
 ``workload_admission.ps1`` (``Get-WeatherWorkstationOfflineArgumentRefusal``, called by ``workstation_heavy.ps1``)
-must agree on every case below.
+must agree on every case below. The second adversarial pass (2026-11-01) added the fail-closed raw-text half: any
+command naming b_scorer together with a look-like token is refused (launcher, env, path, ``-c`` and runpy forms),
+except the exact b_look_wrapper form and read-only tooling; a look-like token is ``look``, a conservative ASCII
+prefix of it, or any non-ASCII token.
 """
 import base64
 import importlib.util
@@ -40,12 +43,15 @@ REFUSED = [
     ["--rule", "x", "look"],
     ["--rule", "x", "LO"],
     ["--dry-run", "control", "look"],
+    ["control", "look"],  # raw half: b_scorer named with a look token anywhere
+    ["control", "--mode", "look"],
+    ["control", "--out", "C:/t/look"],
+    ["LOO\u212a"],  # Kelvin sign: non-ASCII in the subcommand position is refused on both sides
+    ["control", "--out", "C:/t/caf\u00e9"],
 ]
 ADMITTED = [
     [],
     ["control", "--out", "C:/t/x"],
-    ["control", "look"],
-    ["control", "--mode", "look"],
     ["check-rule", "--rule", "x"],
     ["lookup"],
     ["--dry-run"],
@@ -72,8 +78,40 @@ def _wrapper_call(arguments):
             f"-PythonPath '{sys.executable}' -ArgumentsBase64 '{_b64(arguments)}' -RepoRoot '{ROOT}' -Queue")
 
 
-def _evaluate(hook, command):
-    return hook.evaluate({"tool_name": "Bash", "tool_input": {"command": command}}, constrained_capture_host=False)
+def _evaluate(hook, command, capture=False):
+    return hook.evaluate({"tool_name": "Bash", "tool_input": {"command": command}}, constrained_capture_host=capture)
+
+
+S0_PATH = "src/weather/calibration/b_scorer.py"
+BYPASS_FORMS = [
+    f"python -m {SCORER} look --rule x",
+    f"python -m{SCORER} look",
+    f"python -m {SCORER} lo",
+    f"PYTHONPATH=src python -m {SCORER} look --rule x",
+    f"PYTHONPATH=src PYTHONUTF8=1 python -m {SCORER} look",
+    f"env python -m {SCORER} look",
+    f"env -i PYTHONPATH=src python -m {SCORER} look",
+    f"uv run python -m {SCORER} look",
+    f"uv run --frozen python -m {SCORER} look",
+    f"uv run --with x python -m {SCORER} look",
+    f"python {S0_PATH} look --rule x",
+    "python src\\weather\\calibration\\b_scorer.py look",
+    f"& \"{sys.executable}\" {S0_PATH} look",
+    f"python -c \"from {SCORER} import main; main(['look', '--rule', 'x'])\"",
+    "python -c \"from weather.calibration import b_scorer; b_scorer.look(rule='x')\"",
+    "python -c \"import importlib; importlib.import_module('weather.calibration.b_scorer').main(['LOOK'])\"",
+    f"python - <<'EOF'\nimport runpy, sys\nsys.argv = ['b', 'look']\nrunpy.run_module('{SCORER}', run_name='__main__')\nEOF",
+    f"python -m runpy {SCORER} look",
+    f"git show HEAD:{S0_PATH} | python - look",
+    f"$py = 'python'; & $py -m {SCORER} look",
+]
+STILL_ALLOWED_OR_ROUTED = [
+    f"grep -n \"def look\" {S0_PATH}",
+    f"git show 7da85e8cc3e9cecd00ab931cf5eca14ed12eb7a7:{S0_PATH} | sed -n 689,720p",
+    f"Get-Content src\\weather\\calibration\\b_scorer.py | Select-String look",
+    f"python -m weather.calibration.b_scorer_entry_edit --s0 C:/t/s0.py --s1 {S0_PATH}",
+    f"& \"{sys.executable}\" -m {WRAPPER} look --s0 {S0_PATH} --rule docs/operations/B_FORWARD_TEST_DESIGN.md",
+]
 
 
 def test_hook_admits_the_wrapper_exactly():
@@ -86,7 +124,7 @@ def test_hook_admits_the_wrapper_exactly():
 @pytest.mark.parametrize("arguments", REFUSED, ids=repr)
 def test_hook_refuses_b_scorer_look_and_options_before_the_subcommand(arguments):
     hook = _hook()
-    reason = hook.offline_subcommand_refusal(SCORER, arguments)
+    reason = hook.offline_argument_refusal(SCORER, arguments)
     assert reason is not None and "python -m weather.calibration.b_look_wrapper look" in reason
     assert not hook._approved_workstation_arguments("weather_heavy", _b64(["-m", SCORER, *arguments]))
 
@@ -94,7 +132,7 @@ def test_hook_refuses_b_scorer_look_and_options_before_the_subcommand(arguments)
 @pytest.mark.parametrize("arguments", ADMITTED, ids=repr)
 def test_hook_keeps_the_other_b_scorer_subcommands_admitted(arguments):
     hook = _hook()
-    assert hook.offline_subcommand_refusal(SCORER, arguments) is None
+    assert hook.offline_argument_refusal(SCORER, arguments) is None
     assert hook._approved_workstation_arguments("weather_heavy", _b64(["-m", SCORER, *arguments]))
 
 
@@ -137,10 +175,19 @@ def test_hook_denies_a_direct_b_scorer_look_with_the_wrapper_named():
 @ON_WINDOWS
 def test_the_ps1_mirror_agrees_with_the_hook_on_every_case(tmp_path):
     hook = _hook()
-    cases = [(SCORER, a) for a in REFUSED + ADMITTED] + [(WRAPPER, ["look", "--s0", "x"]),
-                                                         ("weather.calibration.mg2_composite", ["look"])]
+    cases = [(SCORER, a) for a in REFUSED + ADMITTED] + [
+        (WRAPPER, ["look", "--s0", "x"]),
+        (WRAPPER, ["look", "--s0", S0_PATH]),
+        ("weather.calibration.mg2_composite", ["look"]),
+        ("weather.calibration.mg2_composite", ["--x", S0_PATH, "look"]),
+        ("weather.calibration.mg2_composite", ["--x", "src\\WEATHER\\Calibration\\B_SCORER.py", "Lo"]),
+        ("weather.calibration.mg2_composite", ["--x", "weather.calibration.b_s\u017fcorer", "look"]),
+        ("weather.calibration.mg2_composite", ["--x", "from weather.calibration import b_scorer", "l"]),
+        ("weather.calibration.b_scorer_entry_edit", ["--s0", "C:/t/s0.py", "--s1", S0_PATH]),
+        ("weather.calibration.b_scorer_entry_edit", ["--s1", S0_PATH, "look"]),
+    ]
     (tmp_path / "cases.json").write_text(json.dumps([{"module": m, "arguments": a} for m, a in cases]),
-                                         encoding="utf-8")
+                                         encoding="utf-8")  # ASCII JSON (\\u escapes): codepage-proof
     script = tmp_path / "refusals.ps1"
     script.write_text(
         f". '{ROOT / 'scripts' / 'ops' / 'workload_admission.ps1'}'\n"
@@ -161,7 +208,7 @@ def test_the_ps1_mirror_agrees_with_the_hook_on_every_case(tmp_path):
     got = json.loads(refusals)
     assert len(got) == len(cases)
     for (module, arguments), text in zip(cases, got):
-        expected = hook.offline_subcommand_refusal(module, arguments)
+        expected = hook.offline_argument_refusal(module, arguments)
         assert bool(text) == (expected is not None), (module, arguments, text)
         if text:
             assert "python -m weather.calibration.b_look_wrapper look" in text
@@ -182,3 +229,30 @@ def test_workstation_heavy_refuses_b_scorer_look_before_any_lease(arguments):
     output = result.stdout + result.stderr
     assert "b_look_wrapper look" in output, output
     assert "admitted to slot" not in output and "enqueue ticket" not in output
+
+
+@pytest.mark.parametrize("capture", [False, True], ids=["workstation", "capture_host"])
+@pytest.mark.parametrize("command", BYPASS_FORMS, ids=repr)
+def test_hook_denies_every_bypass_form_on_both_host_kinds(command, capture):
+    denied = _evaluate(_hook(), command, capture)
+    assert denied is not None and denied["hookSpecificOutput"]["permissionDecision"] == "deny", command
+    assert "b_look_wrapper look" in denied["hookSpecificOutput"]["permissionDecisionReason"], command
+
+
+@pytest.mark.parametrize("capture", [False, True], ids=["workstation", "capture_host"])
+@pytest.mark.parametrize("command", STILL_ALLOWED_OR_ROUTED, ids=repr)
+def test_hook_does_not_refuse_reads_the_entry_edit_check_or_the_exact_wrapper(command, capture):
+    """Read-only tooling and the S0 to S1 checker are not refused by the b_scorer rule; the exact wrapper form is
+    not refused by it either (it may still be routed through workstation_heavy.ps1 as heavy work)."""
+    result = _evaluate(_hook(), command, capture)
+    assert result is None or "b_look_wrapper look" not in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_the_wrapper_exemption_is_exact():
+    hook = _hook()
+    for command in (f"python -m {WRAPPER} look --s0 {S0_PATH}; python {S0_PATH} look",
+                    f"python -m {WRAPPER}x look --s0 {S0_PATH}",
+                    f"python -m {WRAPPER} look --s0 $(echo {S0_PATH})"):
+        assert "b_look_wrapper look" in _evaluate(hook, command)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert hook.offline_argument_refusal(WRAPPER, ["look", "--s0", S0_PATH]) is None
+    assert hook.offline_argument_refusal("weather.calibration.mg2_composite", ["--x", S0_PATH, "look"]) is not None

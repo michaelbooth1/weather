@@ -103,6 +103,28 @@ _OFFLINE_WEATHER_MODULES = frozenset(
 _REFUSED_OFFLINE_SUBCOMMANDS = {
     "weather.calibration.b_scorer": {"look": "weather.calibration.b_look_wrapper look"},
 }
+# The fail-closed raw-text half of that refusal (second adversarial pass, 2026-11-01): any command text that names
+# b_scorer (module path, file path, or ``from weather.calibration import b_scorer``) together with a look-like
+# token is refused, so launchers, env assignments, path, ``-c`` and runpy forms cannot reach the look. Mirrored in
+# workload_admission.ps1 with the same patterns. Only the exact ``-m weather.calibration.b_look_wrapper`` form
+# (whose --s0/--s1 arguments may name b_scorer.py) and pure read-only tooling are exempt.
+_B_LOOK_WRAPPER_MODULE = "weather.calibration.b_look_wrapper"
+_B_SCORER_TEXT = re.compile(
+    r"weather[./\\]+calibration(?:[./\\]+|[ \t\r\n]+import[ \t\r\n]+[A-Za-z0-9_ \t\r\n,()]*?)"
+    r"b_scorer(?![A-Za-z0-9_])",
+)
+# Matching is on ASCII-lower-cased text (only A-Z fold), never Unicode case folding, so .NET agrees.
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+# Token separators are ASCII non-word characters only (every non-ASCII character is part of a token), so the
+# Python and .NET splits agree.
+_RAW_TOKEN_SEPARATOR = re.compile(r"[^A-Za-z0-9_\-\u0080-\U0010ffff]+")
+_READ_ONLY_TOOLS = frozenset(
+    {
+        "cat", "diff", "findstr", "get-childitem", "get-content", "get-filehash", "gc", "git", "grep", "head",
+        "less", "ls", "md5sum", "more", "rg", "select-string", "sed", "sha1sum", "sha256sum", "sls", "tail",
+        "type", "wc",
+    }
+)
 _OFFLINE_WEATHER_MODULE_PATTERN = (
     r"(?:"
     + "|".join(re.escape(module) for module in sorted(_OFFLINE_WEATHER_MODULES))
@@ -3032,50 +3054,79 @@ def _approved_workstation_arguments(kind: str, encoded: str) -> bool:
     return bool(
         module in _OFFLINE_WEATHER_MODULES
         and not any(_LIVE_ARGUMENT.match(value) for value in arguments[2:])
-        and offline_subcommand_refusal(module, arguments[2:]) is None
+        and offline_argument_refusal(module, arguments[2:]) is None
     )
 
 
+def _look_like(token: str) -> bool:
+    """A token that could select b_scorer's look: ``look`` or a prefix of it in ASCII case, or any non-ASCII token.
+
+    A conservative prefix refusal (Python 3.11 argparse does not abbreviate subcommands; this is not argparse
+    emulation). Non-ASCII is refused outright so Unicode case folding cannot make the two mirrors disagree.
+    """
+    if not token.isascii():
+        return True
+    return "look".startswith(token.lower())
+
+
 def offline_subcommand_refusal(module: str, arguments: list[str] | tuple[str, ...]) -> str | None:
-    """The refusal for an admitted module asked for a refused subcommand, else ``None``.
+    """The structured refusal for an admitted module asked for a refused subcommand, else ``None``.
 
     ``arguments`` are the tokens after the module. The first positional token is the first of them that does not
-    start with "-". It is refused when it equals a refused subcommand or is a case-insensitive prefix of one
-    (argparse abbreviation; the empty string included). If any option token precedes it ("--" included), the
-    split between option values and the subcommand cannot be proved from the tokens alone, so every later token
-    that would be refused as a subcommand is refused too (``--rule x look``). b_scorer's top-level parser takes
-    only -h, so ``--dry-run``, ``-h`` or ``-- control`` with no look token stay admitted. No positional at all is
-    left to the module's parser.
+    start with "-". It is refused when it is look-like (``_look_like``: ``look``, a conservative case-insensitive
+    ASCII prefix of it, the empty string, or any non-ASCII token). If any option token precedes it ("--"
+    included), the split between option values and the subcommand cannot be proved from the tokens alone, so
+    every later look-like token is refused too (``--rule x look``). b_scorer's top-level parser takes only -h, so
+    ``--dry-run``, ``-h`` or ``-- control`` with no look token pass this check. No positional at all is left to
+    the module's parser.
     """
     refused = _REFUSED_OFFLINE_SUBCOMMANDS.get(module)
     if not refused:
         return None
-
-    def _refused_name(token: str) -> str | None:
-        return next((name for name in sorted(refused) if name.startswith(token.lower())), None)
-
+    target = refused["look"]
     index = next((i for i, token in enumerate(arguments) if not token.startswith("-")), None)
     if index is None:
         return None
-    name = _refused_name(arguments[index])
-    if name is None and index > 0:
-        name = next((found for found in map(_refused_name, arguments[index:]) if found is not None), None)
-        if name is not None:
-            return (
-                f"python -m {module} with an option ({arguments[0]!r}) before its subcommand and a {name!r} token "
-                f"after it is refused: put the subcommand first. Its {name} subcommand runs only as "
-                f"python -m {refused[name]} (master ruling 2026-11-01, B-1 Clarification 3)."
-            )
-    if name is None:
+    if _look_like(arguments[index]):
+        return (
+            f"python -m {module} look is refused (master ruling 2026-11-01): run it as "
+            f"python -m {target} (B-1 Clarification 3)."
+        )
+    if index > 0 and any(_look_like(token) for token in arguments[index:]):
+        return (
+            f"python -m {module} with an option ({arguments[0]!r}) before its subcommand and a look-like token "
+            f"after it is refused: put the subcommand first. Its look subcommand runs only as "
+            f"python -m {target} (master ruling 2026-11-01, B-1 Clarification 3)."
+        )
+    return None
+
+
+def raw_b_scorer_refusal(text: str) -> str | None:
+    """The fail-closed refusal for text naming b_scorer together with a look-like token, else ``None``."""
+    if not _B_SCORER_TEXT.search(text.translate(_ASCII_LOWER)):
+        return None
+    token = next((t for t in _RAW_TOKEN_SEPARATOR.split(text) if t and _look_like(t)), None)
+    if token is None:
         return None
     return (
-        f"python -m {module} {name} is refused (master ruling 2026-11-01): run it as "
-        f"python -m {refused[name]} (B-1 Clarification 3)."
+        f"a command naming weather.calibration.b_scorer together with a look-like token ({token!r}) is refused "
+        f"(master ruling 2026-11-01, fail-closed): B's one look runs only as "
+        f"python -m {_B_LOOK_WRAPPER_MODULE} look (B-1 Clarification 3)."
     )
 
 
+def offline_argument_refusal(module: str, arguments: list[str] | tuple[str, ...]) -> str | None:
+    """Both halves for ``python -m <module> <arguments>``; mirrored by Get-WeatherWorkstationOfflineArgumentRefusal.
+
+    The exact b_look_wrapper module is exempt (its --s0/--s1 arguments may name b_scorer.py).
+    """
+    if module == _B_LOOK_WRAPPER_MODULE:
+        return None
+    return offline_subcommand_refusal(module, arguments) or raw_b_scorer_refusal(" ".join([module, *arguments]))
+
+
 def _workstation_wrapper_refusal(command: str) -> str | None:
-    """The subcommand refusal carried by a local or remote workstation wrapper call, else ``None``."""
+    """The refusal carried by a local or remote workstation wrapper call, else ``None``."""
     match = _WORKSTATION_WRAPPER_CALL.fullmatch(command) or _REMOTE_WORKSTATION_WRAPPER_CALL.fullmatch(command)
     if match is None or match.group("kind").lower() != "weather_heavy":
         return None
@@ -3090,19 +3141,110 @@ def _workstation_wrapper_refusal(command: str) -> str | None:
         or not all(isinstance(value, str) for value in arguments)
     ):
         return None
-    return offline_subcommand_refusal(arguments[1], arguments[2:])
+    return offline_argument_refusal(arguments[1], arguments[2:])
+
+
+_ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
+_UV_RUN_FLAGS = frozenset({"--active", "--frozen", "--isolated", "--locked", "--no-project", "--no-sync", "-q",
+                           "--quiet"})
+_SHELL_SUBSTITUTION_MARKERS = ("<<", "$(", "${", chr(96))
+
+
+def _strip_launcher_prefix(words: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop leading ``NAME=value`` words and the ``env`` / ``uv run`` launchers (narrowly; refusal use only).
+
+    Used only by the b_scorer refusal, never by the general heavy-command classifier, so it cannot change any other
+    admission. A launcher option it does not know stops the stripping; the raw-text check still applies.
+    """
+    index = 0
+    while index < len(words):
+        word, dynamic = _decode_static_shell_word(words[index])
+        if dynamic:
+            break
+        if _ENV_ASSIGNMENT.fullmatch(word):
+            index += 1
+            continue
+        if word.lower() in {"env", "env.exe"}:
+            index += 1
+            while index < len(words):
+                option = _decode_static_shell_word(words[index])[0]
+                if option in {"-i", "--ignore-environment", "-"} or _ENV_ASSIGNMENT.fullmatch(option):
+                    index += 1
+                    continue
+                break
+            continue
+        if (
+            word.lower() in {"uv", "uv.exe"}
+            and index + 1 < len(words)
+            and _decode_static_shell_word(words[index + 1])[0] == "run"
+        ):
+            index += 2
+            while index < len(words) and _decode_static_shell_word(words[index])[0] in _UV_RUN_FLAGS:
+                index += 1
+            continue
+        break
+    return words[index:]
+
+
+def _exact_b_look_wrapper_command(command: str) -> bool:
+    """One static ``<python> -m weather.calibration.b_look_wrapper ...`` segment and nothing else."""
+    if any(marker in command for marker in _SHELL_SUBSTITUTION_MARKERS):
+        return False
+    segments = list(_iter_raw_command_segments(command))
+    if len(segments) != 1:
+        return False
+    words = tuple(_iter_raw_shell_words(segments[0], 0))
+    decoded = [_decode_static_shell_word(word) for word in words]
+    if len(decoded) < 3 or any(dynamic for _word, dynamic in decoded):
+        return False
+    kind = _python_executable_kind(words[0])
+    return bool(
+        kind is not None
+        and not kind[1]
+        and not kind[2]
+        and [word for word, _dynamic in decoded[1:3]] == ["-m", _B_LOOK_WRAPPER_MODULE]
+    )
+
+
+def _read_only_command(command: str) -> bool:
+    """Every top-level segment starts with a read-only tool (no heredoc, substitution or backtick)."""
+    if any(marker in command for marker in _SHELL_SUBSTITUTION_MARKERS):
+        return False
+    segments = list(_iter_raw_command_segments(command))
+    for segment in segments:
+        words = tuple(_iter_raw_shell_words(segment, 0))
+        if not words:
+            return False
+        word, dynamic = _decode_static_shell_word(words[0])
+        name = re.split(r"[\\/]", word)[-1].lower()
+        name = name[:-4] if name.endswith(".exe") else name
+        if dynamic or name not in _READ_ONLY_TOOLS:
+            return False
+    return bool(segments)
 
 
 def _direct_subcommand_refusal(command: str) -> str | None:
-    """The subcommand refusal for a direct ``python -m <module> ...`` invocation, else ``None``."""
-    for module, _dynamic, arguments in _python_module_records(command):
+    """The refusal for a command that is not a workstation wrapper call, else ``None``.
+
+    Structured: each ``python -m <module> ...`` record, also after leading env assignments and ``env`` / ``uv run``.
+    Raw: the fail-closed text check, unless the command is the exact b_look_wrapper form or read-only tooling.
+    """
+    records = list(_python_module_records(command))
+    for segment in _iter_raw_command_segments(command):
+        words = tuple(_iter_raw_shell_words(segment, 0))
+        stripped = _strip_launcher_prefix(words)
+        if stripped and len(stripped) != len(words):
+            records.extend(_python_module_records(" ".join(stripped)))
+    for module, _dynamic, arguments in records:
         if module is None:
             continue
         decoded = [_decode_static_shell_word(word)[0] for word in arguments]
         reason = offline_subcommand_refusal(module, decoded)
         if reason is not None:
             return reason
-    return None
+    if _exact_b_look_wrapper_command(command) or _read_only_command(command):
+        return None
+    return raw_b_scorer_refusal(command)
 
 
 def _remote_client_paths() -> tuple[Path, Path, Path] | None:
@@ -3565,6 +3707,9 @@ def evaluate(
         return None
     if constrained_capture_host is None and os.name != "nt":
         return None
+    refusal = _workstation_wrapper_refusal(command) or _direct_subcommand_refusal(command)
+    if refusal is not None:
+        return _deny(refusal)
     active = (
         _capture_host_policy_state()
         if constrained_capture_host is None
@@ -3577,9 +3722,6 @@ def evaluate(
                 "dedicated capture host; recognized heavy work is blocked fail-closed."
             )
         return None
-    refusal = _workstation_wrapper_refusal(command) or _direct_subcommand_refusal(command)
-    if refusal is not None:
-        return _deny(refusal)
     if not active:
         if _recognized_host_load_command(command) and not _approved_workstation_wrapper(
             command

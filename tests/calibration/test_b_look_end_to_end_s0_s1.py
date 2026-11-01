@@ -537,3 +537,78 @@ def test_the_wrapper_touches_no_b_bound_file():
         assert entry_edit.s1_problems(s0, src)[0] == []
     assert Path(wrapper.__file__).name == "b_look_wrapper.py"
     assert Path(wrapper.__file__).resolve() not in {(ROOT / rel).resolve() for rel in mg2.RELEASE_FILES}
+
+
+# ----------------------------------------------------------------------------- concurrency and the rule bytes
+
+@pytest.mark.spawns
+def test_a_held_lock_refuses_a_second_run_on_the_same_out_and_spends_nothing(tmp_path, monkeypatch):
+    x = _s1_world(tmp_path, monkeypatch)
+    x.args["out"].mkdir()
+    (x.args["out"] / wrapper.LOCK).write_text("{}\n", encoding="utf-8")  # a run in flight on this --out
+    with pytest.raises(x.w.WrapperRefused, match="another wrapper run holds this --out"):
+        x.w.look(s0=x.s0, s1=x.s1, scorer=x.scorer, **x.args)
+    assert _spent(tmp_path, x.args) == []
+    assert sorted(p.name for p in x.args["out"].iterdir()) == [wrapper.LOCK]  # the other run's lock is untouched
+
+
+@pytest.mark.spawns
+def test_the_look_reads_a_private_rule_copy_and_releases_the_lock(tmp_path, monkeypatch):
+    """The caller's rule path is read once; b_scorer.look gets the copy inside --out, so a later edit of the
+    caller's file cannot reach look_guard."""
+    x = _s1_world(tmp_path, monkeypatch)
+    seen, original = {}, x.scorer.look
+
+    def look_after_the_caller_edits_the_rule(**kwargs):
+        x.args["rule"].write_bytes(x.args["rule"].read_bytes() + b"\nedited after the pins were checked\n")
+        seen["rule"] = kwargs["rule"]
+        return original(**kwargs)
+
+    monkeypatch.setattr(x.scorer, "look", look_after_the_caller_edits_the_rule)
+    out = x.w.look(s0=x.s0, s1=x.s1, scorer=x.scorer, **x.args)
+    assert out["decision"]["verdict"] == "PASS"
+    assert Path(seen["rule"]) == x.args["out"] / wrapper.RULE_COPY
+    receipt = _wrapper_receipt(x.args)
+    assert receipt["rule_copy"]["unchanged"] and receipt["rule_copy"]["sha256_after_look"] == receipt["rule_sha256"]
+    assert not (x.args["out"] / wrapper.LOCK).exists()
+
+
+@pytest.mark.spawns
+def test_a_rule_copy_changed_during_the_look_is_recorded_and_raised(tmp_path, monkeypatch):
+    x = _s1_world(tmp_path, monkeypatch)
+    original = x.scorer.look
+
+    def look_then_tamper(**kwargs):
+        payload = original(**kwargs)
+        Path(kwargs["rule"]).write_bytes(b"tampered")
+        return payload
+
+    monkeypatch.setattr(x.scorer, "look", look_then_tamper)
+    with pytest.raises(RuntimeError, match="changed while b_scorer.look ran"):
+        x.w.look(s0=x.s0, s1=x.s1, scorer=x.scorer, **x.args)
+    receipt = _wrapper_receipt(x.args)
+    assert receipt["rule_copy"]["unchanged"] is False and receipt["b_decision"]["verdict"] == "PASS"
+    assert not (x.args["out"] / wrapper.LOCK).exists()
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("whose", ["another_out", "before_this_call"])
+def test_an_abort_after_another_run_consumed_the_look_is_not_attributed_to_this_call(tmp_path, monkeypatch, whose):
+    """Overlapping runs: B sees A's fixed marker. Only a marker naming this call's --out, consumed at or after this
+    call started, makes this call's failure an ABORTED look."""
+    x = _s1_world(tmp_path, monkeypatch)
+
+    def another_run_consumed_then_this_one_fails(**kwargs):
+        fixed = x.scorer.rule_marker(_sha(Path(kwargs["rule"]).read_bytes()))
+        fixed.parent.mkdir(parents=True, exist_ok=True)
+        marker = {"out": str((tmp_path / "out_of_run_a").resolve()), "consumed_at_utc": "2999-01-01T00:00:00+00:00"}
+        if whose == "before_this_call":
+            marker = {"out": str(Path(kwargs["out"]).resolve()), "consumed_at_utc": "2000-01-01T00:00:00+00:00"}
+        fixed.write_text(json.dumps(marker), encoding="utf-8")
+        raise x.scorer.BRefused("the B look was already consumed: exactly one look")
+
+    monkeypatch.setattr(x.scorer, "look", another_run_consumed_then_this_one_fails)
+    with pytest.raises(x.scorer.BRefused):
+        x.w.look(s0=x.s0, s1=x.s1, scorer=x.scorer, **x.args)
+    assert not (x.args["out"] / wrapper.RECEIPT).exists()
+    assert not (x.args["out"] / wrapper.LOCK).exists()
