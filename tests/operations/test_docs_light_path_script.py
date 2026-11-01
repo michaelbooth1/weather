@@ -227,6 +227,7 @@ def test_failed_push_leaves_merge_unpublished_with_receipt(fx: dict[str, object]
     assert receipt["push"]["last_task_result"] == 1
 
 
+@pytest.mark.spawns
 @pytest.mark.parametrize("transient", [0x41301, 0x41303])
 def test_stale_scheduler_result_in_ready_keeps_polling_until_rc0(fx: dict[str, object], transient: int) -> None:
     # 11-01 07:27: LastTaskResult still read 267009 (0x41301) with State Ready, and the
@@ -246,6 +247,7 @@ def test_stale_scheduler_result_in_ready_keeps_polling_until_rc0(fx: dict[str, o
     assert receipt["push"]["stale_scheduler_result"] is False
 
 
+@pytest.mark.spawns
 def test_stale_scheduler_result_through_deadline_is_decided_by_origin(fx: dict[str, object]) -> None:
     repo = fx["repo"]
     assert isinstance(repo, Path)
@@ -264,6 +266,7 @@ def test_stale_scheduler_result_through_deadline_is_decided_by_origin(fx: dict[s
     assert receipt["push"]["last_task_result"] == 0x41301
 
 
+@pytest.mark.spawns
 def test_stale_scheduler_result_through_deadline_still_fails_on_origin_mismatch(fx: dict[str, object]) -> None:
     repo = fx["repo"]
     assert isinstance(repo, Path)
@@ -280,6 +283,7 @@ def test_stale_scheduler_result_through_deadline_still_fails_on_origin_mismatch(
     assert "not the merge commit" in receipt["detail"]
 
 
+@pytest.mark.spawns
 def test_real_nonzero_after_stale_transient_still_exits_3(fx: dict[str, object]) -> None:
     repo = fx["repo"]
     assert isinstance(repo, Path)
