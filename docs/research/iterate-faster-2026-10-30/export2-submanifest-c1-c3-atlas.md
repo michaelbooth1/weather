@@ -72,3 +72,15 @@ If the workstation already holds a byte-identical file (same sha256), the host s
   - every file skipped as byte-identical to one already on the workstation;
   - the row 80 look receipt sha this export waited for.
 - Absence is recorded, not filled.
+
+## 7. Host staging custody (recorded 2026-11-01 from master's facts)
+
+- The export 2 host staging was **deleted 2026-11-01 07:21-07:22 EST**, lease-held, exit 0 (host log
+  `C:\tmp\suite-logs\export2-cleanup-20261101.log`), after the weather reads and the WS batch1 archive verification.
+- Removed: `C:\xfer\released-0930-1014-20261031\export2` and its empty parent. Free space went 164 to 217.8 GiB.
+- Receipts kept on the host in `C:\tmp\agent-kit\export2-receipts\` (sha256):
+  - `batch1-c3/receipt.json` `2d4c34b269e8b7c98f8c04fb912f737ef743f74753711512ca6629596d4562df`
+  - `batch1-c3/SHA256SUMS` `84a161601a6e90a3a3fd0a420ac4d071e78ad7ce8c795641c4e824c89a070c3c`
+  - `batch2-rest/receipt.json` `753c1e421403a91ce6949e83792e72c846a11341fbf8a32444bdac92775ddb73`
+  - `batch2-rest/SHA256SUMS` `40fc33245eb98a120262895f7eabf566e7539d760f3be214e8bb4657835fe7ed`
+- The WS copy of batch1 stays in `C:\archive\inputs\export2-batch1-c3` (verified 136,445/136,445 files on 2026-10-31).

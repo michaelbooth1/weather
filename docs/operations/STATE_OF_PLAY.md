@@ -24,7 +24,6 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 - **Live maker pilot POSTPONED** (owner 10-30, DL); no agent places, cancels or signs orders; other live trading paused (owner 09-25).
 - Capture host: heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges 01:00-04:00;
   roll-free 00:30-09:00; docs-only by the light path before 12:00; never 12:00-00:30.
-- Owner decisions are rows in [DECISION_LOG](DECISION_LOG.md); master's rulings are labelled as master's, never as the owner's.
 - **Weather data:** paid only per DECISION_LOG-approved source (10-23); free official data needs no ask; ask for packages, logins, payment (10-24).
 - **Other venues' public prices** (S31, owner 10-30, DL): read-only structured API endpoints with field allowlists; no account, key
   or trading; same embargo. International Polymarket stays the only trading venue.
@@ -32,7 +31,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
   `workstation_heavy.ps1` ([development](../development.md)); every WS task needs the owner's yes there.
 - **Record and keep every rule-out** (owner 10-25, 10-30): register §6 row plus the never-cleaned archive `C:\archive\ruled-out`
   (method rule 13); the WS records its own pre-registered kills; master audits.
-- **Landed is not running:** a new loop, nightly, scorer or task is done only when its Open-commitments verify has run.
+- **Landed is not running** until its verify has run. Owner decisions are [DECISION_LOG](DECISION_LOG.md) rows; master's rulings are labelled master's.
 - **Standing:** International Polymarket only; backups deprioritized; streak contiguity is a diagnostic; pushing never rolls capture;
   native units, WU cutoffs, probability mass, train/serve parity, replay, release binding and evidence retention stay mandatory.
 
@@ -44,8 +43,9 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
   **09-30..10-14 released once for weather kill-only/atlas reads** (owner 10-30, DL): local target date; Austin 10-03 out; MG-2/B
   outputs out; **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17).
 - **Released reads 10-31:** row 80 NOT REPLICATED, KILL at edge size; atlas P1 descriptive (row 101); C3 BLOCKED (row 100);
-  R-ODC-lin KILL at edge, X13 UNTESTABLE (row 103). Export 2 stays staged on the host until its weather reads finish.
-- **S31 Kalshi twin:** v1 UNTESTABLE (row 99); v2 KILL at edge size, mean and width (row 102, X83). P5 screens: rows 93-95.
+  R-ODC-lin KILL at edge, X13 UNTESTABLE (row 103); S31 Kalshi twin v1 UNTESTABLE (row 99), v2 KILL at edge (row 102, X83); P5: rows 93-95.
+- **Export 2 host staging deleted 11-01 07:22** after the weather reads and the WS batch1 archive verification; receipts kept on the host
+  (`C:\tmp\agent-kit\export2-receipts\`); shas in the [export 2 sub-manifest](../research/iterate-faster-2026-10-30/export2-submanifest-c1-c3-atlas.md) §7.
 - **11-01 closures (master):** #21 GEFS true mean CLOSED-BY-RULE by X57 (X91); direction A (high_so_far repair cost) closed, cost
   bounded by X14 / row 33 and covered by fix 10 (register §0.2, EF §1k addendum); B (thin markets) PARKED; B2 UNTESTABLE (row 105, X90).
 - **Market price reliability by bin on our 12:** never measured; BARRED by the 10-23 model-only scope; **owner question pending**.

@@ -19,6 +19,9 @@
 > collector raises `ValueError` when the `maker_rebate_rate`, `tick_size` or `min_order_size` proof is missing, so
 > the last accepted snapshot is 2026-09-26. Separately, the settlement chain has hit an rc 2 promotion-lane barrier
 > since about 2026-10-20. Both must be fixed before any maker work resumes.
+>
+> Observed 11-01: `WeatherExchangeEconomicsSnapshotRefresh` returned rc 0 at 06:50, after failing since about 10-20.
+> Cause not checked; the barrier is NOT claimed cleared.
 
 This runbook owns the production lifecycle for
 `data/backtest/exchange_economics_snapshot.json` and
