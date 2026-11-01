@@ -78,7 +78,7 @@ $memoryPath = Join-Path $dataRoot 'logs\memory_commit_guard_status.json'
 . (Join-Path $PSScriptRoot 'memory_guard_status_reader.ps1')
 $memoryRead = Read-WeatherMemoryGuardStatus -Path $memoryPath
 $memory = $memoryRead.row
-if (((Get-Date) - $memoryRead.last_write_time).TotalMinutes -gt 5 -or
+if ((Get-WeatherMemoryGuardStatusAgeMinutes -Read $memoryRead) -gt 5 -or
     $null -eq $memory.commit_percent -or [double]$memory.commit_percent -ge 70) {
     throw 'REFUSED: memory evidence blocks admission'
 }
