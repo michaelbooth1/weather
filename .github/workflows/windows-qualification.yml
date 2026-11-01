@@ -260,11 +260,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          # Pinned to the capture host's exact interpreter (CPython 3.11.0). Floating
-          # '3.11' resolves to the latest patch and hides pre-3.11.2 behaviour such as
-          # gh-98778 (urllib HTTPError(fp=None) raises KeyError on attribute lookup),
-          # which reached the host in PR #259. Ubuntu lanes stay on floating '3.11'.
-          python-version: '3.11.0'
+          # Pinned to the capture host's exact production interpreter (CPython 3.11.9
+          # since the host Python cutover; HOST_PYTHON_UPGRADE_RUNBOOK.md). This line is
+          # the canonical CI pin; docs point here instead of restating the version.
+          # Floating '3.11' resolves to the latest patch and would drift from the host
+          # (gh-98778 in PR #259 is the pre-3.11.2 example of why). Ubuntu lanes stay on
+          # floating '3.11'. The rollback interpreter has its own job below.
+          python-version: '3.11.9'
           cache: pip
 
       - name: Install dependencies
@@ -341,5 +343,73 @@ jobs:
           path: |
             ${{ runner.temp }}/reliability-windows-junit.xml
             ${{ runner.temp }}/reliability-windows-qualification.json
+          if-no-files-found: error
+          retention-days: 7
+
+  native-launch-rollback-3110:
+    # ROLLBACK ONLY. Keeps one lane on CPython 3.11.0, the pre-cutover host
+    # interpreter that the retained venv-cp3110 rollback venv uses, until the owner
+    # decides that venv's fate. It is not the qualification lane (native-launch
+    # above is) and it is deliberately outside the native-launch matrix, so the
+    # pinned shard plan (tests/operations/test_windows_qualification_shards.py) and
+    # the ratchet-once rule (tests/operations/test_ci_ratchet_selection.py) are
+    # unaffected. It runs the gh-98778 replay and the capture supervisor only, and
+    # deselects ratchets. Delete this job when venv-cp3110 is retired.
+    name: native-launch (rollback-3.11.0)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell
+    env:
+      PYTHONUTF8: '1'
+      GIT_LFS_SKIP_SMUDGE: '1'
+      GIT_LFS_SKIP_PUSH: '1'
+      EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+
+      - name: Verify candidate and native shell
+        run: |
+          $actual = ([string](git rev-parse HEAD)).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:EXPECTED_CANDIDATE_SHA) {
+            throw 'Checkout is not the exact candidate commit.'
+          }
+          if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
+            throw 'Native qualification requires Windows PowerShell 5.1.'
+          }
+
+      - name: Set up Python (rollback interpreter)
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          # Rollback only: the pre-cutover host interpreter (venv-cp3110).
+          python-version: '3.11.0'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
+          python -m pip install -e '.[test]'
+          if ($LASTEXITCODE -ne 0) { throw 'Project installation failed.' }
+
+      - name: Run rollback-interpreter regressions
+        run: |
+          python --version
+          python -m pytest -q tests/sources/test_wu_redaction.py tests/operations/test_supervisor.py -m 'not ratchet' --junitxml "$env:RUNNER_TEMP/rollback-3110-junit.xml"
+          if ($LASTEXITCODE -ne 0) { throw 'Rollback-interpreter regressions failed.' }
+
+      - name: Upload rollback evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-windows-${{ github.event.pull_request.head.sha || github.sha }}-rollback-3110-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rollback-3110-junit.xml
           if-no-files-found: error
           retention-days: 7

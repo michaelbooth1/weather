@@ -65,14 +65,16 @@ package contract, and `requires-python` is `>=3.11`.
   ratchet executes exactly once across all workflows. Local and bounded-suite runs ignore these markers and run
   everything (plain `pytest -q`).
 - The [Windows qualification workflow](../.github/workflows/windows-qualification.yml) adds exact-candidate native
-  launch/integration regressions under Windows PowerShell 5.1 and CPython 3.11.0 (the capture host's exact
-  interpreter; the Ubuntu jobs float on the latest 3.11.x), as parallel `native-launch (<shard>)` jobs
+  launch/integration regressions under Windows PowerShell 5.1 and the capture host's exact CPython patch release
+  (the workflow's `python-version` pin owns the number; the Ubuntu jobs float on the latest 3.11.x), as parallel `native-launch (<shard>)` jobs
   balanced from JUnit timings (a file too slow for one shard, such as `test_status_script.py` or the reconciler execution tests, is
   split across shards by `split_select` -k expressions; `tests/operations/test_windows_qualification_shards.py` pins the
   plan and proves by collection that every listed test runs exactly once); each shard uploads its own receipt and JUnit. Hosted Windows evidence records its actual scope,
   candidate/tree, workflow and resolved dependencies. It does **not** replace the admitted production-host bounded
   suite or the actual-host S4U smoke; the production acceptance contract stays in force until a separately reviewed
-  substitution is qualified.
+  substitution is qualified. A separate `native-launch (rollback-3.11.0)` job, outside the shard matrix, keeps a small
+  regression set on the pre-cutover interpreter for the retained rollback venv only; it is not qualification evidence
+  and is removed when the owner retires that venv.
 - `ci.yml` and `windows-qualification.yml` cancel a superseded run on a pull-request ref but never on `master`, so
   every landed commit keeps its own evidence.
 - There is no retrain or settlement-audit workflow: `retrain.yml` and `settlement-audit-qualification.yml` were
