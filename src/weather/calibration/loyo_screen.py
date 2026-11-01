@@ -32,6 +32,9 @@ Subcommands (heavy; run only through ``scripts\\ops\\workstation_heavy.ps1``):
 ``mr-sweep``
     The MR P0 sweep (``weather.calibration.mr_sweep``, rule 85f8192c, ledger row 78): 17 capture-time replay
     signals, paired P0 against the disagreement placebo, BH q = 0.10, the w gate for survivors. Dev window only.
+``dsc-nws-p0``
+    The DSC-NWS P0 at 07-12 (``weather.calibration.dsc_nws_p0``, rule aaa8d5f3, ruling R28a): ``stage1`` builds the
+    three arms label-free and runs C0; ``stage2`` (needs the stage 1 receipt sha, one look) runs C1-C5, P0, BH.
 ``export-rq-gefs-column``
     The reproduction adapter: R-Q variant A's GEFS member-spread column ``u`` on the training frame's keys, written
     as a column file, so that ``run`` can reproduce R-Q gate 1 from a column alone.
@@ -387,6 +390,15 @@ def build_parser():
     w.add_argument("--replay-root", required=True, help="captured replay inputs (replay-inputs-le0929)")
     w.add_argument("--out", required=True)
     w.add_argument("--allow-dirty", action="store_true")
+    d = sub.add_parser("dsc-nws-p0", help="DSC-NWS P0 at 07-12 (rule aaa8d5f3, R28a): stage1 then stage2")
+    d.add_argument("stage", choices=("stage1", "stage2"))
+    d.add_argument("--layout", required=True, help="dev scorecard layout (C:/swarm/v3layout)")
+    d.add_argument("--out", required=True, help="new output directory outside the repository")
+    d.add_argument("--replay-root", default=None, help="stage1: captured replay inputs (replay-inputs-le0929)")
+    d.add_argument("--nowcast", default=None, help="stage1: the L6 OWN nowcast parquet (checked by sha)")
+    d.add_argument("--stage1", default=None, help="stage2: the stage 1 output directory")
+    d.add_argument("--stage1-sha", default=None, help="stage2: sha256 of the stage 1 receipt stage1.json")
+    d.add_argument("--allow-dirty", action="store_true")
     return parser
 
 
@@ -415,6 +427,22 @@ def main(argv=None):
                                allow_dirty=args.allow_dirty)
         print(json.dumps({"lines": receipt["lines"], "controls": {k: v["verdict"] for k, v in
                                                                   receipt["controls"].items()}}, indent=1))
+        return 0
+    if args.command == "dsc-nws-p0":
+        from weather.calibration import dsc_nws_p0 as dsc
+
+        if args.stage == "stage1":
+            receipt = dsc.stage1(layout=args.layout, out_dir=args.out,
+                                 replay_root=args.replay_root or dsc.DEFAULT_REPLAY,
+                                 nowcast=args.nowcast or dsc.DEFAULT_NOWCAST, allow_dirty=args.allow_dirty)
+            print(json.dumps({"c0": receipt["c0"]["verdict"], "populations": receipt["populations"],
+                              "stage1_receipt_sha256": receipt["stage1_receipt_sha256"]}, indent=1))
+            return 0
+        if not args.stage1 or not args.stage1_sha:
+            raise ScreenError("stage2 needs --stage1 and --stage1-sha")
+        receipt = dsc.stage2(layout=args.layout, stage1_dir=args.stage1, stage1_sha=args.stage1_sha,
+                             out_dir=args.out, allow_dirty=args.allow_dirty)
+        print(json.dumps({"lines": receipt["lines"], "bh": receipt["bh"]}, indent=1))
         return 0
     record = export_rq_gefs_column(records_root=args.records, nbm_train_corpus=args.nbm_train_corpus,
                                    gefs_corpus=args.gefs_corpus, hours=args.hours, out_path=args.out)
