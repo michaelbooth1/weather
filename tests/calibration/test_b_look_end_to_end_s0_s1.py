@@ -553,6 +553,32 @@ def test_a_held_lock_refuses_a_second_run_on_the_same_out_and_spends_nothing(tmp
 
 
 @pytest.mark.spawns
+def test_a_rule_copy_left_by_an_earlier_run_refuses_and_is_never_deleted(tmp_path, monkeypatch):
+    x = _s1_world(tmp_path, monkeypatch)
+    x.args["out"].mkdir()
+    earlier = x.args["out"] / wrapper.RULE_COPY
+    earlier.write_bytes(b"copy from an earlier, killed run")
+    with pytest.raises(x.w.WrapperRefused, match="move it aside to a timestamped name"):
+        x.w.look(s0=x.s0, s1=x.s1, scorer=x.scorer, **x.args)
+    assert earlier.read_bytes() == b"copy from an earlier, killed run"  # not this call's copy: never deleted
+    assert sorted(p.name for p in x.args["out"].iterdir()) == [wrapper.RULE_COPY]  # lock released, --out kept
+    assert _spent(tmp_path, x.args) == []
+
+
+@pytest.mark.spawns
+def test_a_refusal_after_the_copy_removes_only_this_calls_copy(tmp_path, monkeypatch):
+    x = _s1_world(tmp_path, monkeypatch)
+    x.args["out"].mkdir()
+    (x.args["out"] / "operator_note.txt").write_text("kept", encoding="utf-8")
+    fake = tmp_path / "fake_s0.py"
+    fake.write_bytes(x.s0.read_bytes() + b"\n")
+    with pytest.raises(x.w.WrapperRefused, match="not the bound b_scorer_sha256"):
+        x.w.look(s0=fake, s1=x.s1, scorer=x.scorer, **x.args)  # refused after this call wrote its copy
+    assert sorted(p.name for p in x.args["out"].iterdir()) == ["operator_note.txt"]
+    assert _spent(tmp_path, x.args) == []
+
+
+@pytest.mark.spawns
 def test_the_look_reads_a_private_rule_copy_and_releases_the_lock(tmp_path, monkeypatch):
     """The caller's rule path is read once; b_scorer.look gets the copy inside --out, so a later edit of the
     caller's file cannot reach look_guard."""
@@ -592,19 +618,18 @@ def test_a_rule_copy_changed_during_the_look_is_recorded_and_raised(tmp_path, mo
 
 
 @pytest.mark.spawns
-@pytest.mark.parametrize("whose", ["another_out", "before_this_call"])
+@pytest.mark.parametrize("whose", ["another_out", "malformed"])
 def test_an_abort_after_another_run_consumed_the_look_is_not_attributed_to_this_call(tmp_path, monkeypatch, whose):
-    """Overlapping runs: B sees A's fixed marker. Only a marker naming this call's --out, consumed at or after this
-    call started, makes this call's failure an ABORTED look."""
+    """Overlapping runs: B sees A's fixed marker. Only a marker naming this call's resolved --out (which the held
+    lock reserves) makes this call's failure an ABORTED look; a marker that is not a JSON object is not either."""
     x = _s1_world(tmp_path, monkeypatch)
 
     def another_run_consumed_then_this_one_fails(**kwargs):
         fixed = x.scorer.rule_marker(_sha(Path(kwargs["rule"]).read_bytes()))
         fixed.parent.mkdir(parents=True, exist_ok=True)
         marker = {"out": str((tmp_path / "out_of_run_a").resolve()), "consumed_at_utc": "2999-01-01T00:00:00+00:00"}
-        if whose == "before_this_call":
-            marker = {"out": str(Path(kwargs["out"]).resolve()), "consumed_at_utc": "2000-01-01T00:00:00+00:00"}
-        fixed.write_text(json.dumps(marker), encoding="utf-8")
+        fixed.write_text(json.dumps(marker) if whose == "another_out" else '["not", "an", "object"]',
+                         encoding="utf-8")
         raise x.scorer.BRefused("the B look was already consumed: exactly one look")
 
     monkeypatch.setattr(x.scorer, "look", another_run_consumed_then_this_one_fails)

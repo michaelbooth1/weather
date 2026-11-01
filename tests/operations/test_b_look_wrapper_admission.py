@@ -104,13 +104,29 @@ BYPASS_FORMS = [
     f"python -m runpy {SCORER} look",
     f"git show HEAD:{S0_PATH} | python - look",
     f"$py = 'python'; & $py -m {SCORER} look",
+    "python b_scorer.py look --rule x",
+    "cd src/weather/calibration && python b_scorer.py look",
+    "cd src\\weather\\calibration; python .\\b_scorer.py LOOK",
+    "python b_scorer.pyc look",
+    # the read-only exemption is void on a comment, a newline or a backslash-escaped quote
+    f"grep -n look {S0_PATH} # it's here\npython -m {SCORER} look --rule x",
+    f"grep x \\' ; python -m {SCORER} look \\'",
+    f"grep -n look {S0_PATH}\r\npython {S0_PATH} look",
+    # sed and git global options are not inspection tooling
+    f"sed -n '1e python -m {SCORER} look' {S0_PATH}",
+    f"git -c core.pager='python -m {SCORER} look' show HEAD:{S0_PATH}",
+    f"git -c alias.x='!python -m {SCORER} look' x",
 ]
 STILL_ALLOWED_OR_ROUTED = [
     f"grep -n \"def look\" {S0_PATH}",
-    f"git show 7da85e8cc3e9cecd00ab931cf5eca14ed12eb7a7:{S0_PATH} | sed -n 689,720p",
+    f"git show 7da85e8cc3e9cecd00ab931cf5eca14ed12eb7a7:{S0_PATH} | Select-String look",
     f"Get-Content src\\weather\\calibration\\b_scorer.py | Select-String look",
     f"python -m weather.calibration.b_scorer_entry_edit --s0 C:/t/s0.py --s1 {S0_PATH}",
     f"& \"{sys.executable}\" -m {WRAPPER} look --s0 {S0_PATH} --rule docs/operations/B_FORWARD_TEST_DESIGN.md",
+    f"python -m {WRAPPER} look --s0 C:/t/s0/b_scorer.py --rule x 2>&1",
+    f"python -m {WRAPPER} look --s0 C:/t/s0/b_scorer.py --rule x 2>&1 | tee C:/t/b_look_log.txt",
+    f"python -m {WRAPPER} look --s0 C:/t/s0/b_scorer.py --rule x | Tee-Object -FilePath C:\\t\\log.txt",
+    "python -m weather.calibration.mg2_composite --x b_scorer_entry_edit look",
 ]
 
 
@@ -185,6 +201,11 @@ def test_the_ps1_mirror_agrees_with_the_hook_on_every_case(tmp_path):
         ("weather.calibration.mg2_composite", ["--x", "from weather.calibration import b_scorer", "l"]),
         ("weather.calibration.b_scorer_entry_edit", ["--s0", "C:/t/s0.py", "--s1", S0_PATH]),
         ("weather.calibration.b_scorer_entry_edit", ["--s1", S0_PATH, "look"]),
+        ("weather.calibration.mg2_composite", ["--x", "b_scorer.py", "look"]),
+        ("weather.calibration.mg2_composite", ["--x", "B_SCORER", "lo"]),
+        ("weather.calibration.mg2_composite", ["--x", ".\\b_scorer.pyw", "look"]),
+        ("weather.calibration.mg2_composite", ["--x", "b_scorer_entry_edit", "look"]),
+        ("weather.calibration.mg2_composite", ["--x", "my_b_scorer.py", "look"]),
     ]
     (tmp_path / "cases.json").write_text(json.dumps([{"module": m, "arguments": a} for m, a in cases]),
                                          encoding="utf-8")  # ASCII JSON (\\u escapes): codepage-proof
@@ -242,8 +263,9 @@ def test_hook_denies_every_bypass_form_on_both_host_kinds(command, capture):
 @pytest.mark.parametrize("capture", [False, True], ids=["workstation", "capture_host"])
 @pytest.mark.parametrize("command", STILL_ALLOWED_OR_ROUTED, ids=repr)
 def test_hook_does_not_refuse_reads_the_entry_edit_check_or_the_exact_wrapper(command, capture):
-    """Read-only tooling and the S0 to S1 checker are not refused by the b_scorer rule; the exact wrapper form is
-    not refused by it either (it may still be routed through workstation_heavy.ps1 as heavy work)."""
+    """Allowlisted inspection tooling and the S0 to S1 checker are not refused by the b_scorer rule; the exact
+    wrapper form is not refused by it either (it may still be routed through workstation_heavy.ps1 as heavy
+    work)."""
     result = _evaluate(_hook(), command, capture)
     assert result is None or "b_look_wrapper look" not in result["hookSpecificOutput"]["permissionDecisionReason"]
 
@@ -252,7 +274,37 @@ def test_the_wrapper_exemption_is_exact():
     hook = _hook()
     for command in (f"python -m {WRAPPER} look --s0 {S0_PATH}; python {S0_PATH} look",
                     f"python -m {WRAPPER}x look --s0 {S0_PATH}",
-                    f"python -m {WRAPPER} look --s0 $(echo {S0_PATH})"):
+                    f"python -m {WRAPPER} look --s0 $(echo {S0_PATH})",
+                    f"python -m {WRAPPER} look --s0 x # it's here\npython -m {SCORER} look --rule x",
+                    f"python -m {WRAPPER} look --s0 x \\' ; python -m {SCORER} look \\'",
+                    f"python -m {WRAPPER} look --s0 x\rpython {S0_PATH} look",
+                    f"python -m {WRAPPER} look --s0 x 2>&1 | tee C:/t/l.txt; python {S0_PATH} look",
+                    f"python -m {WRAPPER} look --s0 x 2>&1 | python {S0_PATH} look",
+                    f"python -m {WRAPPER} look --s0 {S0_PATH} > {S0_PATH} look"):
         assert "b_look_wrapper look" in _evaluate(hook, command)["hookSpecificOutput"]["permissionDecisionReason"]
+    for allowed in (f"python -m {WRAPPER} look --s0 {S0_PATH} --rule x 2>&1",
+                    f"python -m {WRAPPER} look --s0 {S0_PATH} --rule x 2>&1 | tee C:/t/log.txt",
+                    f"python -m {WRAPPER} look --s0 {S0_PATH} | tee C:/t/log.txt"):
+        assert hook._exact_b_look_wrapper_command(allowed), allowed
     assert hook.offline_argument_refusal(WRAPPER, ["look", "--s0", S0_PATH]) is None
     assert hook.offline_argument_refusal("weather.calibration.mg2_composite", ["--x", S0_PATH, "look"]) is not None
+
+
+def test_the_read_only_exemption_is_narrow():
+    hook = _hook()
+    for command in (f"grep -n look {S0_PATH}", f"git show HEAD:{S0_PATH}", f"git log -p -- {S0_PATH}",
+                    f"git diff HEAD~1 -- {S0_PATH}", f"Get-Content {S0_PATH} | Select-String look"):
+        assert hook._read_only_command(command), command
+    for command in (f"grep -n look {S0_PATH} # it's here\npython -m {SCORER} look --rule x",
+                    f"grep x \\' ; python -m {SCORER} look \\'",
+                    f"grep -n look {S0_PATH}\rpython {S0_PATH} look",
+                    f"sed -n '1e python -m {SCORER} look' {S0_PATH}",
+                    f"sed -n 1,5p {S0_PATH}",
+                    f"git -c core.pager=cat show HEAD:{S0_PATH}",
+                    f"git -c alias.x='!python -m {SCORER} look' x",
+                    f"git -C src show HEAD:{S0_PATH}",
+                    "git config core.pager x",
+                    f"git grep -O look -- {S0_PATH}",
+                    f"rg --pre ./x look {S0_PATH}",
+                    f"less {S0_PATH}"):
+        assert not hook._read_only_command(command), command

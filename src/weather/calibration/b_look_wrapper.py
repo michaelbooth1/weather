@@ -35,14 +35,19 @@ Concurrency and the rule bytes (second adversarial pass, 2026-11-01):
 * ``--out`` holds an exclusive ``b_look_wrapper.lock`` (mode "x") from before the pins are checked until the call
   ends, whatever the outcome; only a hard kill leaves it, and then it must be removed by hand once no run is alive.
   A second run on the same ``--out`` is refused while it exists.
-* ABORTED is attributed to this call only if the fixed marker did not exist at the start, exists now, records this
-  call's resolved ``--out`` and was consumed at or after this call started (another run on another ``--out`` that
-  consumed the look is not this call's abort).
-* The rule is read once into ``b_look_wrapper_rule.md`` inside ``--out``; the pins, the preflight and
-  ``b_scorer.look`` all read that private copy, never the caller's path again. After the look the copy is
-  re-hashed; a change is recorded in the receipt and raised.
-* A refusal before ``look_guard`` removes the lock and the copy, and ``--out`` itself if this call created it, so a
-  refusal leaves nothing behind.
+* ABORTED is attributed to this call only if the fixed marker did not exist just before ``b_scorer.look``, exists
+  now and records this call's resolved ``--out`` (the held lock excludes any other run on that ``--out``; a run on
+  another ``--out`` that consumed the look is not this call's abort).
+* The rule is read once into ``b_look_wrapper_rule.md`` inside ``--out``, written with mode "x": if a copy from an
+  earlier run exists the call refuses (move it aside to a timestamped name, never delete it). The pins, the
+  preflight and ``b_scorer.look`` all read that private copy, never the caller's path again. After the look the
+  copy is re-hashed; a change is recorded in the receipt and raised.
+* A refusal before ``look_guard`` removes the lock, the copy only if this call wrote it, and ``--out`` itself if
+  this call created it and it is empty, so a refusal leaves nothing of its own behind and never deletes what it did
+  not create.
+* Recovery after a hard kill: if ``b_look_wrapper.lock`` exists and no wrapper process is alive, delete the lock;
+  if ``b_look_wrapper_rule.md`` exists, move it aside to a timestamped name (never delete it); then re-run with the
+  same ``--out``.
 
 ``python -m weather.calibration.b_look_wrapper look --s0 <bound b_scorer.py bytes> <b_scorer look arguments>``.
 """
@@ -220,20 +225,21 @@ def _write_receipt(out, receipt):
         handle.write(json.dumps(receipt, indent=1, sort_keys=True, default=str) + "\n")
 
 
-def _consumed_by_this_call(fixed, out, started):
-    """The fixed marker exists, names this call's resolved ``--out`` and was consumed at or after ``started``."""
+def _consumed_by_this_call(fixed, out):
+    """The fixed marker exists and names this call's resolved ``--out`` (the held lock excludes any other run on
+    that ``--out``)."""
     try:
         marker = json.loads(Path(fixed).read_text(encoding="utf-8"))
-        consumed_at = datetime.fromisoformat(marker["consumed_at_utc"])
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return isinstance(marker, dict) and marker.get("out") == str(Path(out).resolve())
+    except (OSError, ValueError, TypeError):
         return False
-    return marker.get("out") == str(Path(out).resolve()) and consumed_at >= started
 
 
-def _release(out, *, created, keep_copy):
-    """Drop the lock (and the rule copy unless kept); remove ``out`` if this call created it and it is now empty."""
+def _release(out, *, created, drop_copy):
+    """Drop the lock (and the rule copy only if this call wrote it and no look ran); remove ``out`` if this call
+    created it and it is now empty."""
     out = Path(out)
-    if not keep_copy:
+    if drop_copy:
         (out / RULE_COPY).unlink(missing_ok=True)
     (out / LOCK).unlink(missing_ok=True)
     if created:
@@ -263,9 +269,17 @@ def look(*, s0, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look,
         raise WrapperRefused(f"{out / LOCK} exists: another wrapper run holds this --out (or one was killed; remove "
                              f"the lock by hand once no run is alive)") from exc
     looked = False
+    copy_created = False
     try:
         rule_copy = out / RULE_COPY
-        rule_copy.write_bytes(Path(rule).read_bytes())  # read once; every later reader uses this private copy
+        rule_bytes = Path(rule).read_bytes()  # read once; every later reader uses this private copy
+        try:
+            with open(rule_copy, "xb") as handle:
+                copy_created = True
+                handle.write(rule_bytes)
+        except FileExistsError as exc:
+            raise WrapperRefused(f"{rule_copy} exists from an earlier run: move it aside to a timestamped name "
+                                 f"(never delete it), then re-run with the same --out") from exc
         if scorer is None:
             scorer = load_verified_scorer(rule=rule_copy, s0=s0, s1=s1)
         else:
@@ -297,7 +311,7 @@ def look(*, s0, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look,
             try:
                 payload = scorer.look(**look_args)
             except BaseException as exc:
-                if not consumed_before and _consumed_by_this_call(fixed, out, started):
+                if not consumed_before and _consumed_by_this_call(fixed, out):
                     b_receipt = out / scorer.RECEIPT
                     _write_receipt(out, {**receipt, **_rule_after(rule_copy, edit),
                                          "b_look_receipt_sha256": _file_sha(scorer, b_receipt),
@@ -315,7 +329,7 @@ def look(*, s0, rule, mg2_rule, release_binding, layout_root, vectors, mg2_look,
                                f"{after['rule_copy']}")
         return payload
     finally:
-        _release(out, created=created and not looked, keep_copy=looked)
+        _release(out, created=created and not looked, drop_copy=copy_created and not looked)
 
 
 def _rule_after(rule_copy, edit):

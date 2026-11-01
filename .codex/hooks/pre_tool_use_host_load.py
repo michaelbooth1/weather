@@ -106,12 +106,18 @@ _REFUSED_OFFLINE_SUBCOMMANDS = {
 # The fail-closed raw-text half of that refusal (second adversarial pass, 2026-11-01): any command text that names
 # b_scorer (module path, file path, or ``from weather.calibration import b_scorer``) together with a look-like
 # token is refused, so launchers, env assignments, path, ``-c`` and runpy forms cannot reach the look. Mirrored in
-# workload_admission.ps1 with the same patterns. Only the exact ``-m weather.calibration.b_look_wrapper`` form
-# (whose --s0/--s1 arguments may name b_scorer.py) and pure read-only tooling are exempt.
+# workload_admission.ps1 with the same patterns. Two narrow exemptions, both void when the command holds a newline,
+# carriage return, "#" or a backslash before a quote (comment or quote tricks the segment splitter cannot see): the
+# exact ``-m weather.calibration.b_look_wrapper`` form (whose --s0/--s1 arguments may name b_scorer.py), optionally
+# with a trailing ``2>&1`` and/or ``| tee <file>``; and commands whose every segment is an allowlisted inspection
+# tool with no command-executing option (no sed; git only as show/log/diff/grep/cat-file/blame with no global
+# option such as -c; no rg --pre, no git grep -O). This is a best-effort allowlist, not a proof of read-only.
+# b_scorer is also matched as a bare path word (``python b_scorer.py look`` from inside the package directory).
 _B_LOOK_WRAPPER_MODULE = "weather.calibration.b_look_wrapper"
 _B_SCORER_TEXT = re.compile(
     r"weather[./\\]+calibration(?:[./\\]+|[ \t\r\n]+import[ \t\r\n]+[A-Za-z0-9_ \t\r\n,()]*?)"
-    r"b_scorer(?![A-Za-z0-9_])",
+    r"b_scorer(?![A-Za-z0-9_])"
+    r"|(?:^|[ \t\r\n\"'\\/])b_scorer(?:\.py[cw]?)?(?![A-Za-z0-9_])",
 )
 # Matching is on ASCII-lower-cased text (only A-Z fold), never Unicode case folding, so .NET agrees.
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
@@ -121,9 +127,16 @@ _RAW_TOKEN_SEPARATOR = re.compile(r"[^A-Za-z0-9_\-\u0080-\U0010ffff]+")
 _READ_ONLY_TOOLS = frozenset(
     {
         "cat", "diff", "findstr", "get-childitem", "get-content", "get-filehash", "gc", "git", "grep", "head",
-        "less", "ls", "md5sum", "more", "rg", "select-string", "sed", "sha1sum", "sha256sum", "sls", "tail",
-        "type", "wc",
+        "ls", "md5sum", "rg", "select-string", "sha1sum", "sha256sum", "sls", "tail", "type", "wc",
     }
+)
+_READ_ONLY_GIT_SUBCOMMANDS = frozenset({"blame", "cat-file", "diff", "grep", "log", "show"})
+_EXEMPTION_VOIDING = re.compile(r"[\r\n#]|\\[\"']")
+# The sanctioned look line may end in ``2>&1`` and/or ``| tee <file>`` (a plain file word).
+_WRAPPER_LOG_SUFFIX = re.compile(
+    r"(?:[ \t]+2>&1)?(?:[ \t]*\|[ \t]*(?:tee|tee-object)(?:\.exe)?[ \t]+(?:-filepath[ \t]+)?"
+    r"[A-Za-z0-9_:./\\-]+)?[ \t]*\Z",
+    re.IGNORECASE,
 )
 _OFFLINE_WEATHER_MODULE_PATTERN = (
     r"(?:"
@@ -3187,15 +3200,20 @@ def _strip_launcher_prefix(words: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _exact_b_look_wrapper_command(command: str) -> bool:
-    """One static ``<python> -m weather.calibration.b_look_wrapper ...`` segment and nothing else."""
-    if any(marker in command for marker in _SHELL_SUBSTITUTION_MARKERS):
+    """One static ``<python> -m weather.calibration.b_look_wrapper ...`` line, optionally ending ``2>&1`` and/or
+    ``| tee <file>``, and nothing else."""
+    if _EXEMPTION_VOIDING.search(command) or any(marker in command for marker in _SHELL_SUBSTITUTION_MARKERS):
         return False
-    segments = list(_iter_raw_command_segments(command))
+    suffix = _WRAPPER_LOG_SUFFIX.search(command)
+    body = command[: suffix.start()] if suffix else command
+    segments = list(_iter_raw_command_segments(body))
     if len(segments) != 1:
         return False
     words = tuple(_iter_raw_shell_words(segments[0], 0))
     decoded = [_decode_static_shell_word(word) for word in words]
     if len(decoded) < 3 or any(dynamic for _word, dynamic in decoded):
+        return False
+    if any(word.startswith(">") or word.endswith(">") or "<" in word for word, _dynamic in decoded):
         return False
     kind = _python_executable_kind(words[0])
     return bool(
@@ -3206,21 +3224,33 @@ def _exact_b_look_wrapper_command(command: str) -> bool:
     )
 
 
+def _read_only_segment(words: tuple[str, ...]) -> bool:
+    decoded = [_decode_static_shell_word(word) for word in words]
+    if not decoded or any(dynamic for _word, dynamic in decoded):
+        return False
+    name = re.split(r"[\\/]", decoded[0][0])[-1].lower()
+    name = name[:-4] if name.endswith(".exe") else name
+    arguments = [word for word, _dynamic in decoded[1:]]
+    if name not in _READ_ONLY_TOOLS:
+        return False
+    if name == "git":
+        if not arguments or arguments[0] not in _READ_ONLY_GIT_SUBCOMMANDS:
+            return False  # also rules out every global option before the subcommand (-c, -C, --exec-path ...)
+        if arguments[0] == "grep" and any(a.startswith(("-O", "--open-files-in-pager")) for a in arguments):
+            return False
+    if name == "rg" and any(a.startswith("--pre") for a in arguments):
+        return False
+    return True
+
+
 def _read_only_command(command: str) -> bool:
-    """Every top-level segment starts with a read-only tool (no heredoc, substitution or backtick)."""
-    if any(marker in command for marker in _SHELL_SUBSTITUTION_MARKERS):
+    """Every top-level segment is an allowlisted inspection tool (best effort; see ``_READ_ONLY_TOOLS``)."""
+    if _EXEMPTION_VOIDING.search(command) or any(marker in command for marker in _SHELL_SUBSTITUTION_MARKERS):
         return False
     segments = list(_iter_raw_command_segments(command))
-    for segment in segments:
-        words = tuple(_iter_raw_shell_words(segment, 0))
-        if not words:
-            return False
-        word, dynamic = _decode_static_shell_word(words[0])
-        name = re.split(r"[\\/]", word)[-1].lower()
-        name = name[:-4] if name.endswith(".exe") else name
-        if dynamic or name not in _READ_ONLY_TOOLS:
-            return False
-    return bool(segments)
+    return bool(segments) and all(
+        _read_only_segment(tuple(_iter_raw_shell_words(segment, 0))) for segment in segments
+    )
 
 
 def _direct_subcommand_refusal(command: str) -> str | None:

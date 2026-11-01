@@ -59,16 +59,17 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
   `python -m weather.calibration.b_look_wrapper look --s0 <S0 bytes> <the b_scorer look arguments>`. The wrapper
   is a NEW module, not a B-bound file.
   - wrapper as reviewed (pre-S1, entry pin UNSET): `src/weather/calibration/b_look_wrapper.py`, sha256
-    `edf0a3d4b5ca71ff6482bf0c20ce2c04e197d03ee51619e99518a5ab6ec2dd41`, from the second-adversarial-pass fix
-    commit on this branch (lock, ABORTED attribution, private rule copy; §7). It supersedes `95985e80…` at
-    commit `2acf3954505affee29bfda60c0cdc5cbc9b1d090`;
+    `a77617a4e0091ac0167c590a295afb457bcfdc8659518edc37cb45d0f4216f1c`, from the third-adversarial-pass fix
+    commit on this branch (lock, ABORTED attribution, private rule copy written with mode "x"; §7). It supersedes
+    `edf0a3d4b5ca71ff6482bf0c20ce2c04e197d03ee51619e99518a5ab6ec2dd41` (second pass) and `95985e80…` at commit
+    `2acf3954505affee29bfda60c0cdc5cbc9b1d090`;
   - S0 to S1 checker (unchanged; pinned by the wrapper): `src/weather/calibration/b_scorer_entry_edit.py`,
     sha256 `a08c1eaa09d26d38e0481dfcd651d7dc46d11ce524ca29d913bb4a1a50a0005c`;
   - test: `tests/calibration/test_b_look_end_to_end_s0_s1.py`, sha256
-    `c627ca26964d47801abe9ae08d74252248c8b0c0bcb634ed289c02805546cb5f` (27 tests).
+    `58bd2aa5511d08f82e7800d564397b0a41d40632a23df65f41cb1b7235721f97` (29 test functions).
 - **The wrapper sha the look runs at:** the commit that creates S1 (§5) changes one more line besides
   `b_scorer.py`'s constant: the wrapper's `MG1_LOOK_ENTRY_PIN`, set to the same value. So the look runs at a
-  successor of the reviewed wrapper that differs from `edf0a3d4…` in exactly that one line. The §5 clarification
+  successor of the reviewed wrapper that differs from `a77617a4…` in exactly that one line. The §5 clarification
   records that successor's sha256 and S1's sha256, and the look-chain closed list pins both (§6).
 - **Running `python -m weather.calibration.b_scorer look` directly** is no longer an accepted look. Its markers
   would still consume the rule, so the look log must show the wrapper command. The workstation wrapper and the
@@ -212,8 +213,16 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
   - Reading A also leaves time for the S1 control re-run (§3 step 4, default) and a synthetic dry run through the
     pinned wrapper before 12-13.
 - **Look-day checklist reference:** the checklist's look step must name only the wrapper command,
-  `python -m weather.calibration.b_look_wrapper look --s0 <S0 bytes> <the b_scorer look arguments>`. It must not
-  name `python -m weather.calibration.b_scorer look`, which is refused (§7). Its lines 41-45 timing (Reading B) are
+  `python -m weather.calibration.b_look_wrapper look --s0 <S0 bytes> <the b_scorer look arguments>`, typed as a
+  single bare line: no `;`, `&&`, `|` other than an optional trailing `2>&1` and/or `| tee <log file>`, no
+  comment, no line continuation, no substitution. `--s0` points at a copy of the S0 bytes outside
+  `weather/calibration/` (for example extracted with `git show <bound commit>:src/weather/calibration/b_scorer.py`
+  into a scratch folder), so the line never names b_scorer itself. It must not
+  name `python -m weather.calibration.b_scorer look`, which is refused (§7).
+  - **Recovery after a killed run:** if `b_look_wrapper.lock` exists and no wrapper process is alive, delete it,
+    then re-run with the same `--out`. If `b_look_wrapper_rule.md` also exists in `--out`, first move it aside to
+    a timestamped name (for example `b_look_wrapper_rule.<UTC stamp>.md`); never delete it. The wrapper refuses
+    while either file is in place. Its lines 41-45 timing (Reading B) are
   superseded by the Reading A ruling. The checklist lives on the b-look-prep branch and is not edited here.
 
 ## 6. Fix to the look-chain DRAFT's closed list
@@ -226,7 +235,7 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
 
 | # | Step | Entry point | Pinned sha256 | Reads | Writes |
 | --- | --- | --- | --- | --- | --- |
-| 2 | B look | `python -m weather.calibration.b_look_wrapper look --s0 <S0>` | wrapper = the §5 successor of `edf0a3d4b5ca71ff6482bf0c20ce2c04e197d03ee51619e99518a5ab6ec2dd41` (one line: `MG1_LOOK_ENTRY_PIN`), sha recorded by the §5 commit; `b_scorer.py` S1 = the entry-edit-verified successor of S0 `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439`, sha recorded by the §5 commit; `b_scorer_entry_edit.py` `a08c1eaa09d26d38e0481dfcd651d7dc46d11ce524ca29d913bb4a1a50a0005c` | B-1 §9 inputs, the one transfer, the S0 bytes | `b_look.json`, `b_look_receipt.json`, `b_look_wrapper_receipt.json`, `b_look_wrapper_rule.md` (the private rule copy), consumed markers; `b_look_wrapper.lock` while it runs |
+| 2 | B look | `python -m weather.calibration.b_look_wrapper look --s0 <S0>` | wrapper = the §5 successor of `a77617a4e0091ac0167c590a295afb457bcfdc8659518edc37cb45d0f4216f1c` (one line: `MG1_LOOK_ENTRY_PIN`), sha recorded by the §5 commit; `b_scorer.py` S1 = the entry-edit-verified successor of S0 `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439`, sha recorded by the §5 commit; `b_scorer_entry_edit.py` `a08c1eaa09d26d38e0481dfcd651d7dc46d11ce524ca29d913bb4a1a50a0005c` | B-1 §9 inputs, the one transfer, the S0 bytes | `b_look.json`, `b_look_receipt.json`, `b_look_wrapper_receipt.json`, `b_look_wrapper_rule.md` (the private rule copy), consumed markers; `b_look_wrapper.lock` while it runs |
 
 - **Draft §3, the extractor bullet:** "the running `b_scorer` sha equals the one B's look recorded" stays
   correct. Both are S1, and `b_look_per_date` compares `b_look.json`'s `b_scorer_sha256` with the running
@@ -255,8 +264,15 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
     - Raw, fail-closed (second adversarial pass): any command text naming b_scorer (module path, file path, or
       `from weather.calibration import b_scorer`) together with a look-like token is refused, which covers the
       path, `-c`, runpy, heredoc and variable-launcher forms. Exempt: the exact one-segment
-      `<python> -m weather.calibration.b_look_wrapper ...` form, and commands whose every segment starts with a
-      read-only tool (`grep`, `sed`, `git`, `Get-Content` and the like, with no heredoc or substitution).
+      `<python> -m weather.calibration.b_look_wrapper ...` form (optionally ending `2>&1` and/or
+      `| tee <file>`), and commands whose every segment is an allowlisted inspection tool (`grep`, `rg`, `cat`,
+      `Get-Content`, `Select-String` and the like; `git` only as `show`, `log`, `diff`, `grep`, `cat-file` or
+      `blame` with no global option such as `-c`; `sed` is not on the list). Both exemptions are void when the
+      command contains a newline, a carriage return, `#`, a backslash before a quote, a heredoc or a substitution
+      (third adversarial pass). The allowlist is a best-effort filter, not a proof that a command is read-only.
+    - The raw check also matches a bare `b_scorer` / `b_scorer.py` word (after a start, space, quote, slash or
+      backslash), so `cd src/weather/calibration && python b_scorer.py look` is refused; `b_scorer_entry_edit`
+      is not matched.
     - `control`, `check-rule`, option-only calls such as `--dry-run`, and `b_scorer_entry_edit` stay admitted.
     - **Limits:** this is a guard on the workstation wrapper and Codex-hook paths only. Claude Code sessions have no
       hook layer, and any shell outside these paths can still run `b_scorer look`. The binding control is the
@@ -266,11 +282,18 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
     both host kinds, PowerShell parity, and `workstation_heavy.ps1` refusing before any lease);
     `docs/operations/HOST_LOAD_POLICY.md` records the rule and its limits.
 - **Wrapper hardening (second adversarial pass, 2026-11-01):** `--out` holds an exclusive `b_look_wrapper.lock`
-  for the whole call; ABORTED is written only when the fixed marker names this call's resolved `--out` and was
-  consumed at or after this call started; the rule is read once into `b_look_wrapper_rule.md` in `--out`, which
-  the pins, the preflight and `b_scorer.look` all read, and it is re-hashed after the look (a change is recorded in
-  the receipt and raised). A refusal before `look_guard` still leaves nothing behind.
+  for the whole call; ABORTED is written only when the fixed marker did not exist before `b_scorer.look`, exists
+  now and names this call's resolved `--out` (the lock reserves that `--out`; the third pass dropped the
+  consumed-at time condition); the rule is read once into `b_look_wrapper_rule.md` in `--out`, written with mode
+  "x" (a copy left by an earlier run refuses the call and is never deleted), which the pins, the preflight and
+  `b_scorer.look` all read, and it is re-hashed after the look (a change is recorded in the receipt and raised).
+  A refusal before `look_guard` removes only what this call created: the lock, its own copy, and `--out` if this
+  call created it and it is empty.
+  - Recovery: if `b_look_wrapper.lock` exists and no wrapper process is alive, delete it, then re-run with the same
+    `--out`; move an existing `b_look_wrapper_rule.md` aside to a timestamped name first, never delete it (§5).
 - **Evidence:**
   - red: commit `b3dacb7afb179318093e80237b87cb2932352ecf` (§1);
   - green: commit `2acf3954505affee29bfda60c0cdc5cbc9b1d090`, run through `workstation_heavy.ps1 -Queue`, gave 23
     passed in the test file. With the hygiene ratchet, import-architecture and entry-edit tests it was 125 passed.
+  - third-pass fixes (wrapper `a77617a4…`): the 12-file focused admission, hook, wrapper and hygiene set, run
+    through `workstation_heavy.ps1 -Queue`, gave 370 passed, 15 skipped.

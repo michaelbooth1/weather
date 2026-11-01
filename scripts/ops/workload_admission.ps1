@@ -675,7 +675,7 @@ function Get-WeatherWorkstationOfflineModule {
 # look-like, and if an option ("--" included) precedes it, any later look-like token is
 # refused too ("--rule x look").
 # Raw half (fail-closed, every module except the exact b_look_wrapper): the text
-# "<module> <arguments>" naming b_scorer (module path, file path, or
+# "<module> <arguments>" naming b_scorer (module path, file path, a bare b_scorer[.py] word, or
 # "from weather.calibration import b_scorer") together with any look-like token
 # (separators are ASCII non-word characters) is refused.
 # Returns the refusal text, or $null when the arguments are admitted.
@@ -727,7 +727,8 @@ function Get-WeatherWorkstationOfflineArgumentRefusal {
         }
     }
     $text = (@($Module) + $tokens) -join " "
-    $scorerText = 'weather[./\\]+calibration(?:[./\\]+|[ \t\r\n]+import[ \t\r\n]+[A-Za-z0-9_ \t\r\n,()]*?)b_scorer(?![A-Za-z0-9_])'
+    $scorerText = 'weather[./\\]+calibration(?:[./\\]+|[ \t\r\n]+import[ \t\r\n]+[A-Za-z0-9_ \t\r\n,()]*?)b_scorer(?![A-Za-z0-9_])' +
+        '|(?:^|[ \t\r\n"''\\/])b_scorer(?:\.py[cw]?)?(?![A-Za-z0-9_])'
     # ASCII-only lower-casing (A-Z), never culture or Unicode case folding: the hook does the same.
     $lowered = [regex]::Replace($text, '[A-Z]', { param($m) [string][char]([int][char]$m.Value + 32) })
     if ([regex]::IsMatch($lowered, $scorerText)) {

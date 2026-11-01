@@ -26,7 +26,8 @@ fetches can never be listed; network fetchers such as `forecast_training_corpus_
 `metar_history` or `venue_rule_labels` run directly, outside the wrapper, master ruling 2026-10-23).
 One subcommand is refused although its module is listed: `weather.calibration.b_scorer look`
 (and, fail-closed, any command text naming b_scorer together with a look-like token, except the exact
-`-m weather.calibration.b_look_wrapper` form and read-only tooling) is denied by both the wrapper
+`-m weather.calibration.b_look_wrapper` form and allowlisted inspection tooling, both void on a newline,
+`#` or escaped quote) is denied by both the wrapper
 (`Get-WeatherWorkstationOfflineArgumentRefusal`) and the Codex hook; B's one look runs only as
 `python -m weather.calibration.b_look_wrapper look` (master ruling 2026-11-01, B-1 Clarification 3).
 This is a guard on those two paths only: Claude Code sessions have no hook layer. The binding control stays the
