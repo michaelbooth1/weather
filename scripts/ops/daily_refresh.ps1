@@ -99,7 +99,8 @@ $childArgs = @(Get-DailyRefreshChildTokens @childParameters)
 $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
 $child = $null
 $childJob = $null
-$childExitCode = $null
+# Default-fail: only the child's own exit code (or the 75 deadline stop) replaces it.
+$childExitCode = 1
 $deadlineMinute = if ($Stage -eq "evidence") { 9 * 60 } else { 11 * 60 + 55 }
 $deadlineLabel = if ($Stage -eq "evidence") { "09:00" } else { "11:55" }
 $localMinute = ((Get-Date).Hour * 60) + (Get-Date).Minute
@@ -148,9 +149,19 @@ try {
         $childExitCode = $child.ExitCode
     }
 }
+catch {
+    # The exit issued from the finally below discards an uncaught error, so print it here.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
+    $childExitCode = 1
+    throw
+}
 finally {
+    # Set the host exit code before any cleanup: a cleanup statement that is
+    # aborted by Ctrl+C would otherwise leave this advanced script exiting 0.
+    $Host.SetShouldExit($childExitCode)
     if ($childJob) { $childJob.Dispose() }
     if ($child) { $child.Dispose() }
     Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
+    $Host.SetShouldExit($childExitCode)
+    exit $childExitCode
 }
-exit $childExitCode

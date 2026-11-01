@@ -25,7 +25,13 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAM
 ROLL_VERDICT_STUB = """param([string]$Branch, [string]$JsonOut)
 $code = [int]$env:FAKE_ROLL_EXIT
 $name = if ($code -eq 0) { "ROLL-FREE" } else { "ROLL-SENSITIVE" }
-@{ verdict = $name; branch = $Branch } | ConvertTo-Json | Set-Content -Path $JsonOut -Encoding utf8
+$payload = @{ verdict = $name; branch = $Branch }
+# FAKE_ROLL_JSON scripts a defective JSON beside the exit code.
+$mode = [string]$env:FAKE_ROLL_JSON
+if ($mode -like "verdict=*") { $payload.verdict = $mode.Substring(8) }
+if ($mode -like "branch=*") { $payload.branch = $mode.Substring(7) }
+if ($mode -eq "garbage") { Set-Content -Path $JsonOut -Value "{ not json" -Encoding utf8 }
+elseif ($mode -ne "missing") { $payload | ConvertTo-Json | Set-Content -Path $JsonOut -Encoding utf8 }
 "VERDICT: $name"
 exit $code
 """
@@ -94,9 +100,9 @@ def _branch(fx: dict[str, object], files: dict[str, str]) -> str:
 
 
 def _run(fx: dict[str, object], tip: str, *extra: str, roll_exit: int = 0, push_result: int = 0,
-         task_state: str = "Ready") -> subprocess.CompletedProcess[str]:
+         task_state: str = "Ready", roll_json: str = "") -> subprocess.CompletedProcess[str]:
     env = dict(os.environ, **GIT_ENV, FAKE_SCRIPT=str(SCRIPT), FAKE_REPO=str(fx["repo"]),
-               FAKE_STARTED=str(fx["started"]), FAKE_ROLL_EXIT=str(roll_exit),
+               FAKE_STARTED=str(fx["started"]), FAKE_ROLL_EXIT=str(roll_exit), FAKE_ROLL_JSON=roll_json,
                FAKE_PUSH_RESULT=str(push_result), FAKE_TASK_STATE=task_state)
     return subprocess.run(
         [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(fx["wrapper"]),
@@ -197,6 +203,45 @@ def test_refusals_change_nothing(fx: dict[str, object], case: str, message: str)
     assert "REFUSED" in result.stdout and message in result.stdout, result.stdout
     assert _git(repo, "rev-parse", "HEAD") == fx["base"]
     assert not Path(str(fx["started"])).exists()
+    assert _receipts(fx) == []
+
+
+@pytest.mark.parametrize(
+    "roll_json",
+    ["missing", "garbage", "verdict=ROLL-SENSITIVE", "branch=" + "0" * 40, "branch=origin/codex/x"],
+    ids=["json-missing", "json-unparseable", "json-verdict-mismatch", "json-other-tip", "json-movable-ref"],
+)
+@pytest.mark.spawns
+def test_exit_zero_without_a_matching_roll_free_json_refuses(fx: dict[str, object], roll_json: str) -> None:
+    # Exit 0 alone is not ROLL-FREE: the JSON must name ROLL-FREE for the exact tip.
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+
+    result = _run(fx, tip, "-CheckOnly", roll_exit=0, roll_json=roll_json)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "REFUSED: roll verdict JSON" in result.stdout and "CHECK PASS" not in result.stdout, result.stdout
+    assert _git(repo, "rev-parse", "HEAD") == fx["base"]
+    assert not Path(str(fx["started"])).exists()
+    assert _receipts(fx) == []
+
+
+@pytest.mark.spawns
+def test_uncaught_error_exits_one_and_still_prints_it(fx: dict[str, object]) -> None:
+    # The default-fail exit is issued from the final finally, which would discard
+    # an uncaught error; the error is printed first and the code stays 1.
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+    # Without the tracking ref, Get-GitCommit throws (no Refuse wraps it).
+    _git(repo, "update-ref", "-d", "refs/remotes/origin/master")
+
+    result = _run(fx, tip)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "refs/remotes/origin/master^{commit} failed (exit" in result.stderr, result.stderr
+    assert _git(repo, "rev-parse", "HEAD") == fx["base"]
     assert _receipts(fx) == []
 
 

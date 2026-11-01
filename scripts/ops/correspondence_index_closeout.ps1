@@ -109,12 +109,13 @@ try {
     Write-Output ("CLOSEOUT_BRANCH=origin/{0}" -f $branch)
     Write-Output ("CLOSEOUT_TIP={0}" -f $tip)
     if (-not $Land) {
-        Note ("land with: .\scripts\ops\docs_light_path.ps1 -Branch origin/{0} -ExpectedTip {1}" -f $branch, $tip)
+        Note ("land with: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ops\docs_light_path.ps1 -Branch origin/{0} -ExpectedTip {1}" -f $branch, $tip)
         $exit = 0
         return
     }
     Invoke-Git $RepoRoot @("fetch", "--quiet", "origin", $branch) | Out-Null
-    & (Join-Path $RepoRoot "scripts\ops\docs_light_path.ps1") -Branch "origin/$branch" -ExpectedTip $tip -RepoRoot $RepoRoot
+    # Out of process: the light path ends with $Host.SetShouldExit, which would end this host too.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "scripts\ops\docs_light_path.ps1") -Branch "origin/$branch" -ExpectedTip $tip -RepoRoot $RepoRoot
     $exit = $LASTEXITCODE
 }
 catch {
@@ -124,5 +125,8 @@ catch {
 finally {
     try { Invoke-Git $RepoRoot @("worktree", "remove", "--force", $worktree) | Out-Null }
     catch { Note ("worktree cleanup failed: {0}" -f $_.Exception.Message) }
+    # Advanced script: stopped by Ctrl+C, PS 5.1 -File drops the code of an
+    # `exit` issued from a finally and exits 0 unless the host code is set first.
+    $Host.SetShouldExit($exit)
     exit $exit
 }
