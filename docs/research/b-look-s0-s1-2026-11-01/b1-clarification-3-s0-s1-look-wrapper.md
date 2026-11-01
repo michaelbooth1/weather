@@ -1,24 +1,27 @@
-# Rule B-1 Clarification 3 (DRAFT): the look runs at S1 through a pinned wrapper, 2026-11-01
+# Rule B-1 Clarification 3: the look runs at S1 through a pinned wrapper, 2026-11-01
 
-- **Status:** DRAFT by lane L22 for master's ruling and adversarial review (d). Not in force, not signed, and not
-  an owner decision. Numbered 3 after the two dated B-1 clarifications: the MG-1 look receipt (2026-10-26,
+- **Status:** ACCEPTED by master 2026-11-0X (date filled at landing). Written by lane L22 and reviewed in three
+  adversarial passes. Numbered 3 after the two dated B-1 clarifications: the MG-1 look receipt (2026-10-26,
   `docs/research/mg2-composite-binding-2026-10-25/b1-clarification-mg1-look-receipt-2026-10-26.md`) and the L6_G
   disclosure (2026-10-29, `docs/research/gefs-members-l11-2026-10-26/b1-clarification-l6g-exemption-2026-10-29.md`).
-- **Master's rulings on this draft (2026-11-01, relayed by the coordinator):**
+- **Master's rulings (2026-11-01, relayed by the coordinator):**
   - Reading A is ADOPTED: the entry sha is set before the MG-1 look (§5).
   - `ACCEPT_S0_CONTROL` stays `False`: the control must be re-receipted at S1 (§3 step 4).
-  - The §4 preflight wording for B-1 §6 is accepted.
-  - The reject branch is accepted: a VOID 2 or 3 found by the preflight before `look_guard` is a refusal with
-    no marker, output or receipt, not a spent look (§4).
-  - M3 and M4 are approved and implemented on this branch (§7).
-- **Authority sought:** master. It answers finding D4-1 of the 2026-11-01 formal review, which master confirmed
+  - **Operative rule (§4):** the §4 wording for B-1 §6 is accepted. A preflight refusal by `b_look_wrapper` at
+    the pinned sha is not a look: a VOID 2 or 3 found before `look_guard` is a refusal with no marker, output or
+    receipt; once `look_guard` has written the fixed marker, every VOID spends the dates.
+  - M3 and M4 are approved and implemented (§7), and the inspection-tooling exemption is kept as narrowed (§7).
+  - **Contingency (history only, did not fire):** "if master rejects Clarification 3, the preflight is deleted
+    and B-1 §6 stands unamended". Master accepted, so this clause has no effect; it is kept as the dated record of
+    what rejection would have meant. It is separate from the §4 operative rule.
+- **Authority:** master. It answers finding D4-1 of the 2026-11-01 formal review, which master confirmed
   adversarially.
 - **History only:** synthetic fixtures only. No outcome, label, price, market, 88a, panel or settlement row for
   any date was read to write this.
 - **What changes:** how B's one look is invoked, which scorer sha VOID 2 and VOID 3 accept, and that a
   VOID 2 or 3 found before `look_guard` is a refusal, not a spent look. Nothing else changes: the estimand, the
-  keep/kill rule, the markets, the dates, the interval, the bound hashes, the embargo and VOID 1, 4, 5, 6 and 7. No B-bound file is edited. This file is filed
-  outside `docs/research/mg2-composite-binding-2026-10-25/` and does not edit `B_FORWARD_TEST_DESIGN.md`.
+  keep/kill rule, the markets, the dates, the interval, the bound hashes, the embargo and VOID 1, 4, 5, 6 and 7.
+  No B-bound file is edited. This file is filed outside `docs/research/mg2-composite-binding-2026-10-25/` and does not edit `B_FORWARD_TEST_DESIGN.md`.
 
 ## 1. Why: D4-1, reproduced
 
@@ -51,14 +54,19 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
   `VOID [2, 3]: '2': "... ['b_scorer_sha256']", '3': "... ['control ran at another scorer sha']"`.
   Every other bound hash and VOID 5 passed, so the fault is exactly D4-1.
 
-## 2. Ruling sought: `b_scorer.py` keeps one permitted edit; a new pinned wrapper runs the look
+## 2. Ruling: `b_scorer.py` keeps one permitted edit; a new pinned wrapper runs the look
 
 - **The scorer edit:** `b_scorer.py`'s only permitted post-binding edit stays the `MG1_LOOK_ENTRY_SHA256` line
   (S0 to S1). This clarification adds no other scorer edit.
 - **The look entry point:** B's one look runs only as
   `python -m weather.calibration.b_look_wrapper look --s0 <S0 bytes> <the b_scorer look arguments>`. The wrapper
   is a NEW module, not a B-bound file.
-  - wrapper as reviewed (pre-S1, entry pin UNSET): `src/weather/calibration/b_look_wrapper.py`, sha256
+  - rule (unchanged): `docs/operations/B_FORWARD_TEST_DESIGN.md`, sha256
+    `e8bad6e8ce9988180e41e5f9589e180326a8c1886f6043f182187de38a2a6030` (the wrapper's `B1_RULE_SHA256`);
+  - scorer S0 (unchanged; B-1 `b_scorer_sha256`): `src/weather/calibration/b_scorer.py`, sha256
+    `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439`;
+  - wrapper as accepted (pre-S1, `MG1_LOOK_ENTRY_PIN` UNSET, so it refuses every look until the S1 commit):
+    `src/weather/calibration/b_look_wrapper.py`, sha256
     `a77617a4e0091ac0167c590a295afb457bcfdc8659518edc37cb45d0f4216f1c`, from the third-adversarial-pass fix
     commit on this branch (lock, ABORTED attribution, private rule copy written with mode "x"; §7). It supersedes
     `edf0a3d4b5ca71ff6482bf0c20ce2c04e197d03ee51619e99518a5ab6ec2dd41` (second pass) and `95985e80…` at commit
@@ -66,9 +74,12 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
   - S0 to S1 checker (unchanged; pinned by the wrapper): `src/weather/calibration/b_scorer_entry_edit.py`,
     sha256 `a08c1eaa09d26d38e0481dfcd651d7dc46d11ce524ca29d913bb4a1a50a0005c`;
   - test: `tests/calibration/test_b_look_end_to_end_s0_s1.py`, sha256
-    `58bd2aa5511d08f82e7800d564397b0a41d40632a23df65f41cb1b7235721f97` (29 test functions).
-- **The wrapper sha the look runs at:** the commit that creates S1 (§5) changes one more line besides
-  `b_scorer.py`'s constant: the wrapper's `MG1_LOOK_ENTRY_PIN`, set to the same value. So the look runs at a
+    `8c062d345a31f340308815c7355b0bf620a7122accb90b9b6d3547a7a01fa989` (29 test functions). As reviewed and
+    accepted at commit `9ea878a89351ac5f1b5fc7ef0e81c0e3240980d5` it was
+    `58bd2aa5511d08f82e7800d564397b0a41d40632a23df65f41cb1b7235721f97`; the acceptance commit changed only its
+    module docstring (this clarification's new path and "draft" to "accepted", lines 3-4), no test code.
+- **The wrapper sha the look runs at:** the commit that creates S1 (§5) is a two-line commit: `b_scorer.py`'s
+  `MG1_LOOK_ENTRY_SHA256` line (S0 to S1) and the wrapper's `MG1_LOOK_ENTRY_PIN` line, set to the same value. So the look runs at a
   successor of the reviewed wrapper that differs from `a77617a4…` in exactly that one line. The §5 clarification
   records that successor's sha256 and S1's sha256, and the look-chain closed list pins both (§6).
 - **Running `python -m weather.calibration.b_scorer look` directly** is no longer an accepted look. Its markers
@@ -174,12 +185,13 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
   VOID 6 and VOID 7.
 - **Where it departs from B-1:** it does depart from B-1 §6 ("VOID: the dates are spent") for VOID 2 and VOID 3
   found before `look_guard`.
-- **Master accepted the preflight and this wording (2026-11-01).** Wording for B-1 §6: "A preflight
+- **Operative rule, accepted by master (2026-11-01).** Wording for B-1 §6: "A preflight
   refusal by `b_look_wrapper` at the sha pinned in Clarification 3 (as amended by the §5 commit) is not a look: no
   consumed marker, `b_look.json` or B look receipt exists, and no transfer file was opened. Once `look_guard` has
   written the fixed marker, every VOID, 2, 3 and 5 included, spends the dates."
-- **Had master rejected it** (not the case; recorded for the history): delete `preflight` from the wrapper (a reviewed sha change). D4-1 is still closed by
-  §3, and B-1 §6 stands unamended.
+- **Contingency clause (history only; it did not fire):** "if master rejects Clarification 3, the preflight is
+  deleted and B-1 §6 stands unamended". Master accepted Clarification 3, so the preflight stays and the
+  operative rule above amends B-1 §6. The clause is kept only as the dated record.
 - **Tests:**
   - a control at a third sha, and a control at S0 under the default, are refused with no marker or output;
   - the same look then scores once the control is re-receipted at S1;
@@ -205,7 +217,7 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
   - sets `b_scorer.py`'s constant (S1) and the wrapper's `MG1_LOOK_ENTRY_PIN` to the same value;
   - records the `python -m weather.calibration.b_scorer_entry_edit --s0 <S0> --s1 <S1>` output;
   - records the new S1 and wrapper sha256s.
-- **Ruling: Reading A, ADOPTED by master 2026-11-01** (it was the recommendation, for these reasons):
+- **Ruling: Reading A, ADOPTED by master 2026-11-01**, for these reasons:
   - It fixes VOID 5's expected entry point before any MG-1 outcome is joined.
   - Under Reading B the value is chosen after the receipt exists and can be copied from it, so the entry check
     cannot fail by construction (the pin binds S1 to the wrapper, but both are set after the fact). Only
@@ -222,10 +234,11 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
   - **Recovery after a killed run:** if `b_look_wrapper.lock` exists and no wrapper process is alive, delete it,
     then re-run with the same `--out`. If `b_look_wrapper_rule.md` also exists in `--out`, first move it aside to
     a timestamped name (for example `b_look_wrapper_rule.<UTC stamp>.md`); never delete it. The wrapper refuses
-    while either file is in place. Its lines 41-45 timing (Reading B) are
-  superseded by the Reading A ruling. The checklist lives on the b-look-prep branch and is not edited here.
+    while either file is in place.
+  - The checklist's lines 41-45 timing (Reading B) are superseded by the Reading A ruling. The checklist lives on
+    the b-look-prep branch and is not edited here.
 
-## 6. Fix to the look-chain DRAFT's closed list
+## 6. Fix to the look-chain draft's closed list
 
 - **Where the draft lives:** `docs/research/b-look-prep-2026-10-31/look-chain-clarification-DRAFT.md`, on
   `origin/claude/b-look-prep-20261031-retip-r2`, not on master. It is not edited here, to avoid a conflicting copy.
@@ -237,16 +250,16 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
 | --- | --- | --- | --- | --- | --- |
 | 2 | B look | `python -m weather.calibration.b_look_wrapper look --s0 <S0>` | wrapper = the §5 successor of `a77617a4e0091ac0167c590a295afb457bcfdc8659518edc37cb45d0f4216f1c` (one line: `MG1_LOOK_ENTRY_PIN`), sha recorded by the §5 commit; `b_scorer.py` S1 = the entry-edit-verified successor of S0 `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439`, sha recorded by the §5 commit; `b_scorer_entry_edit.py` `a08c1eaa09d26d38e0481dfcd651d7dc46d11ce524ca29d913bb4a1a50a0005c` | B-1 §9 inputs, the one transfer, the S0 bytes | `b_look.json`, `b_look_receipt.json`, `b_look_wrapper_receipt.json`, `b_look_wrapper_rule.md` (the private rule copy), consumed markers; `b_look_wrapper.lock` while it runs |
 
-- **Draft §3, the extractor bullet:** "the running `b_scorer` sha equals the one B's look recorded" stays
-  correct. Both are S1, and `b_look_per_date` compares `b_look.json`'s `b_scorer_sha256` with the running
+- **Look-chain draft §3, the extractor bullet:** "the running `b_scorer` sha equals the one B's look recorded"
+  stays correct. Both are S1, and `b_look_per_date` compares `b_look.json`'s `b_scorer_sha256` with the running
   `module_sha256()`.
-- **Draft §5:** the sentence about the sentinel should cite this clarification's §5 ruling.
+- **Look-chain draft §5:** the sentence about the sentinel should cite this clarification's §5 ruling.
 
 ## 7. Scope limits and follow-ups
 
 - **No B-bound file was edited, and none needs to be.** The one residual that only a B-bound edit could remove is
   the marker order inside `look_guard`. §4 works around it from outside.
-- **M3 and M4, approved by master 2026-11-01 and implemented on this branch:**
+- **M3 and M4, approved by master 2026-11-01 and implemented:**
   - M3: `weather.calibration.b_look_wrapper` is listed next to `b_scorer` in the three mirrored offline-module
     lists (`.codex/hooks/pre_tool_use_host_load.py`, `scripts/ops/workload_admission.ps1`,
     `tests/operations/test_r0_full_year_admission.py`).
@@ -274,6 +287,13 @@ References are to origin/master `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
       backslash), so `cd src/weather/calibration && python b_scorer.py look` is refused; `b_scorer_entry_edit`
       is not matched.
     - `control`, `check-rule`, option-only calls such as `--dry-run`, and `b_scorer_entry_edit` stay admitted.
+    - **Master's ruling on the inspection-tooling exemption (2026-11-01): KEEP it as narrowed** (`grep`, `rg`,
+      `Get-Content` and the like; `git show|log|diff|grep|cat-file|blame` with no global options; void on a
+      newline, `#`, a substitution or a backslash before a quote). The accepted false positives (for example a
+      `b_scorer control …` command whose arguments contain a look-like token) are refused, which is acceptable.
+    - **Residual obfuscation gaps, accepted as such:** string concatenation that assembles the module name,
+      variables holding the module name, `Get-Content x | iex`, and `__pycache__` `.pyc` paths. These are not
+      caught; the binding control remains `b_scorer`'s consumed marker plus the look-day checklist.
     - **Limits:** this is a guard on the workstation wrapper and Codex-hook paths only. Claude Code sessions have no
       hook layer, and any shell outside these paths can still run `b_scorer look`. The binding control is the
       fixed consumed marker (`look_guard` refuses a second look for the rule sha, whoever runs it) plus the

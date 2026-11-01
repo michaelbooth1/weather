@@ -1,7 +1,7 @@
 """Rule B-1 end to end: the rule bound at S0, the scorer at S1, one look through ``look_guard``.
 
-Guards: finding D4-1 of the 2026-11-01 formal review (adversarially confirmed by master) and the draft B-1
-Clarification 3 (docs/research/b-look-s0-s1-2026-11-01/b1-clarification-3-s0-s1-look-wrapper-DRAFT.md).
+Guards: finding D4-1 of the 2026-11-01 formal review (adversarially confirmed by master) and the accepted B-1
+Clarification 3 (docs/research/b-look-s0-s1-2026-11-01/b1-clarification-3-s0-s1-look-wrapper.md).
 
 D4-1: B's single look is a deterministic VOID as built. B-1 binds ``b_scorer_sha256`` = S0 (``B_FORWARD_TEST_DESIGN.md`` b_rule_v1 block); the
 only permitted post-binding scorer edit sets ``MG1_LOOK_ENTRY_SHA256`` (S0 to S1, B-1 clarification of 2026-10-26
