@@ -69,9 +69,11 @@ pytestmark = pytest.mark.skipif(
     reason="the stop/exit-code rule is specific to Windows PowerShell 5.1",
 )
 
-# Fixed on its own branch (claude/fix-interrupted-pregate-exit-20261022,
-# f23cb43bda269e656349b1374db12e3cbbec8bf1); tolerated whether or not that fix
-# has landed. Remove the entry once it is on master.
+# workstation_pregate.ps1 sets the host exit code only when it is the host's
+# own -File script (`if ($pregateIsHostFileScript) { $host.SetShouldExit(...) }`,
+# claude/pregate-interrupt-followup-20261027 9f0c7fdce), so an in-process caller
+# survives it. This scan accepts only an unconditional SetShouldExit, so the
+# pre-gate stays exempt here; test_workstation_pregate_script.py pins its form.
 PENDING_ELSEWHERE = {"workstation_pregate.ps1"}
 
 _SCAN = r"""
