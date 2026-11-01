@@ -85,6 +85,47 @@ def test_only_torn_down_failed_attempts_qualify(tmp_path, change):
         resolution.resolve(root, NAME, "production agent")
 
 
+def childless(tmp_path, **extra):
+    """The 2026-10-30 shape: the child refused (expired policy) before writing anything."""
+    root = tmp_path.resolve()
+    folder = root / "scratch" / "cold_snapshot_compression" / NAME
+    folder.mkdir(parents=True)
+    write(folder / "wrapper-result.json", {"status": "FAILED", "teardown_proved": True, "hard_stop": False,
+        "deleted_files": 0, "cleanup_eligible": False, "apply": True, "source_git_sha": "b" * 40,
+        "request_sha256": "c" * 64, "execution_host_id": "d" * 64,
+        "error": "child did not produce PASS; retain attempt and inspect child receipts", **extra})
+    return root, folder
+
+
+def test_childless_refused_attempt_is_resolved_with_nothing_verified(tmp_path):
+    root, folder = childless(tmp_path)
+    record = resolution.resolve(root, NAME, "production agent")
+    assert record["status"] == "RESOLVED" and record["child_result_sha256"] is None
+    assert record["files_verified"] == 0 and record["files"] == [] and record["verified_reclaimed_bytes"] == 0
+    assert record["failure"].startswith("child did not produce PASS")
+    assert record["deleted_files"] == 0 and record["cleanup_eligible"] is False
+    assert json.loads((folder.parent / "resolved-nightly" / f"{NAME}.json").read_text()) == record
+
+
+@pytest.mark.parametrize("leftover", ["batch-0000", "request.json"])
+def test_childless_attempt_with_any_other_entry_still_needs_its_child_result(tmp_path, leftover):
+    root, folder = childless(tmp_path)
+    if leftover.endswith(".json"):
+        write(folder / leftover, {})
+    else:
+        (folder / leftover).mkdir()
+    with pytest.raises(FileNotFoundError):
+        resolution.resolve(root, NAME, "production agent")
+    assert not (folder.parent / "resolved-nightly").exists()
+
+
+def test_childless_attempt_whose_wrapper_binds_a_child_result_is_not_resolved(tmp_path):
+    root, folder = childless(tmp_path, child_result_sha256="e" * 64)
+    with pytest.raises(ValueError, match="binds a child result"):
+        resolution.resolve(root, NAME, "production agent")
+    assert not (folder.parent / "resolved-nightly").exists()
+
+
 def test_scheduled_runner_accepts_only_a_resolution_bound_to_the_wrapper_hash():
     text = (repo_path() / "scripts/ops/cold_snapshot_nightly_run.ps1").read_text()
     for needle in ("resolved-nightly\\", "failed_attempt_resolution", "wrapper_result_sha256 -ceq $wrapperHash",
