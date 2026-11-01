@@ -18,7 +18,9 @@
 # Window rule: every branch is refused 12:00-00:30 (the 12:00-18:00 graded capture window,
 # where a roll can cost the day, and the 18:00-00:30 near-close window). A roll-sensitive
 # branch (roll_verdict.ps1 not a clean ROLL-FREE) is further confined to 01:00-04:00 unless
-# -Force; a ROLL-FREE branch may run 00:30-12:00. See docs/ops/streak-soak.md.
+# -Force; a ROLL-FREE branch may run 00:30-12:00. A docs-only branch (docs/**/*.md) lands
+# instead through docs_light_path.ps1, which enforces the same 00:30-12:00 start window
+# (not "any hour"). See docs/ops/streak-soak.md.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,

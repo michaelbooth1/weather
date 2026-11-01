@@ -54,7 +54,7 @@ checkout (owner decision 2026-08-28).
 | Scope | May | Must not |
 | --- | --- | --- |
 | **Task / coding agent** — any delegated, workstation, sub-agent or implementation session, on any host | Work on a `codex/<topic>` branch in its own worktree; commit there; **push that branch to `origin` freely, at any hour**; open or update a draft PR. | Commit on, merge into, or push `master`. Adopt code at runtime. Merge a PR without an explicit repository-owner instruction. |
-| **Production operations agent** — the role in `OPERATIONS_AGENT_ROLE.md`, on the 16 GB capture host | Owns **adoption**: takes the roll verdict from `scripts\ops\roll_verdict.ps1 -Branch <ref>`; merges to `master` **only** through `scripts\ops\quiet_window_merge.ps1` or `scripts\ops\suite_gated_quiet_merge.ps1` (procedure: [Immutable Integration Attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md)); publishes `master` **only** through the `WeatherOneShotPush` scheduled task, then verifies `git rev-parse origin/master`. | Hand-merge code into `master`, push `master` interactively, merge inside 12:00–18:00 or 18:00–00:30, or schedule a roll-sensitive merge outside 01:00–04:00. |
+| **Production operations agent** — the role in `OPERATIONS_AGENT_ROLE.md`, on the 16 GB capture host | Owns **adoption**: takes the roll verdict from `scripts\ops\roll_verdict.ps1 -Branch <ref>`; merges to `master` **only** through `scripts\ops\quiet_window_merge.ps1` or `scripts\ops\suite_gated_quiet_merge.ps1` (procedure: [Immutable Integration Attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md)), or, for a ROLL-FREE `docs/**/*.md`-only branch, `scripts\ops\docs_light_path.ps1` (00:30-12:00 local only); publishes `master` **only** through the `WeatherOneShotPush` scheduled task, then verifies `git rev-parse origin/master`. | Hand-merge code into `master`, push `master` interactively, merge inside 12:00–18:00 or 18:00–00:30, or schedule a roll-sensitive merge outside 01:00–04:00. |
 
 Why a branch push is always safe: capture supervisors fingerprint the source
 files in the production working tree, and a ref on `origin` changes no file
@@ -67,6 +67,25 @@ The one established direct-to-`master` path is the operations agent's
 roll-free documentation commit (a handoff, a canon correction). It is still
 published through `WeatherOneShotPush`, never rewrites history, and never
 carries code that a capture loop imports.
+
+Two automated paths also put commits on `master`, both published only through
+`WeatherOneShotPush`:
+
+- **Docs-only light path.** `scripts\ops\docs_light_path.ps1 -Branch origin/<b>
+  -ExpectedTip <sha>` lands a branch whose roll verdict is ROLL-FREE and whose
+  diff is only `docs/**/*.md` with a local `--no-ff` merge (subject
+  `Merge <b> into master (fail-forward light path, docs only)`), without the
+  heavy lease or quiet window. It starts only 00:30-12:00 local, never
+  12:00-00:30, and re-checks the clock before the merge; the morning docs
+  landing at about 07:30 is inside that window. The
+  [guarded-merge runbook](ops/streak-soak.md) owns its preconditions, exit codes
+  and receipt.
+- **Automated drift commit.** When fleet-generated config files are dirty at
+  merge time, `quiet_window_merge.ps1` first commits exactly that allowlisted
+  set as `ops: preserve fleet-generated drift (pre-merge, automated)` so the
+  merge starts clean; on rollback it restores the recorded bytes as working-tree
+  drift. Any other modified tracked file aborts the merge. Such a commit is
+  expected in `master` history and is not a hand commit.
 
 **Push mechanics on the production host (verified 2026-09-19).** Interactive
 `git push -u origin <branch>` of topic **branches** works from this host; it
