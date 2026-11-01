@@ -63,19 +63,28 @@ def test_reanalysis_normalize_payload_reads_the_response_offset():
     assert records[0]["valid_time_utc"].startswith("2024-12-10T05:00")  # 23:00 CST on 12-09
 
 
-def _store(tmp_path, payload):
+def _store(tmp_path, payload, name="2024-12-10_2024-12-10"):
     store = ReanalysisStore(CHICAGO, root=tmp_path / "kord")
     raw = store.raw_root / "year=2024"
     raw.mkdir(parents=True)
-    (raw / "2024-12-10_2024-12-10.json").write_text(json.dumps(payload), encoding="utf-8")
+    (raw / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
     return store
 
 
 def test_reanalysis_store_and_synoptic_daily_metrics_use_the_response_offset(tmp_path):
-    store = _store(tmp_path, _payload())
+    # The archive's named range starts 12-09, so the hour placed on 12-09 is inside it and kept.
+    store = _store(tmp_path, _payload(), name="2024-12-09_2024-12-10")
     assert sorted(d.isoformat() for d in store.raw_normalizable_dates()) == ["2024-12-09", "2024-12-10"]
     daily = load_raw_daily_metrics(store)
     assert {d.isoformat(): v["precipitation"] for d, v in daily.items()} == {"2024-12-09": 5.0, "2024-12-10": 0.0}
+
+
+def test_the_hour_placed_before_the_archive_start_is_an_edge_day_the_store_and_synoptic_drop(tmp_path):
+    # R26 step 5 option (b): a one-file archive named 2024-12-10 gives 12-09 one row; that partial day is dropped.
+    store = _store(tmp_path, _payload())
+    assert sorted(d.isoformat() for d in store.raw_normalizable_dates()) == ["2024-12-10"]
+    daily = load_raw_daily_metrics(store)
+    assert {d.isoformat(): v["precipitation"] for d, v in daily.items()} == {"2024-12-10": 0.0}
 
 
 @pytest.mark.parametrize("offset", [None, "-18000", True, float("nan"), 86400, -18000.5])

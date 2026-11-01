@@ -3,11 +3,13 @@
 Guards: EF 10w (Open-Meteo hourly labels are fixed-offset per response) and the R26 item-340 re-tip (step 1:
 a usable offset over naive labels that repeat, gap, or hold an unparseable label mid-series is refused with
 REFUSED_NOT_FIXED_OFFSET and counted; step 4: a399941e's spring-forward case ported unchanged, its
-unparseable-label case ported with the expectation reversed). Every reader is checked: forecast_history
-(historical forecast and previous runs), open_meteo_archives (global models and air quality) and
-reanalysis_history. Synthetic payloads only.
+unparseable-label case ported with the expectation reversed; step 5 option (b): partial days outside the
+archive's named range are dropped and counted, DST days inside it keep 23/25 rows). Every reader is checked:
+forecast_history (historical forecast and previous runs), open_meteo_archives (global models and air quality)
+and reanalysis_history. Synthetic payloads only.
 """
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -245,3 +247,48 @@ def test_the_stage_a_count_pass_equals_the_reader_count(mutate, offset, expected
     local_times, refusal = payload_local_times(payload, NYC.tz)
     assert refused_row_count(payload, local_times, refusal) == expected
     assert payload_refused_row_count(payload) == expected
+
+
+def rebuilt_store(tmp_path, start, end, payload):
+    store = ReanalysisStore(NYC, tmp_path / "reanalysis")
+    store.write_payload(date.fromisoformat(start), date.fromisoformat(end), payload)
+    _records, daily = store.rebuild()
+    return store, {row["local_date"]: row["row_count"] for row in daily}
+
+
+# R26 step 5, master's option (b): a partial day outside the archive's named range is dropped and counted.
+@pytest.mark.parametrize(
+    ("first_label", "offset", "start", "end", "dropped"),
+    [
+        # Archive start at 00:00 UTC on a -05:00 market: the first five labels are the previous local evening.
+        pytest.param("2025-01-01T00:00", 0, "2025-01-01", "2025-01-03", "2024-12-31", id="utc-start-on-minus-5"),
+        # A summer download of a winter start (the WS Chicago 1999-12-31 case): one row before the first date.
+        pytest.param("2025-01-01T00:00", -14400, "2025-01-01", "2025-01-03", "2024-12-31", id="summer-offset-start"),
+        # A winter download of a summer end: the last label is 00:00 after the last date.
+        pytest.param("2025-07-01T00:00", -18000, "2025-07-01", "2025-07-03", "2025-07-04", id="winter-offset-end"),
+    ],
+)
+def test_a_partial_day_outside_the_archive_range_is_dropped_and_counted(
+        first_label, offset, start, end, dropped, tmp_path):
+    store, row_counts = rebuilt_store(tmp_path, start, end, payload_for(contiguous_labels(first_label, 72), offset))
+
+    assert dropped not in row_counts
+    assert min(row_counts) >= start and max(row_counts) <= end
+    assert store.archive_edge_dropped_dates == [dropped]
+    assert date.fromisoformat(dropped) not in store.raw_normalizable_dates()
+    manifest = json.loads((store.root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["metadata"]["archive_edge_days_dropped"] == 1
+
+
+@pytest.mark.parametrize(
+    ("first_label", "offset", "start", "end", "dst_day", "rows"),
+    [
+        pytest.param("2026-03-07T00:00", -18000, "2026-03-07", "2026-03-10", "2026-03-08", 23, id="spring-forward"),
+        pytest.param("2025-11-01T00:00", -14400, "2025-11-01", "2025-11-04", "2025-11-02", 25, id="fall-back"),
+    ],
+)
+def test_a_dst_day_inside_the_archive_keeps_its_23_or_25_rows(first_label, offset, start, end, dst_day, rows, tmp_path):
+    store, row_counts = rebuilt_store(tmp_path, start, end, payload_for(contiguous_labels(first_label, 96), offset))
+
+    assert row_counts[dst_day] == rows
+    assert all(not start <= dropped <= end for dropped in store.archive_edge_dropped_dates)

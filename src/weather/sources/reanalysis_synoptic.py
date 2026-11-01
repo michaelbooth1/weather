@@ -24,6 +24,7 @@ from weather.sources.marine_context import registry_for_market
 from weather.sources.reanalysis_history import (
     DEFAULT_ROOT as REANALYSIS_DEFAULT_ROOT,
     ReanalysisStore,
+    inside_archive,
     payload_local_datetimes,
     value_at,
 )
@@ -377,6 +378,7 @@ def load_normalized_hourly_daily_metrics(hourly_root):
 
 
 def load_raw_daily_metrics(store):
+    bounds = store.archive_bounds()  # item 340 / R26: no partial day outside the archive's named range
     grouped = defaultdict(lambda: defaultdict(list))
     for payload in store.iter_raw_payloads():
         hourly = payload.get("hourly") or {}
@@ -384,7 +386,7 @@ def load_raw_daily_metrics(store):
         local_times = payload_local_datetimes(payload, store.spec.tz)
         for index, value in enumerate(times):
             local_dt = local_times[index] if value and index < len(local_times) else None
-            if local_dt is None:
+            if local_dt is None or not inside_archive(local_dt.date(), bounds):
                 continue
             local_date = local_dt.date()
             for source_key in RAW_DAILY_FIELD_SPECS:

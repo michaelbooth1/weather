@@ -46,6 +46,14 @@ Acceptance:
   audit also calls `coverage()`); the Stage-A reanalysis step calls it once per market and reports the total.
 - R26 step 4: `a399941e`'s spring-forward test is ported unchanged and its unparseable-label test with the
   expectation reversed (`tests/sources/test_training_reader_dst_labels.py`).
+- R26 step 5, master's option (b): the reanalysis store drops a local day that falls before the archive's first
+  payload range start or after its last range end (`inside_archive`, `ReanalysisStore.archive_bounds`). Those are the
+  only partial days the response offset creates at the archive edges: a summer download of a winter first date puts
+  that date's 00:00 label at 23:00 on the previous day as a one-row day. A day inside the archive is never dropped,
+  so DST days keep their 23/25 rows. The dropped dates and their count go into the rebuild manifest
+  (`archive_edge_dropped_dates`, `archive_edge_days_dropped`) and the rebuild CLI line. The same rule bounds
+  `raw_normalizable_dates`, `raw_variable_covered_dates` and `reanalysis_synoptic.load_raw_daily_metrics` (the
+  antecedent sums).
 - A payload whose offset matches the zone reads unchanged.
 - Roll verdict from master's `roll_verdict.ps1` before any merge. Head A may be roll-sensitive because
   `model/feature_store` imports `reanalysis_synoptic`.
@@ -56,10 +64,31 @@ Status:
   import these readers; the local archives hold no standard-time dates. Capture-host archives were not checked.
 - [x] Head A and head B built and merged into `2638fdee1` (combined pregate tip).
 - [x] R26 re-tip (`claude/om-dst-readers-ab-r2-20261104`): steps 1-4 and 7 built and tested on the workstation.
+- [x] R26 step 5 (workstation copies, every range ending 2026-08-10): no payload lacks a usable offset and none has
+  a non-uniform series. Chicago scratch rebuild row counts: 23:25, 24:8833, 25:25, >=26:778, none <=22. The edge rule
+  drops one day per market (1999-12-31), 12 across the 12 markets.
 - [ ] Merge `origin/master` after the previous night's landings are published; WS bounded suite on the exact tip.
 - [ ] Landing: roll-sensitive (`reanalysis_history` and `reanalysis_synoptic` are loop-imported), its own suite head,
   target night 11-04/05; host `roll_verdict`, merge-tree simulation and B guard first.
 - [ ] EF §10w entry updated on a separate docs head after landing.
+
+Known pre-existing issue (not fixed here, does not block): the workstation reanalysis copies hold overlapping raw
+payloads for 2024-2026. Two 30-day chunk series are offset by one day, and each chunk shares its edge day with the
+next. About 778 Chicago days therefore carry about 48 hourly rows instead of 24. Nothing between the raw store and
+the features dedupes on timestamp. `ReanalysisStore.rebuild`, `summarize_daily`, the hourly partitions,
+`reanalysis_synoptic.load_normalized_hourly_daily_metrics` and `load_raw_daily_metrics` all keep every copy.
+
+- Unaffected: maxima and minima (`max_temp`, `min_temp`, max dewpoint, wind and gust), as long as the copies agree.
+- Double-counted: `row_count`; `max_temp_times`, which lists each time twice; and the synoptic sums
+  (`reanalysis_prev_day_precipitation_sum`, the ET0 and shortwave sums, and the 7/14/30-day antecedent windows), which
+  double on fully duplicated days.
+- Means (`avg_temp`, pressure, soil, VPD and cloud means) keep their value when a whole day is duplicated, but are
+  reweighted on partly duplicated days.
+
+`chunk_date_range` never makes two chunks that share an edge day, so the edge-sharing files came from an earlier
+or out-of-repo writer. A `backfill` run without `--skip-existing` from a different start date can still add a second,
+offset series. The capture-host
+store may hold the same files if they came from the same source; it was not scanned.
 
 Not claimed: reading by the response offset moves the hours at a payload's edges across midnight, so a day at the
 edge of a payload can gain or lose an hour; this item does not stitch adjacent payloads.

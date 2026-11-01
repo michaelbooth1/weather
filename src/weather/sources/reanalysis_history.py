@@ -91,6 +91,26 @@ def _at(local_times, index):
     return local_times[index] if index < len(local_times) else None
 
 
+def raw_range_from_stem(stem):
+    """``(start, end)`` dates named by a raw payload file stem ``<start>_<end>``, or None."""
+    try:
+        start_text, end_text = stem.split("_", 1)
+        return date.fromisoformat(start_text), date.fromisoformat(end_text)
+    except ValueError:
+        return None
+
+
+def inside_archive(local_date, bounds):
+    """False for a local day outside the archive's ``(first range start, last range end)`` (item 340, R26).
+
+    Reading summer-offset payloads by their response offset moves the first winter label back across midnight,
+    so the archive's first label can land on the day before its first requested date as a one-row partial day
+    (and a winter-offset payload's last label past its last date). Only such archive-edge days are dropped; a
+    day inside the archive is never dropped, so DST days keep their 23/25 rows. No named range keeps every day.
+    """
+    return bounds is None or bounds[0] <= local_date <= bounds[1]
+
+
 def normalize_payload(payload, spec):
     hourly = payload.get("hourly") or {}
     times = hourly.get("time") or []
@@ -173,16 +193,23 @@ class ReanalysisStore:
     def raw_covered_dates(self):
         dates = set()
         for path in self.raw_root.glob("year=*/*.json"):
-            try:
-                start_text, end_text = path.stem.split("_", 1)
-                start = date.fromisoformat(start_text)
-                end = date.fromisoformat(end_text)
-            except ValueError:
-                continue
-            dates.update(iter_dates(start, end))
+            named = raw_range_from_stem(path.stem)
+            if named is not None:
+                dates.update(iter_dates(*named))
         return dates
 
+    def archive_bounds(self):
+        """``(first payload range start, last payload range end)`` from the raw file names, or None."""
+        ranges = [
+            named for named in (raw_range_from_stem(path.stem) for path in self.raw_root.glob("year=*/*.json"))
+            if named is not None
+        ]
+        if not ranges:
+            return None
+        return min(start for start, _end in ranges), max(end for _start, end in ranges)
+
     def raw_normalizable_dates(self):
+        bounds = self.archive_bounds()
         dates = set()
         for payload in self.iter_raw_payloads():
             hourly = payload.get("hourly") or {}
@@ -192,7 +219,7 @@ class ReanalysisStore:
                 if value_at(hourly, "temperature_2m", index) is None:
                     continue
                 local_dt = _at(local_times, index) if value else None
-                if local_dt:
+                if local_dt and inside_archive(local_dt.date(), bounds):
                     dates.add(local_dt.date())
         return dates
 
@@ -207,6 +234,7 @@ class ReanalysisStore:
         required = tuple(variable for variable in required_variables or () if variable)
         if not required:
             return self.raw_covered_dates()
+        bounds = self.archive_bounds()
         present_by_date = {}
         for payload in self.iter_raw_payloads():
             hourly = payload.get("hourly") or {}
@@ -214,7 +242,7 @@ class ReanalysisStore:
             local_times = payload_local_datetimes(payload, self.spec.tz)
             for index, value in enumerate(times):
                 local_dt = _at(local_times, index) if value else None
-                if not local_dt:
+                if not local_dt or not inside_archive(local_dt.date(), bounds):
                     continue
                 local_date = local_dt.date()
                 present = present_by_date.setdefault(local_date, set())
@@ -278,9 +306,17 @@ class ReanalysisStore:
             yield json.loads(path.read_text(encoding="utf-8"))
 
     def rebuild(self):
+        bounds = self.archive_bounds()
         records = []
+        edge_dropped = set()
         for payload in self.iter_raw_payloads():
-            records.extend(normalize_payload(payload, self.spec))
+            for record in normalize_payload(payload, self.spec):
+                if inside_archive(date.fromisoformat(record["local_date"]), bounds):
+                    records.append(record)
+                else:
+                    edge_dropped.add(record["local_date"])
+        # Item 340 / R26: partial days outside the archive's named range are dropped and counted, never silent.
+        self.archive_edge_dropped_dates = sorted(edge_dropped)
         records.sort(key=lambda row: row["valid_time_utc"])
         write_jsonl_partitions(self.hourly_root, records)
         daily = summarize_daily(records)
@@ -298,6 +334,8 @@ class ReanalysisStore:
                 "hourly_variables": HOURLY_VARIABLES,
                 "model": "era5",
                 "quality_counts": quality_counts(records),
+                "archive_edge_days_dropped": len(self.archive_edge_dropped_dates),
+                "archive_edge_dropped_dates": self.archive_edge_dropped_dates,
             },
         )
         return records, daily
@@ -375,13 +413,22 @@ def cmd_backfill(args):
         if args.sleep:
             time.sleep(args.sleep)
     records, daily = store.rebuild()
-    print(f"Rebuilt {len(records)} hourly rows and {len(daily)} daily rows")
+    print(_rebuilt_line(store, records, daily))
+
+
+def _rebuilt_line(store, records, daily):
+    dropped = len(store.archive_edge_dropped_dates)
+    return (
+        f"Rebuilt {len(records)} hourly rows and {len(daily)} daily rows "
+        f"({dropped} archive-edge partial day(s) dropped)"
+    )
 
 
 def cmd_rebuild(args):
     spec = spec_for_id(args.market)
-    records, daily = ReanalysisStore(spec, args.data_root).rebuild()
-    print(f"Rebuilt {len(records)} hourly rows and {len(daily)} daily rows")
+    store = ReanalysisStore(spec, args.data_root)
+    records, daily = store.rebuild()
+    print(_rebuilt_line(store, records, daily))
 
 
 def cmd_coverage(args):
