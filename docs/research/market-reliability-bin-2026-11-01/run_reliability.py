@@ -21,6 +21,13 @@ Two modes, one of which must be named:
       4. Realised widest-of-three SE per arm, with power Phi(0.2236 / SE - 1.96) >= 0.5 for every arm.
     No real Delta (point, interval or per arm) reaches stdout, the receipt or any file unless all four
     steps passed. Bootstrap draws are computed internally to get the SE and are discarded on failure.
+    Step 3's real-label numbers are withheld until step 4 passes (F1); a failing step 3 writes its own.
+    Any other exception after mode selection writes "US11: MECHANICAL FAILURE at <stage>, no Delta
+    emitted" with the exception type and a digit-free message, and exits 3 (F2).
+    Pre-flight (master's one-off queue exception): refuses unless available physical memory >= 6 GB,
+    OMP/MKL/OPENBLAS_NUM_THREADS are each set to an integer in 1..floor(logical CPUs / 3) (the
+    workstation_heavy.ps1 cap at its default SlotCount 3), and no workstation-heavy mutex exists
+    (best effort).
 
 The receipt holds:
 - the layout manifest sha256, re-hashed before and after the run;
@@ -44,7 +51,9 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -80,6 +89,12 @@ BAND_COLS = ["row_key", "band_index", "kind", "high", "floor_impossible"]
 MARKET_COLS = ["row_key", "band_index", "p_market_yes"]
 LABELISH = {"winner", "settlement_high", "settlement_bucket", "settlement_source", "is_winner"}
 CHUNK_ELEMS = 2_000_000
+MIN_AVAILABLE_GB = 6.0
+THREAD_CAP_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
+HEAVY_SLOT_COUNT = 3                                           # workstation_heavy.ps1 default -SlotCount
+HEAVY_MUTEX = "Global\\WeatherProjectHeavyWorkloadV1"           # workload_admission.ps1 slot 1 (legacy lease)
+HEAVY_MUTEXES = (HEAVY_MUTEX, HEAVY_MUTEX + ".Exclusive", *(f"{HEAVY_MUTEX}.Slot{k}" for k in range(2, 9)))
+BR_RR_TOL = 1e-6
 
 
 def sha256_file(path):
@@ -99,6 +114,10 @@ def power_at_edge(se):
 
 
 # ----------------------------------------------------------------------------- inputs
+
+class Refusal(Exception):
+    """A pre-flight refusal; reported as a mechanical failure, never as a read."""
+
 
 class Untestable(Exception):
     def __init__(self, step, numbers):
@@ -355,10 +374,13 @@ def in_sample(pop, y):
     k_hat = int(np.argmin(br))
     beta_hat = float(BETA_GRID[BETA_ORDER[k_hat]])
     k_one = int(np.flatnonzero(BETA_GRID[BETA_ORDER] == 1.0)[0])
+    # F3: q at beta = 1 is m~ itself, so the in-sample Brier there must equal sum(r^2) (catches float32 drift)
+    br_rr_rel = float(abs(br[k_one] - rr) / rr) if rr > 0 else float("inf")
     return {"beta_hat": beta_hat, "brier_at_beta_hat": float(br[k_hat]), "brier_at_beta_1": float(br[k_one]),
             "a3_in_sample_brier_fraction": float(1.0 - br[k_hat] / br[k_one]),
             "a2_in_sample_brier_fraction": a2_brier_cut, "a2_in_sample_cosine_sq": a2_frac,
-            "ok": bool(br[k_hat] <= br[k_one] + 1e-12 and a2_brier_cut >= -1e-12)}
+            "br_beta1_vs_rr_rel_diff": br_rr_rel,
+            "ok": bool(br[k_hat] <= br[k_one] + 1e-12 and a2_brier_cut >= -1e-12 and br_rr_rel <= BR_RR_TOL)}
 
 
 # ----------------------------------------------------------------------------- steps
@@ -574,6 +596,65 @@ def descriptives(pop, y, schemes, res):
 
 # ----------------------------------------------------------------------------- main
 
+def available_memory_gb():
+    import ctypes
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+    st = MEMORYSTATUSEX()
+    st.dwLength = ctypes.sizeof(st)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+        return None
+    return st.ullAvailPhys / 2 ** 30
+
+
+def heavy_mutexes_present():
+    """Best effort: a workstation-heavy holder keeps its named mutex open while it runs."""
+    import ctypes
+    from ctypes import wintypes as w
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenMutexW.restype = w.HANDLE
+    k32.OpenMutexW.argtypes = [w.DWORD, w.BOOL, w.LPCWSTR]
+    found = []
+    for name in HEAVY_MUTEXES:
+        h = k32.OpenMutexW(0x00100000, False, name)            # SYNCHRONIZE
+        if h:
+            found.append(name)
+            k32.CloseHandle(h)
+    return found
+
+
+def preflight():
+    logical = os.cpu_count() or 1
+    cap = max(1, logical // HEAVY_SLOT_COUNT)
+    threads = {v: os.environ.get(v) for v in THREAD_CAP_VARS}
+    threads_ok = all(t is not None and t.isdigit() and 1 <= int(t) <= cap for t in threads.values())
+    try:
+        avail = available_memory_gb()
+    except Exception:
+        avail = None
+    try:
+        mutexes = heavy_mutexes_present()
+    except Exception as exc:
+        mutexes = [f"check failed: {type(exc).__name__}"]
+    out = {"logical_processors": logical, "thread_cap": cap, "thread_env": threads, "thread_caps_ok": threads_ok,
+           "available_memory_gb": None if avail is None else round(avail, 2),
+           "memory_ok": avail is not None and avail >= MIN_AVAILABLE_GB,
+           "workstation_heavy_mutexes_present": mutexes, "no_heavy_job_ok": not mutexes}
+    out["ok"] = bool(out["thread_caps_ok"] and out["memory_ok"] and out["no_heavy_job_ok"])
+    return out
+
+
+def sanitise(exc):
+    """Exception type plus a digit-free, length-capped message: it cannot carry a Delta or a label."""
+    text = re.sub(r"[0-9]", "#", str(exc))
+    return {"type": type(exc).__name__, "message": text[:300]}
+
+
 def git_tip(path):
     try:
         tip = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
@@ -622,7 +703,8 @@ def main(argv=None):
         raise SystemExit(f"refused: --real-run needs --expect-sha equal to this script's sha256 {script_sha}")
     layout = Path(args.layout)
     manifest_before = sha256_file(layout / "manifest.json")
-    receipt = {"schema": "market_reliability_bin_receipt/1", "mode": "real" if args.real_run else "synthetic_only",
+    receipt = {"schema": "market_reliability_bin_receipt/2", "mode": "real" if args.real_run else "synthetic_only",
+               "command_line": [sys.executable, *sys.argv],
                "script_sha256": script_sha, "git": git_tip(script.parent), "seed": SEED,
                "draws": {"date_clustered": B_DATE, "block3": B_BLOCK, "block3_circular": B_CIRC,
                          "crossed_descriptive": B_CROSSED},
@@ -631,33 +713,47 @@ def main(argv=None):
                "versions": {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__,
                             "pyarrow": pyarrow.__version__},
                "steps": {}}
+    stage, rc = "preflight", 0
     try:
+        receipt["preflight"] = pre = preflight()
+        if args.real_run and not pre["ok"]:
+            raise Refusal("preflight refused: memory, thread caps or an active workstation-heavy job")
+        stage = "read_inputs"
         if args.real_run:
             snaps, bands, market, labels, shas = read_inputs_real(layout)
         else:
             snaps, bands, market, labels, shas = read_inputs_synthetic(layout)
         receipt["input_sha256"] = shas
+        stage = "build_population"
         rows, info = build_population(snaps, bands, market)
         del snaps, bands, market
         receipt["population"] = info
         pop = Pop(rows)
         del rows
         schemes = date_weights(pop.D)
+        stage = "1_positive_control"
         if args.real_run:
             receipt["steps"]["1_positive_control"] = step_positive_control(layout)
         else:
             receipt["steps"]["1_positive_control"] = {"status": "NOT RUN (synthetic-only: needs labels)"}
+        stage = "2_synthetic_controls"
         synth, (y_null, null_res, null_ins) = step_synthetic(pop, schemes)
         receipt["steps"]["2_synthetic_controls"] = synth
         if args.real_run:
+            stage = "labels"
             y = pop.y_from_winner(dict(zip(labels["row_key"], labels["winner"])))
-            receipt["steps"]["3_training_score_check"] = step_training(in_sample(pop, y), "real")
+            stage = "3_training_score_check"
+            step3 = step_training(in_sample(pop, y), "real")      # held locally (F1)
+            receipt["steps"]["3_training_score_check"] = {"status": "PASS (numbers withheld until step 4 passes)"}
+            stage = "4_realised_power"
             res = deciding(pop, y, schemes)
-            receipt["steps"]["4_realised_power"] = step_power(res, "real")
-            # every earlier step passed: Delta may now be written
-            receipt["deciding"] = public(res)
-            receipt["verdict"] = verdict(res)
-            receipt["descriptive"] = descriptives(pop, y, schemes, res)
+            step4 = step_power(res, "real")
+            # every earlier step passed: step 3's numbers and Delta may now be written
+            receipt["steps"]["3_training_score_check"] = {"status": "PASS", **step3}
+            receipt["steps"]["4_realised_power"] = step4
+            stage = "verdict_and_descriptives"
+            out = {"deciding": public(res), "verdict": verdict(res), "descriptive": descriptives(pop, y, schemes, res)}
+            receipt.update(out)
         else:
             receipt["steps"]["3_training_score_check"] = step_training(null_ins, "synthetic null (dry run)")
             receipt["steps"]["4_realised_power"] = step_power(null_res, "synthetic null projection (dry run)")
@@ -665,6 +761,17 @@ def main(argv=None):
     except Untestable as exc:
         receipt["steps"][exc.step] = {"status": "FAILED", **exc.numbers}
         receipt["verdict"] = {"verdict": f"US11: UNTESTABLE (failed at {exc.step})"}
+    except KeyboardInterrupt:
+        raise
+    except BaseException as exc:                                   # F2: everything else is mechanical
+        for key in ("deciding", "descriptive"):
+            receipt.pop(key, None)
+        if args.real_run and stage in ("4_realised_power", "verdict_and_descriptives"):
+            receipt["steps"]["3_training_score_check"] = {"status": "PASS (numbers withheld: no Delta emitted)"}
+            receipt["steps"].pop("4_realised_power", None)
+        receipt["verdict"] = {"verdict": f"US11: MECHANICAL FAILURE at {stage}, no Delta emitted"}
+        receipt["exception"] = sanitise(exc)
+        rc = 3
     receipt["layout_manifest_sha256_after"] = sha256_file(layout / "manifest.json")
     receipt["manifest_unchanged"] = receipt["layout_manifest_sha256_after"] == manifest_before
     receipt["seconds"] = round(time.perf_counter() - t0, 2)
@@ -677,7 +784,7 @@ def main(argv=None):
                       "manifest_unchanged": receipt["manifest_unchanged"],
                       "receipt_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()},
                      indent=1, sort_keys=True, default=float))
-    return 0
+    return rc
 
 
 if __name__ == "__main__":
