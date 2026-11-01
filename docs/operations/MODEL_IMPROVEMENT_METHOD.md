@@ -169,7 +169,11 @@ The rationale is the dated [iterate-faster plan](../research/iterate-faster-2026
 8. **Standing blind accrual.** A frozen arm accrues outcome-blind from its freeze with no per-candidate owner exemption.
    It looks only after every test that claims its dates has looked. Arms on B's dates are screens, never edge claims.
 9. **One date rule.** No outcome, label or price on a date is read until every test that claims that date has taken its
-   look. After the last claiming look the date joins dev, prices included.
+   look. After the last claiming look the date joins dev, prices included. **Look order on shared dates** (master
+   ruling 2026-11-01, state review item 13; not an owner decision): claims on a date rank by freeze time, and a
+   later-frozen test never reads a date before every earlier-frozen claimant of it has looked. A claim binds only over
+   its own scope (markets, dates, inputs): MG-1's covers NBM-derived reads only. A claim whose scope cannot be shown
+   not to intersect is treated as intersecting. A test's pre-registration lists its claimants by name before it freezes.
 10. **2026-09-30..10-14 is opened once** for kill-only and atlas reads, after a written check that no running test claims
     those dates. Nothing read there supports an edge claim.
 11. **The workstation records pre-registered kills itself** (ledger row and register row); master audits them daily.

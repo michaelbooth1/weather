@@ -37,7 +37,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Current truth
 
-- **Production source:** read `origin/master` with git. **Night 11-01/02 combo** (six code heads, UTC fix `28d149fe`, R1+R2): 8 parents over
+- **Production source:** read `origin/master` with git. **Night 11-01/02 combo** (six code heads, UTC fix `28d149fe`, R1+R2; r3 `b0e75e264`): 9 parents over
   the M2 cap, master exception (D7-5, DL 11-01); gated on WS suite PASS on the exact tip, `roll_verdict`, merge-tree; no tip by 21:00 = out.
 - **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev.
   **09-30..10-14 released once for weather kill-only/atlas reads** (owner 10-30, DL): local target date; Austin 10-03 out; MG-2/B
@@ -72,7 +72,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
 2. **Night 11-01/02 integration** (six code heads plus the UTC fix), then the evening-fix Stage 1 read; R1/R2 receipts 11-03.
-3. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72, F8-MH, L6_G accrue blind.
+3. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72 and F8-MH accrue blind; L6_G emitting (first emission vectors d1e09134, runs.jsonl 6842d139).
 4. **MG-1 look after 11-28**, then B 12-13; **PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); 12-12..01-25) bound before D0; F8-MH 01-26.
 
 ## Open commitments (every row: owner, due, verify)
