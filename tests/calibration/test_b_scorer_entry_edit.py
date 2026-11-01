@@ -3,9 +3,13 @@
 Guards: B-1 clarification of 2026-10-26 section 4 (master's addition of 2026-10-27): "B binds b_scorer sha S0. The
 only permitted post-binding scorer edit is setting MG1_LOOK_ENTRY_SHA256 by the dated MG-1 scoring
 clarification, giving S1. B's look runs at S1, and the S0 to S1 diff must be exactly that constant line."
-S0 here is the real ``b_scorer.py`` source; S1 variants are built from it in memory.
+S0 here is the real ``b_scorer.py`` source with its constant line put back to the sentinel, so these tests also
+pass once the checkout is at S1 (R14); the rebuilt S0 must hash to the bound S0. S1 variants are built from it in
+memory.
 """
+import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -13,8 +17,10 @@ import pytest
 from weather.calibration import b_scorer_entry_edit as edit
 
 ROOT = Path(__file__).resolve().parents[2]
-S0 = (ROOT / "src/weather/calibration/b_scorer.py").read_bytes()
 LINE = b"MG1_LOOK_ENTRY_SHA256 = MG1_LOOK_ENTRY_UNRECORDED\n"
+B1_S0_SHA256 = "f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439"  # B-1 b_scorer_sha256
+S0 = re.sub(rb"^MG1_LOOK_ENTRY_SHA256 = [^\r\n]*\n", lambda _: LINE,
+            (ROOT / "src/weather/calibration/b_scorer.py").read_bytes(), count=1, flags=re.M)
 SHA = "1" * 64
 
 
@@ -23,6 +29,7 @@ def _s1(value=f'"{SHA}"'.encode()):
 
 
 def test_s0_holds_the_constant_once_as_the_sentinel():
+    assert hashlib.sha256(S0).hexdigest() == B1_S0_SHA256
     assert S0.count(LINE) == 1
     assert sum(1 for line in S0.splitlines() if line.startswith(b"MG1_LOOK_ENTRY_SHA256")) == 1
 

@@ -1,6 +1,7 @@
 """Executes docs_light_path.ps1 against a fake production repo and a fake push task."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -352,3 +353,91 @@ def test_script_text_contract() -> None:
     assert "git push" not in text and '"push"' not in text
     assert "--force" not in text and "reset --hard" not in text
     assert text.index('"--no-ff"') < text.index("Start-ScheduledTask -TaskName $pushTaskName")
+
+
+# ---- step 3b: frozen bindings (R14) ----
+
+def _frozen_registry(record_sha: str) -> str:
+    return json.dumps({"schema": "frozen_bindings/1", "holds": [{
+        "id": "B-1", "records": {"docs/rule.md": record_sha},
+        "record_globs": ["docs/**/b1-clarification-*.md"],
+        "frozen_prefixes": ["docs/bound/"],
+        "code": {}, "release_record": "docs/record/b-look-record.md"}]}, indent=1) + "\n"
+
+
+def _commit_on_master(fx: dict[str, object], files: dict[str, str]) -> None:
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    for rel, text in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text, encoding="utf-8", newline="\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "frozen baseline")
+    fx["base"] = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "update-ref", "refs/remotes/origin/master", str(fx["base"]))
+
+
+def _frozen_fx(fx: dict[str, object]) -> None:
+    rule = "# rule\n"
+    _commit_on_master(fx, {
+        "docs/rule.md": rule,
+        "docs/x/b1-clarification-1-a.md": "c1\n",
+        "docs/bound/plan.md": "plan\n",
+        "config/frozen_bindings.json": _frozen_registry(hashlib.sha256(rule.encode()).hexdigest()),
+    })
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize(("files", "message"), [
+    ({"docs/rule.md": "# edited rule\n"}, "record docs/rule.md is changed (M)"),
+    ({"docs/x/b1-clarification-1-a.md": "c1 edited\n"}, "record docs/x/b1-clarification-1-a.md is changed (M)"),
+    ({"docs/bound/new.md": "new\n"}, "docs/bound/new.md is under the frozen prefix docs/bound/"),
+], ids=["record", "existing-clarification", "frozen-prefix"])
+def test_frozen_binding_refusal_changes_nothing(fx: dict[str, object], files: dict[str, str], message: str) -> None:
+    _frozen_fx(fx)
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    tip = _branch(fx, files)
+
+    result = _run(fx, tip)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "REFUSED: frozen binding" in result.stdout and message in result.stdout, result.stdout
+    assert _git(repo, "rev-parse", "HEAD") == fx["base"]
+    assert not Path(str(fx["started"])).exists()
+    assert _receipts(fx) == []
+
+
+@pytest.mark.spawns
+def test_frozen_binding_new_clarification_passes(fx: dict[str, object]) -> None:
+    _frozen_fx(fx)
+    tip = _branch(fx, {"docs/y/b1-clarification-4-coverage-2026-11-02.md": "new clarification\n"})
+
+    result = _run(fx, tip, "-CheckOnly")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "frozen bindings pass (registry present; active holds: B-1)" in result.stdout, result.stdout
+    assert "CHECK PASS" in result.stdout
+
+
+@pytest.mark.spawns
+def test_frozen_binding_malformed_registry_refuses(fx: dict[str, object]) -> None:
+    _commit_on_master(fx, {"config/frozen_bindings.json": "{ not json\n"})
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+
+    result = _run(fx, tip, "-CheckOnly")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "REFUSED: frozen binding: frozen-binding guard: registry config/frozen_bindings.json at" in result.stdout
+    assert "is not JSON" in result.stdout, result.stdout
+    assert _git(repo, "rev-parse", "HEAD") == fx["base"]
+
+
+@pytest.mark.spawns
+def test_frozen_binding_absent_registry_is_no_holds(fx: dict[str, object]) -> None:
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+    result = _run(fx, tip, "-CheckOnly")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "frozen bindings pass (registry absent; active holds: )" in result.stdout, result.stdout

@@ -12,6 +12,9 @@
 # on 2026-09-24, and blocked a night), never force-pushes, and never resets past
 # its own unpublished merge. -CheckOnly runs every precondition and changes nothing.
 #
+# Step 3b dot-sources frozen_binding_guard.ps1 (R14): a docs-only branch that edits a
+# frozen record, a file under a frozen prefix or the registry is refused like any other.
+#
 # Exit codes: 0 published (or -CheckOnly passed); 1 refused, nothing changed or
 # the unpublished merge was undone; 3 merged locally but publication is unproven
 # (re-run WeatherOneShotPush or investigate; the receipt names the merge commit).
@@ -180,6 +183,15 @@ if ($branchPaths.Count -eq 0) { Refuse "the branch changes nothing relative to m
 $nonDocs = @(Get-NonDocsPaths $branchPaths)
 if ($nonDocs.Count -gt 0) { Refuse ("diff is not docs/**/*.md only: {0}" -f ($nonDocs -join ', ')) }
 Note ("diff is docs/**/*.md only ({0} files)" -f $branchPaths.Count)
+
+# ---- 3b. frozen bindings (R14): records and bound docs are refused here too ----
+. (Join-Path $PSScriptRoot "frozen_binding_guard.ps1")
+$frozen = Test-FrozenBindingHead -Repo $RepoRoot -Base $preMerge -Tip $ExpectedTip
+foreach ($warning in $frozen.Warnings) { Note "frozen-binding WARNING: $warning" }
+if (-not $frozen.Ok) { Refuse ("frozen binding: {0}" -f ($frozen.Refusals -join '; ')) }
+# The light path runs no suite, so an S1 edit (suite-checked) can never ride it.
+if ($frozen.SuiteChecked.Count -gt 0) { Refuse ("frozen binding: suite-checked paths on the light path: {0}" -f ($frozen.SuiteChecked -join ', ')) }
+Note ("frozen bindings pass (registry {0}; active holds: {1})" -f $(if ($frozen.RegistryPresent) { "present" } else { "absent" }), (@($frozen.ActiveHolds) -join ', '))
 
 # ---- 4. mechanical roll verdict (never derived by hand) ----
 $verdictScript = Join-Path $RepoRoot "scripts\ops\roll_verdict.ps1"

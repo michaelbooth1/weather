@@ -656,6 +656,13 @@ A `LastTaskResult` of 0x41301/0x41303 read while the task is Ready is a stale tr
 wait keeps polling, and if it is still stale at the deadline the receipt records
 `push.stale_scheduler_result: true` and the `origin/master` check alone decides.
 The 11-01 07:27 receipt docs-light-20261101T072752-2bc2048949f7 is a false merged_unpushed: publication was verified by ls-remote at 07:28:11 and WeatherOneShotPush finished rc 0; fixed by claude/ops-docs-light-path-push-race-20261101.
+Step 3b (R14) dot-sources `scripts/ops/frozen_binding_guard.ps1` and refuses, before the roll verdict,
+any branch that `Test-FrozenBindingHead` refuses against `config/frozen_bindings.json` as it is on
+master: an edited or deleted frozen record (for B-1, `B_FORWARD_TEST_DESIGN.md` or an existing
+`b1-clarification-*.md`) or any file under a frozen prefix (`docs/research/mg2-composite-binding-2026-10-25/`).
+A new dated `b1-clarification-*.md` passes. A malformed registry refuses every branch; fix it on a
+suite-gated head, never by hand on production. The same function runs in the night sequencers and
+must pass before any manual quiet-window merge.
 
 For ordinary synchronized integrations only, `stage: merged_unpushed` means the
 credential-bearing `WeatherOneShotPush` task did not acknowledge
