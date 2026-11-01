@@ -465,13 +465,17 @@ def stage_teardown_deadline_utc(args, now_utc):
     minute = local_now.hour * 60 + local_now.minute
     if minute < STAGE_WINDOW_OPEN_LOCAL_MINUTE or minute >= deadline_minute:
         return now_utc
-    local_deadline = local_now.replace(
+    # Resolve the deadline wall time with the offset in force *at the
+    # deadline*, not now's: on a DST-change day a run started before the 02:00
+    # switch would otherwise land an hour off.
+    local_deadline_wall = local_now.replace(
+        tzinfo=None,
         hour=deadline_minute // 60,
         minute=deadline_minute % 60,
         second=0,
         microsecond=0,
     )
-    return local_deadline.astimezone(timezone.utc)
+    return local_deadline_wall.astimezone().astimezone(timezone.utc)
 
 
 def _default_retry_log(message):

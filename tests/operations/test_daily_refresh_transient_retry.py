@@ -217,18 +217,37 @@ def test_prestep_phase_resamples_before_admission_with_its_own_label():
     assert record is None and final is initial and clock.sleeps == [POST_STEP_TRANSIENT_RETRY_INTERVAL_SECONDS]
 
 
+def _local_wall_to_utc(*wall):
+    """A naive local wall time resolved with that date's own UTC offset."""
+    return datetime(*wall).astimezone().astimezone(timezone.utc)
+
+
+def _utc_to_local_wall(instant):
+    """The naive local wall time of an instant, using that instant's offset."""
+    return instant.astimezone().replace(tzinfo=None)
+
+
 def test_default_deadline_mirrors_wrapper_teardown():
+    # Offsets come from each date, never from datetime.now(): the test must
+    # hold on either side of a DST change (it failed after the 2026-11-01 one).
     args = SimpleNamespace(stage="settlement")
-    local_tz = datetime.now().astimezone().tzinfo
-    at_ten = datetime(2026, 10, 23, 10, 0, tzinfo=local_tz)
-    deadline = stage_teardown_deadline_utc(args, at_ten.astimezone(timezone.utc))
-    assert deadline.astimezone(local_tz).replace(tzinfo=None) == datetime(2026, 10, 23, 11, 55)
-    after = datetime(2026, 10, 23, 11, 56, tzinfo=local_tz).astimezone(timezone.utc)
+    deadline = stage_teardown_deadline_utc(args, _local_wall_to_utc(2026, 10, 23, 10, 0))
+    assert _utc_to_local_wall(deadline) == datetime(2026, 10, 23, 11, 55)
+    after = _local_wall_to_utc(2026, 10, 23, 11, 56)
     assert stage_teardown_deadline_utc(args, after) == after
-    before_open = datetime(2026, 10, 23, 0, 10, tzinfo=local_tz).astimezone(timezone.utc)
+    before_open = _local_wall_to_utc(2026, 10, 23, 0, 10)
     assert stage_teardown_deadline_utc(args, before_open) == before_open
     evidence = SimpleNamespace(stage="evidence")
-    early = datetime(2026, 10, 23, 8, 0, tzinfo=local_tz)
-    assert stage_teardown_deadline_utc(evidence, early.astimezone(timezone.utc)).astimezone(
-        local_tz
-    ).replace(tzinfo=None) == datetime(2026, 10, 23, 9, 0)
+    early = _local_wall_to_utc(2026, 10, 23, 8, 0)
+    assert _utc_to_local_wall(stage_teardown_deadline_utc(evidence, early)) == datetime(2026, 10, 23, 9, 0)
+
+
+def test_default_deadline_uses_the_deadline_offset_on_dst_change_days():
+    # A run started at 00:45, before the 02:00 switch, must still tear down at
+    # 11:55 local wall time after it (US fall-back 2026-11-01, spring-forward
+    # 2026-03-08; trivially true on a host without DST).
+    args = SimpleNamespace(stage="settlement")
+    for day in ((2026, 11, 1), (2026, 3, 8)):
+        deadline = stage_teardown_deadline_utc(args, _local_wall_to_utc(*day, 0, 45))
+        assert deadline == _local_wall_to_utc(*day, 11, 55)
+        assert _utc_to_local_wall(deadline) == datetime(*day, 11, 55)
