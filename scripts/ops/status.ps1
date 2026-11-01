@@ -98,6 +98,48 @@ function Get-WeatherForwardArrivalState {
     return [pscustomobject]$result
 }
 
+# R35 (master ruling 2026-11-01): a task whose action pins its own script with -ExpectedSelfSha256 refuses to run
+# once that file changes, so a landing can silently disarm it until it is re-registered. Pure apart from reading
+# and hashing the pinned file: task name and action arguments in, zero or more rows out. Actions that also carry
+# -ExpectedStatusScriptSha256 are the pinned watchdog, which the G5 deployment check above already owns.
+function Get-WeatherSelfPinnedTaskState {
+    param([string]$TaskName, [string]$Arguments)
+    if ([string]::IsNullOrWhiteSpace($Arguments) -or $Arguments -notmatch '(?i)(^|\s)-ExpectedSelfSha256(\s|:|$)') { return }
+    if ($Arguments -match '(?i)(^|\s)-ExpectedStatusScriptSha256(\s|:|$)') { return }
+    $row = [ordered]@{ task = $TaskName; file = $null; expected_sha256 = $null; actual_sha256 = $null
+        status = 'UNKNOWN'; detail = $null }
+    $fileMatches = [regex]::Matches($Arguments, '(?i)(?:^|\s)-File\s+(?:"([^"]+)"|([^\s"]+))')
+    $pinMatches = [regex]::Matches($Arguments, '(?i)(?:^|\s)-ExpectedSelfSha256(?:\s+|:)"?([0-9a-fA-F]{64})"?(?=\s|$)')
+    if ($fileMatches.Count -ne 1 -or $pinMatches.Count -ne 1) {
+        $row.detail = "cannot parse exactly one -File and one 64-hex -ExpectedSelfSha256 from the action"
+        return [pscustomobject]$row
+    }
+    $file = if ($fileMatches[0].Groups[1].Success) { $fileMatches[0].Groups[1].Value } else { $fileMatches[0].Groups[2].Value }
+    $row.file = $file
+    $row.expected_sha256 = $pinMatches[0].Groups[1].Value.ToLowerInvariant()
+    if (-not [IO.Path]::IsPathRooted($file)) {
+        $row.detail = "the pinned -File is not an absolute path"
+        return [pscustomobject]$row
+    }
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+        $row.status = 'FILE_MISSING'
+        $row.detail = "pinned script is missing"
+        return [pscustomobject]$row
+    }
+    try {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $row.actual_sha256 = (($sha.ComputeHash([IO.File]::ReadAllBytes($file)) | ForEach-Object { $_.ToString('x2') }) -join '') }
+        finally { $sha.Dispose() }
+    }
+    catch {
+        $row.detail = "pinned script could not be read"
+        return [pscustomobject]$row
+    }
+    $row.status = if ($row.actual_sha256 -ceq $row.expected_sha256) { 'PIN_OK' } else { 'PIN_MISMATCH' }
+    if ($row.status -eq 'PIN_MISMATCH') { $row.detail = "pinned script no longer matches its registered SHA256" }
+    return [pscustomobject]$row
+}
+
 # Swarm P audit 2026-10-07 G1: unclean boots with the outage interval, so the watchdog can
 # decide whether the outage overlapped the 12:00-18:00 graded window. $Boots holds
 # [pscustomobject]@{ boot = <datetime>; last_alive = <datetime or $null> }, any order.
@@ -4052,6 +4094,7 @@ $forwardArrival = Get-WeatherForwardArrivalState -Path (Join-Path $repo "data\al
 if ($forwardArrival.flag) { $flags.Add($forwardArrival.flag) }
 if ($forwardArrival.warn) { $warns.Add($forwardArrival.warn) }
 $taskCount = 0
+$selfPinnedActions = New-Object System.Collections.Generic.List[psobject]
 $interactiveTasks = 0
 $evidenceRefreshHeld = $false
 $sensitiveDriverNextRun = $null
@@ -4096,6 +4139,9 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
+    foreach ($selfPinnedAction in @($_.Actions)) {
+        $selfPinnedActions.Add([pscustomobject]@{ task = [string]$name; arguments = [string]$selfPinnedAction.Arguments })
+    }
     $wakeReceiptState = Get-WeatherCodexWakeReceiptState `
         -TaskName $name -ActionArguments $actionArguments -TaskInfo $ti
     if ($wakeReceiptState.recognized) { $overnightWakeState.Add($wakeReceiptState) }
@@ -4847,6 +4893,25 @@ try {
 }
 catch { $warns.Add("health watchdog deployment drift check failed to run") }
 
+# ---- self-pinned task scripts (R35; read-only) ----
+# A task whose action pins its own -File with -ExpectedSelfSha256 refuses to run once that file changes, so a
+# landing can disarm it silently until it is re-registered. The pinned watchdog is G5's (skipped by the function).
+$selfPinnedTasks = New-Object System.Collections.Generic.List[psobject]
+try {
+    foreach ($candidate in $selfPinnedActions) {
+        foreach ($pinRow in @(Get-WeatherSelfPinnedTaskState -TaskName $candidate.task -Arguments $candidate.arguments)) {
+            if ($null -eq $pinRow) { continue }
+            $selfPinnedTasks.Add($pinRow)
+            switch ([string]$pinRow.status) {
+                "PIN_MISMATCH" { $flags.Add("$($pinRow.task) SELF-PIN MISMATCH: $($pinRow.file) no longer matches the action's -ExpectedSelfSha256 - the task refuses to run until it is re-registered with the reviewed hash") }
+                "FILE_MISSING" { $flags.Add("$($pinRow.task) SELF-PIN FILE MISSING: $($pinRow.file) - the task cannot run until it is re-registered") }
+                "UNKNOWN" { $warns.Add("$($pinRow.task) self-pin state unknown: $($pinRow.detail)") }
+            }
+        }
+    }
+}
+catch { $warns.Add("self-pinned task check failed to run") }
+
 # ---- post-integration documentation transaction ----
 $documentationTransaction = $null
 try {
@@ -5208,6 +5273,7 @@ if ($Json) {
         }
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
         watchdog_deployment = $watchdogDeployment
+        self_pinned_tasks = @($selfPinnedTasks)
         forward_arrival = $forwardArrival
         host_stability = $hostStability
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }); retirement = $qwRetirement }
