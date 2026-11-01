@@ -226,3 +226,43 @@ def test_concat_refuses_an_open_ended_window(tmp_path, monkeypatch):
     monkeypatch.setattr(lay.window, "window", lambda: (date(2026, 10, 15), None))
     with pytest.raises(lay.LayoutRefused, match="open-ended"):
         lay.concat(layouts=tmp_path / "layouts", out=tmp_path / "out", ledger=tmp_path / "ledger.jsonl")
+
+
+# ----------------------------------------------------------------------------- one verify line per date (master 2026-11-01)
+
+def _cli(capsys, *args):
+    code = lay.main(list(args))
+    lines = capsys.readouterr().out.splitlines()
+    return code, lines
+
+
+def test_stage_and_admit_print_one_verify_line_per_date(tmp_path, capsys):
+    share, inbox, ledger = tmp_path / "share", tmp_path / "inbox", tmp_path / "ledger.jsonl"
+    _share_bundle(share, BF_DAY)
+    sha = _sha(share / BF_DAY.isoformat() / allow.MANIFEST)
+    common = ("--inbox", str(inbox), "--date", BF_DAY.isoformat(), "--ledger", str(ledger))
+    code, lines = _cli(capsys, "stage", "--share-root", str(share), *common)
+    assert code == 0 and lines[0] == f"MG1-STAGE {BF_DAY.isoformat()} {sha} STAGED (not verified yet)"
+    assert "PASS" not in lines[0]
+    code, lines = _cli(capsys, "admit", *common)
+    assert code == 0 and lines[0] == f"MG1-VERIFY {BF_DAY.isoformat()} {sha} PASS"
+    assert sum(line.startswith("MG1-VERIFY") for line in lines) == 1
+    code, lines = _cli(capsys, "admit", *common)  # an already recorded date repeats its verdict
+    assert code == 0 and lines[0] == f"MG1-VERIFY {BF_DAY.isoformat()} {sha} PASS"
+
+
+def test_admit_failure_and_refusal_print_fail_lines(tmp_path, capsys):
+    share, inbox, ledger = tmp_path / "share", tmp_path / "inbox", tmp_path / "ledger.jsonl"
+    _share_bundle(share, BF_DAY, manifest_sha256="0" * 64)
+    sha = _sha(share / BF_DAY.isoformat() / allow.MANIFEST)
+    common = ("--inbox", str(inbox), "--date", BF_DAY.isoformat(), "--ledger", str(ledger))
+    _cli(capsys, "stage", "--share-root", str(share), *common)
+    code, lines = _cli(capsys, "admit", *common)
+    assert code == 3 and lines[0] == f"MG1-VERIFY {BF_DAY.isoformat()} {sha} FAIL:backfill_receipt"
+    other = date(2026, 10, 26)
+    code, lines = _cli(capsys, "admit", "--inbox", str(inbox), "--date", other.isoformat(), "--ledger", str(ledger))
+    assert code == 0 and lines[0] == f"MG1-VERIFY {other.isoformat()} - NOT_READY"
+    (inbox / other.isoformat()).mkdir(parents=True)
+    (inbox / other.isoformat() / lay.TRANSFER_NAMES[1]).write_bytes(b"")
+    code, lines = _cli(capsys, "admit", "--inbox", str(inbox), "--date", other.isoformat(), "--ledger", str(ledger))
+    assert code == 2 and lines[0].startswith(f"MG1-VERIFY {other.isoformat()} - FAIL:")

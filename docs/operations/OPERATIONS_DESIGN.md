@@ -1245,9 +1245,16 @@ always off; nothing under `src/` imports or names it.
 - **Writes.** Only under `data\exports\mg1-inputs\`: the exporter's `<D>\` and `<D>.SHA256SUMS`, a sidecar
   `<D>.mg1_backfill_receipt.json` (exporter and wrapper sha256, manifest sha256, coverage counts false), and
   `_runs\`. A date already exported is skipped; partial outputs refuse the date.
-- **Workstation.** `python -m weather.calibration.mg1_layout stage --share-root <share>` copies `<D>\` and the
-  sidecar; `admit` verifies with every §9.3 check except the deadline; `build` and `concat` assemble the full
-  window once it has closed. The share root is always an argument; the same share rules as MG-2 apply.
+- **Transfer (master 2026-11-01; no new share).** Master copies each date's `<D>\`, `<D>.SHA256SUMS` and
+  `<D>.mg1_backfill_receipt.json` from the host's `data\exports\mg1-inputs\` into `mg1-inputs\` on the existing
+  xfer share. On the workstation, `python -m weather.calibration.mg1_layout stage --share-root <xfer UNC>\mg1-inputs
+  --inbox <I> --date <D>` copies `<D>\` and the sidecar read-only and prints
+  `MG1-STAGE <D> <sha> STAGED (not verified yet)`. `admit --inbox <I> --date <D>` runs every §9.3 check except the
+  deadline, records the outcome in MG-1's own ledger, and prints one verify line,
+  `MG1-VERIFY <D> <bundle manifest sha256> PASS` (or `FAIL:<reason>` / `NOT_READY`). Master deletes the share's
+  staging copy of a date only after its PASS line; a FAIL keeps it for inspection. `build` and `concat` assemble
+  the full window once it has closed. The share root is always an argument and is never written; the repository
+  names no share path or host.
 
 ## Why Capture Is Not Packaged Into The Dashboard
 

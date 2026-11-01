@@ -22,8 +22,12 @@ of the same per-date pieces the MG-2 transfer uses (``weather.calibration.mg2_in
 * **No evening-fix transfer.** It never reads the evening-fix (B transfer) export: a source or inbox path that
   holds ``b_transfer_manifest.json``, ``labels.parquet`` or ``market.parquet`` is refused, and only allow-listed
   bundle files pass ``verify_bundle``.
-* **The share root is a parameter.** Master picks it (it follows the R20 host-name switch). Nothing here
-  names a host address.
+* **The share root is a parameter.** No new share (master 2026-11-01): master copies the host's
+  ``data\exports\mg1-inputs`` bundles and sidecars into ``mg1-inputs\`` on the existing xfer share, and
+  ``stage --share-root`` points there (on the workstation, the xfer share's UNC path). Nothing here names a host.
+* **One verify line per date.** ``stage`` prints ``MG1-STAGE <D> <sha> STAGED (not verified yet)``; ``admit``
+  prints ``MG1-VERIFY <D> <bundle manifest sha256> PASS`` (or ``FAIL:<reason>`` / ``NOT_READY``). Master
+  deletes the share's staging copy of a date only after its PASS line.
 
 Commands (``python -m weather.calibration.mg1_layout``):
 
@@ -269,6 +273,31 @@ def build_parser():
     return p
 
 
+def verify_line(command, day, result=None, refused=None):
+    """The one human line per date that master acts on (it deletes the share's staging copy only after PASS).
+
+    ``MG1-VERIFY <D> <bundle manifest sha256 or -> PASS|FAIL[:reason]|NOT_READY`` for ``admit``;
+    ``MG1-STAGE <D> <sha or -> STAGED (not verified yet)|...`` for ``stage``, which is never a verify verdict.
+    """
+    result = result or {}
+    receipt = result.get("receipt") or result
+    sha = receipt.get("manifest_sha256") or "-"
+    status = str(receipt.get("status") or result.get("status") or "")
+    if command == "stage":
+        verdict = f"REFUSED:{refused}" if refused else (
+            "STAGED (not verified yet)" if result.get("status") == "pulled" else str(result.get("status")).upper())
+        return f"MG1-STAGE {day.isoformat()} {sha} {verdict}"
+    if refused:
+        verdict = f"FAIL:{refused}"
+    elif status == "verified":
+        verdict = "PASS"
+    elif status == "not_ready":
+        verdict = "NOT_READY"
+    else:
+        verdict = f"FAIL:{receipt.get('reason') or status}"
+    return f"MG1-VERIFY {day.isoformat()} {sha} {verdict}"
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     day = date.fromisoformat(args.date) if getattr(args, "date", None) else None
@@ -284,8 +313,12 @@ def main(argv=None):
         else:
             result = concat(layouts=args.layouts, out=args.out, ledger=args.ledger)
     except (LayoutRefused, mi.InputRefused) as exc:
+        if args.command in ("stage", "admit"):
+            print(verify_line(args.command, day, refused=" ".join(str(exc).split())), flush=True)
         print(json.dumps({"status": "refused", "reason": str(exc)}), flush=True)
         return 2
+    if args.command in ("stage", "admit"):
+        print(verify_line(args.command, day, result), flush=True)
     print(json.dumps(result, sort_keys=True, default=str), flush=True)
     return 3 if str(result.get("status", "ok")).startswith("refused") else 0
 
