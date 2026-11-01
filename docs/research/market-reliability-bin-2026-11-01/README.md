@@ -1,9 +1,17 @@
-# Market reliability by bin on our markets: pre-registration (DRAFT)
+# Market reliability by bin on US11: pre-registration (DRAFT, revision 1)
 
-**Status: DRAFT, NOT FROZEN.** Nothing in this file is binding until master reviews it, pins the run
-script's sha256 and writes the ledger row. No reliability score, calibration curve, Brier or log score,
-or any other statistic that pairs labels with prices has been computed. The only computation so far is
-the presence-only count in [`presence_count.py`](presence_count.py) (section 6).
+**Status: DRAFT, NOT FROZEN (revision 1).** Nothing in this file is binding until master reviews it, pins
+the run script's sha256 and writes the ledger row. No reliability score, calibration curve, Brier or log
+score, or any other statistic that pairs labels with prices has been computed. Two computations exist:
+
+- the presence-only count in [`presence_count.py`](presence_count.py) (section 6);
+- the `--synthetic-only` dry run of [`run_reliability.py`](run_reliability.py), which never opens
+  `labels.parquet` and scores only synthetic labels (section 9).
+
+**Revision 1** applies master's rulings on the first draft (`be4fb5943`, README sha256 `40af0563…`).
+Master accepted every default (O1-O9) with conditions C1-C4, folded in below. It also makes one design
+change that the dry run forced and that needs master's ruling: the residual is taken on the normalised
+price m̃. Section 4 gives the reason and the evidence.
 
 - Lane L21, workstation, 2026-11-01. Branch `claude/market-reliability-bin-prereg-20261101`, cut from
   `origin/master` `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
@@ -23,7 +31,7 @@ This is a **kill-only** read. It can end in exactly one of these ways:
 
 | Outcome | Meaning |
 | --- | --- |
-| **KILL at edge size** | Defined in section 5. The verdict is archived and recorded, and the question is closed. |
+| **KILL at edge size** | Defined in section 5. The verdict is archived and recorded, and the question is closed for US11. |
 | **NOT KILLED** | Earns only a follow-up pre-registration. It is never an edge claim, a model improvement or a fair-value result. |
 | **UNTESTABLE** | The power gate fails, or the training-score or positive control fails. The verdict is archived and recorded. |
 
@@ -31,7 +39,7 @@ This is a **kill-only** read. It can end in exactly one of these ways:
 
 **What the brief asked for**
 
-- **The market's own reliability by bin, on our markets.** Nothing in the register, EF, RF or the ledger
+- **The market's own reliability by bin, on US11.** Nothing in the register, EF, RF or the ledger
   measures it. STATE_OF_PLAY line 51 says: "**Market price reliability by bin on our 12:** never measured;
   BARRED by the 10-23 model-only scope; **owner question pending**."
 - **EF §1c, the bar against booking shrinkage as improvement** (ESTABLISHED_FINDINGS line 700):
@@ -59,7 +67,7 @@ This is a **kill-only** read. It can end in exactly one of these ways:
   - Relation: these are the dead-bucket floor-impossible mispricings. The deciding population drops
     floor-impossible bands (section 3c), so X24/X25 are not measured again as calibration.
 
-**Neighbours, none of which is a market reliability result on our markets**
+**Neighbours, none of which is a market reliability result on US11**
 
 - **Register rows 3 and 4, and RF "Recalibration will close the gap — FALSE BY DECOMPOSITION".** These
   decompose the *model* (98.88% resolution, 1.12% reliability).
@@ -113,17 +121,35 @@ All local and public; no Polymarket US, no paid source, no fetch.
 - **m = `p_market_yes`**, the International Polymarket Gamma YES price per band captured with each
   snapshot. This is the same m as the dev scorecard and the mr_sweep. It is never a CLOB
   `last_trade_price` (`rule_rodc_released_p0.md`:74).
-- m is used raw and not renormalised, except in arm A3, which uses m̃ = m / Σ_ladder m.
+- The statistic uses **m̃ = m / Σ_ladder m**, summed over the full captured ladder (revision 1, section 4).
+  Bins stay on the raw displayed price m (3e).
+- **Disclosed limitation (master ruling on O4).**
+  - Gamma's displayed price may fall back to the last trade when the spread is wide.
+  - Its semantics are not documented in this repository.
+  - The tails are where that bites.
+  - There is no book-mid arm in this read. **If the verdict is NOT KILLED, the follow-up prereg must
+    include a book-mid arm on the [0, .10) bins before any use of the result.**
 
 **Code**
 
-- Reader: `weather.reporting.scorecards.dev_scorecard_data.load_layout` (read-only import).
+- Reader: `weather.reporting.scorecards.dev_scorecard_data.load_layout` (read-only import), in the real
+  run only. The `--synthetic-only` mode reads only the snapshot, band and market files, sha-verified
+  against the manifest, and never opens `labels.parquet`.
 - y: the band indicator `band_index == labels.winner`, exactly as in `dev_scorecard.py` (around line 142).
-- Floor-impossible flag: `dev_scorecard.py` lines 149-153 (read-only import). The floor is the max of
+- Floor-impossible flag: the `dev_scorecard.py` Table rule, lines 149-153, recomputed in the run script
+  because it is not a callable. The floor is the max of
   `guidance_physical_floor`, `high_so_far` and `trusted_current_max` at capture time. A band is
   impossible when `kind != "gte"` and `high < floor(floor + 0.5)`.
-- **The deciding population excludes impossible bands** (open choice O2). They enter only as a
-  descriptive sensitivity row.
+  - The recomputed flag agrees with the layout's own `floor_impossible` column on every row (0
+    disagreements in the dry run).
+  - It marks 43,371 of the 164,659 W57 band rows. That leaves **121,288 scored band rows**.
+- **The deciding population excludes impossible bands** (O2, accepted). "Include" is a descriptive row only.
+- **C1, ladder quantities on the full ladder.**
+  - Every ladder-level quantity is computed on the FULL captured ladder (all `n_bands`). That covers A1's
+    ladder mean, A3's m̃ = m/Σm and the q_β renormalisation.
+  - The impossible flag removes rows only from the scored sums (Σ g·r, Σ g², Σ r²) and from the bin tables.
+  - The descriptive include row uses the same g: the fits come from the scored rows and are evaluated on
+    all rows.
 
 ### 3d. Snapshot selection, time of day and dedup
 
@@ -147,16 +173,29 @@ reported but marked thin. Bins are not merged after the read.
 
 ## 4. Statistic and uncertainty
 
-Let r = y − m for each (snapshot, band) row of the deciding population.
+Let **r = y − m̃** for each (snapshot, band) row of the deciding population. Here m̃ = m / Σ_ladder m
+over the full captured ladder (C1).
+
+**Why m̃ and not raw m (revision 1; needs master's ruling).**
+
+- The first draft used r = y − m on the raw price.
+- The `--synthetic-only` dry run of that version failed the null control. With labels drawn from a
+  perfectly calibrated m̃, A1's widest interval was [−0.0166, −0.0049] (point −0.0108), which excludes 0.
+- The cause: the ladder prices sum to more than 1. Across the 110,807 layout ladders Σm has mean 1.0157,
+  median 1.007, 5th-95th percentiles 0.968-1.063, and max 2.96.
+- On raw m the statistic therefore measures the overround as "miscalibration". The overround is a fee,
+  not forecast information.
+- With r = y − m̃, every control passes (section 9).
+- The raw-m bin gap stays as a descriptive column (`d_b_raw_point`).
 
 ### 4a. Descriptive (non-deciding)
 
 These are reported with their intervals. None of them can decide anything.
 
-- Per bin b: n_b, mean m, observed frequency ȳ_b, and **d_b = ȳ_b − mean m_b**, each with the widest of
-  the three intervals in 4c.
+- Per bin b: n_b, mean m, mean m̃, observed frequency ȳ_b, and **d_b = ȳ_b − mean m̃_b** with the widest
+  of the three intervals in 4c. The raw gap ȳ_b − mean m_b is a point column.
 - Aggregates:
-  - linear calibration intercept and slope (OLS y = a + b·m);
+  - linear calibration intercept and slope (OLS y = a + b·m̃);
   - ECE = Σ_b (n_b / n) |d_b|;
   - the in-sample oracle binned fraction F_bin = Σ_b n_b d_b² / Σ r²;
   - Pearson correlation of g and r for each arm.
@@ -170,13 +209,13 @@ For an adjustment direction g on every row:
 Δ = Σ g·r / sqrt(Σ g² · Σ r²)
 ```
 
-**Why this form.** For q = m + c·g with the oracle-best c, the market's summed multi-category Brier falls
+**Why this form.** For q = m̃ + c·g with the oracle-best c, the market's summed multi-category Brier falls
 by exactly Δ² · Σ r². Δ² is therefore the *exact* fraction of market Brier removed. The oracle c is
 generous to the adjustment, so a kill is conservative.
 
 | Arm | g | Fitting |
 | --- | --- | --- |
-| **A1 linear** | m − (ladder mean of m) | Zero parameters. This is a slope or temperature direction. |
+| **A1 linear** | m̃ − (ladder mean of m̃) = m̃ − 1/n_bands | Zero parameters. This is a slope or temperature direction. |
 | **A2 binned** | the leave-one-date-out (LODO) mean residual r̄ in m's bin (3e), from all other dates | LODO |
 | **A3 power (MG-1 exponent)** | q_β − m̃, with q_β ∝ m̃^β renormalised on the ladder | β is chosen by LODO from grid 0.50..2.50, step 0.01, minimising the summed Brier of the other dates. Ties go to the β closest to 1. |
 
@@ -190,6 +229,8 @@ generous to the adjustment, so a kill is conservative.
 - LODO fits are recomputed inside every draw, from per-(date, bin) sufficient statistics (A2) and from
   per-(date, β) sums of Σ g·r, Σ g² and Σ r² (A3).
 - A resampled date's left-out set is every copy of that date.
+- The script's formulas were checked against a row-by-row brute force on a small synthetic layout, for
+  two weight vectors. All three arms matched to 10 decimals.
 
 **Training-score check** (EF §1c "Check the training score first")
 
@@ -228,12 +269,18 @@ needs ρ ≥ √0.05 = 0.224".
 
 ### 5b. Labels (F8 / B2 / S31 Clarification 2 vocabulary)
 
-**UNTESTABLE**, if any of these holds:
+**UNTESTABLE**, if any step fails. **C2: the order is enforced in code** (`run_reliability.py`):
 
-- the power gate (section 6) fails;
-- the positive control (section 8a) does not reproduce;
-- the training-score check fails;
-- a null or planted synthetic control fails.
+1. The positive control (8a) reproduces 1.774 / 1.526 to 3 decimals.
+2. The synthetic null and planted controls pass.
+3. The training-score check passes.
+4. The realised widest-of-three SE gives power Φ(0.2236 / SE − 1.96) ≥ 0.5 for **every** arm.
+
+- No Δ value (point, interval or per arm) reaches stdout, the receipt or any file unless every earlier
+  step passed.
+- On a failure the script writes "US11: UNTESTABLE" plus that step's own numbers (control values, SEs),
+  then stops.
+- Bootstrap draws are computed internally for the SE and are discarded on failure.
 
 **KILL at edge size** requires all of the following:
 
@@ -246,7 +293,9 @@ needs ρ ≥ √0.05 = 0.224".
 - It is labelled SCREEN-POSITIVE (descriptive only) if that arm's widest lower bound is > 0, or for A1 if
   |Δ|'s bound excludes 0.
 - Otherwise it is NOT KILLED, NOT SCREEN-POSITIVE.
-- Either way it earns only a follow-up pre-registration on another window, and never an edge claim.
+- Either way it earns only a follow-up pre-registration on another window, and never an edge claim. That
+  follow-up must include a book-mid arm on the [0, .10) bins (O4 ruling).
+- Every verdict line says **US11**, never "our 12" (O3 ruling).
 
 ### 5c. The comparison bars, and what each verdict does and does not touch
 
@@ -272,7 +321,8 @@ needs ρ ≥ √0.05 = 0.224".
 **How it ran**
 
 - It applies the full population rule in 3b-3d. The impossible-band exclusion needs `high_so_far`, so it
-  is not applied and the counts are an upper bound on bands (see O2).
+  is not applied, and these band counts are an upper bound. The dry run (section 9) applies the exclusion:
+  121,288 of 164,659 band rows remain, and the date, market-day and market-date-hour counts are unchanged.
 - The run took 0.62 s with a peak of 327 MB. The rerun was byte-identical.
 - Output sha256 `aecbfcc824d851dd8850857f0d05b1e07096a0836cf08a298774cd68a3fe7b6b`, kept on the
   workstation at `C:\t\mrbin\presence_v1.json`.
@@ -303,12 +353,15 @@ needs ρ ≥ √0.05 = 0.224".
 - Per-block market-date-hours in W57: 00-06 4,345; 07-12 3,738; 13-16 2,504; 17-23 4,382.
 - Austin has 56 W57 dates; every other market has 57.
 - **Half-split sensitivity** (29 scored dates): T2 0.805, T2b about 0.53. LODO is not chosen for power.
+- **Dry-run projection on the real population.** These SEs come from synthetic null labels with the full
+  three-bootstrap scheme: A1 0.0031, A2 0.0127, A3 0.0156. Power at 0.2236 is 1.000 on every arm, so the
+  analytic T2 tier is very conservative. This is a projection only; the real SE is re-checked at step 4.
 
 ## 7. Multiplicity: DEV_WINDOW_LEDGER
 
-- The published dev reuse count is **203** (2026-11-01), so this read is **204**.
-- **Proposed ledger row 106**, type **K**. Rows 1-105 are taken on `origin/master` and on every recent
-  remote branch checked on 2026-11-01.
+- **C3:** this read's multiplicity is the **published reuse count on the freeze day + 1** (203 + 1 = 204 as
+  of 11-01).
+- Ledger type **K**. The row takes the next free row number at freeze.
 - It is written before the run and counted from opening, one row for the three arms, as rows 93-105 were.
 - The kill-only rule needs no adjustment for the three arms: each arm alone must clear its kill bar, and
   a survive claims nothing.
@@ -330,19 +383,20 @@ These must reproduce before Δ is read, on the same layout sha and with `dev_sco
 
 ### (b) Comparator fairness
 
-The comparator is the market's own raw price m.
+The comparator is the market's own price, normalised on its full captured ladder: m̃ = m / Σm (4, revision 1).
 
 **Floor**
 
-- The floor-impossible bands are excluded from the deciding population, so neither m nor any arm gets
+- The floor-impossible bands are excluded from the deciding population, so neither m̃ nor any arm gets
   credit for a band the capture-time floor had already ruled out.
 - With them included, the result is a descriptive row only.
 
 **Calibration**
 
-- m is left exactly as captured, with no renormalisation, except A3's documented m̃.
+- m̃ removes only the ladder overround. Without that step, the overround would read as miscalibration
+  (the null control failed on raw m; section 4).
 - Every fitted arm (A2, A3) is out of sample by LODO, so no arm enjoys an in-sample calibration
-  advantage over m.
+  advantage over m̃.
 - A1 has no parameters.
 - The oracle c in 4b favours the adjustment, which makes a kill conservative.
 
@@ -359,11 +413,12 @@ The comparator is the market's own raw price m.
 - **57 date clusters**, 626 market-day units and 14,969 market-date-hours in W57.
 - T2 gating: SE 0.0565, **MDE80 0.158**, power at 0.2236 = 0.977.
 - W43 has 43 date clusters, MDE80 0.182 and power 0.930. Section 6 gives all the tiers.
+- Dry-run projection (synthetic null, 57 date clusters): the largest SE is 0.0156 (A3), giving MDE80 0.044.
 
 ### (e) Dev-window reuse
 
-- DEV_WINDOW_LEDGER reuse count **203**; this row counts as **204** (proposed row 106, type K, counted from
-  opening).
+- DEV_WINDOW_LEDGER: the published reuse count on the freeze day + 1. That is 203 + 1 = **204** as of
+  11-01. Type K, counted from opening, at the next free row number at freeze (C3).
 
 ### Keep / kill rule
 
@@ -380,10 +435,39 @@ The rule is section 5b in full.
 **Run**
 
 - One run, after master pins this README and the run script's sha256.
-- The run script is not yet written; it goes beside this file and must not import any B-bound module
-  except read-only. It reads the layout through `load_layout`.
-- It reads `labels.parquet` only inside that run. Workstation-light, if < 1 min and < 1 GB, else
-  `scripts\ops\workstation_heavy.ps1 -Queue`.
+- **Run script:** [`run_reliability.py`](run_reliability.py). Its sha256 is in the commit that adds it,
+  and master pins it at freeze.
+- **The C4 requirements**
+  - The real run reads through read-only `load_layout` and opens `labels.parquet` only inside the single
+    real run.
+  - The real run refuses to start unless `--expect-sha` equals the script's own sha256.
+  - `--synthetic-only` never opens `labels.parquet`.
+  - The receipt holds:
+    - the layout manifest sha256, re-hashed before and after the run;
+    - every input sha;
+    - the script sha, the git tip, the seed, the draw counts, the library versions, the run time and the
+      peak memory.
+  - No network. Standard library plus numpy, pandas and pyarrow only. `weather.reporting.scorecards`
+    modules are imported read-only, and no B-bound file is edited.
+- **The real run is not workstation-light.** `load_layout` reads all four files, and the positive control
+  (`dev_scorecard.run_score`) reads them again. It goes through `scripts\ops\workstation_heavy.ps1
+  -Queue`, unless master rules otherwise.
+- **The `--synthetic-only` dry run** took 13.3 s with a peak of 713 MB. The sha was recorded first, and
+  `labels.parquet` was not opened.
+  - Population: 57 dates, 11 markets, 626 market-days, 14,969 ladders, 121,288 scored band rows; 0
+    incomplete or zero-price ladders.
+  - Step 1 (positive control): not run, because it needs labels.
+  - Step 2 (synthetic controls): PASS.
+
+    | Synthetic labels | A1 Δ [widest] | A2 Δ [widest] | A3 Δ [widest] | in-sample β̂ |
+    | --- | --- | --- | --- | ---: |
+    | Null, y ~ m̃ | 0.0010 [−0.0051, 0.0073] | −0.0114 [−0.0385, 0.0122] | −0.0235 [−0.0444, 0.0105] | 1.01 |
+    | Planted, y ~ m̃^1.5 | 0.0896 [0.0841, 0.0956] | 0.1685 [0.1545, 0.1821] | 0.1877 [0.1718, 0.2040] | 1.52 |
+
+  - Step 3 (training-score check, on the null): PASS. In-sample Brier at β̂ is 5804.920, against 5804.940
+    at β = 1.
+  - Step 4 (power projection, on the null): widest SE 0.0031 / 0.0127 / 0.0156, power 1.000 on every arm.
+  - The layout manifest was unchanged.
 
 **On KILL or UNTESTABLE**
 
@@ -393,16 +477,26 @@ The rule is section 5b in full.
 - Add the register §6 row and the ledger result.
 - Nothing in the archive is ever deleted.
 
-## 10. Open design choices for master
+## 10. Design choices: master's rulings on the first draft, and one new item
 
-| # | Choice | Draft default |
+**New, needs master's ruling: R1.** Take the residual on m̃ = m/Σm over the full ladder instead of raw m
+(section 4).
+
+- The dry run of the raw-m version failed the null control on A1: [−0.0166, −0.0049].
+- The m̃ version passes every control.
+- The alternative is to keep raw m and drop or redefine the null-cover check. That would let overround
+  read as miscalibration.
+
+**Accepted by master** (every first-draft default, plus C1-C4):
+
+| # | Choice | Ruling |
 | --- | --- | --- |
-| O1 | Window: W57 (all 57 dev layout dates) or W43 (mr_sweep's 08-15..09-29) | W57. Both pass the gate. |
-| O2 | Exclude floor-impossible bands. This reads a `high_so_far`-derived flag at run time, and fix 10's capture-parity defect means the flag is the capture-time one. | Exclude, with "include" as a descriptive row. |
-| O3 | Toronto: excluded, or a separate descriptive arm from the 2.97 GB book tapes `data\inbox\tapes-toronto-0801-0929` (book mid, heavy queue, about 60 dates, T2 power about 0.41) | Excluded. |
-| O4 | US price: `p_market_yes` (Gamma; its exact semantics, mid versus last, are not documented here) or the book mid from the 32.5 GB US tapes (`dead_bucket.stream_summary`) | `p_market_yes`, matching the dev scorecard and the mr_sweep. |
-| O5 | Fitting: LODO, or a chronological half split | LODO. The half split's T2b power is about 0.53. |
-| O6 | Arms: K = 3, or fewer (for example A3 alone, the MG-1 question) | K = 3 |
-| O7 | All hours pooled as deciding, with blocks descriptive, or a deciding 07-12 block | Pooled |
-| O8 | Add the crossed date × market interval (EF §5) as a deciding interval beside the D3 widest-of-three | Descriptive only |
-| O9 | Variance tier for the gate | T2 |
+| O1 | Window: W57 (all 57 dev layout dates) or W43 (mr_sweep's 08-15..09-29) | **W57 (accepted)** |
+| O2 | Exclude floor-impossible bands. This reads a `high_so_far`-derived flag at run time, and fix 10's capture-parity defect means the flag is the capture-time one. | **Exclude; include is a descriptive row only; C1 full-ladder quantities (accepted)** |
+| O3 | Toronto: excluded, or a separate descriptive arm from the 2.97 GB book tapes `data\inbox\tapes-toronto-0801-0929` (book mid, heavy queue, about 60 dates, T2 power about 0.41) | **Excluded; every verdict says US11 (accepted)** |
+| O4 | US price: `p_market_yes` (Gamma; its exact semantics, mid versus last, are not documented here) or the book mid from the 32.5 GB US tapes (`dead_bucket.stream_summary`) | **`p_market_yes`; limitation disclosed; a NOT KILLED follow-up needs a book-mid arm on [0, .10) (accepted)** |
+| O5 | Fitting: LODO, or a chronological half split | **LODO (accepted)** |
+| O6 | Arms: K = 3, or fewer (for example A3 alone, the MG-1 question) | **K = 3 (accepted)** |
+| O7 | All hours pooled as deciding, with blocks descriptive, or a deciding 07-12 block | **Pooled; blocks descriptive (accepted)** |
+| O8 | Add the crossed date × market interval (EF §5) as a deciding interval beside the D3 widest-of-three | **Descriptive only (accepted)** |
+| O9 | Variance tier for the gate | **T2 (accepted)** |
