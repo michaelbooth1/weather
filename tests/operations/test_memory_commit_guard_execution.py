@@ -994,7 +994,7 @@ def test_exec_budget_kill_on_a_leased_tree_stops_the_real_hog_not_a_heavy_chunk(
         _proc(base + 5, "powershell.exe", TRAINING_WINDOW, age=60, ppid=base + 3),
         _proc(base + 7, "python.exe", f"{VENV_PY} -m weather.operations.nightly_retrain --all", age=59, ppid=base + 5),
         # Not a heavy process by command line, but it holds the memory.
-        _proc(base + 9, "node.exe", "node C:\scratch\big.js", age=30, private=9 * GIB, ppid=base + 3),
+        _proc(base + 9, "node.exe", r"node C:\scratch\big.js", age=30, private=9 * GIB, ppid=base + 3),
     ]
     outcome = _run(
         tmp_path,
@@ -1023,13 +1023,13 @@ def test_exec_commit_emergency_spares_lease_owners_and_their_parents(tmp_path: P
     leased = [
         _proc(base + 1, "claude.exe", CLAUDE, age=300),
         _proc(base + 3, "powershell.exe", TRAINING_WINDOW, age=60, ppid=base + 1),
-        _proc(base + 5, "node.exe", "node C:\scratch\big.js", age=30, private=9 * GIB, ppid=base + 3),
+        _proc(base + 5, "node.exe", r"node C:\scratch\big.js", age=30, private=9 * GIB, ppid=base + 3),
     ]
     parent = 7_930_100
     # claude.exe -> python tools\run_suite.py (9 GiB) -> bounded suite (owner).
     python_parent = [
         _proc(parent + 1, "claude.exe", CLAUDE, age=300),
-        _proc(parent + 3, "python.exe", f"{VENV_PY} tools\run_suite.py --all", age=30, private=9 * GIB, ppid=parent + 1),
+        _proc(parent + 3, "python.exe", f"{VENV_PY} tools\\run_suite.py --all", age=30, private=9 * GIB, ppid=parent + 1),
         _proc(parent + 5, "powershell.exe", BOUNDED_SUITE, age=29, ppid=parent + 3),
     ]
     night = "2026-11-01T02:00:00"
@@ -1046,6 +1046,7 @@ def test_exec_commit_emergency_spares_lease_owners_and_their_parents(tmp_path: P
                 processes=python_parent,
                 leases=[_lock(parent + 5, age=29)],
             ),
+            _scenario(tmp_path, "python_unleased", now=night, commit=95.0, processes=python_parent),
         ],
     )
 
@@ -1060,4 +1061,8 @@ def test_exec_commit_emergency_spares_lease_owners_and_their_parents(tmp_path: P
 
     python_row = outcome["python_parent"]
     assert python_row["stopped"] == []
-    assert "launched a heavy-workload lease owner" in python_row["log"]
+    assert "launched a heavy-workload lease owner" in python_row["log"], python_row["log"].splitlines()
+
+    # Without the lease the same python is the emergency target.
+    python_unleased = outcome["python_unleased"]
+    assert parent + 3 in python_unleased["stopped"]
