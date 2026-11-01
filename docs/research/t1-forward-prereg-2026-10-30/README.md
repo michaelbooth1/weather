@@ -1,7 +1,9 @@
 # T+1 forward test: day-ahead NBM NBP, ECMWF ENS and their blend vs the T+1 market (lane L3)
 
-**Status: DRAFT, not frozen.** It freezes at **P1**: the WS T+1 price recorder has 3 consecutive closed UTC days
-(expected after UTC day 2026-11-02 closes). The freeze commit pins this file's sha256 in a new ledger row, which is
+**Status: DRAFT, not frozen (rev 9).** It freezes only when P1, P2 and P3 all hold (section 8). P1 (the WS T+1
+price recorder's horizon +1 coverage on 3 consecutive closed UTC days) is expected once UTC day 2026-11-02 closes
+(2026-11-03 00:00Z). P2 is expected about 2026-11-02 19:47Z. P3 (the emitter) is not built. So the freeze is no
+earlier than 2026-11-03. The freeze commit pins this file's sha256 in a new ledger row, which is
 written before the freeze. After that, any change is a dated Clarification with its own sha. The freeze happens only
 after the coordinator has been told; the lane never freezes on its own.
 
@@ -27,9 +29,32 @@ after the coordinator has been told; the lane never freezes on its own.
   (f) power is computed by simulation with the futility path, the AR(1) deciding interval and its VIF floor 1.78
   exactly as applied. That power is 0.455 at N = 63, so N rises to **75 scored (82 countable) dates**, power 0.505
   (sections 7 and 8).
-- Rev 8 (this file) adds the null simulation (master ruling 2026-10-30): the rule as applied, with futility, has a
+- Rev 8 adds the null simulation (master ruling 2026-10-30): the rule as applied, with futility, has a
   false-PASS rate of 0.021 at ρ 0.28 (≤ 0.025, so no rule change) and 0.033 at the ρ 0.5 stress case (reported,
-  not a gate). N, δ_s and power are unchanged (section 7). Still NOT frozen.
+  not a gate). N, δ_s and power are unchanged (section 7).
+- Rev 9 (this file, master approval 2026-11-01 of items (a)-(d), no split freeze) is a pre-freeze edit. It makes these
+  changes. Still NOT frozen.
+  - **P1 redefined** as horizon +1 coverage per market, read from the cycle reason codes (section 8). **What triggered
+    it is a recorder-coverage pattern and nothing else.** Under rev 8's wording, P1 could never pass. The only
+    recorder data read for this revision are the T+1 price recorder's cycle-manifest completeness flags and cycle
+    reason codes, for cycles 2026-10-30 21:48Z through 2026-11-01. No price row, label, METAR, high_so_far or other
+    outcome datum was read. What those flags show:
+    - Every UTC day the horizon +2 events return `gamma_http_404`, concentrated at 04-08Z. That is just after US
+      local midnight, when the new T+2 event is not listed yet.
+    - Count of markets with a +2 failure, by hour: 04Z 4, 05Z 8, 06Z 9, 07Z all 12. A tail of fewer markets runs on
+      to about 12Z (5 markets at 08-11Z, Toronto alone at 12Z).
+    - The recorder's cycle-level `top_of_hour_complete` flag therefore marks those cycles incomplete. For example,
+      UTC day 10-31 shows 15 of 24 top-of-hour cycles complete with 0 cycles missing.
+    - No reason code names a horizon +1 event. Horizon +1 was complete in every top-of-hour cycle recorded.
+    - Horizon +2 is never an input to this test (sections 2 and 4).
+  - **P2 wording fixed** to one reading, the stricter one: every scheduled cycle or run closed on each day. For ENS
+    that means both the 00Z and 12Z runs (section 8).
+  - **C3 interaction clause** (section 8.1). It is one-way: a later C3 kill-only result can only stop or report the
+    A1 arm.
+  - **Multiplicity:** the freeze's K row is added to the denominator (section 8.2).
+  - The emitter (P3) is not part of rev 9.
+  - Typographic fix: the two simulation output paths in section 7 had a literal tab (and, in one, a line break)
+    where the path \t belonged. They now read C:\t\l3t1sim\... No sha changes.
 
 This is a dated research draft, not canonical guidance.
 
@@ -73,6 +98,10 @@ stage.
 
 So rule 2's "history, dev" tiers are empty by construction. Without them this is a **forward SCREEN**: it can kill, and
 a PASS earns only a confirmation (section 7).
+
+The one cheaper kill read that was planned, C3 (DEV_WINDOW_LEDGER row 100, exhaustion register X86), is **BLOCKED**
+by the frozen `bundle_output_cap`. That is not a kill, and no Δ was produced. So no kill-tier read comes before this
+freeze. What a later C3 result may do is fixed now, one-way, in section 8.1.
 
 ## 1. Question
 
@@ -176,8 +205,9 @@ pinned. The three arms are one frozen batch (method §5 rule 5): one rule, one l
   - **WS T+1 price recorder** (comparator only; joined at the look and never read by the emitter):
     `C:\t\t1_prices\forward`, recorder `tools/research/t1_price_forward_recorder.py`. Each row carries its receipt
     time, event and condition ids, and the cycle's full-ladder sum check. Cycle manifests are marked complete or
-    incomplete. Before the look the lane reads only the manifests' completeness flags, for P1 and for countable-date
-    coverage, and never a price.
+    incomplete. Before the look the lane reads only the manifests' completeness flags and per-cycle reason codes,
+    for P1 and for countable-date coverage, and never a price. Both use horizon +1 per market (rev 9, section 8). A
+    horizon +2 reason code never makes a horizon +1 cell uncovered.
   - **ECCC GEM** (`C:\t\eccc_gem\forward`) and **GEFS** (`C:\t\gefs_cycles\forward`): context only. They are recorded
     in the emit for description and are never an arm, a gate input or a tiebreak.
 
@@ -270,7 +300,7 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - Rev 5's analytic N = 63 (power 0.501) left out the futility path and the deciding interval's own VIF. It is
     superseded by the simulation below.
   - **Simulated power (rev 7, master ruling 2026-10-30).** Script `power_sim.py` in this folder, sha256
-    `682eb25763db86ce16ef3615122342768feeb25213ac4dc3e4cf889b089e4ae6`; output `C:	\l3t1sim\power_sim_out.json`,
+    `682eb25763db86ce16ef3615122342768feeb25213ac4dc3e4cf889b089e4ae6`; output `C:\t\l3t1sim\power_sim_out.json`,
     sha256 `7794998f8824db612ec925f05cd03b420b93836f4cec976b45a651a8f8932383`. No data is read.
     - Model: stationary Gaussian AR(1) daily d, ρ = 0.28, marginal sd σ_d·k = 0.085 × 1.07, mean −δ_s = −0.030;
       100,000 paths, seed 20261030.
@@ -283,8 +313,7 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - N = 75 ≥ 20, so a PASS is allowed.
   - **False-PASS rate at the null (rev 8, master ruling 2026-10-30).** Script `null_sim.py` in this folder, sha256
     `0ab65f7800742278c9f2e4d4b8c0af9941da02b0d7c35a47db4416867e0792e9` (reuses `power_sim.py` `682eb257…` with
-    mean 0); output `C:	\l3t1sim
-ull_sim_out.json`, sha256
+    mean 0); output `C:\t\l3t1sim\null_sim_out.json`, sha256
     `edee35167b76992678632ba78a6fcfa78e05ddd82f07036972239adebcfbed7d`. N = 75, k = 1.07, 400,000 paths, seed 20261030.
     - ρ 0.28: false PASS **0.0209** with futility (0.0240 without), against the one-sided 0.025. It is within the
       bound, so the rule is unchanged (no t critical value, no higher VIF floor).
@@ -368,13 +397,25 @@ ull_sim_out.json`, sha256
     - No 88a rows.
     - No backfill, and no other price source.
 - **Freeze (the coordinator is told first; the lane never freezes on its own):**
-  - **P1, the freeze point:** 3 consecutive closed UTC days of cycle manifests from the WS T+1 price recorder
+  - **P1 (rev 9):** 3 consecutive closed UTC days of cycle manifests from the WS T+1 price recorder
     (`C:\t\t1_prices\forward`, task `L3 T+1 price forward recorder (logon)`, running since 2026-10-30 21:48Z).
-    - A day counts only if every top-of-hour cycle is marked complete for at least 8 in-scope markets.
-    - Only the completeness flags are read.
-    - With full days 10-31, 11-01 and 11-02, P1 is met once UTC 11-02 closes.
-  - **P2, checked in the same freeze row:** the NBM text recorder and the ENS recorder have both had closed cycle or run
-    manifests for at least 3 consecutive days. ENS forward runs start 2026-10-31 00Z.
+    - **A day counts only if every one of its 24 top-of-hour cycles has a manifest, and in each of those cycles at
+      least 8 in-scope markets have horizon +1 complete.**
+    - **Horizon +1 complete** for a market in a cycle means no reason code in that cycle's manifest names that market's
+      horizon +1 event (local target date D + 1, section 2). A cycle with no manifest counts as zero complete markets.
+    - Reason codes on horizon +2 events are ignored. So is the cycle-level `top_of_hour_complete` flag, which combines
+      the horizons.
+    - Only manifest flags and reason codes are read, never a price row. Rev 9 says what triggered this redefinition.
+    - With full days 10-31, 11-01 and 11-02, P1 is expected once UTC 11-02 closes (2026-11-03 00:00Z, which is
+      2026-11-02 19:00 EST). UTC day 10-30 is partial: the recorder started at 21:48Z.
+  - **P2 (rev 9, one reading), checked in the same freeze row:** both recorders have closed manifests for every
+    scheduled cycle or run on each of at least 3 consecutive UTC days.
+    - The NBM text recorder: every hourly cycle of the day.
+    - The ENS recorder: both the 00Z and the 12Z runs of the day.
+    - A day with any scheduled cycle or run missing or unclosed does not count. Neither does a day with only one ENS
+      run.
+    - ENS forward runs start 2026-10-31 00Z. P2 is therefore expected when the 2026-11-02 12Z run's manifest closes,
+      about 2026-11-02 19:47Z.
   - **P3, checked in the same freeze row:** the emitter is built and tested on recorder data only, and its sha is
     pinned.
   - If P2 or P3 is not met at P1, the lane reports that and waits. It does not freeze a partial batch.
@@ -382,6 +423,63 @@ ull_sim_out.json`, sha256
     (the σ_d source, checklist (f)), the power simulation script sha256 and its output sha256, the null simulation script sha256 and its output
     sha256 (section 7),
     the claiming-test list and the look schedule. It is written as `pending` before the freeze commit.
+
+### 8.1 C3 interaction (rev 9; one-way)
+
+C3 is the dev-window kill tier on A1 (DEV_WINDOW_LEDGER row 100, exhaustion register X86). It is **BLOCKED**
+(`bundle_output_cap`) and produced no Δ. Its register reopen line is "a reviewed builder that dedupes coverage rows,
+at a new frozen commit and rule revision". If C3 is reopened and returns a result after this freeze, this lane
+recognises it only as follows.
+
+- **Recognised rule.** The frozen C3 rule chain: `c3-t1-fair-value-kill-tier-DRAFT.md` `cd4d814f…`, amended by
+  REVISION-1 `f4cc6e02…`, REVISION-2 `23f2b0b3…` and REVISION-3 `c7cdb29f…`. These are in
+  `docs/research/iterate-faster-2026-10-30/` on `claude/c3-t1-fv-kill-tier-20261031` @
+  `b1d8e65fd577b16da8f3a278cb80fa7ea1e0f4ad`, and the shas are those pinned in row 100. A reopening revision may
+  change the bundle builder only. If it changes the statistic, threshold or power rule below, its result is
+  REPORTED and never STOPs.
+- **Statistic.** Δ = ρ_c − mean_j ρ_pl,j on the killing stratum: local lead 1, pooled table membership.
+  - ρ_c is the pooled Pearson ρ(s, e), with s = c − m and e = y − m.
+  - ρ_pl,j is the same correlation for the calibration-matched placebo (within-(market, local hour) derangement,
+    J = 20 seeds).
+  - Every deciding bound and SE is the wider of the date-clustered and circular block-3 bootstraps (B 2,000,
+    seed 20261024).
+- **Threshold.** KILL at edge size, in the C3 decision order:
+  - step 3: Δ's wider upper 95% bound < **Δ_edge = √0.05 = 0.2236**; or
+  - step 6: the (blend − market) wider lower 95% bound > −0.05 × the mean market cell Brier on the scored dates.
+- **Power rule.**
+  - Power at edge size = Φ(Δ_edge / SE_Δ − 1.960), with SE_Δ the larger bootstrap SD. It must be **≥ 0.5**.
+    Otherwise the result is DESCRIPTIVE and cannot drop A1.
+  - That power, and C3's coverage floor (D ≥ 10, M ≥ 5, at least 200 scored lead-1 event-hours), must use the
+    statistic's full population (method §5 rule 16). That population is the scored entries: labelled snapshots in
+    the killing stratum, each covered by c and m, with every placebo donor date covered under all 20 seeds.
+  - The C3 receipt must report that realised population. Covered counts alone do not satisfy this rule.
+  - If the realised population is missing or below the floor, the result is REPORTED only.
+- **Effect: STOP or REPORT, nothing else.**
+  - **STOP:** a KILL at edge size that meets all of the above stops the A1 solo arm by a dated Clarification. This is
+    C3's OP2 scope: A2 and A3 continue unchanged.
+    - A1 is recorded as STOPPED-BY-C3 at the next look's ledger row. No later A1 date is scored, and no A1 verdict is
+      read.
+    - The BH denominator stays at 3 arms, so stopping A1 never relaxes the multiplicity correction for A2 or A3.
+  - **REPORT:** every other C3 outcome (NOT KILLED, INCONCLUSIVE, DESCRIPTIVE, VOID, or a non-recognised revision) is
+    reported beside the T+1 result. It changes nothing.
+  - **Never.** A C3 result may never extend, re-scope or promote anything. It cannot add an arm, a date, a horizon, a
+    market or a look, and it cannot change N, δ_s, the comparator, the gate, the futility rule or the look schedule.
+    A NOT KILLED result is never cited as evidence for A1. A C3 result cannot rescue an arm that T+1's own futility
+    path stopped.
+  - A STOP may land at any time before the final look's read. It does not move any look.
+
+### 8.2 Multiplicity (rev 9)
+
+- **Inherited denominator.** The freeze's DEV_WINDOW_LEDGER row is one K row, for the whole three-arm batch (method §5
+  rule 5). It adds one to the dev reuse count from opening, as rows 99, 100 and 102-105 did.
+  - The rule inherits the "Dev reuse count" that the ledger publishes on the freeze day, plus one for this row
+    (method §4).
+  - On 2026-11-01 the published count is 203, so the denominator is 204 ("at least 204" wherever a strict
+    denominator is needed, as the ledger requires). The freeze row restates it from the count published that day.
+- **Within the test.** BH at q = 0.10 across the 3 arms (section 6.1) is unchanged. A C3 STOP (section 8.1) does not
+  reduce it.
+- **Looks.** Each look has its own ledger row, written before its read (section 7). It is counted under the ledger's
+  counting rules in force that day. This revision does not decide that count in advance.
 
 ## 9. Not done under this rule
 
