@@ -533,10 +533,10 @@ The comparator is the T+1 market price itself (section 4), and every arm and con
 
 No loss atlas exists at T+1: there is no receipt-dated day-ahead history (section 0, S1), and the horizon is unmeasured
 (exhaustion register row 28). The targeted slice is therefore the whole T+1 market error on the section 2 population,
-not a slice of a measured atlas. The only atlas behind the sizing is the T+0 served loss atlas `4d094a63eb25…`
-(DEV_WINDOW_LEDGER row 18), cited for reference only; it does not measure T+1. The expected size is the declared
-screening effect δ_s = 0.030 dR (section 7), about half of the T+0 morning gap's guidance read (exhaustion register
-row 13).
+not a slice of a measured atlas. No loss atlas is behind the sizing. For reference only, the nearest measured atlas
+is the T+0 served loss atlas `4d094a63eb25…` (DEV_WINDOW_LEDGER row 18); it does not measure T+1 and sets no T+1
+quantity. The expected size is the declared screening effect δ_s = 0.030 dR (section 7), about half of the T+0
+morning gap's guidance read (exhaustion register row 13).
 
 ### (d) MDE and clusters
 
@@ -546,6 +546,7 @@ markets other than Denver, plus Toronto; section 2). The deciding interval is AR
 
 ### (e) Dev-window reuse
 
-From section 8.2: the freeze adds one K row to `DEV_WINDOW_LEDGER`. After L21's row 106 the published dev reuse count is
-204, so this batch's denominator is 205. Section 8.2's rule governs: the freeze row restates the count the ledger
-publishes on the freeze day, plus one.
+From section 8.2: the freeze adds one K row to `DEV_WINDOW_LEDGER`. The dev reuse count 204 comes from L21's row 106
+on `claude/market-reliability-bin-prereg-20261101` (its ledger publishes "Dev reuse count (2026-11-01): 204"),
+pending that branch's landing; with this batch's row the denominator would be 205. Section 8.2's freeze-day rule
+governs: the freeze row restates the count the ledger publishes on the freeze day, plus one.
