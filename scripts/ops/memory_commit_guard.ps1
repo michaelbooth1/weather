@@ -360,10 +360,17 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot) {
         }
     }
     foreach ($candidate in $candidates) {
+        # A handled read failure is reported through Unreadable; drop its record from
+        # $Error so the run's error list keeps meaning "unhandled".
+        $errorMark = $Error.Count
         try {
             if (-not (Test-Path -LiteralPath $candidate.Path -PathType Leaf)) { continue }
         }
-        catch { $unreadable.Add([string]$candidate.Path); continue }
+        catch {
+            while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
+            $unreadable.Add([string]$candidate.Path)
+            continue
+        }
         try {
             $stream = [System.IO.File]::Open(
                 $candidate.Path,
@@ -397,7 +404,10 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot) {
             }
             $owners.Add([pscustomobject]@{ Pid = $ownerPid; CreationUtc = $born; Source = $candidate.Kind })
         }
-        catch { $unreadable.Add([string]$candidate.Path) }
+        catch {
+            while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
+            $unreadable.Add([string]$candidate.Path)
+        }
     }
     return [pscustomobject]@{ Owners = $owners.ToArray(); Unreadable = $unreadable.ToArray() }
 }
@@ -727,7 +737,8 @@ foreach ($entry in $agentTargetMap.GetEnumerator()) {
         # Over budget that includes admitted members BELOW the owner (the job, not
         # its wrapper); otherwise only unadmitted members.
         $memberReason = if ($overBudget) { "{0} (heavy member subtree; the lease owner is spared)" -f $reason } else { "{0} (unadmitted member of a leased tool tree)" -f $reason }
-        $candidateMembers = if ($overBudget) { @($heavyRowsByKey[$entry.Key]) } else { @($unadmittedRowsByKey[$entry.Key]) }
+        # .ToArray(): @() over a generic List throws in Windows PowerShell 5.1.
+        $candidateMembers = if ($overBudget) { $heavyRowsByKey[$entry.Key].ToArray() } else { $unadmittedRowsByKey[$entry.Key].ToArray() }
         $coveredMemberIds = @{}
         $memberKilled = $false
         foreach ($member in @($candidateMembers |
