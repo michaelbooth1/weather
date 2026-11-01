@@ -136,8 +136,9 @@ non-built-in id and location, a `highest` series slug prefix, an IANA zone,
 day-aheads 0-2 and band policy `top10_reward_ranked`. The loader refuses built-in ids,
 locations or slug prefixes, family prefixes, duplicates and unknown fields; a bad block
 is journaled once (`recorder_only_config_error`) and the pilot stays off
-(`CONFIG_ERROR`) while the built-in cycle is unchanged. The shipped P1 rows are London,
-Shanghai, Paris, Seoul and Tokyo.
+(`CONFIG_ERROR`) while the built-in cycle is unchanged. The shipped rows are R1 (the P1
+cities London, Shanghai, Paris, Seoul and Tokyo) and R2 (Munich, Madrid, Beijing,
+Wellington and Hong Kong, id `hong_kong`).
 
 **It lands disabled** (`pilot: "off"`, `rewards_sweep: "off"`,
 `built_in_reward_cadence: "legacy"`): the rows are validated every cycle but nothing is
@@ -146,6 +147,12 @@ verification is a config-only change landed through the roll-free path: set `pil
 `rewards_sweep` to `on`; the running recorder re-reads the block on its next cycle (no
 restart). Flip `built_in_reward_cadence` to `event_driven` only after UTC 10-30; it has
 no effect before 2026-10-31T00:00Z.
+
+**R1+R2 on.** Per the owner's 2026-10-23 phase-2 plan (`DECISION_LOG.md` lines 258/259,
+day-1 receipt allowance at line 265) the shipped block sets `pilot: "on"` for all ten
+rows; `rewards_sweep` stays `off` and `built_in_reward_cadence` stays `legacy`. Ten rows
+mean 100 pilot bands and 200 trade tokens, so the `pilot_trades` channel runs two sockets
+of at most 100 tokens. The S2+S9 receipts are measured after the flip.
 
 The pilot shares the core process (owner Q1 via master, 10-15). A failed pilot cycle or
 a failed or closed pilot trade socket is the pilot's own `DEGRADED`; the built-in cycle,
