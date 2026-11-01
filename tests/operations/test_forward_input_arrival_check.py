@@ -130,6 +130,21 @@ def test_missing_marker_stale_heartbeat_and_missing_receipts_all_reported(tmp_pa
         f"l6g_bundle_not_verified:{day}", f"l6g_not_emitted:{day}"]
 
 
+def test_rows_for_other_dates_never_satisfy_d(tmp_path):
+    """Regression: the rows were once passed to Where-Object as one array, so any matching date let every row
+    through, and a verified row for another date satisfied D."""
+    day = "2026-11-01"
+    repo, receipts = _arrival_layout(
+        tmp_path, day, heartbeat_utc="2026-11-02T23:00:00Z",
+        b=[_b_row("2026-10-31"), _b_row(day, "failed")],
+        bundle=[_b_row("2026-10-31"), _b_row(day, "failed")],
+        emit=[{"schema": "l6g_forward_input_receipt/1", "date": "2026-10-31"}])
+    code, state, _ = _check(repo, receipts, "2026-11-02T18:10:00")
+    assert code == 2
+    assert state["failures"] == [f"b_not_verified:{day} (failed)", f"l6g_bundle_not_verified:{day} (failed)",
+                                 f"l6g_not_emitted:{day}"]
+
+
 def test_a_repeated_key_never_counts_as_verified(tmp_path):
     day = "2026-11-01"
     ambiguous = (f'{{"target_date":"{day}","status":"failed","status":"verified",'

@@ -4048,7 +4048,7 @@ $mustRemainDisabled = [System.Collections.Generic.HashSet[string]]::new(
 )
 [void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapSuite0822")
 [void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapMerge0822")
-$forwardArrival = Get-WeatherForwardArrivalState -Path (Join-Path $repo "datalertsorward_arrival_state.json")
+$forwardArrival = Get-WeatherForwardArrivalState -Path (Join-Path $repo "data\alerts\forward_arrival_state.json")
 if ($forwardArrival.flag) { $flags.Add($forwardArrival.flag) }
 if ($forwardArrival.warn) { $warns.Add($forwardArrival.warn) }
 $taskCount = 0

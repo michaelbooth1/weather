@@ -68,7 +68,8 @@ function Get-WeatherReceiptRows {
     # Date, status and sha fields of each complete JSONL line; nothing else is read.
     param([string]$Text)
     $rows = @()
-    if ($null -eq $Text) { return ,$rows }
+    # Rows are emitted one by one (callers wrap the call in @()), so Where-Object sees each row, never the array.
+    if ($null -eq $Text) { return }
     foreach ($line in ($Text -split "`n")) {
         $line = $line.TrimEnd("`r")
         if (-not $line.Trim()) { continue }
@@ -79,7 +80,7 @@ function Get-WeatherReceiptRows {
             manifest_sha256 = Get-WeatherReceiptField -Line $line -Key 'manifest_sha256'
         }
     }
-    return ,$rows
+    $rows
 }
 
 function Write-WeatherAtomicText {
