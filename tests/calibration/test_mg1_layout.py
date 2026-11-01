@@ -28,7 +28,7 @@ lay = import_or_skip_on_capture_host("weather.calibration.mg1_layout")
 mi = import_or_skip_on_capture_host("weather.calibration.mg2_inputs")
 
 from tests.calibration.test_mg2_input_export import make_host  # noqa: E402
-from tests.calibration.test_mg2_inputs import FakeParser, export_bundle  # noqa: E402
+from tests.calibration.test_mg2_inputs import FakeParser, export_bundle, write_manifest  # noqa: E402
 from tools.research import mg1_input_backfill as bf  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,7 +54,8 @@ def short_window(monkeypatch):
 
 def _share_bundle(share, day, **receipt_overrides):
     """A reference bundle on the share plus a matching sidecar receipt (the backfill's contract)."""
-    manifest = export_bundle(Path(share) / day.isoformat(), day, exporter_sha256="e" * 64, coverage_counts=False)
+    export_bundle(Path(share) / day.isoformat(), day)
+    manifest = write_manifest(Path(share) / day.isoformat(), day, exporter_sha256="e" * 64, coverage_counts=False)
     receipt = {"schema": bf.RECEIPT_SCHEMA, "target_date": day.isoformat(), "coverage_counts": False,
                "exporter": {"sha256": "e" * 64},
                "manifest_sha256": _sha(Path(share) / day.isoformat() / allow.MANIFEST), **receipt_overrides}
