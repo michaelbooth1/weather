@@ -296,6 +296,11 @@ an origin pre-flight (or an in-module assertion) in the receipt. The
 [maker_core leak audit](research/p5-screens-2026-10-31/maker_core_leak_audit.md) of every wrapper job since
 the editable install found no impact on any recorded result.
 
+**A null `exit_code` in a direct-run receipt is not a result (master ruling 2026-10-31).** A PowerShell
+`Start-Process -PassThru` wrapper that does not cache `$p.Handle` before waiting can record `exit_code: null` even
+when the child succeeded (L14's gfs_seamless history job 2, receipt `49270197…`). Such wrappers cache `$p.Handle`
+first; a recorded null is noted in the `C:\archive\ruled-out` INDEX and is read as neither success nor failure.
+
 ### Starting workstation verification from the capture controller
 
 The capture host's hook distinguishes one literal SSH transport from local

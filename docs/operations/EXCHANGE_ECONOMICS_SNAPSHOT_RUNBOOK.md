@@ -15,6 +15,11 @@
 > **Status:** armed. The 2026-09-13 owner-reviewed Scheduler inventory retained the
 > economics refresh; confirm with `Get-ScheduledTask -TaskName WeatherExchangeEconomicsSnapshotRefresh`. Acceptance is always manual.
 
+> **Known failure (recorded 2026-11-01 from master's facts; not investigated here).** The refresh is failing: the
+> collector raises `ValueError` when the `maker_rebate_rate`, `tick_size` or `min_order_size` proof is missing, so
+> the last accepted snapshot is 2026-09-26. Separately, the settlement chain has hit an rc 2 promotion-lane barrier
+> since about 2026-10-20. Both must be fixed before any maker work resumes.
+
 This runbook owns the production lifecycle for
 `data/backtest/exchange_economics_snapshot.json` and
 `data/backtest/exchange_economics_accepted_snapshot.json`.

@@ -191,6 +191,13 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
 15. **A family kill cites a measurement on the member it closes.** A member closed only by extension from a sibling's
     result is labelled **CLOSED-BY-RULE (reopenable)**, never KILL or COVERED, and its register row names the sibling
     and the rule that extended it. A new mechanism or a measurement on the member itself reopens it.
+16. **A power projection applies the statistic's full population rule** (master, 2026-10-31, after ledger row 103):
+    "A pre-look power projection must apply the statistic's FULL population rule (for mr_sweep: covered AND every
+    placebo donor covered under all seeds), computed outcome-free on the real layout. Covered counts alone are not a
+    projection. A rehearsal must report the realised population per arm, not only the covered count." Instances:
+    S31 v1 (ledger row 99) and X13 (row 103, realised population 0). Template: the per-arm realised-population
+    count in `rodc_released_p0 --rehearse-to-table` at `d4ebc9576a991f3fd8b4446250030b98494b1359`
+    (`claude/rodc-released-p0-run-20261031`).
 
 ## Update this file when
 
