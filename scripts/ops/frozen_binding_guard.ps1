@@ -28,7 +28,8 @@ function Get-FrozenBindingProperty($Object, [string]$Name) {
     if ($null -eq $Object) { return $null }
     $property = $Object.PSObject.Properties[$Name]
     if ($null -eq $property) { return $null }
-    return $property.Value
+    # -NoEnumerate: a one-element JSON array must stay an array.
+    Write-Output -NoEnumerate $property.Value
 }
 
 function Invoke-FrozenBindingGit([string]$Repo, [string[]]$Arguments) {

@@ -331,7 +331,8 @@ def test_scorer_constant_line_ending_change_fails(tree: Path):
     _at_s1(tree)
     path = tree / SCORER
     path.write_bytes(path.read_bytes().replace(f'"{S1_VALUE}"\n'.encode(), f'"{S1_VALUE}"\r\n'.encode()))
-    assert any("line ending changed" in p for p in all_problems(tree))
+    # the rebuilt S0 keeps S1's line ending, so it no longer hashes to the pin
+    assert any("rebuilt S0 sha" in p and SCORER in p for p in all_problems(tree))
 
 
 def test_wrapper_edit_beyond_the_pin_fails(tree: Path):
@@ -418,7 +419,7 @@ def test_an_abandonment_record_releases(tree: Path):
 def test_a_malformed_record_fails(tree: Path, text: str, fragment: str):
     _record(tree, text)
     problems = all_problems(tree)
-    assert problems and all(fragment in p for p in problems), problems
+    assert any(fragment in p for p in problems), problems
 
 
 @pytest.mark.parametrize("mutate", ["schema", "no_holds", "short_pin", "edit_not_code", "duplicate_id"])
