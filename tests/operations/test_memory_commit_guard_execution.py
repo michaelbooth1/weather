@@ -117,7 +117,18 @@ $results = foreach ($scenario in $scenarios) {
     foreach ($lease in @($scenario.leases)) {
         if ($null -eq $lease) { continue }
         $born = $global:FakeNow.AddMinutes(-[double]$lease.age_minutes).ToUniversalTime()
-        if ($lease.kind -eq 'repo_lock') {
+        if ($lease.kind -eq 'integration_mutex') {
+            # integration_attempt_contract.ps1 writes this into heavy_workload.lock and
+            # only disposes the handle on exit; the record stays.
+            $dir = Join-Path $scenario.repo_root 'data\logs'
+            $record = [ordered]@{
+                schema = 'weather_integration_control_mutex_v1'
+                owner = 'close_integration_attempt'
+                pid = [int]$lease.pid
+                acquired_at = $born.ToString('o')
+            }
+        }
+        elseif ($lease.kind -eq 'repo_lock') {
             $dir = Join-Path $scenario.repo_root 'data\logs'
             $record = [ordered]@{
                 schema_version = 'weather_heavy_workload_lease_v3'
@@ -142,7 +153,11 @@ $results = foreach ($scenario in $scenarios) {
         New-Item -ItemType Directory -Force $dir | Out-Null
         # A raw body stands for a record caught mid-write or damaged.
         $body = if ($null -ne $lease.raw) { [string]$lease.raw } else { $record | ConvertTo-Json -Compress }
-        [IO.File]::WriteAllText((Join-Path $dir ([string]$lease.file)), $body)
+        $leasePath = Join-Path $dir ([string]$lease.file)
+        [IO.File]::WriteAllText($leasePath, $body)
+        # Last write on the fake clock: at acquisition unless the scenario says otherwise.
+        $writtenAgo = if ($null -ne $lease.mtime_age_seconds) { [double]$lease.mtime_age_seconds } else { 60.0 * [double]$lease.age_minutes }
+        [IO.File]::SetLastWriteTimeUtc($leasePath, $global:FakeNow.AddSeconds(-$writtenAgo).ToUniversalTime())
     }
     $global:FakeRuntime = @(foreach ($p in $scenario.processes) {
         [pscustomobject]@{
@@ -586,6 +601,14 @@ def test_exec_leased_work_stays_admitted_and_unleased_work_does_not(tmp_path: Pa
             _scenario(tmp_path, "mixed", now=day, commit=50.0, processes=leased + sibling, leases=repo_lock),
             _scenario(
                 tmp_path,
+                "night_mixed",
+                now="2026-11-01T02:00:00",
+                commit=50.0,
+                processes=leased + sibling + other_tree,
+                leases=repo_lock,
+            ),
+            _scenario(
+                tmp_path,
                 "night_pair",
                 now="2026-11-01T02:00:00",
                 commit=50.0,
@@ -595,14 +618,15 @@ def test_exec_leased_work_stays_admitted_and_unleased_work_does_not(tmp_path: Pa
         ],
     )
 
-    for name in ("repo_lock", "host_state"):
+    # A live owner in TEARDOWN_PENDING is still tearing its job down: admitted.
+    for name in ("repo_lock", "host_state", "teardown"):
         admitted = outcome[name]
         assert admitted["stopped"] == [], name
         assert admitted["status"]["agent_heavy_workload_count"] == 1, name
         assert admitted["status"]["agent_heavy_admitted_workload_count"] == 1, name
         assert admitted["status"]["action"] == "none", name
 
-    for name in ("stale", "teardown", "unleased"):
+    for name in ("stale", "unleased"):
         reaped = outcome[name]
         assert set(reaped["stopped"]) == {7_300_003, 7_300_005, 7_300_007}, name
         assert reaped["status"]["agent_heavy_admitted_workload_count"] == 0, name
@@ -612,6 +636,11 @@ def test_exec_leased_work_stays_admitted_and_unleased_work_does_not(tmp_path: Pa
     assert mixed["stopped"] == [7_300_009]
     assert mixed["status"]["action"] == "killed_agent_member_pid_7300009"
     assert "unadmitted member of a leased tool tree" in mixed["log"]
+
+    # A partly admitted leased tree holds one slot, not two, and is not itself a
+    # concurrency target: only the other tree is reaped; the sibling waits for the window rule.
+    night_mixed = outcome["night_mixed"]
+    assert set(night_mixed["stopped"]) == {7_300_103, 7_300_105, 7_300_107}
 
     # Inside the window the admitted tree holds the single slot, so the unleased tree is
     # reaped although it is OLDER (the age-only rule would have kept it).
@@ -692,7 +721,7 @@ def test_exec_budget_kill_on_a_leased_tree_spares_the_lease_owner(tmp_path: Path
     assert leased["stopped"] == [base + 7]
     assert leased["status"]["actions"] == [f"killed_agent_member_pid_{base + 7}"]
     assert leased["status"]["agent_heavy_lease_owner_workload_count"] == 1
-    assert "the lease owner is spared" in leased["log"]
+    assert "the owner is spared" in leased["log"]
 
     unleased = outcome["unleased"]
     assert set(unleased["stopped"]) == {base + 3, base + 5, base + 7}
@@ -868,7 +897,14 @@ def test_exec_unreadable_lease_record_skips_window_kills(tmp_path: Path) -> None
     big = _claude_bash(7_900_100, "python -c x", "python.exe", f'{VENV_PY} -c "run()"', age=30)
     big[-1]["private_bytes"] = 9 * GIB
     torn = [
-        {"kind": "repo_lock", "file": "heavy_workload.lock", "pid": 1, "age_minutes": 1, "raw": '{"schema_version": "we'}
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.lock",
+            "pid": 1,
+            "age_minutes": 1,
+            "mtime_age_seconds": 5,
+            "raw": '{"schema_version": "we',
+        }
     ]
     day = "2026-11-01T14:00:00"
     outcome = _run(
@@ -888,3 +924,140 @@ def test_exec_unreadable_lease_record_skips_window_kills(tmp_path: Path) -> None
     budget = outcome["torn_budget"]
     assert budget["stopped"] == [7_900_107]
     assert budget["status"]["actions"] == ["killed_agent_member_pid_7900107"]
+
+
+def test_exec_foreign_and_stale_lease_records_neither_admit_nor_disable_kills(tmp_path: Path) -> None:
+    """Re-review MAJOR 1: the integration mutex record, an empty file and an old torn file."""
+    unleased = _claude_bash(7_910_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    pytest_child = f"{VENV_PY} -m pytest -q tests/operations/test_x.py"
+    wrapper_tree = [
+        _proc(7_910_101, "claude.exe", CLAUDE, age=200),
+        _proc(7_910_103, "bash.exe", GIT_BASH.format(command="powershell -File x"), age=41, ppid=7_910_101),
+        _proc(7_910_105, "powershell.exe", WRAPPER, age=40, ppid=7_910_103),
+        _proc(7_910_107, "python.exe", pytest_child, age=39, ppid=7_910_105),
+    ]
+    mutex_dead = [{"kind": "integration_mutex", "file": "heavy_workload.lock", "pid": GONE, "age_minutes": 300}]
+    empty_old = [{"kind": "repo_lock", "file": "heavy_workload.lock", "pid": 1, "age_minutes": 120, "raw": ""}]
+    torn_old = [
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.slot2.lock",
+            "pid": 1,
+            "age_minutes": 10,
+            "raw": '{"schema_version": "we',
+        }
+    ]
+    empty_fresh = [dict(empty_old[0], mtime_age_seconds=3)]
+    # The mutex writer itself is alive and older than the record: it is a live owner.
+    mutex_live = [{"kind": "integration_mutex", "file": "heavy_workload.lock", "pid": 7_910_105, "age_minutes": 40}]
+    # Same PID, but that process started after the record was written: PID reuse.
+    mutex_reused = [dict(mutex_live[0], mtime_age_seconds=3600)]
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "mutex_dead", now=day, commit=50.0, processes=unleased, leases=mutex_dead),
+            _scenario(tmp_path, "empty_old", now=day, commit=50.0, processes=unleased, leases=empty_old),
+            _scenario(tmp_path, "torn_old", now=day, commit=50.0, processes=unleased, leases=torn_old),
+            _scenario(tmp_path, "empty_fresh", now=day, commit=50.0, processes=unleased, leases=empty_fresh),
+            _scenario(tmp_path, "mutex_live", now=day, commit=50.0, processes=wrapper_tree, leases=mutex_live),
+            _scenario(tmp_path, "mutex_reused", now=day, commit=50.0, processes=wrapper_tree, leases=mutex_reused),
+        ],
+    )
+
+    for name in ("mutex_dead", "empty_old", "torn_old"):
+        row = outcome[name]
+        assert set(row["stopped"]) == {7_910_003, 7_910_005, 7_910_007}, name
+        assert row["status"]["agent_heavy_lease_records_unreadable"] is False, name
+        assert "unreadable" not in row["log"], name
+
+    # An empty file written seconds ago may be an acquisition mid-write: spare this tick.
+    fresh = outcome["empty_fresh"]
+    assert fresh["stopped"] == []
+    assert fresh["status"]["agent_heavy_lease_records_unreadable"] is True
+
+    live = outcome["mutex_live"]
+    assert live["stopped"] == []
+    assert live["status"]["agent_heavy_admitted_workload_count"] == 1
+
+    reused = outcome["mutex_reused"]
+    assert set(reused["stopped"]) == {7_910_103, 7_910_105, 7_910_107}
+    assert reused["status"]["agent_heavy_admitted_workload_count"] == 0
+
+
+def test_exec_budget_kill_on_a_leased_tree_stops_the_real_hog_not_a_heavy_chunk(tmp_path: Path) -> None:
+    """Re-review MAJOR 2 / finding 7: the largest subtree off the spine dies, whatever it is."""
+    base = 7_920_000
+    tree = [
+        _proc(base + 1, "claude.exe", CLAUDE, age=300),
+        _proc(base + 3, "bash.exe", GIT_BASH.format(command="powershell -File training_window.ps1"), age=61, ppid=base + 1),
+        _proc(base + 5, "powershell.exe", TRAINING_WINDOW, age=60, ppid=base + 3),
+        _proc(base + 7, "python.exe", f"{VENV_PY} -m weather.operations.nightly_retrain --all", age=59, ppid=base + 5),
+        # Not a heavy process by command line, but it holds the memory.
+        _proc(base + 9, "node.exe", "node C:\scratch\big.js", age=30, private=9 * GIB, ppid=base + 3),
+    ]
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(
+                tmp_path,
+                "night",
+                now="2026-11-01T02:00:00",
+                commit=50.0,
+                processes=tree,
+                leases=[_lock(base + 5, age=60)],
+            )
+        ],
+    )
+
+    night = outcome["night"]
+    assert night["stopped"] == [base + 9]
+    assert night["status"]["actions"] == [f"killed_agent_member_pid_{base + 9}"]
+    assert "the owner is spared" in night["log"]
+
+
+def test_exec_commit_emergency_spares_lease_owners_and_their_parents(tmp_path: Path) -> None:
+    """Re-review MAJOR 2: at 92%+ commit a leased agent tree loses a branch, never the owner."""
+    base = 7_930_000
+    # claude.exe -> training_window (owner) -> node.exe hog (not heavy, so no budget kill first).
+    leased = [
+        _proc(base + 1, "claude.exe", CLAUDE, age=300),
+        _proc(base + 3, "powershell.exe", TRAINING_WINDOW, age=60, ppid=base + 1),
+        _proc(base + 5, "node.exe", "node C:\scratch\big.js", age=30, private=9 * GIB, ppid=base + 3),
+    ]
+    parent = 7_930_100
+    # claude.exe -> python tools\run_suite.py (9 GiB) -> bounded suite (owner).
+    python_parent = [
+        _proc(parent + 1, "claude.exe", CLAUDE, age=300),
+        _proc(parent + 3, "python.exe", f"{VENV_PY} tools\run_suite.py --all", age=30, private=9 * GIB, ppid=parent + 1),
+        _proc(parent + 5, "powershell.exe", BOUNDED_SUITE, age=29, ppid=parent + 3),
+    ]
+    night = "2026-11-01T02:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "leased", now=night, commit=95.0, processes=leased, leases=[_lock(base + 3, age=60)]),
+            _scenario(tmp_path, "unleased", now=night, commit=95.0, processes=leased),
+            _scenario(
+                tmp_path,
+                "python_parent",
+                now=night,
+                commit=95.0,
+                processes=python_parent,
+                leases=[_lock(parent + 5, age=29)],
+            ),
+        ],
+    )
+
+    leased_row = outcome["leased"]
+    assert leased_row["stopped"] == [base + 5]
+    assert leased_row["status"]["actions"] == [f"killed_agent_branch_pid_{base + 5}"]
+
+    # Without a lease the whole agent tree is still the emergency target.
+    unleased_row = outcome["unleased"]
+    assert base + 5 in unleased_row["stopped"]
+    assert unleased_row["status"]["actions"] == [f"killed_agent_tree_pid_{base + 1}"]
+
+    python_row = outcome["python_parent"]
+    assert python_row["stopped"] == []
+    assert "launched a heavy-workload lease owner" in python_row["log"]

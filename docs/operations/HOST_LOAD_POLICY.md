@@ -576,22 +576,40 @@ Stage-A, workstation or live authority is added.
    in its own subtree is the live owner of a heavy-workload lease from
    `workload_admission.ps1` (repository lock
    `data\logs\heavy_workload[.slotN].lock` of the guard's checkout, or an `ACTIVE`
-   host-global `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison`
-   record), matched by PID and process creation instant so a stale record admits
-   nothing. That covers `workstation_heavy.ps1`, the bounded suite,
-   `training_window.ps1` and one-off lease wrappers, including when a script, `py`
-   or a git hook launched the wrapper. A tree holding a live lease owner takes an
-   in-window slot first. **No guard rule here terminates a tree that contains a
-   live lease owner as a whole**: only heavy member subtrees that do not contain
-   the owner are stopped (unadmitted members for window and concurrency; over
-   budget, also the admitted job below the owner), so the owner's `finally`
-   (lease release, `training_window` re-enabling capture) still runs. If a lease
-   file exists but cannot be read or parsed, the guard logs a WARNING and skips
-   window and concurrency kills for that minute; budget kills then stop heavy
-   members only. Known limitation: release leaves the repository lock record on
-   disk (it has no released field), so a former owner that keeps running after
-   release still admits its subtree until it exits. The commit-92% emergency path
-   below is unchanged and can still stop a whole agent tree.
+   or `TEARDOWN_PENDING` host-global
+   `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison` record),
+   matched by PID and process creation instant so a stale record admits nothing.
+   That covers `workstation_heavy.ps1`, the bounded suite, `training_window.ps1`
+   and one-off lease wrappers, including when a script, `py` or a git hook
+   launched the wrapper. Each tree holding a live lease owner takes exactly one
+   in-window slot first, even when it also has unadmitted members, and is never a
+   concurrency target itself.
+   The guard reads only the lock files of **its own checkout** plus the
+   host-global state files: a lease taken against another checkout or worktree
+   is invisible to it unless that profile also writes the host-global record.
+   **Foreign, empty and torn lock records.** Any other JSON record with a `pid`
+   in a lock file (the integration control mutex writes
+   `weather_integration_control_mutex_v1` into `heavy_workload.lock` and never
+   clears it; older schemas) admits only a live process with that PID created no
+   later than the file's last write, so a leftover record whose PID was reused
+   admits nothing and does not disable any kill. An empty or unparseable lock
+   file written within the last 60 seconds may be an acquisition mid-write: the
+   guard logs a WARNING and skips window and concurrency kills for that minute
+   (budget kills then stop heavy members only). An older empty or unparseable
+   file is stale and ignored.
+   **No guard rule terminates a tree that contains a live lease owner as a
+   whole, nor the owner, its ancestors or the agent root.** Window and
+   concurrency rules stop only unadmitted heavy member subtrees. Over the budget,
+   the guard stops the largest subtrees hanging off the owner's spine (the tree
+   root, each owner and the owner's ancestors), of any process type, until the
+   rest is under budget, so the real hog dies rather than an innocent heavy
+   chunk, and the owner's `finally` (lease release, `training_window`
+   re-enabling capture) still runs. The commit-92% emergency path below spares
+   owners the same way: a Python process whose subtree holds a lease owner is
+   not a candidate, and an agent tree holding an owner offers only its largest
+   subtree off the spine. Known limitation: release leaves the repository lock
+   record on disk (it has no released field), so a former owner that keeps
+   running after release still admits its subtree until it exits.
    An agent-owned tool tree without a lease owner is independently terminated
    when its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands

@@ -304,7 +304,6 @@ function Get-Assignment([string]$Variable) {
     return $found[0].Extent.Text
 }
 Invoke-Expression (Get-Assignment '$agentRootNames')
-Invoke-Expression (Get-Assignment '$agentShellNames')
 # The clock statements: $localNow, and $utcNow where the script derives it.
 $clockText = ($top | Where-Object { $_.Extent.Text -match '^\$(?:localNow|utcNow)\s*=' } |
     ForEach-Object { $_.Extent.Text }) -join "`n"
