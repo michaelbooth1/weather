@@ -1623,6 +1623,7 @@ function Read-WeatherMemoryGuardStatus {
             $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $share)
             try {
                 $lastWrite = [IO.File]::GetLastWriteTime($Path)
+                $lastWriteUtc = [IO.File]::GetLastWriteTimeUtc($Path).ToString('o', [Globalization.CultureInfo]::InvariantCulture)
                 $reader = New-Object IO.StreamReader($stream, (New-Object Text.UTF8Encoding($false)), $false)
                 try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
             }
@@ -1630,7 +1631,8 @@ function Read-WeatherMemoryGuardStatus {
             $text = $text.TrimStart([char]0xFEFF)
             if ([string]::IsNullOrWhiteSpace($text)) { throw "memory guard status is empty" }
             $row = $text | ConvertFrom-Json -ErrorAction Stop
-            return [pscustomobject]@{ row = $row; last_write_time = $lastWrite; attempts = $attempt }
+            return [pscustomobject]@{ row = $row; last_write_time = $lastWrite
+                last_write_time_utc = $lastWriteUtc; attempts = $attempt }
         }
         catch {
             $lastError = $_
@@ -4600,7 +4602,7 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
                 suite_ran = $false
                 suite_started = $false
                 suite_ran_without_receipt = $false
-                evidence_age_hours = [math]::Round(((Get-Date) - $candidateManifestFile.LastWriteTime).TotalHours, 1)
+                evidence_age_hours = [math]::Round(([DateTime]::UtcNow - $candidateManifestFile.LastWriteTimeUtc).TotalHours, 1)
                 suite_trigger_missed = $false
                 merge_receipt_missing_after_trigger = $false
             })
