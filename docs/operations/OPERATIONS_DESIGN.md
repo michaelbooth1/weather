@@ -127,6 +127,19 @@ an unattended task back into an interactive-logon dependency.
 Read each script before registering it. Re-running a registration script
 replaces its task with the supplied parameters.
 
+Because every `ensure` exits after `launch_detached`, each detached worker's
+`ParentProcessId` names a process that has exited; a later process can reuse that
+number, and a PID-walking tree kill of it then reaches the worker (the
+2026-11-01 recorder live-parent design research).
+`scripts/ops/stale_parent_census.ps1` is the read-only, run-by-hand census of that
+exposure for the capture loops, execution tape, maker shadow and evidence workers,
+and the workstation forward recorders: per worker it reports pid, parent pid and
+`parent_status` (`live` only if the parent exists and was created no later than the
+child, else `dead` or `reused`), plus the first exposed link up the chain, as JSON
+on stdout or `-OutFile`. Match patterns default from the loop command builders and
+can be replaced with `-WorkerPatternsJson`. It terminates nothing, writes nothing
+else, and is not scheduled.
+
 ## What actually executes
 
 A scheduled task runs the files at the path frozen into its action when it was registered. Every
