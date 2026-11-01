@@ -626,6 +626,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.replay_backtest",
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
+        "weather.calibration.b_look_wrapper",
         "weather.calibration.b_scorer",
         "weather.calibration.feature_model",
         "weather.calibration.gap_to_market_atlas",
@@ -660,6 +661,51 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.reporting.scorecards.train_serve_feature_parity",
         "weather.sources.forecast_training_corpus"
     )
+}
+
+
+# A subcommand refused although its module is admitted (mirror of the Codex hook's
+# offline_subcommand_refusal; master ruling 2026-11-01, M4): B's one look runs only
+# through the pinned b_look_wrapper (B-1 Clarification 3). The first positional token
+# is the first token after the module that does not start with "-". It is refused when
+# it equals, or is a case-insensitive prefix of, "look" (the empty string included). If
+# an option token ("--" included) precedes it, every later token that would be refused
+# as a subcommand is refused too ("--rule x look"). Returns the refusal text, or $null
+# when the arguments are admitted.
+function Get-WeatherWorkstationOfflineArgumentRefusal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Module,
+        [AllowEmptyCollection()][string[]]$Arguments = @()
+    )
+
+    if ($Module -cne "weather.calibration.b_scorer") { return $null }
+    $use = "python -m weather.calibration.b_look_wrapper look"
+    $tokens = @($Arguments | ForEach-Object { [string]$_ })
+    $index = -1
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        if (-not $tokens[$i].StartsWith("-", [StringComparison]::Ordinal)) { $index = $i; break }
+    }
+    if ($index -lt 0) { return $null }
+    $isLook = { param([string]$Token) "look".StartsWith($Token.ToLowerInvariant(), [StringComparison]::Ordinal) }
+    if (& $isLook $tokens[$index]) {
+        return (
+            "python -m {0} look is refused (master ruling 2026-11-01): run it as {1} " +
+            "(B-1 Clarification 3)."
+        ) -f $Module, $use
+    }
+    if ($index -gt 0) {
+        for ($i = $index; $i -lt $tokens.Count; $i++) {
+            if (& $isLook $tokens[$i]) {
+                return (
+                    "python -m {0} with an option ('{1}') before its subcommand and a 'look' token " +
+                    "after it is refused: put the subcommand first. Its look subcommand runs only as " +
+                    "{2} (master ruling 2026-11-01, B-1 Clarification 3)."
+                ) -f $Module, $tokens[0], $use
+            }
+        }
+    }
+    return $null
 }
 
 

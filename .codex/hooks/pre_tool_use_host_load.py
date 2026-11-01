@@ -61,6 +61,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.backtesting.replay_backtest",
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
+        "weather.calibration.b_look_wrapper",
         "weather.calibration.b_scorer",
         "weather.calibration.feature_model",
         "weather.calibration.gap_to_market_atlas",
@@ -96,6 +97,12 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.sources.forecast_training_corpus",
     }
 )
+# Subcommands refused although their module is admitted, each with the entry point to use instead. Mirrored by
+# Get-WeatherWorkstationOfflineArgumentRefusal in scripts/ops/workload_admission.ps1. Master ruling 2026-11-01
+# (M4): B's one look runs only through the pinned b_look_wrapper (B-1 Clarification 3).
+_REFUSED_OFFLINE_SUBCOMMANDS = {
+    "weather.calibration.b_scorer": {"look": "weather.calibration.b_look_wrapper look"},
+}
 _OFFLINE_WEATHER_MODULE_PATTERN = (
     r"(?:"
     + "|".join(re.escape(module) for module in sorted(_OFFLINE_WEATHER_MODULES))
@@ -3025,7 +3032,77 @@ def _approved_workstation_arguments(kind: str, encoded: str) -> bool:
     return bool(
         module in _OFFLINE_WEATHER_MODULES
         and not any(_LIVE_ARGUMENT.match(value) for value in arguments[2:])
+        and offline_subcommand_refusal(module, arguments[2:]) is None
     )
+
+
+def offline_subcommand_refusal(module: str, arguments: list[str] | tuple[str, ...]) -> str | None:
+    """The refusal for an admitted module asked for a refused subcommand, else ``None``.
+
+    ``arguments`` are the tokens after the module. The first positional token is the first of them that does not
+    start with "-". It is refused when it equals a refused subcommand or is a case-insensitive prefix of one
+    (argparse abbreviation; the empty string included). If any option token precedes it ("--" included), the
+    split between option values and the subcommand cannot be proved from the tokens alone, so every later token
+    that would be refused as a subcommand is refused too (``--rule x look``). b_scorer's top-level parser takes
+    only -h, so ``--dry-run``, ``-h`` or ``-- control`` with no look token stay admitted. No positional at all is
+    left to the module's parser.
+    """
+    refused = _REFUSED_OFFLINE_SUBCOMMANDS.get(module)
+    if not refused:
+        return None
+
+    def _refused_name(token: str) -> str | None:
+        return next((name for name in sorted(refused) if name.startswith(token.lower())), None)
+
+    index = next((i for i, token in enumerate(arguments) if not token.startswith("-")), None)
+    if index is None:
+        return None
+    name = _refused_name(arguments[index])
+    if name is None and index > 0:
+        name = next((found for found in map(_refused_name, arguments[index:]) if found is not None), None)
+        if name is not None:
+            return (
+                f"python -m {module} with an option ({arguments[0]!r}) before its subcommand and a {name!r} token "
+                f"after it is refused: put the subcommand first. Its {name} subcommand runs only as "
+                f"python -m {refused[name]} (master ruling 2026-11-01, B-1 Clarification 3)."
+            )
+    if name is None:
+        return None
+    return (
+        f"python -m {module} {name} is refused (master ruling 2026-11-01): run it as "
+        f"python -m {refused[name]} (B-1 Clarification 3)."
+    )
+
+
+def _workstation_wrapper_refusal(command: str) -> str | None:
+    """The subcommand refusal carried by a local or remote workstation wrapper call, else ``None``."""
+    match = _WORKSTATION_WRAPPER_CALL.fullmatch(command) or _REMOTE_WORKSTATION_WRAPPER_CALL.fullmatch(command)
+    if match is None or match.group("kind").lower() != "weather_heavy":
+        return None
+    try:
+        arguments = json.loads(base64.b64decode(match.group("arguments"), validate=True).decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, TypeError, ValueError):
+        return None
+    if (
+        not isinstance(arguments, list)
+        or len(arguments) < 2
+        or arguments[0] != "-m"
+        or not all(isinstance(value, str) for value in arguments)
+    ):
+        return None
+    return offline_subcommand_refusal(arguments[1], arguments[2:])
+
+
+def _direct_subcommand_refusal(command: str) -> str | None:
+    """The subcommand refusal for a direct ``python -m <module> ...`` invocation, else ``None``."""
+    for module, _dynamic, arguments in _python_module_records(command):
+        if module is None:
+            continue
+        decoded = [_decode_static_shell_word(word)[0] for word in arguments]
+        reason = offline_subcommand_refusal(module, decoded)
+        if reason is not None:
+            return reason
+    return None
 
 
 def _remote_client_paths() -> tuple[Path, Path, Path] | None:
@@ -3500,6 +3577,9 @@ def evaluate(
                 "dedicated capture host; recognized heavy work is blocked fail-closed."
             )
         return None
+    refusal = _workstation_wrapper_refusal(command) or _direct_subcommand_refusal(command)
+    if refusal is not None:
+        return _deny(refusal)
     if not active:
         if _recognized_host_load_command(command) and not _approved_workstation_wrapper(
             command
