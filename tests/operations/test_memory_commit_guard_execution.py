@@ -106,6 +106,7 @@ $results = foreach ($scenario in $scenarios) {
             ParentProcessId = [uint32]$p.ppid
             Name = [string]$p.name
             CommandLine = [string]$p.cmd
+            ExecutablePath = [string]$p.exe
             CreationDate = $global:FakeNow.AddMinutes(-[double]$p.age_minutes)
             ReadTransferCount = [uint64]0
         }
@@ -139,7 +140,9 @@ $results = foreach ($scenario in $scenarios) {
             }
         }
         New-Item -ItemType Directory -Force $dir | Out-Null
-        [IO.File]::WriteAllText((Join-Path $dir ([string]$lease.file)), ($record | ConvertTo-Json -Compress))
+        # A raw body stands for a record caught mid-write or damaged.
+        $body = if ($null -ne $lease.raw) { [string]$lease.raw } else { $record | ConvertTo-Json -Compress }
+        [IO.File]::WriteAllText((Join-Path $dir ([string]$lease.file)), $body)
     }
     $global:FakeRuntime = @(foreach ($p in $scenario.processes) {
         [pscustomobject]@{
@@ -179,12 +182,13 @@ ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
 """
 
 
-def _proc(pid, name, cmd, *, age, private=50 * MIB, ppid=GONE):
+def _proc(pid, name, cmd, *, age, private=50 * MIB, ppid=GONE, exe=""):
     return {
         "pid": pid,
         "ppid": ppid,
         "name": name,
         "cmd": cmd,
+        "exe": exe,
         "age_minutes": age,
         "private_bytes": private,
     }
@@ -473,7 +477,7 @@ def test_exec_claude_bash_shape_heavy_children_are_reaped_outside_window(tmp_pat
     table = (
         _claude_bash(7_100_000, "python -m weather.backtesting.replay run", "python.exe", replay)
         + _claude_bash(7_100_100, "python -I C:/scratch/probe.py", "python.exe", isolated_script)
-        + _claude_bash(7_100_200, "find /c/repo/data -name x", "find.exe", "/usr/bin/find /c/repo/data -name x")
+        + _claude_bash(7_100_200, "find data -name x", "find.exe", r"C:\Program Files\Git\usr\bin\find.exe data -name x")
         + _claude_bash(7_100_300, "rg -n foo data/logs", "rg.exe", "rg -n foo data/logs")
         # Light work in the same shape is left alone.
         + _claude_bash(
@@ -642,3 +646,245 @@ def test_exec_every_workstation_offline_module_is_heavy_when_agent_rooted(tmp_pa
     assert daytime["status"]["agent_heavy_workload_count"] == len(modules)
     missed = [m for i, m in enumerate(modules) if 7_400_000 + 100 * i + 7 not in daytime["stopped"]]
     assert missed == []
+
+
+# ---- L28 review fixes: a live lease owner is never killed with its tree ----
+
+TRAINING_WINDOW = r"powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\weather\scripts\ops\training_window.ps1"
+BOUNDED_SUITE = (
+    r"powershell.exe -NoProfile -ExecutionPolicy Bypass -File "
+    r"C:\weather\scripts\ops\bounded_worktree_test_suite.ps1 -WorktreePath C:\wt\x"
+)
+
+
+def _lock(pid: int, *, age: float, file: str = "heavy_workload.lock") -> dict:
+    return {"kind": "repo_lock", "file": file, "pid": pid, "age_minutes": age}
+
+
+def test_exec_budget_kill_on_a_leased_tree_spares_the_lease_owner(tmp_path: Path) -> None:
+    """MAJOR 1: training_window re-enables capture in a finally; only the job below it may die."""
+    base = 7_500_000
+    training = [
+        _proc(base + 1, "claude.exe", CLAUDE, age=300),
+        _proc(base + 3, "bash.exe", GIT_BASH.format(command="powershell -File training_window.ps1"), age=61, ppid=base + 1),
+        _proc(base + 5, "powershell.exe", TRAINING_WINDOW, age=60, ppid=base + 3),
+        _proc(
+            base + 7,
+            "python.exe",
+            f"{VENV_PY} -m weather.operations.nightly_retrain --all",
+            age=59,
+            private=9 * GIB,
+            ppid=base + 5,
+        ),
+    ]
+    leases = [_lock(base + 5, age=60)]
+    night = "2026-11-01T02:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "leased", now=night, commit=50.0, processes=training, leases=leases),
+            # Without the lease the old whole-tree budget kill still applies.
+            _scenario(tmp_path, "unleased", now=night, commit=50.0, processes=training),
+        ],
+    )
+
+    leased = outcome["leased"]
+    assert leased["stopped"] == [base + 7]
+    assert leased["status"]["actions"] == [f"killed_agent_member_pid_{base + 7}"]
+    assert leased["status"]["agent_heavy_lease_owner_workload_count"] == 1
+    assert "the lease owner is spared" in leased["log"]
+
+    unleased = outcome["unleased"]
+    assert set(unleased["stopped"]) == {base + 3, base + 5, base + 7}
+    assert unleased["status"]["action"] == f"killed_agent_tree_pid_{base + 3}"
+
+
+def test_exec_non_shell_parent_of_a_lease_owner_is_admitted_between_children(tmp_path: Path) -> None:
+    """MAJOR 2: python tools\\x.py or a git hook launching the leased wrapper is not unleased work."""
+    tool = 7_600_000
+    # claude.exe -> python tools\run_suite.py -> bounded suite (owner) with no chunk running yet.
+    python_parent = [
+        _proc(tool + 1, "claude.exe", CLAUDE, age=300),
+        _proc(tool + 3, "python.exe", f"{VENV_PY} tools\\run_suite.py --all", age=30, ppid=tool + 1),
+        _proc(tool + 5, "powershell.exe", BOUNDED_SUITE, age=29, ppid=tool + 3),
+    ]
+    hook = 7_600_100
+    # claude.exe -> bash -> git.exe -> sh.exe hook -> python hook script -> leased wrapper.
+    git_hook = [
+        _proc(hook + 1, "claude.exe", CLAUDE, age=300),
+        _proc(hook + 3, "bash.exe", GIT_BASH.format(command="git commit -m x"), age=12, ppid=hook + 1),
+        _proc(hook + 5, "git.exe", "git commit -m x", age=12, ppid=hook + 3),
+        _proc(hook + 7, "sh.exe", "/usr/bin/sh .git/hooks/pre-commit", age=12, ppid=hook + 5),
+        _proc(hook + 9, "python.exe", f"{VENV_PY} scripts\\hooks\\pre_commit.py", age=11, ppid=hook + 7),
+        _proc(hook + 11, "powershell.exe", WRAPPER, age=10, ppid=hook + 9),
+    ]
+    leases = [_lock(tool + 5, age=29), _lock(hook + 11, age=10, file="heavy_workload.slot2.lock")]
+    # Over budget, the job below the owner dies and the parent and owner live.
+    chunk = [
+        _proc(tool + 7, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=5, private=9 * GIB, ppid=tool + 5)
+    ]
+    other = _claude_bash(7_600_200, "python -c x", "python.exe", f'{VENV_PY} -c "run()"', age=60)
+    day, night = "2026-11-01T14:00:00", "2026-11-01T02:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "day", now=day, commit=50.0, processes=python_parent + git_hook, leases=leases),
+            _scenario(tmp_path, "night_pair", now=night, commit=50.0, processes=python_parent + other, leases=leases),
+            _scenario(tmp_path, "budget", now=night, commit=50.0, processes=python_parent + chunk, leases=leases),
+        ],
+    )
+
+    day_row = outcome["day"]
+    assert day_row["stopped"] == []
+    assert day_row["status"]["agent_heavy_workload_count"] == 2
+    assert day_row["status"]["agent_heavy_admitted_workload_count"] == 2
+
+    # The leased tree holds the slot; the older unleased tree is the one reaped.
+    night_pair = outcome["night_pair"]
+    assert set(night_pair["stopped"]) == {7_600_203, 7_600_205, 7_600_207}
+
+    budget = outcome["budget"]
+    assert budget["stopped"] == [tool + 7]
+    assert budget["status"]["actions"] == [f"killed_agent_member_pid_{tool + 7}"]
+
+
+def test_exec_capture_host_profiles_survive_the_guard(tmp_path: Path) -> None:
+    """The bounded suite, the daily_refresh.ps1 settlement stage and training_window, as run on the host."""
+    suite = 7_700_000
+    bounded = [
+        _proc(suite + 1, "claude.exe", CLAUDE, age=300),
+        _proc(suite + 3, "cmd.exe", CMD_LAUNCHER, age=91, ppid=suite + 1),
+        _proc(suite + 5, "powershell.exe", HIDDEN_PS, age=91, ppid=suite + 3),
+        _proc(suite + 7, "powershell.exe", BOUNDED_SUITE, age=90, ppid=suite + 5),
+        _proc(suite + 9, "python.exe", f"{VENV_PY} -m pytest -q -p no:cacheprovider tests/a.py", age=2, ppid=suite + 7),
+    ]
+    refresh = 7_700_100
+    settlement = [
+        _proc(refresh + 1, "claude.exe", CLAUDE, age=300),
+        _proc(
+            refresh + 3,
+            "bash.exe",
+            GIT_BASH.format(command="powershell -File scripts/ops/daily_refresh.ps1 -Stage settlement"),
+            age=20,
+            ppid=refresh + 1,
+        ),
+        _proc(
+            refresh + 5,
+            "powershell.exe",
+            r"powershell.exe -NoProfile -File C:\weather\scripts\ops\daily_refresh.ps1 -Stage settlement",
+            age=20,
+            ppid=refresh + 3,
+        ),
+        _proc(
+            refresh + 7,
+            "python.exe",
+            f"{VENV_PY} -m weather.operations.daily_refresh --stage settlement",
+            age=19,
+            ppid=refresh + 5,
+        ),
+        _proc(refresh + 9, "python.exe", f"{VENV_PY} -m weather.operations.daily_refresh status", age=1, ppid=refresh + 3),
+    ]
+    train = 7_700_200
+    training = [
+        _proc(train + 1, "claude.exe", CLAUDE, age=300),
+        _proc(train + 3, "powershell.exe", TRAINING_WINDOW, age=60, ppid=train + 1),
+        _proc(train + 5, "python.exe", f"{VENV_PY} -m weather.operations.nightly_retrain", age=59, ppid=train + 3),
+    ]
+    leases = [_lock(suite + 7, age=90), _lock(train + 3, age=60, file="heavy_workload.slot2.lock")]
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(
+                tmp_path, "night", now="2026-11-01T02:00:00", commit=50.0, processes=bounded + training, leases=leases
+            ),
+            _scenario(tmp_path, "settlement", now="2026-11-01T14:00:00", commit=50.0, processes=settlement),
+        ],
+    )
+
+    night = outcome["night"]
+    assert night["stopped"] == []
+    assert night["status"]["agent_heavy_workload_count"] == 2
+    assert night["status"]["agent_heavy_admitted_workload_count"] == 2
+    # daily_refresh (run and status alike) is not on the heavy list.
+    settlement_row = outcome["settlement"]
+    assert settlement_row["stopped"] == []
+    assert settlement_row["status"]["agent_heavy_workload_count"] == 0
+
+
+def test_exec_readers_repls_and_quoted_scanners_are_not_heavy(tmp_path: Path) -> None:
+    """MINOR 3-5 false positives, all daytime and unleased: none may be killed."""
+    absolute_repo = tmp_path / "absrepo"
+    (absolute_repo / ".git").mkdir(parents=True)
+    (absolute_repo / "data").mkdir()
+    cases = [
+        ("python.exe", f"{VENV_PY} -m weather.operations.daily_refresh status"),
+        ("python.exe", f"{VENV_PY} -m weather.operations.replay_cache_retention --apply"),
+        ("python.exe", f"{VENV_PY} -m weather.operations.nightly_retrain status"),
+        ("python.exe", f"{VENV_PY} -m weather.reporting.capture_status"),
+        ("python.exe", VENV_PY),  # interactive REPL / stdin server
+        ("rg.exe", "rg -n data src"),
+        ("rg.exe", 'rg "data quality" docs'),
+        ("rg.exe", r"rg -n foo tests\fixtures\data"),
+        ("rg.exe", r"rg foo data\logs\x.jsonl"),
+        ("grep.exe", "grep -rn --exclude-dir=data foo src"),
+        ("grep.exe", "grep -n foo data/a"),
+        ("find.exe", r'C:\WINDOWS\system32\find.exe /c /v "" data\logs\x.jsonl'),
+        ("find.exe", r"C:\Program Files\Git\usr\bin\find.exe data -maxdepth 1 -name x"),
+        ("robocopy.exe", r"robocopy C:\weather\data D:\copy one.jsonl"),
+        ("git.exe", "git commit -m 'find the data bug'"),
+    ]
+    table: list[dict] = []
+    for index, (name, cmd) in enumerate(cases):
+        table += _claude_bash(7_800_000 + 100 * index, cmd, name, cmd)
+    # A long-lived Python MCP server started directly by claude.exe.
+    table += [
+        _proc(7_809_001, "claude.exe", CLAUDE, age=300),
+        _proc(7_809_003, "python.exe", f'"{VENV_PY}"', age=200, ppid=7_809_001),
+    ]
+    heavy = [
+        ("rg.exe", r"rg -e foo data"),
+        ("rg.exe", f"rg -n foo {absolute_repo / 'data'}"),
+        ("grep.exe", "grep -rn foo data/logs"),
+    ]
+    heavy_table: list[dict] = []
+    for index, (name, cmd) in enumerate(heavy):
+        heavy_table += _claude_bash(7_810_000 + 100 * index, cmd, name, cmd)
+    outcome = _run(
+        tmp_path,
+        [_scenario(tmp_path, "daytime", now="2026-11-01T14:00:00", commit=50.0, processes=table + heavy_table)],
+    )
+
+    daytime = outcome["daytime"]
+    light_pids = {row["pid"] for row in table}
+    assert not light_pids & set(daytime["stopped"])
+    for index in range(len(heavy)):
+        assert 7_810_000 + 100 * index + 7 in daytime["stopped"], heavy[index]
+    assert daytime["status"]["agent_heavy_workload_count"] == len(heavy)
+
+
+def test_exec_unreadable_lease_record_skips_window_kills(tmp_path: Path) -> None:
+    """MINOR 6: fail toward sparing when a lease file exists but cannot be parsed."""
+    unleased = _claude_bash(7_900_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    big = _claude_bash(7_900_100, "python -c x", "python.exe", f'{VENV_PY} -c "run()"', age=30)
+    big[-1]["private_bytes"] = 9 * GIB
+    torn = [
+        {"kind": "repo_lock", "file": "heavy_workload.lock", "pid": 1, "age_minutes": 1, "raw": '{"schema_version": "we'}
+    ]
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "torn", now=day, commit=50.0, processes=unleased, leases=torn),
+            _scenario(tmp_path, "torn_budget", now=day, commit=50.0, processes=big, leases=torn),
+        ],
+    )
+
+    torn_row = outcome["torn"]
+    assert torn_row["stopped"] == []
+    assert torn_row["status"]["agent_heavy_lease_records_unreadable"] is True
+    assert "lease record(s) unreadable" in torn_row["log"]
+
+    # The memory budget still acts, but on the heavy member only, never the whole tree.
+    budget = outcome["torn_budget"]
+    assert budget["stopped"] == [7_900_107]
+    assert budget["status"]["actions"] == ["killed_agent_member_pid_7900107"]

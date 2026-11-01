@@ -556,26 +556,44 @@ Stage-A, workstation or live authority is added.
    member's **own** command line, because Claude Code's PowerShell tool passes its
    script text through an environment variable and the shell line shows nothing:
    pytest/compileall/coverage/tox/nox; inline, stdin or script Python (interpreter
-   options such as `-I` or `-X utf8` before the script included); a `-m` module
-   listed by `Get-WeatherWorkstationOfflineModule` (read from
-   `workload_admission.ps1`) or whose name contains retrain, training, replay,
-   backtest, daily_refresh or score_all; `rg`/`find`/recursive `grep` naming a
-   `data` path; recursive `robocopy`; or a shell line naming one of these or
-   `Get-ChildItem -Recurse`. Other `-m weather.*` CLIs (status readers, recovery
-   checks, supervisors) are not heavy. Not visible: an in-process recursive scan
-   inside a hidden PowerShell script, until its tree's private bytes trip the
-   budget below.
+   options such as `-I` or `-X utf8` before the script included; a bare
+   interpreter, such as a REPL or a stdio server, is not); a `-m` module listed by
+   `Get-WeatherWorkstationOfflineModule` (read from `workload_admission.ps1`; there
+   is no module-name pattern) unless its first argument is `status`, `--help`, `-h`
+   or `--version`; an `rg`, recursive `grep` or GNU `find` process (never Windows
+   `find.exe`, never `find -maxdepth 0|1`) whose own path arguments, not its
+   pattern or option values, name a repository `data` directory (relative `data\...`,
+   or an absolute path whose parent of `data` holds `.git`); `robocopy` with `/S`,
+   `/E` or `/MIR`; or a PowerShell line with `Get-ChildItem -Recurse`. Bash, sh and
+   cmd lines are never classified, since they may only quote a command; their
+   children are judged instead. Every other `-m` CLI is outside this rule, so
+   heavy work under an unlisted module name (daily_refresh, replay_cache_retention,
+   `*_status`/`*_report` readers included) is caught only by the budget below.
+   Not visible: an in-process recursive scan inside a hidden PowerShell script,
+   until its tree's private bytes trip the budget below.
    **Lease-admitted work is not a window or concurrency target.** A heavy member
-   is admitted when it or a verified ancestor below the agent root is the live
-   owner of a heavy-workload lease from `workload_admission.ps1` (repository lock
+   is admitted when it, a verified ancestor below the agent root, or any process
+   in its own subtree is the live owner of a heavy-workload lease from
+   `workload_admission.ps1` (repository lock
    `data\logs\heavy_workload[.slotN].lock` of the guard's checkout, or an `ACTIVE`
    host-global `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison`
    record), matched by PID and process creation instant so a stale record admits
-   nothing. That covers `workstation_heavy.ps1`, the bounded suite and one-off
-   lease wrappers. An admitted tree still occupies the in-window slot; in a
-   mixed tree only the unadmitted heavy members' subtrees are terminated.
-   An agent-owned tool tree, admitted or not, is independently terminated when
-   its aggregate private bytes reach the 8 GB per-job ceiling; this does not
+   nothing. That covers `workstation_heavy.ps1`, the bounded suite,
+   `training_window.ps1` and one-off lease wrappers, including when a script, `py`
+   or a git hook launched the wrapper. A tree holding a live lease owner takes an
+   in-window slot first. **No guard rule here terminates a tree that contains a
+   live lease owner as a whole**: only heavy member subtrees that do not contain
+   the owner are stopped (unadmitted members for window and concurrency; over
+   budget, also the admitted job below the owner), so the owner's `finally`
+   (lease release, `training_window` re-enabling capture) still runs. If a lease
+   file exists but cannot be read or parsed, the guard logs a WARNING and skips
+   window and concurrency kills for that minute; budget kills then stop heavy
+   members only. Known limitation: release leaves the repository lock record on
+   disk (it has no released field), so a former owner that keeps running after
+   release still admits its subtree until it exits. The commit-92% emergency path
+   below is unchanged and can still stop a whole agent tree.
+   An agent-owned tool tree without a lease owner is independently terminated
+   when its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
    suites use the repository-owned full-suite wrapper (at most 25 files per chunk). Never use

@@ -62,7 +62,8 @@ def test_memory_guard_attributes_and_reaps_codex_heavy_tool_trees():
     assert "Test-GovernedWeatherProcess" in block
     assert "Get-ChildItem" in block
     assert "-Recurse" in block
-    assert "daily_refresh|score_all" in block
+    assert "Get-WeatherWorkstationOfflineModule" in block
+    assert "daily_refresh|score_all" not in block  # no module-name heuristic (L28 review MINOR 3)
     assert "Get-ProcessTreePrivateBytes" in block
     assert "$agentTreeBytes" in block
     assert "$MinKillPrivateBytes" in block

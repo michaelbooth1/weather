@@ -21,17 +21,21 @@
 #   every run      -> outside 00:30-09:00, terminate agent-owned (codex.exe,
 #                     chatgpt.exe or claude.exe root) pytest, compileall,
 #                     inline/stdin/script Python (option flags such as -I or
-#                     -X before the script included), heavy `-m weather.*`
-#                     modules, and recursive scans (rg, find, robocopy, or a
-#                     shell command line naming one). Every child is judged by
-#                     its OWN command line: a PowerShell tool shell can hide
-#                     its script text, so the shell line is not trusted.
-#                     Bash/sh tool shells are recognized like PowerShell/cmd.
-#                     Inside that window, retain at most one such tool tree.
-#                     Work admitted under a live heavy-workload lease (an
-#                     ancestor is the lease owner recorded by
-#                     workload_admission.ps1, matched by PID and creation
-#                     time) is never a window or concurrency target.
+#                     -X before the script included), the explicit heavy
+#                     `-m` module list owned by workload_admission.ps1, and
+#                     recursive scans of a repository data directory by an
+#                     rg/grep/find/robocopy process image. Every child is
+#                     judged by its OWN command line: a PowerShell tool shell
+#                     can hide its script text, so the shell line is not
+#                     trusted. Bash/sh tool shells are recognized like
+#                     PowerShell/cmd. Inside that window, retain at most one
+#                     such tool tree. Work admitted under a live heavy-workload
+#                     lease (the lease owner recorded by workload_admission.ps1,
+#                     matched by PID and creation time, is the row, an
+#                     ancestor, or inside the row's subtree) is never a window
+#                     or concurrency target, and a tool tree containing a live
+#                     lease owner is never terminated as a whole: only heavy
+#                     member subtrees that do not contain the owner are.
 #   every run      -> orphan sweep: kill `python -` / `python -c` processes
 #                     whose parent is gone and which are older than 30 min.
 #                     A stdin/-c job's script and output have no owner once
@@ -120,8 +124,9 @@ $guardActions = New-Object System.Collections.Generic.List[string]
 function Get-AgentHeavyModuleNames([string]$AdmissionScriptPath) {
     # The exact heavy-module list is owned by Get-WeatherWorkstationOfflineModule in
     # workload_admission.ps1. Read it by parsing (never executing) that file so the
-    # guard cannot drift from the wrapper's list. On any failure the guard keeps the
-    # pytest/compileall set and the module-name heuristic.
+    # guard cannot drift from the wrapper's list. On any failure the guard keeps only
+    # the pytest/compileall set. The guard is a fresh process every minute, so there
+    # is no cross-run cache; one AST parse of that file costs milliseconds.
     $names = New-Object System.Collections.Generic.List[string]
     $tokens = $null
     $parseErrors = $null
@@ -156,19 +161,25 @@ function Test-GovernedWeatherProcess($ProcessRow) {
 function Test-AgentHeavyProcess($ProcessRow) {
     # Nested helpers live inside this function so that a caller extracting only
     # this definition (the DST audit harness) still gets them.
+    function Get-AgentCommandWords([string]$CommandLine) {
+        return @([regex]::Matches($CommandLine, '(?:"[^"]*"|''[^'']*''|[^\s"'']+)+') |
+            ForEach-Object { ($_.Value -replace '"', '') -replace "'", '' })
+    }
+
     function Get-AgentPythonInvocation([string]$CommandLine) {
         # Interpreter options may precede -m/-c/the script (python -I x.py,
-        # python -X utf8 x.py, python -Bu -m pytest). Returns Kind module, inline,
-        # stdin, or script; $null for --version, -h and anything unparsed.
-        $words = @([regex]::Matches($CommandLine, '(?:"[^"]*"|''[^'']*''|[^\s"'']+)+') |
-            ForEach-Object { ($_.Value -replace '"', '') -replace "'", '' })
+        # python -X utf8 x.py, python -Bu -m pytest). Returns Kind module (with
+        # the module's own arguments in Rest), inline, stdin, or script; $null for
+        # a bare interpreter (an interactive REPL or a long-lived server reading
+        # stdin is not a batch job), --version, -h and anything unparsed.
+        $words = @(Get-AgentCommandWords $CommandLine)
         $flags = '[bBdEiIOPqRsSuvx]*'
         for ($index = 1; $index -lt $words.Count; $index++) {
             $word = [string]$words[$index]
-            if ($word -ceq '-') { return @{ Kind = 'stdin'; Target = '' } }
+            if ($word -ceq '-') { return @{ Kind = 'stdin'; Target = ''; Rest = @() } }
             if ($word -ceq '--') {
-                if ($index + 1 -lt $words.Count) { return @{ Kind = 'script'; Target = [string]$words[$index + 1] } }
-                return @{ Kind = 'stdin'; Target = '' }
+                if ($index + 1 -lt $words.Count) { return @{ Kind = 'script'; Target = [string]$words[$index + 1]; Rest = @() } }
+                return @{ Kind = 'stdin'; Target = ''; Rest = @() }
             }
             $moduleMatch = [regex]::Match($word, ('\A-' + $flags + 'm(?<module>.*)\z'))
             if ($moduleMatch.Success) {
@@ -178,9 +189,11 @@ function Test-AgentHeavyProcess($ProcessRow) {
                     if ($index -ge $words.Count) { return $null }
                     $module = [string]$words[$index]
                 }
-                return @{ Kind = 'module'; Target = $module.ToLowerInvariant() }
+                $rest = @()
+                if ($index + 1 -lt $words.Count) { $rest = @($words[($index + 1)..($words.Count - 1)]) }
+                return @{ Kind = 'module'; Target = $module.ToLowerInvariant(); Rest = $rest }
             }
-            if ($word -cmatch ('\A-' + $flags + 'c')) { return @{ Kind = 'inline'; Target = '' } }
+            if ($word -cmatch ('\A-' + $flags + 'c')) { return @{ Kind = 'inline'; Target = ''; Rest = @() } }
             $valueMatch = [regex]::Match($word, ('\A-' + $flags + '[WX](?<value>.*)\z'))
             if ($valueMatch.Success) {
                 if (-not $valueMatch.Groups['value'].Value) { $index++ }
@@ -190,37 +203,59 @@ function Test-AgentHeavyProcess($ProcessRow) {
             if ($word -cmatch '\A--check-hash-based-pycs=') { continue }
             if ($word -cmatch ('\A-' + $flags + '\z')) { continue }
             if ($word.StartsWith('-')) { return $null }
-            return @{ Kind = 'script'; Target = $word }
+            return @{ Kind = 'script'; Target = $word; Rest = @() }
         }
-        # A bare interpreter reads its program from stdin (`... | python`).
-        if ($words.Count -ge 1) { return @{ Kind = 'stdin'; Target = '' } }
         return $null
     }
 
-    function Test-AgentHeavyModule([string]$Module) {
+    function Test-AgentHeavyModule([string]$Module, $Rest) {
         if ($Module -cin @('pytest', 'compileall', 'coverage', 'tox', 'nox')) { return $true }
-        # $agentHeavyModuleNames is read from workload_admission.ps1 at script scope.
-        if ($null -ne $agentHeavyModuleNames -and ($agentHeavyModuleNames -ccontains $Module)) { return $true }
-        return $Module -cmatch (
-            '\Aweather\.[a-z0-9_.-]*(?:retrain|training|replay|backtest|daily_refresh|score_all)[a-z0-9_.-]*\z')
+        # Only the explicit list owned by Get-WeatherWorkstationOfflineModule in
+        # workload_admission.ps1 (read at script scope); no name pattern, which
+        # caught operator readers (daily_refresh status, *_status, *_report) and
+        # retention deletes mid-run. A status/help invocation of a listed module
+        # is a reader, not a job.
+        if ($null -eq $agentHeavyModuleNames -or -not ($agentHeavyModuleNames -ccontains $Module)) { return $false }
+        $first = if (@($Rest).Count -gt 0) { [string]@($Rest)[0] } else { '' }
+        return -not ($first -cin @('status', '--help', '-h', '--version'))
+    }
+
+    function Test-AgentRepoDataPath([string]$PathText) {
+        # True for a directory path inside a repository data directory: relative
+        # paths whose first segment is data (agents run from a checkout root), or
+        # absolute paths with a data segment whose parent holds .git. A path whose
+        # leaf has an extension is a single file, not a recursive scan.
+        $path = $PathText.Trim().Replace('/', '\')
+        if (-not $path) { return $false }
+        if ($path -match '\A\\([A-Za-z])(?:\\|\z)') { $path = $Matches[1] + ':' + $path.Substring(2) }
+        $path = $path -replace '\A(?:\.\\)+', ''
+        $segments = @($path.Split('\') | Where-Object { $_ -ne '' })
+        if ($segments.Count -eq 0) { return $false }
+        if ([string]$segments[$segments.Count - 1] -match '\.[A-Za-z0-9]{1,10}\z') { return $false }
+        if ($path -notmatch '\A(?:[A-Za-z]:\\|\\\\)') { return ([string]$segments[0] -ieq 'data') }
+        for ($index = 1; $index -lt $segments.Count; $index++) {
+            if ([string]$segments[$index] -ine 'data') { continue }
+            $parent = ($segments[0..($index - 1)] -join '\')
+            if ($path.StartsWith('\\')) { $parent = '\\' + $parent }
+            if ($parent -match '\A[A-Za-z]:\z') { $parent += '\' }
+            try { if (Test-Path -LiteralPath (Join-Path $parent '.git')) { return $true } } catch { }
+        }
+        return $false
     }
 
     $name = ([string]$ProcessRow.Name).ToLowerInvariant()
     $cmd = [string]$ProcessRow.CommandLine
     if ([string]::IsNullOrWhiteSpace($cmd)) { return $false }
-    $normalized = $cmd.Replace('/', '\')
-    # A path segment named data: relative (data\x, .\data) or absolute (C:\repo\data\x,
-    # /c/repo/data/x after normalization).
-    $namesDataPath = $normalized -match '(?i)(?:^|[\s"''=\\])data(?:\\|[\s"'']|$)'
 
     if ($name -match '^pythonw?\.exe$') {
         # Classify by the interpreter's own arguments. Agent-rooted `-m weather.*`
-        # is no longer exempt as a class: heavy modules (the workstation offline
-        # list and the name heuristic) count; other weather CLIs (status readers,
-        # recovery checks, supervisors) stay out of reach of this rule.
+        # is no longer exempt as a class: modules on the explicit heavy list count;
+        # other weather CLIs (recovery checks, supervisors, status readers) do not.
         $invocation = Get-AgentPythonInvocation $cmd
         if ($null -ne $invocation) {
-            if ($invocation.Kind -ceq 'module') { return (Test-AgentHeavyModule ([string]$invocation.Target)) }
+            if ($invocation.Kind -ceq 'module') {
+                return (Test-AgentHeavyModule ([string]$invocation.Target) $invocation.Rest)
+            }
             if ($invocation.Kind -cin @('inline', 'stdin')) { return $true }
             if ($invocation.Kind -ceq 'script') { return ([string]$invocation.Target -match '(?i)\.pyw?\z') }
         }
@@ -231,18 +266,64 @@ function Test-AgentHeavyProcess($ProcessRow) {
             ($cmd -match '(?i)pythonw?(?:\.exe)?"?\s+[^-]\S*\.py(?:\s|$)')
     }
 
-    # Recursive scanners judged by their own command lines.
-    if ($name -eq 'rg.exe' -or $name -eq 'find.exe') { return $namesDataPath }
-    if ($name -eq 'grep.exe') { return $namesDataPath -and ($cmd -match '(?:^|\s)-[A-Za-z]*[rR]') }
-    if ($name -eq 'robocopy.exe') {
-        return $namesDataPath -or ($cmd -match '(?i)(?:^|\s)/(?:s|e|mir|move)(?:\s|$)')
+    # Recursive scanners, only as the process image and only by their own path
+    # arguments: the pattern, option values (--exclude-dir=data) and a commit
+    # message mentioning a scanner never count.
+    if ($name -eq 'rg.exe' -or $name -eq 'grep.exe') {
+        $words = @(Get-AgentCommandWords $cmd)
+        $positional = New-Object System.Collections.Generic.List[string]
+        $patternGiven = $false
+        $recursive = ($name -eq 'rg.exe')
+        $valueOptions = if ($name -eq 'rg.exe') { @('-e', '-f', '-g', '-t', '-T', '-A', '-B', '-C', '-m', '-j', '-M', '-r', '-E', '-d') } else { @('-e', '-f', '-A', '-B', '-C', '-m', '-d', '-D') }
+        for ($index = 1; $index -lt $words.Count; $index++) {
+            $word = [string]$words[$index]
+            if ($word -ceq '--') {
+                for ($rest = $index + 1; $rest -lt $words.Count; $rest++) { $positional.Add([string]$words[$rest]) }
+                break
+            }
+            if ($word.StartsWith('--')) {
+                if ($word -cmatch '\A--(?:regexp|file)(?:=|\z)' -or $word -ceq '--files') { $patternGiven = $true }
+                if ($word -cmatch '\A--(?:dereference-)?recursive\z') { $recursive = $true }
+                continue
+            }
+            if ($word.StartsWith('-') -and $word.Length -gt 1) {
+                if ($word -cmatch '\A-[A-Za-z]*[ef]') { $patternGiven = $true }
+                if ($name -eq 'grep.exe' -and $word -cmatch '\A-[A-Za-z]*[rR]') { $recursive = $true }
+                if ($valueOptions -ccontains $word) { $index++ }
+                continue
+            }
+            $positional.Add($word)
+        }
+        if (-not $recursive) { return $false }
+        $paths = @($positional | Select-Object -Skip ([int](-not $patternGiven)))
+        return @($paths | Where-Object { Test-AgentRepoDataPath $_ }).Count -gt 0
     }
+    if ($name -eq 'find.exe') {
+        # Windows find.exe (System32) searches named files for a string; it never
+        # recurses. Only GNU find (Git usr\bin) walks a tree.
+        $words = @(Get-AgentCommandWords $cmd)
+        $image = if ($ProcessRow.PSObject.Properties.Name -contains 'ExecutablePath') { [string]$ProcessRow.ExecutablePath } else { '' }
+        if ($image -match '(?i)\\windows\\' -or ($words.Count -gt 0 -and [string]$words[0] -match '(?i)\\windows\\')) { return $false }
+        if (@($words | Where-Object { $_ -match '(?i)\A/(?:v|c|n|i|off(?:line)?)\z' }).Count -gt 0) { return $false }
+        $paths = New-Object System.Collections.Generic.List[string]
+        $index = 1
+        for (; $index -lt $words.Count; $index++) {
+            $word = [string]$words[$index]
+            if ($word.StartsWith('-') -or $word -in @('(', '!', ',', '\(', '\!')) { break }
+            $paths.Add($word)
+        }
+        for (; $index -lt $words.Count - 1; $index++) {
+            if ([string]$words[$index] -ceq '-maxdepth' -and [string]$words[$index + 1] -in @('0', '1')) { return $false }
+        }
+        return @($paths | Where-Object { Test-AgentRepoDataPath $_ }).Count -gt 0
+    }
+    if ($name -eq 'robocopy.exe') { return ($cmd -match '(?i)(?:^|\s)/(?:s|e|mir)(?:\s|$)') }
 
-    if ($agentShellNames -contains $name) {
-        return ($cmd -match '(?i)(?:^|\s)-m\s+(?:pytest|compileall|coverage|tox|nox)(?:\s|$)') -or
-            ($cmd -match '(?i)(?:^|\s)-m\s+weather\.[^\s]*(?:retrain|training|replay|backtest|daily_refresh|score_all)') -or
-            (($cmd -match '(?i)Get-ChildItem') -and ($cmd -match '(?i)-Recurse')) -or
-            (($cmd -match '(?i)(?:^|[\s;&|("''])(?:rg|find|grep\s+-[A-Za-z]*[rR][A-Za-z]*)(?:\.exe)?(?:\s|$)') -and $namesDataPath)
+    if ($name -eq 'powershell.exe' -or $name -eq 'pwsh.exe') {
+        # A recursive listing runs inside the shell itself, so its own line is the
+        # only evidence. Child processes (python, rg, find) are judged above, never
+        # through a shell line, which may only quote them (git commit -m '...').
+        return (($cmd -match '(?i)Get-ChildItem') -and ($cmd -match '(?i)-Recurse'))
     }
 
     return ($name -eq 'pytest.exe')
@@ -250,13 +331,25 @@ function Test-AgentHeavyProcess($ProcessRow) {
 
 function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot) {
     # Owners of heavy-workload leases taken through workload_admission.ps1
-    # (workstation_heavy.ps1, the bounded suite, one-off lease wrappers). Each
-    # entry is the owner's PID plus its creation instant. Only an ancestor whose
-    # live PID AND creation instant both match is treated as a lease owner, so a
-    # stale record (owner exited, PID reused) admits nothing. Files are opened
-    # read-only with full sharing: the guard never probes for write access, so
-    # it cannot race a lease acquisition.
+    # (workstation_heavy.ps1, the bounded suite, training_window, one-off lease
+    # wrappers). Each owner is a PID plus its creation instant; only a live
+    # process whose PID AND creation instant both match counts, so a stale record
+    # (owner exited, PID reused) admits nothing. Files are opened read-only with
+    # full sharing: the guard never probes for write access, so it cannot race a
+    # lease acquisition.
+    #
+    # A lease file that exists but cannot be read or parsed (mid-write, unknown
+    # schema, damaged) is reported in Unreadable; the caller then skips window and
+    # concurrency kills for the tick rather than misjudge a leased job.
+    #
+    # Known limitation: release disposes the repo lock handle but leaves its record
+    # on disk (there is no released/status field), so until the former owner
+    # process exits its subtree still reads as admitted. Telling a held lock from a
+    # released one would need an exclusive open that can block a real acquisition,
+    # so the guard does not probe. The host-global state file is deleted on
+    # release and does not have this gap.
     $owners = New-Object System.Collections.Generic.List[object]
+    $unreadable = New-Object System.Collections.Generic.List[string]
     $candidates = New-Object System.Collections.Generic.List[object]
     foreach ($slot in 1..8) {
         $lockName = if ($slot -eq 1) { "heavy_workload.lock" } else { "heavy_workload.slot{0}.lock" -f $slot }
@@ -269,6 +362,9 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot) {
     foreach ($candidate in $candidates) {
         try {
             if (-not (Test-Path -LiteralPath $candidate.Path -PathType Leaf)) { continue }
+        }
+        catch { $unreadable.Add([string]$candidate.Path); continue }
+        try {
             $stream = [System.IO.File]::Open(
                 $candidate.Path,
                 [System.IO.FileMode]::Open,
@@ -280,30 +376,30 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot) {
             }
             finally { $stream.Dispose() }
             $text = $text.TrimStart([char]0xFEFF)
-            if (-not $text.TrimStart().StartsWith('{')) { continue }
+            if (-not $text.TrimStart().StartsWith('{')) { throw "not a JSON object" }
             $record = $text | ConvertFrom-Json
             $ownerPid = [uint32]$record.pid
-            if ($ownerPid -eq 0) { continue }
-            $born = $null
+            if ($ownerPid -eq 0) { throw "no owner pid" }
             if ($candidate.Kind -eq 'repo_lock') {
-                if ([string]$record.schema_version -cne 'weather_heavy_workload_lease_v3') { continue }
+                if ([string]$record.schema_version -cne 'weather_heavy_workload_lease_v3') { throw "unknown lease schema" }
                 $tokenMatch = [regex]::Match([string]$record.owner_process_creation_time_token, '\Awin32-filetime:(\d+)\z')
-                if (-not $tokenMatch.Success) { continue }
+                if (-not $tokenMatch.Success) { throw "no owner creation token" }
                 $born = [datetime]::FromFileTimeUtc([long]$tokenMatch.Groups[1].Value)
             }
             else {
-                if ([string]$record.schema_version -cne 'weather_heavy_workload_state_v1') { continue }
-                if ([string]$record.state -cne 'ACTIVE') { continue }
+                if ([string]$record.schema_version -cne 'weather_heavy_workload_state_v1') { throw "unknown state schema" }
                 $born = [datetime]::Parse(
                     [string]$record.owner_process_start_utc,
                     [Globalization.CultureInfo]::InvariantCulture,
                     [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                # TEARDOWN_PENDING (or any non-ACTIVE state) is a readable record that admits nothing.
+                if ([string]$record.state -cne 'ACTIVE') { continue }
             }
             $owners.Add([pscustomobject]@{ Pid = $ownerPid; CreationUtc = $born; Source = $candidate.Kind })
         }
-        catch { continue }
+        catch { $unreadable.Add([string]$candidate.Path) }
     }
-    return $owners.ToArray()
+    return [pscustomobject]@{ Owners = $owners.ToArray(); Unreadable = $unreadable.ToArray() }
 }
 
 function Test-AgentLeaseOwnerRow($ProcessRow, $LeaseOwners) {
@@ -319,11 +415,21 @@ function Test-AgentLeaseOwnerRow($ProcessRow, $LeaseOwners) {
     return $false
 }
 
+function Test-AgentTreeHasLeaseOwner($RootRow, $AllProcesses, $LeaseOwners) {
+    if (@($LeaseOwners).Count -eq 0) { return $false }
+    foreach ($member in @(Get-ProcessTreeRows $RootRow $AllProcesses)) {
+        if (Test-AgentLeaseOwnerRow $member $LeaseOwners) { return $true }
+    }
+    return $false
+}
+
 function Test-AgentLeaseAdmitted($ProcessRow, $ProcessByPid, $AllProcesses, $LeaseOwners) {
     # Admitted when the row or one of its verified ancestors (below the agent root)
-    # owns a live lease, or when the row is a tool shell whose own subtree contains
-    # a lease owner (the shell only launched the admitted wrapper). Unleased heavy
-    # siblings in that shell tree are still judged one by one.
+    # owns a live lease, or when the row's own subtree contains a lease owner,
+    # whatever the row's name: a shell, `python tools\x.py`, py.exe or a git hook
+    # that launched the leased wrapper must not be judged as unleased between the
+    # wrapper's children (between bounded-suite chunks). Unleased heavy siblings
+    # elsewhere in the tree are still judged one by one.
     if (@($LeaseOwners).Count -eq 0) { return $false }
     $current = $ProcessRow
     for ($depth = 0; $depth -lt 32 -and $null -ne $current; $depth++) {
@@ -335,12 +441,7 @@ function Test-AgentLeaseAdmitted($ProcessRow, $ProcessByPid, $AllProcesses, $Lea
         if (([datetime]$parent.CreationDate).ToUniversalTime() -gt ([datetime]$current.CreationDate).ToUniversalTime()) { break }
         $current = $parent
     }
-    if ($agentShellNames -contains ([string]$ProcessRow.Name).ToLowerInvariant()) {
-        foreach ($member in @(Get-ProcessTreeRows $ProcessRow $AllProcesses)) {
-            if (Test-AgentLeaseOwnerRow $member $LeaseOwners) { return $true }
-        }
-    }
-    return $false
+    return (Test-AgentTreeHasLeaseOwner $ProcessRow $AllProcesses $LeaseOwners)
 }
 
 function Get-AgentToolRoot($ProcessRow, $ProcessByPid) {
@@ -486,6 +587,8 @@ $status = @{
     agent_heavy_process_count = 0
     agent_heavy_workload_count = 0
     agent_heavy_admitted_workload_count = 0
+    agent_heavy_lease_owner_workload_count = 0
+    agent_heavy_lease_records_unreadable = $false
     agent_heavy_max_private_mb = 0
     agent_heavy_window_allowed = $false
 }
@@ -511,7 +614,7 @@ try {
     $agentHeavyModuleNames = @(Get-AgentHeavyModuleNames (Join-Path $PSScriptRoot "workload_admission.ps1"))
 }
 catch {
-    Write-GuardLog "WARNING" ("heavy-module list unavailable; using the module-name heuristic only: {0}" -f $_.Exception.Message)
+    Write-GuardLog "WARNING" ("heavy-module list unavailable; only pytest/compileall/coverage/tox/nox modules count this run: {0}" -f $_.Exception.Message)
 }
 $heavyToolRoots = @{}
 $heavyRowsByKey = @{}
@@ -527,29 +630,37 @@ foreach ($row in $allProcesses) {
     $heavyRowsByKey[$key].Add($row)
 }
 
-# Lease admission. A tool tree whose every heavy member is admitted under a live
-# heavy-workload lease (workstation_heavy.ps1, the bounded suite, a one-off lease
-# wrapper) is never a window or concurrency target; that lease already enforces
-# the window and serialization. It still occupies a concurrency slot and stays
-# under the per-tree private-byte budget. In a mixed tree only the unadmitted
-# heavy members' own subtrees are terminated, never the admitted wrapper.
+# Lease admission. A heavy member is admitted when a live heavy-workload lease
+# owner (workstation_heavy.ps1, the bounded suite, training_window, a one-off lease
+# wrapper) is the member, an ancestor below the agent root, or inside the member's
+# own subtree. A tool tree whose every heavy member is admitted is never a window
+# or concurrency target; that lease already enforces the window and serialization.
+# A tool tree that CONTAINS a live lease owner is never terminated as a whole by
+# any rule here, the private-byte budget included: the owner's finally blocks
+# (training_window re-enabling capture supervisors, lease release) must run, so
+# only heavy member subtrees that do not contain the owner are stopped.
 $unadmittedRowsByKey = @{}
 $admittedRootKeys = @{}
-$mixedRootKeys = @{}
+$ownerRootKeys = @{}
 $leaseOwners = @()
+$leaseRecordsUnreadable = $false
 if ($heavyToolRoots.Count -gt 0) {
-    $leaseOwners = @(Get-AdmittedLeaseOwners $RepoRoot $HeavyWorkloadStateRoot)
+    $leaseState = Get-AdmittedLeaseOwners $RepoRoot $HeavyWorkloadStateRoot
+    $leaseOwners = @($leaseState.Owners)
+    if (@($leaseState.Unreadable).Count -gt 0) {
+        # Fail toward sparing: a lease that cannot be read may be admitting this work.
+        $leaseRecordsUnreadable = $true
+        Write-GuardLog "WARNING" ("heavy-workload lease record(s) unreadable ({0}); skipping agent window and concurrency kills this run, budget kills stop heavy members only" -f (@($leaseState.Unreadable) -join ", "))
+    }
 }
 foreach ($entry in $heavyToolRoots.GetEnumerator()) {
     $unadmitted = New-Object System.Collections.Generic.List[object]
-    $admittedCount = 0
     foreach ($member in $heavyRowsByKey[$entry.Key]) {
-        if (Test-AgentLeaseAdmitted $member $processByPid $allProcesses $leaseOwners) { $admittedCount++ }
-        else { $unadmitted.Add($member) }
+        if (-not (Test-AgentLeaseAdmitted $member $processByPid $allProcesses $leaseOwners)) { $unadmitted.Add($member) }
     }
     $unadmittedRowsByKey[$entry.Key] = $unadmitted
     if ($unadmitted.Count -eq 0) { $admittedRootKeys[$entry.Key] = $true }
-    elseif ($admittedCount -gt 0) { $mixedRootKeys[$entry.Key] = $true }
+    if (Test-AgentTreeHasLeaseOwner $entry.Value $allProcesses $leaseOwners) { $ownerRootKeys[$entry.Key] = $true }
 }
 $agentHeavyRows = @($allProcesses | Where-Object {
     if (-not (Test-AgentHeavyProcess $_)) { return $false }
@@ -558,6 +669,8 @@ $agentHeavyRows = @($allProcesses | Where-Object {
 $status.agent_heavy_process_count = $agentHeavyRows.Count
 $status.agent_heavy_workload_count = $heavyToolRoots.Count
 $status.agent_heavy_admitted_workload_count = $admittedRootKeys.Count
+$status.agent_heavy_lease_owner_workload_count = $ownerRootKeys.Count
+$status.agent_heavy_lease_records_unreadable = $leaseRecordsUnreadable
 
 $agentTreeBytes = @{}
 foreach ($entry in $heavyToolRoots.GetEnumerator()) {
@@ -571,7 +684,10 @@ if ($agentTreeBytes.Count -gt 0) {
 }
 
 $agentTargetMap = @{}
-if (-not $agentHeavyWindowAllowed) {
+if ($leaseRecordsUnreadable) {
+    # No window or concurrency targets this run (see the WARNING above).
+}
+elseif (-not $agentHeavyWindowAllowed) {
     foreach ($entry in $heavyToolRoots.GetEnumerator()) {
         if ($admittedRootKeys.ContainsKey($entry.Key)) { continue }
         $agentTargetMap[$entry.Key] = $entry.Value
@@ -580,9 +696,9 @@ if (-not $agentHeavyWindowAllowed) {
 elseif ($heavyToolRoots.Count -gt $MaxConcurrentAgentHeavyWorkloads) {
     $orderedRoots = @($heavyToolRoots.Values |
         Sort-Object @{ Expression = { ([datetime]$_.CreationDate).ToUniversalTime() } }, ProcessId)
-    # Admitted trees take their slots first and are never targets; the oldest
-    # unadmitted trees fill whatever slots remain.
-    $freeSlots = $MaxConcurrentAgentHeavyWorkloads - $admittedRootKeys.Count
+    # Each tree holding a live lease takes a slot first; fully admitted trees are
+    # never targets; the oldest trees with unadmitted heavy work fill what remains.
+    $freeSlots = $MaxConcurrentAgentHeavyWorkloads - $ownerRootKeys.Count
     foreach ($root in $orderedRoots) {
         $key = "{0}|{1}" -f $root.ProcessId, ([datetime]$root.CreationDate).ToUniversalTime().Ticks
         if ($admittedRootKeys.ContainsKey($key)) { continue }
@@ -606,24 +722,33 @@ foreach ($entry in $agentTargetMap.GetEnumerator()) {
     } else {
         "Codex heavy workload is outside the 00:30-09:00 host window"
     }
-    if (-not $overBudget -and $mixedRootKeys.ContainsKey($entry.Key)) {
-        # Spare the admitted wrapper: stop each unadmitted heavy member's own subtree.
+    if ($ownerRootKeys.ContainsKey($entry.Key) -or $leaseRecordsUnreadable) {
+        # Never the whole tree: stop heavy member subtrees that hold no lease owner.
+        # Over budget that includes admitted members BELOW the owner (the job, not
+        # its wrapper); otherwise only unadmitted members.
+        $memberReason = if ($overBudget) { "{0} (heavy member subtree; the lease owner is spared)" -f $reason } else { "{0} (unadmitted member of a leased tool tree)" -f $reason }
+        $candidateMembers = if ($overBudget) { @($heavyRowsByKey[$entry.Key]) } else { @($unadmittedRowsByKey[$entry.Key]) }
         $coveredMemberIds = @{}
-        foreach ($member in @($unadmittedRowsByKey[$entry.Key] |
+        $memberKilled = $false
+        foreach ($member in @($candidateMembers |
                 Sort-Object @{ Expression = { ([datetime]$_.CreationDate).ToUniversalTime() } }, ProcessId)) {
             if ($coveredMemberIds.ContainsKey([uint32]$member.ProcessId)) { continue }
             $memberTree = @(Get-ProcessTreeRows $member $allProcesses)
-            foreach ($covered in $memberTree) { $coveredMemberIds[[uint32]$covered.ProcessId] = $true }
             if (@($memberTree | Where-Object { Test-AgentLeaseOwnerRow $_ $leaseOwners }).Count -gt 0) {
-                Write-GuardLog "WARNING" ("left unadmitted heavy pid {0} running: its subtree owns a heavy-workload lease" -f $member.ProcessId)
+                Write-GuardLog "WARNING" ("left heavy pid {0} running: its subtree owns a heavy-workload lease" -f $member.ProcessId)
                 continue
             }
-            if (Stop-VerifiedProcessTree $member $allProcesses ("{0} (unadmitted member of a leased tool tree)" -f $reason) $true) {
+            foreach ($covered in $memberTree) { $coveredMemberIds[[uint32]$covered.ProcessId] = $true }
+            if (Stop-VerifiedProcessTree $member $allProcesses $memberReason $true) {
                 $guardActions.Add("killed_agent_member_pid_$($member.ProcessId)")
                 $terminationPerformed = $true
+                $memberKilled = $true
             } else {
                 $guardActions.Add("kill_failed_agent_member_pid_$($member.ProcessId)")
             }
+        }
+        if (-not $memberKilled -and $overBudget) {
+            Write-GuardLog "WARNING" ("{0}; tool tree pid {1} holds a heavy-workload lease and has no heavy member outside the owner's ancestry; not terminated" -f $reason, $target.ProcessId)
         }
         continue
     }
@@ -826,6 +951,8 @@ if ($status.physical_warning -or $status.memory_warning -or $guardActions.Count 
         agent_heavy_process_count = $status.agent_heavy_process_count
         agent_heavy_workload_count = $status.agent_heavy_workload_count
         agent_heavy_admitted_workload_count = $status.agent_heavy_admitted_workload_count
+        agent_heavy_lease_owner_workload_count = $status.agent_heavy_lease_owner_workload_count
+        agent_heavy_lease_records_unreadable = $status.agent_heavy_lease_records_unreadable
         agent_heavy_max_private_mb = $status.agent_heavy_max_private_mb
         actions = @($guardActions)
     }
