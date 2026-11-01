@@ -129,6 +129,7 @@ sequence numbers, not calendar dates.
 | 10al | Reads 2026-10-26/27: R-U CLOSED at P0 (HRRR 3x3 spread as width closed at all hours); C10 opened, not adopted; SM-H selected for MG-3 13-15 (h15 unresolved); CS-1 P3d_H 13-16 transfers, P3d_H 07-12 does not; R-V gate 2 (a) capture-proposal PASS, (b) KILL |
 | 10an | Open-Meteo `gfs_seamless` is HRRR over the US inside HRRR's horizon (provider docs; X63 probe ~57 h): "GFS" and "HRRR" from the multimodel feed are one source; row 78 effective K 16, no verdict change; Previous Runs history composition not established; Previous Runs history changes regime about 2024-01, while served Historical Forecast best_match shows no break (2026-10-31 bullets) |
 | 10ao | Released-window re-base of served vs market, out of sample and not countable (powered=False): R at 00-16 1.455 pre / 1.513 post, inside the dev positive-control CIs; the dev gap persists on released dates; row 101 (D) |
+| 10ap | B's false PASS at the null is 0.041-0.065 against a nominal 0.025 under the measured serial dependence (dev, descriptive, ledger rows 83/84); B unchanged |
 
 ---
 
@@ -4775,6 +4776,27 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   or closes anything (rule §8). It is consistent with row 80 NOT REPLICATED, and it implies no new lever.
 - **Relation to the dev number.** The TAINTED dev ratio 1.423246x (§1) is unchanged; this section describes
   today's served path on released dates, which that ratio cannot.
+
+### 10ap. B's false PASS at the null is 0.041-0.065, not the nominal 0.025, because B's daily differences are serially correlated: lane L8, ledger rows 83/84 (D), 2026-10-31
+
+- **Fact.** On dev (dates <= 2026-09-29), the B-shaped pair (MG-1 - market on B's estimand: local hours 07-16, B's
+  10 fixed markets, no Denver) has a daily loss difference with lag-1 ρ **+0.219** (SE 0.149; 13-16 +0.310, 07-12
+  +0.118). Simulating B's rule at the null at N = 45 (20,000 paths) gives a false PASS of **0.041-0.065** depending on
+  the dependence model, against the nominal 0.025:
+  - B's full PASS condition (B §6, U < 0 and neither split range's lower bound > 0), joint VAR(1) at the measured
+    per-range ρ: 0.0651. The split veto binds on no path, so full PASS equals primary-only.
+  - Joint block-3 resampled dev dates, construction fixed (post hoc, named in row 84 before computing): 0.0464
+    re-centred / 0.0413 circular. Row 83's block-3 figure of 0.0692 was a centring error and is corrected by row 84.
+  - At ρ 0: 0.0299 (VAR) and 0.0293 (joint iid resample), close to nominal.
+- **Support.** [DEV_WINDOW_LEDGER](DEV_WINDOW_LEDGER.md) rows 83 and 84 (both D, descriptive; no candidate, no fit,
+  no addition to the multiplicity denominator); write-up
+  `docs/research/iterate-faster-2026-10-30/b-pair-serial-rho-dev.md` (section 4 for row 84). Controls reproduced
+  first (served R 1.7739 / 1.5263; MG-1 07-12 excess 0.01196).
+- **Consequence.** B stays exactly as bound (owner decision 9, DECISION_LOG 2026-10-30); no number here changes B,
+  its scorer or any sealed design, and the bound design's "false PASS 0.025" row is left as bound. Read a B PASS on
+  12-13 as carrying roughly twice the nominal false-positive risk. A frozen post-look module may only label a PASS
+  "fragile" (master ruling); B's verdict stands either way.
+- **Do not** cite 0.025 as B's delivered false-PASS rate, or row 83's block-3 0.0692.
 
 ## Related
 

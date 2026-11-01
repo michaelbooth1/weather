@@ -505,6 +505,18 @@ No alternative `EvidenceAt` is supported. Stage B also omits `StartWhenAvailable
 a missed 00:35 trigger must not become a guaranteed refusal after its 09:00
 window.
 
+**Stale learning outputs come from Stage B being disabled, not from the
+barrier.** `WeatherEveningEvidenceRefresh` (Stage B) has been disabled since
+its last run on 2026-08-13 under the hold above. `daily_learning` and the
+`market_beating_objective_scoreboard` are Stage-B outputs (they follow
+`STAGE_B_START_STEP` in `weather.operations.daily_refresh_registry`), so
+`data/backtest/daily_learning.json` and
+`data/backtest/market_beating_objective_scoreboard.json` stop refreshing while
+Stage B is held, and `WeatherStalenessSweep` reports both CRITICAL and exits 2
+every day. That staleness is not caused by the Stage-A settled-day barrier,
+whatever the `staleness_sweep.ps1` why-text says; it clears only when Stage B
+runs again (state review 2026-11-01, item 18).
+
 A stage manifest is a required publication, not optional reporting. Its
 single atomic write includes the Stage-A trigger disposition; any publication
 exception changes the pipeline to terminal `error`, rewrites both durable

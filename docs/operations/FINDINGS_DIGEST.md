@@ -92,6 +92,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - The panel has a hard MDE floor of about **3.2%** of the gap set by the 12 market clusters, not by dates; improvements below it must be batched. EF §1d.
 - α = 0.0025 per decision is nominal; on the thin tail the delivered rate was short, so quantile `q = 3.1098893` (amendment A1) applies to any future decision on the panel. EF §1i, [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md).
 - The α ledger is binding: 20 decisions, pre-register the row before scoring, never renumber; read the spend from [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md), not from a copy.
+- **B's real false-PASS rate at the null is about 0.041-0.065, not the nominal 0.025** (dev, descriptive, ledger rows 83/84): daily d is serially correlated (lag-1 ρ about +0.22), so B's date-clustered interval under-covers. B stays exactly as bound; read a B PASS as roughly twice the nominal false-positive risk, and only a frozen post-look module may label it "fragile" (master). EF §10ap.
 - Check that a look has power **before** spending α, on the actual estimand, with both decision branches reachable. EF §1k (`-09-77a`, `-09-78a`).
 - A fail-on-any-row gate is a panel-size limit, not a quality bar; never re-register Gate 3 unchanged. EF §1j, §1k (`-09-68a`).
 - Score any fitted mapping on its own training set before reading its test result. EF §5.
