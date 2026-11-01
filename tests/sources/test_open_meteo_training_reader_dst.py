@@ -137,10 +137,46 @@ def test_daily_refresh_reanalysis_step_reports_rows_refused_for_a_missing_offset
     assert result["error_count"] == 0 and result["fetched_ranges"] == 1
     assert result["offset_refused_row_count"] == len(LABELS)
     assert result["markets"][0]["offset_refused_rows"] == len(LABELS)
-    assert store_for(CHICAGO).coverage(date(2024, 12, 10), date(2024, 12, 10))["offset_refused_row_count"] == 24
+    assert store_for(CHICAGO).offset_refused_row_count() == 24
+    # R26 step 3: the count is one pass outside coverage(), which the data-layer audit also calls.
+    assert "offset_refused_row_count" not in store_for(CHICAGO).coverage(date(2024, 12, 10), date(2024, 12, 10))
     report = render_report({"steps": [{"name": "reanalysis_recent_refresh", "result": result}]})
     assert f"offset-refused rows {len(LABELS)}" in report
 
 
 def test_a_store_whose_payloads_carry_the_offset_reports_zero_refused_rows(tmp_path):
     assert _store(tmp_path, _payload()).offset_refused_row_count() == 0
+
+
+def test_daily_refresh_reanalysis_step_takes_one_refusal_pass_per_market(tmp_path):
+    """R26 step 3: Stage-A adds at most one extra raw-payload pass per market; coverage() takes none."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from weather.operations import daily_refresh_source_steps as steps
+
+    calls = []
+
+    class CountingStore(ReanalysisStore):
+        def offset_refused_row_count(self):
+            calls.append(self.spec.id)
+            return super().offset_refused_row_count()
+
+    class NoFetchClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def fetch_range(self, spec, start, end):
+            return _payload()
+
+    houston = spec_for_id("houston")
+    args = SimpleNamespace(skip_reanalysis_refresh=False, reanalysis_end_date="2024-12-10", reanalysis_lag_days=1,
+                           reanalysis_timeout=1, reanalysis_sleep=0, reanalysis_chunk_days=31)
+    with patch.object(steps, "all_specs", return_value=[CHICAGO, houston]), \
+            patch.object(steps, "ReanalysisClient", NoFetchClient), \
+            patch.object(steps, "ReanalysisStore", lambda spec: CountingStore(spec, root=tmp_path / spec.icao.lower())):
+        result = steps.run_reanalysis_recent_refresh_step(args)
+
+    assert result["error_count"] == 0
+    assert calls == [CHICAGO.id, houston.id]
+    assert result["offset_refused_row_count"] == 0

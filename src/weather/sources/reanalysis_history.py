@@ -20,7 +20,7 @@ from weather.sources.historical_schema import (
     write_manifest,
 )
 from weather.market.market_registry import spec_for_id
-from weather.sources.open_meteo_label_times import payload_local_times
+from weather.sources.open_meteo_label_times import payload_local_times, refused_row_count
 from weather.sources.wu_history import get_code_version, parse_date
 
 
@@ -197,16 +197,14 @@ class ReanalysisStore:
         return dates
 
     def offset_refused_row_count(self):
-        """Hourly rows in the raw payloads refused because a naive label had no usable ``utc_offset_seconds``.
-
-        The readers fail closed on those rows (EF §10w, item 340); this count keeps the refusal visible."""
+        """Hourly rows in the raw payloads that the readers refuse (EF §10w, item 340): a naive label with no
+        usable ``utc_offset_seconds``, or with one but in a series that repeats, gaps or holds an unparseable
+        label mid-series. One full raw-payload pass, so it stays out of ``coverage()`` (the data-layer audit
+        calls that too); the Stage-A reanalysis step calls it once per market so the refusal is never silent."""
         refused = 0
         for payload in self.iter_raw_payloads():
             local_times, refusal = payload_local_times(payload, self.spec.tz)
-            if refusal is None:
-                continue
-            times = (payload.get("hourly") or {}).get("time") or []
-            refused += sum(1 for index, value in enumerate(times) if value and _at(local_times, index) is None)
+            refused += refused_row_count(payload, local_times, refusal)
         return refused
 
     def raw_variable_covered_dates(self, required_variables):
@@ -340,7 +338,6 @@ class ReanalysisStore:
             "raw_only_normalizable_day_count": len(raw_only_normalizable),
             "raw_only_source_lag_days": [day.isoformat() for day in raw_only_source_lag],
             "raw_only_source_lag_day_count": len(raw_only_source_lag),
-            "offset_refused_row_count": self.offset_refused_row_count(),
             "first_raw_date": min(raw_covered).isoformat() if raw_covered else None,
             "last_raw_date": max(raw_covered).isoformat() if raw_covered else None,
             "last_raw_normalizable_date": max(raw_normalizable).isoformat() if raw_normalizable else None,

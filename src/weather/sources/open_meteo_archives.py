@@ -20,7 +20,7 @@ import requests
 from weather.paths import data_path
 from weather.market.market_registry import spec_for_id
 from weather.sources.forecast_history import HIST_FORECAST_URL
-from weather.sources.open_meteo_label_times import payload_local_times
+from weather.sources.open_meteo_label_times import payload_local_times, refused_row_count
 from weather.units import to_float
 
 
@@ -227,7 +227,7 @@ def normalize_open_meteo_global_model_archive(
     fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
     rows = []
     grouped_highs = defaultdict(lambda: {model: [] for model in model_members})
-    local_times, _refusal = payload_local_times(payload or {}, spec.tz)  # EF §10w: response offset, fail closed
+    local_times, refusal = payload_local_times(payload or {}, spec.tz)  # EF §10w: response offset, fail closed
     for index, raw_time in enumerate(times):
         local_dt = local_times[index] if raw_time and index < len(local_times) else None
         if local_dt is None:
@@ -293,6 +293,9 @@ def normalize_open_meteo_global_model_archive(
         "payload_hash": hash_value,
         "fetched_at": fetched_at,
         "model_members": list(model_members),
+        # Item 340: rows refused for a missing offset or a non-uniform naive label series, never silent.
+        "offset_refusal": refusal,
+        "offset_refused_row_count": refused_row_count(payload or {}, local_times, refusal),
         "hourly_rows": rows,
         "daily_rows": daily_rows,
         "raw_payload": payload,
@@ -311,7 +314,7 @@ def normalize_open_meteo_air_quality_archive(
     hash_value = payload_hash(payload or {})
     fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
     rows = []
-    local_times, _refusal = payload_local_times(payload or {}, spec.tz)  # EF §10w: response offset, fail closed
+    local_times, refusal = payload_local_times(payload or {}, spec.tz)  # EF §10w: response offset, fail closed
     for index, raw_time in enumerate(times):
         local_dt = local_times[index] if raw_time and index < len(local_times) else None
         if local_dt is None:
@@ -340,6 +343,9 @@ def normalize_open_meteo_air_quality_archive(
         "payload_hash": hash_value,
         "fetched_at": fetched_at,
         "hourly_fields": list(fields),
+        # Item 340: rows refused for a missing offset or a non-uniform naive label series, never silent.
+        "offset_refusal": refusal,
+        "offset_refused_row_count": refused_row_count(payload or {}, local_times, refusal),
         "hourly_rows": rows,
         "raw_payload": payload,
     }
@@ -541,6 +547,7 @@ class OpenMeteoArchiveStore:
             "daily_rows": len(daily_rows),
             "new_hourly_rows": len(normalized.get("hourly_rows") or []),
             "new_daily_rows": len(normalized.get("daily_rows") or []),
+            "offset_refused_rows": int(normalized.get("offset_refused_row_count") or 0),
             "hourly_path": str(hourly_path),
             "daily_path": str(daily_path),
             "raw_payload_path": str(payload_path),
@@ -562,6 +569,7 @@ class OpenMeteoArchiveStore:
             "schema_version": OPEN_METEO_AIR_QUALITY_ARCHIVE_SCHEMA_VERSION,
             "hourly_rows": len(rows),
             "new_hourly_rows": len(normalized.get("hourly_rows") or []),
+            "offset_refused_rows": int(normalized.get("offset_refused_row_count") or 0),
             "hourly_path": str(hourly_path),
             "raw_payload_path": str(payload_path),
         }
@@ -589,7 +597,8 @@ def cmd_air_quality_backfill(args):
         result = store.write_air_quality_archive(normalized, spec)
         print(
             f"Fetched {range_start} to {range_end}: "
-            f"{result['new_hourly_rows']} new row(s), {result['hourly_rows']} archived"
+            f"{result['new_hourly_rows']} new row(s), {result['hourly_rows']} archived, "
+            f"{result['offset_refused_rows']} offset-refused row(s)"
         )
         if args.sleep:
             time.sleep(args.sleep)
@@ -628,7 +637,8 @@ def cmd_global_models_backfill(args):
         print(
             f"Fetched {range_start} to {range_end}: "
             f"{result['new_hourly_rows']} new hourly row(s), "
-            f"{result['daily_rows']} archived day(s)"
+            f"{result['daily_rows']} archived day(s), "
+            f"{result['offset_refused_rows']} offset-refused row(s)"
         )
         if args.sleep:
             time.sleep(args.sleep)
