@@ -4,7 +4,8 @@ Guards: EF 10w (Open-Meteo hourly labels are fixed-offset per response) and the 
 a usable offset over naive labels that repeat, gap, or hold an unparseable label mid-series is refused with
 REFUSED_NOT_FIXED_OFFSET and counted; step 4: a399941e's spring-forward case ported unchanged, its
 unparseable-label case ported with the expectation reversed; step 5 option (b): partial days outside the
-archive's named range are dropped and counted, DST days inside it keep 23/25 rows). Every reader is checked:
+archive's named range are dropped and counted, DST days inside it keep 23/25 rows; duplicate chunks:
+an hour held by overlapping raw chunks counts once, first copy kept, disagreements recorded). Every reader is checked:
 forecast_history (historical forecast and previous runs), open_meteo_archives (global models and air quality)
 and reanalysis_history. Synthetic payloads only.
 """
@@ -27,6 +28,7 @@ from weather.sources.open_meteo_label_times import (
     refused_row_count,
 )
 from weather.sources.reanalysis_history import ReanalysisStore, normalize_payload
+from weather.sources.reanalysis_synoptic import load_raw_daily_metrics
 
 
 def contiguous_labels(start, hours):
@@ -292,3 +294,59 @@ def test_a_dst_day_inside_the_archive_keeps_its_23_or_25_rows(first_label, offse
 
     assert row_counts[dst_day] == rows
     assert all(not start <= dropped <= end for dropped in store.archive_edge_dropped_dates)
+
+
+def agreeing_payload(first_label, hours, *, bump=0.0):
+    """Values set by the label's own hour, so overlapping chunks agree (or all differ by ``bump``)."""
+    times = contiguous_labels(first_label, hours)
+    temps = [float(datetime.fromisoformat(label).hour) + bump for label in times]
+    return {"utc_offset_seconds": -18000, "hourly": {
+        "time": times, "temperature_2m": temps, "precipitation": [1.0 + bump] * len(times),
+    }}
+
+
+def store_with(tmp_path, name, chunks):
+    store = ReanalysisStore(NYC, tmp_path / name)
+    for start, end, payload in chunks:
+        store.write_payload(date.fromisoformat(start), date.fromisoformat(end), payload)
+    _records, daily = store.rebuild()
+    keys = ("row_count", "max_temp", "max_temp_times", "min_temp", "avg_temp")
+    return store, {row["local_date"]: tuple(row[key] for key in keys) for row in daily}
+
+
+def manifest_metadata(store):
+    return json.loads((store.root / "manifest.json").read_text(encoding="utf-8"))["metadata"]
+
+
+# Item 340, duplicate chunks: two chunks sharing 2025-03-03 (EST all through, -05:00) read as the single copy does.
+def test_an_hour_held_by_two_overlapping_chunks_counts_once(tmp_path):
+    single, single_daily = store_with(tmp_path, "single", [
+        ("2025-03-01", "2025-03-05", agreeing_payload("2025-03-01T00:00", 120))])
+    doubled, doubled_daily = store_with(tmp_path, "doubled", [
+        ("2025-03-01", "2025-03-03", agreeing_payload("2025-03-01T00:00", 72)),
+        ("2025-03-03", "2025-03-05", agreeing_payload("2025-03-03T00:00", 72)),
+    ])
+
+    assert doubled_daily == single_daily  # the duplicated day and the others alike
+    assert doubled_daily["2025-03-03"][0] == 24 and doubled_daily["2025-03-03"][2] == "23:00"
+    assert load_raw_daily_metrics(doubled) == load_raw_daily_metrics(single)
+    assert {d.isoformat(): v["precipitation"] for d, v in load_raw_daily_metrics(doubled).items()}["2025-03-03"] == 24.0
+    metadata = manifest_metadata(doubled)
+    assert metadata["duplicate_hours_dropped"] == 24
+    assert metadata["duplicate_disagreement_days"] == 0 and metadata["duplicate_disagreement_dates"] == []
+    assert manifest_metadata(single)["duplicate_hours_dropped"] == 0
+
+
+def test_disagreeing_copies_keep_the_first_and_record_the_dates(tmp_path):
+    store, daily = store_with(tmp_path, "disagree", [
+        ("2025-03-01", "2025-03-03", agreeing_payload("2025-03-01T00:00", 72)),
+        ("2025-03-03", "2025-03-05", agreeing_payload("2025-03-03T00:00", 72, bump=0.5)),
+    ])
+
+    assert daily["2025-03-03"][:2] == (24, 23.0)  # the first file's copy (no bump) is kept
+    assert daily["2025-03-04"][1] == 23.5  # the second file's own days are read from it
+    assert load_raw_daily_metrics(store)[date(2025, 3, 3)]["precipitation"] == 24.0
+    metadata = manifest_metadata(store)
+    assert metadata["duplicate_hours_dropped"] == 24
+    assert metadata["duplicate_disagreement_days"] == 1
+    assert metadata["duplicate_disagreement_dates"] == ["2025-03-03"]

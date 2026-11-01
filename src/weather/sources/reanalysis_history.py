@@ -111,6 +111,30 @@ def inside_archive(local_date, bounds):
     return bounds is None or bounds[0] <= local_date <= bounds[1]
 
 
+def _record_values(record):
+    """A record's content apart from the per-response ``source_report_type`` (generation time)."""
+    return {key: value for key, value in record.items() if key != "source_report_type"}
+
+
+def dedupe_hourly_records(records):
+    """Keep one record per ``valid_time_utc``: the first in raw-file order (item 340, duplicate chunks).
+
+    Overlapping raw chunks hold the same hour twice; read twice, a day carries ~48 rows and its counts and sums
+    double. -> (kept records, dropped duplicate count, sorted local dates where the dropped copy disagreed).
+    """
+    kept = {}
+    dropped = 0
+    disagreeing_dates = set()
+    for record in records:
+        first = kept.setdefault(record["valid_time_utc"], record)
+        if first is record:
+            continue
+        dropped += 1
+        if _record_values(first) != _record_values(record):
+            disagreeing_dates.add(first["local_date"])
+    return list(kept.values()), dropped, sorted(disagreeing_dates)
+
+
 def normalize_payload(payload, spec):
     hourly = payload.get("hourly") or {}
     times = hourly.get("time") or []
@@ -317,6 +341,7 @@ class ReanalysisStore:
                     edge_dropped.add(record["local_date"])
         # Item 340 / R26: partial days outside the archive's named range are dropped and counted, never silent.
         self.archive_edge_dropped_dates = sorted(edge_dropped)
+        records, duplicate_hours, disagreeing_dates = dedupe_hourly_records(records)
         records.sort(key=lambda row: row["valid_time_utc"])
         write_jsonl_partitions(self.hourly_root, records)
         daily = summarize_daily(records)
@@ -336,6 +361,9 @@ class ReanalysisStore:
                 "quality_counts": quality_counts(records),
                 "archive_edge_days_dropped": len(self.archive_edge_dropped_dates),
                 "archive_edge_dropped_dates": self.archive_edge_dropped_dates,
+                "duplicate_hours_dropped": duplicate_hours,
+                "duplicate_disagreement_days": len(disagreeing_dates),
+                "duplicate_disagreement_dates": disagreeing_dates,
             },
         )
         return records, daily

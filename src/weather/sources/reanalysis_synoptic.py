@@ -379,6 +379,7 @@ def load_normalized_hourly_daily_metrics(hourly_root):
 
 def load_raw_daily_metrics(store):
     bounds = store.archive_bounds()  # item 340 / R26: no partial day outside the archive's named range
+    seen = set()  # item 340: an hour held by overlapping chunks counts once (first copy in raw-file order)
     grouped = defaultdict(lambda: defaultdict(list))
     for payload in store.iter_raw_payloads():
         hourly = payload.get("hourly") or {}
@@ -386,8 +387,9 @@ def load_raw_daily_metrics(store):
         local_times = payload_local_datetimes(payload, store.spec.tz)
         for index, value in enumerate(times):
             local_dt = local_times[index] if value and index < len(local_times) else None
-            if local_dt is None or not inside_archive(local_dt.date(), bounds):
+            if local_dt is None or not inside_archive(local_dt.date(), bounds) or local_dt in seen:
                 continue
+            seen.add(local_dt)
             local_date = local_dt.date()
             for source_key in RAW_DAILY_FIELD_SPECS:
                 raw_value = value_at(hourly, source_key, index)
