@@ -28,7 +28,9 @@
 .PARAMETER MarkdownOut
     Latest human-readable snapshot. Default data\alerts\STALENESS_SWEEP.md
 .OUTPUTS
-    Exit 0 all fresh, 1 one or more WARN, 2 one or more CRITICAL.
+    Exit 0 all fresh, 1 one or more WARN, 2 one or more CRITICAL. A KNOWN row (a listed,
+    still-held $knownCriticals entry) counts toward none of them. Each JSONL row also carries
+    known_count and task_results, a last-run snapshot of every config\scheduled_tasks.json task.
 #>
 [CmdletBinding()]
 param(
@@ -162,6 +164,111 @@ function Get-WeatherRewardCaptureFinding {
         } catch { $detail = 'reward capture unreadable: ' + $_.Exception.Message }
     }
     return [pscustomobject]@{ severity = $severity; detail = $detail; age_minutes = $age }
+}
+
+# ---- known criticals: dated, condition-bound holds (DL R18) ----
+# A listed CRITICAL becomes KNOWN (Markdown '## Known' section and JSONL only; never the
+# CRITICAL table that status.ps1 reads) only while EVERY producer task is exactly Disabled and
+# the row has not expired. Anything else keeps the CRITICAL and adds a CRITICAL known/lapsed
+# row; an invalid row adds CRITICAL known/malformed. A row lives at most 60 days and each
+# renewal needs its own dated DECISION_LOG row. Until B's look closes, an expiry is never
+# answered by running Stage B (WeatherEveningEvidenceRefresh).
+$knownCriticalMaxDays = 60
+$knownCriticals = @(
+    [pscustomobject]@{
+        check = 'learning/daily_learning'
+        producers = @('WeatherEveningEvidenceRefresh', 'WeatherTrainingWindow')
+        recorded = '2026-11-04'; expires = '2026-12-31'; decision = 'DL R18'
+    }
+    [pscustomobject]@{
+        check = 'learning/market_beating_scoreboard'
+        producers = @('WeatherEveningEvidenceRefresh')
+        recorded = '2026-11-04'; expires = '2026-12-31'; decision = 'DL R18'
+    }
+)
+
+function Get-WeatherKnownCriticalDisposition {
+    # Pure: no scheduler, file or clock reads. $ProducerStates maps task name -> State string;
+    # a producer absent from the map is not held. Returns disposition KNOWN, LAPSED,
+    # MALFORMED or NONE (the finding is not CRITICAL, so there is nothing to hold).
+    param([object]$Row, [object]$Finding, [hashtable]$ProducerStates = @{}, [datetime]$Now,
+          [int]$MaxDays = 60)
+    $inv = [cultureinfo]::InvariantCulture
+    $check = [string]$(if ($null -ne $Row) { $Row.check })
+    $producers = @(if ($null -ne $Row) { @($Row.producers) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } })
+    $recorded = [datetime]::MinValue; $expires = [datetime]::MinValue
+    $bad = $null
+    if ($null -eq $Row -or [string]::IsNullOrWhiteSpace($check)) { $bad = 'row has no check name' }
+    elseif ($producers.Count -eq 0) { $bad = 'row names no producer task' }
+    elseif ([string]::IsNullOrWhiteSpace([string]$Row.decision)) { $bad = 'row cites no decision' }
+    elseif (-not [datetime]::TryParseExact([string]$Row.recorded, 'yyyy-MM-dd', $inv, 'None', [ref]$recorded)) { $bad = 'recorded is not yyyy-MM-dd' }
+    elseif (-not [datetime]::TryParseExact([string]$Row.expires, 'yyyy-MM-dd', $inv, 'None', [ref]$expires)) { $bad = 'expires is not yyyy-MM-dd' }
+    elseif ($expires -lt $recorded) { $bad = 'expires before recorded' }
+    elseif (($expires - $recorded).TotalDays -gt $MaxDays) { $bad = ('span {0:N0}d exceeds the {1}-day cap' -f ($expires - $recorded).TotalDays, $MaxDays) }
+    if ($bad) { return [pscustomobject]@{ disposition = 'MALFORMED'; reason = $bad } }
+    if ($null -eq $Finding -or [string]$Finding.severity -cne 'CRITICAL') {
+        return [pscustomobject]@{ disposition = 'NONE'; reason = 'finding is not CRITICAL' }
+    }
+    foreach ($producer in $producers) {
+        $name = [string]$producer
+        if ($null -eq $ProducerStates -or -not $ProducerStates.ContainsKey($name)) {
+            return [pscustomobject]@{ disposition = 'LAPSED'; reason = "producer $name is not registered or unreadable" }
+        }
+        $state = [string]$ProducerStates[$name]
+        if ($state -cne 'Disabled') {
+            return [pscustomobject]@{ disposition = 'LAPSED'; reason = "producer $name is $state, not Disabled" }
+        }
+    }
+    if ($Now.Date -gt $expires.Date) {
+        return [pscustomobject]@{ disposition = 'LAPSED'; reason = ('expired {0:yyyy-MM-dd}; renew with a dated DECISION_LOG row' -f $expires) }
+    }
+    return [pscustomobject]@{ disposition = 'KNOWN'; reason = ('held by {0} until {1:yyyy-MM-dd}' -f [string]$Row.decision, $expires) }
+}
+
+function Get-WeatherTaskResults {
+    # Daily snapshot of each task's last run from the Task Scheduler API only; never the event
+    # log. A task that is simply not registered is state 'NotRegistered', not a failure.
+    # Returns rows plus the list of failures (unreadable registry, or a task query error).
+    param([string]$ConfigPath, [string[]]$ExtraNames = @())
+    $rows = New-Object System.Collections.Generic.List[object]
+    $failures = New-Object System.Collections.Generic.List[string]
+    $names = New-Object System.Collections.Generic.List[string]
+    try {
+        $config = Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $configured = @($config.tasks | ForEach-Object { [string]$_.name } | Where-Object { $_ })
+        if ($configured.Count -eq 0) { throw 'no tasks[].name rows' }
+        foreach ($n in $configured) { if (-not $names.Contains($n)) { $names.Add($n) } }
+    }
+    catch { $failures.Add(('scheduled_tasks.json unreadable: {0}' -f $_.Exception.Message)) }
+    foreach ($n in @($ExtraNames)) { if ($n -and -not $names.Contains([string]$n)) { $names.Add([string]$n) } }
+    foreach ($name in $names) {
+        $row = [ordered]@{ name = $name; last_run_utc = $null; result_hex = $null; state = $null }
+        try {
+            $task = $null
+            try { $task = @(Get-ScheduledTask -TaskName $name -ErrorAction Stop) | Select-Object -First 1 }
+            catch {
+                if ([string]$_.CategoryInfo.Category -ne 'ObjectNotFound') { throw }
+                $task = $null
+            }
+            if ($null -eq $task) { $row.state = 'NotRegistered' }
+            else {
+                $row.state = [string]$task.State
+                $info = $task | Get-ScheduledTaskInfo -ErrorAction Stop
+                $last = $info.LastRunTime
+                if ($null -ne $last -and ([datetime]$last).Year -ge 2000) {
+                    $row.last_run_utc = ([datetime]$last).ToUniversalTime().ToString('o')
+                }
+                if ($null -ne $info.LastTaskResult) {
+                    $code = [int64]$info.LastTaskResult
+                    if ($code -lt 0) { $code += 4294967296 }
+                    $row.result_hex = '0x{0:X}' -f $code
+                }
+            }
+        }
+        catch { $failures.Add(('{0}: {1}' -f $name, $_.Exception.Message)) }
+        $rows.Add([pscustomobject]$row)
+    }
+    return [pscustomobject]@{ rows = @($rows); failures = @($failures) }
 }
 
 # ---- reward producer: required even before registration ----
@@ -299,10 +406,13 @@ foreach ($name in $closureFiles.Keys) {
     }
 }
 # ---- 2. the learning loop's own outputs ----
+# Both are Stage-B outputs (steps after promotion_refresh), so Stage A completing says nothing
+# about them. While their producers are deliberately Disabled the rows are held by
+# $knownCriticals below, never by editing the age limits here.
 Test-FileAge "learning/daily_learning" "data\backtest\daily_learning.json" 2 5 `
-    "the learning rollup; it sat 27 days stale while the chain reported all steps ok, because it is 21 steps past the settled-day barrier"
+    "the learning rollup; a Stage-B output (after promotion_refresh), also written by nightly_retrain under WeatherTrainingWindow, and settlement-gated, so it refreshes only when one of those producers runs on settled days"
 Test-FileAge "learning/market_beating_scoreboard" "data\backtest\market_beating_objective_scoreboard.json" 2 5 `
-    "the scorecard for objective #2 -- while this is stale we cannot see the model-vs-market gap at all"
+    "the objective scoreboard; a Stage-B output (after promotion_refresh) and settlement-gated, so it refreshes only when Stage B runs on settled days - while it is stale the model-vs-market gap is not measured"
 $stageA = Get-WeatherStageAChainFinding `
     -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json") `
     -ReportPath (Join-Path $repo "data\backtest\daily_refresh_report.md") -Now $now
@@ -580,15 +690,72 @@ catch {
         "without this check a duplicate worker is invisible until capture starts failing memory admission" $null $null
 }
 
+# ---- 12. task last-run snapshot (Task Scheduler API only, never the event log) ----
+$knownProducerNames = @($knownCriticals | ForEach-Object { @($_.producers) } | Where-Object { $_ } | Select-Object -Unique)
+$taskResults = @()
+$taskSnapshotFailures = @()
+try {
+    $taskSnapshot = Get-WeatherTaskResults -ConfigPath (Join-Path $repo "config\scheduled_tasks.json") -ExtraNames $knownProducerNames
+    $taskResults = @($taskSnapshot.rows)
+    $taskSnapshotFailures = @($taskSnapshot.failures)
+}
+catch { $taskSnapshotFailures = @("task snapshot failed: $($_.Exception.Message)") }
+if ($taskSnapshotFailures.Count -gt 0) {
+    Add-Finding "tasks/task_results" "WARN" `
+        ("{0} task snapshot failure(s): {1}" -f $taskSnapshotFailures.Count, (($taskSnapshotFailures | Select-Object -First 3) -join '; ')) `
+        "the daily task_results snapshot is the only record of each task's last run outside the event log; a gap here is not a task failure" $null $null
+}
+
+# ---- known-criticals post-pass (after every finding exists) ----
+$producerStates = @{}
+$producerRows = @{}
+foreach ($t in $taskResults) {
+    if ($t.state -and [string]$t.state -ne 'NotRegistered') { $producerStates[[string]$t.name] = [string]$t.state }
+    $producerRows[[string]$t.name] = $t
+}
+$knownRows = New-Object System.Collections.Generic.List[object]
+foreach ($kc in $knownCriticals) {
+    $matched = @($findings | Where-Object { $_.check -eq [string]$kc.check })
+    $targets = if ($matched.Count -gt 0) { $matched } else { @($null) }
+    foreach ($finding in $targets) {
+        $disp = Get-WeatherKnownCriticalDisposition -Row $kc -Finding $finding -ProducerStates $producerStates -Now $now -MaxDays $knownCriticalMaxDays
+        switch ($disp.disposition) {
+            'KNOWN' {
+                $finding.severity = 'KNOWN'
+                $producerText = (@($kc.producers) | ForEach-Object {
+                    $pr = $producerRows[[string]$_]
+                    $lastRun = if ($pr -and $pr.last_run_utc) { $pr.last_run_utc } else { 'never' }
+                    "{0} {1}, last run {2}" -f $_, $(if ($pr) { $pr.state } else { 'unknown' }), $lastRun
+                }) -join '; '
+                $knownRows.Add([pscustomobject]@{
+                    check = $finding.check; detail = $finding.detail; age_days = $finding.age_days
+                    producers = $producerText; expires = [string]$kc.expires; decision = [string]$kc.decision
+                })
+            }
+            'LAPSED' {
+                Add-Finding "known/lapsed" "CRITICAL" ("{0}: {1}" -f $kc.check, $disp.reason) `
+                    "a known-critical hold stopped applying; the original CRITICAL stands. Decide and record a dated DECISION_LOG row - never answer an expiry by running Stage B before B's look closes" $null $null
+            }
+            'MALFORMED' {
+                Add-Finding "known/malformed" "CRITICAL" ("{0}: {1}" -f $(if ($kc.check) { $kc.check } else { '(unnamed)' }), $disp.reason) `
+                    "an invalid known-criticals row holds nothing; fix the row in staleness_sweep.ps1 with its DECISION_LOG reference" $null $null
+            }
+        }
+        if ($disp.disposition -eq 'MALFORMED') { break }
+    }
+}
+
 # ---- report ----
 $crit = @($findings | Where-Object { $_.severity -eq "CRITICAL" })
 $warn = @($findings | Where-Object { $_.severity -eq "WARN" })
+$known = @($findings | Where-Object { $_.severity -eq "KNOWN" })
 $verdict = if ($crit.Count -gt 0) { "CRITICAL" } elseif ($warn.Count -gt 0) { "WARN" } else { "OK" }
 
 $record = [ordered]@{
     ts = $now.ToString("o"); verdict = $verdict
-    critical_count = $crit.Count; warn_count = $warn.Count; check_count = $findings.Count
+    critical_count = $crit.Count; warn_count = $warn.Count; known_count = $known.Count; check_count = $findings.Count
     findings = @($findings | Where-Object { $_.severity -ne "OK" })
+    task_results = @($taskResults)
 }
 try {
     $dir = Split-Path $JsonOut -Parent
@@ -602,7 +769,7 @@ $md.Add("# Staleness sweep")
 $md.Add("")
 $md.Add(("Generated {0:yyyy-MM-dd HH:mm}. Regenerated every run; do not edit." -f $now))
 $md.Add("")
-$md.Add("**Verdict: $verdict** - $($crit.Count) critical, $($warn.Count) warn, $($findings.Count) checks.")
+$md.Add("**Verdict: $verdict** - $($crit.Count) critical, $($warn.Count) warn, $($known.Count) known, $($findings.Count) checks.")
 $md.Add("")
 $md.Add("Answers *should this have refreshed by now?* - the question the other monitors do not ask.")
 $md.Add("")
@@ -615,12 +782,26 @@ if ($crit.Count -or $warn.Count) {
 }
 else { $md.Add("Everything watched is within its declared freshness.") }
 $md.Add("")
+if ($knownRows.Count -gt 0) {
+    # Never in the CRITICAL table above: status.ps1 counts only '| **CRITICAL** |' rows.
+    $md.Add("## Known")
+    $md.Add("")
+    $md.Add("Listed CRITICALs held while every producer is Disabled and the row has not expired.")
+    $md.Add("")
+    $md.Add("| Check | Age | Producers (State, last run UTC) | Expires | Decision |")
+    $md.Add("| --- | --- | --- | --- | --- |")
+    foreach ($k in $knownRows) {
+        $ageText = if ($null -ne $k.age_days) { "{0:N1}d" -f $k.age_days } else { $k.detail }
+        $md.Add(("| ``{0}`` | {1} | {2} | {3} | {4} |" -f $k.check, $ageText, $k.producers, $k.expires, $k.decision))
+    }
+    $md.Add("")
+}
 $md.Add("## All checks")
 $md.Add("")
 foreach ($f in $findings) { $md.Add(("- ``{0}`` {1} - {2}" -f $f.check, $f.severity, $f.detail)) }
 try { Set-Content -Path $MarkdownOut -Value ($md -join "`n") -Encoding utf8 } catch {}
 
-Write-Output "staleness sweep: $verdict ($($crit.Count) critical, $($warn.Count) warn, $($findings.Count) checks)"
+Write-Output "staleness sweep: $verdict ($($crit.Count) critical, $($warn.Count) warn, $($known.Count) known, $($findings.Count) checks)"
 foreach ($f in @($crit + $warn)) { Write-Output ("  [{0}] {1}: {2}" -f $f.severity, $f.check, $f.detail) }
 Write-Output "wrote $MarkdownOut"
 

@@ -572,6 +572,14 @@ report is rewritten after every step, its mtime no longer proves completion:
 is OK only for a `COMPLETED` status, falling back to the report (failing on
 `Status: **running**`) only when the manifest is missing or unreadable.
 
+The sweep's `$knownCriticals` table turns a listed CRITICAL into KNOWN (its
+Markdown `## Known` section and JSONL `known_count` only, never the CRITICAL
+table `status.ps1` reads) only while every named producer task is exactly
+`Disabled` and the dated row, capped at 60 days and renewed only by a dated
+DECISION_LOG row, has not expired; otherwise the CRITICAL stands with a
+`known/lapsed` (or `known/malformed`) CRITICAL, and each JSONL row carries a
+Task Scheduler `task_results` last-run snapshot that never reads the event log.
+
 ### Settlement in the chain: what it does and does not do
 
 The step order is `STEP_REGISTRY` in `src/weather/operations/daily_refresh_registry.py`; Stage A is every step

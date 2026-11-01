@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -285,3 +286,188 @@ def test_status_capture_family_block_flags_when_the_reader_fails(tmp_path):
     result = _capture_family_block(tmp_path, [], {"families": []}, exit_code=1)
 
     assert result["flags"] == ["CAPTURE_FAMILY status check failed to run"] and result["warns"] == []
+
+
+# ---- R18: dated known-criticals table in staleness_sweep.ps1 ----
+SWEEP = ROOT / "scripts" / "ops" / "staleness_sweep.ps1"
+LOAD_KNOWN_TABLE = (
+    "$ast.FindAll({param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and "
+    "$n.Left.Extent.Text -in @('$knownCriticals','$knownCriticalMaxDays')},$false) | ForEach-Object {Invoke-Expression $_.Extent.Text}\n"
+)
+HELD = {"WeatherEveningEvidenceRefresh": "Disabled", "WeatherTrainingWindow": "Disabled"}
+GOOD_ROW = dict(check="learning/daily_learning", producers=list(HELD), recorded="2026-11-04",
+                expires="2026-12-31", decision="DL R18")
+# id: (row overrides, finding severity or None, producer states, now, disposition)
+DISPOSITION_CASES = {
+    "held": ({}, "CRITICAL", HELD, "2026-11-20T08:10:00", "KNOWN"),
+    "expiry_day": ({}, "CRITICAL", HELD, "2026-12-31T23:59:00", "KNOWN"),
+    "expired": ({}, "CRITICAL", HELD, "2027-01-01T08:10:00", "LAPSED"),
+    "producer_ready": ({}, "CRITICAL", {**HELD, "WeatherTrainingWindow": "Ready"}, "2026-11-20T08:10:00", "LAPSED"),
+    "producer_running": ({}, "CRITICAL", {**HELD, "WeatherEveningEvidenceRefresh": "Running"}, "2026-11-20T08:10:00", "LAPSED"),
+    "producer_missing": ({}, "CRITICAL", {"WeatherEveningEvidenceRefresh": "Disabled"}, "2026-11-20T08:10:00", "LAPSED"),
+    "state_not_exact": ({}, "CRITICAL", {**HELD, "WeatherTrainingWindow": "disabled"}, "2026-11-20T08:10:00", "LAPSED"),
+    "finding_warn": ({}, "WARN", HELD, "2026-11-20T08:10:00", "NONE"),
+    "finding_ok": ({}, "OK", HELD, "2026-11-20T08:10:00", "NONE"),
+    "no_finding": ({}, None, HELD, "2026-11-20T08:10:00", "NONE"),
+    "over_cap": ({"recorded": "2026-10-31"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "cap_exact": ({"recorded": "2026-11-01"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "KNOWN"),
+    "bad_date": ({"expires": "31/12/2026"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "inverted": ({"expires": "2026-11-01"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "no_producers": ({"producers": []}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "no_decision": ({"decision": ""}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "malformed_even_if_ok": ({"recorded": "2026-01-01"}, "OK", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+}
+
+
+@pytest.mark.spawns
+def test_known_critical_disposition_matrix(tmp_path):
+    cases = []
+    for case_id, (overrides, severity, states, now, _expected) in DISPOSITION_CASES.items():
+        cases.append(dict(id=case_id, row={**GOOD_ROW, **overrides}, severity=severity, states=states, now=now))
+    (tmp_path / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
+    result = ps("staleness_sweep.ps1", ["Get-WeatherKnownCriticalDisposition"], LOAD_KNOWN_TABLE + """
+$out=@{}
+foreach($c in (Get-Content (Join-Path $root 'cases.json') -Raw | ConvertFrom-Json)){
+  $states=@{}; foreach($p in $c.states.PSObject.Properties){$states[$p.Name]=[string]$p.Value}
+  $finding=if($c.severity){[pscustomobject]@{check=$c.row.check;severity=[string]$c.severity}}else{$null}
+  $out[$c.id]=(Get-WeatherKnownCriticalDisposition -Row $c.row -Finding $finding -ProducerStates $states -Now ([datetime]$c.now) -MaxDays $knownCriticalMaxDays).disposition
+}
+$shipped=@($knownCriticals | ForEach-Object {
+  $f=[pscustomobject]@{check=$_.check;severity='CRITICAL'}
+  $s=@{}; foreach($p in $_.producers){$s[$p]='Disabled'}
+  [pscustomobject]@{check=$_.check;producers=@($_.producers);decision=$_.decision;expires=$_.expires
+    disposition=(Get-WeatherKnownCriticalDisposition -Row $_ -Finding $f -ProducerStates $s -Now ([datetime]$_.recorded) -MaxDays $knownCriticalMaxDays).disposition}
+})
+@{cases=$out;shipped=$shipped;cap=$knownCriticalMaxDays} | ConvertTo-Json -Depth 5 -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["cap"] == 60
+    for case_id, spec in DISPOSITION_CASES.items():
+        assert payload["cases"][case_id] == spec[4], case_id
+    shipped = {row["check"]: row for row in payload["shipped"]}
+    assert set(shipped) == {"learning/daily_learning", "learning/market_beating_scoreboard"}
+    assert shipped["learning/daily_learning"]["producers"] == ["WeatherEveningEvidenceRefresh", "WeatherTrainingWindow"]
+    assert shipped["learning/market_beating_scoreboard"]["producers"] == ["WeatherEveningEvidenceRefresh"]
+    for row in shipped.values():
+        assert (row["disposition"], row["expires"], row["decision"]) == ("KNOWN", "2026-12-31", "DL R18")
+
+
+TASK_STUBS = """
+function Get-ScheduledTask {
+  [CmdletBinding()] param([string]$TaskName)
+  switch($TaskName){
+    'TaskReady' { [pscustomobject]@{TaskName=$TaskName;State='Ready'} }
+    'TaskNever' { [pscustomobject]@{TaskName=$TaskName;State='Disabled'} }
+    'TaskDenied' { throw [System.UnauthorizedAccessException]'access denied' }
+    default { Write-Error -Message "No MSFT_ScheduledTask objects found" -Category ObjectNotFound }
+  }
+}
+function Get-ScheduledTaskInfo {
+  [CmdletBinding()] param([Parameter(ValueFromPipeline=$true)]$InputObject)
+  process {
+    if($InputObject.TaskName -eq 'TaskNever'){ [pscustomobject]@{LastRunTime=[datetime]'1999-11-30';LastTaskResult=267011} }
+    else { [pscustomobject]@{LastRunTime=[datetime]::SpecifyKind([datetime]'2026-08-13T01:00:00',[DateTimeKind]::Utc);LastTaskResult=-2147024891} }
+  }
+}
+"""
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", ["tasks", "unreadable"])
+def test_task_results_snapshot_never_aborts(case, tmp_path):
+    config = {"tasks": [{"name": n} for n in ["TaskReady", "TaskNever", "TaskAbsent", "TaskDenied"]]}
+    (tmp_path / "tasks.json").write_text(json.dumps(config) if case == "tasks" else "{truncated", encoding="utf-8")
+    result = ps("staleness_sweep.ps1", ["Get-WeatherTaskResults"], TASK_STUBS + """
+Get-WeatherTaskResults -ConfigPath (Join-Path $root 'tasks.json') -ExtraNames @('TaskReady','TaskExtra') | ConvertTo-Json -Depth 4 -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    rows = {row["name"]: row for row in payload["rows"]}
+    if case == "unreadable":
+        assert len(payload["failures"]) == 1 and "scheduled_tasks.json unreadable" in payload["failures"][0]
+        assert list(rows) == ["TaskReady", "TaskExtra"]
+        return
+    assert list(rows) == ["TaskReady", "TaskNever", "TaskAbsent", "TaskDenied", "TaskExtra"]
+    assert rows["TaskReady"] == {"name": "TaskReady", "last_run_utc": "2026-08-13T01:00:00.0000000Z",
+                                 "result_hex": "0x80070005", "state": "Ready"}
+    assert rows["TaskNever"]["last_run_utc"] is None and rows["TaskNever"]["result_hex"] == "0x41303"
+    assert rows["TaskAbsent"]["state"] == "NotRegistered" and rows["TaskExtra"]["state"] == "NotRegistered"
+    assert rows["TaskDenied"]["state"] is None
+    assert len(payload["failures"]) == 1 and payload["failures"][0].startswith("TaskDenied:")
+    text = SWEEP.read_text(encoding="utf-8-sig")
+    assert "Get-WinEvent" not in text and "Get-EventLog" not in text
+
+
+def _sweep_report(tmp_path, states, failures=()):
+    """Run the shipped post-pass and report block on synthetic findings; parse it with status.ps1."""
+    text = SWEEP.read_text(encoding="utf-8-sig")
+    (tmp_path / "block.ps1").write_text(text[text.index("# ---- 12. task last-run snapshot"):], encoding="utf-8")
+    rows = "".join(
+        f"[pscustomobject]@{{name='{n}';last_run_utc='2026-08-13T05:00:00.0000000Z';result_hex='0x0';state='{s}'}};"
+        for n, s in states.items())
+    fails = ",".join(f"'{f}'" for f in failures)
+    body = LOAD_KNOWN_TABLE + f"""
+function Get-WeatherTaskResults {{ param($ConfigPath,$ExtraNames) [pscustomobject]@{{rows=@({rows});failures=@({fails})}} }}
+$findings=@()
+Add-Finding 'learning/daily_learning' 'CRITICAL' 'data\\backtest\\daily_learning.json is 80.0d old' 'rollup why' 80.0 2
+Add-Finding 'learning/market_beating_scoreboard' 'CRITICAL' 'data\\backtest\\market_beating_objective_scoreboard.json is 80.0d old' 'scoreboard why' 80.0 2
+Add-Finding 'docs/unreachable' 'WARN' '1 of 9 unreachable' 'why' $null $null
+Add-Finding 'settlement/latest' 'OK' 'fresh' 'why' 1 2
+$repo=$root; $now=[datetime]'2026-11-10T08:10:00'
+$JsonOut=Join-Path $root 'sweep.jsonl'; $MarkdownOut=Join-Path $root 'sweep.md'
+$ErrorActionPreference='Continue'
+. ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $root 'block.ps1'))))
+"""
+    result = ps("staleness_sweep.ps1", ["Add-Finding", "Get-WeatherKnownCriticalDisposition"], body, tmp_path)
+    md = (tmp_path / "sweep.md").read_text(encoding="utf-8-sig")
+    record = json.loads((tmp_path / "sweep.jsonl").read_text(encoding="utf-8-sig").splitlines()[-1])
+    flags = ps("status.ps1", ["Get-WeatherSweepFlags"], """
+@(Get-WeatherSweepFlags -Path (Join-Path $root 'sweep.md') -Now ([datetime]'2026-11-10T09:00:00')) | ConvertTo-Json -Compress
+""", tmp_path)
+    assert flags.returncode == 0, flags.stderr
+    parsed = json.loads(flags.stdout) if flags.stdout.strip() else []
+    return result, md, record, parsed if isinstance(parsed, list) else [parsed]
+
+
+@pytest.mark.spawns
+def test_held_known_criticals_leave_the_critical_table_and_status_flags(tmp_path):
+    result, md, record, flags = _sweep_report(tmp_path, HELD)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "**Verdict: WARN** - 0 critical, 1 warn, 2 known, 4 checks." in md
+    known = md[md.index("## Known"):md.index("## All checks")]
+    assert ("| `learning/daily_learning` | 80.0d | WeatherEveningEvidenceRefresh Disabled, last run "
+            "2026-08-13T05:00:00.0000000Z; WeatherTrainingWindow Disabled") in known
+    assert "| 2026-12-31 | DL R18 |" in known
+    assert "| **CRITICAL** |" not in md and "| **KNOWN** |" not in md
+    assert flags == []
+    assert (record["verdict"], record["critical_count"], record["warn_count"], record["known_count"]) == ("WARN", 0, 1, 2)
+    assert {f["check"]: f["severity"] for f in record["findings"]} == {
+        "learning/daily_learning": "KNOWN", "learning/market_beating_scoreboard": "KNOWN", "docs/unreachable": "WARN"}
+    assert {t["name"] for t in record["task_results"]} == set(HELD)
+    # The console lists only CRITICAL and WARN rows.
+    assert [line.strip() for line in result.stdout.splitlines() if line.startswith("  [")] == [
+        "[WARN] docs/unreachable: 1 of 9 unreachable"]
+
+
+@pytest.mark.spawns
+def test_an_unheld_known_critical_stays_critical_and_adds_a_lapsed_row(tmp_path):
+    states = {**HELD, "WeatherTrainingWindow": "Ready"}
+    result, md, record, flags = _sweep_report(tmp_path, states, failures=["TaskDenied: access denied"])
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "**Verdict: CRITICAL** - 2 critical, 2 warn, 1 known, 6 checks." in md
+    assert sorted(f.split("]")[0] for f in flags) == [
+        "STALENESS_SWEEP CRITICAL [known/lapsed", "STALENESS_SWEEP CRITICAL [learning/daily_learning"]
+    assert any("learning/daily_learning: producer WeatherTrainingWindow is Ready, not Disabled" in f for f in flags)
+    assert (record["critical_count"], record["warn_count"], record["known_count"]) == (2, 2, 1)
+    assert {f["check"]: f["severity"] for f in record["findings"]}["tasks/task_results"] == "WARN"
+
+
+def test_learning_why_texts_name_stage_b_and_carry_no_dates():
+    text = SWEEP.read_text(encoding="utf-8-sig")
+    whys = text[text.index('Test-FileAge "learning/daily_learning"'):text.index("$stageA = Get-WeatherStageAChainFinding")]
+    assert whys.count("Stage-B output (after promotion_refresh)") == 2
+    assert "nightly_retrain under WeatherTrainingWindow" in whys
+    assert whys.count("settlement-gated") == 2
+    assert "27 days" not in whys and "21 steps" not in whys
+    assert not re.search(r"20\d\d-\d\d-\d\d|\d+ days", whys)
