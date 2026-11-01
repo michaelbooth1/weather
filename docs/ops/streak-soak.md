@@ -644,6 +644,10 @@ retry only `WeatherOneShotPush` and re-check `origin/master`. Every outcome afte
 writes an immutable `docs-light-<ts>-<tip12>.json` receipt
 (`docs_light_path_receipt_v0.1`) to `data/alerts/quiet_window_merge_reconciliations/`; status
 retirement scans ignore that name. `-CheckOnly` runs every precondition and changes nothing.
+A `LastTaskResult` of 0x41301/0x41303 read while the task is Ready is a stale transient: the
+wait keeps polling, and if it is still stale at the deadline the receipt records
+`push.stale_scheduler_result: true` and the `origin/master` check alone decides.
+The 11-01 07:27 receipt docs-light-20261101T072752-2bc2048949f7 is a false merged_unpushed: publication was verified by ls-remote at 07:28:11 and WeatherOneShotPush finished rc 0; fixed by claude/ops-docs-light-path-push-race-20261101.
 
 For ordinary synchronized integrations only, `stage: merged_unpushed` means the
 credential-bearing `WeatherOneShotPush` task did not acknowledge
