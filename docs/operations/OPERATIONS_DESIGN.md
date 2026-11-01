@@ -1229,6 +1229,26 @@ touches nothing.
   keyed to that IP form, so use it rather than the host name. `pull` only reads under `--share-root`: it creates,
   renames, locks and writes nothing there; its staging, `incoming\` and the receipt ledger are workstation-local.
 
+## MG-1 Input Backfill (manual; no scheduled task)
+
+R11 Head 1 backfills MG-2-format input bundles for the MG-1 reserved window dates 2026-10-15..2026-10-27,
+which predate the MG-2 export. The host side is `scripts/ops/mg1_input_backfill.ps1` (by hand, never
+registered), which wraps `python -m tools.research.mg1_input_backfill`. That tool swaps only the exporter's date
+gate inside `try/finally` and calls the unchanged `weather.calibration.mg2_input_export` with coverage counts
+always off; nothing under `src/` imports or names it.
+
+- **Admission.** Identical to the MG-2 export wrapper (00:30-09:00, lease workload `mg1_input_backfill` refused
+  when busy, 5 GiB free on the output volume, the dedicated capture host, kill-on-close job, deadline before
+  09:00), with the `-P -B` child pinned to `<source>;<source>\src` and both modules proven to resolve there, and
+  memory freshness measured in UTC by `Get-WeatherMemoryGuardStatusAgeMinutes`. `-Mode Precheck` lists input
+  presence and sizes from metadata only; `-PlanOnly` prints the plan and stops.
+- **Writes.** Only under `data\exports\mg1-inputs\`: the exporter's `<D>\` and `<D>.SHA256SUMS`, a sidecar
+  `<D>.mg1_backfill_receipt.json` (exporter and wrapper sha256, manifest sha256, coverage counts false), and
+  `_runs\`. A date already exported is skipped; partial outputs refuse the date.
+- **Workstation.** `python -m weather.calibration.mg1_layout stage --share-root <share>` copies `<D>\` and the
+  sidecar; `admit` verifies with every §9.3 check except the deadline; `build` and `concat` assemble the full
+  window once it has closed. The share root is always an argument; the same share rules as MG-2 apply.
+
 ## Why Capture Is Not Packaged Into The Dashboard
 
 A shortcut or executable is useful for opening the dashboard, but it is not a
