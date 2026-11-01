@@ -21,6 +21,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Versioned NBM parser diagnostics; network-free compilation smoke.",
     },
+    "mosmix_forward_recorder.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L13 DWD MOSMIX forward-capture recorder (free DWD open data); network-free compilation smoke.",
+    },
     "analyze_boundaries.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
