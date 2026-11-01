@@ -70,6 +70,7 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherEveningEvidenceRefresh | active | True | scripts/ops/register_daily_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherExchangeEconomicsSnapshotRefresh | active | False | scripts/ops/register_exchange_economics_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherExecutionTapeSupervisor | active | False | scripts/ops/register_execution_tape_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherForwardArrivalCheck | active | False | scripts/ops/register_forward_input_arrival_check.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherHostHealthWatchdog | active | False | scripts/ops/register_health_watchdog.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherIntegrationMerge_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherIntegrationRecoveryBootstrapMerge0822 | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |

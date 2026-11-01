@@ -135,6 +135,15 @@
       "registration_evidence": "repository registrar; host action and enablement unverified"
     },
     {
+      "name": "WeatherForwardArrivalCheck",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_forward_input_arrival_check.ps1",
+      "registration_evidence": "repository registrar only (2026-11-01, master ruling R20 section 2); NOT registered on the capture host until the R20 head lands and master registers it under its scheduled-task authority"
+    },
+    {
       "name": "WeatherHostHealthWatchdog",
       "owner": "docs/operations/OPERATIONS_DESIGN.md",
       "state": "active",
