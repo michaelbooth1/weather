@@ -53,6 +53,7 @@ PINNED = [
     "weather.operations.replay_status_backfill",
     "weather.operations.workstation_cold_archive_stage",
     "weather.operations.workstation_cold_archive_restore",
+    "weather.reporting.research.guidance_extract",  # row 80 look step 2, master (a) 2026-10-31
     "weather.reporting.scorecards.dev_scorecard",
     "weather.reporting.scorecards.loss_atlas",
     "weather.reporting.scorecards.train_serve_feature_parity",
