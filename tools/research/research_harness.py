@@ -76,6 +76,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile",
         "notes": "Local historical backfill queue summary.",
     },
+    "t1_forward_emitter.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L3 T+1 forward-test daily emitter (research/shadow; forecast recorders only); network-free compilation smoke.",
+    },
     "ten_minute_performance_audit.py": {
         "status": "retired",
         "smoke": "compile_main_guard",
