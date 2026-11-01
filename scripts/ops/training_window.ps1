@@ -72,13 +72,15 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $scriptPath = (Resolve-Path -LiteralPath $PSCommandPath -ErrorAction Stop).Path
 $contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
 $workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
-foreach ($requiredScript in @($contractScript, $workloadLeaseScript)) {
+$jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+foreach ($requiredScript in @($contractScript, $workloadLeaseScript, $jobScript)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "training window helper not found at $requiredScript"
     }
 }
 . $contractScript
 . $workloadLeaseScript
+. $jobScript
 $baseBindings = $null
 $boundRunAt = $null
 if (-not $RestoreOnly) {
@@ -501,17 +503,25 @@ if ($dirtyPaths.Count -gt 0) {
     }
     Assert-CaptureStoppedForTraining
     $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
-    $child = Start-Process -FilePath $python `
-        -ArgumentList $childArgumentString `
-        -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
-    $completed = $child.WaitForExit([int]($ChildTimeoutMinutes * 60 * 1000))
-    if (-not $completed) {
-        Write-WindowLog "RETRAIN" "cap reached; killing child tree pid $($child.Id)"
-        taskkill /PID $child.Id /T /F | Out-Null
-        $childExit = 9999
-    } else {
-        $childExit = $child.ExitCode
-        Write-WindowLog "RETRAIN" "nightly_retrain exited $childExit"
+    # The child tree lives in a kill-on-close Job: the cap terminates exactly the
+    # Job's members (never a PID-reuse orphan, as a parent-PID tree walk could),
+    # and the tree also dies if this wrapper is killed.
+    $childJob = New-WeatherKillOnCloseJob
+    try {
+        $child = Start-WeatherProcessInJob -Job $childJob -FilePath $python `
+            -ArgumentString $childArgumentString -WorkingDirectory $RepoRoot
+        $completed = $child.WaitForExit([int]($ChildTimeoutMinutes * 60 * 1000))
+        if (-not $completed) {
+            Write-WindowLog "RETRAIN" "cap reached; terminating child Job (pid $($child.Id) and its descendants)"
+            try { $childJob.TerminateAndWait(30000) }
+            catch { Write-WindowLog "ERROR" "child Job teardown unproved: $($_.Exception.Message)" }
+            $childExit = 9999
+        } else {
+            $childExit = $child.ExitCode
+            Write-WindowLog "RETRAIN" "nightly_retrain exited $childExit"
+        }
+    } finally {
+        $childJob.Dispose()
     }
     $nightlyStatusPath = Join-Path $RepoRoot "data\backtest\nightly_retrain_status.json"
     if (Test-Path $nightlyStatusPath) {

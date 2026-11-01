@@ -13,6 +13,8 @@ import time
 
 import pytest
 
+from tests.process_job import KillOnCloseJob, terminate_job_and_wait
+
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "scripts/ops/windows_kill_on_close_job.ps1"
@@ -305,3 +307,188 @@ try {
 }
 """, env={**_environment(tmp_path), "R1B_SPACE_EXE": str(executable)})
     assert result == {"code": 7, "completed": True}
+
+
+# ------------------------------------------------- stale-parent orphan (L33, 2026-11-01)
+# A long-lived process whose parent exited still records the dead parent's PID; a
+# parent-PID tree walk on a later process holding that PID kills it too. Job
+# termination must reach only Job members, whatever an outsider's parent PID says.
+
+class _ProcessEntry32(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", ctypes.c_uint32), ("cntUsage", ctypes.c_uint32),
+        ("th32ProcessID", ctypes.c_uint32), ("th32DefaultHeapID", ctypes.c_size_t),
+        ("th32ModuleID", ctypes.c_uint32), ("cntThreads", ctypes.c_uint32),
+        ("th32ParentProcessID", ctypes.c_uint32), ("pcPriClassBase", ctypes.c_long),
+        ("dwFlags", ctypes.c_uint32), ("szExeFile", ctypes.c_wchar * 260),
+    ]
+
+
+def _kernel():
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_bool, ctypes.c_uint32]
+    kernel.OpenProcess.restype = ctypes.c_void_p
+    kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CreateToolhelp32Snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    kernel.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    kernel.Process32FirstW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ProcessEntry32)]
+    kernel.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ProcessEntry32)]
+    return kernel
+
+
+def _recorded_parent_pid(kernel, pid: int) -> int | None:
+    snapshot = kernel.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    assert snapshot and snapshot != ctypes.c_void_p(-1).value
+    try:
+        entry = _ProcessEntry32()
+        entry.dwSize = ctypes.sizeof(entry)
+        more = kernel.Process32FirstW(snapshot, ctypes.byref(entry))
+        while more:
+            if entry.th32ProcessID == pid:
+                return int(entry.th32ParentProcessID)
+            more = kernel.Process32NextW(snapshot, ctypes.byref(entry))
+        return None
+    finally:
+        kernel.CloseHandle(snapshot)
+
+
+def _wait_for_json(path: Path, process, timeout: float = 60):
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        assert process.poll() is None, f"process exited ({process.returncode}) before writing {path.name}"
+        assert time.monotonic() < deadline, f"{path.name} never written"
+        time.sleep(0.05)
+    time.sleep(0.05)
+    return json.loads(path.read_text())
+
+
+ORPHAN_MAKER = (
+    "import json,os,subprocess,sys\n"
+    "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(300)'],"
+    "creationflags=subprocess.CREATE_NO_WINDOW)\n"
+    "open(sys.argv[1]+'.tmp','w').write(json.dumps({'parent':os.getpid(),'orphan':p.pid}))\n"
+    "os.replace(sys.argv[1]+'.tmp',sys.argv[1])\n"
+)
+TREE_CHILD = (
+    "import json,os,subprocess,sys,time\n"
+    "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(300)'],"
+    "creationflags=subprocess.CREATE_NO_WINDOW)\n"
+    "open(sys.argv[1]+'.tmp','w').write(json.dumps([os.getpid(),p.pid]))\n"
+    "os.replace(sys.argv[1]+'.tmp',sys.argv[1])\n"
+    "time.sleep(300)\n"
+)
+POWERSHELL_TREE_KILL = r"""
+$ErrorActionPreference = 'Stop'
+. $env:R1B_HELPER
+$job = New-WeatherKillOnCloseJob
+$child = $null
+try {
+    $arguments = ConvertTo-WeatherWindowsArgumentString -Tokens @('-c', $env:R1B_TREE_CHILD, $env:R1B_TREE_MARK)
+    $child = Start-WeatherProcessInJob -Job $job -FilePath $env:R1B_PYTHON -ArgumentString $arguments -WorkingDirectory $env:R1B_TEMP
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    while (-not (Test-Path -LiteralPath $env:R1B_TREE_MARK)) {
+        if ($watch.ElapsedMilliseconds -ge 60000) { throw 'tree child never wrote its marker' }
+        Start-Sleep -Milliseconds 50
+    }
+    Start-Sleep -Milliseconds 100
+    $job.TerminateAndWait(10000)
+    @{ terminated = $true } | ConvertTo-Json -Compress
+} finally { $job.Dispose(); if ($child) { $child.Dispose() } }
+"""
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("kill_path", ["python_job", "powershell_job"])
+def test_job_tree_kill_never_reaches_a_stale_parent_orphan(tmp_path, kill_path):
+    kernel = _kernel()
+    handles = []
+    try:
+        _assert_stale_parent_orphan_survives(tmp_path, kill_path, kernel, handles)
+    finally:
+        for handle in handles:
+            kernel.CloseHandle(handle)
+
+
+def _assert_stale_parent_orphan_survives(tmp_path, kill_path, kernel, handles):
+    synchronize = 0x00100000
+    # The orphan lives in its own cleanup Job (closed below), never in the Job
+    # under test: only test-owned processes are created or killed here.
+    with KillOnCloseJob() as cleanup:
+        maker = cleanup.popen([sys.executable, "-c", ORPHAN_MAKER, str(tmp_path / "orphan.json")])
+        assert maker.wait(timeout=60) == 0
+        ids = json.loads((tmp_path / "orphan.json").read_text())
+        orphan = kernel.OpenProcess(synchronize, False, ids["orphan"])
+        assert orphan, "orphan exited before the test could hold it"
+        handles.append(orphan)
+        try:
+            assert kernel.WaitForSingleObject(orphan, 0) == 258  # running
+            # Precondition: the orphan records a parent PID whose process has exited.
+            assert _recorded_parent_pid(kernel, ids["orphan"]) == ids["parent"]
+            assert maker.poll() is not None
+
+            mark = tmp_path / "tree.json"
+            if kill_path == "python_job":
+                with KillOnCloseJob() as job:
+                    child = job.popen([sys.executable, "-c", TREE_CHILD, str(mark)],
+                                      creationflags=subprocess.CREATE_NO_WINDOW)
+                    tree = _wait_for_json(mark, child)
+                    tree_handles = [kernel.OpenProcess(synchronize, False, pid) for pid in tree]
+                    assert all(tree_handles)
+                    handles.extend(tree_handles)
+                    terminate_job_and_wait(job, child, timeout=30)
+                    assert job.active_process_count() == 0
+            else:
+                env = {**_environment(tmp_path), "R1B_TREE_CHILD": TREE_CHILD, "R1B_TREE_MARK": str(mark)}
+                assert _run(tmp_path, POWERSHELL_TREE_KILL, env=env) == {"terminated": True}
+                tree_handles = []
+
+            # Every Job member is gone (the PowerShell path proved zero members itself) ...
+            for handle in tree_handles:
+                assert kernel.WaitForSingleObject(handle, 5000) == 0
+            # ... and the stale-parent orphan outside the Job is untouched.
+            assert kernel.WaitForSingleObject(orphan, 500) == 258
+        finally:
+            cleanup.terminate(timeout=30)
+        assert kernel.WaitForSingleObject(orphan, 10000) == 0
+
+
+HOLDER = "import sys,time\nf=open(sys.argv[1],'w')\nf.write('held')\nf.flush()\ntime.sleep(300)\n"
+HOST_TIMEOUT_SCRIPT = r"""
+Start-Process -FilePath $env:L33_PY -WindowStyle Hidden -ArgumentList @(
+    ('"' + $env:L33_SCRIPT + '"'), ('"' + $env:L33_HOLD + '"'))
+$watch = [Diagnostics.Stopwatch]::StartNew()
+while (-not (Test-Path -LiteralPath $env:L33_HOLD) -and $watch.ElapsedMilliseconds -lt 60000) {
+    Start-Sleep -Milliseconds 50
+}
+Start-Sleep -Seconds 300
+"""
+
+
+@pytest.mark.spawns
+def test_shared_powershell_host_timeout_terminates_its_job_and_restarts(tmp_path):
+    from tests.powershell_host import SharedPowerShellHost
+
+    holder, held = tmp_path / "holder.py", tmp_path / "held.txt"
+    holder.write_text(HOLDER)
+    env = {**os.environ, "L33_PY": sys.executable, "L33_SCRIPT": str(holder), "L33_HOLD": str(held)}
+    host = SharedPowerShellHost()
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            host.run(HOST_TIMEOUT_SCRIPT, env=env, cwd=tmp_path, timeout=30)
+        assert held.exists(), "the grandchild never started"
+        # The grandchild (a Job member) held the file open; it is released only
+        # once the Job termination has ended that process.
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                held.unlink()
+                break
+            except PermissionError:
+                assert time.monotonic() < deadline, "grandchild survived the host timeout"
+                time.sleep(0.05)
+        result = host.run("Write-Output ok", cwd=tmp_path, timeout=120)
+        assert (result.returncode, result.stdout) == (0, "ok\n")
+    finally:
+        host.close()
