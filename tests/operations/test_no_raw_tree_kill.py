@@ -31,9 +31,10 @@ _TOOL = "task" + "kill"
 _TOOL_PATTERN = re.compile(r"(?i)\b" + _TOOL + r"(?:\.exe)?\b")
 # The tree switch as its own token: "/T" or "-T", any case, quoted or bare.
 _TREE_SWITCH = re.compile(r"""(?i)(?:^|[\s"',(\[])[/-]t(?=$|[\s"',)\]])""")
-# An invocation ends at a closing bracket, a pipe or statement separator, or a
-# line break that is not a continuation (after , ` \ ( [ the call goes on).
-_INVOCATION_END = re.compile(r"[\])|;]|(?<![,`\\(\[\s])[ \t]*\r?\n")
+# An invocation ends at a closing list bracket, a pipe or statement separator, or
+# a line break that is not a continuation (after , ` \ ( [ the call goes on).
+# A ")" does not end it: Python argument lists hold calls such as str(pid).
+_INVOCATION_END = re.compile(r"[\]|;]|(?<![,`\\(\[\s])[ \t]*\r?\n")
 _WINDOW = 240
 
 
@@ -93,6 +94,7 @@ def test_allowlist_stays_empty():
         f"& {_TOOL} -t -f -pid $p",
         f"{_TOOL} /PID $p `\n    /T /F",
         f"cmd /c {_TOOL} /f /t /im python.exe",
+        f'_run(["{_TOOL}", "/PID", str(process.pid), "/F", "/T"], timeout=60)',
     ],
 )
 def test_detector_flags_tree_switch_in_every_spelling(snippet):
