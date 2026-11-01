@@ -197,6 +197,26 @@ def test_memory_blocker_defers_immediately_and_stops_a_running_wait():
     assert final["decision"] == "DEFER" and len(calls) == 1
 
 
+def test_prestep_phase_resamples_before_admission_with_its_own_label():
+    clock = FakeClock()
+    args, logs = _args(clock)
+    admission_fn, calls = _sequence(ADMIT)
+    final, record = await_transient_capture_recovery(
+        args, "settlement_source_audit", {}, _blocked(_loop()), admission_fn=admission_fn, phase="before"
+    )
+    assert final["decision"] == "ADMIT"
+    assert calls == ["before"]
+    assert record["policy"] == "pre_step_transient_capture_degradation_retry"
+    assert record["outcome"] == "recovered"
+    assert all("pre-step" in line for line in logs)
+    # non-transient pre-step blockers are returned untouched, with no wait
+    initial = _blocked(_loop(), extra_blockers=[MEMORY_BLOCKER])
+    final, record = await_transient_capture_recovery(
+        args, "step", {}, initial, admission_fn=admission_fn, phase="before"
+    )
+    assert record is None and final is initial and clock.sleeps == [POST_STEP_TRANSIENT_RETRY_INTERVAL_SECONDS]
+
+
 def test_default_deadline_mirrors_wrapper_teardown():
     args = SimpleNamespace(stage="settlement")
     local_tz = datetime.now().astimezone().tzinfo

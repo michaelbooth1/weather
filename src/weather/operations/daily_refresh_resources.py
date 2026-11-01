@@ -404,7 +404,10 @@ def build_stage_a_step_admission(args, step_name, budget, *, phase="before"):
 # single sample cost 10-23 (and likely 10-21) its finalization, so the
 # post-step check re-samples for a bounded time before deferring. Everything
 # else -- inactive loop, stale or missing heartbeat, any other degraded reason,
-# any memory/commit blocker -- still defers immediately.
+# any memory/commit blocker -- still defers immediately. Since 2026-11-01 the
+# pre-step admission uses the same bounded re-sample (11-01 lost ~2 h of the
+# Stage-A window when one such cycle deferred settlement_source_audit before it
+# started); the interval and cap below apply to both phases.
 TRANSIENT_CAPTURE_DEGRADED_REASONS = frozenset({"consecutive_errors", "last_error_present"})
 POST_STEP_TRANSIENT_RETRY_INTERVAL_SECONDS = 30.0
 POST_STEP_TRANSIENT_RETRY_MAX_SECONDS = 600.0
@@ -500,8 +503,13 @@ def await_transient_capture_recovery(
     *,
     admission_fn=None,
     on_recheck=None,
+    phase="after",
 ):
-    """Re-sample a transiently degraded post-step admission, bounded by time.
+    """Re-sample a transiently degraded step admission, bounded by time.
+
+    ``phase`` is ``"after"`` (post-step re-check) or ``"before"`` (pre-step
+    admission); it selects the admission phase that is re-sampled and the
+    ``post_step``/``pre_step`` policy label and log wording.
 
     Returns ``(final_admission, record)``. ``record`` is ``None`` when the
     admission is not eligible (already admitted, or any non-transient
@@ -512,8 +520,12 @@ def await_transient_capture_recovery(
     non-transient blocker. ``args._stage_a_now_fn`` / ``_stage_a_sleep_fn`` /
     ``_stage_a_retry_log_fn`` are injectable for tests.
     """
+    if phase not in ("before", "after"):
+        raise ValueError(f"unknown admission phase: {phase!r}")
     if admission.get("decision") == "ADMIT" or not transient_capture_degradation_only(admission):
         return admission, None
+    label = "pre_step" if phase == "before" else "post_step"
+    wording = label.replace("_", "-")
     admission_fn = admission_fn or build_stage_a_step_admission
     now_fn = getattr(args, "_stage_a_now_fn", None) or (lambda: datetime.now(timezone.utc))
     sleep_fn = getattr(args, "_stage_a_sleep_fn", None) or time.sleep
@@ -524,7 +536,7 @@ def await_transient_capture_recovery(
     remaining_to_deadline = max(0.0, (deadline - started).total_seconds())
     wait_budget = min(float(POST_STEP_TRANSIENT_RETRY_MAX_SECONDS), remaining_to_deadline)
     record = {
-        "policy": "post_step_transient_capture_degradation_retry",
+        "policy": f"{label}_transient_capture_degradation_retry",
         "step": step_name,
         "started_at_utc": started.isoformat(),
         "interval_seconds": interval,
@@ -538,7 +550,7 @@ def await_transient_capture_recovery(
         "waited_seconds": 0.0,
     }
     log_fn(
-        f"daily_refresh: {step_name} post-step capture check transiently degraded; "
+        f"daily_refresh: {step_name} {wording} capture check transiently degraded; "
         f"re-checking every {interval:g}s for up to {wait_budget:g}s "
         f"(teardown {deadline.isoformat()})"
     )
@@ -548,12 +560,12 @@ def await_transient_capture_recovery(
     while (now_fn() - started).total_seconds() + interval <= wait_budget:
         sleep_fn(interval)
         attempt += 1
-        current = admission_fn(args, step_name, budget, phase="after")
+        current = admission_fn(args, step_name, budget, phase=phase)
         at = now_fn()
         sample = _admission_sample(attempt, at, current)
         record["rechecks"].append(sample)
         log_fn(
-            f"daily_refresh: {step_name} post-step re-check {attempt}: "
+            f"daily_refresh: {step_name} {wording} re-check {attempt}: "
             f"{current.get('decision')} "
             f"{[blocker.get('code') for blocker in sample['blockers']]}"
         )
@@ -574,7 +586,7 @@ def await_transient_capture_recovery(
         "final_decision": current.get("decision"),
     })
     log_fn(
-        f"daily_refresh: {step_name} post-step transient retry outcome={outcome} "
+        f"daily_refresh: {step_name} {wording} transient retry outcome={outcome} "
         f"after {attempt} re-check(s)"
     )
     return current, record
