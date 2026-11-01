@@ -1,6 +1,6 @@
-# Market reliability by bin on US11: pre-registration (DRAFT, revision 1)
+# Market reliability by bin on US11: pre-registration (DRAFT, revision 2)
 
-**Status: DRAFT, NOT FROZEN (revision 1).** Nothing in this file is binding until master reviews it, pins
+**Status: DRAFT, NOT FROZEN (revision 2).** Nothing in this file is binding until master reviews it, pins
 the run script's sha256 and writes the ledger row. No reliability score, calibration curve, Brier or log
 score, or any other statistic that pairs labels with prices has been computed. Two computations exist:
 
@@ -12,6 +12,14 @@ score, or any other statistic that pairs labels with prices has been computed. T
 Master accepted every default (O1-O9) with conditions C1-C4, folded in below. It also makes one design
 change that the dry run forced and that needs master's ruling: the residual is taken on the normalised
 price m̃. Section 4 gives the reason and the evidence.
+
+**Revision 2** follows master's review of revision 1 (`7d7c79b0a`):
+
+- R1 (the m̃ residual) and the C4 disclosure are accepted.
+- The queue exception is granted (section 9).
+- It adds the overround line (section 4), the dated schema disclosure, the rerun rule and the queue
+  exception (section 9).
+- Script fixes F1-F3 are in section 9.
 
 - Lane L21, workstation, 2026-11-01. Branch `claude/market-reliability-bin-prereg-20261101`, cut from
   `origin/master` `3f3fe50a1f61ac37f225839b2bdc8f9fd0a1dcbf`.
@@ -187,6 +195,8 @@ over the full captured ladder (C1).
   not forecast information.
 - With r = y − m̃, every control passes (section 9).
 - The raw-m bin gap stays as a descriptive column (`d_b_raw_point`).
+- **The verdict is silent on the overround itself.** The overround is a fee, so it belongs to maker
+  economics, which are CLOSED.
 
 ### 4a. Descriptive (non-deciding)
 
@@ -447,13 +457,67 @@ The rule is section 5b in full.
     - every input sha;
     - the script sha, the git tip, the seed, the draw counts, the library versions, the run time and the
       peak memory.
+  - The receipt also holds the exact command line, `peak_working_set_mb` and `seconds`.
   - No network. Standard library plus numpy, pandas and pyarrow only. `weather.reporting.scorecards`
     modules are imported read-only, and no B-bound file is edited.
-- **The real run is not workstation-light.** `load_layout` reads all four files, and the positive control
-  (`dev_scorecard.run_score`) reads them again. It goes through `scripts\ops\workstation_heavy.ps1
-  -Queue`, unless master rules otherwise.
-- **The `--synthetic-only` dry run** took 13.3 s with a peak of 713 MB. The sha was recorded first, and
-  `labels.parquet` was not opened.
+
+**Queue exception** (master, 2026-11-01: a one-off; the allowlist stays unchanged)
+
+The real run is not workstation-light: `load_layout` reads all four files, and the positive control
+(`dev_scorecard.run_score`) reads them again. It runs **directly, not through
+`scripts\ops\workstation_heavy.ps1`**, because that wrapper cannot admit a file-path script.
+
+The conditions, checked by the script's pre-flight, which refuses when one fails:
+
+- Available physical memory is at least 6 GB at start.
+- `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` are each set to an integer from 1 to
+  floor(logical CPUs / 3). That is the cap `workstation_heavy.ps1` sets at its default SlotCount of 3
+  (`Resolve-WeatherWorkstationThreadCap`); it is 10 on this 32-thread workstation.
+- No workstation-heavy job is active. The check is best effort: it refuses if any of these named mutexes
+  exists:
+  - `Global\WeatherProjectHeavyWorkloadV1`;
+  - its `.Exclusive` mutex;
+  - its `.Slot2`..`.Slot8` mutexes.
+  The operator also confirms that no heavy job is running.
+- The receipt records the exact command line, the script sha, `peak_working_set_mb` and `seconds`.
+
+**Rerun rule** (pre-registered)
+
+- A crash or refusal before any Δ is emitted is mechanical, not a read. The script reports it as
+  "US11: MECHANICAL FAILURE at <stage>, no Δ emitted", or as a pre-flight refusal.
+- At most **one** rerun is allowed. It must be at a reviewed new sha, with a dated clarification.
+- The ledger row counts once.
+
+**Disclosure.** 2026-11-01 L21 read labels.parquet's parquet schema (column names only, no values) outside the run to confirm the join key.
+
+**Script fixes after master's review of revision 1**
+
+- **F1, a C2 leak.** In the real run, step 3's real-label numbers are now held in memory. The receipt
+  records "PASS (numbers withheld until step 4 passes)" and writes the numbers only after step 4 passes.
+  A failing step 3 writes its own numbers.
+- **F2, crash safety.** Every exception after mode selection, except KeyboardInterrupt, now writes a
+  receipt. That includes the `dev_scorecard` LayoutError/Refused, the SystemExit refusals, MemoryError and
+  pre-flight refusals. The receipt carries:
+  - the verdict "US11: MECHANICAL FAILURE at <stage>, no Delta emitted";
+  - the exception type and its message, with every digit replaced by `#` and cut to 300 characters, so it
+    cannot carry a Δ or a label;
+  - the manifest-after sha.
+  The script exits 3.
+- **F3.** Both training-score checks above are tautologies, so step 3 adds a real assertion: the in-sample
+  Brier at β = 1 must equal Σ r² to within a relative 1e-6, because q is stored as float32. A failure is
+  step 3 UNTESTABLE.
+- **Mechanical-failure path tested.** A synthetic run on a layout directory that held only the manifest
+  wrote "US11: MECHANICAL FAILURE at read_inputs, no Delta emitted" and exited 3.
+
+**The `--synthetic-only` dry run** at the current script sha took 11.7 s with a peak of 757 MB. The sha was
+recorded first, and `labels.parquet` was not opened. The thread caps were set to 10.
+
+- Pre-flight result:
+  - memory 6.72 GB available;
+  - thread caps satisfied;
+  - one workstation-heavy mutex present (`.Slot2`, another lane's job), so the pre-flight would have
+    refused a real run at that moment.
+- The synthetic-only mode records the pre-flight result but does not refuse.
   - Population: 57 dates, 11 markets, 626 market-days, 14,969 ladders, 121,288 scored band rows; 0
     incomplete or zero-price ladders.
   - Step 1 (positive control): not run, because it needs labels.
@@ -465,9 +529,9 @@ The rule is section 5b in full.
     | Planted, y ~ m̃^1.5 | 0.0896 [0.0841, 0.0956] | 0.1685 [0.1545, 0.1821] | 0.1877 [0.1718, 0.2040] | 1.52 |
 
   - Step 3 (training-score check, on the null): PASS. In-sample Brier at β̂ is 5804.920, against 5804.940
-    at β = 1.
+    at β = 1. F3's relative difference between the Brier at β = 1 and Σ r² is 1.0e-10.
   - Step 4 (power projection, on the null): widest SE 0.0031 / 0.0127 / 0.0156, power 1.000 on every arm.
-  - The layout manifest was unchanged.
+  - The layout manifest was unchanged. The step 2-4 control numbers are identical to revision 1's dry run.
 
 **On KILL or UNTESTABLE**
 
