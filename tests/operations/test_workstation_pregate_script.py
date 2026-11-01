@@ -771,6 +771,10 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
     # test_pregate_exit_is_issued_from_the_final_finally guards the same contract
     # statically wherever console Ctrl+C cannot be delivered.
     if not _ctrl_c_reaches_a_new_console(tmp_path):
+        # Under the workstation_heavy.ps1 -Queue runner console Ctrl+C is not
+        # delivered, so this skips there: the KillOnCloseJob launch and
+        # terminate_job_and_wait cleanup below are then checked for syntax and
+        # imports only. Exercising them needs an interactive-console run.
         pytest.skip("console Ctrl+C is not delivered in this runner")
     root = Path(fixture_repo["root"])
     receipt_path = root / "receipt-interrupt.json"
