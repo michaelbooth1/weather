@@ -1108,6 +1108,16 @@ stopped, or is proving their recovery. Do this task first. If the pass cannot fi
 registrar needs base-retrain parameters the live task never had), so only the zone suffix changed. Row 2 was already
 local from its 10-30 re-registration. The GetRunTimes probe passed for 10-31..11-03, and no enabled `Weather*` task
 keeps a zoned daily trigger. Still pending, not DST-related: row 6's `-File`/status-file conversion by its registrar.
+
+**OD28 morning-after check, 2026-11-01 07:25 (master).** Of the 9 reset daily tasks, the five due by then fired at their
+local times with rc 0: `WeatherTrainingWindowRestore` 04:15, `WeatherClobTiering` 05:00, `WeatherClobRawTapeTiering` and
+`WeatherLocationConfigRefresh` 06:00, `WeatherExchangeEconomicsSnapshotRefresh` 06:50. Still due that day:
+`WeatherStalenessSweep` 08:10, `WeatherDailySettlementPromotionRefresh` 09:30, `WeatherStreakCaptureMonitor` 12:00.
+`WeatherEveningEvidenceRefresh` is disabled. `WeatherMg2InputExport` (04:15, 07:00) and `WeatherColdSnapshotNightly`
+(06:50) already had offset-free local triggers, were not reset, and also ran on time with rc 0. The 27 tasks whose XML
+carries zone-offset times re-hash after DST only because `Export-ScheduledTask` renders them in the current offset (for
+example `-05:00`); the 13 offset-free tasks are byte-identical. Read a post-DST XML diff split into offset-bearing and
+offset-free tasks.
 Disabled tasks still carry `-04:00` daily triggers (for example `WeatherMarketMakingDailyRoll`,
 `WeatherNightlyRetrainValidatePromote`, `WeatherMergeQueueDriver`); reset one before it is re-enabled.
 
