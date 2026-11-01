@@ -20,6 +20,8 @@ from weather.market.order_journal_report import build_report, markdown
 from weather.market.order_journal_sources import PUBLIC_USER_AGENT, PublicClob, SourceError, check_public
 from weather.market.wallet_reader_client import ClientError
 
+from tests.scheduler_stubs import GUARD_SCRIPT, TEST_ENV, assert_only_stubs_invoked, module_lookalike, prologue
+
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = json.loads((ROOT / "tests/fixtures/manual_order_journal/three_runs.json").read_text(encoding="utf-8"))
 IDS = FIXTURE["ids"]
@@ -274,7 +276,7 @@ def modules_sha256(root):
 def fixture_repo(tmp_path):
     (tmp_path / "scripts/ops").mkdir(parents=True)
     (tmp_path / "src/weather/market").mkdir(parents=True)
-    for name in ("manual_order_journal.ps1", "register_manual_order_journal.ps1"):
+    for name in ("manual_order_journal.ps1", "register_manual_order_journal.ps1", GUARD_SCRIPT):
         (tmp_path / "scripts/ops" / name).write_bytes((ROOT / "scripts/ops" / name).read_bytes())
     for name in MODULES:
         (tmp_path / "src/weather/market" / name).write_bytes((ROOT / "src/weather/market" / name).read_bytes())
@@ -317,27 +319,61 @@ catch { $failure = $_.Exception.Message }
 
 @pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
-@pytest.mark.parametrize("case", ["valid", "whatif", "wrong_runner", "wrong_modules", "missing"])
+@pytest.mark.parametrize("case", ["valid", "whatif", "wrong_runner", "wrong_modules", "missing", "missing_stub"])
 def test_registrar_requires_pins_before_mock_scheduler(tmp_path, case):
     runner, modules = fixture_repo(tmp_path)
+    ledger = tmp_path / "scheduler-ledger.jsonl"
+    source = prologue(ledger) + MOCK_SCHEDULER
+    if case == "missing_stub":
+        # The Get-ScheduledTask stub is replaced by a module-owned lookalike of the real command:
+        # WEATHER_TASK_TEST must make the registrar refuse before any Scheduler call.
+        source = source.replace("function Get-ScheduledTask {", "function Unused-WeatherFixtureStub {")
+        source = source.replace("$failure = ''", module_lookalike("Get-ScheduledTask") + "$failure = ''")
     if case == "wrong_runner":
         runner = "0" * 64
     if case == "wrong_modules":
         modules = "0" * 64
     if case == "missing":
         runner = ""
-    result = powershell(MOCK_SCHEDULER.replace("@(if ($env:WHATIF) { '-WhatIf' })",
-                                               "-WhatIf" if case == "whatif" else ""),
+    result = powershell(source.replace("@(if ($env:WHATIF) { '-WhatIf' })",
+                                       "-WhatIf" if case == "whatif" else ""),
                         FIXTURE_ROOT=str(tmp_path), RUNNER_HASH=runner, MODULES_HASH=modules)
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert_only_stubs_invoked(ledger, {"Register-ScheduledTask", "Get-ScheduledTask"} if case == "valid" else set())
     if case == "valid":
         assert payload["mutations"] == 1 and payload["error"] == ""
         assert runner in payload["arguments"] and modules in payload["arguments"]
         assert "-StateRoot" in payload["arguments"]
+    elif case == "missing_stub":
+        assert payload["mutations"] == 0 and "Get-ScheduledTask is not a test stub" in payload["error"]
     else:
         assert payload["mutations"] == 0
         assert bool(payload["error"]) == (case != "whatif")
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell qualification")
+@pytest.mark.parametrize("stubbed", [True, False])
+def test_unregister_reaches_only_the_unregister_stub(tmp_path, stubbed):
+    fixture_repo(tmp_path)
+    ledger = tmp_path / "scheduler-ledger.jsonl"
+    source = prologue(ledger) + MOCK_SCHEDULER.replace(
+        "-ExpectedRunnerSha256 $env:RUNNER_HASH -ExpectedModulesSha256 $env:MODULES_HASH @(if ($env:WHATIF) { '-WhatIf' })",
+        "-Unregister")
+    if not stubbed:
+        # The Unregister stub is replaced by a module-owned lookalike of the real command (never by
+        # nothing, which would leave the host scheduler one regression away); the registrar must refuse.
+        source = source.replace("function Unregister-ScheduledTask {", "function Unused-WeatherFixtureStub {")
+        source = source.replace("$failure = ''", module_lookalike("Unregister-ScheduledTask") + "$failure = ''")
+    result = powershell(source, FIXTURE_ROOT=str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert_only_stubs_invoked(ledger, {"Unregister-ScheduledTask"} if stubbed else set())
+    if stubbed:
+        assert payload["mutations"] == 1 and payload["error"] == ""
+    else:
+        assert payload["mutations"] == 0 and "Unregister-ScheduledTask is not a test stub" in payload["error"]
 
 
 @pytest.mark.spawns
@@ -448,11 +484,13 @@ def test_registrar_whatif_by_file_uses_its_own_root_and_prints_the_action(tmp_pa
     runner, modules = fixture_repo(tmp_path)
     script = str(tmp_path / "scripts/ops/register_manual_order_journal.ps1")
     base = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script]
+    # No stubs here: with WEATHER_TASK_TEST set, any Scheduler call on the preview path would refuse.
+    guarded = {**os.environ, TEST_ENV: "1"}
     preview = subprocess.run(base + ["-ExpectedRunnerSha256", runner, "-ExpectedModulesSha256", modules, "-WhatIf"],
-                             capture_output=True, text=True, timeout=60)
+                             capture_output=True, text=True, timeout=60, env=guarded)
     assert preview.returncode == 0, preview.stdout + preview.stderr
     assert "What if: register WeatherManualOrderJournal every 5 minutes" in preview.stdout
     assert f"-RepoRoot \"{tmp_path}\"" in preview.stdout and runner in preview.stdout
-    unpinned = subprocess.run(base + ["-WhatIf"], capture_output=True, text=True, timeout=60)
+    unpinned = subprocess.run(base + ["-WhatIf"], capture_output=True, text=True, timeout=60, env=guarded)
     flat = "".join((unpinned.stdout + unpinned.stderr).split())
     assert unpinned.returncode != 0 and f"currentrunner{runner},modules{modules}" in flat
