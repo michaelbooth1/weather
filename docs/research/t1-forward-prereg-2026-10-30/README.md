@@ -1,6 +1,6 @@
 # T+1 forward test: day-ahead NBM NBP, ECMWF ENS and their blend vs the T+1 market (lane L3)
 
-**Status: DRAFT, not frozen (rev 10).** It freezes only when P1, P2 and P3 all hold (section 8). P1 (the WS T+1
+**Status: DRAFT, not frozen (rev 11).** It freezes only when P1, P2 and P3 all hold (section 8). P1 (the WS T+1
 price recorder's horizon +1 coverage on 3 consecutive closed UTC days) is expected once UTC day 2026-11-02 closes
 (2026-11-03 00:00Z). P2 is expected about 2026-11-02 19:47Z. P3 (the emitter) is not built. So the freeze is no
 earlier than 2026-11-03. The freeze commit pins this file's sha256 in a new ledger row, which is
@@ -59,6 +59,9 @@ after the coordinator has been told; the lane never freezes on its own.
   dates (claims rank by freeze time), row 72 and F8-MH added to the claiming list, MG-3 removed (dropped by
   DECISION_LOG 2026-10-30), and the first readable look restated. No arm, N, δ_s, gate or simulation changes. Still
   NOT frozen.
+- Rev 11 (2026-11-01, pre-freeze, master approval) adds section 10, the checklist sections (a)-(e) that
+  `prereg_check` requires, as mapping text only: each points to where this file already answers it. No rule,
+  arm, N, δ_s, gate, look or simulation changes. Still NOT frozen.
 
 This is a dated research draft, not canonical guidance.
 
@@ -503,3 +506,46 @@ recognises it only as follows.
 - No fitting, no tuning and no added arm.
 - No change to B, MG-1, MG-2, MG-3, `B_FORWARD_TEST_DESIGN.md` or any B-bound file.
 - Nothing prepared for 09-30..10-14 dates.
+
+## 10. Pre-registration checklist mapping (rev 11; mapping only, no rule change)
+
+These sections exist so that `python -m weather.reporting.scorecards.prereg_check` can read the checklist
+(`PREREGISTRATION_CHECKLIST.md`) answers. Each one only points to the section above that already answers it. Where this
+file and a mapping line differ, the section above governs.
+
+### (a) Positive control
+
+The controls are the identity controls of section 6.2. The floor-only control (w → 0+) must reproduce the market
+exactly: expected floor-only blend Brier / market Brier = 1.000, and paired floor-only − market Brier = 0.000 on every
+date. Any non-identity refuses the run (exit 7), as the w = 0 identity control does. The P0 placebo (section 6.1) is
+the calibration-matched null, expected Δ about 0.0 under no information.
+
+### (b) Comparator fairness
+
+The comparator is the T+1 market price itself (section 4), and every arm and control goes through the same pool:
+- **Floor:** every arm is floored at `market_blend.EPS` and renormalised before the pool (section 3); rule-4 impossible
+  bands are zeroed for the blend and every control alike. At T+1 no target-day observation exists at capture, so the
+  observed floor zeroes nothing for any of them (section 6.2).
+- **Calibration:** no arm is calibrated or fitted (section 3; zero fitted parameters); the only learned quantity, w, is
+  fitted walk-forward the same way for the candidate blend and the calibration-matched placebo (sections 6.1-6.2).
+
+### (c) Targeted loss slice
+
+No loss atlas exists at T+1: there is no receipt-dated day-ahead history (section 0, S1), and the horizon is unmeasured
+(exhaustion register row 28). The targeted slice is therefore the whole T+1 market error on the section 2 population,
+not a slice of a measured atlas. The only atlas behind the sizing is the T+0 served loss atlas `4d094a63eb25…`
+(DEV_WINDOW_LEDGER row 18), cited for reference only; it does not measure T+1. The expected size is the declared
+screening effect δ_s = 0.030 dR (section 7), about half of the T+0 morning gap's guidance read (exhaustion register
+row 13).
+
+### (d) MDE and clusters
+
+From section 7: MDE80 0.039 dR (analytic at N = 75, k = 1.07); δ_s 0.030 < MDE80, so the test is a SCREEN. Clusters:
+75 scored countable date clusters (82 countable dates with the 7 burn-in dates) across 11 market clusters (the 10 US
+markets other than Denver, plus Toronto; section 2). The deciding interval is AR(1)/VIF-adjusted (VIF floor 1.78).
+
+### (e) Dev-window reuse
+
+From section 8.2: the freeze adds one K row to `DEV_WINDOW_LEDGER`. After L21's row 106 the published dev reuse count is
+204, so this batch's denominator is 205. Section 8.2's rule governs: the freeze row restates the count the ledger
+publishes on the freeze day, plus one.
