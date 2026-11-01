@@ -90,6 +90,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.operations.replay_status_backfill",
         "weather.operations.workstation_cold_archive_stage",
         "weather.operations.workstation_cold_archive_restore",
+        "weather.reporting.research.guidance_extract",
         "weather.reporting.scorecards.dev_scorecard",
         "weather.reporting.scorecards.loss_atlas",
         "weather.reporting.scorecards.train_serve_feature_parity",
