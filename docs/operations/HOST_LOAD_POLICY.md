@@ -504,7 +504,12 @@ Stage-A, workstation or live authority is added.
    `status.ps1` carries a test-enforced identical inline copy): the guard writes it
    with a UTF-8 BOM and replaces it by rename every minute, so a reader must open it
    with `FileShare` ReadWrite|Delete, `TrimStart([char]0xFEFF)` before
-   `ConvertFrom-Json`, and retry briefly. A plain `Get-Content`/`ReadAllText` gate
+   `ConvertFrom-Json`, and retry briefly. It returns `row`, `last_write_time` (local,
+   kept for compatibility only), `last_write_time_utc` (ISO-8601 ending in `Z`) and
+   `attempts`; freshness gates use `Get-WeatherMemoryGuardStatusAgeMinutes` (UTC on
+   both sides; a missing, unparseable or future-dated `last_write_time_utc` reads as
+   stale). Trap: freshness ages use UTC on both sides (`GetLastWriteTimeUtc` vs
+   `[DateTime]::UtcNow`); local times fail open in the fall-back hour. A plain `Get-Content`/`ReadAllText` gate
    broke admission in four places (Swarm P audit 2026-10-07). The lease itself rejects acquisition outside that
    window but does **not** check disk; the disk floor is enforced per lane.
    Only the settlement Stage-A wrapper can request the explicit
