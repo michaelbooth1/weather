@@ -22,11 +22,18 @@ and registrar stay unchanged until after B. This module is the replacement vehic
 * **Catch-up.** ``--catch-up`` covers every published bundle from 2026-10-29 (B's D0) that has no sidecar yet;
   it is idempotent.
 
-It imports only the standard library, ``weather.paths`` and the exporter (itself stdlib plus the allow-list), so
-it runs on the capture host; no capture loop imports it (roll-free). The scheduled host run goes through
-``scripts\ops\b_price_coverage.ps1`` under the shared workload lease.
+Where it lives: ``tools/research/``, not ``src/`` (master ruling 2026-11-01 on R19, option b, the R11 Head 1
+pattern). The binding exporter's test pins that nothing under ``src/`` imports the exporter, and that test is not
+edited before B's look; a test here pins that nothing under ``src/`` imports or names this module (the schema
+family records only its ``b_price_coverage/1`` schema). It imports only the standard library, ``weather.paths``
+and the exporter (itself stdlib plus the allow-list), so it runs on the capture host. Nothing imports it
+(roll-free: tools and ``.ps1``). It never reads labels, settlements or prices, and never touches the share.
 
-    python -m weather.calibration.b_price_coverage --data-root <repo>\data [--out <repo>\data\exports\mg2-inputs]
+On the capture host it runs only through ``scripts\ops_price_coverage.ps1`` (host identity, 00:30-09:00, the
+shared lease, a kill-on-close job, the PYTHONPATH pin proof for this tool and the exporter, 5 GiB free, UTC
+memory freshness).
+
+    python -P -B -m tools.research.b_price_coverage --data-root <repo>\data [--out <repo>\data\exports\mg2-inputs]
         (--date 2026-10-29 [--date ...] | --catch-up)
 """
 from __future__ import annotations
@@ -219,7 +226,7 @@ def pending_dates(out):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog="python -m weather.calibration.b_price_coverage")
+    parser = argparse.ArgumentParser(prog="python -m tools.research.b_price_coverage")
     parser.add_argument("--data-root", default=str(paths.data_path()))
     parser.add_argument("--out", default=str(default_out()),
                         help="the exporter's output root; sidecars go to <out>\\_b_coverage")

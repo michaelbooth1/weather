@@ -517,8 +517,7 @@ def test_module_is_stdlib_plus_allowlist_and_imported_by_nothing():
     assert third == {"weather.calibration.mg2_input_allowlist"}
     importers = [p.relative_to(ROOT).as_posix() for p in (ROOT / "src").rglob("*.py")
                  if p != MODULE and "mg2_input_export" in p.read_text(encoding="utf-8", errors="replace")]
-    # R19 (2026-11-01): the host counts-only B-1 coverage module reuses the bounded reader and the cut.
-    assert importers == ["src/weather/calibration/b_price_coverage.py"]
+    assert importers == []
     assert mx.SCHEMA == "mg2_input_export/1"
 
 

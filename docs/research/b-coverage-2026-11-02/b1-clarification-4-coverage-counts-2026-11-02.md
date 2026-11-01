@@ -31,9 +31,12 @@ and its registrar stay unchanged until after B.
 
 ## 2. The rule as amended
 
-1. **Counts vehicle (replaces §0 (d)'s exporter field).** A host counts-only module,
-   `weather.calibration.b_price_coverage`, run by `scripts/ops/b_price_coverage.ps1` under the shared workload
-   lease after the date's bundle is published:
+1. **Counts vehicle (replaces §0 (d)'s exporter field).** A host counts-only research tool,
+   `tools/research/b_price_coverage.py`, run as `python -P -B -m tools.research.b_price_coverage` by
+   `scripts/ops/b_price_coverage.ps1` under the shared workload lease after the date's bundle is published.
+   Master ruled (R19 option b) that it lives under `tools/research/`, as R11 Head 1's backfill does, so nothing
+   under `src/` imports the exporter. The wrapper pins `PYTHONPATH=<source>;<source>\src` and proves the tool
+   and the unchanged exporter both resolve under that source tree before any read:
    - It reads only D's `snapshots_long.csv` for the 11 markets, through the exporter's bounded reader
      (`Source(coverage_counts=False)`), and keeps only rows at or before `export_cut_utc(D)`.
    - It writes create-only `data\exports\mg2-inputs\_b_coverage\<D>.json` (`b_price_coverage/1`), then
@@ -82,8 +85,9 @@ and its registrar stay unchanged until after B.
 
 ## 3. Pins
 
-- Code: `src/weather/calibration/b_price_coverage.py`, `src/weather/calibration/b_drop_list.py`,
-  `scripts/ops/b_price_coverage.ps1`, and the schema family `src/weather/schema_families/b_coverage.py`.
+- Code: `tools/research/b_price_coverage.py`, `src/weather/calibration/b_drop_list.py` (free of the exporter),
+  `scripts/ops/b_price_coverage.ps1`, and the schema family `src/weather/schema_families/b_coverage.py`
+  (records `b_coverage_sidecar`, `b_coverage_receipt`, `b_drop_list`).
 - Tests: `tests/calibration/test_b_price_coverage.py` covers the predicate parity, the integers-only sidecar, and
   the end-to-end equality with `b_scorer`'s recompute. Its cases are nan, inf, -0.1, 1.2, empty, after-cut rows,
   a D-1 capture, bad bands, Denver, hours 6/7/16/17 and 0.90 kept.

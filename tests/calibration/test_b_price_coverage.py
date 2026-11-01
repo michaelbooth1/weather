@@ -1,7 +1,8 @@
 """B-1 coverage counts (host side) and the end-to-end verdict against b_scorer's own recompute.
 
 Guards: master ruling R19 (2026-11-01) and B-1 Clarification 4
-(docs/research/b-coverage-2026-11-02/b1-clarification-4-coverage-counts-2026-11-02.md): the host module writes
+(docs/research/b-coverage-2026-11-02/b1-clarification-4-coverage-counts-2026-11-02.md): the host tool
+(tools/research/b_price_coverage.py, R19 option b; nothing under src names it but the schema family) writes
 per-snapshot integers only (rows, rows with an admitted capture-time price) for in-cut rows, records whether its
 re-projection reproduces the bundle's snapshots_long sha256, writes create-only; the predicate is the layout
 builder's finite check plus [0, 1]; the workstation verdict built from the counts equals
@@ -23,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from weather.calibration import b_price_coverage as bpc
+from tools.research import b_price_coverage as bpc
 from weather.calibration import mg2_input_allowlist as allow
 from weather.calibration import mg2_input_export as mx
 
@@ -182,7 +183,7 @@ def test_module_imports_only_stdlib_paths_allowlist_and_exporter():
     import ast
     import sys
 
-    tree = ast.parse((ROOT / "src/weather/calibration/b_price_coverage.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "tools/research/b_price_coverage.py").read_text(encoding="utf-8"))
     imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -192,6 +193,39 @@ def test_module_imports_only_stdlib_paths_allowlist_and_exporter():
     third = {m for m in imported if m.split(".")[0] not in sys.stdlib_module_names and m != "__future__.annotations"}
     assert third == {"weather.paths", "weather.calibration.mg2_input_allowlist",
                      "weather.calibration.mg2_input_export"}
+
+
+# Master ruling R19 option b: the counts tool lives in tools/research (R11 Head 1 pattern), never under src.
+# The one carve-out is the schema family, whose registered version literal "b_price_coverage/1" and owner
+# string name the host tool; it imports nothing.
+SCHEMA_FAMILY = "src/weather/schema_families/b_coverage.py"
+
+
+def test_nothing_under_src_imports_or_names_the_counts_tool():
+    hits = [p.relative_to(ROOT).as_posix() for p in (ROOT / "src").rglob("*.py")
+            if "b_price_coverage" in p.read_text(encoding="utf-8", errors="replace")]
+    assert hits == [SCHEMA_FAMILY]
+    family = (ROOT / SCHEMA_FAMILY).read_text(encoding="utf-8")
+    assert "import" not in "".join(line for line in family.splitlines() if "b_price_coverage" in line)
+    assert not (ROOT / "src/weather/calibration/b_price_coverage.py").exists()
+
+
+def test_drop_list_stays_free_of_the_exporter_and_the_tool():
+    text = (ROOT / "src/weather/calibration/b_drop_list.py").read_text(encoding="utf-8")
+    for name in ("mg2_input_export", "mg2_inputs", "b_price_coverage", "tools.research"):
+        assert name not in text, name
+
+
+def test_wrapper_pins_root_and_src_and_proves_both_modules():
+    code = (OPS / "b_price_coverage.ps1").read_text(encoding="utf-8")
+    assert "$pinnedPath = '{0};{1}' -f $pinnedRoot.TrimEnd('\\'), $pinnedSrc.TrimEnd('\\')" in code
+    assert ("'import tools.research.b_price_coverage as b, weather.calibration.mg2_input_export as m; '"
+            in code)
+    assert "$toolFull.StartsWith($pinnedTool," in code
+    assert "$exporterFull.StartsWith($pinnedSrc," in code
+    assert "[IO.DriveInfo]::new([IO.Path]::GetPathRoot($outRoot))" in code
+    assert "$null -eq $memory -or $null -eq $memory.commit_percent" in code
+    assert code.count("$env:PYTHONPATH = $pinnedPath") == 2
 
 
 # ----------------------------------------------------------------------------- end to end
@@ -277,7 +311,7 @@ def test_wrapper_plan_touches_nothing_and_catches_up_by_default(tmp_path):
                                 check=False)
         assert result.returncode == 0, result.stdout + result.stderr
         plan = json.loads(result.stdout.strip().splitlines()[-1])
-        assert plan["child_arguments"] == ["-P", "-B", "-m", "weather.calibration.b_price_coverage", "--data-root",
+        assert plan["child_arguments"] == ["-P", "-B", "-m", "tools.research.b_price_coverage", "--data-root",
                                            str(root / "data"), "--out", str(root / "data" / "exports" / "mg2-inputs"),
                                            *tail]
         assert plan["coverage_root"] == str(root / "data" / "exports" / "mg2-inputs" / "_b_coverage")

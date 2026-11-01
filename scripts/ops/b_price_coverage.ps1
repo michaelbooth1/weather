@@ -1,16 +1,21 @@
 # B-1 coverage counts (master ruling R19, B-1 Clarification 4): one integers-only sidecar per exported date.
 #
 # Runs on the dedicated capture host only, inside 00:30-09:00 America/Toronto, under the shared workload
-# lease, after the date's MG-2 input bundle is published. It wraps `python -m weather.calibration.b_price_coverage`,
-# which re-reads each market's snapshots_long.csv through the exporter's bounded reader (rows at or before the
-# export cut only), counts per snapshot [rows, rows with an admitted capture-time price], records whether its
-# re-projection reproduces the bundle's snapshots_long sha256, and writes create-only under
+# lease, after the date's MG-2 input bundle is published. It wraps `python -m tools.research.b_price_coverage`
+# (tools/research, not src: master ruling R19 option b, the R11 Head 1 pattern), which re-reads each
+# market's snapshots_long.csv through the exporter's bounded reader (rows at or before the export cut only),
+# counts per snapshot [rows, rows with an admitted capture-time price], records whether its re-projection
+# reproduces the bundle's snapshots_long sha256, and writes create-only under
 # <repo>\data\exports\mg2-inputs\_b_coverage: <D>.json and <D>.SHA256SUMS (the published marker, last). No price
 # value is written. This wrapper's run receipt and captured child output go to _b_coverage\_runs\.
 # The workstation logs each sidecar over the share master picks (`b_drop_list log --share-root`).
 #
 # Default: catch up every published date from 2026-10-29 that has no sidecar yet. Registration needs the
 # owner's yes first; nothing here registers a task. Expected cost: a few minutes, well under 1 GB.
+#
+# Guards as in mg1_input_backfill.ps1: host identity, 00:30-09:00, lease (refused on $null), kill-on-close
+# child job, PYTHONPATH pin proof for the tool AND the exporter, at least 5 GiB free on the output volume;
+# memory freshness uses the UTC helper Get-WeatherMemoryGuardStatusAgeMinutes.
 [CmdletBinding()]
 param(
     [string]$ProductionRepoRoot = "",
@@ -39,7 +44,7 @@ $dataRoot = Join-Path $ProductionRepoRoot 'data'
 $outRoot = Join-Path $dataRoot 'exports\mg2-inputs'
 $coverageRoot = Join-Path $outRoot '_b_coverage'
 $python = Join-Path $ProductionRepoRoot 'venv\Scripts\python.exe'
-$childTokens = @('-P', '-B', '-m', 'weather.calibration.b_price_coverage', '--data-root', $dataRoot, '--out', $outRoot)
+$childTokens = @('-P', '-B', '-m', 'tools.research.b_price_coverage', '--data-root', $dataRoot, '--out', $outRoot)
 if ($Date) { $childTokens += @('--date', $Date) } else { $childTokens += @('--catch-up') }
 $label = if ($Date) { $Date } else { 'catch-up' }
 
@@ -67,14 +72,15 @@ if (-not (Test-Path -LiteralPath $outRoot -PathType Container)) {
     throw ("REFUSED: no MG-2 input exports under {0}" -f $outRoot)
 }
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'production project interpreter missing' }
-if ((Get-PSDrive C).Free -lt 5GB) { throw 'REFUSED: less than 5 GiB free' }
+$outDrive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($outRoot))
+if ($outDrive.AvailableFreeSpace -lt 5GB) { throw 'REFUSED: less than 5 GiB free on the output volume' }
 $memoryPath = Join-Path $dataRoot 'logs\memory_commit_guard_status.json'
 . (Join-Path $PSScriptRoot 'memory_guard_status_reader.ps1')
 $memoryRead = Read-WeatherMemoryGuardStatus -Path $memoryPath
 $memory = $memoryRead.row
 # Freshness is UTC on both sides (Get-WeatherMemoryGuardStatusAgeMinutes), never the local clock.
 if ((Get-WeatherMemoryGuardStatusAgeMinutes -Read $memoryRead) -gt 5 -or
-    $null -eq $memory.commit_percent -or [double]$memory.commit_percent -ge 70) {
+    $null -eq $memory -or $null -eq $memory.commit_percent -or [double]$memory.commit_percent -ge 70) {
     throw 'REFUSED: memory evidence blocks admission'
 }
 
@@ -87,21 +93,29 @@ if ($hostIdentity -cne [string]$assignment.dedicated_capture_execution_host_id) 
 }
 
 # The production venv may carry an editable path to another checkout. Run with -P -B and
-# PYTHONPATH=<source>\src, and prove the module resolves under that tree before any read.
+# PYTHONPATH=<source>;<source>\src (tools.research needs the root; weather needs src), and prove both the
+# counts tool and the unchanged exporter resolve under this source tree before any read.
+$pinnedRoot = [IO.Path]::GetFullPath($sourceRoot).TrimEnd('\') + '\'
 $pinnedSrc = [IO.Path]::GetFullPath((Join-Path $sourceRoot 'src')).TrimEnd('\') + '\'
+$pinnedTool = Join-Path $pinnedRoot 'tools\research\'
+$pinnedPath = '{0};{1}' -f $pinnedRoot.TrimEnd('\'), $pinnedSrc.TrimEnd('\')
 $oldPythonPath = $env:PYTHONPATH
-$env:PYTHONPATH = $pinnedSrc.TrimEnd('\')
+$env:PYTHONPATH = $pinnedPath
 try {
     $ErrorActionPreference = 'Continue'
-    $probe = @(& $python -P -B -c 'import weather.calibration.b_price_coverage as m; print(m.__file__)' 2>&1 |
-        ForEach-Object { "$_" })
+    $probeScript = 'import tools.research.b_price_coverage as b, weather.calibration.mg2_input_export as m; ' +
+        'print(b.__file__); print(m.__file__)'
+    $probe = @(& $python -P -B -c $probeScript 2>&1 | ForEach-Object { "$_" })
     $probeCode = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
-    $resolved = if ($probe.Count) { $probe[-1].Trim() } else { '' }
-    $resolvedFull = try { [IO.Path]::GetFullPath($resolved) } catch { '' }
-    if ($probeCode -ne 0 -or -not $resolvedFull -or
-        -not $resolvedFull.StartsWith($pinnedSrc, [StringComparison]::OrdinalIgnoreCase)) {
-        throw ("b_price_coverage does not resolve under {0}: {1}" -f $pinnedSrc, ($probe -join ' '))
+    $resolvedTool = if ($probe.Count -ge 2) { $probe[-2].Trim() } else { '' }
+    $resolvedExporter = if ($probe.Count -ge 1) { $probe[-1].Trim() } else { '' }
+    $toolFull = try { [IO.Path]::GetFullPath($resolvedTool) } catch { '' }
+    $exporterFull = try { [IO.Path]::GetFullPath($resolvedExporter) } catch { '' }
+    if ($probeCode -ne 0 -or -not $toolFull -or -not $exporterFull -or
+        -not $toolFull.StartsWith($pinnedTool, [StringComparison]::OrdinalIgnoreCase) -or
+        -not $exporterFull.StartsWith($pinnedSrc, [StringComparison]::OrdinalIgnoreCase)) {
+        throw ("counts tool or exporter does not resolve under {0}: {1}" -f $pinnedRoot, ($probe -join ' '))
     }
 }
 finally { $env:PYTHONPATH = $oldPythonPath }
@@ -121,7 +135,7 @@ try {
     $capture = [Weather.Operations.KillOnCloseJob+CapturedOutput]::new(
         (Join-Path $runs ("{0}-{1}.stdout.log" -f $label, $stamp)),
         (Join-Path $runs ("{0}-{1}.stderr.log" -f $label, $stamp)), 1048576)
-    $env:PYTHONPATH = $pinnedSrc.TrimEnd('\')
+    $env:PYTHONPATH = $pinnedPath
     $job = New-WeatherKillOnCloseJob
     $child = Start-WeatherProcessInJob -Job $job -FilePath $python `
         -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens $childTokens) `

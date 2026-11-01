@@ -3,7 +3,8 @@ r"""B-1 section 3 coverage drop list, workstation side: log the host's counts, f
 Master ruling R19 (2026-11-01) and B-1 Clarification 4
 (``docs/research/b-coverage-2026-11-02/b1-clarification-4-coverage-counts-2026-11-02.md``). Research and shadow
 only; outcome-blind. Nothing here opens a label, settlement, price or transfer file: the host sidecar
-(``weather.calibration.b_price_coverage``, schema ``b_price_coverage/1``) carries integers only.
+(the host counts tool ``tools/research/`` runs through ``scripts/ops``; schema family ``b_coverage``, record
+``b_coverage_sidecar``) carries integers only. This module never imports the host tool or the exporter.
 
 * ``log``: copy ``<share-root>\_b_coverage\<D>.json`` and its ``<D>.SHA256SUMS`` into the local store, verify the
   sha256 against the SUMS line and the schema, and append one ``log`` row to the sibling ledger
@@ -36,7 +37,8 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from weather.calibration import b_price_coverage as bpc
+from weather.calibration import mg2_input_allowlist as allow
+from weather.schema_families import schema_version
 from weather.calibration import b_scorer  # refuses from a production package and on the capture host
 
 
@@ -51,7 +53,10 @@ def _refuse_production_import():
 
 _refuse_production_import()
 
-RECEIPT_SCHEMA = "b_coverage_receipt/1"
+RECEIPT_SCHEMA = schema_version("b_coverage_receipt")
+SIDECAR_SCHEMA = schema_version("b_coverage_sidecar")  # the host tool's sidecar schema
+COVERAGE_DIR = "_b_coverage"  # beside the MG-2 input bundles on the share
+SUMS_SUFFIX = ".SHA256SUMS"
 DROP_LIST_SCHEMA = b_scorer.DROP_LIST_SCHEMA
 LEDGER = Path(r"C:\t\mg2\forward\b_coverage_receipts.jsonl")
 STORE = Path(r"C:\t\mg2\forward\b_coverage")
@@ -109,16 +114,16 @@ def _sums_sha(path, name):
 
 
 def sidecar_problems(sidecar, day):
-    """Schema, date and integers-only shape of a ``b_price_coverage/1`` sidecar (names only, never values)."""
+    """Schema, date and integers-only shape of a host coverage sidecar (names only, never values)."""
     problems = []
-    if sidecar.get("schema") != bpc.SCHEMA:
+    if sidecar.get("schema") != SIDECAR_SCHEMA:
         problems.append(f"schema {sidecar.get('schema')!r}")
     if sidecar.get("target_date") != day.isoformat():
         problems.append(f"target_date {sidecar.get('target_date')!r}")
     if sidecar.get("counts_only") is not True:
         problems.append("counts_only is not true")
     counts = sidecar.get("counts")
-    if not isinstance(counts, dict) or sorted(counts) != sorted(bpc.allow.MARKETS):
+    if not isinstance(counts, dict) or sorted(counts) != sorted(allow.MARKETS):
         problems.append("counts markets")
     for market, snaps in (counts or {}).items() if isinstance(counts, dict) else ():
         for sid, pair in (snaps or {}).items():
@@ -136,8 +141,8 @@ def sidecar_problems(sidecar, day):
 def log(*, share_root, day, store=STORE, ledger=LEDGER):
     """Copy and verify one date's sidecar from the share, then append a ``log`` row (idempotent per sha)."""
     name = f"{day.isoformat()}.json"
-    src_dir = Path(share_root) / bpc.COVERAGE_DIR
-    src, src_sums = src_dir / name, src_dir / f"{day.isoformat()}{bpc.SUMS_SUFFIX}"
+    src_dir = Path(share_root) / COVERAGE_DIR
+    src, src_sums = src_dir / name, src_dir / f"{day.isoformat()}{SUMS_SUFFIX}"
     if not src_sums.is_file() or not src.is_file():
         return {"status": "not_ready", "target_date": day.isoformat()}
     store = Path(store)

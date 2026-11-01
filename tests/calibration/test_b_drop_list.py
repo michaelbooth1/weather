@@ -271,7 +271,8 @@ def test_hook_admits_the_drop_list_module():
     spec.loader.exec_module(hook)
     module = "weather.calibration.b_drop_list"
     assert module in hook._OFFLINE_WEATHER_MODULES
-    assert "weather.calibration.b_price_coverage" not in hook._OFFLINE_WEATHER_MODULES  # host-only, leased
+    for tool in ("tools.research.b_price_coverage", "weather.calibration.b_price_coverage"):
+        assert tool not in hook._OFFLINE_WEATHER_MODULES  # host-only, leased
     for near in (module + ".child", module + "_x"):
         assert near not in hook._OFFLINE_WEATHER_MODULES
     assert hook.evaluate({"tool_name": "Bash", "tool_input": {
