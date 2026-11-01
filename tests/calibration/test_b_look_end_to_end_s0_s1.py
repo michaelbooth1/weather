@@ -1,11 +1,15 @@
 """Rule B-1 end to end: the rule bound at S0, the scorer at S1, one look through ``look_guard``.
 
-Guards finding D4-1 of the 2026-11-01 formal review (adversarially confirmed by master): B's single look is a
-deterministic VOID as built. B-1 binds ``b_scorer_sha256`` = S0 (``B_FORWARD_TEST_DESIGN.md`` b_rule_v1 block); the
+Guards: finding D4-1 of the 2026-11-01 formal review (adversarially confirmed by master) and the draft B-1
+Clarification 3 (docs/research/b-look-s0-s1-2026-11-01/b1-clarification-3-s0-s1-look-wrapper-DRAFT.md).
+
+D4-1: B's single look is a deterministic VOID as built. B-1 binds ``b_scorer_sha256`` = S0 (``B_FORWARD_TEST_DESIGN.md`` b_rule_v1 block); the
 only permitted post-binding scorer edit sets ``MG1_LOOK_ENTRY_SHA256`` (S0 to S1, B-1 clarification of 2026-10-26
 section 4, checked by ``b_scorer_entry_edit``); that clarification says the control is re-run at S1 and the look runs
 at S1. Run directly, ``b_scorer.look`` then fires VOID 2 (``module_sha256()`` is S1, the rule says S0) and VOID 3 (the
-control ran at S1, the rule says S0); left at S0 it fires VOID 5 (the sentinel matches no receipt).
+control ran at S1, the rule says S0); left at S0 it fires VOID 5 (the sentinel matches no receipt). Through the
+new pinned ``b_look_wrapper`` (S0 to S1 verified by ``b_scorer_entry_edit``) the same look scores, and a mechanical
+VOID is refused before ``look_guard`` spends the look.
 
 Everything here is synthetic and lives under ``tmp_path``: a temp copy of the scorer edited to S1 by exactly the
 permitted constant line, a fixture git commit holding the MG-2 release files, a receipt written by ``mg1_look``
@@ -37,6 +41,7 @@ b = import_or_skip_on_capture_host("weather.calibration.b_scorer")
 mg2 = import_or_skip_on_capture_host("weather.calibration.mg2_composite")
 mg1_look = import_or_skip_on_capture_host("weather.calibration.mg1_look")
 entry_edit = import_or_skip_on_capture_host("weather.calibration.b_scorer_entry_edit")
+wrapper = import_or_skip_on_capture_host("weather.calibration.b_look_wrapper")
 
 MG1_RULE = ROOT / "docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md"
 DESIGN = ROOT / "docs/operations/B_FORWARD_TEST_DESIGN.md"
@@ -214,20 +219,150 @@ def _markers(scorer, args):
     return [scorer.rule_marker(rule_sha), *scorer.consumed_markers(args["transfer"], args["mg2_look"])]
 
 
-# ----------------------------------------------------------------------------- the look as prescribed
-
-@pytest.mark.spawns
-def test_b_look_end_to_end_rule_at_s0_scorer_at_s1_control_at_s1_scores(tmp_path, monkeypatch):
-    """The look day as B-1 and its 2026-10-26 clarification prescribe it must reach a verdict, not a VOID."""
+def _s1_world(tmp_path, monkeypatch, control="s1"):
     s0_path, s1_path = _s0_s1(tmp_path)
     s0_sha, s1_sha = _sha(s0_path.read_bytes()), _sha(s1_path.read_bytes())
     scorer = _load(s1_path, "b_scorer_s1_copy")
     assert scorer.module_sha256() == s1_sha != s0_sha
     monkeypatch.setattr(scorer, "CONSUMED_ROOT", tmp_path / "_b_look")  # a path, never a sha
-    args = _world(tmp_path, monkeypatch, s0_sha=s0_sha, control_sha=s1_sha)  # control re-run at S1 (B-1 cl. s4)
+    control_sha = {"s0": s0_sha, "s1": s1_sha}.get(control, control)
+    args = _world(tmp_path, monkeypatch, s0_sha=s0_sha, control_sha=control_sha)
+    return scorer, s0_path, s0_sha, s1_sha, args
 
-    out = scorer.look(**args)  # today's only look path: b_scorer look, through look_guard
+
+# ----------------------------------------------------------------------------- the look as prescribed
+
+@pytest.mark.spawns
+def test_b_look_end_to_end_rule_at_s0_scorer_at_s1_control_at_s1_scores(tmp_path, monkeypatch):
+    """The look day as B-1 and its 2026-10-26 clarification prescribe it reaches a verdict, not a VOID, when it
+    runs through the pinned look wrapper of B-1 Clarification 3 (the red form of this test ran ``b_scorer.look``
+    directly and was VOID [2, 3])."""
+    scorer, s0_path, s0_sha, s1_sha, args = _s1_world(tmp_path, monkeypatch)  # control re-run at S1 (B-1 cl. s4)
+
+    out = wrapper.look(s0=s0_path, scorer=scorer, **args)  # through look_guard
 
     decision = out["decision"]
     assert decision["verdict"] != "VOID", f"deterministic VOID: {decision}"
     assert decision["verdict"] == "PASS" and out["surviving_dates"] == 45
+    assert out["b_scorer_sha256"] == s1_sha
+    receipt = json.loads((args["out"] / wrapper.RECEIPT).read_text(encoding="utf-8"))
+    assert receipt["entry_edit"]["s0_sha256"] == s0_sha and receipt["entry_edit"]["s1_sha256"] == s1_sha
+    assert receipt["entry_edit"]["mg1_look_entry_sha256"] == mg1_look.module_sha256()
+    assert receipt["wrapper"]["source_sha256"] == wrapper.module_sha256()
+    assert receipt["b_decision"]["verdict"] == "PASS"
+    assert all(m.exists() for m in _markers(scorer, args))  # the look is spent once it has scored
+    with pytest.raises(scorer.BRefused, match="exactly one look"):
+        wrapper.look(s0=s0_path, scorer=scorer, **args)
+
+
+@pytest.mark.spawns
+def test_the_wrapper_accepts_the_bound_control_receipt_at_s0(tmp_path, monkeypatch):
+    scorer, s0_path, _, _, args = _s1_world(tmp_path, monkeypatch, control="s0")
+    assert wrapper.look(s0=s0_path, scorer=scorer, **args)["decision"]["verdict"] == "PASS"
+
+
+@pytest.mark.spawns
+def test_the_wrapper_restores_the_scorer_checks(tmp_path, monkeypatch):
+    scorer, s0_path, _, _, args = _s1_world(tmp_path, monkeypatch)
+    before = (scorer.bound_hash_problems, scorer.control_problems)
+    wrapper.look(s0=s0_path, scorer=scorer, **args)
+    assert (scorer.bound_hash_problems, scorer.control_problems) == before
+
+
+# ----------------------------------------------------------------------------- D4-1 pinned on the direct path
+
+@pytest.mark.spawns
+def test_d4_1_direct_scorer_look_at_s1_is_void_2_and_3_and_spends_the_look(tmp_path, monkeypatch):
+    scorer, _, _, _, args = _s1_world(tmp_path, monkeypatch)
+    out = scorer.look(**args)
+    assert out["decision"]["verdict"] == "VOID" and out["decision"]["conditions"] == [2, 3]
+    assert "b_scorer_sha256" in out["decision"]["reasons"]["2"]
+    assert "control ran at another scorer sha" in out["decision"]["reasons"]["3"]
+    assert all(m.exists() for m in _markers(scorer, args))  # the mechanical VOID spent the one look
+
+
+@pytest.mark.spawns
+def test_d4_1_direct_scorer_look_left_at_s0_is_void_5(tmp_path, monkeypatch):
+    s0_path, _ = _s0_s1(tmp_path)
+    scorer = _load(s0_path, "b_scorer_s0_copy")
+    s0_sha = scorer.module_sha256()
+    assert s0_sha == _bound_s0_sha() and scorer.MG1_LOOK_ENTRY_SHA256 == scorer.MG1_LOOK_ENTRY_UNRECORDED
+    monkeypatch.setattr(scorer, "CONSUMED_ROOT", tmp_path / "_b_look")
+    args = _world(tmp_path, monkeypatch, s0_sha=s0_sha, control_sha=s0_sha)
+    out = scorer.look(**args)
+    assert out["decision"]["verdict"] == "VOID" and out["decision"]["conditions"] == [5]
+
+
+# ----------------------------------------------------------------------------- the wrapper's refusals spend nothing
+
+@pytest.mark.spawns
+def test_the_wrapper_refuses_a_scorer_left_at_s0_without_consuming(tmp_path, monkeypatch):
+    s0_path, _ = _s0_s1(tmp_path)
+    scorer = _load(s0_path, "b_scorer_s0_copy")
+    monkeypatch.setattr(scorer, "CONSUMED_ROOT", tmp_path / "_b_look")
+    args = _world(tmp_path, monkeypatch, s0_sha=scorer.module_sha256(), control_sha=scorer.module_sha256())
+    with pytest.raises(scorer.BRefused, match="S1 is identical to S0"):
+        wrapper.look(s0=s0_path, scorer=scorer, **args)
+    assert not any(m.exists() for m in _markers(scorer, args)) and not args["out"].exists()
+
+
+@pytest.mark.spawns
+def test_the_wrapper_refuses_an_s1_with_any_other_edit_without_consuming(tmp_path, monkeypatch):
+    s0_path, s1_path = _s0_s1(tmp_path)
+    s1_path.write_bytes(s1_path.read_bytes().replace(b'NAME = "b_scorer"', b'NAME = "b_scorer2"', 1))
+    scorer = _load(s1_path, "b_scorer_s1_extra")
+    monkeypatch.setattr(scorer, "CONSUMED_ROOT", tmp_path / "_b_look")
+    args = _world(tmp_path, monkeypatch, s0_sha=_sha(s0_path.read_bytes()), control_sha=scorer.module_sha256())
+    with pytest.raises(scorer.BRefused, match="not an entry-edit-verified S1"):
+        wrapper.look(s0=s0_path, scorer=scorer, **args)
+    assert not any(m.exists() for m in _markers(scorer, args))
+
+
+@pytest.mark.spawns
+def test_the_wrapper_refuses_an_s0_that_is_not_the_bound_scorer(tmp_path, monkeypatch):
+    scorer, s0_path, _, _, args = _s1_world(tmp_path, monkeypatch)
+    fake = tmp_path / "fake_s0.py"
+    fake.write_bytes(s0_path.read_bytes() + b"\n")
+    with pytest.raises(scorer.BRefused, match="not the rule's bound b_scorer_sha256"):
+        wrapper.look(s0=fake, scorer=scorer, **args)
+    assert not any(m.exists() for m in _markers(scorer, args))
+
+
+@pytest.mark.spawns
+def test_a_mechanical_void_is_refused_by_the_preflight_and_the_look_stays_unspent(tmp_path, monkeypatch):
+    scorer, s0_path, _, s1_sha, args = _s1_world(tmp_path, monkeypatch, control="e" * 64)
+    with pytest.raises(scorer.BRefused, match=r"preflight: mechanical VOID conditions \[3\]"):
+        wrapper.look(s0=s0_path, scorer=scorer, **args)
+    assert not any(m.exists() for m in _markers(scorer, args)) and not args["out"].exists()
+    # the control re-receipted at the verified S1: the same look now runs once and scores
+    receipt = json.loads(args["control_receipt"].read_text(encoding="utf-8"))
+    args["control_receipt"].write_text(json.dumps(dict(receipt, b_scorer_sha256=s1_sha)), encoding="utf-8")
+    assert wrapper.look(s0=s0_path, scorer=scorer, **args)["decision"]["verdict"] == "PASS"
+
+
+@pytest.mark.spawns
+def test_a_substantive_void_still_spends_the_look_through_the_wrapper(tmp_path, monkeypatch):
+    """VOID 4 (a recorded pre-look read) is not mechanical: the wrapper lets b_scorer record it and spend."""
+    scorer, s0_path, _, _, args = _s1_world(tmp_path, monkeypatch)
+    look = json.loads(args["mg2_look"].read_text(encoding="utf-8"))
+    args["mg2_look"].write_text(json.dumps(dict(look, pre_look_reads=["labels 2026-11-01"])), encoding="utf-8")
+    out = wrapper.look(s0=s0_path, scorer=scorer, **args)
+    assert out["decision"]["verdict"] == "VOID" and out["decision"]["conditions"] == [4]
+    assert all(m.exists() for m in _markers(scorer, args))
+
+
+def test_the_wrapper_without_an_mg1_receipt_hands_to_look_guard_which_refuses_first(tmp_path):
+    with pytest.raises(b.BRefused, match="MG-1's look receipt does not exist"):
+        wrapper.look(s0=tmp_path / "none.py", rule=tmp_path / "none.md", mg2_rule=None, release_binding=None,
+                     layout_root=None, vectors=None, mg2_look=None, transfer=None, drop_list=None,
+                     control_receipt=None, mg1_look_receipt=tmp_path / "absent.json", out=tmp_path / "out")
+
+
+def test_the_wrapper_touches_no_b_bound_file():
+    """The wrapper is a new module; b_scorer.py stays the bound S0 bytes (or S0 plus the one constant line)."""
+    src = Path(b.__file__).read_bytes()
+    if _sha(src) != _bound_s0_sha():
+        s0 = CONSTANT_LINE.sub(SENTINEL_LINE, src.decode("utf-8"), count=1).encode("utf-8")
+        assert entry_edit.s1_problems(s0, src)[0] == []
+    assert Path(wrapper.__file__).name == "b_look_wrapper.py"
+    assert Path(wrapper.__file__).resolve() not in {(ROOT / rel).resolve() for rel in mg2.RELEASE_FILES}
