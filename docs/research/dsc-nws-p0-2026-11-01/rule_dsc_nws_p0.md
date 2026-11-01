@@ -316,5 +316,6 @@ This projection does not decide anything; the in-run power gate in §5.1 does.
   the Open-Meteo screen fields, not from the pinned `record_features`. C0 binds the run to them.
 - **The nowcast receipt is checked on the D record only.** It is checked on the snapshot's own METAR record. The
   D−1 `prev_dmax` input comes from an earlier capture and is not re-gated.
+- A W1 KILL does not cover post-METAR captures (:52-:59, ≈15% of W1-covered snapshots), which the report_time gate removes; the gate cannot create a false survivor but narrows what a W1 KILL means.
 - **The 07-12 US dev window is the most-read morning block:** the parity swarm, MG-1, the MR gate, rows 78 and
   81, and R-ODC have all read it.
