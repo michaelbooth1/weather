@@ -264,8 +264,14 @@ $push = [ordered]@{
     last_run_time = $null
     last_task_result = $null
     completed = $false
+    stale_scheduler_result = $false
 }
 $receipt.push = $push
+# 0x41301 (SCHED_S_TASK_RUNNING) / 0x41303 (SCHED_S_TASK_HAS_NOT_RUN) read while the task
+# is already Ready are a stale transient, not a result (same rule as
+# integration_attempt_merge.ps1): keep polling. 11-01 07:27 exited 3 on a read of 267009
+# seconds before WeatherOneShotPush reported rc 0 with origin/master at the merge commit.
+$staleSchedulerResults = @(0x41301, 0x41303)
 Start-ScheduledTask -TaskName $pushTaskName
 $deadline = (Get-Date).AddSeconds($PushTimeoutSeconds)
 while ((Get-Date) -lt $deadline) {
@@ -275,16 +281,24 @@ while ((Get-Date) -lt $deadline) {
     if ($info.LastRunTime -and ([datetime]$info.LastRunTime).ToUniversalTime() -gt $preRunUtc -and $state -eq "Ready") {
         $push.last_run_time = ([datetime]$info.LastRunTime).ToString("o")
         $push.last_task_result = [long]$info.LastTaskResult
+        if ([long]$info.LastTaskResult -in $staleSchedulerResults) { continue }
         $push.completed = $true
         break
     }
 }
 if (-not $push.completed) {
-    Save-Receipt "merged_unpushed" $false "$pushTaskName did not finish within $PushTimeoutSeconds s"
-    $lightPathExitCode = 3
-    exit 3
+    if ($null -ne $push.last_task_result -and $push.last_task_result -in $staleSchedulerResults) {
+        # Still a stale transient at the deadline: let step 8 (origin/master == merge commit) decide.
+        $push.stale_scheduler_result = $true
+        Note "$pushTaskName still reports stale result $($push.last_task_result) at the deadline; deciding by origin/master"
+    }
+    else {
+        Save-Receipt "merged_unpushed" $false "$pushTaskName did not finish within $PushTimeoutSeconds s"
+        $lightPathExitCode = 3
+        exit 3
+    }
 }
-if ($push.last_task_result -ne 0) {
+elseif ($push.last_task_result -ne 0) {
     Save-Receipt "merged_unpushed" $false "$pushTaskName finished with result $($push.last_task_result)"
     $lightPathExitCode = 3
     exit 3
