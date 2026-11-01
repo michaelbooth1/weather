@@ -20,8 +20,18 @@
 #                     excluded by ancestry and command identity.
 #   every run      -> outside 00:30-09:00, terminate agent-owned (codex.exe,
 #                     chatgpt.exe or claude.exe root) pytest, compileall,
-#                     inline/bare Python, and recursive scans.
+#                     inline/stdin/script Python (option flags such as -I or
+#                     -X before the script included), heavy `-m weather.*`
+#                     modules, and recursive scans (rg, find, robocopy, or a
+#                     shell command line naming one). Every child is judged by
+#                     its OWN command line: a PowerShell tool shell can hide
+#                     its script text, so the shell line is not trusted.
+#                     Bash/sh tool shells are recognized like PowerShell/cmd.
 #                     Inside that window, retain at most one such tool tree.
+#                     Work admitted under a live heavy-workload lease (an
+#                     ancestor is the lease owner recorded by
+#                     workload_admission.ps1, matched by PID and creation
+#                     time) is never a window or concurrency target.
 #   every run      -> orphan sweep: kill `python -` / `python -c` processes
 #                     whose parent is gone and which are older than 30 min.
 #                     A stdin/-c job's script and output have no owner once
@@ -44,7 +54,12 @@ param(
     [ValidateRange(0.0, 3600.0)]
     [double]$AgentWorkloadGraceSeconds = 15.0,
     [ValidateRange(0, 64)]
-    [int]$MaxConcurrentAgentHeavyWorkloads = 1
+    [int]$MaxConcurrentAgentHeavyWorkloads = 1,
+    # Host-global heavy-workload state written by workload_admission.ps1 for the
+    # portable and workstation-offline profiles. Read only; never created here.
+    [string]$HeavyWorkloadStateRoot = (Join-Path `
+        ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) `
+        "WeatherProject")
 )
 
 function Get-MemoryGuardExecutionHostId {
@@ -95,9 +110,42 @@ function Write-GuardLog([string]$Level, [string]$Message) {
 }
 
 $agentRootNames = @("codex.exe", "chatgpt.exe", "claude.exe")
-$agentShellNames = @("powershell.exe", "pwsh.exe", "cmd.exe")
+# Claude Code's Bash tool runs claude.exe -> bash.exe (Git Bash, nested) -> child;
+# its PowerShell tool runs claude.exe -> cmd.exe -> powershell.exe whose script
+# text arrives through an environment variable, not the command line.
+$agentShellNames = @("powershell.exe", "pwsh.exe", "cmd.exe", "bash.exe", "sh.exe")
 $terminationPerformed = $false
 $guardActions = New-Object System.Collections.Generic.List[string]
+
+function Get-AgentHeavyModuleNames([string]$AdmissionScriptPath) {
+    # The exact heavy-module list is owned by Get-WeatherWorkstationOfflineModule in
+    # workload_admission.ps1. Read it by parsing (never executing) that file so the
+    # guard cannot drift from the wrapper's list. On any failure the guard keeps the
+    # pytest/compileall set and the module-name heuristic.
+    $names = New-Object System.Collections.Generic.List[string]
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+        $AdmissionScriptPath, [ref]$tokens, [ref]$parseErrors)
+    if (@($parseErrors).Count -ne 0) { throw "workload admission script does not parse" }
+    $function = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq 'Get-WeatherWorkstationOfflineModule'
+    }, $true))
+    if ($function.Count -ne 1) { throw "offline module list function not found exactly once" }
+    foreach ($constant in @($function[0].Body.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
+    }, $true))) {
+        $value = [string]$constant.Value
+        if ($value -cmatch '\A[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+\z') {
+            $names.Add($value.ToLowerInvariant())
+        }
+    }
+    if ($names.Count -eq 0) { throw "offline module list is empty" }
+    return $names.ToArray()
+}
 
 function Test-GovernedWeatherProcess($ProcessRow) {
     $name = ([string]$ProcessRow.Name).ToLowerInvariant()
@@ -106,11 +154,76 @@ function Test-GovernedWeatherProcess($ProcessRow) {
 }
 
 function Test-AgentHeavyProcess($ProcessRow) {
+    # Nested helpers live inside this function so that a caller extracting only
+    # this definition (the DST audit harness) still gets them.
+    function Get-AgentPythonInvocation([string]$CommandLine) {
+        # Interpreter options may precede -m/-c/the script (python -I x.py,
+        # python -X utf8 x.py, python -Bu -m pytest). Returns Kind module, inline,
+        # stdin, or script; $null for --version, -h and anything unparsed.
+        $words = @([regex]::Matches($CommandLine, '(?:"[^"]*"|''[^'']*''|[^\s"'']+)+') |
+            ForEach-Object { ($_.Value -replace '"', '') -replace "'", '' })
+        $flags = '[bBdEiIOPqRsSuvx]*'
+        for ($index = 1; $index -lt $words.Count; $index++) {
+            $word = [string]$words[$index]
+            if ($word -ceq '-') { return @{ Kind = 'stdin'; Target = '' } }
+            if ($word -ceq '--') {
+                if ($index + 1 -lt $words.Count) { return @{ Kind = 'script'; Target = [string]$words[$index + 1] } }
+                return @{ Kind = 'stdin'; Target = '' }
+            }
+            $moduleMatch = [regex]::Match($word, ('\A-' + $flags + 'm(?<module>.*)\z'))
+            if ($moduleMatch.Success) {
+                $module = $moduleMatch.Groups['module'].Value
+                if (-not $module) {
+                    $index++
+                    if ($index -ge $words.Count) { return $null }
+                    $module = [string]$words[$index]
+                }
+                return @{ Kind = 'module'; Target = $module.ToLowerInvariant() }
+            }
+            if ($word -cmatch ('\A-' + $flags + 'c')) { return @{ Kind = 'inline'; Target = '' } }
+            $valueMatch = [regex]::Match($word, ('\A-' + $flags + '[WX](?<value>.*)\z'))
+            if ($valueMatch.Success) {
+                if (-not $valueMatch.Groups['value'].Value) { $index++ }
+                continue
+            }
+            if ($word -ceq '--check-hash-based-pycs') { $index++; continue }
+            if ($word -cmatch '\A--check-hash-based-pycs=') { continue }
+            if ($word -cmatch ('\A-' + $flags + '\z')) { continue }
+            if ($word.StartsWith('-')) { return $null }
+            return @{ Kind = 'script'; Target = $word }
+        }
+        # A bare interpreter reads its program from stdin (`... | python`).
+        if ($words.Count -ge 1) { return @{ Kind = 'stdin'; Target = '' } }
+        return $null
+    }
+
+    function Test-AgentHeavyModule([string]$Module) {
+        if ($Module -cin @('pytest', 'compileall', 'coverage', 'tox', 'nox')) { return $true }
+        # $agentHeavyModuleNames is read from workload_admission.ps1 at script scope.
+        if ($null -ne $agentHeavyModuleNames -and ($agentHeavyModuleNames -ccontains $Module)) { return $true }
+        return $Module -cmatch (
+            '\Aweather\.[a-z0-9_.-]*(?:retrain|training|replay|backtest|daily_refresh|score_all)[a-z0-9_.-]*\z')
+    }
+
     $name = ([string]$ProcessRow.Name).ToLowerInvariant()
     $cmd = [string]$ProcessRow.CommandLine
     if ([string]::IsNullOrWhiteSpace($cmd)) { return $false }
+    $normalized = $cmd.Replace('/', '\')
+    # A path segment named data: relative (data\x, .\data) or absolute (C:\repo\data\x,
+    # /c/repo/data/x after normalization).
+    $namesDataPath = $normalized -match '(?i)(?:^|[\s"''=\\])data(?:\\|[\s"'']|$)'
 
     if ($name -match '^pythonw?\.exe$') {
+        # Classify by the interpreter's own arguments. Agent-rooted `-m weather.*`
+        # is no longer exempt as a class: heavy modules (the workstation offline
+        # list and the name heuristic) count; other weather CLIs (status readers,
+        # recovery checks, supervisors) stay out of reach of this rule.
+        $invocation = Get-AgentPythonInvocation $cmd
+        if ($null -ne $invocation) {
+            if ($invocation.Kind -ceq 'module') { return (Test-AgentHeavyModule ([string]$invocation.Target)) }
+            if ($invocation.Kind -cin @('inline', 'stdin')) { return $true }
+            if ($invocation.Kind -ceq 'script') { return ([string]$invocation.Target -match '(?i)\.pyw?\z') }
+        }
         if (Test-GovernedWeatherProcess $ProcessRow) { return $false }
         return ($cmd -match '(?i)(?:^|\s)-m\s+(?:pytest|compileall|coverage|tox|nox)(?:\s|$)') -or
             ($cmd -match '(?i)pythonw?(?:\.exe)?"?\s+-\s*$') -or
@@ -118,16 +231,116 @@ function Test-AgentHeavyProcess($ProcessRow) {
             ($cmd -match '(?i)pythonw?(?:\.exe)?"?\s+[^-]\S*\.py(?:\s|$)')
     }
 
+    # Recursive scanners judged by their own command lines.
+    if ($name -eq 'rg.exe' -or $name -eq 'find.exe') { return $namesDataPath }
+    if ($name -eq 'grep.exe') { return $namesDataPath -and ($cmd -match '(?:^|\s)-[A-Za-z]*[rR]') }
+    if ($name -eq 'robocopy.exe') {
+        return $namesDataPath -or ($cmd -match '(?i)(?:^|\s)/(?:s|e|mir|move)(?:\s|$)')
+    }
+
     if ($agentShellNames -contains $name) {
-        $normalized = $cmd.Replace('/', '\')
         return ($cmd -match '(?i)(?:^|\s)-m\s+(?:pytest|compileall|coverage|tox|nox)(?:\s|$)') -or
             ($cmd -match '(?i)(?:^|\s)-m\s+weather\.[^\s]*(?:retrain|training|replay|backtest|daily_refresh|score_all)') -or
             (($cmd -match '(?i)Get-ChildItem') -and ($cmd -match '(?i)-Recurse')) -or
-            (($cmd -match '(?i)(?:^|[\s;&|])rg(?:\.exe)?(?:\s|$)') -and
-                ($normalized -match '(?i)(?:^|[\s"''])(?:\.\\)?data(?:\\|[\s"''])'))
+            (($cmd -match '(?i)(?:^|[\s;&|("''])(?:rg|find|grep\s+-[A-Za-z]*[rR][A-Za-z]*)(?:\.exe)?(?:\s|$)') -and $namesDataPath)
     }
 
     return ($name -eq 'pytest.exe')
+}
+
+function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot) {
+    # Owners of heavy-workload leases taken through workload_admission.ps1
+    # (workstation_heavy.ps1, the bounded suite, one-off lease wrappers). Each
+    # entry is the owner's PID plus its creation instant. Only an ancestor whose
+    # live PID AND creation instant both match is treated as a lease owner, so a
+    # stale record (owner exited, PID reused) admits nothing. Files are opened
+    # read-only with full sharing: the guard never probes for write access, so
+    # it cannot race a lease acquisition.
+    $owners = New-Object System.Collections.Generic.List[object]
+    $candidates = New-Object System.Collections.Generic.List[object]
+    foreach ($slot in 1..8) {
+        $lockName = if ($slot -eq 1) { "heavy_workload.lock" } else { "heavy_workload.slot{0}.lock" -f $slot }
+        $candidates.Add(@{ Kind = 'repo_lock'; Path = (Join-Path $LeaseRepoRoot ("data\logs\" + $lockName)) })
+        if ($StateRoot) {
+            $stateName = if ($slot -eq 1) { "heavy_workload_v1.poison" } else { "heavy_workload_v1.slot{0}.poison" -f $slot }
+            $candidates.Add(@{ Kind = 'host_state'; Path = (Join-Path $StateRoot $stateName) })
+        }
+    }
+    foreach ($candidate in $candidates) {
+        try {
+            if (-not (Test-Path -LiteralPath $candidate.Path -PathType Leaf)) { continue }
+            $stream = [System.IO.File]::Open(
+                $candidate.Path,
+                [System.IO.FileMode]::Open,
+                [System.IO.FileAccess]::Read,
+                ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+            try {
+                $reader = New-Object System.IO.StreamReader($stream, (New-Object System.Text.UTF8Encoding($false)))
+                $text = $reader.ReadToEnd()
+            }
+            finally { $stream.Dispose() }
+            $text = $text.TrimStart([char]0xFEFF)
+            if (-not $text.TrimStart().StartsWith('{')) { continue }
+            $record = $text | ConvertFrom-Json
+            $ownerPid = [uint32]$record.pid
+            if ($ownerPid -eq 0) { continue }
+            $born = $null
+            if ($candidate.Kind -eq 'repo_lock') {
+                if ([string]$record.schema_version -cne 'weather_heavy_workload_lease_v3') { continue }
+                $tokenMatch = [regex]::Match([string]$record.owner_process_creation_time_token, '\Awin32-filetime:(\d+)\z')
+                if (-not $tokenMatch.Success) { continue }
+                $born = [datetime]::FromFileTimeUtc([long]$tokenMatch.Groups[1].Value)
+            }
+            else {
+                if ([string]$record.schema_version -cne 'weather_heavy_workload_state_v1') { continue }
+                if ([string]$record.state -cne 'ACTIVE') { continue }
+                $born = [datetime]::Parse(
+                    [string]$record.owner_process_start_utc,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+            }
+            $owners.Add([pscustomobject]@{ Pid = $ownerPid; CreationUtc = $born; Source = $candidate.Kind })
+        }
+        catch { continue }
+    }
+    return $owners.ToArray()
+}
+
+function Test-AgentLeaseOwnerRow($ProcessRow, $LeaseOwners) {
+    $rowId = [uint32]$ProcessRow.ProcessId
+    $born = ([datetime]$ProcessRow.CreationDate).ToUniversalTime()
+    foreach ($owner in @($LeaseOwners)) {
+        if ([uint32]$owner.Pid -ne $rowId) { continue }
+        # CIM CreationDate carries microseconds and the lease token 100 ns ticks of
+        # the same kernel instant; one second absorbs rounding, never PID reuse
+        # (a live owner's PID cannot be reused).
+        if ([math]::Abs(($born - [datetime]$owner.CreationUtc).TotalSeconds) -le 1.0) { return $true }
+    }
+    return $false
+}
+
+function Test-AgentLeaseAdmitted($ProcessRow, $ProcessByPid, $AllProcesses, $LeaseOwners) {
+    # Admitted when the row or one of its verified ancestors (below the agent root)
+    # owns a live lease, or when the row is a tool shell whose own subtree contains
+    # a lease owner (the shell only launched the admitted wrapper). Unleased heavy
+    # siblings in that shell tree are still judged one by one.
+    if (@($LeaseOwners).Count -eq 0) { return $false }
+    $current = $ProcessRow
+    for ($depth = 0; $depth -lt 32 -and $null -ne $current; $depth++) {
+        if ($agentRootNames -contains ([string]$current.Name).ToLowerInvariant()) { break }
+        if (Test-AgentLeaseOwnerRow $current $LeaseOwners) { return $true }
+        $parentId = [uint32]$current.ParentProcessId
+        if (-not $ProcessByPid.ContainsKey($parentId)) { break }
+        $parent = $ProcessByPid[$parentId]
+        if (([datetime]$parent.CreationDate).ToUniversalTime() -gt ([datetime]$current.CreationDate).ToUniversalTime()) { break }
+        $current = $parent
+    }
+    if ($agentShellNames -contains ([string]$ProcessRow.Name).ToLowerInvariant()) {
+        foreach ($member in @(Get-ProcessTreeRows $ProcessRow $AllProcesses)) {
+            if (Test-AgentLeaseOwnerRow $member $LeaseOwners) { return $true }
+        }
+    }
+    return $false
 }
 
 function Get-AgentToolRoot($ProcessRow, $ProcessByPid) {
@@ -272,6 +485,7 @@ $status = @{
     actions = @()
     agent_heavy_process_count = 0
     agent_heavy_workload_count = 0
+    agent_heavy_admitted_workload_count = 0
     agent_heavy_max_private_mb = 0
     agent_heavy_window_allowed = $false
 }
@@ -292,7 +506,15 @@ $utcNow = $localNow.ToUniversalTime()
 $minuteOfDay = (60 * $localNow.Hour) + $localNow.Minute + ($localNow.Second / 60.0)
 $agentHeavyWindowAllowed = ($minuteOfDay -ge 30.0) -and ($minuteOfDay -lt 540.0)
 $status.agent_heavy_window_allowed = $agentHeavyWindowAllowed
+$agentHeavyModuleNames = $null
+try {
+    $agentHeavyModuleNames = @(Get-AgentHeavyModuleNames (Join-Path $PSScriptRoot "workload_admission.ps1"))
+}
+catch {
+    Write-GuardLog "WARNING" ("heavy-module list unavailable; using the module-name heuristic only: {0}" -f $_.Exception.Message)
+}
 $heavyToolRoots = @{}
+$heavyRowsByKey = @{}
 foreach ($row in $allProcesses) {
     if (-not (Test-AgentHeavyProcess $row)) { continue }
     $ageSeconds = ($utcNow - ([datetime]$row.CreationDate).ToUniversalTime()).TotalSeconds
@@ -301,6 +523,33 @@ foreach ($row in $allProcesses) {
     if (-not $toolRoot) { continue }
     $key = "{0}|{1}" -f $toolRoot.ProcessId, ([datetime]$toolRoot.CreationDate).ToUniversalTime().Ticks
     if (-not $heavyToolRoots.ContainsKey($key)) { $heavyToolRoots[$key] = $toolRoot }
+    if (-not $heavyRowsByKey.ContainsKey($key)) { $heavyRowsByKey[$key] = New-Object System.Collections.Generic.List[object] }
+    $heavyRowsByKey[$key].Add($row)
+}
+
+# Lease admission. A tool tree whose every heavy member is admitted under a live
+# heavy-workload lease (workstation_heavy.ps1, the bounded suite, a one-off lease
+# wrapper) is never a window or concurrency target; that lease already enforces
+# the window and serialization. It still occupies a concurrency slot and stays
+# under the per-tree private-byte budget. In a mixed tree only the unadmitted
+# heavy members' own subtrees are terminated, never the admitted wrapper.
+$unadmittedRowsByKey = @{}
+$admittedRootKeys = @{}
+$mixedRootKeys = @{}
+$leaseOwners = @()
+if ($heavyToolRoots.Count -gt 0) {
+    $leaseOwners = @(Get-AdmittedLeaseOwners $RepoRoot $HeavyWorkloadStateRoot)
+}
+foreach ($entry in $heavyToolRoots.GetEnumerator()) {
+    $unadmitted = New-Object System.Collections.Generic.List[object]
+    $admittedCount = 0
+    foreach ($member in $heavyRowsByKey[$entry.Key]) {
+        if (Test-AgentLeaseAdmitted $member $processByPid $allProcesses $leaseOwners) { $admittedCount++ }
+        else { $unadmitted.Add($member) }
+    }
+    $unadmittedRowsByKey[$entry.Key] = $unadmitted
+    if ($unadmitted.Count -eq 0) { $admittedRootKeys[$entry.Key] = $true }
+    elseif ($admittedCount -gt 0) { $mixedRootKeys[$entry.Key] = $true }
 }
 $agentHeavyRows = @($allProcesses | Where-Object {
     if (-not (Test-AgentHeavyProcess $_)) { return $false }
@@ -308,6 +557,7 @@ $agentHeavyRows = @($allProcesses | Where-Object {
 })
 $status.agent_heavy_process_count = $agentHeavyRows.Count
 $status.agent_heavy_workload_count = $heavyToolRoots.Count
+$status.agent_heavy_admitted_workload_count = $admittedRootKeys.Count
 
 $agentTreeBytes = @{}
 foreach ($entry in $heavyToolRoots.GetEnumerator()) {
@@ -322,13 +572,21 @@ if ($agentTreeBytes.Count -gt 0) {
 
 $agentTargetMap = @{}
 if (-not $agentHeavyWindowAllowed) {
-    foreach ($entry in $heavyToolRoots.GetEnumerator()) { $agentTargetMap[$entry.Key] = $entry.Value }
+    foreach ($entry in $heavyToolRoots.GetEnumerator()) {
+        if ($admittedRootKeys.ContainsKey($entry.Key)) { continue }
+        $agentTargetMap[$entry.Key] = $entry.Value
+    }
 }
 elseif ($heavyToolRoots.Count -gt $MaxConcurrentAgentHeavyWorkloads) {
     $orderedRoots = @($heavyToolRoots.Values |
         Sort-Object @{ Expression = { ([datetime]$_.CreationDate).ToUniversalTime() } }, ProcessId)
-    foreach ($root in @($orderedRoots | Select-Object -Skip $MaxConcurrentAgentHeavyWorkloads)) {
+    # Admitted trees take their slots first and are never targets; the oldest
+    # unadmitted trees fill whatever slots remain.
+    $freeSlots = $MaxConcurrentAgentHeavyWorkloads - $admittedRootKeys.Count
+    foreach ($root in $orderedRoots) {
         $key = "{0}|{1}" -f $root.ProcessId, ([datetime]$root.CreationDate).ToUniversalTime().Ticks
+        if ($admittedRootKeys.ContainsKey($key)) { continue }
+        if ($freeSlots -gt 0) { $freeSlots--; continue }
         $agentTargetMap[$key] = $root
     }
 }
@@ -340,12 +598,34 @@ foreach ($entry in $heavyToolRoots.GetEnumerator()) {
 foreach ($entry in $agentTargetMap.GetEnumerator()) {
     $target = $entry.Value
     $treePrivateMB = [math]::Round(([long]$agentTreeBytes[$entry.Key] / 1MB), 0)
-    $reason = if ([long]$agentTreeBytes[$entry.Key] -ge $MinKillPrivateBytes) {
+    $overBudget = [long]$agentTreeBytes[$entry.Key] -ge $MinKillPrivateBytes
+    $reason = if ($overBudget) {
         "Codex tool tree exceeds the $([math]::Round($MinKillPrivateBytes / 1MB, 0)) MB private budget (observed ${treePrivateMB} MB)"
     } elseif ($agentHeavyWindowAllowed) {
         "Codex heavy-workload concurrency exceeds $MaxConcurrentAgentHeavyWorkloads"
     } else {
         "Codex heavy workload is outside the 00:30-09:00 host window"
+    }
+    if (-not $overBudget -and $mixedRootKeys.ContainsKey($entry.Key)) {
+        # Spare the admitted wrapper: stop each unadmitted heavy member's own subtree.
+        $coveredMemberIds = @{}
+        foreach ($member in @($unadmittedRowsByKey[$entry.Key] |
+                Sort-Object @{ Expression = { ([datetime]$_.CreationDate).ToUniversalTime() } }, ProcessId)) {
+            if ($coveredMemberIds.ContainsKey([uint32]$member.ProcessId)) { continue }
+            $memberTree = @(Get-ProcessTreeRows $member $allProcesses)
+            foreach ($covered in $memberTree) { $coveredMemberIds[[uint32]$covered.ProcessId] = $true }
+            if (@($memberTree | Where-Object { Test-AgentLeaseOwnerRow $_ $leaseOwners }).Count -gt 0) {
+                Write-GuardLog "WARNING" ("left unadmitted heavy pid {0} running: its subtree owns a heavy-workload lease" -f $member.ProcessId)
+                continue
+            }
+            if (Stop-VerifiedProcessTree $member $allProcesses ("{0} (unadmitted member of a leased tool tree)" -f $reason) $true) {
+                $guardActions.Add("killed_agent_member_pid_$($member.ProcessId)")
+                $terminationPerformed = $true
+            } else {
+                $guardActions.Add("kill_failed_agent_member_pid_$($member.ProcessId)")
+            }
+        }
+        continue
     }
     if (Stop-VerifiedProcessTree $target $allProcesses $reason $true) {
         $action = "killed_agent_tree_pid_$($target.ProcessId)"
@@ -545,6 +825,7 @@ if ($status.physical_warning -or $status.memory_warning -or $guardActions.Count 
         agent_heavy_window_allowed = $status.agent_heavy_window_allowed
         agent_heavy_process_count = $status.agent_heavy_process_count
         agent_heavy_workload_count = $status.agent_heavy_workload_count
+        agent_heavy_admitted_workload_count = $status.agent_heavy_admitted_workload_count
         agent_heavy_max_private_mb = $status.agent_heavy_max_private_mb
         actions = @($guardActions)
     }

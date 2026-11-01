@@ -137,7 +137,8 @@ The actual-host S4U smoke is not replaced.
 The baseline commands are not authority to run a direct full suite or parallel verification here.
 [HOST_LOAD_POLICY](operations/HOST_LOAD_POLICY.md) is the contract. In short: focused tests run serially and only
 inside 00:30-09:00 local; in Codex sessions the user-layer hook rejects direct unbounded pytest at every hour and
-rejects pytest/compileall outside that window (Claude Code has no hook; the S4U guard is its only backstop). A full suite runs only through
+rejects pytest/compileall outside that window (Claude Code has no pre-launch hook; the S4U guard, which sees its Bash and PowerShell
+tool trees, is its only backstop and acts only after launch). A full suite runs only through
 `scripts/ops/bounded_worktree_test_suite.ps1`, against a clean worktree at an exact commit. Its enforced limits
 (read the script, not this list, if they matter to a decision):
 

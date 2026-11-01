@@ -529,7 +529,7 @@ Stage-A, workstation or live authority is added.
    `WeatherMemoryCommitGuard` task runs every minute. It warns when available
    physical RAM is below 1.5 GiB and records the top working-set processes. It
    warns at 85% commit and, at 92%, terminates the largest eligible ungoverned
-   Python or aggregate Codex/ChatGPT process tree above 8 GB. Physical-RAM
+   Python or aggregate Codex/ChatGPT/Claude process tree above 8 GB. Physical-RAM
    pressure is warning-only: every emergency memory kill remains commit-based.
    Production `-m weather.*` workers are excluded by process ancestry and
    command identity. Agents running unbounded materializations must chunk or
@@ -547,10 +547,34 @@ Stage-A, workstation or live authority is added.
    down evidence at 09:00 and settlement at 11:55. Stage B therefore releases
    the host before the 09:30 Stage-A exception, and Stage A cannot cross into
    the graded window.
-6. **Agent verification is serial and time-gated.** The OS guard terminates
-   recognized agent-owned (codex.exe, chatgpt.exe or claude.exe root) pytest, compileall, inline/bare Python, and recursive
-   data-scan tool trees outside 00:30–09:00, and retains at most one such tree
-   inside the window. An agent-owned tool tree is independently terminated when
+6. **Agent verification is serial and time-gated.** The OS guard
+   (`scripts/ops/memory_commit_guard.ps1`) terminates recognized agent-owned
+   (codex.exe, chatgpt.exe or claude.exe root) heavy tool trees outside
+   00:30–09:00, and retains at most one such tree inside the window. A tool tree
+   is the agent root's direct child (a PowerShell, cmd, Bash or sh shell, or a
+   bare tool such as `rg.exe`). It is heavy when any member is, judged by that
+   member's **own** command line, because Claude Code's PowerShell tool passes its
+   script text through an environment variable and the shell line shows nothing:
+   pytest/compileall/coverage/tox/nox; inline, stdin or script Python (interpreter
+   options such as `-I` or `-X utf8` before the script included); a `-m` module
+   listed by `Get-WeatherWorkstationOfflineModule` (read from
+   `workload_admission.ps1`) or whose name contains retrain, training, replay,
+   backtest, daily_refresh or score_all; `rg`/`find`/recursive `grep` naming a
+   `data` path; recursive `robocopy`; or a shell line naming one of these or
+   `Get-ChildItem -Recurse`. Other `-m weather.*` CLIs (status readers, recovery
+   checks, supervisors) are not heavy. Not visible: an in-process recursive scan
+   inside a hidden PowerShell script, until its tree's private bytes trip the
+   budget below.
+   **Lease-admitted work is not a window or concurrency target.** A heavy member
+   is admitted when it or a verified ancestor below the agent root is the live
+   owner of a heavy-workload lease from `workload_admission.ps1` (repository lock
+   `data\logs\heavy_workload[.slotN].lock` of the guard's checkout, or an `ACTIVE`
+   host-global `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison`
+   record), matched by PID and process creation instant so a stale record admits
+   nothing. That covers `workstation_heavy.ps1`, the bounded suite and one-off
+   lease wrappers. An admitted tree still occupies the in-window slot; in a
+   mixed tree only the unadmitted heavy members' subtrees are terminated.
+   An agent-owned tool tree, admitted or not, is independently terminated when
    its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
@@ -559,8 +583,9 @@ Stage-A, workstation or live authority is added.
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
-   exact definition on the next session. Claude Code sessions have no hook; the
-   S4U guard is their only backstop.
+   exact definition on the next session. Claude Code sessions have no
+   pre-launch hook; the S4U guard is their only backstop, and it acts only after
+   launch (15-second grace, then the next one-minute tick).
 7. **Test runs are disk writers.** The bounded wrapper keeps pytest and
    `TEMP`/`TMP` in sibling directories under each chunk's cleaned root, and
    restores the parent environment even on failure. Always pass `--basetemp <dir>` to pytest,

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -109,6 +110,37 @@ $results = foreach ($scenario in $scenarios) {
             ReadTransferCount = [uint64]0
         }
     })
+    # Lease records exactly as workload_admission.ps1 writes them: the repo lock under
+    # <repo>\data\logs and the host-global state file under the (synthetic) state root.
+    $stateRoot = Join-Path $scenario.repo_root 'host_state'
+    foreach ($lease in @($scenario.leases)) {
+        if ($null -eq $lease) { continue }
+        $born = $global:FakeNow.AddMinutes(-[double]$lease.age_minutes).ToUniversalTime()
+        if ($lease.kind -eq 'repo_lock') {
+            $dir = Join-Path $scenario.repo_root 'data\logs'
+            $record = [ordered]@{
+                schema_version = 'weather_heavy_workload_lease_v3'
+                workload = 'WorkstationOffline-pytest-1'
+                pid = [int]$lease.pid
+                owner_process_creation_time_token = 'win32-filetime:{0}' -f $born.ToFileTimeUtc()
+            }
+        }
+        else {
+            $dir = $stateRoot
+            $record = [ordered]@{
+                schema_version = 'weather_heavy_workload_state_v1'
+                state = [string]$lease.state
+                workload = 'WorkstationOffline-pytest-1'
+                execution_host_profile = 'workstation_offline_v1'
+                pid = [int]$lease.pid
+                owner_process_start_utc = $born.ToString('o')
+                boot_session_id = 1
+                state_changed_at_utc = $born.ToString('o')
+            }
+        }
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        [IO.File]::WriteAllText((Join-Path $dir ([string]$lease.file)), ($record | ConvertTo-Json -Compress))
+    }
     $global:FakeRuntime = @(foreach ($p in $scenario.processes) {
         [pscustomobject]@{
             Id = [int]$p.pid
@@ -117,7 +149,8 @@ $results = foreach ($scenario in $scenarios) {
             WorkingSet64 = [long]$p.private_bytes
         }
     })
-    $arguments = @{ RepoRoot = $scenario.repo_root }
+    # Never let a scenario read the host's real %ProgramData% lease state.
+    $arguments = @{ RepoRoot = $scenario.repo_root; HeavyWorkloadStateRoot = $stateRoot }
     if ($scenario.expected_host_id) { $arguments['ExpectedExecutionHostId'] = $scenario.expected_host_id }
     # Production runs the guard via -File under the default Continue preference, where a
     # statement-terminating error is swallowed (EF §10g). Mirror that, then surface every error.
@@ -178,6 +211,7 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
         "task_name": EVIDENCE_TASK,
         "task_state": extra.pop("task_state", None),
         "expected_host_id": extra.pop("expected_host_id", None),
+        "leases": extra.pop("leases", []),
     }
 
 
@@ -379,3 +413,232 @@ def test_exec_guard_skips_before_any_side_effect_on_a_foreign_host(tmp_path: Pat
     assert foreign["calls"] == ["Get-ItemPropertyValue"]
     assert foreign["stopped"] == []
     assert foreign["logs_dir_exists"] is False
+
+
+# ---- Claude Code process shapes and lease admission (state review 2026-11-01 item 17) ----
+#
+# Real Claude Code shapes on Windows, observed 2026-11-01:
+#   Bash tool:       claude.exe -> bash.exe -c "source <snapshot> ... eval '<command>'" -> bash.exe -> child
+#   PowerShell tool: claude.exe -> cmd.exe /d /s /c "chcp 65001 & powershell.exe ... -Command
+#                    $__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT ..." -> powershell.exe -> child
+# The PowerShell tool's script text never reaches a command line, so every child must be
+# classified by its own command line.
+
+ADMISSION = REPO_ROOT / "scripts" / "ops" / "workload_admission.ps1"
+CLAUDE = r"C:\Users\u\AppData\Local\Claude-Data\claude-code\claude.exe --output-format stream-json"
+GIT_BASH = (
+    r'"C:\Program Files\Git\bin\bash.exe" -c "source /c/Users/u/.claude/shell-snapshots/snapshot-bash-1.sh '
+    r"2>/dev/null || true && export TEMP='C:\Users\u\AppData\Local\Temp' && eval '{command}'" + '"'
+)
+INNER_BASH = r'"C:\Program Files\Git\usr\bin\bash.exe" -c "{command}"'
+CMD_LAUNCHER = (
+    r'C:\WINDOWS\System32\cmd.exe /d /s /c ""C:\WINDOWS\System32\chcp.com" 65001 >nul & '
+    r'"C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive '
+    r'-ExecutionPolicy Bypass -Command "$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT""'
+)
+HIDDEN_PS = (
+    r'"C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive '
+    r'-ExecutionPolicy Bypass -Command "$__claudeCodeScript = $env:CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT"'
+)
+VENV_PY = r"C:\repo\venv\Scripts\python.exe"
+WRAPPER = (
+    r"powershell -NoProfile -File C:\wt\x\scripts\ops\workstation_heavy.ps1 -Kind pytest "
+    r"-PythonPath C:\repo\venv\Scripts\python.exe -ArgumentsBase64 LW0gcHl0ZXN0 -RepoRoot C:\wt\x -Queue"
+)
+
+
+def _claude_bash(base: int, command: str, child_name: str, child_cmd: str, *, age: float = 30) -> list[dict]:
+    """claude.exe -> bash.exe -> bash.exe -> child, with pids base+1, +3, +5, +7."""
+    return [
+        _proc(base + 1, "claude.exe", CLAUDE, age=age + 60),
+        _proc(base + 3, "bash.exe", GIT_BASH.format(command=command), age=age + 1, ppid=base + 1),
+        _proc(base + 5, "bash.exe", INNER_BASH.format(command=command), age=age + 1, ppid=base + 3),
+        _proc(base + 7, child_name, child_cmd, age=age, ppid=base + 5),
+    ]
+
+
+def _claude_powershell(base: int, child_name: str, child_cmd: str, *, shell_cmd: str = HIDDEN_PS) -> list[dict]:
+    """claude.exe -> cmd.exe -> powershell.exe (script text hidden) -> child."""
+    return [
+        _proc(base + 1, "claude.exe", CLAUDE, age=120),
+        _proc(base + 3, "cmd.exe", CMD_LAUNCHER, age=31, ppid=base + 1),
+        _proc(base + 5, "powershell.exe", shell_cmd, age=31, ppid=base + 3),
+        _proc(base + 7, child_name, child_cmd, age=30, ppid=base + 5),
+    ]
+
+
+def test_exec_claude_bash_shape_heavy_children_are_reaped_outside_window(tmp_path: Path) -> None:
+    replay = f"{VENV_PY} -m weather.backtesting.replay run --market all"
+    isolated_script = f"{VENV_PY} -I C:\\scratch\\probe.py"
+    table = (
+        _claude_bash(7_100_000, "python -m weather.backtesting.replay run", "python.exe", replay)
+        + _claude_bash(7_100_100, "python -I C:/scratch/probe.py", "python.exe", isolated_script)
+        + _claude_bash(7_100_200, "find /c/repo/data -name x", "find.exe", "/usr/bin/find /c/repo/data -name x")
+        + _claude_bash(7_100_300, "rg -n foo data/logs", "rg.exe", "rg -n foo data/logs")
+        # Light work in the same shape is left alone.
+        + _claude_bash(
+            7_100_400,
+            "python -m weather.operations.agent_docs_audit",
+            "python.exe",
+            f"{VENV_PY} -m weather.operations.agent_docs_audit",
+        )
+        + _claude_bash(7_100_500, "rg -n foo src", "rg.exe", r"rg -n foo C:\repo\src")
+    )
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "daytime", now="2026-11-01T14:00:00", commit=50.0, processes=table),
+            _scenario(tmp_path, "night", now="2026-11-01T02:00:00", commit=50.0, processes=table[:4]),
+        ],
+    )
+
+    daytime = outcome["daytime"]
+    for base in (7_100_000, 7_100_100, 7_100_200, 7_100_300):
+        # The outer bash.exe is the tool root; the whole tree goes, children first.
+        assert {base + 3, base + 5, base + 7} <= set(daytime["stopped"]), base
+        assert daytime["stopped"].index(base + 7) < daytime["stopped"].index(base + 3), base
+        assert base + 1 not in daytime["stopped"], base
+    for base in (7_100_400, 7_100_500):
+        assert not {base + 3, base + 5, base + 7} & set(daytime["stopped"]), base
+    assert daytime["status"]["agent_heavy_workload_count"] == 4
+    assert daytime["status"]["agent_heavy_admitted_workload_count"] == 0
+
+    night = outcome["night"]
+    assert night["stopped"] == []
+    assert night["status"]["agent_heavy_workload_count"] == 1
+
+
+def test_exec_claude_powershell_shape_children_are_judged_by_their_own_command_lines(tmp_path: Path) -> None:
+    encoded_shell = r"powershell.exe -NoProfile -EncodedCommand SQBuAHYAbwBrAGUALQBTAG8AbQBlAHQAaABpAG4AZwA="
+    file_shell = r"powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\u\AppData\Local\Temp\job.ps1"
+    table = (
+        _claude_powershell(7_200_000, "python.exe", f"{VENV_PY} -X utf8 C:\\scratch\\scan.py --all")
+        + _claude_powershell(
+            7_200_100,
+            "python.exe",
+            f'"{VENV_PY}" -B -m weather.calibration.mg2_composite build',
+            shell_cmd=encoded_shell,
+        )
+        + _claude_powershell(7_200_200, "robocopy.exe", r"robocopy C:\repo\data D:\copy /E", shell_cmd=file_shell)
+        + _claude_powershell(7_200_300, "python.exe", f"{VENV_PY} -m pytest -q tests/x.py", shell_cmd=encoded_shell)
+        # A status-style weather CLI and a single-file copy are not heavy.
+        + _claude_powershell(7_200_400, "python.exe", f"{VENV_PY} -m weather.operations.capture_recovery_check")
+        + _claude_powershell(7_200_500, "robocopy.exe", r"robocopy C:\a C:\b one.txt")
+    )
+    outcome = _run(
+        tmp_path,
+        [_scenario(tmp_path, "daytime", now="2026-11-01T14:00:00", commit=50.0, processes=table)],
+    )
+
+    daytime = outcome["daytime"]
+    for base in (7_200_000, 7_200_100, 7_200_200, 7_200_300):
+        # cmd.exe (the direct child of claude.exe) is the tool root.
+        assert {base + 3, base + 5, base + 7} <= set(daytime["stopped"]), base
+        assert f"killed_agent_tree_pid_{base + 3}" in daytime["status"]["actions"], base
+    for base in (7_200_400, 7_200_500):
+        assert not {base + 3, base + 5, base + 7} & set(daytime["stopped"]), base
+    assert daytime["status"]["agent_heavy_workload_count"] == 4
+
+
+def test_exec_leased_work_stays_admitted_and_unleased_work_does_not(tmp_path: Path) -> None:
+    pytest_child = f"{VENV_PY} -m pytest -q tests/operations/test_x.py --basetemp C:\\t\\bt"
+
+    def leased_tree(base: int) -> list[dict]:
+        # claude.exe -> bash.exe -> powershell workstation_heavy.ps1 (lease owner) -> python -m pytest
+        return [
+            _proc(base + 1, "claude.exe", CLAUDE, age=200),
+            _proc(base + 3, "bash.exe", GIT_BASH.format(command="powershell -File x"), age=41, ppid=base + 1),
+            _proc(base + 5, "powershell.exe", WRAPPER, age=40, ppid=base + 3),
+            _proc(base + 7, "python.exe", pytest_child, age=39, ppid=base + 5),
+        ]
+
+    leased = leased_tree(7_300_000)
+    repo_lock = [{"kind": "repo_lock", "file": "heavy_workload.slot2.lock", "pid": 7_300_005, "age_minutes": 40}]
+    host_state = [
+        {
+            "kind": "host_state",
+            "file": "heavy_workload_v1.slot3.poison",
+            "pid": 7_300_005,
+            "age_minutes": 40,
+            "state": "ACTIVE",
+        }
+    ]
+    # Same PID, different creation instant: the owner exited and the PID was reused.
+    stale = [{"kind": "repo_lock", "file": "heavy_workload.lock", "pid": 7_300_005, "age_minutes": 90}]
+    teardown = [dict(host_state[0], state="TEARDOWN_PENDING")]
+    # An unleased inline job started from the same tool shell.
+    sibling = [_proc(7_300_009, "python.exe", f'{VENV_PY} -c "import big; big.run()"', age=20, ppid=7_300_003)]
+    other_tree = _claude_bash(7_300_100, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=60)
+
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "repo_lock", now=day, commit=50.0, processes=leased, leases=repo_lock),
+            _scenario(tmp_path, "host_state", now=day, commit=50.0, processes=leased, leases=host_state),
+            _scenario(tmp_path, "stale", now=day, commit=50.0, processes=leased, leases=stale),
+            _scenario(tmp_path, "teardown", now=day, commit=50.0, processes=leased, leases=teardown),
+            _scenario(tmp_path, "unleased", now=day, commit=50.0, processes=leased),
+            _scenario(tmp_path, "mixed", now=day, commit=50.0, processes=leased + sibling, leases=repo_lock),
+            _scenario(
+                tmp_path,
+                "night_pair",
+                now="2026-11-01T02:00:00",
+                commit=50.0,
+                processes=leased + other_tree,
+                leases=repo_lock,
+            ),
+        ],
+    )
+
+    for name in ("repo_lock", "host_state"):
+        admitted = outcome[name]
+        assert admitted["stopped"] == [], name
+        assert admitted["status"]["agent_heavy_workload_count"] == 1, name
+        assert admitted["status"]["agent_heavy_admitted_workload_count"] == 1, name
+        assert admitted["status"]["action"] == "none", name
+
+    for name in ("stale", "teardown", "unleased"):
+        reaped = outcome[name]
+        assert set(reaped["stopped"]) == {7_300_003, 7_300_005, 7_300_007}, name
+        assert reaped["status"]["agent_heavy_admitted_workload_count"] == 0, name
+
+    # Only the unleased sibling dies; the admitted wrapper and its pytest child survive.
+    mixed = outcome["mixed"]
+    assert mixed["stopped"] == [7_300_009]
+    assert mixed["status"]["action"] == "killed_agent_member_pid_7300009"
+    assert "unadmitted member of a leased tool tree" in mixed["log"]
+
+    # Inside the window the admitted tree holds the single slot, so the unleased tree is
+    # reaped although it is OLDER (the age-only rule would have kept it).
+    night_pair = outcome["night_pair"]
+    assert set(night_pair["stopped"]) == {7_300_103, 7_300_105, 7_300_107}
+    assert night_pair["status"]["agent_heavy_workload_count"] == 2
+    assert night_pair["status"]["agent_heavy_admitted_workload_count"] == 1
+
+
+def _offline_modules() -> list[str]:
+    text = ADMISSION.read_text(encoding="utf-8-sig")
+    start = text.index("function Get-WeatherWorkstationOfflineModule")
+    body = text[start : text.index("\n}\n", start)]
+    modules = re.findall(r'"([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)"', body)
+    assert len(modules) > 20
+    return modules
+
+
+def test_exec_every_workstation_offline_module_is_heavy_when_agent_rooted(tmp_path: Path) -> None:
+    """The guard parses Get-WeatherWorkstationOfflineModule, so a module added there is covered."""
+    modules = _offline_modules()
+    table: list[dict] = []
+    for index, module in enumerate(modules):
+        base = 7_400_000 + 100 * index
+        table += _claude_bash(base, f"python -m {module}", "python.exe", f"{VENV_PY} -m {module} run")
+    outcome = _run(
+        tmp_path,
+        [_scenario(tmp_path, "daytime", now="2026-11-01T14:00:00", commit=50.0, processes=table)],
+    )
+
+    daytime = outcome["daytime"]
+    assert daytime["status"]["agent_heavy_workload_count"] == len(modules)
+    missed = [m for i, m in enumerate(modules) if 7_400_000 + 100 * i + 7 not in daytime["stopped"]]
+    assert missed == []
