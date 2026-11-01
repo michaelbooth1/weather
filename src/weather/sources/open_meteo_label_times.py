@@ -56,16 +56,10 @@ def payload_local_times(payload, tz):
     offset = response_offset_seconds(payload)
     times = provider_hourly_local_times(labels, tz, offset)
     parsed = [_parse(label) for label in labels]
-    naive = [value is not None and value.tzinfo is None for value in parsed]
-    if not any(naive):
+    refusal = _refusal(parsed, offset)
+    if refusal is None:
         return times, None
-    if offset is None:
-        refusal = REFUSED_NO_OFFSET
-    elif not _uniform_series([value for value, is_naive in zip(parsed, naive) if is_naive]):
-        refusal = REFUSED_NOT_FIXED_OFFSET
-    else:
-        return times, None
-    return [None if is_naive else value for value, is_naive in zip(times, naive)], refusal
+    return [None if _naive(value) else local for local, value in zip(times, parsed)], refusal
 
 
 def refused_row_count(payload, local_times, refusal):
@@ -77,6 +71,32 @@ def refused_row_count(payload, local_times, refusal):
         1 for index, label in enumerate(labels)
         if label and (index >= len(local_times) or local_times[index] is None)
     )
+
+
+def payload_refused_row_count(payload):
+    """``refused_row_count`` for a whole payload without the time conversion (the Stage-A count pass).
+
+    Under a refusal, every non-empty label except one carrying its own offset is left without a local time."""
+    labels = payload_labels(payload)
+    parsed = [_parse(label) for label in labels]
+    if _refusal(parsed, response_offset_seconds(payload)) is None:
+        return 0
+    return sum(1 for label, value in zip(labels, parsed) if label and (value is None or value.tzinfo is None))
+
+
+def _naive(value):
+    return value is not None and value.tzinfo is None
+
+
+def _refusal(parsed, offset):
+    naive = [value for value in parsed if _naive(value)]
+    if not naive:
+        return None
+    if offset is None:
+        return REFUSED_NO_OFFSET
+    if not _uniform_series(naive):
+        return REFUSED_NOT_FIXED_OFFSET
+    return None
 
 
 def _parse(label):

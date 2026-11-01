@@ -20,7 +20,7 @@ from weather.sources.historical_schema import (
     write_manifest,
 )
 from weather.market.market_registry import spec_for_id
-from weather.sources.open_meteo_label_times import payload_local_times, refused_row_count
+from weather.sources.open_meteo_label_times import payload_local_times, payload_refused_row_count
 from weather.sources.wu_history import get_code_version, parse_date
 
 
@@ -201,11 +201,7 @@ class ReanalysisStore:
         usable ``utc_offset_seconds``, or with one but in a series that repeats, gaps or holds an unparseable
         label mid-series. One full raw-payload pass, so it stays out of ``coverage()`` (the data-layer audit
         calls that too); the Stage-A reanalysis step calls it once per market so the refusal is never silent."""
-        refused = 0
-        for payload in self.iter_raw_payloads():
-            local_times, refusal = payload_local_times(payload, self.spec.tz)
-            refused += refused_row_count(payload, local_times, refusal)
-        return refused
+        return sum(payload_refused_row_count(payload) for payload in self.iter_raw_payloads())
 
     def raw_variable_covered_dates(self, required_variables):
         required = tuple(variable for variable in required_variables or () if variable)

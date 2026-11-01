@@ -21,6 +21,7 @@ from weather.sources.open_meteo_archives import (
 from weather.sources.open_meteo_label_times import (
     REFUSED_NOT_FIXED_OFFSET,
     payload_local_times,
+    payload_refused_row_count,
     refused_row_count,
 )
 from weather.sources.reanalysis_history import ReanalysisStore, normalize_payload
@@ -213,3 +214,34 @@ def test_labels_with_their_own_offset_are_kept_when_naive_ones_are_refused():
     assert refusal == REFUSED_NOT_FIXED_OFFSET
     assert local_times[:2] == [None, None] and local_times[2].isoformat() == "2025-11-02T06:00:00-05:00"
     assert refused_row_count(payload, local_times, refusal) == 2
+
+
+def _gap(times):
+    del times[30]
+    return times
+
+
+def _unparseable(index):
+    def mutate(times):
+        times[index] = "not-a-time"
+        return times
+    return mutate
+
+
+@pytest.mark.parametrize(
+    ("mutate", "offset", "expected"),
+    [
+        pytest.param(lambda times: times, -14400, 0, id="uniform"),
+        pytest.param(lambda times: times, None, 72, id="no-offset"),
+        pytest.param(_gap, -14400, 71, id="gap"),
+        pytest.param(_unparseable(5), -14400, 72, id="unparseable-mid"),
+        pytest.param(_unparseable(0), -14400, 0, id="unparseable-edge"),
+        pytest.param(lambda times: times[:3] + times[2:], -14400, 73, id="repeat"),
+        pytest.param(lambda times: times[:2] + ["", *times[2:]], -14400, 0, id="inserted-empty-label-is-no-gap"),
+    ],
+)
+def test_the_stage_a_count_pass_equals_the_reader_count(mutate, offset, expected):
+    payload = payload_for(mutate(contiguous_labels("2025-11-01T00:00", 72)), offset)
+    local_times, refusal = payload_local_times(payload, NYC.tz)
+    assert refused_row_count(payload, local_times, refusal) == expected
+    assert payload_refused_row_count(payload) == expected
