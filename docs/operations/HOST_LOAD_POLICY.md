@@ -587,22 +587,39 @@ Stage-A, workstation or live authority is added.
    in-process recursive scan inside a hidden PowerShell script, until its tree's
    private bytes trip the budget below.
    **Lease-admitted work is not a window or concurrency target.** A heavy member
-   is admitted when it, a verified ancestor below the agent root, or any process
-   in its own subtree is the live owner of a heavy-workload lease from
+   is admitted when it, a verified ancestor below the agent root, or (unless the
+   member is a `powershell`/`pwsh`/`cmd` line that is heavy by its own text) any
+   process in its own subtree is the live owner of a heavy-workload lease from
    `workload_admission.ps1` (repository lock
    `data\logs\heavy_workload[.slotN].lock` of the guard's checkout, or an `ACTIVE`
    or `TEARDOWN_PENDING` host-global
    `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison` record),
    matched by PID and process creation instant so a stale record admits nothing,
    **and only while the record's `policy_window` is open**: `agent_heavy`
-   00:30–09:00 plus a five-minute teardown grace (to 09:05); `stage_a` 09:30 to
-   its 11:55 teardown deadline; `workstation_offline` and `portable_execution`
-   (also read from a state record's `execution_host_profile`) at any hour; any
-   other record (the integration mutex, an older schema, an expired owner
-   exception) gets the `agent_heavy` window. Past its window an owner's heavy
-   descendants are stopped like unadmitted members, a heavy owner ancestor is
-   stopped alone (the owner is orphaned, not stopped), and only the owner is
-   spared, with a CRITICAL log. That covers `workstation_heavy.ps1`, the bounded
+   00:30–09:00, the guard's own window with no grace; `stage_a` 09:30 to its
+   11:55 teardown deadline; `workstation_offline` and `portable_execution` (also
+   read from a state record's `execution_host_profile`) at any hour **on the
+   assigned non-capture host only**: the guard's own execution-host identity must
+   be `active_portable_execution_host_id` in
+   `config/international_live_execution_host.json`, must not be
+   `dedicated_capture_execution_host_id`, the guard must not be registered with
+   `-ExpectedExecutionHostId`, and a repository lock must name that identity as
+   its `execution_host_id` (a state record has no such field and lives in the
+   host's own `%ProgramData%`). Anywhere else, or on any doubt, such a record
+   gets the `agent_heavy` window with a WARNING. Any other record (the
+   integration mutex, an older schema, an expired owner exception) gets the
+   `agent_heavy` window too. Past its window an owner's heavy descendants are
+   stopped like unadmitted members, a heavy owner ancestor is stopped alone (the
+   owner is orphaned, not stopped), and only the owner is spared, with a
+   CRITICAL log. A heavy shell line above an in-window owner is stopped alone the
+   same way.
+   **Orphaned lease trees.** The guard remembers, in
+   `data\logs\memory_commit_guard_state.json`, each live lease owner it saw
+   inside an agent tree (PID and creation instant). When a remembered owner is
+   still a live lease owner but has lost its agent root (its parent was stopped
+   alone), the top of its verified ancestry becomes a tool root of its own, so
+   window, concurrency, budget and commit-emergency rules keep applying to the
+   orphaned tree. A released lease ends the attribution. That covers `workstation_heavy.ps1`, the bounded
    suite, `training_window.ps1`, `daily_refresh.ps1` (which takes its own lease)
    and one-off lease wrappers, including when a script, `py` or a git hook
    launched the wrapper. Each tree holding a live lease owner takes exactly one
@@ -624,8 +641,11 @@ Stage-A, workstation or live authority is added.
    admits nothing and does not disable any kill. An empty or unparseable lock
    file written within the last 60 seconds may be an acquisition mid-write: the
    guard logs a WARNING and skips window and concurrency kills for that minute
-   (budget kills then stop heavy members only). An older empty or unparseable
-   file is stale and ignored. A file whose last-write time cannot be read counts
+   (budget kills then stop heavy members only), for at most two runs in a row
+   (counted in the state file above). From the third consecutive run every rule
+   applies as if the file were absent, so a lock rewritten as garbage every
+   minute cannot disable the guard. An older empty or unparseable file is stale
+   and ignored. A file whose last-write time cannot be read counts
    as mid-write only for a sharing or lock violation or a vanished file; any
    other failure is logged as ERROR and the file is ignored.
    **No guard rule terminates a tree that contains a live lease owner as a
@@ -647,7 +667,10 @@ Stage-A, workstation or live authority is added.
    `python tools\run_suite.py` that launched the lease wrapper; the owner is
    orphaned but runs on, and its `finally` (lease release, `training_window`
    re-enabling capture) still runs. When the largest spine process is a lease
-   owner itself, the guard logs CRITICAL and spares it. **Job handles:** before
+   owner itself, the guard logs CRITICAL and spares it, up to a **hard ceiling**:
+   at 97% commit, or when the owner process itself holds twice the per-job budget,
+   the guard stops the owner and its subtree too (CRITICAL; its `finally` blocks
+   are lost). The commit emergency below applies the same ceiling. **Job handles:** before
    stopping any process alone while an owner lives, the guard asks whether that
    process holds a handle to a job object containing a live owner (system handle
    table, each job handle duplicated with query access, `IsProcessInJob` per
@@ -661,7 +684,8 @@ Stage-A, workstation or live authority is added.
    off-spine subtrees largest first, owner, owner ancestors and console hosts
    never included, until it is under budget; when the spine alone is over budget,
    the spine's largest non-owner process is stopped alone if that brings it under
-   (or if it reaches the budget itself), otherwise a WARNING.
+   (or if it reaches the budget itself), otherwise a WARNING. An agent tree
+   without a lease owner is still stopped from its agent root, as before.
    An agent-owned tool tree without a lease owner is independently terminated
    when its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
