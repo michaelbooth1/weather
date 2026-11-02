@@ -638,6 +638,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.l6_own_state",
         "weather.calibration.mg2_composite",
         "weather.calibration.shape_confidence_l47",
+        "weather.calibration.shape_confidence_l47_order",
         "weather.calibration.mg2_inputs",
         "weather.calibration.mg2_p3d_n",
         "weather.calibration.ols_floor_ladder",
