@@ -2553,3 +2553,63 @@ def test_exec_streak_carry_uses_the_guard_process_start(tmp_path: Path) -> None:
     assert unknown["status"]["guard_state_carry"] == "capped"
     assert unknown["stopped"] == []
     assert "run_started_at_utc" not in unknown["state"] and "run_seconds" not in unknown["state"]
+
+
+def test_exec_streak_carry_edges_of_the_process_start_rule(tmp_path: Path) -> None:
+    """Delta-4 review follow-up: reader-before-writer starts, rejected process starts,
+    the run_seconds 300 s limit and the window's 300 s ceiling."""
+    unleased = _claude_bash(7_976_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    killed = {7_976_003, 7_976_005, 7_976_007}
+    torn = [
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.lock",
+            "pid": 1,
+            "age_minutes": 1,
+            "mtime_age_seconds": 5,
+            "raw": "",
+        }
+    ]
+    day = "2026-11-01T14:00:00"
+
+    def run(name: str, prior_state=None, **extra) -> dict:
+        return _scenario(tmp_path, name, now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior_state, **extra)
+
+    def prior(age: float, **extra) -> dict:
+        return {"owners": [], "unreadable_streak": 2, "age_seconds": age, **extra}
+
+    outcome = _run(
+        tmp_path,
+        [
+            # The record is 10 s old by first statements (age >= 0), but this run's
+            # process started 20 s ago, before the writer's: a = -10, no carry.
+            run("reader_start_earlier", prior(10), guard_startup_seconds=20),
+            # A process start more than 300 s back, or in the future, is rejected as
+            # unknown: capped, and neither field is written.
+            run("start_older_than_300", prior(60), guard_startup_seconds=301),
+            run("start_in_future", prior(60), guard_startup_seconds=-5),
+            # run_seconds 300 is accepted (k = 5); 300.001 is not a usable value.
+            run("rs_300", prior(300, run_seconds=300)),
+            run("rs_300_001", prior(60, run_seconds=300.001)),
+            # k = 5 would allow 330 s, but the window stops at 300: a = 305 (the record
+            # itself is 290 s old, so it is not stale) is capped.
+            run("k5_a305", prior(290, started_before_update=15, run_seconds=300)),
+        ],
+    )
+
+    def check(name: str, *, streak: int, carry: str, stopped: set[int] | None = None) -> dict:
+        row = outcome[name]
+        assert row["errors"] == [], name
+        assert row["status"]["guard_state_read"] == "ok", name
+        assert row["status"]["agent_heavy_lease_unreadable_streak"] == streak, name
+        assert row["status"]["guard_state_carry"] == carry, name
+        assert set(row["stopped"]) == (stopped or set()), name
+        return row
+
+    check("reader_start_earlier", streak=1, carry="none")
+    for name in ("start_older_than_300", "start_in_future"):
+        row = check(name, streak=2, carry="capped")
+        assert "run_started_at_utc" not in row["state"] and "run_seconds" not in row["state"], name
+    check("rs_300", streak=3, carry="full", stopped=killed)
+    check("rs_300_001", streak=2, carry="capped")
+    check("k5_a305", streak=2, carry="capped")
