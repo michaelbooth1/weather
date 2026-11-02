@@ -1,0 +1,5973 @@
+[
+ {
+  "date": "2026-06-03",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-06-03",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 143,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 143,
+  "feat_high_so_far_nonnull": 143
+ },
+ {
+  "date": "2026-06-04",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-06-04",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 143,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 143,
+  "feat_high_so_far_nonnull": 143
+ },
+ {
+  "date": "2026-06-05",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-06-05",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-06",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 24,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 24,
+  "feat_high_so_far_nonnull": 24
+ },
+ {
+  "date": "2026-06-06",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 29,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 29,
+  "feat_high_so_far_nonnull": 29
+ },
+ {
+  "date": "2026-06-06",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 29,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 29,
+  "feat_high_so_far_nonnull": 29
+ },
+ {
+  "date": "2026-06-06",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 29,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 29,
+  "feat_high_so_far_nonnull": 29
+ },
+ {
+  "date": "2026-06-06",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 35,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 35,
+  "feat_high_so_far_nonnull": 35
+ },
+ {
+  "date": "2026-06-06",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 29,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 29,
+  "feat_high_so_far_nonnull": 29
+ },
+ {
+  "date": "2026-06-06",
+  "market": "los-angeles",
+  "folder": true,
+  "snapshots": 41,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 41,
+  "feat_high_so_far_nonnull": 41
+ },
+ {
+  "date": "2026-06-06",
+  "market": "miami",
+  "folder": true,
+  "snapshots": 23,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 23,
+  "feat_high_so_far_nonnull": 23
+ },
+ {
+  "date": "2026-06-06",
+  "market": "nyc",
+  "folder": true,
+  "snapshots": 34,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 34,
+  "feat_high_so_far_nonnull": 34
+ },
+ {
+  "date": "2026-06-06",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 41,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 41,
+  "feat_high_so_far_nonnull": 41
+ },
+ {
+  "date": "2026-06-06",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 41,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 41,
+  "feat_high_so_far_nonnull": 41
+ },
+ {
+  "date": "2026-06-06",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 120,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 120,
+  "feat_high_so_far_nonnull": 120
+ },
+ {
+  "date": "2026-06-07",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "los-angeles",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "miami",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "nyc",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-07",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-08",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "los-angeles",
+  "folder": true,
+  "snapshots": 134,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 134,
+  "feat_high_so_far_nonnull": 134
+ },
+ {
+  "date": "2026-06-08",
+  "market": "miami",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "nyc",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-08",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 134,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 134,
+  "feat_high_so_far_nonnull": 134
+ },
+ {
+  "date": "2026-06-08",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 134,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 134,
+  "feat_high_so_far_nonnull": 134
+ },
+ {
+  "date": "2026-06-08",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 138
+ },
+ {
+  "date": "2026-06-09",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "los-angeles",
+  "folder": true,
+  "snapshots": 101,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 101,
+  "feat_high_so_far_nonnull": 101
+ },
+ {
+  "date": "2026-06-09",
+  "market": "miami",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "nyc",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-09",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 101,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 101,
+  "feat_high_so_far_nonnull": 101
+ },
+ {
+  "date": "2026-06-09",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 101,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 101,
+  "feat_high_so_far_nonnull": 101
+ },
+ {
+  "date": "2026-06-09",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 100,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 100,
+  "feat_high_so_far_nonnull": 100
+ },
+ {
+  "date": "2026-06-10",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 76,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 76,
+  "feat_high_so_far_nonnull": 76
+ },
+ {
+  "date": "2026-06-10",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 70,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 70,
+  "feat_high_so_far_nonnull": 70
+ },
+ {
+  "date": "2026-06-10",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 70,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 70,
+  "feat_high_so_far_nonnull": 70
+ },
+ {
+  "date": "2026-06-10",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 70,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 70,
+  "feat_high_so_far_nonnull": 70
+ },
+ {
+  "date": "2026-06-10",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 64,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 64,
+  "feat_high_so_far_nonnull": 64
+ },
+ {
+  "date": "2026-06-10",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 70,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 70,
+  "feat_high_so_far_nonnull": 70
+ },
+ {
+  "date": "2026-06-10",
+  "market": "los-angeles",
+  "folder": true,
+  "snapshots": 61,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 61,
+  "feat_high_so_far_nonnull": 61
+ },
+ {
+  "date": "2026-06-10",
+  "market": "miami",
+  "folder": true,
+  "snapshots": 76,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 76,
+  "feat_high_so_far_nonnull": 76
+ },
+ {
+  "date": "2026-06-10",
+  "market": "nyc",
+  "folder": true,
+  "snapshots": 76,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 76,
+  "feat_high_so_far_nonnull": 76
+ },
+ {
+  "date": "2026-06-10",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 61,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 61,
+  "feat_high_so_far_nonnull": 61
+ },
+ {
+  "date": "2026-06-10",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 61,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 61,
+  "feat_high_so_far_nonnull": 61
+ },
+ {
+  "date": "2026-06-10",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 76,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 76,
+  "feat_high_so_far_nonnull": 76
+ },
+ {
+  "date": "2026-06-11",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 107,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 107,
+  "feat_high_so_far_nonnull": 107
+ },
+ {
+  "date": "2026-06-11",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 113,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 113,
+  "feat_high_so_far_nonnull": 113
+ },
+ {
+  "date": "2026-06-11",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 113,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 113,
+  "feat_high_so_far_nonnull": 113
+ },
+ {
+  "date": "2026-06-11",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 113,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 113,
+  "feat_high_so_far_nonnull": 113
+ },
+ {
+  "date": "2026-06-11",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 119,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 119,
+  "feat_high_so_far_nonnull": 119
+ },
+ {
+  "date": "2026-06-11",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 113,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 113,
+  "feat_high_so_far_nonnull": 113
+ },
+ {
+  "date": "2026-06-11",
+  "market": "los-angeles",
+  "folder": true,
+  "snapshots": 125,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 125,
+  "feat_high_so_far_nonnull": 125
+ },
+ {
+  "date": "2026-06-11",
+  "market": "miami",
+  "folder": true,
+  "snapshots": 107,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 107,
+  "feat_high_so_far_nonnull": 107
+ },
+ {
+  "date": "2026-06-11",
+  "market": "nyc",
+  "folder": true,
+  "snapshots": 107,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 107,
+  "feat_high_so_far_nonnull": 107
+ },
+ {
+  "date": "2026-06-11",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 125,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 125,
+  "feat_high_so_far_nonnull": 125
+ },
+ {
+  "date": "2026-06-11",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 125,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 125,
+  "feat_high_so_far_nonnull": 125
+ },
+ {
+  "date": "2026-06-11",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 108,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 108,
+  "feat_high_so_far_nonnull": 108
+ },
+ {
+  "date": "2026-06-12",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-12",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-12",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-12",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-12",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-12",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-12",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-12",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-12",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-12",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-12",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-06-12",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-13",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-13",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-13",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 144,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 144,
+  "feat_high_so_far_nonnull": 144
+ },
+ {
+  "date": "2026-06-13",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-13",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 141,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 141,
+  "feat_high_so_far_nonnull": 141
+ },
+ {
+  "date": "2026-06-13",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-13",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-13",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-13",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-13",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-13",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 142,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 142,
+  "feat_high_so_far_nonnull": 142
+ },
+ {
+  "date": "2026-06-13",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 139,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 139,
+  "feat_high_so_far_nonnull": 139
+ },
+ {
+  "date": "2026-06-14",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 232,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 232,
+  "feat_high_so_far_nonnull": 232
+ },
+ {
+  "date": "2026-06-14",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 223,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 223,
+  "feat_high_so_far_nonnull": 223
+ },
+ {
+  "date": "2026-06-14",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 198,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 198,
+  "feat_high_so_far_nonnull": 198
+ },
+ {
+  "date": "2026-06-14",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 196,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 196,
+  "feat_high_so_far_nonnull": 196
+ },
+ {
+  "date": "2026-06-14",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 237,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 237,
+  "feat_high_so_far_nonnull": 237
+ },
+ {
+  "date": "2026-06-14",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-14",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-14",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-14",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-14",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-14",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 229,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 229,
+  "feat_high_so_far_nonnull": 229
+ },
+ {
+  "date": "2026-06-14",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 187,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 187,
+  "feat_high_so_far_nonnull": 187
+ },
+ {
+  "date": "2026-06-15",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 131,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 131,
+  "feat_high_so_far_nonnull": 131
+ },
+ {
+  "date": "2026-06-15",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 129,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 129,
+  "feat_high_so_far_nonnull": 129
+ },
+ {
+  "date": "2026-06-15",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 147,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 147,
+  "feat_high_so_far_nonnull": 147
+ },
+ {
+  "date": "2026-06-15",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 119,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 119,
+  "feat_high_so_far_nonnull": 119
+ },
+ {
+  "date": "2026-06-15",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 163,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 163,
+  "feat_high_so_far_nonnull": 163
+ },
+ {
+  "date": "2026-06-15",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-15",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-15",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-15",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-15",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-06-15",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 142,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 142,
+  "feat_high_so_far_nonnull": 142
+ },
+ {
+  "date": "2026-06-15",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 147,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 147,
+  "feat_high_so_far_nonnull": 147
+ },
+ {
+  "date": "2026-06-16",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 115,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 117,
+  "feat_high_so_far_nonnull": 117
+ },
+ {
+  "date": "2026-06-16",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 195,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 196,
+  "feat_high_so_far_nonnull": 196
+ },
+ {
+  "date": "2026-06-16",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 161,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 163,
+  "feat_high_so_far_nonnull": 163
+ },
+ {
+  "date": "2026-06-16",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 196,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 196,
+  "feat_high_so_far_nonnull": 196
+ },
+ {
+  "date": "2026-06-16",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-06-16",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-16",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-16",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-16",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-16",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-16",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 224,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 224,
+  "feat_high_so_far_nonnull": 224
+ },
+ {
+  "date": "2026-06-16",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-06-17",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 159,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 159,
+  "feat_high_so_far_nonnull": 159
+ },
+ {
+  "date": "2026-06-17",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 178,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 178,
+  "feat_high_so_far_nonnull": 178
+ },
+ {
+  "date": "2026-06-17",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 166,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 166,
+  "feat_high_so_far_nonnull": 166
+ },
+ {
+  "date": "2026-06-17",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 181,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 181,
+  "feat_high_so_far_nonnull": 181
+ },
+ {
+  "date": "2026-06-17",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 201,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 201,
+  "feat_high_so_far_nonnull": 201
+ },
+ {
+  "date": "2026-06-17",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-17",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-17",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-17",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-17",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-17",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 215,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 215,
+  "feat_high_so_far_nonnull": 215
+ },
+ {
+  "date": "2026-06-17",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 165,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 169,
+  "feat_high_so_far_nonnull": 169
+ },
+ {
+  "date": "2026-06-18",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 192,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 192,
+  "feat_high_so_far_nonnull": 192
+ },
+ {
+  "date": "2026-06-18",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 157,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 157,
+  "feat_high_so_far_nonnull": 157
+ },
+ {
+  "date": "2026-06-18",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 150,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 150,
+  "feat_high_so_far_nonnull": 150
+ },
+ {
+  "date": "2026-06-18",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 176,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 177,
+  "feat_high_so_far_nonnull": 177
+ },
+ {
+  "date": "2026-06-18",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 222,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 222,
+  "feat_high_so_far_nonnull": 222
+ },
+ {
+  "date": "2026-06-18",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 166,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 167,
+  "feat_high_so_far_nonnull": 167
+ },
+ {
+  "date": "2026-06-18",
+  "market": "los-angeles",
+  "folder": true,
+  "snapshots": 139,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 139,
+  "feat_high_so_far_nonnull": 139
+ },
+ {
+  "date": "2026-06-18",
+  "market": "miami",
+  "folder": true,
+  "snapshots": 142,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 142,
+  "feat_high_so_far_nonnull": 142
+ },
+ {
+  "date": "2026-06-18",
+  "market": "nyc",
+  "folder": true,
+  "snapshots": 163,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 164,
+  "feat_high_so_far_nonnull": 164
+ },
+ {
+  "date": "2026-06-18",
+  "market": "san-francisco",
+  "folder": true,
+  "snapshots": 181,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 181,
+  "feat_high_so_far_nonnull": 181
+ },
+ {
+  "date": "2026-06-18",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 216,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 216,
+  "feat_high_so_far_nonnull": 216
+ },
+ {
+  "date": "2026-06-18",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 148,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 151,
+  "feat_high_so_far_nonnull": 151
+ },
+ {
+  "date": "2026-06-19",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 276,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 278,
+  "feat_high_so_far_nonnull": 278
+ },
+ {
+  "date": "2026-06-19",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 203,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 204,
+  "feat_high_so_far_nonnull": 204
+ },
+ {
+  "date": "2026-06-19",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 214,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 214,
+  "feat_high_so_far_nonnull": 214
+ },
+ {
+  "date": "2026-06-19",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 200,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 202,
+  "feat_high_so_far_nonnull": 202
+ },
+ {
+  "date": "2026-06-19",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 235,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 236,
+  "feat_high_so_far_nonnull": 236
+ },
+ {
+  "date": "2026-06-19",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-19",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-19",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-19",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-19",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-19",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 271,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 271,
+  "feat_high_so_far_nonnull": 271
+ },
+ {
+  "date": "2026-06-19",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 207,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 210,
+  "feat_high_so_far_nonnull": 210
+ },
+ {
+  "date": "2026-06-20",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 232,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 235,
+  "feat_high_so_far_nonnull": 235
+ },
+ {
+  "date": "2026-06-20",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 239,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 242,
+  "feat_high_so_far_nonnull": 242
+ },
+ {
+  "date": "2026-06-20",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 233,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 235,
+  "feat_high_so_far_nonnull": 235
+ },
+ {
+  "date": "2026-06-20",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 254,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 255,
+  "feat_high_so_far_nonnull": 255
+ },
+ {
+  "date": "2026-06-20",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 294,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 295,
+  "feat_high_so_far_nonnull": 295
+ },
+ {
+  "date": "2026-06-20",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-20",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-20",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-20",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-20",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-20",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 288,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 288,
+  "feat_high_so_far_nonnull": 288
+ },
+ {
+  "date": "2026-06-20",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 244,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 245,
+  "feat_high_so_far_nonnull": 245
+ },
+ {
+  "date": "2026-06-21",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 217,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 217,
+  "feat_high_so_far_nonnull": 217
+ },
+ {
+  "date": "2026-06-21",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 259,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 259,
+  "feat_high_so_far_nonnull": 259
+ },
+ {
+  "date": "2026-06-21",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 189,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 189,
+  "feat_high_so_far_nonnull": 189
+ },
+ {
+  "date": "2026-06-21",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 224,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 224,
+  "feat_high_so_far_nonnull": 224
+ },
+ {
+  "date": "2026-06-21",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 248,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 249,
+  "feat_high_so_far_nonnull": 249
+ },
+ {
+  "date": "2026-06-21",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-21",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-21",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-21",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-21",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-21",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 243,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 243,
+  "feat_high_so_far_nonnull": 242
+ },
+ {
+  "date": "2026-06-21",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 229,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 229,
+  "feat_high_so_far_nonnull": 229
+ },
+ {
+  "date": "2026-06-22",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 216,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 217,
+  "feat_high_so_far_nonnull": 216
+ },
+ {
+  "date": "2026-06-22",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 182,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 182,
+  "feat_high_so_far_nonnull": 181
+ },
+ {
+  "date": "2026-06-22",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-06-22",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 197,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 197,
+  "feat_high_so_far_nonnull": 196
+ },
+ {
+  "date": "2026-06-22",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 198,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 199,
+  "feat_high_so_far_nonnull": 198
+ },
+ {
+  "date": "2026-06-22",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-22",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-22",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-22",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-22",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-22",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 200,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 200,
+  "feat_high_so_far_nonnull": 199
+ },
+ {
+  "date": "2026-06-22",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 160,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 161,
+  "feat_high_so_far_nonnull": 160
+ },
+ {
+  "date": "2026-06-23",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 135,
+  "nbm_rows": 12,
+  "nbm_status": {
+   "fresh": 12
+  },
+  "nbm_distinct_hashes": 12,
+  "nbm_url_parsed": 12,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 135,
+  "feat_high_so_far_nonnull": 135
+ },
+ {
+  "date": "2026-06-23",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 131,
+  "nbm_rows": 15,
+  "nbm_status": {
+   "fresh": 15
+  },
+  "nbm_distinct_hashes": 15,
+  "nbm_url_parsed": 15,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 131,
+  "feat_high_so_far_nonnull": 131
+ },
+ {
+  "date": "2026-06-23",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 145,
+  "nbm_rows": 15,
+  "nbm_status": {
+   "fresh": 15
+  },
+  "nbm_distinct_hashes": 15,
+  "nbm_url_parsed": 15,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 145,
+  "feat_high_so_far_nonnull": 144
+ },
+ {
+  "date": "2026-06-23",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 122,
+  "nbm_rows": 13,
+  "nbm_status": {
+   "fresh": 13
+  },
+  "nbm_distinct_hashes": 13,
+  "nbm_url_parsed": 13,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 122,
+  "feat_high_so_far_nonnull": 122
+ },
+ {
+  "date": "2026-06-23",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 134,
+  "nbm_rows": 18,
+  "nbm_status": {
+   "fresh": 18
+  },
+  "nbm_distinct_hashes": 18,
+  "nbm_url_parsed": 18,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 133,
+  "feat_high_so_far_nonnull": 133
+ },
+ {
+  "date": "2026-06-23",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-23",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-23",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-23",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-23",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-23",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 109,
+  "nbm_rows": 21,
+  "nbm_status": {
+   "fresh": 21
+  },
+  "nbm_distinct_hashes": 21,
+  "nbm_url_parsed": 21,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 109,
+  "feat_high_so_far_nonnull": 109
+ },
+ {
+  "date": "2026-06-23",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 146,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 145,
+  "feat_high_so_far_nonnull": 144
+ },
+ {
+  "date": "2026-06-24",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 80,
+  "nbm_rows": 80,
+  "nbm_status": {
+   "fresh": 80
+  },
+  "nbm_distinct_hashes": 80,
+  "nbm_url_parsed": 80,
+  "snap_v2_struct": 80,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 80,
+  "feat_high_so_far_nonnull": 79
+ },
+ {
+  "date": "2026-06-24",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 82,
+  "nbm_rows": 82,
+  "nbm_status": {
+   "fresh": 82
+  },
+  "nbm_distinct_hashes": 82,
+  "nbm_url_parsed": 82,
+  "snap_v2_struct": 82,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 82,
+  "feat_high_so_far_nonnull": 81
+ },
+ {
+  "date": "2026-06-24",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 67,
+  "nbm_rows": 67,
+  "nbm_status": {
+   "fresh": 67
+  },
+  "nbm_distinct_hashes": 67,
+  "nbm_url_parsed": 67,
+  "snap_v2_struct": 67,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 67,
+  "feat_high_so_far_nonnull": 66
+ },
+ {
+  "date": "2026-06-24",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 71,
+  "nbm_rows": 71,
+  "nbm_status": {
+   "fresh": 71
+  },
+  "nbm_distinct_hashes": 71,
+  "nbm_url_parsed": 71,
+  "snap_v2_struct": 71,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 71,
+  "feat_high_so_far_nonnull": 70
+ },
+ {
+  "date": "2026-06-24",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 92,
+  "nbm_rows": 92,
+  "nbm_status": {
+   "fresh": 92
+  },
+  "nbm_distinct_hashes": 92,
+  "nbm_url_parsed": 92,
+  "snap_v2_struct": 92,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 92,
+  "feat_high_so_far_nonnull": 91
+ },
+ {
+  "date": "2026-06-24",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-24",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-24",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-24",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-24",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-24",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 80,
+  "nbm_rows": 80,
+  "nbm_status": {
+   "fresh": 80
+  },
+  "nbm_distinct_hashes": 80,
+  "nbm_url_parsed": 80,
+  "snap_v2_struct": 80,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 80,
+  "feat_high_so_far_nonnull": 79
+ },
+ {
+  "date": "2026-06-24",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 71,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 71,
+  "feat_high_so_far_nonnull": 71
+ },
+ {
+  "date": "2026-06-25",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 82,
+  "nbm_rows": 82,
+  "nbm_status": {
+   "fresh": 82
+  },
+  "nbm_distinct_hashes": 82,
+  "nbm_url_parsed": 82,
+  "snap_v2_struct": 82,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 82,
+  "feat_high_so_far_nonnull": 81
+ },
+ {
+  "date": "2026-06-25",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 91,
+  "nbm_rows": 91,
+  "nbm_status": {
+   "fresh": 91
+  },
+  "nbm_distinct_hashes": 91,
+  "nbm_url_parsed": 91,
+  "snap_v2_struct": 91,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 91,
+  "feat_high_so_far_nonnull": 91
+ },
+ {
+  "date": "2026-06-25",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 70,
+  "nbm_rows": 70,
+  "nbm_status": {
+   "fresh": 70
+  },
+  "nbm_distinct_hashes": 70,
+  "nbm_url_parsed": 70,
+  "snap_v2_struct": 70,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 70,
+  "feat_high_so_far_nonnull": 70
+ },
+ {
+  "date": "2026-06-25",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 80,
+  "nbm_rows": 80,
+  "nbm_status": {
+   "fresh": 80
+  },
+  "nbm_distinct_hashes": 80,
+  "nbm_url_parsed": 80,
+  "snap_v2_struct": 80,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 80,
+  "feat_high_so_far_nonnull": 79
+ },
+ {
+  "date": "2026-06-25",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 87,
+  "nbm_rows": 87,
+  "nbm_status": {
+   "fresh": 86,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 87,
+  "nbm_url_parsed": 87,
+  "snap_v2_struct": 87,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 87,
+  "feat_high_so_far_nonnull": 87
+ },
+ {
+  "date": "2026-06-25",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-25",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-25",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-25",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-25",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-25",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 91,
+  "nbm_rows": 90,
+  "nbm_status": {
+   "fresh": 90
+  },
+  "nbm_distinct_hashes": 90,
+  "nbm_url_parsed": 90,
+  "snap_v2_struct": 91,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 91,
+  "feat_high_so_far_nonnull": 89
+ },
+ {
+  "date": "2026-06-25",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 79,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 80,
+  "feat_high_so_far_nonnull": 80
+ },
+ {
+  "date": "2026-06-26",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 156,
+  "nbm_rows": 158,
+  "nbm_status": {
+   "fresh": 158
+  },
+  "nbm_distinct_hashes": 158,
+  "nbm_url_parsed": 158,
+  "snap_v2_struct": 156,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 158,
+  "feat_high_so_far_nonnull": 158
+ },
+ {
+  "date": "2026-06-26",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 163,
+  "nbm_rows": 163,
+  "nbm_status": {
+   "fresh": 163
+  },
+  "nbm_distinct_hashes": 163,
+  "nbm_url_parsed": 163,
+  "snap_v2_struct": 163,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 163,
+  "feat_high_so_far_nonnull": 163
+ },
+ {
+  "date": "2026-06-26",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 137,
+  "nbm_rows": 137,
+  "nbm_status": {
+   "fresh": 137
+  },
+  "nbm_distinct_hashes": 137,
+  "nbm_url_parsed": 137,
+  "snap_v2_struct": 137,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 137,
+  "feat_high_so_far_nonnull": 137
+ },
+ {
+  "date": "2026-06-26",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 164,
+  "nbm_rows": 165,
+  "nbm_status": {
+   "fresh": 165
+  },
+  "nbm_distinct_hashes": 165,
+  "nbm_url_parsed": 165,
+  "snap_v2_struct": 164,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 165,
+  "feat_high_so_far_nonnull": 165
+ },
+ {
+  "date": "2026-06-26",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 186,
+  "nbm_rows": 186,
+  "nbm_status": {
+   "fresh": 186
+  },
+  "nbm_distinct_hashes": 186,
+  "nbm_url_parsed": 186,
+  "snap_v2_struct": 186,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 186,
+  "feat_high_so_far_nonnull": 186
+ },
+ {
+  "date": "2026-06-26",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-26",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-26",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-26",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-26",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-26",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 141,
+  "nbm_status": {
+   "fresh": 141
+  },
+  "nbm_distinct_hashes": 141,
+  "nbm_url_parsed": 141,
+  "snap_v2_struct": 140,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 141,
+  "feat_high_so_far_nonnull": 141
+ },
+ {
+  "date": "2026-06-26",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 147,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 147,
+  "feat_high_so_far_nonnull": 146
+ },
+ {
+  "date": "2026-06-27",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 105,
+  "nbm_rows": 105,
+  "nbm_status": {
+   "fresh": 105
+  },
+  "nbm_distinct_hashes": 105,
+  "nbm_url_parsed": 105,
+  "snap_v2_struct": 105,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 105,
+  "feat_high_so_far_nonnull": 37
+ },
+ {
+  "date": "2026-06-27",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 109,
+  "nbm_rows": 109,
+  "nbm_status": {
+   "fresh": 109
+  },
+  "nbm_distinct_hashes": 109,
+  "nbm_url_parsed": 109,
+  "snap_v2_struct": 109,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 109,
+  "feat_high_so_far_nonnull": 32
+ },
+ {
+  "date": "2026-06-27",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 112,
+  "nbm_rows": 112,
+  "nbm_status": {
+   "fresh": 112
+  },
+  "nbm_distinct_hashes": 112,
+  "nbm_url_parsed": 112,
+  "snap_v2_struct": 112,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 112,
+  "feat_high_so_far_nonnull": 32
+ },
+ {
+  "date": "2026-06-27",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 106,
+  "nbm_rows": 106,
+  "nbm_status": {
+   "fresh": 106
+  },
+  "nbm_distinct_hashes": 106,
+  "nbm_url_parsed": 106,
+  "snap_v2_struct": 106,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 106,
+  "feat_high_so_far_nonnull": 32
+ },
+ {
+  "date": "2026-06-27",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 121,
+  "nbm_rows": 121,
+  "nbm_status": {
+   "fresh": 121
+  },
+  "nbm_distinct_hashes": 121,
+  "nbm_url_parsed": 121,
+  "snap_v2_struct": 121,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 121,
+  "feat_high_so_far_nonnull": 27
+ },
+ {
+  "date": "2026-06-27",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-27",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-27",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-27",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-27",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-27",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 117,
+  "nbm_rows": 117,
+  "nbm_status": {
+   "fresh": 117
+  },
+  "nbm_distinct_hashes": 117,
+  "nbm_url_parsed": 117,
+  "snap_v2_struct": 117,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 117,
+  "feat_high_so_far_nonnull": 24
+ },
+ {
+  "date": "2026-06-27",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 112,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 112,
+  "feat_high_so_far_nonnull": 38
+ },
+ {
+  "date": "2026-06-28",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 135,
+  "nbm_rows": 135,
+  "nbm_status": {
+   "fresh": 135
+  },
+  "nbm_distinct_hashes": 135,
+  "nbm_url_parsed": 135,
+  "snap_v2_struct": 135,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 135,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-28",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 130,
+  "nbm_rows": 130,
+  "nbm_status": {
+   "fresh": 130
+  },
+  "nbm_distinct_hashes": 130,
+  "nbm_url_parsed": 130,
+  "snap_v2_struct": 130,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 130,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-28",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 128,
+  "nbm_rows": 128,
+  "nbm_status": {
+   "fresh": 128
+  },
+  "nbm_distinct_hashes": 128,
+  "nbm_url_parsed": 128,
+  "snap_v2_struct": 128,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 128,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-28",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 127,
+  "nbm_rows": 127,
+  "nbm_status": {
+   "fresh": 127
+  },
+  "nbm_distinct_hashes": 127,
+  "nbm_url_parsed": 127,
+  "snap_v2_struct": 127,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 127,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-28",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 122,
+  "nbm_rows": 122,
+  "nbm_status": {
+   "fresh": 122
+  },
+  "nbm_distinct_hashes": 122,
+  "nbm_url_parsed": 122,
+  "snap_v2_struct": 122,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 122,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-28",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-28",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-28",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-28",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-28",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-28",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 110,
+  "nbm_rows": 110,
+  "nbm_status": {
+   "fresh": 110
+  },
+  "nbm_distinct_hashes": 110,
+  "nbm_url_parsed": 110,
+  "snap_v2_struct": 110,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 110,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-28",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 141,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 142,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-29",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 84,
+  "nbm_rows": 84,
+  "nbm_status": {
+   "fresh": 84
+  },
+  "nbm_distinct_hashes": 84,
+  "nbm_url_parsed": 84,
+  "snap_v2_struct": 61,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 84,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-29",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 87,
+  "nbm_rows": 87,
+  "nbm_status": {
+   "fresh": 87
+  },
+  "nbm_distinct_hashes": 87,
+  "nbm_url_parsed": 87,
+  "snap_v2_struct": 59,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 87,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-29",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 88,
+  "nbm_rows": 88,
+  "nbm_status": {
+   "fresh": 88
+  },
+  "nbm_distinct_hashes": 88,
+  "nbm_url_parsed": 88,
+  "snap_v2_struct": 59,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 88,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-29",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 88,
+  "nbm_rows": 88,
+  "nbm_status": {
+   "fresh": 88
+  },
+  "nbm_distinct_hashes": 88,
+  "nbm_url_parsed": 88,
+  "snap_v2_struct": 59,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 88,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-29",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 95,
+  "nbm_rows": 95,
+  "nbm_status": {
+   "fresh": 95
+  },
+  "nbm_distinct_hashes": 95,
+  "nbm_url_parsed": 95,
+  "snap_v2_struct": 59,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 95,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-29",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-29",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-29",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-29",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-29",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-29",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 103,
+  "nbm_rows": 103,
+  "nbm_status": {
+   "fresh": 103
+  },
+  "nbm_distinct_hashes": 103,
+  "nbm_url_parsed": 103,
+  "snap_v2_struct": 58,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 103,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-29",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 78,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 78,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-30",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 162,
+  "nbm_rows": 162,
+  "nbm_status": {
+   "fresh": 162
+  },
+  "nbm_distinct_hashes": 162,
+  "nbm_url_parsed": 162,
+  "snap_v2_struct": 162,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 162,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-30",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 166,
+  "nbm_rows": 166,
+  "nbm_status": {
+   "fresh": 165,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 165,
+  "nbm_url_parsed": 166,
+  "snap_v2_struct": 166,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 166,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-30",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 161,
+  "nbm_rows": 161,
+  "nbm_status": {
+   "fresh": 161
+  },
+  "nbm_distinct_hashes": 161,
+  "nbm_url_parsed": 161,
+  "snap_v2_struct": 161,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 161,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-30",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 164,
+  "nbm_rows": 165,
+  "nbm_status": {
+   "fresh": 165
+  },
+  "nbm_distinct_hashes": 165,
+  "nbm_url_parsed": 165,
+  "snap_v2_struct": 164,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 165,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-30",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 168,
+  "nbm_rows": 168,
+  "nbm_status": {
+   "fresh": 167,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 167,
+  "nbm_url_parsed": 168,
+  "snap_v2_struct": 168,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 168,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-30",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-06-30",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-06-30",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-06-30",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-06-30",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-06-30",
+  "market": "seattle",
+  "folder": true,
+  "snapshots": 164,
+  "nbm_rows": 164,
+  "nbm_status": {
+   "fresh": 164
+  },
+  "nbm_distinct_hashes": 164,
+  "nbm_url_parsed": 164,
+  "snap_v2_struct": 164,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 164,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-06-30",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 171,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 171,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-01",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 166,
+  "nbm_rows": 166,
+  "nbm_status": {
+   "fresh": 158,
+   "stale_cache": 8
+  },
+  "nbm_distinct_hashes": 158,
+  "nbm_url_parsed": 166,
+  "snap_v2_struct": 166,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 166,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-01",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 164,
+  "nbm_rows": 164,
+  "nbm_status": {
+   "fresh": 152,
+   "stale_cache": 12
+  },
+  "nbm_distinct_hashes": 152,
+  "nbm_url_parsed": 164,
+  "snap_v2_struct": 164,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 164,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-01",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 163,
+  "nbm_rows": 163,
+  "nbm_status": {
+   "fresh": 151,
+   "stale_cache": 12
+  },
+  "nbm_distinct_hashes": 151,
+  "nbm_url_parsed": 163,
+  "snap_v2_struct": 163,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 163,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-01",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 160,
+  "nbm_rows": 160,
+  "nbm_status": {
+   "fresh": 151,
+   "stale_cache": 9
+  },
+  "nbm_distinct_hashes": 151,
+  "nbm_url_parsed": 160,
+  "snap_v2_struct": 160,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 160,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-01",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 165,
+  "nbm_rows": 165,
+  "nbm_status": {
+   "fresh": 155,
+   "stale_cache": 10
+  },
+  "nbm_distinct_hashes": 155,
+  "nbm_url_parsed": 165,
+  "snap_v2_struct": 165,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 165,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-01",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 160,
+  "nbm_rows": 159,
+  "nbm_status": {
+   "fresh": 148,
+   "stale_cache": 11
+  },
+  "nbm_distinct_hashes": 148,
+  "nbm_url_parsed": 159,
+  "snap_v2_struct": 160,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 160,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-01",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-01",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-01",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-01",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-01",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-01",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 176,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 176,
+  "feat_high_so_far_nonnull": 0
+ },
+ {
+  "date": "2026-07-02",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 156,
+  "nbm_rows": 156,
+  "nbm_status": {
+   "fresh": 155,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 156,
+  "nbm_url_parsed": 156,
+  "snap_v2_struct": 156,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 156,
+  "feat_high_so_far_nonnull": 38
+ },
+ {
+  "date": "2026-07-02",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-02",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 153,
+  "nbm_rows": 153,
+  "nbm_status": {
+   "fresh": 153
+  },
+  "nbm_distinct_hashes": 153,
+  "nbm_url_parsed": 153,
+  "snap_v2_struct": 153,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 153,
+  "feat_high_so_far_nonnull": 41
+ },
+ {
+  "date": "2026-07-02",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 153,
+  "nbm_rows": 153,
+  "nbm_status": {
+   "fresh": 153
+  },
+  "nbm_distinct_hashes": 153,
+  "nbm_url_parsed": 153,
+  "snap_v2_struct": 153,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 153,
+  "feat_high_so_far_nonnull": 41
+ },
+ {
+  "date": "2026-07-02",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 150,
+  "nbm_rows": 150,
+  "nbm_status": {
+   "fresh": 150
+  },
+  "nbm_distinct_hashes": 150,
+  "nbm_url_parsed": 150,
+  "snap_v2_struct": 150,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 150,
+  "feat_high_so_far_nonnull": 45
+ },
+ {
+  "date": "2026-07-02",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 153,
+  "nbm_rows": 153,
+  "nbm_status": {
+   "fresh": 153
+  },
+  "nbm_distinct_hashes": 153,
+  "nbm_url_parsed": 153,
+  "snap_v2_struct": 153,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 153,
+  "feat_high_so_far_nonnull": 42
+ },
+ {
+  "date": "2026-07-02",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-02",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-02",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-02",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-02",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-02",
+  "market": "toronto",
+  "folder": true,
+  "snapshots": 156,
+  "nbm_rows": 0,
+  "nbm_status": {},
+  "nbm_distinct_hashes": 0,
+  "nbm_url_parsed": 0,
+  "snap_v2_struct": 0,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 156,
+  "feat_high_so_far_nonnull": 38
+ },
+ {
+  "date": "2026-07-03",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 131,
+  "nbm_rows": 131,
+  "nbm_status": {
+   "fresh": 131
+  },
+  "nbm_distinct_hashes": 131,
+  "nbm_url_parsed": 131,
+  "snap_v2_struct": 131,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 131,
+  "feat_high_so_far_nonnull": 130
+ },
+ {
+  "date": "2026-07-03",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 144,
+  "nbm_rows": 145,
+  "nbm_status": {
+   "fresh": 145
+  },
+  "nbm_distinct_hashes": 145,
+  "nbm_url_parsed": 145,
+  "snap_v2_struct": 144,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 145,
+  "feat_high_so_far_nonnull": 145
+ },
+ {
+  "date": "2026-07-03",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 140,
+  "nbm_rows": 140,
+  "nbm_status": {
+   "fresh": 140
+  },
+  "nbm_distinct_hashes": 140,
+  "nbm_url_parsed": 140,
+  "snap_v2_struct": 140,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 140,
+  "feat_high_so_far_nonnull": 140
+ },
+ {
+  "date": "2026-07-03",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 131,
+  "nbm_rows": 131,
+  "nbm_status": {
+   "fresh": 131
+  },
+  "nbm_distinct_hashes": 131,
+  "nbm_url_parsed": 131,
+  "snap_v2_struct": 131,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 131,
+  "feat_high_so_far_nonnull": 130
+ },
+ {
+  "date": "2026-07-03",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 138,
+  "nbm_rows": 138,
+  "nbm_status": {
+   "fresh": 137,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 137,
+  "nbm_url_parsed": 138,
+  "snap_v2_struct": 138,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 138,
+  "feat_high_so_far_nonnull": 137
+ },
+ {
+  "date": "2026-07-03",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 131,
+  "nbm_rows": 131,
+  "nbm_status": {
+   "fresh": 131
+  },
+  "nbm_distinct_hashes": 131,
+  "nbm_url_parsed": 131,
+  "snap_v2_struct": 131,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 131,
+  "feat_high_so_far_nonnull": 131
+ },
+ {
+  "date": "2026-07-03",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-03",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-03",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-03",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-03",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-03",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-04",
+  "market": "atlanta",
+  "folder": true,
+  "snapshots": 165,
+  "nbm_rows": 165,
+  "nbm_status": {
+   "fresh": 165
+  },
+  "nbm_distinct_hashes": 165,
+  "nbm_url_parsed": 165,
+  "snap_v2_struct": 165,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 165,
+  "feat_high_so_far_nonnull": 165
+ },
+ {
+  "date": "2026-07-04",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 170,
+  "nbm_rows": 170,
+  "nbm_status": {
+   "fresh": 170
+  },
+  "nbm_distinct_hashes": 170,
+  "nbm_url_parsed": 170,
+  "snap_v2_struct": 170,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 170,
+  "feat_high_so_far_nonnull": 169
+ },
+ {
+  "date": "2026-07-04",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 170,
+  "nbm_rows": 170,
+  "nbm_status": {
+   "fresh": 170
+  },
+  "nbm_distinct_hashes": 170,
+  "nbm_url_parsed": 170,
+  "snap_v2_struct": 170,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 170,
+  "feat_high_so_far_nonnull": 170
+ },
+ {
+  "date": "2026-07-04",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 159,
+  "nbm_rows": 159,
+  "nbm_status": {
+   "fresh": 159
+  },
+  "nbm_distinct_hashes": 159,
+  "nbm_url_parsed": 159,
+  "snap_v2_struct": 159,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 159,
+  "feat_high_so_far_nonnull": 159
+ },
+ {
+  "date": "2026-07-04",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 162,
+  "nbm_rows": 162,
+  "nbm_status": {
+   "fresh": 162
+  },
+  "nbm_distinct_hashes": 162,
+  "nbm_url_parsed": 162,
+  "snap_v2_struct": 162,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 162,
+  "feat_high_so_far_nonnull": 159
+ },
+ {
+  "date": "2026-07-04",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 163,
+  "nbm_rows": 163,
+  "nbm_status": {
+   "fresh": 163
+  },
+  "nbm_distinct_hashes": 163,
+  "nbm_url_parsed": 163,
+  "snap_v2_struct": 163,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 163,
+  "feat_high_so_far_nonnull": 162
+ },
+ {
+  "date": "2026-07-04",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-04",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-04",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-04",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-04",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-04",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-05",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-05",
+  "market": "austin",
+  "folder": true,
+  "snapshots": 164,
+  "nbm_rows": 164,
+  "nbm_status": {
+   "fresh": 164
+  },
+  "nbm_distinct_hashes": 164,
+  "nbm_url_parsed": 164,
+  "snap_v2_struct": 164,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 164,
+  "feat_high_so_far_nonnull": 163
+ },
+ {
+  "date": "2026-07-05",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 156,
+  "nbm_rows": 156,
+  "nbm_status": {
+   "fresh": 156
+  },
+  "nbm_distinct_hashes": 156,
+  "nbm_url_parsed": 156,
+  "snap_v2_struct": 156,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 156,
+  "feat_high_so_far_nonnull": 156
+ },
+ {
+  "date": "2026-07-05",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 155,
+  "nbm_rows": 155,
+  "nbm_status": {
+   "fresh": 155
+  },
+  "nbm_distinct_hashes": 155,
+  "nbm_url_parsed": 155,
+  "snap_v2_struct": 155,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 155,
+  "feat_high_so_far_nonnull": 155
+ },
+ {
+  "date": "2026-07-05",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 146,
+  "nbm_rows": 146,
+  "nbm_status": {
+   "fresh": 146
+  },
+  "nbm_distinct_hashes": 146,
+  "nbm_url_parsed": 146,
+  "snap_v2_struct": 146,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 146,
+  "feat_high_so_far_nonnull": 144
+ },
+ {
+  "date": "2026-07-05",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 154,
+  "nbm_rows": 154,
+  "nbm_status": {
+   "fresh": 154
+  },
+  "nbm_distinct_hashes": 154,
+  "nbm_url_parsed": 154,
+  "snap_v2_struct": 154,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 154,
+  "feat_high_so_far_nonnull": 153
+ },
+ {
+  "date": "2026-07-05",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-05",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-05",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-05",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-05",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-05",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "chicago",
+  "folder": true,
+  "snapshots": 98,
+  "nbm_rows": 98,
+  "nbm_status": {
+   "fresh": 98
+  },
+  "nbm_distinct_hashes": 98,
+  "nbm_url_parsed": 98,
+  "snap_v2_struct": 98,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 98,
+  "feat_high_so_far_nonnull": 95
+ },
+ {
+  "date": "2026-07-06",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 95,
+  "nbm_rows": 95,
+  "nbm_status": {
+   "fresh": 93,
+   "stale_cache": 2
+  },
+  "nbm_distinct_hashes": 93,
+  "nbm_url_parsed": 95,
+  "snap_v2_struct": 95,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 95,
+  "feat_high_so_far_nonnull": 95
+ },
+ {
+  "date": "2026-07-06",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 103,
+  "nbm_rows": 103,
+  "nbm_status": {
+   "fresh": 102,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 103,
+  "nbm_url_parsed": 103,
+  "snap_v2_struct": 103,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 103,
+  "feat_high_so_far_nonnull": 94
+ },
+ {
+  "date": "2026-07-06",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 98,
+  "nbm_rows": 98,
+  "nbm_status": {
+   "fresh": 98
+  },
+  "nbm_distinct_hashes": 98,
+  "nbm_url_parsed": 98,
+  "snap_v2_struct": 98,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 98,
+  "feat_high_so_far_nonnull": 98
+ },
+ {
+  "date": "2026-07-06",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-06",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 171,
+  "nbm_rows": 171,
+  "nbm_status": {
+   "fresh": 171
+  },
+  "nbm_distinct_hashes": 171,
+  "nbm_url_parsed": 171,
+  "snap_v2_struct": 171,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 171,
+  "feat_high_so_far_nonnull": 170
+ },
+ {
+  "date": "2026-07-07",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 165,
+  "nbm_rows": 165,
+  "nbm_status": {
+   "fresh": 164,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 164,
+  "nbm_url_parsed": 165,
+  "snap_v2_struct": 165,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 165,
+  "feat_high_so_far_nonnull": 143
+ },
+ {
+  "date": "2026-07-07",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 167,
+  "nbm_rows": 167,
+  "nbm_status": {
+   "fresh": 167
+  },
+  "nbm_distinct_hashes": 167,
+  "nbm_url_parsed": 167,
+  "snap_v2_struct": 167,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 167,
+  "feat_high_so_far_nonnull": 167
+ },
+ {
+  "date": "2026-07-07",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-07",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "dallas",
+  "folder": true,
+  "snapshots": 172,
+  "nbm_rows": 172,
+  "nbm_status": {
+   "fresh": 172
+  },
+  "nbm_distinct_hashes": 172,
+  "nbm_url_parsed": 172,
+  "snap_v2_struct": 172,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 172,
+  "feat_high_so_far_nonnull": 172
+ },
+ {
+  "date": "2026-07-08",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 172,
+  "nbm_rows": 172,
+  "nbm_status": {
+   "fresh": 172
+  },
+  "nbm_distinct_hashes": 172,
+  "nbm_url_parsed": 172,
+  "snap_v2_struct": 172,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 172,
+  "feat_high_so_far_nonnull": 171
+ },
+ {
+  "date": "2026-07-08",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 164,
+  "nbm_rows": 164,
+  "nbm_status": {
+   "fresh": 164
+  },
+  "nbm_distinct_hashes": 164,
+  "nbm_url_parsed": 164,
+  "snap_v2_struct": 164,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 164,
+  "feat_high_so_far_nonnull": 163
+ },
+ {
+  "date": "2026-07-08",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-08",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "denver",
+  "folder": true,
+  "snapshots": 142,
+  "nbm_rows": 142,
+  "nbm_status": {
+   "fresh": 141,
+   "stale_cache": 1
+  },
+  "nbm_distinct_hashes": 141,
+  "nbm_url_parsed": 142,
+  "snap_v2_struct": 142,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 142,
+  "feat_high_so_far_nonnull": 141
+ },
+ {
+  "date": "2026-07-09",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 145,
+  "nbm_rows": 145,
+  "nbm_status": {
+   "fresh": 143,
+   "stale_cache": 2
+  },
+  "nbm_distinct_hashes": 143,
+  "nbm_url_parsed": 145,
+  "snap_v2_struct": 145,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 145,
+  "feat_high_so_far_nonnull": 145
+ },
+ {
+  "date": "2026-07-09",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-09",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 131,
+  "nbm_rows": 131,
+  "nbm_status": {
+   "fresh": 131
+  },
+  "nbm_distinct_hashes": 131,
+  "nbm_url_parsed": 131,
+  "snap_v2_struct": 131,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 131,
+  "feat_high_so_far_nonnull": 131
+ },
+ {
+  "date": "2026-07-10",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-10",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "houston",
+  "folder": true,
+  "snapshots": 122,
+  "nbm_rows": 122,
+  "nbm_status": {
+   "fresh": 122
+  },
+  "nbm_distinct_hashes": 122,
+  "nbm_url_parsed": 122,
+  "snap_v2_struct": 122,
+  "snap_v2_bytes_on_ws": 0,
+  "feat_rows": 122,
+  "feat_high_so_far_nonnull": 122
+ },
+ {
+  "date": "2026-07-11",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-11",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-12",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-13",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-14",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-15",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-16",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-17",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-18",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-19",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-20",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-21",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-22",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-23",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-24",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-25",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-26",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-27",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-28",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-29",
+  "market": "toronto",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "atlanta",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "austin",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "chicago",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "dallas",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "denver",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "houston",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "los-angeles",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "miami",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "nyc",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "san-francisco",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "seattle",
+  "folder": false
+ },
+ {
+  "date": "2026-07-30",
+  "market": "toronto",
+  "folder": false
+ }
+]

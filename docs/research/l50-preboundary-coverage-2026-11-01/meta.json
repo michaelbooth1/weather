@@ -1,0 +1,82 @@
+{
+ "archive_dates": [
+  "2026-05-27",
+  "2026-07-11"
+ ],
+ "folders": 261,
+ "markets": [
+  "atlanta",
+  "austin",
+  "chicago",
+  "dallas",
+  "denver",
+  "houston",
+  "los-angeles",
+  "miami",
+  "nyc",
+  "san-francisco",
+  "seattle",
+  "toronto"
+ ],
+ "payload_schemas": [
+  [
+   "age_minutes",
+   "cache_status",
+   "captured_at_local",
+   "captured_at_utc",
+   "degradation_state",
+   "event_slug",
+   "fetched_at",
+   "model_version",
+   "payload_bytes",
+   "payload_hash",
+   "provider_issue_time",
+   "provider_update_time",
+   "raw_payload_path",
+   "row_count",
+   "snapshot_id",
+   "source",
+   "source_family",
+   "source_url",
+   "stale",
+   "status",
+   "ttl_minutes",
+   246
+  ],
+  [
+   "captured_at_local",
+   "captured_at_utc",
+   "event_slug",
+   "fetched_at",
+   "model_version",
+   "payload_bytes",
+   "payload_hash",
+   "provider_issue_time",
+   "provider_update_time",
+   "raw_payload_path",
+   "row_count",
+   "snapshot_id",
+   "source",
+   "source_url",
+   15
+  ]
+ ],
+ "sources_all_folders": {
+  "eccc_citypage": 4249,
+  "open_meteo": 33897,
+  "weather_forecast": 24516,
+  "global_ensemble": 24576,
+  "nws_hourly": 22013,
+  "nws_grid": 21326,
+  "open_meteo_multimodel": 20985,
+  "eccc_gem": 2448,
+  "open_meteo_air_quality": 15843,
+  "open_meteo_global_models": 15753,
+  "nbm_probabilistic_tmax": 11236,
+  "metar": 12175,
+  "wu_current": 2419,
+  "eccc_swob": 1123
+ },
+ "cas_blobs_checked": 10429,
+ "cas_blobs_present": 0
+}
