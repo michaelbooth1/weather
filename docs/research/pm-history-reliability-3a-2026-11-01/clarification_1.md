@@ -217,3 +217,58 @@ From the dry run (prices only):
 
 The excluded share is highest in 2026-04 (61%) and 2026-05 (60%), against 41% to 44% in the earlier
 folds. This is disclosed, not corrected: completeness is a price property fixed before any label read.
+
+**Master's ruling on the power flag (2026-11-02), recorded before any outcome read**
+
+- **Run as frozen.** Row 113 runs at the 695 price-complete market-dates. The completeness rule (rule
+  line 117) is not loosened.
+- **How an underpowered null reads: already fixed by the frozen rule, so nothing is added.**
+  `rule_3a.md` (sha256 `023b75ed…837a`) covers it in three lines:
+  - line 192: step 5's power gate on the realised SE; a run that misses it is UNTESTABLE;
+  - line 217: KILL is only "at edge size", every arm's widest interval inside ±0.2236;
+  - line 218: any other result, including a 95% interval that contains 0 without lying inside
+    ±0.2236, is NOT KILLED. It is SCREEN-POSITIVE only when a lower bound is above 0.
+  - No verdict in the rule reads "no effect".
+  - MDE80 0.150 at 695 is below the 0.2236 edge, so a KILL at edge size stays meaningful at this N.
+  - The suggested INCONCLUSIVE sentence would relabel a KILL whose interval contains 0, so it would
+    change a frozen verdict. Per the ruling it is not added.
+
+**Cause of the Apr/May exclusion gap: price-coverage counts only**
+
+Counted on 2026-11-02 from the sealed run alone (prices and event metadata; no label, no outcome) by a
+scratch counter (sha256 `0c07be115b04c41f4ca9000d6d0df66fdcfc9ee6a3f754afa23438514be00ecc`). It
+re-hashed every file it read and reproduced the 1,355 kept ladder-hours. Shares below are per ladder-hour
+(market-date × 07:00/10:00), so they differ slightly from the market-date shares above.
+
+- **Mechanism (established).** In every excluded ladder-hour in every month, at least one band token has
+  a price history that **ends before T**: its last point is earlier than 07:00 or 10:00 local on the
+  event day. No excluded ladder-hour comes from any of these:
+  - a missing token file (all present; nothing dropped at load);
+  - an empty history;
+  - a history that starts after T;
+  - a gap inside the history around T.
+  It is band-level coverage, not ladder-level: in most excluded ladder-hours only some bands fail; all
+  bands fail in 4% to 14% of them.
+
+| Month | Bands per ladder | Ladder-hours excluded | Failing bands interior (not end bands) |
+| --- | ---: | ---: | ---: |
+| 2025-12 | 7.0 | 134 of 284 (47%) | 60% |
+| 2026-01 | 7.0 | 149 of 348 (43%) | 65% |
+| 2026-02 | 8.1 | 167 of 392 (43%) | 64% |
+| 2026-03 | 10.2 | 220 of 494 (45%) | 71% |
+| 2026-04 | 11.0 | 441 of 720 (61%) | 75% |
+| 2026-05 | 11.0 | 372 of 600 (62%) | 76% |
+
+- **What coincides with the gap (established as counts, not as cause):**
+  1. Five markets first appear in late March (austin, denver, houston, los-angeles, san-francisco;
+     7 ladders each in March) and fill the Apr/May cells. About 70% of their ladder-hours are excluded:
+     212 of 300 in April and 187 of 270 in May.
+  2. Excluding those five markets, the other seven still go from 43% to 47% before March to 55% in April
+     (229 of 420) and 56% in May (185 of 330). In April chicago, dallas and miami rise to 68% to 87%,
+     while atlanta, nyc, seattle and toronto fall to 23% to 47%.
+  3. Every market's ladder grows to 11 bands in April (7 in Dec–Jan, 8 in Feb, 10 in Mar). The
+     completeness rule needs every band covered, and the failing bands are increasingly interior bands.
+- **Why those band histories end before the event morning: cause not established.** The counts show the
+  mechanism (histories ending before T) and its correlates (new markets, 11-band ladders, a few older
+  markets) but cannot show why the histories end early. Establishing that would need venue-side
+  information this run does not hold. It changes nothing in the frozen run.
