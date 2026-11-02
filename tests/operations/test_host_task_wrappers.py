@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import pytest
 
 
@@ -19,13 +20,25 @@ def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
 
     assert scheduled_registrars
     for path, text in scheduled_registrars.items():
+        assert "only while logged on" not in text, path.name
+        assert r"C:\Users\micha" not in text, path.name
+        if "Register-ScheduledTask -TaskName $taskName -TaskPath $taskPath -Xml $taskXml" in text:
+            # A checked-in task XML registrar (scripts/ops/tasks/): the principal lives in the template.
+            templates = re.findall(r"'tasks\\(Weather[\w-]+\.xml)'", text)
+            assert len(templates) == 1, path.name
+            template = (ROOT / "scripts" / "ops" / "tasks" / templates[0]).read_text(encoding="utf-8")
+            assert template.count("<Principal ") == 1, templates[0]
+            assert "<UserId>__WEATHER_USER_ID__</UserId>" in template, templates[0]
+            assert "<LogonType>S4U</LogonType>" in template, templates[0]
+            assert "<RunLevel>LeastPrivilege</RunLevel>" in template, templates[0]
+            assert "-UserId $env:USERNAME" in text, path.name
+            assert "LogonType -ceq 'S4U'" in text and "RunLevel -ceq 'Limited'" in text, path.name
+            continue
         assert "$principal = New-ScheduledTaskPrincipal" in text
         assert "-UserId $env:USERNAME" in text
         assert "-LogonType S4U" in text
         assert "-RunLevel Limited" in text
         assert "-Principal $principal" in text, path.name
-        assert "only while logged on" not in text, path.name
-        assert r"C:\Users\micha" not in text, path.name
 
 
 def test_location_refresh_revalidates_target_date_before_success() -> None:

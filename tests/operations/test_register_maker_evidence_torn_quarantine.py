@@ -3,9 +3,11 @@
 Guards: owner yes 2026-11-02 for one startup task (L54 design section 4 and 11). The canonical
 definition is scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml: boot trigger, no delay,
 every minute for 15 minutes, IgnoreNew, no StartWhenAvailable, 5-minute limit, current-user
-S4U/Limited, one action running the Stage 1 script with -Apply and nothing else. -WhatIf prints
-that exact XML and touches nothing. The non-WhatIf path refuses off the capture host before any
-Scheduler call, and the readback rejects every drift from the definition.
+S4U/Limited, one action running maker_evidence_torn_quarantine_boot.ps1 and nothing else. The boot
+wrapper runs Stage 1 -Apply and maps only REFUSED_WRITER_ALIVE (recorder up) to 0, so a normal boot
+does not end in a status.ps1 failure (review M2, 2026-11-02). -WhatIf prints that exact XML and
+touches nothing. The non-WhatIf path refuses off the capture host before any Scheduler call, and
+the readback rejects every drift from the definition.
 Runbook: docs/operations/passive-maker-evidence-capture.md (torn-journal quarantine at boot).
 
 No case touches the real Task Scheduler. Every PowerShell run goes through a wrapper that
@@ -30,12 +32,13 @@ OPS = ROOT / "scripts" / "ops"
 REGISTRAR = OPS / "register_maker_evidence_torn_quarantine.ps1"
 TEMPLATE = OPS / "tasks" / "WeatherMakerEvidenceTornQuarantine.xml"
 STAGE1 = OPS / "maker_evidence_torn_quarantine.ps1"
+BOOT = OPS / "maker_evidence_torn_quarantine_boot.ps1"
 NS = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
 TOKENS = {"__WEATHER_USER_ID__": 1, "__WEATHER_REPO_ROOT__": 2, "__WEATHER_POWERSHELL__": 1}
 POWERSHELL = shutil.which("powershell.exe")
 windows_only = pytest.mark.skipif(os.name != "nt" or POWERSHELL is None,
                                   reason="Windows PowerShell 5.1 required")
-pytestmark = [pytest.mark.spawns, windows_only]
+pytestmark = [pytest.mark.spawns]
 
 SCHEDULER_CMDLETS = ("Register-ScheduledTask", "Get-ScheduledTask", "Export-ScheduledTask",
                      "Disable-ScheduledTask", "Enable-ScheduledTask", "Unregister-ScheduledTask",
@@ -83,7 +86,7 @@ def run_registrar(tmp_path: Path, script: Path, *args: str):
 def fixture_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "prod repo & co"
     (repo / "scripts" / "ops" / "tasks").mkdir(parents=True)
-    for source in (REGISTRAR, STAGE1):
+    for source in (REGISTRAR, STAGE1, BOOT):
         shutil.copyfile(source, repo / "scripts" / "ops" / source.name)
     shutil.copyfile(TEMPLATE, repo / "scripts" / "ops" / "tasks" / TEMPLATE.name)
     return repo
@@ -100,7 +103,7 @@ def test_checked_in_xml_is_the_reviewed_task_contract():
     for token, count in TOKENS.items():
         assert text.count(token) == count, token
     assert text.count("__WEATHER_") == sum(TOKENS.values())
-    assert "C:\\" not in text and os.environ.get("USERNAME", "Michael") not in text
+    assert "C:\\" not in text and "<UserId>__WEATHER_USER_ID__</UserId>" in text
     task = ET.fromstring(raw.replace(b'encoding="UTF-16"', b'encoding="UTF-8"'))
 
     def one(path: str) -> str:
@@ -132,16 +135,18 @@ def test_checked_in_xml_is_the_reviewed_task_contract():
     assert one("t:Actions/t:Exec/t:Command") == "__WEATHER_POWERSHELL__"
     assert one("t:Actions/t:Exec/t:Arguments") == (
         '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File '
-        '"__WEATHER_REPO_ROOT__\\scripts\\ops\\maker_evidence_torn_quarantine.ps1" -Apply')
+        '"__WEATHER_REPO_ROOT__\\scripts\\ops\\maker_evidence_torn_quarantine_boot.ps1"')
     assert one("t:Actions/t:Exec/t:WorkingDirectory") == "__WEATHER_REPO_ROOT__"
 
 
+@windows_only
 def test_whatif_prints_the_exact_xml_and_touches_nothing(tmp_path):
     repo = fixture_repo(tmp_path)
     before = snapshot(tmp_path)
     script = repo / "scripts" / "ops" / REGISTRAR.name
     result, calls = run_registrar(tmp_path, script, "-ExpectedSourceTip", "a" * 40,
-                                  "-ExpectedScriptSha256", sha256(STAGE1), "-WhatIf")
+                                  "-ExpectedScriptSha256", sha256(STAGE1),
+                                  "-ExpectedBootWrapperSha256", sha256(BOOT), "-WhatIf")
     assert result.returncode == 0, result.stdout + result.stderr
     assert calls == []
     assert snapshot(tmp_path) == {**before, "wrapper.ps1": sha256(tmp_path / "wrapper.ps1")}
@@ -158,26 +163,34 @@ def test_whatif_prints_the_exact_xml_and_touches_nothing(tmp_path):
         "Register-ScheduledTask -TaskName WeatherMakerEvidenceTornQuarantine -TaskPath \\ -Xml")
     assert plan["template_sha256"] == sha256(TEMPLATE)
     assert plan["quarantine_script_sha256"] == sha256(STAGE1)
+    assert plan["boot_wrapper_sha256"] == sha256(BOOT)
     assert plan["task_xml_sha256_utf8"] == hashlib.sha256(expected.encode("utf-8")).hexdigest()
     assert plan["expected_source_tip"] == "a" * 40
 
 
-def test_both_modes_refuse_a_stage1_script_hash_mismatch(tmp_path):
+@windows_only
+def test_both_modes_refuse_a_pin_mismatch(tmp_path):
     repo = fixture_repo(tmp_path)
     script = repo / "scripts" / "ops" / REGISTRAR.name
-    for extra in (["-WhatIf"], []):
-        result, calls = run_registrar(tmp_path, script, "-ExpectedSourceTip", "a" * 40,
-                                      "-ExpectedScriptSha256", "0" * 64, *extra)
-        assert result.returncode != 0
-        assert "not ExpectedScriptSha256" in result.stderr + result.stdout
-        assert "<?xml" not in result.stdout and calls == []
+    cases = [(("0" * 64, sha256(BOOT)), "not ExpectedScriptSha256"),
+             ((sha256(STAGE1), "0" * 64), "not ExpectedBootWrapperSha256")]
+    for (stage1_pin, boot_pin), message in cases:
+        for extra in (["-WhatIf"], []):
+            result, calls = run_registrar(tmp_path, script, "-ExpectedSourceTip", "a" * 40,
+                                          "-ExpectedScriptSha256", stage1_pin,
+                                          "-ExpectedBootWrapperSha256", boot_pin, *extra)
+            assert result.returncode != 0
+            assert message in result.stderr + result.stdout
+            assert "<?xml" not in result.stdout and calls == []
 
 
+@windows_only
 def test_registration_refuses_before_any_scheduler_call_off_the_capture_host(tmp_path):
     # Real registrar in this checkout, real pin, impossible tip: the workstation and CI fail the host
     # check; the capture host itself fails the tip check. Either way no Scheduler cmdlet is reached.
     result, calls = run_registrar(tmp_path, REGISTRAR, "-ExpectedSourceTip", "a" * 40,
-                                  "-ExpectedScriptSha256", sha256(STAGE1))
+                                  "-ExpectedScriptSha256", sha256(STAGE1),
+                                  "-ExpectedBootWrapperSha256", sha256(BOOT))
     assert result.returncode != 0
     output = result.stderr + result.stdout
     assert ("restricted to the dedicated capture host" in output) or ("Reviewed source tip mismatch" in output), output
@@ -200,7 +213,7 @@ function New-Fake {
     [pscustomobject]@{ TaskPath = '\'
         Principal = [pscustomobject]@{ UserId = 'SVC'; LogonType = 'S4U'; RunLevel = 'Limited' }
         Actions = @([pscustomobject]@{ Execute = 'c:\PS.exe'; WorkingDirectory = 'd:\prod'
-            Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "D:\prod\scripts\ops\maker_evidence_torn_quarantine.ps1" -Apply' })
+            Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "D:\prod\scripts\ops\maker_evidence_torn_quarantine_boot.ps1"' })
         Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskBootTrigger' }
             Enabled = $true; Delay = $null
             Repetition = [pscustomobject]@{ Interval = 'PT1M'; Duration = 'PT15M'; StopAtDurationEnd = $false } })
@@ -230,9 +243,12 @@ $mutations = [ordered]@{
     parallel = { $f.Settings.MultipleInstances = 'Parallel' }
     start_when_available = { $f.Settings.StartWhenAvailable = $true }
     limit = { $f.Settings.ExecutionTimeLimit = 'PT72H' }
-    battery = { $f.Settings.StopIfGoingOnBatteries = $true }
+    battery_start = { $f.Settings.DisallowStartIfOnBatteries = $true }
+    battery_stop = { $f.Settings.StopIfGoingOnBatteries = $true }
     idle = { $f.Settings.RunOnlyIfIdle = $true }
+    network = { $f.Settings.RunOnlyIfNetworkAvailable = $true }
     wake = { $f.Settings.WakeToRun = $true }
+    hidden = { $f.Settings.Hidden = $true }
     hard_terminate = { $f.Settings.AllowHardTerminate = $false }
     priority = { $f.Settings.Priority = 4 }
 }
@@ -261,6 +277,7 @@ foreach ($key in $cases.Keys) {
 """
 
 
+@windows_only
 def test_readback_rejects_every_drift_and_rendering_refuses_bad_inputs(tmp_path):
     env = {**os.environ, "REG_PATH": str(REGISTRAR), "TEMPLATE_PATH": str(TEMPLATE)}
     probe = tmp_path / "readback.ps1"
@@ -280,8 +297,10 @@ def test_readback_rejects_every_drift_and_rendering_refuses_bad_inputs(tmp_path)
         "trigger_off": "trigger enabled", "delay": "no trigger delay", "interval": "repetition interval PT1M",
         "duration": "repetition duration PT15M", "stop_at_end": "repetition does not stop at duration end",
         "parallel": "IgnoreNew", "start_when_available": "no StartWhenAvailable",
-        "limit": "execution time limit PT5M", "battery": "runs on batteries", "idle": "not idle or network gated",
-        "wake": "no wake, not hidden", "hard_terminate": "hard terminate allowed", "priority": "priority 7",
+        "limit": "execution time limit PT5M", "battery_start": "starts on batteries",
+        "battery_stop": "keeps running on batteries", "idle": "not idle gated", "network": "not network gated",
+        "wake": "no wake", "hidden": "not hidden", "hard_terminate": "hard terminate allowed",
+        "priority": "priority 7",
     }
     assert {key: value for key, value in readback.items() if key != "two_tasks"} == {
         key: [problem] for key, problem in expected.items()}
@@ -293,3 +312,45 @@ def test_readback_rejects_every_drift_and_rendering_refuses_bad_inputs(tmp_path)
     assert "not an absolute path" in refusals["quoted_root"]
     assert "not an absolute path" in refusals["relative_root"]
     assert "bare current user name" in refusals["domain_user"]
+
+
+FAKE_STAGE1 = r"""
+param([switch]$Apply)
+if (-not $Apply) { 'FAKE_STAGE1_WITHOUT_APPLY'; exit 9 }
+$env:FAKE_STAGE1_OUTPUT
+exit ([int]$env:FAKE_STAGE1_CODE)
+"""
+
+
+@windows_only
+@pytest.mark.parametrize(("code", "output", "expected"), [
+    (0, '{"status":"NOOP_NO_TORN_TAIL"}', 0),
+    (0, '{"status":"QUARANTINED"}', 0),
+    (2, '{"status":"REFUSED_WRITER_ALIVE","reasons":["writer lock is held"]}', 0),
+    (2, '{"status":"REFUSED_CAP"}', 2),
+    (2, '{"status":"REFUSED_MULTIPLE_UNSEALED","reasons":["REFUSED_WRITER_ALIVE"]}', 2),
+    (2, 'not json REFUSED_WRITER_ALIVE', 2),
+    (4, '{"status":"FAILED_HASH_READ"}', 4),
+    (5, '{"status":"TORN_SIGNATURE_UNRESOLVED"}', 5),
+    (6, '{"status":"INTERNAL_ERROR"}', 6),
+])
+def test_boot_wrapper_maps_only_a_live_recorder_to_zero(tmp_path, code, output, expected):
+    ops = tmp_path / "scripts" / "ops"
+    ops.mkdir(parents=True)
+    shutil.copyfile(BOOT, ops / BOOT.name)
+    (ops / STAGE1.name).write_text(FAKE_STAGE1, encoding="utf-8")
+    env = {**os.environ, "FAKE_STAGE1_OUTPUT": output, "FAKE_STAGE1_CODE": str(code)}
+    result = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                             "-File", str(ops / BOOT.name)], capture_output=True, text=True, env=env,
+                            timeout=120, check=False)
+    assert result.returncode == expected, result.stdout + result.stderr
+    assert output in result.stdout and "FAKE_STAGE1_WITHOUT_APPLY" not in result.stdout
+
+
+def test_boot_wrapper_maps_the_status_stage1_actually_emits():
+    # The mapped status must stay the exit-2 writer-alive refusal of Stage 1 (process check and lock).
+    stage1 = STAGE1.read_text(encoding="utf-8")
+    assert stage1.count('Finish "REFUSED_WRITER_ALIVE" 2') == 2
+    boot = BOOT.read_text(encoding="utf-8")
+    assert "$exitCode -eq 2 -and $status -ceq 'REFUSED_WRITER_ALIVE'" in boot
+    assert "-File $stage1 -Apply" in boot and "Register-ScheduledTask" not in boot
