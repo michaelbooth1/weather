@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -285,10 +284,18 @@ $record = [ordered]@{
         raise AssertionError(result.stderr)
 
 
-def _inside_heavy_window() -> bool:
-    now = datetime.now()
-    minute = now.hour * 60 + now.minute
-    return 30 <= minute < 9 * 60
+# Injected after dot-sourcing workload_admission.ps1 in a test's own PowerShell child: a
+# script-scope Get-Date shadows the cmdlet for the lease functions, so the agent_heavy
+# window check (Get-WeatherHeavyWorkloadPolicyWindow, unchanged) sees 02:00 local while
+# the clock keeps running. The test then exercises acquisition at any hour, CI (UTC)
+# included, without touching the production window.
+_HEAVY_WINDOW_CLOCK_PS = (
+    "$script:WeatherTestClockOffset = (Microsoft.PowerShell.Utility\\Get-Date).Date.AddHours(2) - "
+    "(Microsoft.PowerShell.Utility\\Get-Date)\n"
+    "function Get-Date { param([string]$Format) "
+    "$fake = (Microsoft.PowerShell.Utility\\Get-Date) + $script:WeatherTestClockOffset; "
+    "if ($Format) { return $fake.ToString($Format) }; return $fake }\n"
+)
 
 
 @pytest.mark.ratchet
@@ -340,12 +347,12 @@ def test_release_overwrites_the_owner_record_with_a_released_marker(tmp_path: Pa
 
 
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
-@pytest.mark.skipif(not _inside_heavy_window(), reason="lease acquisition is policy-blocked now")
 @pytest.mark.skipif(OUTER_WORKSTATION_LEASE, reason="outer workstation lease owns mutex")
 def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> None:
     holder = tmp_path / "holder.ps1"
     holder.write_text(
         f". '{LEASE_SCRIPT}'\n"
+        f"{_HEAVY_WINDOW_CLOCK_PS}"
         f"$lease = Enter-WeatherHeavyWorkloadLease -RepoRoot '{tmp_path}' -Workload holder\n"
         "if ($null -eq $lease) { Write-Output 'BLOCKED'; exit 3 }\n"
         "Write-Output 'ACQUIRED'\n"
@@ -356,6 +363,7 @@ def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> Non
     contender = tmp_path / "contender.ps1"
     contender.write_text(
         f". '{LEASE_SCRIPT}'\n"
+        f"{_HEAVY_WINDOW_CLOCK_PS}"
         f"$lease = Enter-WeatherHeavyWorkloadLease -RepoRoot '{tmp_path}' -Workload contender\n"
         "if ($null -eq $lease) { Write-Output 'BLOCKED'; exit 3 }\n"
         "Write-Output 'ACQUIRED'\n"
