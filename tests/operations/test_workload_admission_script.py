@@ -307,6 +307,7 @@ def test_every_heavy_wrapper_uses_the_shared_lease() -> None:
         assert "Exit-WeatherHeavyWorkloadLease" in text, name
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
 def test_release_overwrites_the_owner_record_with_a_released_marker(tmp_path: Path) -> None:
     """L28 review M2: memory_commit_guard.ps1 must never read a released lease as live.
