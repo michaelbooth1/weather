@@ -1,5 +1,6 @@
 import pytest
 
+from weather import paths
 from weather.operations import agent_docs_audit as audit
 from weather.operations import knowledge_structure_audit as knowledge
 from weather.reporting.roadmap import correspondence_index as correspondence
@@ -85,7 +86,7 @@ def test_generated_checks_use_source_parity_without_writes(tmp_path, monkeypatch
     write(tmp_path, "docs/roadmap/items/item-1-done.md", "# 1. Done [COMPLETE]\n\n## Completion notes\nDone.\n")
     for relative, content in correspondence.render_outputs(tmp_path, {}).items():
         write(tmp_path, relative, content)
-    payload = roadmap_backlog.build_payload(tmp_path / "docs/roadmap")
+    payload = roadmap_backlog.build_payload(tmp_path / "docs/roadmap", repo_root=tmp_path)
     backlog = write(tmp_path, "docs/roadmap/active-backlog.md", roadmap_backlog.render_markdown(payload))
     assert knowledge.generated_index_errors(tmp_path) == []
     original = backlog.read_bytes()
@@ -98,6 +99,29 @@ def test_generated_checks_use_source_parity_without_writes(tmp_path, monkeypatch
     assert backlog.read_text() == "stale\n"  # check mode did not repair it
     assert not (tmp_path / "data").exists()
     backlog.write_bytes(original)
+
+
+def test_backlog_parity_ignores_cwd_and_importing_checkout(tmp_path, monkeypatch):
+    # Run from another checkout, ``python -m`` imports that checkout's package, so
+    # weather.paths.REPO_ROOT is not the audited --repo-root. The verdict must not move.
+    repo = tmp_path / "repo"
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    monkeypatch.setattr(correspondence, "git_added_dates", lambda root: {})
+    # A listed (dormant) item puts its repo-relative path into the rendered backlog.
+    write(repo, "docs/roadmap/items/item-1-parked.md", "# 1. Parked [DORMANT 2026-09-01 - parked]\n")
+    for relative, content in correspondence.render_outputs(repo, {}).items():
+        write(repo, relative, content)
+    # Generate the committed backlog exactly as the CLI does from inside the checkout.
+    monkeypatch.setattr(paths, "REPO_ROOT", repo)
+    backlog = write(repo, "docs/roadmap/active-backlog.md",
+                    roadmap_backlog.render_markdown(roadmap_backlog.build_payload(repo / "docs/roadmap")))
+    assert "(items/item-1-parked.md)" in backlog.read_text(encoding="utf-8")
+    monkeypatch.chdir(repo)
+    assert knowledge.generated_index_errors(repo) == []
+    monkeypatch.setattr(paths, "REPO_ROOT", foreign)
+    monkeypatch.chdir(foreign)
+    assert knowledge.generated_index_errors(repo) == []
 
 
 def test_main_runs_knowledge_checks_in_repository(capsys):

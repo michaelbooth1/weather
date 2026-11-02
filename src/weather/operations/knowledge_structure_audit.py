@@ -187,7 +187,7 @@ def generated_index_errors(root: Path) -> list[str]:
     # pending, while a wrong, stray or misplaced committed row still fails.
     errors = correspondence_index.structural_errors(root)
     # Share exactly the CLI's --check parity and --fail-on-lint implementation, without writes.
-    payload = roadmap_backlog.build_payload(root / "docs/roadmap")
+    payload = roadmap_backlog.build_payload(root / "docs/roadmap", repo_root=root)
     if payload["status"] != "OK":
         errors.append("docs/roadmap/active-backlog.md: roadmap_backlog --fail-on-lint failed")
     if roadmap_backlog.markdown_parity_diff(root / "docs/roadmap/active-backlog.md", payload):
