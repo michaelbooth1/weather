@@ -22,21 +22,29 @@
 #                     chatgpt.exe or claude.exe root) pytest, compileall,
 #                     inline/stdin/script Python (option flags such as -I or
 #                     -X before the script included), the explicit heavy
-#                     `-m` module list owned by workload_admission.ps1, and
-#                     recursive scans of a repository data directory by an
-#                     rg/grep/find/robocopy process image. Every child is
-#                     judged by its OWN command line: a PowerShell tool shell
-#                     can hide its script text, and a Bash/sh/cmd line may only
-#                     quote a command, so shell lines are not trusted (only a
-#                     PowerShell `Get-ChildItem -Recurse`, which runs in-process,
-#                     is read). Inside that window, retain at most one such
-#                     tool tree. Work admitted under a live heavy-workload
-#                     lease (the lease owner recorded by workload_admission.ps1,
-#                     matched by PID and creation time, is the row, an
-#                     ancestor, or inside the row's subtree) is never a window
-#                     or concurrency target, and a tool tree containing a live
-#                     lease owner is never terminated as a whole: only heavy
-#                     member subtrees that do not contain the owner are.
+#                     `-m` module list owned by workload_admission.ps1 plus a
+#                     short guard-local list (refresh, replays, pooled
+#                     training), and recursive scans of a repository data
+#                     directory by an rg/grep/find/robocopy process image.
+#                     Every child is judged by its OWN command line; a
+#                     powershell/pwsh/cmd line that itself runs pytest,
+#                     compileall, a heavy weather module, Get-ChildItem
+#                     -Recurse or rg over data is heavy too (master's rule, a
+#                     secondary signal). The start-up grace runs on the TOOL
+#                     ROOT's age, so a loop of short heavy children is seen.
+#                     Inside that window, retain at most one such tool tree.
+#                     Work admitted under a live heavy-workload lease (the
+#                     lease owner recorded by workload_admission.ps1, matched
+#                     by PID and creation time, is the row, an ancestor, or
+#                     inside the row's subtree) is never a window or
+#                     concurrency target while the lease is inside its own
+#                     policy window (agent_heavy 00:30-09:05, stage_a
+#                     09:30-11:55, workstation/portable profiles always). Past
+#                     it, the owner's heavy descendants are stopped and only
+#                     the owner itself is spared (CRITICAL). A tool tree
+#                     containing a live lease owner is never terminated as a
+#                     whole, and no stop ever reaches a live lease owner or,
+#                     while one lives, a console host.
 #   every run      -> orphan sweep: kill `python -` / `python -c` processes
 #                     whose parent is gone and which are older than 30 min.
 #                     A stdin/-c job's script and output have no owner once
@@ -176,7 +184,16 @@ function Test-AgentHeavyProcess($ProcessRow) {
         # stdin is not a batch job), --version, -h and anything unparsed.
         $words = @(Get-AgentCommandWords $CommandLine)
         $flags = '[bBdEiIOPqRsSuvx]*'
-        for ($index = 1; $index -lt $words.Count; $index++) {
+        # An unquoted interpreter path with spaces (C:\Program Files\Python312\python.exe)
+        # splits into several words: the arguments start after the first word that ends
+        # in the interpreter name. No such word: unparsed, and the caller falls back to
+        # the legacy whole-line patterns.
+        $start = -1
+        for ($index = 0; $index -lt $words.Count; $index++) {
+            if ([string]$words[$index] -match '(?i)(?:\A|[\\/])pythonw?[0-9.]*(?:\.exe)?\z') { $start = $index + 1; break }
+        }
+        if ($start -lt 1) { return $null }
+        for ($index = $start; $index -lt $words.Count; $index++) {
             $word = [string]$words[$index]
             if ($word -ceq '-') { return @{ Kind = 'stdin'; Target = ''; Rest = @() } }
             if ($word -ceq '--') {
@@ -212,14 +229,47 @@ function Test-AgentHeavyProcess($ProcessRow) {
 
     function Test-AgentHeavyModule([string]$Module, $Rest) {
         if ($Module -cin @('pytest', 'compileall', 'coverage', 'tox', 'nox')) { return $true }
-        # Only the explicit list owned by Get-WeatherWorkstationOfflineModule in
-        # workload_admission.ps1 (read at script scope); no name pattern, which
-        # caught operator readers (daily_refresh status, *_status, *_report) and
-        # retention deletes mid-run. A status/help invocation of a listed module
-        # is a reader, not a job.
-        if ($null -eq $agentHeavyModuleNames -or -not ($agentHeavyModuleNames -ccontains $Module)) { return $false }
+        # The explicit list owned by Get-WeatherWorkstationOfflineModule in
+        # workload_admission.ps1 (read at script scope), plus the heavy modules the
+        # wrapper does not admit but which master's shell-line rule caught by name
+        # (refresh, replays, pooled training). A status/help invocation of a listed
+        # module is a reader, not a job.
+        $guardHeavyModules = @(
+            'weather.operations.daily_refresh',
+            'weather.operations.daily_refresh_bounded',
+            'weather.backtesting.r0_paired_replay',
+            'weather.backtesting.metar_keying_replay',
+            'weather.backtesting.lockin_anchor_replay',
+            'weather.calibration.pooled_training',
+            'weather.calibration.pooled_band_training',
+            'weather.calibration.pooled_density_training')
+        $listed = ($guardHeavyModules -ccontains $Module) -or
+            ($null -ne $agentHeavyModuleNames -and ($agentHeavyModuleNames -ccontains $Module))
+        if (-not $listed) { return $false }
         $first = if (@($Rest).Count -gt 0) { [string]@($Rest)[0] } else { '' }
         return -not ($first -cin @('status', '--help', '-h', '--version'))
+    }
+
+    function Test-AgentShellLineHeavy([string]$CommandLine) {
+        # Master's shell-line rule, a secondary signal for powershell/pwsh/cmd: a tool
+        # shell that runs pytest/compileall or a heavy weather module in its own -Command
+        # line (including a `foreach { python -m pytest $f }` loop whose children each
+        # finish inside the grace) is heavy itself. A lease admits it like any member.
+        if ($CommandLine -match '(?i)(?:^|\s)-m\s+(?:pytest|compileall|coverage|tox|nox)(?:\s|$)') { return $true }
+        $readers = @('status', '--help', '-h', '--version')
+        foreach ($match in [regex]::Matches($CommandLine,
+                '(?i)(?:^|[\s"''])-m\s+["'']?(?<module>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)["'']?(?:\s+["'']?(?<next>[^\s"'';|&]+))?')) {
+            $module = $match.Groups['module'].Value.ToLowerInvariant()
+            $next = $match.Groups['next'].Value
+            $rest = if ($next) { @($next) } else { @() }
+            if (Test-AgentHeavyModule $module $rest) { return $true }
+            if ($module -match '\Aweather\.\S*(?:retrain|training|replay|backtest|daily_refresh|score_all)' -and
+                -not ($next -cin $readers)) { return $true }
+        }
+        if (($CommandLine -match '(?i)Get-ChildItem') -and ($CommandLine -match '(?i)-Recurse')) { return $true }
+        $normalized = $CommandLine.Replace('/', '\')
+        return (($CommandLine -match '(?i)(?:^|[\s;&|])rg(?:\.exe)?(?:\s|$)') -and
+            ($normalized -match '(?i)(?:^|[\s"''])(?:\.\\)?data(?:\\|[\s"''])'))
     }
 
     function Test-AgentRepoDataPath([string]$PathText) {
@@ -229,6 +279,9 @@ function Test-AgentHeavyProcess($ProcessRow) {
         # leaf has an extension is a single file, not a recursive scan.
         $path = $PathText.Trim().Replace('/', '\')
         if (-not $path) { return $false }
+        # A UNC path is never probed: Test-Path on \\server\share can block on the
+        # network for the length of an SMB timeout inside a one-minute guard.
+        if ($path.StartsWith('\\')) { return $false }
         if ($path -match '\A\\([A-Za-z])(?:\\|\z)') { $path = $Matches[1] + ':' + $path.Substring(2) }
         $path = $path -replace '\A(?:\.\\)+', ''
         $segments = @($path.Split('\') | Where-Object { $_ -ne '' })
@@ -238,7 +291,6 @@ function Test-AgentHeavyProcess($ProcessRow) {
         for ($index = 1; $index -lt $segments.Count; $index++) {
             if ([string]$segments[$index] -ine 'data') { continue }
             $parent = ($segments[0..($index - 1)] -join '\')
-            if ($path.StartsWith('\\')) { $parent = '\\' + $parent }
             if ($parent -match '\A[A-Za-z]:\z') { $parent += '\' }
             try { if (Test-Path -LiteralPath (Join-Path $parent '.git')) { return $true } } catch { }
         }
@@ -333,14 +385,41 @@ function Test-AgentHeavyProcess($ProcessRow) {
     }
     if ($name -eq 'robocopy.exe') { return ($cmd -match '(?i)(?:^|\s)/(?:s|e|mir)(?:\s|$)') }
 
-    if ($name -eq 'powershell.exe' -or $name -eq 'pwsh.exe') {
-        # A recursive listing runs inside the shell itself, so its own line is the
-        # only evidence. Child processes (python, rg, find) are judged above, never
-        # through a shell line, which may only quote them (git commit -m '...').
-        return (($cmd -match '(?i)Get-ChildItem') -and ($cmd -match '(?i)-Recurse'))
+    if ($name -eq 'powershell.exe' -or $name -eq 'pwsh.exe' -or $name -eq 'cmd.exe') {
+        # Children (python, rg, find) are judged above by their own lines. The shell
+        # line is a secondary signal (master's rule): it can quote a command it does
+        # not run, but it is also the only evidence of a recursive listing run inside
+        # the shell and of a loop of short-lived heavy children.
+        return (Test-AgentShellLineHeavy $cmd)
     }
 
     return ($name -eq 'pytest.exe')
+}
+
+function Test-AgentLeaseReadRace($Exception) {
+    # True only for the races a live acquisition or release can cause: a sharing
+    # violation (0x80070020) or lock violation (0x80070021), or the file or its
+    # directory vanishing between the existence check and the read.
+    for ($current = $Exception; $null -ne $current; $current = $current.InnerException) {
+        if ($current -is [System.IO.FileNotFoundException] -or $current -is [System.IO.DirectoryNotFoundException]) { return $true }
+        if ($current -is [System.IO.IOException] -and (($current.HResult -band 0xFFFF) -in @(32, 33))) { return $true }
+    }
+    return $false
+}
+
+function Test-AgentLeaseOwnerInWindow($Owner, [double]$MinuteOfDay) {
+    # Local minute of day against the record's policy_window (workload_admission.ps1
+    # Get-WeatherHeavyWorkloadPolicyWindow), each with its teardown grace: agent_heavy
+    # 00:30-09:00 plus five minutes; stage_a 09:30 to its 11:55 teardown deadline;
+    # the workstation and portable profiles have no time window. Anything else (the
+    # integration mutex, an older schema, an expired owner-approved exception) gets
+    # the agent_heavy window.
+    switch -CaseSensitive ([string]$Owner.Window) {
+        'workstation_offline' { return $true }
+        'portable_execution' { return $true }
+        'stage_a' { return ($MinuteOfDay -ge 570.0) -and ($MinuteOfDay -lt 715.0) }
+        default { return ($MinuteOfDay -ge 30.0) -and ($MinuteOfDay -lt 545.0) }
+    }
 }
 
 function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot, [datetime]$NowUtc) {
@@ -367,12 +446,21 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot, [da
     # the last minute is reported in Unreadable (the caller then skips window and
     # concurrency kills for the tick); an older one is stale and ignored.
     #
-    # Known limitation: release disposes the repo lock handle but leaves its record
-    # on disk (there is no released/status field), so until the former owner
-    # process exits its subtree still reads as admitted. Telling a held lock from a
-    # released one would need an exclusive open that can block a real acquisition,
-    # so the guard does not probe. The host-global state file is deleted on
-    # release and does not have this gap.
+    # Release. Exit-WeatherHeavyWorkloadLease overwrites the repo lock with a
+    # weather_heavy_workload_lease_released_v1 marker (no pid) before it disposes the
+    # handle, so a released lease admits nothing even while its former owner process
+    # lives on. The host-global state file is deleted on release. A release that
+    # could not write the marker (it only warns) leaves the old record; the owner's
+    # policy window below still bounds what it can admit.
+    #
+    # Window. Each owner carries the record's policy window. The caller admits work
+    # only through owners inside their window; owners outside it are still protected
+    # from every stop, but their heavy descendants are not admitted.
+    #
+    # Read failures. A file whose last write time is known is judged by it (recent
+    # torn write: Unreadable; older: stale, ignored). Without a usable last write
+    # time only a sharing violation or a file/directory-not-found race counts as
+    # Unreadable; anything else is logged as an ERROR and the file is ignored.
     $owners = New-Object System.Collections.Generic.List[object]
     $unreadable = New-Object System.Collections.Generic.List[string]
     $candidates = New-Object System.Collections.Generic.List[object]
@@ -407,22 +495,41 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot, [da
             $record = $text | ConvertFrom-Json
         }
         catch {
+            $failure = $_.Exception
             while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
-            $recent = ($null -eq $writtenUtc) -or ([math]::Abs(($NowUtc - $writtenUtc).TotalSeconds) -le 60.0)
-            if ($recent) { $unreadable.Add([string]$candidate.Path) }
+            # GetLastWriteTimeUtc reports 1601-01-01 for a file that has vanished.
+            $writtenKnown = ($null -ne $writtenUtc) -and ($writtenUtc.Year -gt 1601)
+            if ($writtenKnown) {
+                if ([math]::Abs(($NowUtc - $writtenUtc).TotalSeconds) -le 60.0) { $unreadable.Add([string]$candidate.Path) }
+            }
+            elseif (Test-AgentLeaseReadRace $failure) {
+                $unreadable.Add([string]$candidate.Path)
+            }
+            else {
+                Write-GuardLog "ERROR" ("heavy-workload lease record {0} ignored: its last write time is unreadable ({1})" -f $candidate.Path, $failure.Message)
+            }
             continue
         }
+        $ownerPid = [uint32]0
+        $window = ''
         try {
-            $ownerPid = [uint32]0
+            # A released marker (no pid) names no owner.
+            if ([string]$record.schema_version -ceq 'weather_heavy_workload_lease_released_v1') { continue }
             if ($null -ne $record.pid -and [string]$record.pid -match '\A\d+\z') { $ownerPid = [uint32][string]$record.pid }
             if ($ownerPid -eq 0) { continue }
             $born = $null
             if ($candidate.Kind -eq 'repo_lock' -and [string]$record.schema_version -ceq 'weather_heavy_workload_lease_v3') {
+                $window = [string]$record.policy_window
                 $tokenMatch = [regex]::Match([string]$record.owner_process_creation_time_token, '\Awin32-filetime:(\d+)\z')
                 if ($tokenMatch.Success) { $born = [datetime]::FromFileTimeUtc([long]$tokenMatch.Groups[1].Value) }
             }
             elseif ($candidate.Kind -eq 'host_state' -and [string]$record.schema_version -ceq 'weather_heavy_workload_state_v1') {
                 if ([string]$record.state -cnotin @('ACTIVE', 'TEARDOWN_PENDING')) { continue }
+                $window = switch -CaseSensitive ([string]$record.execution_host_profile) {
+                    'workstation_offline_v1' { 'workstation_offline' }
+                    'portable_execution_v1' { 'portable_execution' }
+                    default { '' }
+                }
                 $born = [datetime]::Parse(
                     [string]$record.owner_process_start_utc,
                     [Globalization.CultureInfo]::InvariantCulture,
@@ -433,6 +540,7 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot, [da
                 CreationUtc = $born
                 NotAfterUtc = $writtenUtc
                 Source = $candidate.Kind
+                Window = $window
             })
         }
         catch {
@@ -440,7 +548,7 @@ function Get-AdmittedLeaseOwners([string]$LeaseRepoRoot, [string]$StateRoot, [da
             # pid that did not even convert (overflow) names no process at all.
             while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
             if ($ownerPid -ne 0) {
-                $owners.Add([pscustomobject]@{ Pid = $ownerPid; CreationUtc = $null; NotAfterUtc = $writtenUtc; Source = $candidate.Kind })
+                $owners.Add([pscustomobject]@{ Pid = $ownerPid; CreationUtc = $null; NotAfterUtc = $writtenUtc; Source = $candidate.Kind; Window = $window })
             }
         }
     }
@@ -571,6 +679,179 @@ function Get-AgentLeaseSpineHog($RootRow, $AllProcesses, $ProcessByPid, $Runtime
     return $best
 }
 
+function Get-AgentLeaseReliefPlan($RootRow, [long]$TreeBytes, $AllProcesses, $ProcessByPid, $RuntimeByPid, $LeaseOwners, [long]$Budget) {
+    # How to bring a tree holding a live lease owner back under $Budget without
+    # stopping the owner, its spine or a console host. Shared by the budget rule and
+    # the commit emergency.
+    #   branches: the subtrees off the spine can do it; stop them largest first until
+    #             the tree is under budget. A subtree holding a governed weather
+    #             process (capture children training_window restores) is eligible
+    #             only when it alone reaches the budget.
+    #   ancestor: the memory sits on the spine and its largest non-owner process
+    #             holds enough that stopping it alone brings the spine under budget
+    #             (Bytes > spine bytes - budget): stop that process alone.
+    #   small:    the largest non-owner spine process cannot do that.
+    #   owner:    the largest spine process is a lease owner (spared, CRITICAL).
+    #   none:     nothing on the spine is stoppable.
+    $eligible = @(Get-AgentLeaseBranches $RootRow $AllProcesses $ProcessByPid $RuntimeByPid $LeaseOwners |
+        Where-Object { (-not $_.Governed) -or ([long]$_.Bytes -ge $Budget) })
+    $offSpineBytes = [long]0
+    foreach ($branch in $eligible) { $offSpineBytes += [long]$branch.Bytes }
+    $spineBytes = $TreeBytes - $offSpineBytes
+    if ($spineBytes -lt $Budget) {
+        $chosen = New-Object System.Collections.Generic.List[object]
+        $remaining = $TreeBytes
+        $freed = [long]0
+        foreach ($branch in $eligible) {
+            if ($remaining -lt $Budget) { break }
+            $chosen.Add($branch)
+            $remaining -= [long]$branch.Bytes
+            $freed += [long]$branch.Bytes
+        }
+        return [pscustomobject]@{ Kind = 'branches'; Branches = $chosen.ToArray(); Bytes = $freed; Hog = $null; SpineBytes = $spineBytes }
+    }
+    $hog = Get-AgentLeaseSpineHog $RootRow $AllProcesses $ProcessByPid $RuntimeByPid $LeaseOwners
+    $kind = if ($null -eq $hog) { 'none' }
+        elseif ($hog.IsOwner) { 'owner' }
+        elseif ([long]$hog.Bytes -gt ($spineBytes - $Budget)) { 'ancestor' }
+        else { 'small' }
+    $hogBytes = if ($null -eq $hog) { [long]0 } else { [long]$hog.Bytes }
+    return [pscustomobject]@{ Kind = $kind; Branches = @(); Bytes = $hogBytes; Hog = $hog; SpineBytes = $spineBytes }
+}
+
+# One-shot job-handle probe for single-process stops (compiled only when a single
+# stop is about to run while a lease owner lives). Stopping a process closes its
+# handles; if it held the last handle to a kill-on-close job containing the lease
+# owner, the owner would die with it. Job MEMBERSHIP is not the hazard: every
+# process an agent spawns may share the agent's own job, whose handle the agent
+# root (never stopped) holds. So the probe asks whether the target process HOLDS a
+# job handle whose job contains an owner: it enumerates the system handle table
+# (SystemExtendedHandleInformation), duplicates each of the target's job handles
+# with query access, and calls IsProcessInJob for each owner. 0 = no, 1 = yes,
+# 2 = could not tell (access denied, duplicate or query failed).
+$agentJobProbeSource = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+namespace WeatherGuard {
+public static class JobHandleProbe {
+    [DllImport("ntdll.dll")] static extern int NtQuerySystemInformation(int infoClass, IntPtr info, int length, out int returnLength);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll")] static extern uint GetCurrentProcessId();
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+
+    const uint ProcessDupHandle = 0x0040;
+    const uint ProcessQueryLimited = 0x1000;
+    const uint JobObjectQuery = 0x0004;
+    const int SystemExtendedHandleInformation = 64;
+    const int StatusInfoLengthMismatch = unchecked((int)0xC0000004);
+    const int ErrorInvalidParameter = 87;
+
+    public static int HolderJobContains(uint holderPid, uint[] targetPids) {
+        IntPtr holder = OpenProcess(ProcessDupHandle, false, holderPid);
+        if (holder == IntPtr.Zero) { return Marshal.GetLastWin32Error() == ErrorInvalidParameter ? 0 : 2; }
+        List<IntPtr> targets = new List<IntPtr>();
+        IntPtr probeJob = IntPtr.Zero;
+        IntPtr buffer = IntPtr.Zero;
+        try {
+            foreach (uint targetPid in targetPids) {
+                IntPtr target = OpenProcess(ProcessQueryLimited, false, targetPid);
+                if (target == IntPtr.Zero) {
+                    if (Marshal.GetLastWin32Error() == ErrorInvalidParameter) { continue; }
+                    return 2;
+                }
+                targets.Add(target);
+            }
+            if (targets.Count == 0) { return 0; }
+            probeJob = CreateJobObjectW(IntPtr.Zero, null);
+            if (probeJob == IntPtr.Zero) { return 2; }
+            int length = 1 << 22;
+            for (int attempt = 0; ; attempt++) {
+                buffer = Marshal.AllocHGlobal(length);
+                int needed;
+                int status = NtQuerySystemInformation(SystemExtendedHandleInformation, buffer, length, out needed);
+                if (status == StatusInfoLengthMismatch && attempt < 6) {
+                    Marshal.FreeHGlobal(buffer);
+                    buffer = IntPtr.Zero;
+                    length = Math.Max(length * 2, needed + (1 << 20));
+                    continue;
+                }
+                if (status != 0) { return 2; }
+                break;
+            }
+            long count = Marshal.ReadIntPtr(buffer).ToInt64();
+            int pointer = IntPtr.Size;
+            int entrySize = 3 * pointer + 16;
+            long first = buffer.ToInt64() + 2 * pointer;
+            uint self = GetCurrentProcessId();
+            int jobType = -1;
+            for (long index = 0; index < count && jobType < 0; index++) {
+                IntPtr entry = new IntPtr(first + index * entrySize);
+                if ((ulong)Marshal.ReadIntPtr(entry, pointer).ToInt64() != self) { continue; }
+                if (Marshal.ReadIntPtr(entry, 2 * pointer) != probeJob) { continue; }
+                jobType = (ushort)Marshal.ReadInt16(entry, 3 * pointer + 6);
+            }
+            if (jobType < 0) { return 2; }
+            bool unknown = false;
+            for (long index = 0; index < count; index++) {
+                IntPtr entry = new IntPtr(first + index * entrySize);
+                if ((ulong)Marshal.ReadIntPtr(entry, pointer).ToInt64() != holderPid) { continue; }
+                if ((ushort)Marshal.ReadInt16(entry, 3 * pointer + 6) != jobType) { continue; }
+                IntPtr job;
+                if (!DuplicateHandle(holder, Marshal.ReadIntPtr(entry, 2 * pointer), GetCurrentProcess(), out job, JobObjectQuery, false, 0)) {
+                    unknown = true;
+                    continue;
+                }
+                try {
+                    foreach (IntPtr target in targets) {
+                        bool inJob;
+                        if (!IsProcessInJob(target, job, out inJob)) { unknown = true; continue; }
+                        if (inJob) { return 1; }
+                    }
+                }
+                finally { CloseHandle(job); }
+            }
+            return unknown ? 2 : 0;
+        }
+        finally {
+            if (buffer != IntPtr.Zero) { Marshal.FreeHGlobal(buffer); }
+            if (probeJob != IntPtr.Zero) { CloseHandle(probeJob); }
+            foreach (IntPtr target in targets) { CloseHandle(target); }
+            CloseHandle(holder);
+        }
+    }
+}
+}
+'@
+
+function Test-AgentHolderJobContainsOwner([uint32]$HolderPid, $OwnerRows) {
+    # 0 = safe to stop alone, 1 = it holds a job handle containing an owner, 2 = unknown.
+    $errorMark = $Error.Count
+    try {
+        $ownerIds = [uint32[]]@($OwnerRows | ForEach-Object { [uint32]$_.ProcessId })
+        if ($ownerIds.Count -eq 0) { return 0 }
+        # A process that no longer exists holds nothing (and is not stopped below).
+        $exists = $true
+        try { $null = [System.Diagnostics.Process]::GetProcessById([int]$HolderPid) } catch { $exists = $false }
+        if (-not $exists) { return 0 }
+        if (-not ('WeatherGuard.JobHandleProbe' -as [type])) {
+            Add-Type -TypeDefinition $agentJobProbeSource -Language CSharp -ErrorAction Stop
+        }
+        return [int][WeatherGuard.JobHandleProbe]::HolderJobContains($HolderPid, $ownerIds)
+    }
+    catch {
+        Write-GuardLog "WARNING" ("job-handle probe for pid {0} failed: {1}" -f $HolderPid, $_.Exception.Message)
+        return 2
+    }
+    finally {
+        while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
+    }
+}
+
 function Get-AgentToolRoot($ProcessRow, $ProcessByPid) {
     $path = New-Object System.Collections.Generic.List[object]
     $current = $ProcessRow
@@ -649,12 +930,27 @@ function Stop-VerifiedProcessTree(
         $memberId = [uint32]$_.ProcessId
         if ($depthByPid.ContainsKey($memberId)) { -[int]$depthByPid[$memberId] } else { 0 }
     } })
+    # Last line, whatever the caller decided: never a live lease owner, and while any
+    # owner lives (or a lease record is unreadable, so an owner may be live) never a
+    # console host, whose end takes every process attached to its console. Both are
+    # null-safe so a harness that extracts this function alone still runs it.
+    $protectOwners = ($null -ne $leaseOwners) -and (@($leaseOwners).Count -gt 0)
+    $protectConsoles = (($null -ne $liveLeaseOwnerRows) -and (@($liveLeaseOwnerRows).Count -gt 0)) -or ($leaseRecordsUnreadable -eq $true)
     Write-GuardLog "ACTION" ("{0}; terminating verified process tree root pid {1} members {2}" -f $Reason, $RootRow.ProcessId, $tree.Count)
     foreach ($row in $ordered) {
         $memberId = [uint32]$row.ProcessId
         if ($memberId -eq [uint32]$PID) {
             Write-GuardLog "CRITICAL" ("refusing to terminate the guard's own process pid {0}" -f $memberId)
             $ok = $false
+            continue
+        }
+        if ($protectOwners -and (Test-AgentLeaseOwnerRow $row $leaseOwners)) {
+            Write-GuardLog "CRITICAL" ("refusing to terminate heavy-workload lease owner pid {0} inside tree pid {1}" -f $memberId, $RootRow.ProcessId)
+            $ok = $false
+            continue
+        }
+        if ($protectConsoles -and (([string]$row.Name).ToLowerInvariant() -in @('conhost.exe', 'openconsole.exe'))) {
+            Write-GuardLog "WARNING" ("left console host pid {0} running: a heavy-workload lease owner may be attached to it" -f $memberId)
             continue
         }
         $current = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $memberId) -ErrorAction SilentlyContinue
@@ -696,13 +992,27 @@ function Stop-VerifiedSingleProcess($ProcessRow, [string]$Reason) {
         Write-GuardLog "CRITICAL" ("refusing single-process termination of pid {0} ({1})" -f $targetId, $ProcessRow.Name)
         return $false
     }
-    Write-GuardLog "ACTION" ("{0}; terminating verified single process pid {1} (its subtree is left running)" -f $Reason, $targetId)
+    if ((@($leaseOwners).Count -gt 0) -and (Test-AgentLeaseOwnerRow $ProcessRow $leaseOwners)) {
+        Write-GuardLog "CRITICAL" ("refusing to terminate heavy-workload lease owner pid {0}" -f $targetId)
+        return $false
+    }
     $current = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $targetId) -ErrorAction SilentlyContinue
     if (-not $current) { return $true }
     if (([datetime]$current.CreationDate).ToUniversalTime() -ne ([datetime]$ProcessRow.CreationDate).ToUniversalTime()) {
         Write-GuardLog "ERROR" ("pid {0} creation identity changed before termination" -f $targetId)
         return $false
     }
+    if (@($liveLeaseOwnerRows).Count -gt 0) {
+        # Stopping this process closes its handles: refuse when it holds a job handle
+        # whose job contains a live lease owner, or when that cannot be ruled out.
+        $jobVerdict = Test-AgentHolderJobContainsOwner $targetId $liveLeaseOwnerRows
+        if ($jobVerdict -ne 0) {
+            $why = if ($jobVerdict -eq 1) { "it holds a handle to a job that contains a live heavy-workload lease owner" } else { "whether it holds a job handle containing a live heavy-workload lease owner could not be determined" }
+            Write-GuardLog "CRITICAL" ("refusing single-process termination of pid {0}: {1}; manual attention required" -f $targetId, $why)
+            return $false
+        }
+    }
+    Write-GuardLog "ACTION" ("{0}; terminating verified single process pid {1} (its subtree is left running)" -f $Reason, $targetId)
     try {
         Stop-Process -Id $targetId -Force -Confirm:$false -ErrorAction Stop
     }
@@ -776,10 +1086,12 @@ $heavyToolRoots = @{}
 $heavyRowsByKey = @{}
 foreach ($row in $allProcesses) {
     if (-not (Test-AgentHeavyProcess $row)) { continue }
-    $ageSeconds = ($utcNow - ([datetime]$row.CreationDate).ToUniversalTime()).TotalSeconds
-    if ($ageSeconds -lt $AgentWorkloadGraceSeconds) { continue }
     $toolRoot = Get-AgentToolRoot $row $processByPid
     if (-not $toolRoot) { continue }
+    # The grace runs on the tool root's age, not the heavy child's: a loop of short
+    # children (foreach { python -m pytest $f }) under one old shell is still seen.
+    $ageSeconds = ($utcNow - ([datetime]$toolRoot.CreationDate).ToUniversalTime()).TotalSeconds
+    if ($ageSeconds -lt $AgentWorkloadGraceSeconds) { continue }
     $key = "{0}|{1}" -f $toolRoot.ProcessId, ([datetime]$toolRoot.CreationDate).ToUniversalTime().Ticks
     if (-not $heavyToolRoots.ContainsKey($key)) { $heavyToolRoots[$key] = $toolRoot }
     if (-not $heavyRowsByKey.ContainsKey($key)) { $heavyRowsByKey[$key] = New-Object System.Collections.Generic.List[object] }
@@ -795,25 +1107,44 @@ foreach ($row in $allProcesses) {
 # any rule here, the private-byte budget included: the owner's finally blocks
 # (training_window re-enabling capture supervisors, lease release) must run, so
 # only heavy member subtrees that do not contain the owner are stopped.
+#
+# Every owner is protected; only owners inside their own policy window (plus its
+# teardown grace) admit work. Past it, admitted work is no longer exempt: the
+# owner's heavy descendants are stopped like any unadmitted member, an owner
+# ancestor that is itself heavy is stopped alone, and only the owner is spared.
 $unadmittedRowsByKey = @{}
 $admittedRootKeys = @{}
 $ownerRootKeys = @{}
 $leaseOwners = @()
+$admittingOwners = @()
+$liveLeaseOwnerRows = @()
 $leaseRecordsUnreadable = $false
 # Read for the commit-emergency path too, which must spare lease owners as well.
 if ($heavyToolRoots.Count -gt 0 -or $commitPercent -ge $ActPercent) {
     $leaseState = Get-AdmittedLeaseOwners $RepoRoot $HeavyWorkloadStateRoot $utcNow
     $leaseOwners = @($leaseState.Owners)
+    $admittingOwners = @($leaseOwners | Where-Object { Test-AgentLeaseOwnerInWindow $_ $minuteOfDay })
+    if ($leaseOwners.Count -gt 0) {
+        $liveLeaseOwnerRows = @($allProcesses | Where-Object { Test-AgentLeaseOwnerRow $_ $leaseOwners })
+    }
     if (@($leaseState.Unreadable).Count -gt 0) {
         # Fail toward sparing: a lease that cannot be read may be admitting this work.
         $leaseRecordsUnreadable = $true
         Write-GuardLog "WARNING" ("heavy-workload lease record(s) unreadable ({0}); skipping agent window and concurrency kills this run, budget kills stop heavy members only" -f (@($leaseState.Unreadable) -join ", "))
     }
 }
+foreach ($ownerRow in $liveLeaseOwnerRows) {
+    if (Test-AgentLeaseOwnerRow $ownerRow $admittingOwners) { continue }
+    $ownerToolRoot = Get-AgentToolRoot $ownerRow $processByPid
+    if (-not $ownerToolRoot) { continue }
+    $ownerKey = "{0}|{1}" -f $ownerToolRoot.ProcessId, ([datetime]$ownerToolRoot.CreationDate).ToUniversalTime().Ticks
+    if (-not $heavyToolRoots.ContainsKey($ownerKey)) { continue }
+    Write-GuardLog "CRITICAL" ("heavy-workload lease owner pid {0} is past its policy window; its heavy work is no longer admitted and is stopped, the owner alone is spared; manual attention required" -f $ownerRow.ProcessId)
+}
 foreach ($entry in $heavyToolRoots.GetEnumerator()) {
     $unadmitted = New-Object System.Collections.Generic.List[object]
     foreach ($member in $heavyRowsByKey[$entry.Key]) {
-        if (-not (Test-AgentLeaseAdmitted $member $processByPid $allProcesses $leaseOwners)) { $unadmitted.Add($member) }
+        if (-not (Test-AgentLeaseAdmitted $member $processByPid $allProcesses $admittingOwners)) { $unadmitted.Add($member) }
     }
     $unadmittedRowsByKey[$entry.Key] = $unadmitted
     if ($unadmitted.Count -eq 0) { $admittedRootKeys[$entry.Key] = $true }
@@ -882,45 +1213,40 @@ foreach ($entry in $agentTargetMap.GetEnumerator()) {
         "Codex heavy workload is outside the 00:30-09:00 host window"
     }
     if ($overBudget -and $ownerRootKeys.ContainsKey($entry.Key)) {
-        # Never the whole tree, never an owner. If the subtrees off the owner's spine
-        # can bring the tree back under budget, stop them largest first (any process
-        # type, so the real hog dies, not an innocent heavy chunk; console hosts are
-        # never candidates). A subtree holding a governed weather process (capture
-        # children training_window restores) is eligible only when it alone reaches
-        # the budget. Otherwise the memory sits on the spine: stop its single largest
-        # process unless that process is itself a lease owner.
-        $treeBytes = [long]$agentTreeBytes[$entry.Key]
-        $eligible = @(Get-AgentLeaseBranches $target $allProcesses $processByPid $runtimeByPid $leaseOwners |
-            Where-Object { (-not $_.Governed) -or ([long]$_.Bytes -ge $MinKillPrivateBytes) })
-        $offSpineBytes = [long]0
-        foreach ($branch in $eligible) { $offSpineBytes += [long]$branch.Bytes }
-        if (($treeBytes - $offSpineBytes) -lt $MinKillPrivateBytes) {
-            $remaining = $treeBytes
-            foreach ($branch in $eligible) {
-                if ($remaining -lt $MinKillPrivateBytes) { break }
+        # Never the whole tree, never an owner (Get-AgentLeaseReliefPlan): subtrees
+        # off the owner's spine largest first while they can bring the tree under
+        # budget (any process type, so the real hog dies, not an innocent heavy
+        # chunk), else the spine's largest non-owner process alone when stopping it
+        # brings the spine under budget, else a WARNING or, for an owner hog, CRITICAL.
+        $plan = Get-AgentLeaseReliefPlan $target ([long]$agentTreeBytes[$entry.Key]) $allProcesses $processByPid $runtimeByPid $leaseOwners $MinKillPrivateBytes
+        if ($plan.Kind -ceq 'branches') {
+            foreach ($branch in @($plan.Branches)) {
                 if (Stop-VerifiedProcessTree $branch.Row $allProcesses ("{0} (largest subtree off the lease owner's spine; the owner is spared)" -f $reason) $true) {
                     $guardActions.Add("killed_agent_member_pid_$($branch.Row.ProcessId)")
                     $terminationPerformed = $true
                 } else {
                     $guardActions.Add("kill_failed_agent_member_pid_$($branch.Row.ProcessId)")
                 }
-                $remaining -= [long]$branch.Bytes
             }
-            continue
         }
-        $hog = Get-AgentLeaseSpineHog $target $allProcesses $processByPid $runtimeByPid $leaseOwners
-        if ($null -eq $hog) {
-            Write-GuardLog "WARNING" ("{0}; tool tree pid {1} holds a heavy-workload lease and has no stoppable process" -f $reason, $target.ProcessId)
-        }
-        elseif ($hog.IsOwner) {
+        elseif ($plan.Kind -ceq 'owner') {
             Write-GuardLog "CRITICAL" ("{0}; heavy-workload lease owner pid {1} itself holds {2} MB and is spared; manual attention required" -f `
-                $reason, $hog.Row.ProcessId, [math]::Round([long]$hog.Bytes / 1MB, 0))
+                $reason, $plan.Hog.Row.ProcessId, [math]::Round([long]$plan.Hog.Bytes / 1MB, 0))
         }
-        elseif (Stop-VerifiedSingleProcess $hog.Row ("{0} (largest process on the lease owner's ancestry; the owner is orphaned, not stopped)" -f $reason)) {
-            $guardActions.Add("killed_agent_ancestor_pid_$($hog.Row.ProcessId)")
-            $terminationPerformed = $true
-        } else {
-            $guardActions.Add("kill_failed_agent_ancestor_pid_$($hog.Row.ProcessId)")
+        elseif ($plan.Kind -ceq 'ancestor') {
+            if (Stop-VerifiedSingleProcess $plan.Hog.Row ("{0} (largest process on the lease owner's ancestry; the owner is orphaned, not stopped)" -f $reason)) {
+                $guardActions.Add("killed_agent_ancestor_pid_$($plan.Hog.Row.ProcessId)")
+                $terminationPerformed = $true
+            } else {
+                $guardActions.Add("kill_failed_agent_ancestor_pid_$($plan.Hog.Row.ProcessId)")
+            }
+        }
+        elseif ($plan.Kind -ceq 'small') {
+            Write-GuardLog "WARNING" ("{0}; tool tree pid {1} holds a heavy-workload lease and its largest non-owner spine process pid {2} ({3} MB) cannot bring the {4} MB spine under budget alone; nothing stopped" -f `
+                $reason, $target.ProcessId, $plan.Hog.Row.ProcessId, [math]::Round([long]$plan.Hog.Bytes / 1MB, 0), [math]::Round([long]$plan.SpineBytes / 1MB, 0))
+        }
+        else {
+            Write-GuardLog "WARNING" ("{0}; tool tree pid {1} holds a heavy-workload lease and has no stoppable process" -f $reason, $target.ProcessId)
         }
         continue
     }
@@ -928,6 +1254,10 @@ foreach ($entry in $agentTargetMap.GetEnumerator()) {
         # Never the whole tree: stop heavy member subtrees that hold no lease owner.
         # Over budget here means the lease records are unreadable, so owners are
         # unknown: every heavy member is a candidate; otherwise only unadmitted ones.
+        # A member whose subtree holds an owner is unadmitted only when that owner
+        # is past its policy window: the owner itself is spared (CRITICAL), a heavy
+        # owner ancestor is stopped alone, and the owner's heavy descendants are
+        # members of their own.
         $memberReason = if ($overBudget) { "{0} (heavy member subtree; lease records unreadable)" -f $reason } else { "{0} (unadmitted member of a leased tool tree)" -f $reason }
         # .ToArray(): @() over a generic List throws in Windows PowerShell 5.1.
         $candidateMembers = if ($overBudget) { $heavyRowsByKey[$entry.Key].ToArray() } else { $unadmittedRowsByKey[$entry.Key].ToArray() }
@@ -937,7 +1267,16 @@ foreach ($entry in $agentTargetMap.GetEnumerator()) {
             if ($coveredMemberIds.ContainsKey([uint32]$member.ProcessId)) { continue }
             $memberTree = @(Get-ProcessTreeRows $member $allProcesses)
             if (@($memberTree | Where-Object { Test-AgentLeaseOwnerRow $_ $leaseOwners }).Count -gt 0) {
-                Write-GuardLog "WARNING" ("left heavy pid {0} running: its subtree owns a heavy-workload lease" -f $member.ProcessId)
+                if (Test-AgentLeaseOwnerRow $member $leaseOwners) {
+                    Write-GuardLog "CRITICAL" ("{0}; heavy-workload lease owner pid {1} is spared; manual attention required" -f $reason, $member.ProcessId)
+                }
+                elseif (Stop-VerifiedSingleProcess $member ("{0} (heavy ancestor of a heavy-workload lease owner past its policy window; the owner is orphaned, not stopped)" -f $reason)) {
+                    $guardActions.Add("killed_agent_ancestor_pid_$($member.ProcessId)")
+                    $terminationPerformed = $true
+                }
+                else {
+                    $guardActions.Add("kill_failed_agent_ancestor_pid_$($member.ProcessId)")
+                }
                 continue
             }
             foreach ($covered in $memberTree) { $coveredMemberIds[[uint32]$covered.ProcessId] = $true }
@@ -1073,43 +1412,46 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
         }
         if ($privateBytes -lt $MinKillPrivateBytes) { continue }
         if (Test-AgentTreeHasLeaseOwner $root $allProcesses $leaseOwners) {
-            # Never the agent root or a lease owner. Offer the largest subtree off the
-            # owner's spine if it alone reaches the budget (console hosts never);
-            # otherwise the spine's largest process alone, unless it is an owner.
-            $branch = @(Get-AgentLeaseBranches $root $allProcesses $processByPid $runtimeByPid $leaseOwners |
-                Where-Object { [long]$_.Bytes -ge $MinKillPrivateBytes }) | Select-Object -First 1
-            if ($null -ne $branch) {
+            # Never the agent root, a lease owner or a console host. Like the budget
+            # rule (Get-AgentLeaseReliefPlan): the subtrees off the owner's spine,
+            # largest first, until the tree is under budget; else the spine's largest
+            # non-owner process alone when that brings the spine under budget or it
+            # alone reaches the budget. The candidate ranks by the whole tree's bytes,
+            # as an unleased agent tree would.
+            $plan = Get-AgentLeaseReliefPlan $root $privateBytes $allProcesses $processByPid $runtimeByPid $leaseOwners $MinKillPrivateBytes
+            if ($plan.Kind -ceq 'branches' -and @($plan.Branches).Count -gt 0) {
                 $candidates += [pscustomobject]@{
                     Kind = "agent_branch"
                     Single = $false
-                    Id = $branch.Row.ProcessId
-                    CreationDate = $branch.Row.CreationDate
-                    RootRow = $branch.Row
-                    PrivateBytes = [long]$branch.Bytes
-                    PrivateMB = [math]::Round([long]$branch.Bytes / 1MB, 0)
-                    CommandLine = "subtree off a lease owner's spine in agent tree pid $($root.ProcessId)"
+                    Branches = @($plan.Branches)
+                    Id = $root.ProcessId
+                    CreationDate = $root.CreationDate
+                    RootRow = $root
+                    PrivateBytes = $privateBytes
+                    PrivateMB = [math]::Round($privateBytes / 1MB, 0)
+                    CommandLine = "subtrees off a lease owner's spine in agent tree pid $($root.ProcessId)"
                 }
                 continue
             }
-            $hog = Get-AgentLeaseSpineHog $root $allProcesses $processByPid $runtimeByPid $leaseOwners
-            if ($null -ne $hog -and [long]$hog.Bytes -ge $MinKillPrivateBytes) {
-                if ($hog.IsOwner) {
-                    Write-GuardLog "CRITICAL" ("commit emergency: heavy-workload lease owner pid {0} holds {1} MB; spared" -f $hog.Row.ProcessId, [math]::Round([long]$hog.Bytes / 1MB, 0))
-                    continue
-                }
+            if ($plan.Kind -ceq 'owner') {
+                Write-GuardLog "CRITICAL" ("commit emergency: heavy-workload lease owner pid {0} holds {1} MB; spared" -f $plan.Hog.Row.ProcessId, [math]::Round([long]$plan.Hog.Bytes / 1MB, 0))
+                continue
+            }
+            if ($plan.Kind -ceq 'ancestor' -or ($plan.Kind -ceq 'small' -and [long]$plan.Hog.Bytes -ge $MinKillPrivateBytes)) {
                 $candidates += [pscustomobject]@{
                     Kind = "agent_ancestor"
                     Single = $true
-                    Id = $hog.Row.ProcessId
-                    CreationDate = $hog.Row.CreationDate
-                    RootRow = $hog.Row
-                    PrivateBytes = [long]$hog.Bytes
-                    PrivateMB = [math]::Round([long]$hog.Bytes / 1MB, 0)
+                    Branches = @()
+                    Id = $plan.Hog.Row.ProcessId
+                    CreationDate = $plan.Hog.Row.CreationDate
+                    RootRow = $plan.Hog.Row
+                    PrivateBytes = [long]$plan.Hog.Bytes
+                    PrivateMB = [math]::Round([long]$plan.Hog.Bytes / 1MB, 0)
                     CommandLine = "process on a lease owner's ancestry in agent tree pid $($root.ProcessId)"
                 }
                 continue
             }
-            Write-GuardLog "WARNING" ("commit emergency: agent tree pid {0} holds a heavy-workload lease and no single subtree or ancestor reaches the budget" -f $root.ProcessId)
+            Write-GuardLog "WARNING" ("commit emergency: agent tree pid {0} holds a heavy-workload lease and nothing off or on the owner's spine can be stopped to relieve it" -f $root.ProcessId)
             continue
         }
         $candidates += [pscustomobject]@{
@@ -1129,17 +1471,33 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
         $reason = "commit at {0}%: {1} pid {2} private {3} MB" -f `
             [math]::Round($commitPercent, 1), $target.Kind, $target.Id, $target.PrivateMB
         $allowWeather = $target.Kind -in @("agent_tree", "agent_branch")
-        $stopped = if ($target.Single) {
-            Stop-VerifiedSingleProcess $target.RootRow ("{0} (single process; the lease owner it launched is left running)" -f $reason)
-        } else {
-            Stop-VerifiedProcessTree $target.RootRow $allProcesses $reason $allowWeather
-        }
-        if ($stopped) {
-            $guardActions.Add("killed_$($target.Kind)_pid_$($target.Id)")
-            $terminationPerformed = $true
+        if ($target.Kind -ceq "agent_branch") {
+            # Each subtree off the owner's spine, largest first, as planned.
+            foreach ($branch in @($target.Branches)) {
+                $branchReason = "{0} (subtree pid {1} off a lease owner's spine, {2} MB; the owner is spared)" -f `
+                    $reason, $branch.Row.ProcessId, [math]::Round([long]$branch.Bytes / 1MB, 0)
+                if (Stop-VerifiedProcessTree $branch.Row $allProcesses $branchReason $true) {
+                    $guardActions.Add("killed_agent_branch_pid_$($branch.Row.ProcessId)")
+                    $terminationPerformed = $true
+                }
+                else {
+                    $guardActions.Add("kill_failed_agent_branch_pid_$($branch.Row.ProcessId)")
+                }
+            }
         }
         else {
-            $guardActions.Add("kill_failed_$($target.Kind)_pid_$($target.Id)")
+            $stopped = if ($target.Single) {
+                Stop-VerifiedSingleProcess $target.RootRow ("{0} (single process; the lease owner it launched is left running)" -f $reason)
+            } else {
+                Stop-VerifiedProcessTree $target.RootRow $allProcesses $reason $allowWeather
+            }
+            if ($stopped) {
+                $guardActions.Add("killed_$($target.Kind)_pid_$($target.Id)")
+                $terminationPerformed = $true
+            }
+            else {
+                $guardActions.Add("kill_failed_$($target.Kind)_pid_$($target.Id)")
+            }
         }
     } else {
         Write-GuardLog "CRITICAL" ("commit at {0}% but no eligible ungoverned offender above {1} MB; manual attention required" -f `

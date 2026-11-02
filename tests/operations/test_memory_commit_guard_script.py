@@ -63,7 +63,13 @@ def test_memory_guard_attributes_and_reaps_codex_heavy_tool_trees():
     assert "Get-ChildItem" in block
     assert "-Recurse" in block
     assert "Get-WeatherWorkstationOfflineModule" in block
-    assert "daily_refresh|score_all" not in block  # no module-name heuristic (L28 review MINOR 3)
+    # Master's shell-line rule on powershell/pwsh/cmd is kept (review M3), with the
+    # guard's explicit module list and the status/--help reader exemption.
+    assert "function Test-AgentShellLineHeavy" in block
+    assert "return (Test-AgentShellLineHeavy $cmd)" in block
+    assert "(?:retrain|training|replay|backtest|daily_refresh|score_all)" in block
+    assert "'weather.backtesting.r0_paired_replay'" in block
+    assert "'status', '--help', '-h', '--version'" in block
     assert "Get-ProcessTreePrivateBytes" in block
     assert "$agentTreeBytes" in block
     assert "$MinKillPrivateBytes" in block

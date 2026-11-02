@@ -430,13 +430,18 @@ GUARD_CREATION_CASES = [
     # Grace: 40 real seconds old (-59 minutes on the wall) is past the 15 s grace.
     ("heavy_grace_fall_back", "heavy", "2026-11-01T01:00:10-05:00",
      _agent_tree("2026-11-01T01:59:00-04:00", "2026-11-01T01:59:30-04:00"), [7000003], None),
-    # Grace: 10 real seconds old (60 minutes on the wall) is inside it.
+    # Grace (on the tool root's age): 10 real seconds old (60 minutes on the wall)
+    # is inside it.
     ("heavy_grace_spring_forward", "heavy", "2027-03-14T03:00:05-04:00",
-     _agent_tree("2027-03-14T01:59:50-05:00", "2027-03-14T01:59:55-05:00"), [], None),
+     _agent_tree("2027-03-14T01:59:55-05:00", "2027-03-14T01:59:57-05:00"), [], None),
     ("heavy_ordinary_counted", "heavy", "2026-10-20T01:10:00-04:00",
      _agent_tree("2026-10-20T01:00:00-04:00", "2026-10-20T01:05:00-04:00"), [7000003], None),
     ("heavy_ordinary_in_grace", "heavy", "2026-10-20T01:10:00-04:00",
-     _agent_tree("2026-10-20T01:00:00-04:00", "2026-10-20T01:09:55-04:00"), [], None),
+     _agent_tree("2026-10-20T01:09:55-04:00", "2026-10-20T01:09:57-04:00"), [], None),
+    # Review M3: the grace is on the tool root, so a young child of an old shell
+    # (a `foreach { python -m pytest $f }` loop) is counted at once.
+    ("heavy_ordinary_old_root_young_child", "heavy", "2026-10-20T01:10:00-04:00",
+     _agent_tree("2026-10-20T01:00:00-04:00", "2026-10-20T01:09:58-04:00"), [7000003], None),
     # Ancestry PID reuse: a "parent" really younger than its child holds a reused
     # PID, so the child is not attributed to that tree.
     ("heavy_ordinary_reused_parent_pid", "heavy", "2026-10-20T03:10:00-04:00",

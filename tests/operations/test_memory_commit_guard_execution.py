@@ -136,6 +136,11 @@ $results = foreach ($scenario in $scenarios) {
                 pid = [int]$lease.pid
                 owner_process_creation_time_token = 'win32-filetime:{0}' -f $born.ToFileTimeUtc()
             }
+            # policy_window as Get-WeatherHeavyWorkloadPolicyWindow or the profile sets it.
+            if ($null -ne $lease.window) {
+                $record['policy_window'] = [string]$lease.window
+                $record['execution_host_profile'] = if ([string]$lease.window -eq 'workstation_offline') { 'workstation_offline_v1' } else { 'capture_colocated_v1' }
+            }
         }
         else {
             $dir = $stateRoot
@@ -230,7 +235,12 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
         "task_name": EVIDENCE_TASK,
         "task_state": extra.pop("task_state", None),
         "expected_host_id": extra.pop("expected_host_id", None),
-        "leases": extra.pop("leases", []),
+        # A repo lock defaults to the workstation_offline profile (no time window), as
+        # workstation_heavy.ps1 takes it; scenarios name agent_heavy or stage_a explicitly.
+        "leases": [
+            {"window": "workstation_offline", **lease} if lease.get("kind") == "repo_lock" else lease
+            for lease in extra.pop("leases", [])
+        ],
     }
 
 
@@ -824,7 +834,13 @@ def test_exec_capture_host_profiles_survive_the_guard(tmp_path: Path) -> None:
         _proc(train + 3, "powershell.exe", TRAINING_WINDOW, age=60, ppid=train + 1),
         _proc(train + 5, "python.exe", f"{VENV_PY} -m weather.operations.nightly_retrain", age=59, ppid=train + 3),
     ]
-    leases = [_lock(suite + 7, age=90), _lock(train + 3, age=60, file="heavy_workload.slot2.lock")]
+    leases = [
+        dict(_lock(suite + 7, age=90), window="agent_heavy"),
+        dict(_lock(train + 3, age=60, file="heavy_workload.slot2.lock"), window="agent_heavy"),
+    ]
+    # daily_refresh.ps1 takes its own lease; the settlement stage may run in Stage-A.
+    stage_a = [dict(_lock(refresh + 5, age=20), window="stage_a")]
+    status_only = settlement[:2] + [settlement[4]]
     outcome = _run(
         tmp_path,
         [
@@ -832,6 +848,13 @@ def test_exec_capture_host_profiles_survive_the_guard(tmp_path: Path) -> None:
                 tmp_path, "night", now="2026-11-01T02:00:00", commit=50.0, processes=bounded + training, leases=leases
             ),
             _scenario(tmp_path, "settlement", now="2026-11-01T14:00:00", commit=50.0, processes=settlement),
+            _scenario(tmp_path, "status_only", now="2026-11-01T14:00:00", commit=50.0, processes=status_only),
+            _scenario(
+                tmp_path, "stage_a", now="2026-11-01T10:00:00", commit=50.0, processes=settlement, leases=stage_a
+            ),
+            _scenario(
+                tmp_path, "stage_a_late", now="2026-11-01T12:30:00", commit=50.0, processes=settlement, leases=stage_a
+            ),
         ],
     )
 
@@ -839,10 +862,24 @@ def test_exec_capture_host_profiles_survive_the_guard(tmp_path: Path) -> None:
     assert night["stopped"] == []
     assert night["status"]["agent_heavy_workload_count"] == 2
     assert night["status"]["agent_heavy_admitted_workload_count"] == 2
-    # daily_refresh (run and status alike) is not on the heavy list.
+    # Review M3: python -m weather.operations.daily_refresh is heavy (master's shell rule
+    # named it); an unleased agent run in the graded window is reaped, children first.
     settlement_row = outcome["settlement"]
-    assert settlement_row["stopped"] == []
-    assert settlement_row["status"]["agent_heavy_workload_count"] == 0
+    assert set(settlement_row["stopped"]) == {refresh + 3, refresh + 5, refresh + 7, refresh + 9}
+    assert settlement_row["status"]["action"] == f"killed_agent_tree_pid_{refresh + 3}"
+    # Its status reader alone is not heavy.
+    assert outcome["status_only"]["stopped"] == []
+    assert outcome["status_only"]["status"]["agent_heavy_workload_count"] == 0
+    # Review M2: inside Stage-A the stage_a lease admits the run...
+    stage_a_row = outcome["stage_a"]
+    assert stage_a_row["stopped"] == []
+    assert stage_a_row["status"]["agent_heavy_admitted_workload_count"] == 1
+    # ...and past its 11:55 teardown deadline the python child dies; the owner is spared.
+    late = outcome["stage_a_late"]
+    assert late["stopped"] == [refresh + 7]
+    assert late["status"]["actions"] == [f"killed_agent_member_pid_{refresh + 7}"]
+    assert f"lease owner pid {refresh + 5} is past its policy window" in late["log"]
+    assert "[CRITICAL]" in late["log"]
 
 
 def test_exec_readers_repls_and_quoted_scanners_are_not_heavy(tmp_path: Path) -> None:
@@ -965,7 +1002,10 @@ def test_exec_foreign_and_stale_lease_records_neither_admit_nor_disable_kills(tm
             _scenario(tmp_path, "empty_old", now=day, commit=50.0, processes=unleased, leases=empty_old),
             _scenario(tmp_path, "torn_old", now=day, commit=50.0, processes=unleased, leases=torn_old),
             _scenario(tmp_path, "empty_fresh", now=day, commit=50.0, processes=unleased, leases=empty_fresh),
-            _scenario(tmp_path, "mutex_live", now=day, commit=50.0, processes=wrapper_tree, leases=mutex_live),
+            _scenario(
+                tmp_path, "mutex_live", now="2026-11-01T02:00:00", commit=50.0, processes=wrapper_tree, leases=mutex_live
+            ),
+            _scenario(tmp_path, "mutex_live_day", now=day, commit=50.0, processes=wrapper_tree, leases=mutex_live),
             _scenario(tmp_path, "mutex_reused", now=day, commit=50.0, processes=wrapper_tree, leases=mutex_reused),
         ],
     )
@@ -984,6 +1024,13 @@ def test_exec_foreign_and_stale_lease_records_neither_admit_nor_disable_kills(tm
     live = outcome["mutex_live"]
     assert live["stopped"] == []
     assert live["status"]["agent_heavy_admitted_workload_count"] == 1
+
+    # The mutex record has no policy_window: it admits inside 00:30-09:05 only. In the
+    # day its heavy child is stopped and the owner alone is spared (review M2).
+    live_day = outcome["mutex_live_day"]
+    assert live_day["stopped"] == [7_910_107]
+    assert live_day["status"]["agent_heavy_admitted_workload_count"] == 0
+    assert "lease owner pid 7910105 is past its policy window" in live_day["log"]
 
     reused = outcome["mutex_reused"]
     assert set(reused["stopped"]) == {7_910_103, 7_910_105, 7_910_107}
@@ -1149,3 +1196,502 @@ def test_exec_console_hosts_and_capture_children_are_never_lease_branch_targets(
     captured = outcome["with_capture"]
     assert captured["stopped"] == [capture + 9]
     assert captured["status"]["actions"] == [f"killed_agent_member_pid_{capture + 9}"]
+
+
+# ---- L28 review of d3cb1b460 (L46): M1-M3, m4-m7 and nits, each lease vs no lease ----
+
+
+def _wrapper_tree(base: int, *, child_cmd: str = f"{VENV_PY} -m pytest -q tests/a.py", private: int = 50 * MIB) -> list[dict]:
+    """claude.exe -> bash.exe -> workstation_heavy.ps1 (lease owner, base+5) -> child."""
+    return [
+        _proc(base + 1, "claude.exe", CLAUDE, age=300),
+        _proc(base + 3, "bash.exe", GIT_BASH.format(command="powershell -File x"), age=41, ppid=base + 1),
+        _proc(base + 5, "powershell.exe", WRAPPER, age=40, ppid=base + 3),
+        _proc(base + 7, "python.exe", child_cmd, age=39, private=private, ppid=base + 5),
+    ]
+
+
+RELEASED = '{"schema_version":"weather_heavy_workload_lease_released_v1","workload":"x","released_at":"2026-11-01T13:00:00Z"}'
+
+
+def test_exec_admitted_work_past_its_policy_window_is_stopped_and_the_owner_spared(tmp_path: Path) -> None:
+    """M2: an agent_heavy lease admits until 09:05; after that its heavy work dies, the owner lives."""
+    base = 7_950_000
+    tree = _wrapper_tree(base)
+    agent_heavy = [dict(_lock(base + 5, age=40), window="agent_heavy")]
+    parent = 7_950_100
+    # claude.exe -> python tools\run_suite.py (heavy) -> bounded suite (owner) -> chunk.
+    python_parent = [
+        _proc(parent + 1, "claude.exe", CLAUDE, age=300),
+        _proc(parent + 3, "python.exe", f"{VENV_PY} tools\\run_suite.py --all", age=30, ppid=parent + 1),
+        _proc(parent + 5, "powershell.exe", BOUNDED_SUITE, age=29, ppid=parent + 3),
+        _proc(parent + 7, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=2, ppid=parent + 5),
+    ]
+    parent_lease = [dict(_lock(parent + 5, age=29), window="agent_heavy")]
+    late, grace = "2026-11-01T09:10:00", "2026-11-01T09:03:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "late", now=late, commit=50.0, processes=tree, leases=agent_heavy),
+            _scenario(tmp_path, "grace", now=grace, commit=50.0, processes=tree, leases=agent_heavy),
+            _scenario(tmp_path, "grace_unleased", now=grace, commit=50.0, processes=tree),
+            _scenario(tmp_path, "parent_late", now=late, commit=50.0, processes=python_parent, leases=parent_lease),
+            _scenario(tmp_path, "parent_unleased", now=late, commit=50.0, processes=python_parent),
+            _scenario(tmp_path, "workstation", now=late, commit=50.0, processes=tree, leases=[_lock(base + 5, age=40)]),
+        ],
+    )
+
+    late_row = outcome["late"]
+    assert late_row["stopped"] == [base + 7]
+    assert late_row["status"]["actions"] == [f"killed_agent_member_pid_{base + 7}"]
+    assert late_row["status"]["agent_heavy_admitted_workload_count"] == 0
+    assert f"lease owner pid {base + 5} is past its policy window" in late_row["log"]
+    assert "[CRITICAL]" in late_row["log"]
+
+    # Inside the five-minute teardown grace the lease still admits.
+    assert outcome["grace"]["stopped"] == []
+    assert outcome["grace"]["status"]["agent_heavy_admitted_workload_count"] == 1
+    assert set(outcome["grace_unleased"]["stopped"]) == {base + 3, base + 5, base + 7}
+
+    # A heavy owner ancestor is stopped alone; the owner is orphaned, its chunk stopped.
+    parent_row = outcome["parent_late"]
+    assert set(parent_row["stopped"]) == {parent + 3, parent + 7}
+    assert f"killed_agent_ancestor_pid_{parent + 3}" in parent_row["status"]["actions"]
+    assert f"killed_agent_member_pid_{parent + 7}" in parent_row["status"]["actions"]
+    assert set(outcome["parent_unleased"]["stopped"]) == {parent + 3, parent + 5, parent + 7}
+
+    # The workstation_offline profile has no time window.
+    assert outcome["workstation"]["stopped"] == []
+
+
+def test_exec_released_lease_marker_admits_nothing(tmp_path: Path) -> None:
+    """M2: Exit-WeatherHeavyWorkloadLease overwrites the record; the guard reads it as no lease."""
+    base = 7_951_000
+    tree = _wrapper_tree(base)
+    released = [dict(_lock(base + 5, age=40), raw=RELEASED, mtime_age_seconds=2)]
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "released", now=day, commit=50.0, processes=tree, leases=released),
+            _scenario(tmp_path, "held", now=day, commit=50.0, processes=tree, leases=[_lock(base + 5, age=40)]),
+        ],
+    )
+
+    released_row = outcome["released"]
+    assert set(released_row["stopped"]) == {base + 3, base + 5, base + 7}
+    assert released_row["status"]["agent_heavy_lease_records_unreadable"] is False
+    assert released_row["status"]["agent_heavy_admitted_workload_count"] == 0
+    held = outcome["held"]
+    assert held["stopped"] == []
+    assert held["status"]["agent_heavy_admitted_workload_count"] == 1
+
+
+def test_exec_commit_emergency_relieves_a_leased_agent_tree_branch_by_branch(tmp_path: Path) -> None:
+    """M1: at 95% commit, off-spine subtrees go largest first until the tree is under budget."""
+    base = 7_952_000
+    tree = _wrapper_tree(base, private=512 * MIB) + [
+        # Three non-heavy tool trees of the same claude.exe.
+        _proc(base + 11, "node.exe", r"node C:\scratch\a.js", age=20, private=4608 * MIB, ppid=base + 1),
+        _proc(base + 13, "node.exe", r"node C:\scratch\b.js", age=20, private=4096 * MIB, ppid=base + 1),
+        _proc(base + 15, "node.exe", r"node C:\scratch\c.js", age=20, private=3584 * MIB, ppid=base + 1),
+    ]
+    night = "2026-11-01T02:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "leased", now=night, commit=95.0, processes=tree, leases=[_lock(base + 5, age=40)]),
+            _scenario(tmp_path, "unleased", now=night, commit=95.0, processes=tree),
+        ],
+    )
+
+    leased = outcome["leased"]
+    # 12.9 GiB -> 8.4 GiB -> 4.4 GiB: two branches, largest first; the spine and pytest live.
+    assert leased["stopped"] == [base + 11, base + 13]
+    assert leased["status"]["actions"] == [f"killed_agent_branch_pid_{base + 11}", f"killed_agent_branch_pid_{base + 13}"]
+
+    unleased = outcome["unleased"]
+    assert unleased["status"]["actions"] == [f"killed_agent_tree_pid_{base + 1}"]
+    assert {base + 5, base + 7, base + 11, base + 13, base + 15} <= set(unleased["stopped"])
+
+
+def _guard_heavy_modules() -> list[str]:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    start = text.index("$guardHeavyModules = @(")
+    body = text[start : text.index(")", start + len("$guardHeavyModules = @("))]
+    modules = re.findall(r"'([a-z0-9_.]+)'", body)
+    assert "weather.backtesting.r0_paired_replay" in modules and len(modules) == 8
+    return modules
+
+
+def test_exec_shell_line_rule_counts_loops_and_heavy_modules(tmp_path: Path) -> None:
+    """M3: master's shell-line rule on powershell/pwsh/cmd, with the reader exemption."""
+    ps = r"C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -Command "
+
+    def shell_tree(base: int, shell: str, line: str, *, child: tuple[str, str, float] | None = None) -> list[dict]:
+        rows = [
+            _proc(base + 1, "claude.exe", CLAUDE, age=300),
+            _proc(base + 3, shell, line, age=30, ppid=base + 1),
+        ]
+        if child:
+            rows.append(_proc(base + 5, child[0], child[1], age=child[2], ppid=base + 3))
+        return rows
+
+    loop = ps + '"foreach ($f in $files) { python -m pytest -q $f }"'
+    heavy_cases = [
+        ("powershell.exe", loop, None),
+        # The loop's current child is three seconds old: inside the grace, but the root is not.
+        ("powershell.exe", HIDDEN_PS, ("python.exe", f"{VENV_PY} -m pytest -q tests/a.py", 0.05)),
+        ("powershell.exe", ps + '"python -m weather.backtesting.r0_paired_replay run"', None),
+        ("pwsh.exe", "pwsh -NoProfile -Command Get-ChildItem -Recurse C:\\repo", None),
+        ("cmd.exe", 'cmd.exe /d /s /c "python -m compileall -q src"', None),
+    ]
+    light_cases = [
+        ("powershell.exe", ps + '"python -m weather.operations.daily_refresh status"', None),
+        ("powershell.exe", ps + '"python -m weather.backtesting.replay --help"', None),
+        ("powershell.exe", ps + '"python -m weather.operations.capture_recovery_check"', None),
+        ("cmd.exe", 'cmd.exe /d /s /c "git status"', None),
+    ]
+    heavy_table: list[dict] = []
+    for index, (shell, line, child) in enumerate(heavy_cases):
+        heavy_table += shell_tree(7_953_000 + 100 * index, shell, line, child=child)
+    light_table: list[dict] = []
+    for index, (shell, line, child) in enumerate(light_cases):
+        light_table += shell_tree(7_953_500 + 100 * index, shell, line, child=child)
+    # Leased: claude -> bash -> workstation_heavy.ps1 (owner) -> powershell loop.
+    leased = _wrapper_tree(7_953_900)[:3] + [
+        _proc(7_953_907, "powershell.exe", loop, age=39, ppid=7_953_905),
+    ]
+    modules = _guard_heavy_modules()
+    module_table: list[dict] = []
+    for index, module in enumerate(modules):
+        module_table += shell_tree(7_954_000 + 100 * index, "powershell.exe", ps + f'"python -m {module} run"')
+        module_table += _claude_bash(7_955_000 + 100 * index, f"python -m {module}", "python.exe", f"{VENV_PY} -m {module} run")
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "day", now=day, commit=50.0, processes=heavy_table + light_table),
+            _scenario(tmp_path, "leased", now=day, commit=50.0, processes=leased, leases=[_lock(7_953_905, age=40)]),
+            _scenario(tmp_path, "unleased", now=day, commit=50.0, processes=leased),
+            _scenario(tmp_path, "modules", now=day, commit=50.0, processes=module_table),
+        ],
+    )
+
+    day_row = outcome["day"]
+    for index in range(len(heavy_cases)):
+        assert 7_953_000 + 100 * index + 3 in day_row["stopped"], heavy_cases[index]
+    assert not {row["pid"] for row in light_table} & set(day_row["stopped"])
+    assert day_row["status"]["agent_heavy_workload_count"] == len(heavy_cases)
+
+    assert outcome["leased"]["stopped"] == []
+    assert outcome["leased"]["status"]["agent_heavy_admitted_workload_count"] == 1
+    assert set(outcome["unleased"]["stopped"]) == {7_953_903, 7_953_905, 7_953_907}
+
+    module_row = outcome["modules"]
+    assert module_row["status"]["agent_heavy_workload_count"] == 2 * len(modules)
+    for index in range(len(modules)):
+        assert 7_954_000 + 100 * index + 3 in module_row["stopped"], modules[index]
+        assert 7_955_000 + 100 * index + 7 in module_row["stopped"], modules[index]
+
+
+def test_exec_unquoted_python_path_with_spaces_is_parsed(tmp_path: Path) -> None:
+    """m7: C:\\Program Files\\Python312\\python.exe -m pytest without quotes."""
+    line = r"C:\Program Files\Python312\python.exe -m pytest -q tests/a.py"
+    status_line = r"C:\Program Files\Python312\python.exe -m weather.operations.daily_refresh status"
+    tree = _wrapper_tree(7_956_000, child_cmd=line)
+    light = _claude_bash(7_956_100, "python status", "python.exe", status_line)
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "unleased", now=day, commit=50.0, processes=tree + light),
+            _scenario(tmp_path, "leased", now=day, commit=50.0, processes=tree, leases=[_lock(7_956_005, age=40)]),
+        ],
+    )
+
+    unleased = outcome["unleased"]
+    assert set(unleased["stopped"]) == {7_956_003, 7_956_005, 7_956_007}
+    assert unleased["status"]["agent_heavy_workload_count"] == 1
+    assert outcome["leased"]["stopped"] == []
+
+
+def test_exec_spine_single_kill_needs_a_hog_that_relieves_the_spine(tmp_path: Path) -> None:
+    """m4: a spine hog too small to bring the spine under budget is a WARNING, not a kill."""
+    base = 7_957_000
+
+    def spine(bash_mib: int, parent_mib: int, owner_mib: int) -> list[dict]:
+        # claude -> bash -> python tools\run_suite.py -> bounded suite (owner) -> chunk.
+        return [
+            _proc(base + 1, "claude.exe", CLAUDE, age=300),
+            _proc(
+                base + 3,
+                "bash.exe",
+                GIT_BASH.format(command="python tools/run_suite.py"),
+                age=31,
+                private=bash_mib * MIB,
+                ppid=base + 1,
+            ),
+            _proc(
+                base + 5,
+                "python.exe",
+                f"{VENV_PY} tools\\run_suite.py --all",
+                age=30,
+                private=parent_mib * MIB,
+                ppid=base + 3,
+            ),
+            _proc(base + 7, "powershell.exe", BOUNDED_SUITE, age=29, private=owner_mib * MIB, ppid=base + 5),
+            _proc(base + 9, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=2, ppid=base + 7),
+        ]
+
+    small = spine(4608, 4506, 4506)  # a 13.3 GiB spine: no single non-owner frees 5.3 GiB
+    large = spine(64, 8704, 64)
+    lease = [_lock(base + 7, age=29)]
+    night = "2026-11-01T02:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "small", now=night, commit=50.0, processes=small, leases=lease),
+            _scenario(tmp_path, "small_unleased", now=night, commit=50.0, processes=small),
+            _scenario(tmp_path, "large", now=night, commit=50.0, processes=large, leases=lease),
+        ],
+    )
+
+    small_row = outcome["small"]
+    assert small_row["stopped"] == []
+    assert "cannot bring the" in small_row["log"]
+    assert outcome["small_unleased"]["status"]["action"] == f"killed_agent_tree_pid_{base + 3}"
+
+    large_row = outcome["large"]
+    assert large_row["stopped"] == [base + 5]
+    assert large_row["status"]["actions"] == [f"killed_agent_ancestor_pid_{base + 5}"]
+
+
+def test_exec_tree_kills_leave_console_hosts_while_lease_state_is_uncertain(tmp_path: Path) -> None:
+    """m5: with a torn lease record a heavy member's conhost child is left running."""
+    base = 7_958_000
+    tree = _claude_bash(base, "python -c x", "python.exe", f'{VENV_PY} -c "run()"', age=30)
+    tree[-1]["private_bytes"] = 9 * GIB
+    tree.append(_proc(base + 9, "conhost.exe", CONHOST, age=29, private=5 * MIB, ppid=base + 7))
+    torn = [
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.lock",
+            "pid": 1,
+            "age_minutes": 1,
+            "mtime_age_seconds": 5,
+            "raw": '{"schema_version": "we',
+        }
+    ]
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "torn", now=day, commit=50.0, processes=tree, leases=torn),
+            _scenario(tmp_path, "no_lease", now=day, commit=50.0, processes=tree),
+        ],
+    )
+
+    torn_row = outcome["torn"]
+    assert torn_row["stopped"] == [base + 7]
+    assert f"left console host pid {base + 9} running" in torn_row["log"]
+    assert set(outcome["no_lease"]["stopped"]) == {base + 3, base + 5, base + 7, base + 9}
+
+
+def test_exec_unc_scanner_paths_are_never_probed(tmp_path: Path) -> None:
+    """Nit: a UNC path is not a repository data path (no SMB probe inside the guard)."""
+    absolute_repo = tmp_path / "absrepo"
+    (absolute_repo / ".git").mkdir(parents=True)
+    (absolute_repo / "data").mkdir()
+    unc = _claude_bash(7_959_000, "rg", "rg.exe", r"rg -n foo \\server\share\repo\data")
+    local = _claude_bash(7_959_100, "rg", "rg.exe", f"rg -n foo {absolute_repo / 'data'}")
+    leased = _wrapper_tree(7_959_200, child_cmd=f"rg -n foo {absolute_repo / 'data'}")
+    leased[-1]["name"] = "rg.exe"
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "day", now=day, commit=50.0, processes=unc + local),
+            _scenario(tmp_path, "leased", now=day, commit=50.0, processes=leased, leases=[_lock(7_959_205, age=40)]),
+        ],
+    )
+
+    day_row = outcome["day"]
+    assert not {7_959_003, 7_959_005, 7_959_007} & set(day_row["stopped"])
+    assert 7_959_107 in day_row["stopped"]
+    assert outcome["leased"]["stopped"] == []
+
+
+def _guard_functions_probe(names: list[str], body: str) -> str:
+    """Load named guard functions (and the probe source) via the parser, then run body."""
+    quoted = ", ".join(f"'{name}'" for name in names)
+    return (
+        r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($env:GUARD_SCRIPT, [ref]$tokens, [ref]$errors)
+if (@($errors).Count -ne 0) { throw 'memory_commit_guard.ps1 does not parse' }
+function Write-GuardLog([string]$Level, [string]$Message) { $script:guardLog.Add("[$Level] $Message") }
+$script:guardLog = New-Object System.Collections.Generic.List[string]
+foreach ($name in @("""
+        + quoted
+        + r""")) {
+    $found = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true))
+    if ($found.Count -ne 1) { throw "expected one function $name" }
+    Invoke-Expression $found[0].Extent.Text
+}
+$probe = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$agentJobProbeSource' }, $true))
+if ($probe.Count -ne 1) { throw 'expected one $agentJobProbeSource' }
+Invoke-Expression $probe[0].Extent.Text
+"""
+        + body
+    )
+
+
+def _powershell_json(script: str) -> dict:
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        env={**os.environ, "GUARD_SCRIPT": str(SCRIPT)},
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_lease_read_race_is_only_a_sharing_violation_or_a_vanished_file() -> None:
+    """m6: an unreadable last-write time is a race only for these; anything else is an ERROR."""
+    payload = _powershell_json(
+        _guard_functions_probe(
+            ["Test-AgentLeaseReadRace"],
+            r"""
+$sharing = New-Object System.IO.IOException('in use', [int]0x80070020)
+$lock = New-Object System.IO.IOException('locked', [int]0x80070021)
+$other = New-Object System.IO.IOException('disk', [int]0x8007001F)
+[pscustomobject]@{
+    not_found = Test-AgentLeaseReadRace (New-Object System.IO.FileNotFoundException('gone'))
+    dir_not_found = Test-AgentLeaseReadRace (New-Object System.IO.DirectoryNotFoundException('gone'))
+    sharing = Test-AgentLeaseReadRace $sharing
+    lock = Test-AgentLeaseReadRace $lock
+    wrapped = Test-AgentLeaseReadRace (New-Object System.Management.Automation.MethodInvocationException('x', $sharing))
+    access = Test-AgentLeaseReadRace (New-Object System.UnauthorizedAccessException('denied'))
+    other_io = Test-AgentLeaseReadRace $other
+    none = Test-AgentLeaseReadRace $null
+} | ConvertTo-Json -Compress
+""",
+        )
+    )
+    assert payload == {
+        "not_found": True,
+        "dir_not_found": True,
+        "sharing": True,
+        "lock": True,
+        "wrapped": True,
+        "access": False,
+        "other_io": False,
+        "none": False,
+    }
+
+
+def test_job_handle_probe_finds_an_owner_in_a_job_the_holder_holds() -> None:
+    """m4: the probe answers 1 only when the holder holds a job handle containing the owner.
+
+    Uses only processes this test starts (sleeping powershell children, killed in a
+    finally) and a job this test creates; nothing else is opened or stopped.
+    """
+    payload = _powershell_json(
+        _guard_functions_probe(
+            ["Test-AgentHolderJobContainsOwner"],
+            r"""
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class L28JobFixture {
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] public static extern IntPtr CreateJobObjectW(IntPtr a, string n);
+    [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)] public static extern bool CloseHandle(IntPtr h);
+}
+'@
+$sleeper = { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60' -WindowStyle Hidden -PassThru }
+$inJob = & $sleeper
+$outside = & $sleeper
+$job = [IntPtr]::Zero
+try {
+    $job = [L28JobFixture]::CreateJobObjectW([IntPtr]::Zero, $null)
+    if ($job -eq [IntPtr]::Zero) { throw 'CreateJobObject failed' }
+    if (-not [L28JobFixture]::AssignProcessToJobObject($job, $inJob.Handle)) { throw 'AssignProcessToJobObject failed' }
+    $row = { param($p) [pscustomobject]@{ ProcessId = [uint32]$p.Id } }
+    [pscustomobject]@{
+        holder_with_owner = Test-AgentHolderJobContainsOwner ([uint32]$PID) @(& $row $inJob)
+        holder_without_owner = Test-AgentHolderJobContainsOwner ([uint32]$PID) @(& $row $outside)
+        not_a_holder = Test-AgentHolderJobContainsOwner ([uint32]$outside.Id) @(& $row $inJob)
+        no_owners = Test-AgentHolderJobContainsOwner ([uint32]$PID) @()
+        gone_holder = Test-AgentHolderJobContainsOwner ([uint32]7999999) @(& $row $inJob)
+        log = @($script:guardLog)
+    } | ConvertTo-Json -Compress
+}
+finally {
+    foreach ($p in @($inJob, $outside)) { try { if (-not $p.HasExited) { $p.Kill() } } catch { } }
+    if ($job -ne [IntPtr]::Zero) { [void][L28JobFixture]::CloseHandle($job) }
+}
+""",
+        )
+    )
+    assert payload["holder_with_owner"] == 1, payload
+    assert payload["holder_without_owner"] == 0, payload
+    assert payload["not_a_holder"] == 0, payload
+    assert payload["no_owners"] == 0, payload
+    assert payload["gone_holder"] == 0, payload
+    assert payload["log"] == [], payload
+
+
+def test_tree_kill_last_line_never_stops_a_live_owner_or_its_console_host() -> None:
+    """m5: whatever the caller chose, Stop-VerifiedProcessTree skips owners and, while one
+    lives or a record is unreadable, console hosts. Synthetic rows; Stop-Process is stubbed."""
+    payload = _powershell_json(
+        _guard_functions_probe(
+            ["Get-ProcessTreeRows", "Test-GovernedWeatherProcess", "Test-AgentLeaseOwnerRow", "Stop-VerifiedProcessTree"],
+            r"""
+$born = (Get-Date).AddMinutes(-30)
+function New-Row($id, $parent, $name, $cmd, $minutes) {
+    [pscustomobject]@{ ProcessId = [uint32]$id; ParentProcessId = [uint32]$parent; Name = $name; CommandLine = $cmd; CreationDate = $born.AddMinutes($minutes) }
+}
+$rows = @(
+    (New-Row 7960003 7960001 'bash.exe' 'bash -c x' 0),
+    (New-Row 7960005 7960003 'powershell.exe' 'powershell -File workstation_heavy.ps1' 1),
+    (New-Row 7960007 7960005 'conhost.exe' 'conhost.exe 0xffffffff -ForceV1' 1),
+    (New-Row 7960009 7960005 'python.exe' 'python -m pytest -q' 2)
+)
+function Get-CimInstance { param($ClassName, $Filter, $ErrorAction)
+    if ($Filter -match '^ProcessId = (\d+)$') { $w = [int]$Matches[1]; return $rows | Where-Object { [int]$_.ProcessId -eq $w } | Select-Object -First 1 }
+    throw "unexpected filter $Filter" }
+function Stop-Process { param($Id, [switch]$Force, $Confirm, $ErrorAction) $script:stopped.Add([int]$Id) }
+function Invoke-Case([string]$Mode) {
+    $script:stopped = New-Object System.Collections.Generic.List[int]
+    $script:guardLog.Clear()
+    $script:leaseOwners = @(); $script:liveLeaseOwnerRows = @(); $script:leaseRecordsUnreadable = $false
+    if ($Mode -eq 'owner') {
+        $script:leaseOwners = @([pscustomobject]@{ Pid = 7960005; CreationUtc = $rows[1].CreationDate.ToUniversalTime(); NotAfterUtc = $null; Window = 'agent_heavy' })
+        $script:liveLeaseOwnerRows = @($rows[1])
+    }
+    if ($Mode -eq 'torn') { $script:leaseRecordsUnreadable = $true }
+    $leaseOwners = $script:leaseOwners; $liveLeaseOwnerRows = $script:liveLeaseOwnerRows; $leaseRecordsUnreadable = $script:leaseRecordsUnreadable
+    $ok = Stop-VerifiedProcessTree $rows[0] $rows 'probe' $true
+    [pscustomobject]@{ ok = $ok; stopped = @($script:stopped | Sort-Object); log = @($script:guardLog) }
+}
+[pscustomobject]@{ owner = Invoke-Case 'owner'; torn = Invoke-Case 'torn'; none = Invoke-Case 'none' } | ConvertTo-Json -Compress -Depth 4
+""",
+        )
+    )
+    owner = payload["owner"]
+    assert owner["ok"] is False
+    assert owner["stopped"] == [7_960_003, 7_960_009]
+    assert any("refusing to terminate heavy-workload lease owner pid 7960005" in line for line in owner["log"])
+    assert any("left console host pid 7960007 running" in line for line in owner["log"])
+    torn = payload["torn"]
+    assert torn["stopped"] == [7_960_003, 7_960_005, 7_960_009]
+    none = payload["none"]
+    assert none["ok"] is True
+    assert none["stopped"] == [7_960_003, 7_960_005, 7_960_007, 7_960_009]
