@@ -219,3 +219,20 @@ def test_dseries26l_and_overlap_are_registered():
         g2p.main(["dseries26L", "--help"])
     with pytest.raises(SystemExit):
         g2p.main(["overlap", "--help"])
+
+
+# ------------------------------------------------------------------ 2026-11-02 dev result, pinned (reporting fix)
+
+def test_three_way_verdict_pins_the_2026_11_02_dev_inputs_to_consistent():
+    assert g2p.three_way_verdict(-0.00273987162879355, 0.004813162931762016, 0.00260570672064243,
+                                 -0.002766872743854489) == "CONSISTENT"
+
+
+def test_report_gate_moves_the_superseded_two_way_fields():
+    gate = {"ci95": [-0.0102, 0.0048], "mde80": 0.0107, "pass": False, "point": -0.0027,
+            "power_at_-0.0075": 0.498, "rule": "PASS only if the dev dR 95% upper bound < 0", "upper": 0.0048,
+            "verdict": "KILL"}
+    out = g2p.report_gate(gate)
+    assert "verdict" not in out and "pass" not in out and "rule" not in out
+    assert out["superseded_two_way"] == {"rule": gate["rule"], "pass": False, "verdict": "KILL"}
+    assert out["point"] == gate["point"] and out["upper"] == gate["upper"] and out["ci95"] == gate["ci95"]

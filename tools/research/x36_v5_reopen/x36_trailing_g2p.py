@@ -593,6 +593,18 @@ def cmd_mechanism(a):
     return 0
 
 
+SUPERSEDED_TWO_WAY_KEYS = ("rule", "pass", "verdict")
+
+
+def report_gate(gate):
+    """A dev run's gate block for compare's report: the statistics, with the G2 module's superseded two-way fields
+    (x36_trailing_g2.gate: "PASS only if the dev dR 95% upper bound < 0", else "KILL"; superseded by C1.6) moved under
+    ``superseded_two_way`` so the report carries only one verdict, three_way_verdict."""
+    out = {k: v for k, v in gate.items() if k not in SUPERSEDED_TWO_WAY_KEYS}
+    out["superseded_two_way"] = {k: gate[k] for k in SUPERSEDED_TWO_WAY_KEYS if k in gate}
+    return out
+
+
 def cmd_compare(a):
     out = Path(a.out)
     if out.exists():
@@ -613,8 +625,9 @@ def cmd_compare(a):
     verdict = three_way_verdict(gate_g2["point"], gate_g2["upper"], mbb["mbb"]["ci95"][1], gate_p["point"])
     res = {"schema": "l47_x36_trailing_g2p/1/compare", "module_sha256": sha256_file(__file__),
            "g2_d26_sha256": g2r["inputs"]["d26_sha256"], "g2p_d26_sha256": g2p["inputs"]["d26_sha256"],
-           "shift_difference_g2p_minus_g2": diff, "g2_gate": gate_g2, "g2_mbb": mbb["mbb"], "g2p_gate": gate_p,
-           "dR_P": {"point": gate_p["point"], "ci95": gate_p["ci95"]}, "three_way_verdict": verdict}
+           "shift_difference_g2p_minus_g2": diff, "g2_gate": report_gate(gate_g2), "g2_mbb": mbb["mbb"],
+           "g2p_gate": report_gate(gate_p), "dR_P": {"point": gate_p["point"], "ci95": gate_p["ci95"]},
+           "three_way_verdict": verdict, "verdict_rule": "three_way_verdict (g2_freeze.md C1.6)"}
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
     print(json.dumps({"three_way_verdict": verdict, "sha256": sha256_file(out)}), flush=True)
