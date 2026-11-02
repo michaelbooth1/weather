@@ -1,0 +1,25 @@
+{
+ "n_dates": 300,
+ "rows_per_date": 65.52333333333333,
+ "sd_per_date_mean_d": 0.016304480212416823,
+ "mean_d": -0.0023167574499631375,
+ "lag1_rho_within_year": 0.13729558338321715,
+ "variance_inflation_block3_vs_clustered": 1.193307479979323,
+ "variance_inflation_ar1": 1.318291133646078,
+ "inflation_used": 1.318291133646078,
+ "two_sided_0.05": {
+  "dev_window_60_dates_MDE80": 0.006770813254841189,
+  "ratio_to_0.002": 3.3854066274205943,
+  "forward_dates_for_MDE80_0.002": 687.658681978997
+ },
+ "two_sided_0.01": {
+  "dev_window_60_dates_MDE80": 0.008259223829748053,
+  "ratio_to_0.002": 4.129611914874026,
+  "forward_dates_for_MDE80_0.002": 1023.2216740481713
+ },
+ "two_sided_0.005": {
+  "dev_window_60_dates_MDE80": 0.008817994001967288,
+  "ratio_to_0.002": 4.408997000983644,
+  "forward_dates_for_MDE80_0.002": 1166.355273280966
+ }
+}
