@@ -1,0 +1,15 @@
+{
+    "record":  "rp2_screen_receipt",
+    "written_at_ws":  "2026-11-02T14:04:38.0959161-05:00",
+    "launched_at_ws":  "2026-11-02T13:47:14.3836044-05:00",
+    "code_tip":  "c38e2c619f0967767a1631b496f29dd81a322c90",
+    "module_sha256":  "d4947cfe1b02c537ec84fca994ef0c1c26572be0251810eb744b421aae09f0b7",
+    "args_b64_sha256":  "69c1953cdca8d47edd2134d7070230ae092501c6a74658d66f66a1349242fefa",
+    "classes_sha256":  "35d0090dddf7b082c5ce0d777cf488c09bbcf6baead14c786e68c39fbafe1689",
+    "prereg_sha256":  "2a438306214ece68e6e58d6f288765dc8addace7d21b89a02a22141e9c2d3e70",
+    "corpus_sha256":  "a57e10a60fce936a98cd8478423b502496afa7347967eaaac1d452e453aad39f",
+    "verdict":  "SCREEN PASS (necessary only; not confirmation)",
+    "report_sha256":  "66f9278e12acc0417a930a4b01a9ef0caee3073731dcbec93bd8b52411884c50",
+    "rows_sha256":  "fface859ee19263647fac094b8ba626c560caad0d6761b1b3c022250a3553a7f",
+    "launch_receipt_sha256":  "20a6d9f82516bd174d7835cb7f3d645bbbbd8660ba2ce9034dca43b49187b193"
+}
