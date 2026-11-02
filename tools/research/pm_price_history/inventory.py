@@ -38,6 +38,8 @@ MAX_RATE_BYTES_PER_S = 4 * 1024 * 1024
 DEFAULT_MIN_INTERVAL_S = 0.25
 USER_AGENT = "weather-research-inventory/0.1 (public read-only)"
 PAGE_LIMIT = 100
+# Points land a few seconds off the hour (median of three probe medians can be 3600.5 s).
+HOURLY_MAX_MEDIAN_GAP_S = 3660
 
 # Server-side endDate windows: they keep guarded events out of discovery replies where the venue's
 # endDate (12:00Z on the target date) allows; the code guard still runs on every event.
@@ -390,7 +392,7 @@ def summarize(disc: Discovery, probes: list) -> dict:
             "regular_grid_share_min": min((p["regular_grid_share"] for p in nonempty), default=None),
         }
     hourly_ok = bool(by_fid["60"]["nonempty"]) and by_fid["60"]["nonempty"] == by_fid["60"]["probes"] \
-        and (by_fid["60"]["median_gap_s"] or 1e9) <= 3600
+        and (by_fid["60"]["median_gap_s"] or 1e9) <= HOURLY_MAX_MEDIAN_GAP_S
     return {
         "market": disc.market.id,
         "role": disc.market.role,

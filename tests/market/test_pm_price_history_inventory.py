@@ -225,6 +225,16 @@ def test_probe_counts_points_and_never_returns_prices():
     assert "fidelity=60" in session.urls[0] and "prices-history" in session.urls[0]
 
 
+def test_hourly_tolerates_seconds_jitter():
+    market = inv.Market("x", "builtin", "p", "s")
+    disc = inv.Discovery(market, admitted=[{"event_date": "2025-01-22", "yes_tokens": ["1"]}])
+    probe = {"fidelity_min": 60, "points": 25, "points_per_day": 24.4, "median_gap_s": 3600.5,
+             "wire_bytes": 300, "regular_grid_share": 0.9}
+    assert inv.summarize(disc, [probe])["hourly_or_better"] is True
+    probe = dict(probe, median_gap_s=7200)
+    assert inv.summarize(disc, [probe])["hourly_or_better"] is False
+
+
 def test_go_verdict_interpretations():
     def row(m, n, ok=True):
         return {"market": m, "admitted_dates": n, "hourly_or_better": ok}
