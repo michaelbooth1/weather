@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Torn-journal quarantine (Stage 2, owner yes 2026-11-02): at startup and then every minute for 15 minutes, runs scripts\ops\maker_evidence_torn_quarantine_boot.ps1 (maker_evidence_torn_quarantine.ps1 -Apply on the core maker-evidence root; a live recorder is exit 0). Registered only by scripts\ops\register_maker_evidence_torn_quarantine.ps1.</Description>
+    <Description>Torn-journal quarantine (Stage 2, owner yes 2026-11-02): at startup and then every minute for 15 minutes, runs scripts\ops\maker_evidence_torn_quarantine_boot.ps1 (maker_evidence_torn_quarantine.ps1 -Apply on the core maker-evidence root; a live recorder is exit 0 only when no pre-boot segment has a torn tail). Registered only by scripts\ops\register_maker_evidence_torn_quarantine.ps1.</Description>
     <URI>\WeatherMakerEvidenceTornQuarantine</URI>
   </RegistrationInfo>
   <Triggers>

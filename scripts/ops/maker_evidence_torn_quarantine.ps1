@@ -27,8 +27,12 @@ Safety contract (design approved 2026-11-02, L54):
   receipt turns the NOOP into TORN_SIGNATURE_UNRESOLVED.
 - Never truncates, rewrites or deletes; never touches sealed segments' journals, manifests, .gz,
   .tmp, status.json or the lock file contents. No Scheduler mutation: start the task yourself.
+- A writer-alive refusal first scans, read-only, the unsealed segments older than this boot and
+  reports torn_tail_found (true/false; null when the scan did not complete). A torn tail there is
+  REFUSED_WRITER_ALIVE_TORN (exit 3): a recorder is starting over a torn segment.
 
 Exit codes: 0 NOOP / REPORT / QUARANTINED / RECONCILED / RECONCILED_AFTER_SEAL; 2 refused;
+3 REFUSED_WRITER_ALIVE_TORN;
 4 failed mid-apply or FAILED_HASH_READ (rerun reconciles, or reports UNRESOLVED on a hash mismatch); 5 UNRESOLVED / TORN_SIGNATURE_UNRESOLVED
 (needs a human; no action taken); 6 INTERNAL_ERROR (unexpected throw; lock released). A
 parameter-binding error is raised by PowerShell before the script runs and is outside this
@@ -244,6 +248,63 @@ function Test-JournalName([string]$Name) {
         $Name.EndsWith(".jsonl", [StringComparison]::OrdinalIgnoreCase))
 }
 
+function Get-BootTimeUtc {
+    # Boot instant from GetTickCount64 (no CIM, so the process-check stub in tests cannot shadow it).
+    if (-not ("WeatherTornQuarantine.Uptime" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System.Runtime.InteropServices;
+namespace WeatherTornQuarantine {
+    public static class Uptime {
+        [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
+    }
+}
+"@
+    }
+    return [DateTime]::UtcNow.AddMilliseconds(-[double][WeatherTornQuarantine.Uptime]::GetTickCount64())
+}
+
+function Finish-WriterAlive([string]$Reason) {
+    # Writer alive: no lock, so nothing may move. First a read-only scan, shared open, no write, of
+    # unsealed segments whose journals all predate this boot (a live writer's own segment can show
+    # a transient partial line and is skipped). A torn tail there means a recorder is (re)starting
+    # over a torn segment: REFUSED_WRITER_ALIVE_TORN, exit 3. torn_tail_found is $false only when the
+    # scan completed clean; $null (unknown) on any error. Unattended callers may treat exit 2 as
+    # benign only with torn_tail_found false.
+    $script:result.torn_tail_found = $null
+    $script:result.torn_tail_scan = "unknown"
+    try {
+        $bootUtc = Get-BootTimeUtc
+        $script:result.boot_time_utc = $bootUtc.ToString("o")
+        $torn = @(); $preBoot = @()
+        foreach ($parent in @(Get-ChildItem -LiteralPath $Root -Directory -Force)) {
+            if ($parent.Name -cnotmatch '^\d{4}-\d{2}-\d{2}$') { continue }
+            if (Test-Reparse $parent) { throw ("store folder is a reparse point: " + $parent.Name) }
+            foreach ($folder in @(Get-ChildItem -LiteralPath $parent.FullName -Directory -Force)) {
+                if ($folder.Name -cnotmatch '^\d{2}-[0-9a-f]{12}$') { continue }
+                if (Test-Reparse $folder) { throw ("segment folder is a reparse point: " + $folder.FullName) }
+                if ((Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json")) -or
+                    (Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json.gz"))) { continue }
+                $journals = @(Get-ChildItem -LiteralPath $folder.FullName -File -Force | Where-Object { Test-JournalName $_.Name })
+                if ($journals.Count -eq 0 -or @($journals | Where-Object { $_.LastWriteTimeUtc -ge $bootUtc }).Count -gt 0) { continue }
+                $preBoot += $folder.FullName
+                foreach ($file in $journals) {
+                    if (Test-Reparse $file) { throw ("journal is a reparse point: " + $file.FullName) }
+                    if ($null -ne (Get-TailClass $file.FullName)) { $torn += $file.FullName }
+                }
+            }
+        }
+        $script:result.pre_boot_unsealed_segments = $preBoot
+        $script:result.torn_tail_found = ($torn.Count -gt 0)
+        $script:result.torn_tail_scan = "complete"
+        if ($torn.Count -gt 0) {
+            $script:result.torn_journals = @($torn[0..([Math]::Min(20, $torn.Count) - 1)])
+            Finish "REFUSED_WRITER_ALIVE_TORN" 3 ($Reason + "; a segment older than this boot has a torn tail and a writer holds the store")
+        }
+    }
+    catch { $script:result.torn_tail_scan = "unknown: " + $_.Exception.Message }
+    Finish "REFUSED_WRITER_ALIVE" 2 $Reason
+}
+
 function Get-IntentProblem($Intent, [string]$Segment, [string]$Destination) {
     # "" when the intent is well-formed and belongs to exactly this root/segment/destination.
     if ([string]$Intent.root -ine $Root) { return "intent root differs from this run" }
@@ -314,7 +375,7 @@ try {
         return $true   # implicit root: cannot prove it is a different store
     })
     if ($writers.Count -gt 0) {
-        Finish "REFUSED_WRITER_ALIVE" 2 ("recorder process running: pid " + (($writers | ForEach-Object { $_.ProcessId }) -join ","))
+        Finish-WriterAlive ("recorder process running: pid " + (($writers | ForEach-Object { $_.ProcessId }) -join ","))
     }
 
     # ---- writer lock (authoritative) ----
@@ -327,7 +388,7 @@ try {
     }
     catch {
         Release-Lock
-        Finish "REFUSED_WRITER_ALIVE" 2 ("writer lock is held: " + $_.Exception.Message)
+        Finish-WriterAlive ("writer lock is held: " + $_.Exception.Message)
     }
 
     # ---- store layout: reparse guard and unsealed segments (EvidenceStore._recover's rule) ----

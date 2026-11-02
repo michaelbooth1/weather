@@ -326,18 +326,29 @@ exit ([int]$env:FAKE_STAGE1_CODE)
 @pytest.mark.parametrize(("code", "output", "expected"), [
     (0, '{"status":"NOOP_NO_TORN_TAIL"}', 0),
     (0, '{"status":"QUARANTINED"}', 0),
-    (2, '{"status":"REFUSED_WRITER_ALIVE","reasons":["writer lock is held"]}', 0),
+    # alive + clean (scan complete, no torn tail) is the only exit 2 that becomes 0
+    (2, '{"status":"REFUSED_WRITER_ALIVE","torn_tail_found":false,"reasons":["writer lock is held"]}', 0),
+    # alive + torn stays non-zero
+    (3, '{"status":"REFUSED_WRITER_ALIVE_TORN","torn_tail_found":true}', 3),
+    (2, '{"status":"REFUSED_WRITER_ALIVE","torn_tail_found":true}', 2),
+    # alive + unknown or unscanned stays non-zero
+    (2, '{"status":"REFUSED_WRITER_ALIVE","torn_tail_found":null,"torn_tail_scan":"unknown: x"}', 2),
+    (2, '{"status":"REFUSED_WRITER_ALIVE","reasons":["writer lock is held"]}', 2),
+    (2, '{"status":"REFUSED_WRITER_ALIVE","torn_tail_found":"false"}', 2),
+    (2, '{"status":"REFUSED_WRITER_ALIVE","torn_tail_found":0}', 2),
+    (0, '{"status":"REFUSED_WRITER_ALIVE","torn_tail_found":false}', 0),
     (2, '{"status":"REFUSED_CAP"}', 2),
     (2, '{"status":"REFUSED_MULTIPLE_UNSEALED","reasons":["REFUSED_WRITER_ALIVE"]}', 2),
     (2, 'not json REFUSED_WRITER_ALIVE', 2),
     (4, '{"status":"FAILED_HASH_READ"}', 4),
     (5, '{"status":"TORN_SIGNATURE_UNRESOLVED"}', 5),
     (6, '{"status":"INTERNAL_ERROR"}', 6),
-    (2, 'WARNING: stray host line\n{"status":"REFUSED_WRITER_ALIVE"}', 0),
+    (2, 'WARNING: stray host line\n{"status":"REFUSED_WRITER_ALIVE","torn_tail_found":false}', 0),
+    (2, 'WARNING: stray host line\n{"status":"REFUSED_WRITER_ALIVE"}', 2),
     (2, 'WARNING: stray host line\n{"status":"REFUSED_CAP"}', 2),
     (2, '{"status":\n"REFUSED_WRITER_ALIVE"', 2),
 ])
-def test_boot_wrapper_maps_only_a_live_recorder_to_zero(tmp_path, code, output, expected):
+def test_boot_wrapper_maps_only_a_proven_clean_live_recorder_to_zero(tmp_path, code, output, expected):
     ops = tmp_path / "prod repo & co" / "scripts" / "ops"
     ops.mkdir(parents=True)
     shutil.copyfile(BOOT, ops / BOOT.name)
@@ -353,9 +364,14 @@ def test_boot_wrapper_maps_only_a_live_recorder_to_zero(tmp_path, code, output, 
 
 
 def test_boot_wrapper_maps_the_status_stage1_actually_emits():
-    # The mapped status must stay the exit-2 writer-alive refusal of Stage 1 (process check and lock).
+    # Both Stage 1 writer-alive sites (process check and lock) go through the scan first; the clean
+    # refusal is exit 2 with torn_tail_found, the torn one exit 3.
     stage1 = STAGE1.read_text(encoding="utf-8")
-    assert stage1.count('Finish "REFUSED_WRITER_ALIVE" 2') == 2
+    assert stage1.count("Finish-WriterAlive (") == 2
+    assert stage1.count('Finish "REFUSED_WRITER_ALIVE" 2') == 1
+    assert stage1.count('Finish "REFUSED_WRITER_ALIVE_TORN" 3') == 1
+    assert "$script:result.torn_tail_found = ($torn.Count -gt 0)" in stage1
     boot = BOOT.read_text(encoding="utf-8")
-    assert "$exitCode -eq 2 -and $status -ceq 'REFUSED_WRITER_ALIVE'" in boot
+    assert "[string]$parsed.status -ceq 'REFUSED_WRITER_ALIVE'" in boot
+    assert "$parsed.torn_tail_found -is [bool] -and $parsed.torn_tail_found -eq $false" in boot
     assert "-File $stage1 -Apply" in boot and "Register-ScheduledTask" not in boot

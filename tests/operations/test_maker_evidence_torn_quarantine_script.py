@@ -325,6 +325,94 @@ def test_recorder_process_for_this_root_is_an_advisory_refusal(tmp_path):
     assert (code, payload["status"]) == (2, "REFUSED_PROCESS_CHECK_FAILED")
 
 
+# Writer alive: read-only scan of unsealed segments older than this boot (Stage 2 false-silence fix,
+# master 2026-11-02). The boot task may call a writer-alive refusal benign only with torn_tail_found false.
+BEFORE_BOOT = datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp()
+
+
+def age(folder, stamp=BEFORE_BOOT):
+    for path in folder.iterdir():
+        os.utime(path, (stamp, stamp))
+
+
+def alive(root):
+    return {"FAKE_PROCESS_CMDLINE": f'pythonw.exe -m weather.market.maker_evidence_capture --root "{root}"'}
+
+
+def stamps(base):
+    return {str(p.relative_to(base)): p.stat().st_mtime_ns for p in sorted(base.rglob("*"))}
+
+
+def test_writer_alive_over_a_pre_boot_torn_segment_is_refused_torn_without_any_write(tmp_path):
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL, "book-1.jsonl": journal()})
+    age(folder)
+    snapshot, times = tree(tmp_path / "maker_evidence"), stamps(tmp_path / "maker_evidence")
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"]) == (3, "REFUSED_WRITER_ALIVE_TORN")
+    assert payload["torn_tail_found"] is True and payload["torn_tail_scan"] == "complete"
+    assert payload["torn_journals"] == [str(folder / "reward-a.jsonl")]
+    assert payload["pre_boot_unsealed_segments"] == [str(folder)]
+    assert payload["candidates"] == []
+    assert tree(tmp_path / "maker_evidence") == snapshot and stamps(tmp_path / "maker_evidence") == times
+    assert not (tmp_path / "maker_evidence_quarantine").exists()
+    assert log_rows(tmp_path)[-1]["status"] == "REFUSED_WRITER_ALIVE_TORN"
+
+
+def test_held_writer_lock_over_a_pre_boot_torn_segment_is_refused_torn(tmp_path):
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_PARTIAL})
+    age(folder)
+    code = ("import sys;from weather.market.maker_evidence_store import WriterLock;"
+            "w=WriterLock(sys.argv[1]).__enter__();print('LOCKED',flush=True);sys.stdin.read()")
+    child = subprocess.Popen([sys.executable, "-c", code, str(root)], cwd=ROOT,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert child.stdout.readline().strip() == "LOCKED"
+        status, payload = run(tmp_path, root, "-Apply")
+        assert (status, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+        assert "writer lock is held" in payload["reasons"][0]
+    finally:
+        child.stdin.close()
+        child.wait(timeout=30)
+    assert (folder / "reward-a.jsonl").read_bytes() == TORN_PARTIAL
+
+
+def test_writer_alive_with_a_clean_pre_boot_segment_proves_no_torn_tail(tmp_path):
+    root, folder = make_store(tmp_path, {"book-1.jsonl": journal(), "reward-empty.jsonl": b""})
+    age(folder)
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"]) == (2, "REFUSED_WRITER_ALIVE")
+    assert payload["torn_tail_found"] is False and payload["torn_tail_scan"] == "complete"
+    assert payload["pre_boot_unsealed_segments"] == [str(folder)]
+
+
+def test_the_live_writers_own_segment_is_not_scanned(tmp_path):
+    # Written since this boot: a partial last line there is the live writer's, not a torn tail.
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_PARTIAL, "book-1.jsonl": journal()})
+    os.utime(folder / "book-1.jsonl", (BEFORE_BOOT, BEFORE_BOOT))
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", False)
+    assert payload["pre_boot_unsealed_segments"] in ([], None)
+
+
+def test_writer_alive_scan_that_cannot_read_a_journal_is_unknown(tmp_path):
+    import ctypes
+    from ctypes import wintypes
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
+    age(folder)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    handle = kernel32.CreateFileW(str(folder / "reward-a.jsonl"), 0x80000000, 0, None, 3, 0x80, None)
+    assert handle not in (None, wintypes.HANDLE(-1).value)
+    try:
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    finally:
+        kernel32.CloseHandle(handle)
+    assert (code, payload["status"]) == (2, "REFUSED_WRITER_ALIVE")
+    assert payload["torn_tail_found"] is None and payload["torn_tail_scan"].startswith("unknown: ")
+
+
 # 9 -----------------------------------------------------------------------------------------
 def test_the_store_cannot_take_the_writer_lock_while_the_script_holds_it(tmp_path):
     root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
@@ -678,7 +766,8 @@ $names = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Languag
     assert payload["errors"] == []
     helpers = {"Get-ShaChecked", "Release-Lock", "Write-Log", "Emit-And-Exit", "Test-TaskSignature", "Finish", "Get-Sha256",
                "Open-Shared", "Get-TailClass", "Test-ContainsNul", "Test-Reparse", "Test-ReparseChain",
-               "Get-VolumeIdentity", "Write-AtomicNew", "Read-JsonFile", "Test-JournalName", "Get-IntentProblem"}
+               "Get-VolumeIdentity", "Write-AtomicNew", "Read-JsonFile", "Test-JournalName", "Get-IntentProblem",
+               "Get-BootTimeUtc", "Finish-WriterAlive"}
     cmdlets = {"Split-Path", "Join-Path", "Get-FileHash", "Test-Path", "New-Item", "ConvertTo-Json", "Out-Null",
                "Get-CimInstance", "Where-Object", "ForEach-Object", "Get-Item", "Get-ChildItem", "Get-Content",
                "ConvertFrom-Json", "Get-ScheduledTaskInfo", "Get-Date", "New-Object", "Add-Type"}
