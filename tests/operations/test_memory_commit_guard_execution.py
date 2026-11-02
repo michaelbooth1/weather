@@ -90,6 +90,21 @@ function Move-Item {
     }
     Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination -Force:$Force -ErrorAction Stop
 }
+# fail_state_temp_write fails the guard-state temp-file write after a partial body
+# reaches the disk; every other Out-File is the real cmdlet.
+function Out-File {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline = $true)]$InputObject, [string]$LiteralPath, [string]$Encoding)
+    begin { $items = New-Object System.Collections.Generic.List[object] }
+    process { $items.Add($InputObject) }
+    end {
+        if ($global:FailStateTempWrite -and $LiteralPath -like '*memory_commit_guard_state.json.*.tmp') {
+            [IO.File]::WriteAllText($LiteralPath, '{"partial')
+            throw 'synthetic: the guard state temp file cannot be written'
+        }
+        $items | Microsoft.PowerShell.Utility\Out-File -LiteralPath $LiteralPath -Encoding $Encoding
+    }
+}
 function Get-ScheduledTask {
     param($TaskName, $ErrorAction)
     if ($global:FakeTaskState -and $TaskName -eq $global:FakeTaskName) {
@@ -184,7 +199,13 @@ $results = foreach ($scenario in $scenarios) {
         $trees = @(foreach ($ownerId in @($prior.owners)) {
             if ($null -eq $ownerId) { continue }
             $row = $global:FakeRows | Where-Object { [int]$_.ProcessId -eq [int]$ownerId } | Select-Object -First 1
-            [ordered]@{ pid = [int]$ownerId; creation_utc_ticks = $row.CreationDate.ToUniversalTime().Ticks }
+            $entry = [ordered]@{ pid = [int]$ownerId; creation_utc_ticks = $row.CreationDate.ToUniversalTime().Ticks }
+            # The tool root recorded at sighting (it may be gone now): pid and age on the fake clock.
+            if ($null -ne $prior.root) {
+                $entry['root_pid'] = [int]$prior.root.pid
+                $entry['root_creation_utc_ticks'] = $global:FakeNow.AddMinutes(-[double]$prior.root.age_minutes).ToUniversalTime().Ticks
+            }
+            $entry
         })
         $stateRecord = [ordered]@{
             schema_version = 'memory_commit_guard_state_v1'
@@ -197,6 +218,7 @@ $results = foreach ($scenario in $scenarios) {
         [IO.File]::WriteAllText((Join-Path $logsDir 'memory_commit_guard_state.json'), $stateBody)
     }
     $global:FailStateWrite = [bool]$scenario.fail_state_write
+    $global:FailStateTempWrite = [bool]$scenario.fail_state_temp_write
     # lock_state holds the state file open with no sharing for the whole run, so the
     # guard can neither read nor replace it.
     $stateLock = $null
@@ -222,6 +244,7 @@ $results = foreach ($scenario in $scenarios) {
     $scriptErrors = @($Error | ForEach-Object { [string]$_ })
     if ($null -ne $stateLock) { $stateLock.Dispose() }
     $global:FailStateWrite = $false
+    $global:FailStateTempWrite = $false
     $ErrorActionPreference = 'Stop'
     $logs = Join-Path $scenario.repo_root 'data\logs'
     $statusPath = Join-Path $logs 'memory_commit_guard_status.json'
@@ -237,6 +260,7 @@ $results = foreach ($scenario in $scenarios) {
         status = if (Test-Path -LiteralPath $statusPath) { Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json } else { $null }
         history = if (Test-Path -LiteralPath $historyPath) { [string](Get-Content -LiteralPath $historyPath -Raw) } else { '' }
         log = if (Test-Path -LiteralPath $logPath) { [string](Get-Content -LiteralPath $logPath -Raw) } else { '' }
+        tmp_files = @(Get-ChildItem -LiteralPath $logs -Filter '*.tmp' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
         state = if (Test-Path -LiteralPath (Join-Path $logs 'memory_commit_guard_state.json')) { Get-Content -LiteralPath (Join-Path $logs 'memory_commit_guard_state.json') -Raw | ConvertFrom-Json } else { $null }
     }
 }
@@ -316,6 +340,7 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
         "expected_host_id": extra.pop("expected_host_id", None),
         "prior_state": extra.pop("prior_state", None),
         "fail_state_write": extra.pop("fail_state_write", False),
+        "fail_state_temp_write": extra.pop("fail_state_temp_write", False),
         "lock_state": extra.pop("lock_state", False),
         # A repo lock defaults to the workstation_offline profile (no time window) taken on
         # this host, as workstation_heavy.ps1 writes it; scenarios name agent_heavy or
@@ -325,6 +350,11 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
             for lease in extra.pop("leases", [])
         ],
     }
+
+
+GUARD_STATE_ERROR = re.compile(
+    r"\[ERROR\] guard state \S*memory_commit_guard_state\.json (could not be written|is unreadable|is invalid) "
+)
 
 
 def _run(tmp_path: Path, scenarios: list[dict]) -> dict[str, dict]:
@@ -342,17 +372,23 @@ def _run(tmp_path: Path, scenarios: list[dict]) -> dict[str, dict]:
     rows = json.loads(result.stdout)
     by_name = {row["name"]: row for row in rows}
     assert set(by_name) == {s["name"] for s in scenarios}
-    expects_error_log = {
+    breaks_state = {
         s["name"]
         for s in scenarios
-        if s.get("fail_state_write") or s.get("lock_state") or (s.get("prior_state") or {}).get("raw")
+        if s.get("fail_state_write")
+        or s.get("fail_state_temp_write")
+        or s.get("lock_state")
+        or (s.get("prior_state") or {}).get("raw")
     }
     for row in rows:
-        # No swallowed PowerShell error and no internal failure logged by the guard itself
-        # (a scenario that breaks the guard state on purpose expects its ERROR line).
+        # No swallowed PowerShell error and no internal failure logged by the guard itself.
+        # A scenario that breaks the guard state on purpose may log only the guard-state
+        # ERROR line; any other ERROR line still fails it.
         assert row["errors"] == [], (row["name"], row["errors"])
-        if row["name"] not in expects_error_log:
-            assert "[ERROR]" not in row["log"], (row["name"], row["log"])
+        for line in row["log"].splitlines():
+            if "[ERROR]" not in line:
+                continue
+            assert row["name"] in breaks_state and GUARD_STATE_ERROR.search(line), (row["name"], line)
     return by_name
 
 
@@ -1879,7 +1915,8 @@ def test_exec_heavy_shell_above_the_owner_is_not_admitted_and_its_orphan_stays_g
     day = "2026-11-01T14:00:00"
     workstation = [_lock(owner, age=40)]
     agent_heavy = [dict(_lock(owner, age=40), window="agent_heavy")]
-    remembered = {"owners": [owner], "unreadable_streak": 0, "age_seconds": 60}
+    # Sighted at tick 1 under tool root cmd.exe (base+3), which is gone afterwards.
+    remembered = {"owners": [owner], "unreadable_streak": 0, "age_seconds": 60, "root": {"pid": base + 3, "age_minutes": 42}}
     big_chunk = [dict(orphan[0]), dict(orphan[1], private_bytes=9 * GIB)]
     outcome = _run(
         tmp_path,
@@ -1899,6 +1936,7 @@ def test_exec_heavy_shell_above_the_owner_is_not_admitted_and_its_orphan_stays_g
     assert tick1_row["stopped"] == [base + 5]
     assert tick1_row["status"]["actions"] == [f"killed_agent_ancestor_pid_{base + 5}"]
     assert [tree["pid"] for tree in tick1_row["state"]["lease_owner_trees"]] == [owner]
+    assert tick1_row["state"]["lease_owner_trees"][0]["root_pid"] == base + 3
 
     # M1: the orphaned owner becomes its own tool root; its lease still admits...
     admitted = outcome["orphan_admitted"]
@@ -2031,6 +2069,7 @@ def test_exec_unreadable_lease_records_stop_sparing_after_two_runs(tmp_path: Pat
 def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
     """Delta (a): a state file that cannot be written or read never makes the guard kill more."""
     unleased = _claude_bash(7_964_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    killed = {7_964_003, 7_964_005, 7_964_007}
     torn = [
         {
             "kind": "repo_lock",
@@ -2045,6 +2084,9 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
     def prior(streak: int, age: float = 60, **extra) -> dict:
         return {"owners": [], "unreadable_streak": streak, "age_seconds": age, **extra}
 
+    def torn_run(name: str, state: dict, **extra) -> dict:
+        return _scenario(tmp_path, name, now=day, commit=50.0, processes=unleased, leases=torn, prior_state=state, **extra)
+
     # An orphaned owner tree (as in the m4/M1 test) whose lease is past its window.
     base = 7_964_100
     owner, chunk = base + 7, base + 9
@@ -2057,66 +2099,75 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
     outcome = _run(
         tmp_path,
         [
-            # Control: the third unreadable run in a row with a good memory kills.
-            _scenario(tmp_path, "control", now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior(2)),
-            _scenario(
-                tmp_path, "write_fails", now=day, commit=50.0, processes=unleased, leases=torn,
-                prior_state=prior(1), fail_state_write=True,
-            ),
-            # The run after a failed write finds the record from two runs ago.
-            _scenario(tmp_path, "after_failed_write", now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior(2, 120)),
-            _scenario(
-                tmp_path, "read_locked", now=day, commit=50.0, processes=unleased, leases=torn,
-                prior_state=prior(2), lock_state=True,
-            ),
-            _scenario(
-                tmp_path, "read_invalid", now=day, commit=50.0, processes=unleased, leases=torn,
-                prior_state=prior(2, raw="{not json"),
-            ),
+            # Control: the third unreadable run in a row with a fresh memory kills.
+            torn_run("control", prior(2)),
+            torn_run("write_fails", prior(1), fail_state_write=True),
+            torn_run("temp_write_fails", prior(1), fail_state_temp_write=True),
+            # A healthy run over 60 s skips the next trigger (IgnoreNew): the record is
+            # ~120 s old, and the count must still reach the cap one minute later.
+            torn_run("skipped_trigger", prior(2, 120)),
+            torn_run("age_90", prior(2, 90)),
+            torn_run("age_91", prior(2, 91)),
+            torn_run("age_300", prior(2, 300)),
+            torn_run("age_301", prior(2, 301)),
+            torn_run("future_30", prior(2, -30)),
+            torn_run("future_61", prior(2, -61)),
+            torn_run("read_locked", prior(2), lock_state=True),
+            torn_run("read_invalid", prior(2, raw="{not json")),
             # The remembered orphan set: kept from a record left by a failed write...
             _scenario(
                 tmp_path, "orphan_after_failed_write", now=day, commit=50.0, processes=orphan, leases=late,
-                prior_state={"owners": [owner], "unreadable_streak": 0, "age_seconds": 120},
+                prior_state={"owners": [owner], "unreadable_streak": 0, "age_seconds": 120, "root": {"pid": base + 3, "age_minutes": 42}},
             ),
             # ...and lost on an unreadable record, which only spares.
             _scenario(
                 tmp_path, "orphan_read_locked", now=day, commit=50.0, processes=orphan, leases=late,
-                prior_state={"owners": [owner], "unreadable_streak": 0, "age_seconds": 60}, lock_state=True,
+                prior_state={"owners": [owner], "unreadable_streak": 0, "age_seconds": 60, "root": {"pid": base + 3, "age_minutes": 42}},
+                lock_state=True,
             ),
         ],
     )
 
-    control = outcome["control"]
-    assert set(control["stopped"]) == {7_964_003, 7_964_005, 7_964_007}
-    assert control["status"]["guard_state_read"] == "ok"
+    def check(name: str, *, streak: int, read: str, stopped: set[int] | None = None) -> dict:
+        row = outcome[name]
+        assert set(row["stopped"]) == (stopped or set()), name
+        assert row["errors"] == [], name
+        assert row["status"]["agent_heavy_lease_unreadable_streak"] == streak, name
+        assert row["status"]["guard_state_read"] == read, name
+        assert row["tmp_files"] == [], name
+        return row
+
+    control = check("control", streak=3, read="ok", stopped=killed)
     assert control["status"]["guard_state_degraded"] is False
     assert control["status"]["guard_state_written"] is True
 
-    # Write failure: logged as ERROR, status degraded, the previous record left as it was.
-    failed = outcome["write_fails"]
-    assert failed["stopped"] == []
-    assert failed["errors"] == []
-    assert failed["status"]["agent_heavy_lease_unreadable_streak"] == 2
-    assert failed["status"]["guard_state_degraded"] is True
-    assert failed["status"]["guard_state_written"] is False
-    assert "[ERROR]" in failed["log"] and "could not be written" in failed["log"]
-    assert failed["state"]["lease_records_unreadable_streak"] == 1
-    # The next run does not carry that record's streak (it may be short of the truth
-    # or past it), so the count restarts and the work is spared.
-    after = outcome["after_failed_write"]
-    assert after["stopped"] == []
-    assert after["status"]["agent_heavy_lease_unreadable_streak"] == 1
-    assert after["status"]["guard_state_read"] == "ok"
-    assert after["status"]["guard_state_degraded"] is False
+    # Write failures, at the rename or at the temp-file write: ERROR, degraded, the
+    # previous record left as it was, no temp file left behind, nothing stopped.
+    for name in ("write_fails", "temp_write_fails"):
+        row = check(name, streak=2, read="ok")
+        assert row["status"]["guard_state_degraded"] is True, name
+        assert row["status"]["guard_state_written"] is False, name
+        assert "[ERROR]" in row["log"] and "could not be written" in row["log"], name
+        assert row["state"]["lease_records_unreadable_streak"] == 1, name
+    assert "temp file cannot be written" in outcome["temp_write_fails"]["log"]
+
+    # Record age: the full streak up to 90 s, at most 1 up to 300 s, none beyond or
+    # from the future. A skipped trigger still leaves the cap one run away.
+    skipped = check("skipped_trigger", streak=2, read="ok")
+    assert skipped["state"]["lease_records_unreadable_streak"] == 2
+    check("age_90", streak=3, read="ok", stopped=killed)
+    check("age_91", streak=2, read="ok")
+    check("age_300", streak=2, read="ok")
+    check("age_301", streak=1, read="stale")
+    check("future_30", streak=1, read="ok")
+    check("future_61", streak=1, read="stale")
+    for name in ("skipped_trigger", "age_90", "age_91", "age_300", "age_301", "future_30", "future_61"):
+        assert outcome[name]["status"]["guard_state_degraded"] is False, name
 
     # Read failures: empty memory, degraded, ERROR, nothing stopped.
     for name, read in (("read_locked", "unreadable"), ("read_invalid", "invalid")):
-        row = outcome[name]
-        assert row["stopped"] == [], name
-        assert row["errors"] == [], name
-        assert row["status"]["guard_state_read"] == read, name
+        row = check(name, streak=1, read=read)
         assert row["status"]["guard_state_degraded"] is True, name
-        assert row["status"]["agent_heavy_lease_unreadable_streak"] == 1, name
         assert "[ERROR]" in row["log"] and f"is {read}" in row["log"], name
     # An unreadable record is left for the next run; a damaged one is replaced.
     assert outcome["read_locked"]["status"]["guard_state_written"] is False
@@ -2133,3 +2184,153 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
     lost = outcome["orphan_read_locked"]
     assert lost["status"]["agent_heavy_orphaned_lease_tree_count"] == 0
     assert lost["stopped"] == []
+
+
+# ---- Capture-safety review: real capture-host process shapes ----
+PYW_VENV = r"C:\weather\venv\Scripts\pythonw.exe"
+PYW_BASE = r"C:\Users\svc\AppData\Local\Programs\Python\Python311\pythonw.exe"
+CAPTURE_MODULES = (
+    "weather.collection.snapshot_loop",
+    "weather.collection.forecast_tracker run",
+    "weather.collection.snapshot_tracker run",
+    "weather.collection.triggered_snapshot_queue run",
+    "weather.collection.live_variant_predictions run",
+    "weather.collection.collection_health watch",
+)
+
+
+def _capture_pairs(base: int, *, dead_parent_pids: list[int], live_parent: int) -> list[dict]:
+    """6 capture pairs (venv launcher -> base interpreter), 12 pythonw processes.
+
+    The first four launchers name parents that no longer exist (4 dead parents); the
+    other two run under a live supervisor. All are hours older than any agent. The
+    third pair's worker holds 9 GiB.
+    """
+    rows = []
+    for index, module in enumerate(CAPTURE_MODULES):
+        launcher, worker = base + 10 * index + 1, base + 10 * index + 2
+        parent = dead_parent_pids[index] if index < 4 else live_parent
+        cmd_venv = f"{PYW_VENV} -m {module}"
+        cmd_base = f"{PYW_BASE} -m {module}"
+        rows.append(_proc(launcher, "pythonw.exe", cmd_venv, age=900 - index, private=30 * MIB, ppid=parent, exe=PYW_VENV))
+        rows.append(
+            _proc(
+                worker, "pythonw.exe", cmd_base, age=899 - index,
+                private=9 * GIB if index == 2 else 600 * MIB, ppid=launcher, exe=PYW_BASE,
+            )
+        )
+    return rows
+
+
+def test_exec_capture_shapes_are_never_stopped(tmp_path: Path) -> None:
+    """T1: 12 capture pythons (4 dead parents, one 9 GiB worker) beside a younger claude.exe
+    whose pid is a capture launcher's dead parent pid, across clocks and commit levels."""
+    base = 7_970_000
+    supervisor = _proc(base + 900, "powershell.exe", r"powershell.exe -NoProfile -File C:\weather\scripts\ops\capture_supervisor.ps1", age=1000)
+    agent = 7_970_500
+    claude_pid = agent + 1
+    # One dead parent pid is reused by the (younger) claude.exe.
+    capture = _capture_pairs(base, dead_parent_pids=[claude_pid, GONE, 7_999_998, 7_999_997], live_parent=base + 900)
+    capture_pids = {row["pid"] for row in capture} | {base + 900}
+    heavy_agent = _claude_bash(agent, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q tests", age=30)
+    heavy_agent[-1]["private_bytes"] = 9 * GIB
+    idle_agent = _claude_bash(agent, "ls", "ls.exe", r"C:\Program Files\Git\usr\bin\ls.exe", age=30)
+    agent_pids = {row["pid"] for row in heavy_agent}
+    clocks = {"night": "2026-11-01T02:00:00", "stage": "2026-11-01T10:00:00", "day": "2026-11-01T14:00:00"}
+    scenarios = []
+    for clock, now in clocks.items():
+        for commit in (50.0, 93.0, 98.0):
+            tag = f"{clock}_{int(commit)}"
+            scenarios.append(
+                _scenario(tmp_path, f"agent_{tag}", now=now, commit=commit, processes=[supervisor, *capture, *heavy_agent])
+            )
+            scenarios.append(
+                _scenario(tmp_path, f"idle_{tag}", now=now, commit=commit, processes=[supervisor, *capture, *idle_agent])
+            )
+    outcome = _run(tmp_path, scenarios)
+
+    for name, row in outcome.items():
+        assert not (set(row["stopped"]) & capture_pids), (name, row["stopped"])
+        assert set(row["stopped"]) <= agent_pids, (name, row["stopped"])
+        assert row["status"]["agent_heavy_orphaned_lease_tree_count"] == 0, name
+    # The unleased 9 GiB agent tree is what the emergency takes.
+    for clock in clocks:
+        for commit in (93, 98):
+            assert outcome[f"agent_{clock}_{commit}"]["stopped"], (clock, commit)
+    # With no agent tree of 8 GiB or more, nothing is eligible: the capture worker's
+    # 9 GiB never makes it a target.
+    for clock in clocks:
+        assert outcome[f"idle_{clock}_50"]["stopped"] == []
+        for commit in (93, 98):
+            row = outcome[f"idle_{clock}_{commit}"]
+            assert row["stopped"] == [], (clock, commit)
+            assert "no_eligible_target" in row["status"]["actions"], (clock, commit)
+
+
+def test_exec_dead_parent_lease_owner_older_than_claude_is_left_alone(tmp_path: Path) -> None:
+    """T2: a detached powershell lease owner (dead parent, older than claude.exe) with a
+    9 GiB governed replay child and pytest children, and no saved state: never touched."""
+    base = 7_971_000
+    owner = base + 5
+    claude_pid = base + 101
+    job = [
+        # Its parent pid is now claude.exe's, which is younger: the chain is closed.
+        _proc(owner, "powershell.exe", r"powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\weather\scripts\ops\run_replay.ps1", age=300, ppid=claude_pid),
+        _proc(base + 7, "python.exe", f"{VENV_PY} -m weather.calibration.pooled_candidate_replay --all", age=299, private=9 * GIB, ppid=owner),
+        _proc(base + 9, "python.exe", f"{VENV_PY} -m pytest -q tests/calibration", age=200, private=700 * MIB, ppid=owner),
+        _proc(base + 11, "python.exe", f"{VENV_PY} -m pytest -q tests/model", age=100, private=700 * MIB, ppid=owner),
+    ]
+    agent = [
+        _proc(claude_pid, "claude.exe", CLAUDE, age=30),
+        _proc(base + 103, "bash.exe", GIT_BASH.format(command="ls"), age=5, ppid=claude_pid),
+    ]
+    lease = [dict(_lock(owner, age=300), window="agent_heavy")]
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "night", now="2026-11-01T02:00:00", commit=50.0, processes=job + agent, leases=lease),
+            _scenario(tmp_path, "day", now="2026-11-01T14:00:00", commit=50.0, processes=job + agent, leases=lease),
+        ],
+    )
+    for name, row in outcome.items():
+        assert row["stopped"] == [], (name, row["stopped"])
+        assert row["status"]["actions"] == [], name
+        assert row["status"]["agent_heavy_orphaned_lease_tree_count"] == 0, name
+
+
+def test_exec_orphan_climb_never_adopts_a_service_host_chain(tmp_path: Path) -> None:
+    """T3: a saved state naming a live lease owner under the Task Scheduler service
+    (wininit -> services -> svchost) is never adopted, whatever root it records."""
+    base = 7_972_000
+    owner = base + 7
+    system = [
+        _proc(base + 1, "wininit.exe", r"wininit.exe", age=5000),
+        _proc(base + 3, "services.exe", r"C:\WINDOWS\system32\services.exe", age=4999, ppid=base + 1),
+        _proc(base + 5, "svchost.exe", r"C:\WINDOWS\system32\svchost.exe -k netsvcs -p -s Schedule", age=4998, ppid=base + 3),
+        _proc(owner, "powershell.exe", r"powershell.exe -NoProfile -File C:\weather\scripts\ops\training_window.ps1", age=40, ppid=base + 5),
+        # 7 GiB: below the per-process emergency floor, so only an adopted tree could reach it.
+        _proc(base + 9, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=39, private=7 * GIB, ppid=owner),
+        # An unrelated branch: an ssh session hosted by services.exe.
+        _proc(base + 11, "sshd.exe", r"C:\WINDOWS\System32\OpenSSH\sshd.exe", age=4990, ppid=base + 3),
+        _proc(base + 13, "sshd.exe", r"C:\WINDOWS\System32\OpenSSH\sshd.exe -z", age=50, ppid=base + 11),
+        _proc(base + 15, "bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe -l", age=49, private=2 * GIB, ppid=base + 13),
+    ]
+    lease = [dict(_lock(owner, age=40), window="agent_heavy")]
+    day = "2026-11-01T14:00:00"
+    forged_root = {"owners": [owner], "unreadable_streak": 0, "age_seconds": 60, "root": {"pid": base + 1, "age_minutes": 5000}}
+    young_root = {"owners": [owner], "unreadable_streak": 0, "age_seconds": 60, "root": {"pid": 7_972_900, "age_minutes": 45}}
+    no_root = {"owners": [owner], "unreadable_streak": 0, "age_seconds": 60}
+    scenarios = []
+    for label, state in (("forged_root", forged_root), ("young_root", young_root), ("no_root", no_root)):
+        for commit in (50.0, 98.0):
+            scenarios.append(
+                _scenario(tmp_path, f"{label}_{int(commit)}", now=day, commit=commit, processes=system, leases=lease, prior_state=state)
+            )
+    outcome = _run(tmp_path, scenarios)
+    for name, row in outcome.items():
+        assert row["stopped"] == [], (name, row["stopped"])
+        assert row["status"]["agent_heavy_orphaned_lease_tree_count"] == 0, name
+        assert "is not adopted because" in row["log"], name
+    assert "reaches svchost.exe" in outcome["forged_root_50"]["log"]
+    assert "reaches svchost.exe" in outcome["young_root_50"]["log"]
+    assert "no tool root was recorded" in outcome["no_root_50"]["log"]

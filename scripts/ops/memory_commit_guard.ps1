@@ -950,19 +950,50 @@ function Get-AgentToolRoot($ProcessRow, $ProcessByPid) {
     return $null
 }
 
-function Get-VerifiedTopAncestor($ProcessRow, $ProcessByPid) {
-    # The highest process reachable from the row through parents that exist and are
-    # older than their child (PID reuse closes the chain).
-    $current = $ProcessRow
+# Service-host images an orphan climb must never reach (capture-safety review):
+# matched exactly, case-insensitively, against Win32_Process.Name, the image file
+# name Windows reports for the process (not its command line, which a process can
+# set to anything).
+$orphanClimbBlockedImages = @('services.exe', 'wininit.exe', 'svchost.exe')
+
+function Get-OrphanLeaseTreeTop($OwnerRow, $ProcessByPid, $Remembered) {
+    # The top of an orphaned lease owner's verified ancestry, bounded by the tool
+    # root recorded when the owner was last seen inside an agent tree. Returns
+    # @{ Row; Why }: Row is $null when adoption is refused.
+    # The climb follows parents that exist and are older than their child (PID reuse
+    # closes the chain) and stops at the recorded tool root (PID and creation
+    # instant). It is refused when no tool root was recorded (a record from before
+    # this field: refusing only spares), when it reaches a service-host image, or
+    # when it leaves the recorded root's subtree: a process created before the root
+    # cannot descend from it.
+    if ($null -eq $Remembered -or [uint32]$Remembered.RootPid -eq 0 -or [long]$Remembered.RootTicks -le 0) {
+        return [pscustomobject]@{ Row = $null; Why = 'no tool root was recorded with it' }
+    }
+    $current = $OwnerRow
     for ($depth = 0; $depth -lt 64; $depth++) {
+        $name = ([string]$current.Name).ToLowerInvariant()
+        if ($orphanClimbBlockedImages -contains $name) {
+            return [pscustomobject]@{ Row = $null; Why = ("its ancestry reaches {0} pid {1}" -f $name, $current.ProcessId) }
+        }
+        $ticks = ([datetime]$current.CreationDate).ToUniversalTime().Ticks
+        if ([uint32]$current.ProcessId -eq [uint32]$Remembered.RootPid -and $ticks -eq [long]$Remembered.RootTicks) {
+            return [pscustomobject]@{ Row = $current; Why = 'the recorded tool root' }
+        }
+        if ($ticks -lt [long]$Remembered.RootTicks) {
+            return [pscustomobject]@{ Row = $null; Why = ("its ancestry leaves the recorded tool root pid {0}'s subtree at pid {1}" -f $Remembered.RootPid, $current.ProcessId) }
+        }
         $parentId = [uint32]$current.ParentProcessId
-        if (-not $ProcessByPid.ContainsKey($parentId)) { return $current }
+        if (-not $ProcessByPid.ContainsKey($parentId)) { return [pscustomobject]@{ Row = $current; Why = 'the parent is gone' } }
         $parent = $ProcessByPid[$parentId]
-        if (([datetime]$parent.CreationDate).ToUniversalTime() -gt ([datetime]$current.CreationDate).ToUniversalTime()) { return $current }
-        if ($agentRootNames -contains ([string]$parent.Name).ToLowerInvariant()) { return $current }
+        if (([datetime]$parent.CreationDate).ToUniversalTime() -gt ([datetime]$current.CreationDate).ToUniversalTime()) {
+            return [pscustomobject]@{ Row = $current; Why = 'the parent pid was reused' }
+        }
+        if ($agentRootNames -contains ([string]$parent.Name).ToLowerInvariant()) {
+            return [pscustomobject]@{ Row = $current; Why = 'below an agent root' }
+        }
         $current = $parent
     }
-    return $current
+    return [pscustomobject]@{ Row = $null; Why = 'its ancestry is deeper than 64 processes' }
 }
 
 function Read-GuardState([string]$Path, [datetime]$NowUtc) {
@@ -975,12 +1006,20 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
     # orphaned tree (no agent rule reaches it), so no read outcome can make the
     # guard kill something it would otherwise have spared.
     #   absent     no file (first run): empty, not degraded.
-    #   stale      older than five minutes (or dated in the future): empty.
-    #   ok         the remembered owners are kept; the streak carries over only
-    #              when the record is at most 90 seconds old, i.e. it was written by
-    #              the run one minute ago. An older record means at least one run in
-    #              between failed to write its own state, so its streak may be
-    #              higher than the truth and restarts at 0 instead.
+    #   stale      more than 300 s old, or more than 60 s in the future: empty.
+    #   ok         the remembered owners are kept (they match by PID and creation
+    #              instant, so an older or slightly future-dated record still names
+    #              exactly the process it saw). The streak carried over depends on
+    #              the record's age:
+    #                0-90 s     the full streak (written by the previous run);
+    #                90-300 s   at most 1: the previous trigger was skipped (the
+    #                           task uses IgnoreNew, so a run over 60 s skips the
+    #                           next one) or a run in between failed to write. The
+    #                           record's streak may then be short of the truth or
+    #                           past it; 1 keeps the two-run cap reachable on the
+    #                           next minute without letting a stale count kill;
+    #                under 0 s  none: a record from the future (a backward clock
+    #                           step after failed writes) cannot be ordered.
     #   unreadable the file exists but cannot be read (sharing violation, access
     #              denied): empty and degraded, and this run does not overwrite the
     #              file, so the last good record survives for the next run.
@@ -1005,7 +1044,10 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
             [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
         $age = ($NowUtc - $updated).TotalSeconds
         $trees = @(@($state.lease_owner_trees) | Where-Object { $null -ne $_ } | ForEach-Object {
-            [pscustomobject]@{ Pid = [uint32]$_.pid; CreationTicks = [long]$_.creation_utc_ticks }
+            # root_* (the tool root at sighting) is absent from records written before
+            # the capture-safety review: 0, which refuses adoption (Get-OrphanLeaseTreeTop).
+            [pscustomobject]@{ Pid = [uint32]$_.pid; CreationTicks = [long]$_.creation_utc_ticks
+                RootPid = [uint32]$_.root_pid; RootTicks = [long]$_.root_creation_utc_ticks }
         })
         $streak = [int]$state.lease_records_unreadable_streak
     }
@@ -1021,7 +1063,10 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
     }
     $result.Status = 'ok'
     $result.LeaseOwnerTrees = $trees
-    if ($age -le 90.0) { $result.UnreadableStreak = [math]::Max(0, $streak) }
+    $streak = [math]::Max(0, $streak)
+    if ($age -lt 0.0) { $result.UnreadableStreak = 0 }
+    elseif ($age -le 90.0) { $result.UnreadableStreak = $streak }
+    else { $result.UnreadableStreak = [math]::Min($streak, 1) }
     return $result
 }
 
@@ -1281,10 +1326,12 @@ if ($guardState.Status -in @('unreadable', 'invalid')) {
     Write-GuardLog "ERROR" ("guard state {0} is {1} ({2}); this run remembers nothing, which only spares: the unreadable-lease count restarts and no orphaned lease tree is attributed{3}" -f `
         $guardStatePath, $guardState.Status, $guardState.Error, $(if ($guardState.Status -eq 'unreadable') { '; the file is left in place for the next run' } else { '' }))
 }
+$rememberedOwnerEntries = @{}
 $rememberedOwnerRows = @(foreach ($remembered in @($guardState.LeaseOwnerTrees)) {
     if (-not $processByPid.ContainsKey([uint32]$remembered.Pid)) { continue }
     $row = $processByPid[[uint32]$remembered.Pid]
     if (([datetime]$row.CreationDate).ToUniversalTime().Ticks -ne [long]$remembered.CreationTicks) { continue }
+    $rememberedOwnerEntries[[uint32]$remembered.Pid] = $remembered
     $row
 })
 
@@ -1347,11 +1394,17 @@ if ($heavyToolRoots.Count -gt 0 -or $commitPercent -ge $ActPercent -or $remember
 }
 # Orphaned lease trees (review M1): a remembered owner that is still a live lease
 # owner but no longer sits below an agent root (a hog that launched it was stopped
-# alone) makes the top of its verified ancestry a tool root of its own.
+# alone) makes the top of its verified ancestry, bounded by the tool root recorded
+# with it, a tool root of its own (Get-OrphanLeaseTreeTop).
 foreach ($ownerRow in $rememberedOwnerRows) {
     if (-not (Test-AgentLeaseOwnerRow $ownerRow $leaseOwners)) { continue }
     if ($null -ne (Get-AgentToolRoot $ownerRow $processByPid)) { continue }
-    $orphanTop = Get-VerifiedTopAncestor $ownerRow $processByPid
+    $climb = Get-OrphanLeaseTreeTop $ownerRow $processByPid $rememberedOwnerEntries[[uint32]$ownerRow.ProcessId]
+    if ($null -eq $climb.Row) {
+        Write-GuardLog "WARNING" ("heavy-workload lease owner pid {0} lost its agent root; its tree is not adopted because {1}, so no agent rule applies to it" -f $ownerRow.ProcessId, $climb.Why)
+        continue
+    }
+    $orphanTop = $climb.Row
     $orphanLeaseRoots[[uint32]$orphanTop.ProcessId] = $orphanTop
     Write-GuardLog "INFO" ("heavy-workload lease owner pid {0} lost its agent root; tree root pid {1} stays under the agent rules" -f $ownerRow.ProcessId, $orphanTop.ProcessId)
 }
@@ -1834,19 +1887,33 @@ if ($status.physical_warning -or $status.memory_warning -or $guardActions.Count 
 # Remember the lease owners seen inside an agent tree this run (and keep the ones
 # already remembered while the records could not be read or were not read), so a
 # tree orphaned by a single-process stop stays attributed on later runs.
+# Each owner is stored with the tool root it sits under now (an orphaned tree's
+# adopted root once adopted), which bounds any later orphan climb.
 $rememberRows = New-Object System.Collections.Generic.List[object]
 foreach ($ownerRow in $liveLeaseOwnerRows) {
-    if ($null -ne (Get-AgentToolRoot $ownerRow $processByPid)) { $rememberRows.Add($ownerRow) }
+    $sightedRoot = Get-AgentToolRoot $ownerRow $processByPid
+    if ($null -eq $sightedRoot) { continue }
+    $rememberRows.Add([pscustomobject]@{ Row = $ownerRow; RootPid = [uint32]$sightedRoot.ProcessId
+        RootTicks = ([datetime]$sightedRoot.CreationDate).ToUniversalTime().Ticks })
 }
 if (-not $leasesRead -or $unreadableStreak -gt 0) {
-    foreach ($ownerRow in $rememberedOwnerRows) { $rememberRows.Add($ownerRow) }
+    foreach ($ownerRow in $rememberedOwnerRows) {
+        $entry = $rememberedOwnerEntries[[uint32]$ownerRow.ProcessId]
+        $rememberRows.Add([pscustomobject]@{ Row = $ownerRow; RootPid = [uint32]$entry.RootPid; RootTicks = [long]$entry.RootTicks })
+    }
 }
 $rememberedIds = @{}
 $rememberedTrees = New-Object System.Collections.Generic.List[object]
-foreach ($ownerRow in $rememberRows) {
+foreach ($remember in $rememberRows) {
+    $ownerRow = $remember.Row
     if ($rememberedIds.ContainsKey([uint32]$ownerRow.ProcessId) -or $rememberedTrees.Count -ge 64) { continue }
     $rememberedIds[[uint32]$ownerRow.ProcessId] = $true
-    $rememberedTrees.Add([ordered]@{ pid = [uint32]$ownerRow.ProcessId; creation_utc_ticks = ([datetime]$ownerRow.CreationDate).ToUniversalTime().Ticks })
+    $rememberedTrees.Add([ordered]@{
+        pid = [uint32]$ownerRow.ProcessId
+        creation_utc_ticks = ([datetime]$ownerRow.CreationDate).ToUniversalTime().Ticks
+        root_pid = [uint32]$remember.RootPid
+        root_creation_utc_ticks = [long]$remember.RootTicks
+    })
 }
 $guardStateRecord = [ordered]@{
     schema_version = 'memory_commit_guard_state_v1'
@@ -1855,8 +1922,11 @@ $guardStateRecord = [ordered]@{
     lease_owner_trees = $rememberedTrees.ToArray()
 }
 # A failed write leaves the previous record in place (Read-GuardState: its owners
-# stay usable for five minutes, its streak is not carried past 90 seconds) and marks
-# this run degraded. An unreadable record is not overwritten, so it survives.
+# stay usable for five minutes, at most a streak of 1 is carried past 90 seconds)
+# and marks this run degraded. An unreadable record is not overwritten, so it
+# survives. Move-Item -Force is not an atomic replace on Windows PowerShell 5.1
+# (delete, then rename): a reader in that gap finds no file and starts empty,
+# which only spares, so the race is accepted.
 if ($guardState.Status -eq 'unreadable') {
     $status.guard_state_written = $false
 }
@@ -1872,7 +1942,7 @@ else {
         while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
         $status.guard_state_written = $false
         $status.guard_state_degraded = $true
-        Write-GuardLog "ERROR" ("guard state {0} could not be written ({1}); the previous record stays in place and the next run carries no unreadable-lease count from it" -f `
+        Write-GuardLog "ERROR" ("guard state {0} could not be written ({1}); the previous record stays in place and a later run carries at most one unreadable-lease run from it" -f `
             $guardStatePath, $_.Exception.Message)
     }
     finally {
