@@ -468,3 +468,79 @@ What the record does fix:
 ### C3.3 Sign-asymmetric corrections
 
 Any sign-asymmetric correction is a NEW family needing its own rule, never a K112 variant.
+
+## Clarification 4 (2026-11-02, master ruling B, additions only, before dev opens)
+
+### C4.1 Stale WU store found before dev (row counts by date only)
+
+- `dseries26` (G2 module `022565cc…`, run 2026-11-02 10:03 EST after the coordinator's go) wrote only 110 rows,
+  10 per market. Its dates are 07-31..08-10, with 08-08 absent.
+  - Output: `C:\t\L47b\g2\d26\dseries26.json`, sha256
+    `1a19d8248cf81b4fa323efd8d847e3e77728a89021bf4ccd27f252868b7b2720`.
+- Cause: on the WS, `data/wunderground/<station>/daily/daily_summary.csv` stops at 2026-08-10 for all 12 stations.
+  - The files were last written 2026-08-12.
+  - Counting rows by date only gave 9 in Aug and 0 in Sep 01-28. No values were read.
+  - Cause on record (coordinator, master): the WS `data\` mirror was paused on 2026-08-12 by the owner's two-host
+    decision. It is not a collector fault.
+- Run as frozen, G2 would have given:
+  - W=14 hours: shift 0 on every dev row.
+  - W=7 hours: one fixed, stale b_recent for all of 08-15..09-29. This follows from `b_recent`, which takes the W
+    latest dates with no staleness bound.
+  - Master refused that run (option A).
+- G2-P was unaffected: its METAR labels have 60/60 dates.
+
+### C4.2 Substitution (option B): the label source for G2's 2026 d series
+
+- New subcommand: `x36_trailing_g2p.py dseries26L`, additions only.
+  - Module sha256 `09676bb4c1d07bd8f462b3c2ca8ff9c366116ad4fa9f87ac9884ae5198d0cd38`, commit
+    `e19dfb5374139c844150aa9ee3e999bfa3db96b1`.
+  - It builds G2's 2026 d series (NBP 07Z mean − WU high) in G2's `dseries26` schema, so
+    `x36_trailing_g2 dev --d26 <file>` consumes it unchanged.
+- The WU high comes from `settlement_high` in `C:\swarm\v3layout\labels.parquet`:
+  - sha256 `1ea636e9e655670012bc3b5d5ef02aec9feda65cc7839434631bbb09c65f067e`, which the module checks;
+  - the manifest is `harness_v3_layout/1`, built 2026-10-19T15:51Z, 110807 rows, 57 dates 2026-08-01..09-29;
+  - the parquet footer date range is 2026-08-01..2026-09-29.
+- The module takes one value per (market, date). Dates are filtered to 07-31..09-28 before any value is used.
+- The module refuses, and none of these refusals fired:
+  - a value that is not constant within a market-date (the layout repeats it on every snapshot row);
+  - a non-finite or non-integer high;
+  - a high outside −60..140 °F;
+  - a non-F market;
+  - a market outside the 11-station set.
+- Output: `C:\t\L47b\g2\d26\dseries26L.json`, sha256
+  `48bec4aee1b322be1c8700c7d45409e6b6a9abbde1dc8422138237b30a7fb819`.
+  - 615 rows: 56 per market, except austin with 55.
+  - 56 label dates.
+  - 22 corpus lines dropped by date.
+- Missing label dates compared with 07-31..09-28:
+  - 07-31 (outside the layout), 08-16, 09-01 and 09-02 (not in the layout);
+  - austin 08-07 alone (no layout row for that market-day).
+- b_recent's "W latest dates strictly before t" therefore spans those gaps (W dates, not W calendar days). This is
+  disclosed, not fixed.
+- Unchanged:
+  - b_train stays WU-era, as frozen (`b_train_2026` in the freeze table).
+  - `x36_trailing_g2.py` stays at `022565cc…`, and the freeze table at `eb73fc04…`, bound to it by `load_freeze`.
+  - The three-way verdict is unchanged, as are G2-P parity and the Aug/Sep breakdown before any CONSISTENT
+    promotion.
+
+### C4.3 Gate (iii): overlap equivalence, run before dev
+
+- Subcommand `x36_trailing_g2p.py overlap`, comparing `dseries26.json` (WU store) with `dseries26L.json` (layout)
+  on the keys present in both.
+- Result: `C:\t\L47b\g2\d26\overlap_iii.json`, sha256
+  `6eecbd910c60413d61087bb41fa03ade81e0f4cbcfac0012f50bc5854e30a487`.
+  - 98 common market-dates, covering 08-01..08-10 without 08-08.
+  - max |diff| = 0.0, 0 mismatches at tolerance 1e-12. **PASS.**
+  - Keys only in dseries26: 12. These are the 11 dates of 07-31 plus austin 08-07.
+  - Keys only in dseries26L: 517, all dated after 08-10.
+- This compares b_recent inputs only. It reads no dev scoring rows.
+
+### C4.4 Tests and admission
+
+- New tests cover the pure pieces on synthetic data in `tests/calibration/test_x36_trailing_g2p.py`:
+  - one value per market-date, and the out-of-window drop before the value is read;
+  - each refusal;
+  - `overlap_check`.
+- The focused run (g2p plus g2) gave 31 passed via `launch_v4` `-Queue` at `e19dfb53…`, with the basetemp deleted.
+- No new allowlist line: dseries26L and overlap live inside the module already admitted by
+  `9267072cc696cbf11f664ba7568c9a72cef0f05f`.
