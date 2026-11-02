@@ -272,3 +272,51 @@ re-hashed every file it read and reproduced the 1,355 kept ladder-hours. Shares 
   mechanism (histories ending before T) and its correlates (new markets, 11-band ladders, a few older
   markets) but cannot show why the histories end early. Establishing that would need venue-side
   information this run does not hold. It changes nothing in the frozen run.
+
+**Truncation check (2026-11-02, master): verdict NATURAL STOPS, not a fetch defect**
+
+Results apply to market-dates whose full ladder is live at T; exclusion may correlate with early band closure, so no claim is made about excluded days.
+
+Evidence, from timestamps, point counts and stored request metadata only. No price level, label or
+outcome was read. The scratch counter's sha256 is
+`65f142f82c4b2a0e6961e805f5fa23fc4c22a0f87d9e8bfcb866edc5f9acb172`; it re-hashed every file it read.
+
+- **What fetched the sealed run** (SHA256SUMS `5073afd8…fe71`): `tools/research/pm_price_history/fetch_v1.py`
+  (sha256 `2437a2412b78f08e17596cb0d98a1624e035db9657656f975a58e004c51114fa`), run with `--fidelity 1`.
+  - Its request is at `fetch_v1.py:295-297`: one GET of CLOB `/prices-history` per token with `market`,
+    `startTs`, `endTs` and `fidelity` only. There is no `interval` parameter and no paging.
+  - The window comes from `inventory.py:331-339` (sha256
+    `b8728e1ef8a0fc9d9c563d64e54fbbb65f3c200c1e5d9d23534612c259f1050d`): `startTs = max(start_utc − 1 h,
+    end_date_utc − 10 d)` and `endTs = end_date_utc + 1 d`.
+- **Excluded vs kept band tokens** (2,949 excluded, 10,612 kept; D, deciding hours):
+
+| Measure (median; range) | Excluded | Kept |
+| --- | --- | --- |
+| Points per history | 3,054; 740–8,254 | 4,181; 954–9,603 |
+| Most common point count | 2,738 (38 tokens, 1.3%) | 4,353 (47 tokens) |
+| History end − start (h) | 51.2; 12.3–138.2 (most common 0.1 h value: 3.6% of tokens) | 69.8; 15.9–160.6 |
+| First point − `startTs` (h) | 1.01; 0.21–1.26 | 1.04; 0.13–38.1 |
+| `endTs` − last point (h) | 27.2; **11.4**–58.3 | 6.1; 0.0–22.0 |
+| Median spacing between points (s) | 60 | 60 |
+| Last-point clock, market-local | 84% between 01:00 and 04:59 | the night after the event day, or afternoons |
+
+- **Fixed end window: no.** Every excluded history stops at least 11.4 h before its own requested `endTs`,
+  and no token's `endTs` falls before T. The cut-off that does bind some kept tokens is the window end,
+  but that is after T and outside the completeness test.
+- **Per-request point cap: no.** Excluded counts spread from 740 to 8,254 with no ceiling (the most common
+  value covers 1.3% of tokens), and kept tokens reach 9,603 points in the same kind of request.
+- **Interval or range limit: no.** Durations spread from 12 to 138 h with no fixed value, excluded
+  histories start at the listing time just as kept ones do, and both are dense 60 s series while alive.
+  No excluded token has a gap around T.
+- **Clock pattern.** Excluded histories end mostly between 01:00 and 04:59 market-local on the event day.
+  In UTC that spreads over 06:00–10:00 by timezone. A fetch-side cut would sit at a fixed UTC time
+  (`endTs` is always 12:00 UTC); this is a market-local, venue-side pattern.
+- **Close metadata.** No per-band close or end time is in the store. It holds only the event-level
+  `end_date_utc` (12:00 UTC on the event day) and `start_utc`, and nothing was fetched. Ten excluded tokens
+  were checked across markets and months, for example atlanta 2025-12-22 band 1/7, miami 2026-05-18 band
+  7/11 and denver 2026-05-13 band 8/11. Each stops 0.2 to 10.3 h before that event-level `end_date_utc`,
+  which is itself at or before T on most days, while every kept token runs 2 to 24 h past it. So the event-level
+  `end_date_utc` is not when bands stop trading, and the band-level close time cannot be compared from
+  the store.
+- **Why the venue stops those bands overnight is not established.** The finding is only that our fetch
+  does not cut them.
