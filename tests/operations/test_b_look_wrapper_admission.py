@@ -211,6 +211,7 @@ def test_the_ps1_mirror_agrees_with_the_hook_on_every_case(tmp_path):
                                          encoding="utf-8")  # ASCII JSON (\\u escapes): codepage-proof
     script = tmp_path / "refusals.ps1"
     script.write_text(
+        "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n"  # decoded as UTF-8 below, whatever PYTHONUTF8
         f". '{ROOT / 'scripts' / 'ops' / 'workload_admission.ps1'}'\n"
         f"$cases = Get-Content -Raw -LiteralPath '{tmp_path / 'cases.json'}' | ConvertFrom-Json\n"
         "$out = @(foreach ($case in $cases) {\n"
@@ -222,7 +223,7 @@ def test_the_ps1_mirror_agrees_with_the_hook_on_every_case(tmp_path):
         encoding="utf-8",
     )
     result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                             "-File", str(script)], capture_output=True, text=True, timeout=120)
+                             "-File", str(script)], capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert result.returncode == 0, result.stderr
     listing, refusals = result.stdout.strip().splitlines()[-2:]
     assert set(json.loads(listing)) == hook._OFFLINE_WEATHER_MODULES
