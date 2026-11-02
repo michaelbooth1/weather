@@ -20,6 +20,10 @@ Subcommands:
               adds the moving-block interval (same block, draws and seed).
   compare     light, after both dev runs and mbbdev. Per-date shift difference (G2-P minus G2) on identical row keys,
               dR_P with its interval, and the three-way verdict frozen in g2_freeze.md.
+  mechanism   light, training era only (g1_rows.jsonl and G1's dseries). Per year: gain next to the season and
+              row-level bias departures; Spearman (n = 5) and OLS slope of gain on departure; the dev prediction
+              from a 2026 departure taken from cited X36-v5 figures (not from dev). Not a gate.
+  mbbdev also reports the per-month (Aug, Sep) dR under both bootstraps; run it on the G2-P folder as well.
 
 The MBB lives here, not in x36_trailing_g2.py, because any edit to that module changes its sha256 and its dev
 subcommand then refuses the freeze table (load_freeze binds the table to the writing module's sha).
@@ -264,6 +268,109 @@ def _jsonl(path):
     return [json.loads(x) for x in Path(path).read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
+def month_groups(cell_dates, diff, mkt, cluster_w):
+    """Per-month (Aug, Sep) dR on the same cells: point, date-clustered 95% (the run's weights restricted to the
+    month) and circular MBB 95% (block 7 over that month's dates). Pre-registered as the input a CONSISTENT result
+    needs before promotion to the history-tier test."""
+    import numpy as np
+
+    dates = np.asarray(cell_dates)
+    diff, mkt = np.asarray(diff, float), np.asarray(mkt, float)
+    out = {}
+    for name, mm in (("aug", "-08-"), ("sep", "-09-")):
+        sel = np.flatnonzero(np.char.find(dates.astype(str), mm) == 4)
+        if not len(sel):
+            out[name] = None
+            continue
+        out[name] = {"n_cells": int(len(sel)), "n_dates": int(len(set(dates[sel].tolist()))),
+                     "cluster": ratio_ci(np.asarray(cluster_w)[:, sel], diff[sel], mkt[sel]),
+                     "mbb": ratio_ci(mbb_date_weights(dates[sel].tolist()), diff[sel], mkt[sel])}
+    return out
+
+
+def _ranks(x):
+    """Average ranks (1-based), ties shared."""
+    order = sorted(range(len(x)), key=lambda i: x[i])
+    ranks = [0.0] * len(x)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and x[order[j + 1]] == x[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = (i + j) / 2 + 1
+        i = j + 1
+    return ranks
+
+
+def spearman(x, y):
+    rx, ry = _ranks(x), _ranks(y)
+    mx, my = sum(rx) / len(rx), sum(ry) / len(ry)
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    den = (sum((a - mx) ** 2 for a in rx) * sum((b - my) ** 2 for b in ry)) ** 0.5
+    return num / den if den else float("nan")
+
+
+def ols(x, y):
+    """(slope, intercept) of y on x."""
+    mx, my = sum(x) / len(x), sum(y) / len(y)
+    sxx = sum((a - mx) ** 2 for a in x)
+    if not sxx:
+        return float("nan"), float("nan")
+    slope = sum((a - mx) * (b - my) for a, b in zip(x, y)) / sxx
+    return slope, my - slope * mx
+
+
+def mechanism_table(rows, series):
+    """Ex-ante mechanism check, training era only. Per year Y (2021-25):
+    gain = mean per gate row of P3d_T - P3d_N_fix Brier (G1 out-of-fold);
+    season departure per market = mean of d over Y's Aug 1..Sep 29 minus the mean over the other four years (the
+    nested baseline G1 uses); pooled_signed = mean over markets, pooled_abs = |pooled_signed|, market_abs = mean of
+    |departure| over markets;
+    row level, from the gate rows: mean |shift| (applied, F) and mean |shift / lam| over lam > 0 rows (the clipped
+    trailing departure |b_recent - b_train|)."""
+    rows = [r for r in rows if r["gate"]]
+    years = sorted({r["year"] for r in rows})
+    by_my = defaultdict(list)
+    for m, pts in series.items():
+        for d, x in pts:
+            by_my[(m, int(d[:4]))].append(x)
+    markets = sorted(series)
+    table = {}
+    for y in years:
+        deps = []
+        for m in markets:
+            cur = by_my[(m, y)]
+            rest = [x for yy in years if yy != y for x in by_my[(m, yy)]]
+            deps.append(sum(cur) / len(cur) - sum(rest) / len(rest))
+        yr = [r for r in rows if r["year"] == y]
+        lam_pos = [r for r in yr if r["lam"] > 0]
+        signed = sum(deps) / len(deps)
+        table[str(y)] = {"gain": sum(r["P3d_T_brier"] - r["P3d_N_fix_brier"] for r in yr) / len(yr),
+                         "pooled_signed_departure": signed, "pooled_abs_departure": abs(signed),
+                         "market_abs_departure": sum(abs(v) for v in deps) / len(deps),
+                         "row_mean_abs_shift": sum(abs(r["shift"]) for r in yr) / len(yr),
+                         "row_mean_abs_departure": (sum(abs(r["shift"] / r["lam"]) for r in lam_pos) / len(lam_pos)
+                                                    if lam_pos else None),
+                         "n_rows": len(yr)}
+    gains = [table[str(y)]["gain"] for y in years]
+    fits = {}
+    for key in ("pooled_abs_departure", "market_abs_departure", "row_mean_abs_departure", "row_mean_abs_shift"):
+        xs = [table[str(y)][key] for y in years]
+        if any(x is None for x in xs):
+            fits[key] = None
+            continue
+        slope, icpt = ols(xs, gains)
+        fits[key] = {"spearman": spearman(xs, gains), "ols_slope": slope, "ols_intercept": icpt, "n": len(years)}
+    return {"years": table, "fits": fits}
+
+
+def mechanism_prediction(fits, departure_2026, key="pooled_abs_departure"):
+    f = fits[key]
+    return {"regressor": key, "departure_2026": departure_2026,
+            "predicted_gain": f["ols_intercept"] + f["ols_slope"] * departure_2026}
+
+
 def mbb_dev(layout, base_path, arm_path):
     """07-12 dR (P3d_T - P3d_N_fix over market Brier) on G2's covered scope, built exactly as G2's score_dev, under
     the date-clustered weights (must reproduce G2's interval) and the circular moving-block bootstrap."""
@@ -295,8 +402,10 @@ def mbb_dev(layout, base_path, arm_path):
     _, m = table.cells(market_b, mask)
     cluster_w = l3._date_weights([k[0] for k in table.keys], g2.DRAWS, g2.SEED)
     cell_dates = [table.keys[i][0] for i in idx]
+    months = month_groups(cell_dates, c - r_, m, cluster_w[:, idx])
     return {"n_market_days": int(len(idx)), "n_dates": len(set(cell_dates)),
             "dates": [min(cell_dates), max(cell_dates)],
+            "months": months,
             "cluster": sc.ratio_interval(cluster_w[:, idx], c - r_, m),
             "mbb": ratio_ci(mbb_date_weights(cell_dates), c - r_, m)}
 
@@ -338,6 +447,23 @@ def cmd_g1mbb(a):
     res.update({"schema": "l47_x36_trailing_g2p/1/g1_mbb", "module_sha256": sha256_file(__file__),
                 "g1_rows_sha256": sha256_file(a.g1_rows), "g1_result_sha256": sha256_file(a.g1_result),
                 "g1_reported_pooled": pooled})
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
+    print(json.dumps({"sha256": sha256_file(out)}), flush=True)
+    return 0
+
+
+def cmd_mechanism(a):
+    out = Path(a.out)
+    if out.exists():
+        raise G2PError(f"refusing to overwrite {out}")
+    g1 = load_g2().load_g1()
+    series, _ = g1.load_series(a.dseries)
+    res = mechanism_table(_jsonl(a.g1_rows), series)
+    res.update({"schema": "l47_x36_trailing_g2p/1/mechanism", "module_sha256": sha256_file(__file__),
+                "g1_rows_sha256": sha256_file(a.g1_rows), "dseries_sha256": sha256_file(a.dseries),
+                "prediction": mechanism_prediction(res["fits"], float(a.departure_2026)),
+                "prediction_note": "stated before dev opens; not a gate"})
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
     print(json.dumps({"sha256": sha256_file(out)}), flush=True)
@@ -387,7 +513,12 @@ def main(argv=None):
     c = sub.add_parser("compare")
     for k in ("--g2-out", "--g2p-out", "--mbb", "--out"):
         c.add_argument(k, required=True)
+    k = sub.add_parser("mechanism")
+    for name in ("--g1-rows", "--dseries", "--departure-2026", "--out"):
+        k.add_argument(name, required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "mechanism":
+        return cmd_mechanism(a)
     return {"dseries26p": cmd_dseries26p, "g1mbb": cmd_g1mbb, "mbbdev": cmd_mbbdev, "compare": cmd_compare}[a.cmd](a)
 
 

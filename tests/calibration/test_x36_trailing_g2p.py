@@ -120,3 +120,40 @@ def test_venue_labels_take_the_half_up_routine_max_and_drop_out_of_window_dates(
     labels = g2p.venue_labels(text, spec, "KATL", lambda d: d <= "2026-07-31")
     assert set(labels) == {"2026-07-31"}
     assert labels["2026-07-31"] == (90, "F")
+
+
+def test_spearman_and_ols_on_small_samples():
+    assert g2p.spearman([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]) == pytest.approx(-1.0)
+    assert g2p.spearman([1, 2, 2, 4], [1, 2, 3, 4]) == pytest.approx(0.9486832980505138)
+    slope, icpt = g2p.ols([0.0, 1.0, 2.0], [1.0, 3.0, 5.0])
+    assert slope == pytest.approx(2.0) and icpt == pytest.approx(1.0)
+
+
+def test_mechanism_table_uses_the_nested_baseline():
+    series = {"a": [(f"{y}-08-0{k}", float(y - 2021) + k) for y in range(2021, 2024) for k in (1, 2)]}
+    rows = []
+    for y, g in ((2021, -0.001), (2022, -0.002), (2023, -0.003)):
+        rows.append({"gate": True, "year": y, "lam": 0.5, "shift": 0.25, "P3d_T_brier": 0.5 + g,
+                     "P3d_N_fix_brier": 0.5})
+        rows.append({"gate": True, "year": y, "lam": 0.0, "shift": 0.0, "P3d_T_brier": 0.5 + g,
+                     "P3d_N_fix_brier": 0.5})
+    res = g2p.mechanism_table(rows, series)
+    # 2021 mean d = 1.5, others (2.5, 3.5) mean 3.0 -> departure -1.5
+    assert res["years"]["2021"]["pooled_signed_departure"] == pytest.approx(-1.5)
+    assert res["years"]["2022"]["pooled_abs_departure"] == pytest.approx(0.0)
+    assert res["years"]["2021"]["row_mean_abs_departure"] == pytest.approx(0.5)
+    assert res["years"]["2021"]["row_mean_abs_shift"] == pytest.approx(0.125)
+    assert res["years"]["2023"]["gain"] == pytest.approx(-0.003)
+    pred = g2p.mechanism_prediction(res["fits"], 1.5)
+    f = res["fits"]["pooled_abs_departure"]
+    assert pred["predicted_gain"] == pytest.approx(f["ols_intercept"] + 1.5 * f["ols_slope"])
+
+
+def test_month_groups_split_aug_and_sep():
+    import numpy as np
+
+    dates = ["2026-08-30", "2026-08-31", "2026-09-01", "2026-09-02"]
+    w = np.ones((5, 4))
+    res = g2p.month_groups(dates, [1.0, -1.0, -2.0, 0.0], [1.0, 1.0, 1.0, 1.0], w)
+    assert res["aug"]["n_cells"] == 2 and res["aug"]["cluster"]["estimate"] == 0.0
+    assert res["sep"]["cluster"]["estimate"] == -1.0 and res["sep"]["n_dates"] == 2
