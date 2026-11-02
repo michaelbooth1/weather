@@ -190,6 +190,7 @@ def test_the_fixture_is_one_captured_day_on_every_built_in_market():
         assert set(tier["served_output_sha256"]) == {r["snapshot_id"] for r in records}
         # Only the platform-scoped tier names a generating platform; the materialized tier runs everywhere.
         assert ("generating_platform" in tier) == (state in PLATFORM_SCOPED_TIERS)
+    # Mirrors tiers.lfs_pointers.generating_platform in golden_cda1acc3a.json; a regeneration updates both.
     assert golden["tiers"]["lfs_pointers"]["generating_platform"] == "win32"
 
 
