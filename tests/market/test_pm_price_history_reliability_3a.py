@@ -226,7 +226,7 @@ def test_verdict_labels():
 
 # ----------------------------------------------------------------------------- labels, floors, extracts
 
-def _write_source(src: Path, specs, plan, buckets, late=True):
+def _write_source(src: Path, specs, plan, buckets, late=True, partial=()):
     """A WU source tree: daily_summary.csv plus hourly partitions, including rows after 2026-05-26."""
     by_icao = {}
     for market, d in plan:
@@ -237,7 +237,8 @@ def _write_source(src: Path, specs, plan, buckets, late=True):
         lines = ["local_date,row_count,max_temp,max_temp_bucket"]
         for market, d in items:
             b = buckets[(market, d.isoformat())]
-            lines.append(f"{d.isoformat()},24,{b}.2,{b}")
+            rc = 5 if (market, d.isoformat()) in set(partial) else 24
+            lines.append(f"{d.isoformat()},{rc},{b}.2,{b}")
         if late:
             lines.append("2026-06-01,24,99.0,99")
         (daily / "daily_summary.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -278,7 +279,8 @@ def test_labels_winners_and_floor_from_extracts(tmp_path):
         r3.verify_extract(daily, "hourly")
     wanted = set(buckets)
     got, info = r3.load_labels(daily, specs, wanted)
-    assert got == buckets and info == {"unusable": {}}
+    assert got == buckets and info["unusable"] == {}
+    assert info["native_high"] == {k: v + 0.2 for k, v in buckets.items()}
     win, counts = r3.winners(ladders, got)
     assert counts == {"exactly_one": 6}
     assert win[("nyc", "2026-01-01")] == 2 and win[("nyc", "2026-01-02")] == 0 and win[("nyc", "2026-01-03")] == 6
@@ -308,6 +310,7 @@ def test_sparse_and_missing_labels_are_counted(tmp_path):
     got, info = r3.load_labels(root, r3.specs_for(("nyc",)),
                                {("nyc", "2026-01-01"), ("nyc", "2026-01-02"), ("nyc", "2026-01-03")})
     assert got == {("nyc", "2026-01-01"): 70}
+    assert info.pop("native_high") == {("nyc", "2026-01-01"): None}
     assert info == {"sparse_wu_day": 1, "missing_wu_day": 1,
                     "unusable": {("nyc", "2026-01-02"): "sparse", ("nyc", "2026-01-03"): "missing"}}
 
@@ -378,14 +381,57 @@ def test_real_run_on_synthetic_extract(tmp_path, small_draws, monkeypatch):
     assert rec["steps"]["2_label_integrity"]["D_exactly_one_share"] == 1.0
     assert rec["floor_unadjusted"] is True
     assert rec["verdict"]["verdict"].startswith("B12-HIST")
-    # one scored market-date without a WU row: label integrity fails (rule section 6 step 2), no Delta written
-    plan2 = plan[1:]
-    _write_source(tmp_path / "src2", specs, plan2, buckets)
+    lab = rec["steps"]["2_label_integrity"]
+    assert lab["completeness_threshold"]["min_rows"] == 18
+    assert "settlement_ledger.py:34" in lab["completeness_threshold"]["source"]
+    assert lab["D_unusable_share"] == 0 and "power_restated" not in lab
+    # ruling 1: containment of the raw high (bucket + 0.2) differs from the bucket for every lte/eq pick
+    expect = sum(1 for x in ladders if x["segment"] == "D"
+                 and buckets[(x["market"], x["date"])] != x["bands"][-1]["value"])
+    assert lab["containment_diagnostic"]["containment_vs_bucket_differ"] == expect
+    assert lab["containment_diagnostic"]["D_labelled_market_dates"] == 540
+
+    # rulings 2-3: 3 partial + 4 missing = 7 of 540 (1.3%): excluded and counted, step 2 passes, N restated
+    partial = [(m, d.isoformat()) for m, d in plan[10:13]]
+    missing = plan[20:24]
+    plan2 = [x for x in plan if x not in missing]
+    _write_source(tmp_path / "src2", specs, plan2, buckets, partial=partial)
     daily2 = _extract(tmp_path / "src2", tmp_path / "ex2", "daily")
     out2 = tmp_path / "real2.json"
     rc = r3.main(["--run", str(tmp_path / "run"), "--expect-run-sums", sums_sha, "--out", str(out2), "--real-run",
                   "--labels-extract", str(daily2), "--expect-sha", sha])
     rec2 = json.loads(out2.read_text(encoding="utf-8"))
-    assert rc == 0 and rec2["verdict"]["verdict"] == "B12-HIST: UNTESTABLE (failed at 2_label_integrity)"
-    assert rec2["steps"]["2_label_integrity"]["D_missing_wu"] == 1
-    assert "deciding" not in rec2 and "3_synthetic_controls" not in rec2["steps"]
+    lab2 = rec2["steps"]["2_label_integrity"]
+    assert rc == 0 and lab2["status"] == "PASS", rec2.get("exception")
+    assert lab2["D_missing_wu"] == 4 and lab2["D_partial_wu"] == 3
+    m0 = plan[20][0]
+    assert lab2["D_missing_dates_by_market_fold"] == {m0: {"2026-01": [d.isoformat() for _, d in missing]}}
+    assert lab2["D_partial_counts_by_market_fold"] == {plan[10][0]: {"2026-01": 3}}
+    assert lab2["D_scored_market_dates"] == 533
+    assert lab2["power_restated"]["N"] == 533
+    assert lab2["power_restated"]["MDE80_T2"] == pytest.approx(0.105 * np.sqrt(1419 / 533))
+    assert rec2["population"]["market_dates"] == 533
+
+    # combined cap: 6 partial + 6 missing = 12 of 540 (2.2%) > 2%: step 2 fails closed, no Delta written
+    partial = [(m, d.isoformat()) for m, d in plan[30:36]]
+    missing = plan[40:46]
+    plan3 = [x for x in plan if x not in missing]
+    _write_source(tmp_path / "src3", specs, plan3, buckets, partial=partial)
+    daily3 = _extract(tmp_path / "src3", tmp_path / "ex3", "daily")
+    out3 = tmp_path / "real3.json"
+    rc = r3.main(["--run", str(tmp_path / "run"), "--expect-run-sums", sums_sha, "--out", str(out3), "--real-run",
+                  "--labels-extract", str(daily3), "--expect-sha", sha])
+    rec3 = json.loads(out3.read_text(encoding="utf-8"))
+    assert rc == 0 and rec3["verdict"]["verdict"] == "B12-HIST: UNTESTABLE (failed at 2_label_integrity)"
+    assert rec3["steps"]["2_label_integrity"]["D_unusable_share"] == pytest.approx(12 / 540)
+    assert "deciding" not in rec3 and "3_synthetic_controls" not in rec3["steps"]
+
+
+def test_containment_pick():
+    bands = [r3.band_parse(x, "F") for x in F_LABELS]
+    for i, b in enumerate(bands):
+        b["band_index"] = i
+    assert r3.containment_pick(bands, 59.0) == 0 and r3.containment_pick(bands, 59.4) is None
+    assert r3.containment_pick(bands, 61.0) == 1 and r3.containment_pick(bands, 61.5) is None
+    assert r3.containment_pick(bands, 70.0) == 6 and r3.containment_pick(bands, 95.3) == 6
+    assert r3.containment_pick(bands, None) is None

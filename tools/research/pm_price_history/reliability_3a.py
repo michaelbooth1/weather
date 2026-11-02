@@ -64,7 +64,12 @@ DESCRIPTIVE_HOURS = (13,)
 TOL_S = 120
 DJF = ("12", "01", "02")
 LABEL_EXACTLY_ONE_MIN = 0.99
-LABEL_SPARSE_MAX = 0.02
+LABEL_UNUSABLE_MAX = 0.02          # Clarification 1 ruling 3: partial + missing <= 2% of D market-dates
+POWER_RESTATE_ABOVE = 0.01         # ruling 3: restate N and MDE80 when more than 1% of D is excluded
+RULE_T2_N, RULE_T2_MDE80 = 1419, 0.105
+# ruling 2: the completeness threshold is the settlement code's own, not a 3a number.
+COMPLETENESS_SOURCE = ("src/weather/backtesting/settlement_ledger.py:34 COMPLETE_DAY_MIN_ROWS "
+                       "(applied at :498 as row_count >= it; venue_label_reader.py:205 treats < it as incomplete)")
 TAILS_FIRST = (0, 10, 1, 9, 2, 8, 3, 4, 5, 6, 7)          # [0,.02) [.95,1] [.02,.05) [.90,.95) [.05,.10) [.80,.90) ..
 ARMS = l21.ARMS
 
@@ -294,12 +299,13 @@ def load_labels(root: Path, specs: dict, wanted: set) -> tuple[dict, dict]:
     """(market, date) -> settled whole-degree bucket, from the daily extract only (Clarification 1, L1-L3).
 
     A wanted market-date with no row, or a row without a numeric bucket, is *missing*; a row with
-    ``row_count`` below the settlement ledger's complete-day minimum is *sparse*. Both are left out of the
-    returned map and counted.
+    ``row_count`` below the settlement ledger's complete-day minimum is *partial* (``sparse``). Both are left
+    out of the returned map and counted. ``info["native_high"]`` keeps the raw native high of each usable
+    market-date for the containment-vs-bucket diagnostic (ruling 1; it never selects anything).
     """
     from weather.backtesting.settlement_ledger import COMPLETE_DAY_MIN_ROWS
-    from weather.sources.daily_summary import native_bucket
-    out, info = {}, Counter()
+    from weather.sources.daily_summary import native_bucket, native_high
+    out, info, highs = {}, Counter(), {}
     for market, spec in specs.items():
         path = root / spec["icao"] / "daily_summary.csv"
         if not path.is_file():
@@ -316,6 +322,7 @@ def load_labels(root: Path, specs: dict, wanted: set) -> tuple[dict, dict]:
                     rc = 0
                 bucket = native_bucket(row)
                 out[key] = "missing" if bucket is None else ("sparse" if rc < COMPLETE_DAY_MIN_ROWS else bucket)
+                highs[key] = native_high(row)
     unusable = {}
     for key in wanted:
         state = out.get(key, "missing")
@@ -323,6 +330,7 @@ def load_labels(root: Path, specs: dict, wanted: set) -> tuple[dict, dict]:
             info[f"{state}_wu_day"] += 1
             unusable[key] = state
     info["unusable"] = unusable
+    info["native_high"] = {k: highs.get(k) for k, v in out.items() if v not in ("missing", "sparse")}
     return {k: v for k, v in out.items() if v not in ("missing", "sparse")}, info
 
 
@@ -356,6 +364,46 @@ def load_floors(root: Path, specs: dict, wanted: set) -> dict:
             if seen:
                 floors[(market, ds, hr)] = max(seen)
     return floors
+
+
+def completeness_min_rows() -> int:
+    from weather.backtesting.settlement_ledger import COMPLETE_DAY_MIN_ROWS
+    return int(COMPLETE_DAY_MIN_ROWS)
+
+
+def containment_pick(bands, high):
+    """The single band whose native range contains the raw high (the rule's original text), else None."""
+    if high is None:
+        return None
+    hits = [b["band_index"] for b in bands
+            if (b["kind"] == "lte" and high <= b["value"]) or (b["kind"] == "gte" and high >= b["value"])
+            or (b["kind"] == "eq" and b["value"] <= high <= b["value_hi"])]
+    return hits[0] if len(hits) == 1 else None
+
+
+def containment_diagnostic(ladders, labels, highs):
+    """Ruling 1: labelled D market-dates where containment of native_high and the settlement bucket pick
+    different bands (containment picking no single band counts as different). A count only; it never
+    selects or excludes anything."""
+    n, differ, none = 0, 0, 0
+    for lad in ladders:
+        key = (lad["market"], lad["date"])
+        if lad["segment"] != "D" or key not in labels:
+            continue
+        n += 1
+        c = containment_pick(lad["bands"], highs.get(key))
+        none += c is None
+        differ += c != labels[key]
+    return {"D_labelled_market_dates": n, "containment_vs_bucket_differ": differ,
+            "of_which_containment_picks_no_single_band": none}
+
+
+def by_market_fold(keys):
+    """market -> month fold -> sorted dates (all dates are inside D, <= 2026-05-26)."""
+    out = defaultdict(lambda: defaultdict(list))
+    for market, ds in sorted(keys):
+        out[market][ds[:7]].append(ds)
+    return {m: dict(v) for m, v in out.items()}
 
 
 def winners(ladders, buckets):
@@ -630,6 +678,7 @@ def main(argv=None):
             wanted = {(x["market"], x["date"]) for x in ladders}
             buckets, label_info = load_labels(Path(args.labels_extract), specs, wanted)
             unusable = label_info.pop("unusable")
+            highs = label_info.pop("native_high")
             label_info = dict(label_info)
             labels, win_counts = winners(ladders, buckets)
             if args.hourly_extract:
@@ -637,19 +686,36 @@ def main(argv=None):
                 floors = load_floors(Path(args.hourly_extract), specs, wanted)
             n_d = len(d_ladders)
             d_keys = {(x["market"], x["date"]) for x in d_ladders}
-            d_missing = sum(1 for k in d_keys if unusable.get(k) == "missing")
-            d_sparse = sum(1 for k in d_keys if unusable.get(k) == "sparse")
+            missing_keys = {k for k in d_keys if unusable.get(k) == "missing"}
+            partial_keys = {k for k in d_keys if unusable.get(k) == "sparse"}
+            d_missing, d_partial = len(missing_keys), len(partial_keys)
             labelled = [x for x in d_ladders if (x["market"], x["date"]) in buckets]
             one = sum(1 for x in labelled if (x["market"], x["date"]) in labels)
             numbers = {"tiling": tiling, "label_load": label_info, "winner_counts_all_segments": win_counts,
-                       "D_market_dates": n_d, "D_missing_wu": d_missing, "D_sparse_wu": d_sparse,
-                       "D_sparse_share": d_sparse / n_d if n_d else None,
-                       "D_exactly_one_share": one / len(labelled) if labelled else None}
-            ok = (tiling["tile"] == tiling["ladders"] and n_d > 0 and d_missing == 0
-                  and d_sparse / n_d <= LABEL_SPARSE_MAX and labelled
+                       "completeness_threshold": {"min_rows": completeness_min_rows(),
+                                                  "source": COMPLETENESS_SOURCE},
+                       "D_market_dates": n_d, "D_missing_wu": d_missing, "D_partial_wu": d_partial,
+                       "D_unusable_share": (d_missing + d_partial) / n_d if n_d else None,
+                       "D_unusable_cap": LABEL_UNUSABLE_MAX,
+                       "D_missing_dates_by_market_fold": by_market_fold(missing_keys),
+                       "D_partial_counts_by_market_fold": {
+                           m: {f: len(v) for f, v in folds.items()}
+                           for m, folds in by_market_fold(partial_keys).items()},
+                       "D_exactly_one_share": one / len(labelled) if labelled else None,
+                       "containment_diagnostic": containment_diagnostic(ladders, labels, highs)}
+            ok = (tiling["tile"] == tiling["ladders"] and n_d > 0
+                  and (d_missing + d_partial) / n_d <= LABEL_UNUSABLE_MAX and labelled
                   and one / len(labelled) >= LABEL_EXACTLY_ONE_MIN)
             if not ok:
                 raise l21.Untestable("2_label_integrity", numbers)
+            n_scored = sum(1 for x in d_ladders if (x["market"], x["date"]) in labels)
+            numbers["D_scored_market_dates"] = n_scored
+            numbers["D_excluded_share"] = (n_d - n_scored) / n_d
+            if numbers["D_excluded_share"] > POWER_RESTATE_ABOVE:
+                numbers["power_restated"] = {
+                    "N": n_scored, "rule_N": RULE_T2_N, "rule_MDE80": RULE_T2_MDE80,
+                    "MDE80_T2": RULE_T2_MDE80 * float(np.sqrt(RULE_T2_N / n_scored)) if n_scored else None,
+                    "note": "T2 SE scaled by sqrt(1419 / N); the gate stays the realised SE (step 5)"}
             receipt["steps"]["2_label_integrity"] = {"status": "PASS", **numbers}
             keep = set(labels)
             ladders = [x for x in ladders if (x["market"], x["date"]) in keep]

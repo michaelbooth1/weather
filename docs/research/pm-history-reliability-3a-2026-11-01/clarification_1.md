@@ -3,8 +3,9 @@
 **Status: CLARIFICATION, NOT RUN.** No label or observation has been read. This file pins the code that
 the single 3a run will execute and states the mechanics `rule_3a.md` (sha256
 `023b75ed6fcdd14ecc83e5f36f961077c3e338130f7f0434bb3836732088837a`) left to the script. It changes no
-kill criterion, arm, bin, fold or gate. Items marked **(for review)** fill a gap in the rule and need the
-coordinator's and the Opus review's acceptance before the go.
+kill criterion, arm, bin, fold or gate. Section 3 records master's rulings of 2026-11-02 on the label
+mechanics. The Opus review of this clarification and of the extractor comes before any real read; row
+113 runs only after row 106's dev run and on the coordinator's go.
 
 ## 1. Pinned files
 
@@ -31,18 +32,33 @@ same with its own sha. Any change to any of these files needs a new dated clarif
 - Verdict text is L21's with the scope changed to "B12-HIST", plus the section 4 suffix when no hourly
   extract is given.
 
-## 3. Labels (O-1 extract only)
+## 3. Labels (O-1 extract only): master's rulings of 2026-11-02, fixed before any read
 
-- **L1 (for review).** The rule says the winning band contains `native_high(row)`. The script uses the
-  project's settlement bucket, `weather.sources.daily_summary.native_bucket(row)` (round-half-up of
-  `max_temp_bucket_native`, `max_temp_bucket`, `max_temp_bucket_c`, first present), and resolves the band
-  with `weather.backtesting.settlement_ledger.resolve_outcome`. Bands are whole degrees, and this is how
-  the settlement ledger and every dev read settle; for a whole-degree high the two are identical.
-- **L2.** "Every scored market-date has a WU row" (rule section 6 step 2) is enforced literally: a D
-  market-date with no row, or a row without a numeric bucket, makes step 2 FAIL (UNTESTABLE).
-- **L3 (for review).** A row whose `row_count` is below the settlement ledger's complete-day minimum
-  (`COMPLETE_DAY_MIN_ROWS`, 18) is not settled by the ledger. Such market-dates are excluded and counted;
-  if they exceed 2% of D market-dates, step 2 FAILS.
+- **L1, label value (ruling 1: ACCEPTED).** The winning band is the band holding the settlement bucket,
+  `weather.sources.daily_summary.native_bucket(row)` (round-half-up of the first present of
+  `max_temp_bucket_native`, `max_temp_bucket`, `max_temp_bucket_c`), resolved with
+  `weather.backtesting.settlement_ledger.resolve_outcome`. This is the settlement-ledger path, and it
+  replaces the rule's "contains `native_high(row)`" wording. It is valid because all of
+  2025-12-01..2026-05-26 is before the 10-23 venue-rule events, so the labels are configured WU history
+  under the venue-rule contract.
+  - **Diagnostic (count only, never selects):** step 2 reports the number of labelled D market-dates
+    where containment of the raw `native_high(row)` would pick a different band than the bucket
+    (containment picking no single band counts as different), as
+    `containment_diagnostic.containment_vs_bucket_differ`.
+- **L2, partial WU days (ruling 2: ACCEPTED, exclude-and-count, fail closed).** The threshold is the
+  settlement code's own: `COMPLETE_DAY_MIN_ROWS` (18) at `src/weather/backtesting/settlement_ledger.py:34`.
+  It is applied at `settlement_ledger.py:498` (a day is complete when `row_count >= COMPLETE_DAY_MIN_ROWS`),
+  and `src/weather/backtesting/venue_label_reader.py:205` treats `row_count < COMPLETE_DAY_MIN_ROWS` as
+  incomplete. The script imports that constant and records its value and source in the receipt; 3a sets
+  no number of its own. A D market-date whose row is below it is excluded and counted, reported per market
+  and per month fold (counts only).
+- **L3, missing WU rows (ruling 3: REVISED to exclude-and-count).** A D market-date with no row, or a row
+  without a numeric bucket, is excluded and counted. Its dates are reported by market and month fold.
+- **One combined cap (ruling 3).** Partial + missing must be ≤ 2% of D market-dates; otherwise step 2
+  FAILS closed (UNTESTABLE).
+- **Power (ruling 3).** MDE80 0.105 stays as stated in the rule. If more than 1% of D market-dates is
+  excluded for any label reason (partial, missing, or not exactly one winner), the results restate N and
+  MDE80 (T2, scaled by √(1,419 / N)). The power gate is still the realised SE at step 5.
 - **L4.** A ladder without exactly one winning band is excluded and counted; step 2 FAILS if fewer than
   99% of labelled D ladders have exactly one. Band tiling must hold for 100% of D ladders.
 - Every label row's date passes through a refusal at 2026-05-26 (fail closed, date not echoed), and the
