@@ -24,6 +24,9 @@ Subcommands:
               row-level bias departures; Spearman (n = 5) and OLS slope of gain on departure; the dev prediction
               from a 2026 departure taken from cited X36-v5 figures (not from dev). Not a gate.
   mbbdev also reports the per-month (Aug, Sep) dR under both bootstraps; run it on the G2-P folder as well.
+  dseries26L  light (Clarification 4). G2's 2026 d series rebuilt from the dev layout's labels.parquet
+              settlement_high (WU), in G2's dseries26 schema, because the WS WU mirror stops at 2026-08-10.
+  overlap     light. Exact-equality check of d between two dseries files on their common (m, d) keys (gate iii).
 
 The MBB lives here, not in x36_trailing_g2.py, because any edit to that module changes its sha256 and its dev
 subcommand then refuses the freeze table (load_freeze binds the table to the writing module's sha).
@@ -262,6 +265,126 @@ def cmd_dseries26p(a):
     print(json.dumps({"n_rows": len(rows), "per_market": dict(per_market), "dropped": dropped,
                       "sha256": sha256_file(out)}), flush=True)
     return 0
+
+
+# ------------------------------------------------------------------ dseries26L (Clarification 4, master ruling B)
+# The WS WU daily mirror stops at 2026-08-10 (paused 2026-08-12, owner two-host decision), so G2's own dseries26 has
+# only 10 dates per market. dseries26L rebuilds G2's 2026 d series from the same WU settlement highs carried by the
+# dev layout's labels.parquet (settlement_high), in G2's dseries26 schema, for `x36_trailing_g2 dev --d26 <file>`.
+# x36_trailing_g2.py (022565cc) and the freeze table (eb73fc04) are untouched.
+
+LAYOUT_LABELS_SHA256 = "1ea636e9e655670012bc3b5d5ef02aec9feda65cc7839434631bbb09c65f067e"
+LAYOUT_LABEL_SOURCE = "layout_labels_settlement_high_wu"
+OVERLAP_TOL = 1e-12
+
+
+def layout_daily_highs(records, markets, date_ok, unit_of):
+    """{(market, iso date): (high, unit)} from (market, date, settlement_high) records, one value per market-date.
+
+    Dates failing date_ok are dropped before the value is looked at. Refuses: a market outside ``markets``, a
+    non-F market, a non-finite or non-integer high, a high outside -60..140 F, and a high that is not constant
+    within its market-date (the layout repeats it on every snapshot row)."""
+    import math
+
+    out = {}
+    for market, day, value in records:
+        day = str(day)[:10]
+        if not date_ok(day):
+            continue
+        if market not in markets:
+            raise G2PError(f"layout market not in the station set: {market}")
+        unit = unit_of(market)
+        if unit != "F":
+            raise G2PError(f"non-F market {market}: {unit}")
+        v = float(value)
+        if not math.isfinite(v) or v != round(v):
+            raise G2PError(f"non-integer settlement_high {market} {day}: {value!r}")
+        if not -60.0 <= v <= 140.0:
+            raise G2PError(f"implausible F settlement_high {market} {day}: {v}")
+        prev = out.get((market, day))
+        if prev is not None and prev[0] != v:
+            raise G2PError(f"settlement_high not constant within {market} {day}: {prev[0]} vs {v}")
+        out[(market, day)] = (v, unit)
+    return out
+
+
+def overlap_check(rows_a, rows_b, tol=OVERLAP_TOL):
+    """Exact-equality check of d on the (m, d) keys present in both dseries files."""
+    a = {(r["m"], r["d"]): float(r["x"]) for r in rows_a}
+    b = {(r["m"], r["d"]): float(r["x"]) for r in rows_b}
+    keys = sorted(set(a) & set(b))
+    diffs = [abs(a[k] - b[k]) for k in keys]
+    bad = [{"m": k[0], "d": k[1], "a": a[k], "b": b[k]} for k, x in zip(keys, diffs) if x > tol]
+    return {"n_common": len(keys), "dates": sorted({k[1] for k in keys}), "max_abs_diff": max(diffs) if diffs else None,
+            "n_mismatch": len(bad), "mismatches": bad[:50], "only_a": len(set(a) - set(b)),
+            "only_b": len(set(b) - set(a)), "tol": tol, "pass": bool(keys) and not bad}
+
+
+def cmd_dseries26L(a):
+    g2 = load_g2()
+    sys.path.insert(0, str(HERE))
+    import x36_v5 as base
+    import pandas as pd
+    from weather.market.market_registry import spec_for_id
+
+    out = Path(a.out)
+    if out.exists():
+        raise G2PError(f"refusing to overwrite {out}")
+    if sha256_file(a.dev_corpus) != g2.DEV_CORPUS_SHA256:
+        raise G2PError("dev NBM corpus sha mismatch")
+    if sha256_file(a.labels) != LAYOUT_LABELS_SHA256:
+        raise G2PError("layout labels.parquet sha mismatch")
+    corpus, dropped = [], 0
+    for line in Path(a.dev_corpus).read_text(encoding="utf-8").splitlines():
+        d = g2.line_date(line)
+        if d is None or not g2.label_date_ok(d):
+            dropped += 1
+            continue
+        r = json.loads(line)
+        if r["target_date"] != d or r.get("cycle") != "07":
+            raise G2PError(f"unexpected corpus row {d} cycle {r.get('cycle')}")
+        corpus.append(r)
+    frame = pd.read_parquet(a.labels, columns=["date", "market"])
+    keep = frame["date"].astype(str).str[:10].map(g2.label_date_ok)
+    highs = pd.read_parquet(a.labels, columns=["settlement_high"])["settlement_high"][keep.to_numpy()]
+    records = zip(frame["market"][keep], frame["date"][keep], highs)
+    labels = layout_daily_highs(records, set(base.stations()), g2.label_date_ok, lambda m: spec_for_id(m).unit)
+    ps = base.pairs(corpus, labels)
+    rows = sorted(({"m": p["m"], "d": p["d"], "x": p["x"]} for p in ps), key=lambda r: (r["m"], r["d"]))
+    if len({(r["m"], r["d"]) for r in rows}) != len(rows):
+        raise G2PError("duplicate d row")
+    per_market = defaultdict(int)
+    for r in rows:
+        per_market[r["m"]] += 1
+    res = {"schema": g2.SCHEMA + "/dseries26", "label_source": LAYOUT_LABEL_SOURCE,
+           "module_sha256": sha256_file(__file__), "g2_module_sha256": G2_SHA256,
+           "base_module_sha256": sha256_file(base.__file__), "dev_corpus_sha256": g2.DEV_CORPUS_SHA256,
+           "labels_path": str(a.labels), "labels_sha256": LAYOUT_LABELS_SHA256,
+           "label_dates": sorted({d for (_, d) in labels}),
+           "window": [g2.LABEL_FIRST.isoformat(), g2.LABEL_LAST.isoformat()], "corpus_lines_dropped_by_date": dropped,
+           "n_corpus_rows": len(corpus), "n_labels": len(labels), "n_rows": len(rows),
+           "per_market": dict(per_market), "rows": rows}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, sort_keys=True), encoding="utf-8")
+    print(json.dumps({"n_rows": len(rows), "per_market": dict(per_market), "dropped": dropped,
+                      "n_label_dates": len(res["label_dates"]), "sha256": sha256_file(out)}), flush=True)
+    return 0
+
+
+def cmd_overlap(a):
+    out = Path(a.out)
+    if out.exists():
+        raise G2PError(f"refusing to overwrite {out}")
+    ra = json.loads(Path(a.a).read_text(encoding="utf-8"))
+    rb = json.loads(Path(a.b).read_text(encoding="utf-8"))
+    res = overlap_check(ra["rows"], rb["rows"])
+    res.update({"a": str(a.a), "a_sha256": sha256_file(a.a), "b": str(a.b), "b_sha256": sha256_file(a.b),
+                "module_sha256": sha256_file(__file__)})
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
+    print(json.dumps({k: res[k] for k in ("n_common", "max_abs_diff", "n_mismatch", "only_a", "only_b", "pass")}),
+          flush=True)
+    return 0 if res["pass"] else 4
 
 
 def _jsonl(path):
@@ -516,7 +639,17 @@ def main(argv=None):
     k = sub.add_parser("mechanism")
     for name in ("--g1-rows", "--dseries", "--departure-2026", "--out"):
         k.add_argument(name, required=True)
+    dl = sub.add_parser("dseries26L")
+    for name in ("--dev-corpus", "--labels", "--out"):
+        dl.add_argument(name, required=True)
+    ov = sub.add_parser("overlap")
+    for name in ("--a", "--b", "--out"):
+        ov.add_argument(name, required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "dseries26L":
+        return cmd_dseries26L(a)
+    if a.cmd == "overlap":
+        return cmd_overlap(a)
     if a.cmd == "mechanism":
         return cmd_mechanism(a)
     return {"dseries26p": cmd_dseries26p, "g1mbb": cmd_g1mbb, "mbbdev": cmd_mbbdev, "compare": cmd_compare}[a.cmd](a)

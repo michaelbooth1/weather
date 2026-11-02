@@ -157,3 +157,65 @@ def test_month_groups_split_aug_and_sep():
     res = g2p.month_groups(dates, [1.0, -1.0, -2.0, 0.0], [1.0, 1.0, 1.0, 1.0], w)
     assert res["aug"]["n_cells"] == 2 and res["aug"]["cluster"]["estimate"] == 0.0
     assert res["sep"]["cluster"]["estimate"] == -1.0 and res["sep"]["n_dates"] == 2
+
+
+# ------------------------------------------------------------------ dseries26L (Clarification 4)
+
+def _ok(day):
+    return "2026-07-31" <= day <= "2026-09-28"
+
+
+def _f(_market):
+    return "F"
+
+
+def test_layout_daily_highs_one_value_per_market_date():
+    recs = [("atlanta", "2026-08-01", 91.0), ("atlanta", "2026-08-01", 91.0), ("austin", "2026-08-01", 99.0),
+            ("atlanta", "2026-08-02", 90.0)]
+    out = g2p.layout_daily_highs(recs, {"atlanta", "austin"}, _ok, _f)
+    assert out == {("atlanta", "2026-08-01"): (91.0, "F"), ("austin", "2026-08-01"): (99.0, "F"),
+                   ("atlanta", "2026-08-02"): (90.0, "F")}
+
+
+def test_layout_daily_highs_drops_out_of_window_dates_before_the_value():
+    recs = [("atlanta", "2026-09-29", float("nan")), ("atlanta", "2026-07-30", 1.5), ("atlanta", "2026-09-28", 80.0)]
+    out = g2p.layout_daily_highs(recs, {"atlanta"}, _ok, _f)
+    assert out == {("atlanta", "2026-09-28"): (80.0, "F")}
+
+
+@pytest.mark.parametrize("recs, msg", [
+    ([("atlanta", "2026-08-01", 91.0), ("atlanta", "2026-08-01", 92.0)], "not constant"),
+    ([("atlanta", "2026-08-01", 91.5)], "non-integer"),
+    ([("atlanta", "2026-08-01", float("nan"))], "non-integer"),
+    ([("atlanta", "2026-08-01", 33.0 + 200)], "implausible"),
+    ([("toronto", "2026-08-01", 80.0)], "not in the station set"),
+])
+def test_layout_daily_highs_refuses(recs, msg):
+    with pytest.raises(g2p.G2PError, match=msg):
+        g2p.layout_daily_highs(recs, {"atlanta"}, _ok, _f)
+
+
+def test_layout_daily_highs_refuses_non_f_market():
+    with pytest.raises(g2p.G2PError, match="non-F"):
+        g2p.layout_daily_highs([("atlanta", "2026-08-01", 30.0)], {"atlanta"}, _ok, lambda m: "C")
+
+
+def test_overlap_check_exact_and_mismatch():
+    a = [{"m": "atlanta", "d": "2026-08-01", "x": 1.25}, {"m": "atlanta", "d": "2026-08-02", "x": -0.5},
+         {"m": "austin", "d": "2026-07-31", "x": 0.0}]
+    b = [{"m": "atlanta", "d": "2026-08-01", "x": 1.25}, {"m": "atlanta", "d": "2026-08-02", "x": -0.5},
+         {"m": "atlanta", "d": "2026-08-03", "x": 2.0}]
+    res = g2p.overlap_check(a, b)
+    assert res["pass"] and res["n_common"] == 2 and res["max_abs_diff"] == 0.0
+    assert res["only_a"] == 1 and res["only_b"] == 1
+    b[1]["x"] = -1.5
+    res = g2p.overlap_check(a, b)
+    assert not res["pass"] and res["n_mismatch"] == 1 and res["max_abs_diff"] == 1.0
+    assert not g2p.overlap_check(a, [])["pass"]
+
+
+def test_dseries26l_and_overlap_are_registered():
+    with pytest.raises(SystemExit):
+        g2p.main(["dseries26L", "--help"])
+    with pytest.raises(SystemExit):
+        g2p.main(["overlap", "--help"])
