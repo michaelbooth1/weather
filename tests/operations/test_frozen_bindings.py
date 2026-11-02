@@ -10,7 +10,8 @@ nothing else in either file. At S1 the MG-1 registry entry in ``mg1_reserved_win
 ``MG1_LOOK_ENTRY_SHA256``. The S1 commit is strict (master, 2026-11-01): besides the two lines it may add at most
 one new file, matching ``s1_companion_glob`` (``docs/research/**/b1-clarification-7-*.md``), and nothing else
 (``s1_commit_problems`` pins that rule; the guard applies it to the commit). A present release record is checked
-for B's rule sha, a committed ``receipt_path`` whose raw bytes hash to ``receipt_sha256``, and a DECISION_LOG row;
+for B's rule sha, a committed ``receipt_path`` made non-text by ``.gitattributes`` (exact path, ``-text`` or
+``binary``) whose raw bytes hash to ``receipt_sha256``, and a DECISION_LOG row;
 an abandonment record's row must name an owner abandonment. The git-diff side (no modify or delete of a record,
 additions only to the registry, the strict S1 head) is ``scripts/ops/frozen_binding_guard.ps1``.
 
@@ -101,6 +102,26 @@ def owner_abandonment_rows(decision_log: str, row: str) -> list[str]:
             and not re.search("not an owner decision", line, re.I)]
 
 
+def receipt_attribute_problem(gitattributes: str, path: str) -> str | None:
+    """The receipt must be committed byte-exact (master, 2026-11-01): ``.gitattributes`` makes ``path`` non-text.
+
+    Exact path only: a line whose pattern is ``path`` or ``/path`` with ``-text`` or ``binary``, and no later line
+    (any pattern) that sets text again (``text``, ``text=...`` or ``!text``). Fail-closed: put the line last."""
+    exact_at = None
+    for index, line in enumerate(gitattributes.splitlines()):
+        tokens = line.split()
+        if not tokens or tokens[0].startswith(("#", "[attr]")):
+            continue
+        sets_text = any(t == "text" or t.startswith("text=") or t == "!text" for t in tokens[1:])
+        if tokens[0] in (path, "/" + path) and ("-text" in tokens[1:] or "binary" in tokens[1:]) and not sets_text:
+            exact_at = index
+        elif sets_text:
+            exact_at = None
+    if exact_at is None:
+        return f"receipt must be committed byte-exact: add '{path} -text' to .gitattributes in the same head"
+    return None
+
+
 def record_problems(text: str, hold: dict, decision_log: str, root: Path) -> list[str]:
     """A present release record (master's R14 ruling 2026-11-01): a look record carries rule_sha256 (B's rule sha,
     the hold's record_rule_sha256), receipt_path (repo-relative, committed) and receipt_sha256 over that file's
@@ -134,6 +155,10 @@ def record_problems(text: str, hold: dict, decision_log: str, root: Path) -> lis
         problems.append(f"release record receipt_path {receipt_path!r} is not a repo-relative path")
     elif not (root / receipt_path).is_file():
         problems.append(f"release record receipt_path {receipt_path} is not in the checkout")
+    elif attribute := receipt_attribute_problem(
+            (root / ".gitattributes").read_text(encoding="utf-8") if (root / ".gitattributes").is_file() else "",
+            receipt_path):
+        problems.append(attribute)  # checked before the sha: a normalised blob must not read as a bare mismatch
     elif _sha((root / receipt_path).read_bytes()) != receipt_sha:  # raw bytes: no line-ending normalisation
         problems.append(f"release record receipt_sha256 is not the sha256 of the bytes of {receipt_path}")
     return problems
@@ -470,9 +495,36 @@ MASTER_ROW = "| 2099-02-01 | **MASTER RULING, not an owner decision: B-1 abandon
 ABANDONMENT = "# B abandoned\n\nb_abandonment: B-1 abandoned\ndecision_log_row: 2099-02-01\n"
 
 
-def _receipt(tree: Path, data: bytes = RECEIPT_BYTES) -> None:
+ATTRIBUTE_MESSAGE = (f"receipt must be committed byte-exact: add '{RECEIPT_REL} -text' to .gitattributes in the "
+                     "same head")
+
+
+def _receipt(tree: Path, data: bytes = RECEIPT_BYTES, attribute: str | None = f"{RECEIPT_REL} -text") -> None:
     (tree / RECEIPT_REL).parent.mkdir(parents=True, exist_ok=True)
     (tree / RECEIPT_REL).write_bytes(data)
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    if attribute is not None:
+        attributes = attributes.rstrip("\n") + f"\n{attribute}\n"
+    (tree / ".gitattributes").write_text(attributes, encoding="utf-8", newline="\n")
+
+
+@pytest.mark.parametrize("attribute", [f"{RECEIPT_REL} -text", f"{RECEIPT_REL} binary", f"/{RECEIPT_REL} -text"],
+                         ids=["minus-text", "binary", "anchored"])
+def test_receipt_attribute_line_passes(tree: Path, attribute: str):
+    _receipt(tree, attribute=attribute)
+    _record(tree, GOOD_RECORD)
+    assert all_problems(tree) == []
+
+
+@pytest.mark.parametrize("attribute", [None, f"{RECEIPT_REL} -text\n*.json text", f"{RECEIPT_REL} text",
+                                       "docs/research/b-look-record/*.json -text", "b_look_receipt.json -text"],
+                         ids=["no-line", "overridden-later", "text-not-minus", "glob-not-exact", "basename"])
+def test_receipt_without_a_byte_exact_attribute_refuses(tree: Path, attribute: str | None):
+    _receipt(tree, attribute=attribute)
+    _record(tree, GOOD_RECORD)
+    problems = all_problems(tree)
+    assert f"B-1: {ATTRIBUTE_MESSAGE}" in problems, problems
+    assert not any("not the sha256 of the bytes" in p for p in problems), problems
 
 
 def _log_row(tree: Path, row: str) -> None:

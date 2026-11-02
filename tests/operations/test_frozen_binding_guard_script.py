@@ -5,7 +5,8 @@ lines in one head, the scorer's entry constant and the wrapper's pin, set to the
 registry is judged as it is at the merge base and may only grow by pure additions; records are frozen for good,
 code pins until the release record exists. Master's strict S1 ruling (2026-11-01): besides the two lines the S1
 head may add at most one new file, matching docs/research/**/b1-clarification-7-*.md. The release record ruling:
-B's rule sha, a committed receipt_path whose exact bytes hash to receipt_sha256, a DECISION_LOG row, and for an
+B's rule sha, a committed receipt_path made non-text by an exact .gitattributes line (-text or binary) whose
+exact bytes hash to receipt_sha256, a DECISION_LOG row, and for an
 abandonment a row naming an owner abandonment.
 """
 from __future__ import annotations
@@ -82,6 +83,7 @@ BASE_FILES = {
     "src/released.py": "released = 1\n",
     "src/free.py": "free = 1\n",
     "scripts/export.ps1": "'export'\n",
+    ".gitattributes": "* text=auto eol=lf\n",  # as in the real repository: a CRLF receipt would be normalised
     "docs/operations/DECISION_LOG.md": ("# log\n| 2026-10-28 | **B-1 bound.** |\n"
                                         "| 2099-02-01 | **B-1 abandoned (owner).** The owner abandons B-1. |\n"
                                         "| 2099-03-01 | **MASTER RULING, not an owner decision: B-1 abandoned.** |\n"
@@ -281,9 +283,31 @@ GOOD_RECORD = (f"# record\nrule_sha256: {'1' * 64}\nreceipt_path: {RECEIPT}\nrec
                "decision_log_row: 2026-10-28\n")
 
 
-def test_adding_a_valid_look_record_passes(repo: Path):
-    out = _judge(repo, {RECORD: GOOD_RECORD, RECEIPT: RECEIPT_TEXT})
+ATTRIBUTES = "* text=auto eol=lf\n" + f"{RECEIPT} -text\n"
+ATTRIBUTE_MESSAGE = f"B-1: receipt must be committed byte-exact: add '{RECEIPT} -text' to .gitattributes in the same head"
+
+
+def _with_attributes(files: dict[str, str | None]) -> dict[str, str | None]:
+    return {".gitattributes": ATTRIBUTES, **files} if RECEIPT in files else files
+
+
+@pytest.mark.parametrize("line", [f"{RECEIPT} -text", f"{RECEIPT} binary", f"/{RECEIPT} -text"],
+                         ids=["minus-text", "binary", "anchored"])
+def test_adding_a_valid_look_record_passes(repo: Path, line: str):
+    out = _judge(repo, {RECORD: GOOD_RECORD, RECEIPT: RECEIPT_TEXT, ".gitattributes": f"* text=auto eol=lf\n{line}\n"})
     assert out["Ok"] is True, out
+
+
+@pytest.mark.parametrize("attributes", [None, ATTRIBUTES + "*.json text\n", f"* text=auto eol=lf\n{RECEIPT} text\n",
+                                        "* text=auto eol=lf\ndocs/record/*.json -text\n"],
+                         ids=["no-line", "overridden-later", "text-not-minus", "glob-not-exact"])
+def test_receipt_without_a_byte_exact_attribute_refuses(repo: Path, attributes: str | None):
+    files: dict[str, str | None] = {RECORD: GOOD_RECORD, RECEIPT: RECEIPT_TEXT}
+    if attributes is not None:
+        files[".gitattributes"] = attributes
+    out = _judge(repo, files)
+    assert out["Ok"] is False and ATTRIBUTE_MESSAGE in out["Refusals"], out  # type: ignore[operator]
+    assert not any("not the sha256 of the bytes" in r for r in out["Refusals"]), out  # type: ignore[union-attr]
 
 
 def test_adding_an_owner_abandonment_record_passes(repo: Path):
@@ -311,7 +335,7 @@ def test_adding_an_owner_abandonment_record_passes(repo: Path):
         "dotdot-path", "receipt-not-committed", "duplicate-field", "row-not-in-log", "abandonment-master-row",
         "abandonment-owner-not-abandon", "abandonment-not-owner", "abandonment-without-row"])
 def test_adding_a_malformed_record_refuses(repo: Path, files: dict[str, str | None], fragment: str):
-    _only(_judge(repo, files), fragment)
+    _only(_judge(repo, _with_attributes(files)), fragment)
 
 
 def test_registry_pure_addition_passes(repo: Path):

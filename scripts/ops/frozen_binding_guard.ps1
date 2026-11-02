@@ -25,8 +25,9 @@
 #
 # The release record (master's R14 ruling 2026-11-01) is checked when a head adds it while the hold
 # is active. Fields are key: value lines. A look record has rule_sha256 equal to the hold's
-# record_rule_sha256, receipt_path (a repo-relative path committed at the tip), receipt_sha256 equal
-# to the sha256 of that blob's exact bytes, and decision_log_row (a YYYY-MM-DD with a DECISION_LOG
+# record_rule_sha256, receipt_path (a repo-relative path committed at the tip and made non-text by a
+# .gitattributes line at the tip: exact path with -text or binary, not set to text by any later line),
+# receipt_sha256 equal to the sha256 of that blob's exact bytes, and decision_log_row (a YYYY-MM-DD with a DECISION_LOG
 # row at the tip). An abandonment record has b_abandonment and decision_log_row, and a DECISION_LOG
 # row of that date must name an owner abandonment: it contains the word "owner" and "abandon", and
 # not "not an owner decision" (case-insensitive).
@@ -88,6 +89,23 @@ function Get-FrozenBindingBlobSha256([string]$Repo, [string]$Commit, [string]$Pa
     return (-join ($hash | ForEach-Object { $_.ToString("x2") }))
 }
 
+function Test-FrozenBindingReceiptByteExact([string]$Repo, [string]$Tip, [string]$Path) {
+    # Exact path only: a .gitattributes line (at the tip) whose pattern is $Path or /$Path with -text or binary,
+    # and no later line, any pattern, that sets text again (text, text=..., !text). Fail-closed: put it last.
+    if (-not (Test-FrozenBindingBlob $Repo $Tip ".gitattributes")) { return $false }
+    $exact = $false
+    foreach ($line in (Get-FrozenBindingBlobLines $Repo $Tip ".gitattributes")) {
+        $tokens = @($line.Trim() -split '\s+' | Where-Object { $_ })
+        if ($tokens.Count -eq 0 -or $tokens[0].StartsWith("#") -or $tokens[0].StartsWith("[attr]")) { continue }
+        $attributes = @($tokens | Select-Object -Skip 1)
+        $setsText = @($attributes | Where-Object { $_ -ceq "text" -or $_.StartsWith("text=") -or $_ -ceq "!text" }).Count -gt 0
+        if (($tokens[0] -ceq $Path -or $tokens[0] -ceq "/$Path") -and
+            ($attributes -ccontains "-text" -or $attributes -ccontains "binary") -and -not $setsText) { $exact = $true }
+        elseif ($setsText) { $exact = $false }
+    }
+    return $exact
+}
+
 function Get-FrozenBindingRecordProblems([string]$Repo, [string]$Tip, $Hold, [string]$RecordPath) {
     $problems = New-Object System.Collections.Generic.List[string]
     $fields = @{}
@@ -129,6 +147,10 @@ function Get-FrozenBindingRecordProblems([string]$Repo, [string]$Tip, $Hold, [st
     else {
         $actual = Get-FrozenBindingBlobSha256 $Repo $Tip $receiptPath
         if ($null -eq $actual) { $problems.Add("release record receipt_path $receiptPath is not committed at the tip") }
+        elseif (-not (Test-FrozenBindingReceiptByteExact $Repo $Tip $receiptPath)) {
+            # Checked before the sha: a normalised blob must not read as a bare sha mismatch.
+            $problems.Add("receipt must be committed byte-exact: add '$receiptPath -text' to .gitattributes in the same head")
+        }
         elseif ($actual -cne $receiptSha) {
             $problems.Add("release record receipt_sha256 is not the sha256 of the bytes of $receiptPath ($actual)")
         }
