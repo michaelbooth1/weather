@@ -89,6 +89,7 @@ antecedent windows), and reweighted means on partly duplicated days. Maxima and 
   and `duplicate_disagreement_days` with `duplicate_disagreement_dates`, the local dates where two non-null values
   differ. The generation-time field is ignored. The rebuild's disagreement check uses the normalized record. The
   synoptic reader merges its raw fields the same way, but it has no manifest and logs nothing.
+- `load_raw_daily_metrics` fills are not logged because it has no manifest.
 - Chicago scratch rebuild with the null-aware merge: 19,344 duplicate hours dropped, matching the census. No field
   was filled and none disagreed. Row counts are 23:27, 24:9608, 25:26, none <=22 or >=26. The keep-first dedupe
   dropped 18,882 because it ran after null-temperature hours were skipped. The other 462 duplicate hours have no
