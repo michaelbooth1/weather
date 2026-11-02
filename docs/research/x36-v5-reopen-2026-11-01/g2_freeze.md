@@ -424,3 +424,47 @@ Aug runs 08-15..08-31 and Sep runs 09-01..09-29, subject to the scorecard's scor
 The branch-local line `"tools.research.x36_v5_reopen.x36_trailing_g2p",` was added to
 `scripts/ops/workload_admission.ps1` after the g2 line. Commit `9267072cc696cbf11f664ba7568c9a72cef0f05f`: one
 line, additions only, `.codex` untouched.
+
+## Clarification 3 (2026-11-01, master ruling (B), additions only, before dev opens)
+
+Master ruled that dev runs as frozen. The verdict rule is unchanged: the three-way verdict, G2-P parity, and the
+Aug/Sep breakdown in hand before any CONSISTENT promotion. Nothing below changes a gate.
+
+### C3.1 Two competing ex-ante predictions (n = 5, neither is a gate)
+
+All figures come from `mechanism.json` (sha `d84f120d1189d7f3104fc319621c7ec621cae27f2fca74b9488d5c31ef7cde5f`)
+and are training-era only. The fits use 5 points (one per year), so each slope is anecdotal.
+
+- **Size reading.** The specified regressor is the applied shift size: the market-mean |departure|
+  (`market_abs_departure`). It has Spearman −0.80, the strongest of the fits, and its direction is the predicted
+  one (bigger departures go with more improvement). The fit is OLS gain = +0.00711 − 0.01371 · x.
+  - The C2 figure of −0.0035 was computed on a different regressor, `pooled_abs_departure` (= |mean over markets
+    of the departure|, Spearman −0.50, OLS +0.00009 − 0.01054 · x), with x = 0.34. It is **not** the size-reading
+    prediction, which needs the 2026 market-mean |departure| (C3.2).
+- **Sign reading.** Regressor: the signed pooled departure (Spearman +0.60, OLS −0.00230 + 0.01160 · x). With
+  x = +0.34 the implied gain is about **+0.0016**, i.e. harm. This fit is confounded: the two years with the
+  largest magnitude (2022, 2023) are also the two cool ones.
+- The two readings differ by about 0.005, roughly one MDE80 (§10y, about 0.005-0.006). Dev therefore partly
+  adjudicates between them; with n = 5 neither reading can overrule the pre-registered gate.
+
+### C3.2 2026 market-mean |departure|: not computable without new dev reads
+
+Only Analysis 5 of `docs/research/morning-loss-diagnosis-2026-10-24.md` was read, which is dated evidence
+already in the record. It reports pooled product biases only (NBM v2 mean +0.74 / top +0.02). It gives per-market
+blend MAE shortfalls but no per-market NBM bias. The 2026 market-mean |departure|, and so the size-reading point
+prediction, is **not computable without new dev reads**, and none were made.
+
+What the record does fix:
+
+- `pooled_signed` is the mean over markets of the departure, so the market-mean |departure| is at least the
+  pooled |departure| (triangle inequality).
+- If the 2026 pooled figure of 0.34 were taken as that floor, the size reading would bound the 2026 gain at
+  ≤ 0.00711 − 0.01371 · 0.34 ≈ +0.0025. That bound is uninformative.
+- The size reading crosses the kill line (−0.0005) only when the market-mean |departure| exceeds about 0.56 °F.
+  The training range was 0.38-0.85.
+- Caveat: the 2026 0.34 is an NBM-bias-to-outcome figure minus a training market mean. It is not the same
+  d-series construction as the training departures, so even the floor is approximate.
+
+### C3.3 Sign-asymmetric corrections
+
+Any sign-asymmetric correction is a NEW family needing its own rule, never a K112 variant.
