@@ -145,6 +145,11 @@ switch ($Kind) {
         ) {
             throw "weather-heavy workload must be an offline training/replay module"
         }
+        $argumentRefusal = Get-WeatherWorkstationOfflineArgumentRefusal `
+            -Module $module -Arguments @($arguments | Select-Object -Skip 2)
+        if ($null -ne $argumentRefusal) {
+            throw $argumentRefusal
+        }
     }
 }
 

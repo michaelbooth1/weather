@@ -627,6 +627,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
         "weather.calibration.b_look_per_date",
+        "weather.calibration.b_look_wrapper",
         "weather.calibration.b_post_look_serial",
         "weather.calibration.b_scorer",
         "weather.calibration.feature_model",
@@ -663,6 +664,88 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.reporting.scorecards.train_serve_feature_parity",
         "weather.sources.forecast_training_corpus"
     )
+}
+
+
+# Arguments refused although their module is admitted (mirror of the Codex hook's
+# offline_argument_refusal; master ruling 2026-11-01, M4, and the second adversarial
+# pass): B's one look runs only through the pinned b_look_wrapper (B-1 Clarification 3).
+# A token is look-like when it is "look" or an ASCII case-insensitive prefix of it (a
+# conservative prefix refusal; Python 3.11 argparse does not abbreviate subcommands),
+# the empty string, or contains any non-ASCII character.
+# Structured half (module weather.calibration.b_scorer): the first positional token is
+# the first token after the module that does not start with "-"; it is refused when
+# look-like, and if an option ("--" included) precedes it, any later look-like token is
+# refused too ("--rule x look").
+# Raw half (fail-closed, every module except the exact b_look_wrapper): the text
+# "<module> <arguments>" naming b_scorer (module path, file path, a bare b_scorer[.py] word, or
+# "from weather.calibration import b_scorer") together with any look-like token
+# (separators are ASCII non-word characters) is refused.
+# Returns the refusal text, or $null when the arguments are admitted.
+function Test-WeatherBLookLikeToken {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$Token)
+
+    foreach ($character in $Token.ToCharArray()) {
+        if ([int]$character -gt 127) { return $true }
+    }
+    return "look".StartsWith($Token.ToLowerInvariant(), [StringComparison]::Ordinal)
+}
+
+
+function Get-WeatherWorkstationOfflineArgumentRefusal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Module,
+        [AllowEmptyCollection()][string[]]$Arguments = @()
+    )
+
+    $wrapper = "weather.calibration.b_look_wrapper"
+    if ($Module -ceq $wrapper) { return $null }
+    $use = "python -m $wrapper look"
+    $tokens = @($Arguments | ForEach-Object { [string]$_ })
+    if ($Module -ceq "weather.calibration.b_scorer") {
+        $index = -1
+        for ($i = 0; $i -lt $tokens.Count; $i++) {
+            if (-not $tokens[$i].StartsWith("-", [StringComparison]::Ordinal)) { $index = $i; break }
+        }
+        if ($index -ge 0) {
+            if (Test-WeatherBLookLikeToken -Token $tokens[$index]) {
+                return (
+                    "python -m {0} look is refused (master ruling 2026-11-01): run it as {1} " +
+                    "(B-1 Clarification 3)."
+                ) -f $Module, $use
+            }
+            if ($index -gt 0) {
+                for ($i = $index; $i -lt $tokens.Count; $i++) {
+                    if (Test-WeatherBLookLikeToken -Token $tokens[$i]) {
+                        return (
+                            "python -m {0} with an option ('{1}') before its subcommand and a look-like " +
+                            "token after it is refused: put the subcommand first. Its look subcommand runs " +
+                            "only as {2} (master ruling 2026-11-01, B-1 Clarification 3)."
+                        ) -f $Module, $tokens[0], $use
+                    }
+                }
+            }
+        }
+    }
+    $text = (@($Module) + $tokens) -join " "
+    $scorerText = 'weather[./\\]+calibration(?:[./\\]+|[ \t\r\n]+import[ \t\r\n]+[A-Za-z0-9_ \t\r\n,()]*?)b_scorer(?![A-Za-z0-9_])' +
+        '|(?:^|[ \t\r\n"''\\/])b_scorer(?:\.py[cw]?)?(?![A-Za-z0-9_])'
+    # ASCII-only lower-casing (A-Z), never culture or Unicode case folding: the hook does the same.
+    $lowered = [regex]::Replace($text, '[A-Z]', { param($m) [string][char]([int][char]$m.Value + 32) })
+    if ([regex]::IsMatch($lowered, $scorerText)) {
+        foreach ($token in [regex]::Split($text, '[^A-Za-z0-9_\-\u0080-\uFFFF]+')) {
+            if ($token.Length -gt 0 -and (Test-WeatherBLookLikeToken -Token $token)) {
+                return (
+                    "a command naming weather.calibration.b_scorer together with a look-like token " +
+                    "('{0}') is refused (master ruling 2026-11-01, fail-closed): B's one look runs only " +
+                    "as {1} (B-1 Clarification 3)."
+                ) -f $token, $use
+            }
+        }
+    }
+    return $null
 }
 
 
