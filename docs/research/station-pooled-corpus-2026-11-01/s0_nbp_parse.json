@@ -1,0 +1,40 @@
+{
+ "candidates_ex_gulf": 1365,
+ "by_version": {
+  "2021_V4.0": {
+   "counts": {
+    "usable_mean_sd": 1365
+   },
+   "block_bytes_median": 2997,
+   "file_bytes": 26669576
+  },
+  "2023_V4.1": {
+   "counts": {
+    "usable_mean_sd": 1365
+   },
+   "block_bytes_median": 3807,
+   "file_bytes": 34806674
+  },
+  "2024_V4.2": {
+   "counts": {
+    "usable_mean_sd": 1365
+   },
+   "block_bytes_median": 3807,
+   "file_bytes": 34806674
+  },
+  "2025_V4.3": {
+   "counts": {
+    "usable_mean_sd": 1365
+   },
+   "block_bytes_median": 3807,
+   "file_bytes": 34806674
+  },
+  "2026_V5.0": {
+   "counts": {
+    "usable_mean_sd": 1365
+   },
+   "block_bytes_median": 3684,
+   "file_bytes": 34724509
+  }
+ }
+}

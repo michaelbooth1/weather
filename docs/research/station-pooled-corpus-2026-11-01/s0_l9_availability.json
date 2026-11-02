@@ -1,0 +1,72 @@
+{
+ "2021": {
+  "dates": 135,
+  "object": 135,
+  "station_blocks": 1485,
+  "station_missing": 0,
+  "versions": {
+   "V4.0": 1485
+  },
+  "size_mb_min_med_max": [
+   26.7,
+   26.7,
+   26.7
+  ]
+ },
+ "2022": {
+  "dates": 135,
+  "object": 135,
+  "station_blocks": 1485,
+  "station_missing": 0,
+  "versions": {
+   "V4.0": 1485
+  },
+  "size_mb_min_med_max": [
+   26.7,
+   26.7,
+   26.7
+  ]
+ },
+ "2023": {
+  "dates": 135,
+  "object": 135,
+  "station_blocks": 1485,
+  "station_missing": 0,
+  "versions": {
+   "V4.1": 1485
+  },
+  "size_mb_min_med_max": [
+   34.8,
+   34.8,
+   34.8
+  ]
+ },
+ "2024": {
+  "dates": 135,
+  "object": 135,
+  "station_blocks": 1485,
+  "station_missing": 0,
+  "versions": {
+   "V4.2": 1485
+  },
+  "size_mb_min_med_max": [
+   34.8,
+   34.8,
+   34.8
+  ]
+ },
+ "2025": {
+  "dates": 135,
+  "object": 135,
+  "station_blocks": 1485,
+  "station_missing": 0,
+  "versions": {
+   "V4.3": 1485
+  },
+  "size_mb_min_med_max": [
+   34.8,
+   34.8,
+   34.8
+  ]
+ }
+}
