@@ -648,23 +648,33 @@ Stage-A, workstation or live authority is added.
    previous record in place. A record more than 300 seconds old or more than 60
    seconds in the future is stale and ignored; otherwise its remembered owners
    stay usable (they match by PID and creation instant). Each record also stores
-   `run_seconds`, the writing run's time from its start instant to its write;
-   `k = max(1, ceil(run_seconds / 60))` is the trigger minutes it occupied (the
-   task ignores triggers while a run is still going). The unreadable-lock count
-   carries over in full when the record is at most `60k + 30` seconds old,
-   otherwise at most 1, and none if the record is dated in the future (clock
-   tolerance); a record without `run_seconds` reads as `k = 1`, the old 90 second
-   rule. Soundness: with no run in between, the reader starts at the first
-   trigger after the writer ended, about `60k` seconds plus start-up latency
-   after the writer's start, and carries in full; with a run in between that did
-   not write, it starts at least `60(k+1)` seconds after, so the carry is capped.
-   The 30 second margin is the old rule's, and `run_seconds` omits the writer's
-   start-up, so its `k` can only be too low, which caps and only spares. A stale
-   count can therefore never push a run past the two-run limit. A write failure
+   the writing guard's own process start (`run_started_at_utc`, from
+   `Get-Process -Id $PID`) and `run_seconds`, its time from that start to the
+   write; `k = max(1, ceil(run_seconds / 60))` is the trigger minutes it occupied
+   (the task ignores triggers while a run is still going). With `a` the reader's
+   process start minus the writer's, the unreadable-lock count carries over in
+   full when `0 <= a <= 60k + 30` (and 300), otherwise at most 1, and none when
+   `a < 0` or the record is dated in the future. At most 1 also carries when
+   either process start is unknown (a record written before this field, so the
+   first run after rollout caps, or `Get-Process` could not say) or
+   `run_seconds` is not a number from 0 to 300 (absent reads as 0, `k = 1`).
+   Why: measuring both runs from their process starts cancels PowerShell
+   start-up time, which is slowest under commit pressure, and leaves only Task
+   Scheduler's launch latency. With no run in between, the reader is the first
+   trigger after the writer ended, `a = 60k` plus the launch-latency
+   difference; with a run in between that did not write, `a >= 60(k+1)` plus
+   that difference, past the window. This is not unconditional: it assumes the
+   two runs' launch latencies differ by under 30 seconds, no backward clock step
+   of 30 seconds or more between them, and no out-of-band (manual) guard run
+   starting in between. `run_seconds` misses only the launch latency before the
+   process and the status write after the state write, so `k` can only be too
+   low, which caps and only spares. A stale count can therefore never push a run
+   past the two-run limit under those assumptions. A write failure
    that persists keeps the count from building, so the two-run cap is then in
    effect off: torn locks keep sparing, never killing more. The status file
    reports `guard_state_read` (`absent`, `ok`, `stale`, `unreadable`, `invalid`),
-   `guard_state_written` and `guard_state_degraded`; `guard_state_degraded` is a
+   `guard_state_carry` (`full`, `capped`, `none`), `guard_state_written` and
+   `guard_state_degraded`; `guard_state_degraded` is a
    status field only, nothing reads it, and no health alert is raised from it.
    **Release.** `Exit-WeatherHeavyWorkloadLease` overwrites the repository lock
    with a `weather_heavy_workload_lease_released_v1` marker before it disposes the
@@ -684,8 +694,10 @@ Stage-A, workstation or live authority is added.
    (budget kills then stop heavy members only), for at most two runs in a row
    (counted in the state file above). From the third consecutive run every rule
    applies as if the file were absent, so a lock rewritten as garbage every
-   minute cannot disable the guard, including while every run takes over 60
-   seconds (the count follows each record's `run_seconds`). An older empty or
+   minute cannot disable the guard, including while runs take over 60 seconds
+   or start slowly (`run_seconds` counts from the process start); only a run
+   that ends within Task Scheduler's launch latency of a trigger can be
+   undercounted, which holds the count at 2 and spares. An older empty or
    unparseable file is stale and ignored. A file whose last-write time cannot be
    read counts as mid-write only for a sharing or lock violation or a vanished
    file; any other failure is logged as ERROR and the file is ignored.
