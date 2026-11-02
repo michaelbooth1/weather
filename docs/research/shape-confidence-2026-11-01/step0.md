@@ -3,7 +3,9 @@
 **SELECTION EVIDENCE, descriptive.** Dated research evidence, not instruction. Inputs: the R-H atlas population only
 (layout 2026-08-01..09-29, 57 dates, 626 market-days; capture-time market `p_market_yes`; L6 part `07a67425…`,
 nowcasts `3806687c…`, P3d_N_fix emissions `cd0034b9…` and `abc43507…`; layout manifest `4d53fdbd…`). Nothing dated
-after 2026-09-29 was opened. No new candidate was scored. Ledger row: TBD (coordinator assigns).
+after 2026-09-29 was opened. No new candidate was scored. **Ledger row 110 (count 209)**: master ruled on 2026-11-01 that the step-0 outputs stand. The approval is recorded
+retroactively for modules `shape_confidence_l47` and `shape_confidence_l47_order` on `claude/shape-confidence-20261101`
+@ `5aad84df8d89071a530d15b0521f3f65a1c516b6`. The branch-local allowlist edit was flagged to master; any future use needs master's named approval.
 
 Code: `weather.calibration.shape_confidence_l47 step0` (commit `e9a08249f03e0e2d395de37490f4f1c7fc29ba9e`) and
 `weather.calibration.shape_confidence_l47_order` (commit `ca919dec5deb5109c7d58f29b14df54c39317227`), both run on the
