@@ -490,7 +490,7 @@ replay snapshot of the hour (allowed only for MG-2 vs MG-1). Each rule was commi
 
 **B, thin markets beyond our 12 (L14 direction B, master 2026-11-01).** Dev-era other-city highest-temperature markets are not thinner: median lifetime volume 40.5k vs ours 40.9k; thin tail Zhengzhou, Jinan, Panama City, Mexico City, Jeddah, Istanbul, Kuala Lumpur; lowest family about 25x thinner everywhere (file `608203df`). General B PARKED; HK/Istanbul/Moscow/Tel Aviv unlabelable; lowest family = maker-side volume note only. B2 closed: X90.
 
-**Market price reliability by bin (2026-11-01).** Market price reliability by bin on our 12: never measured; BARRED as out of the 10-23 model-only scope (market-only map, scored against its own input; EF:696/700); reopen only by owner ruling (kill-check `c62dd52e`); owner question pending.
+**Market price reliability by bin (2026-11-01).** Market price reliability by bin on our 12: never measured; BARRED as out of the 10-23 model-only scope (market-only map, scored against its own input; EF:696/700); reopen only by owner ruling (kill-check `c62dd52e`); owner question pending. **OPENED-BY-OWNER 11-01** (DECISION_LOG 2026-11-01): dev-only measurement on the US11 markets, kill-only, power check first; prereg `claude/market-reliability-bin-prereg-20261101`, approved rev 2 `e541ad40`. Not ruled out until that read reports.
 
 **Still open, not ruled out (2026-10-26):** R-K, the HRRR 13-16 hourly path as a P3d_N input (rule `21b5dfe1…`
 pre-registered on `claude/rung0712-20261025` @ `4a850183f`; gate 2 LOYO PASS −0.0139 [−0.0166, −0.0112] on training

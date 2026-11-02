@@ -21,6 +21,7 @@ changing inventories, metrics, versions, or operational state.
 | What is happening now; decisions in force; answered questions | `docs/operations/STATE_OF_PLAY.md` (rewritten, never appended; the only dated canonical file) |
 | Dated history of owner decisions | `docs/operations/DECISION_LOG.md` (append-only; a row in the same commit as the STATE_OF_PLAY change) |
 | Unanswered research questions, the data that would answer them, owning mission | `docs/operations/OPEN_QUESTIONS.md` (ids never reused; handoffs name ids, handbacks update rows) |
+| Which dates are held out and for what: test reservations, exemptions, the post-09-29 outcome embargo | `docs/operations/reserved-confirmation-window.md` (single source; its status line is carried by every research handoff) |
 | The list of audits, their status and dispositions | `docs/roadmap/audits/README.md` (a row for every audit, added in the audit's commit) |
 | Product purpose, setup, dashboard, operator commands | `README.md` |
 | Repository-wide agent rules and task routing | root `AGENTS.md` |
@@ -272,7 +273,7 @@ they carry line budgets. The documentation audit enforces them; the constants in
 
 | Always-loaded file | Budget (physical lines) |
 | --- | --- |
-| `docs/operations/STATE_OF_PLAY.md` | about 90 |
+| `docs/operations/STATE_OF_PLAY.md` | 95 |
 | root `AGENTS.md` | 170 |
 | root `CLAUDE.md` | 25 |
 | each nested `AGENTS.md` | 130, unless the audit lists an explicit entry for it |

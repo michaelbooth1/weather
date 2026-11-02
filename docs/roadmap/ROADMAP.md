@@ -59,7 +59,7 @@ infrastructure work remains.
 | 8 | [Late-Day Tail Model [COMPLETE - CONTINUATION BLEND LIVE]](items/item-08-late-day-tail-model.md) |
 | 9 | [Analog Search [COMPLETE]](items/item-09-analog-search.md) |
 | 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]](items/item-337-no-metar-observed-floor-gap.md) |
-| 339 | [EDGE-1 Model-Edge Pre-Registration Family [OPEN 2026-10-21 - OWNER APPROVED; SIGNING AFTER THE THURSDAY FABLE DELTA]](items/item-339-edge1-model-edge-preregistration.md) |
+| 339 | [EDGE-1 Model-Edge Pre-Registration Family [DORMANT 2026-10-23 - POSTPONED BY THE OWNER (DECISION_LOG 2026-10-23), FORWARD TEST B REPLACED IT; WAS OPEN 2026-10-21 - OWNER APPROVED, NEVER SIGNED]](items/item-339-edge1-model-edge-preregistration.md) |
 
 ### Dashboard Improvements
 

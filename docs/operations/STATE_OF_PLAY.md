@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-01 America/Toronto (A closed, B parked, B2 UNTESTABLE, market reliability barred; F8-MH frozen; six code heads to night 11-01/02).**
+**Last updated: 2026-11-01 America/Toronto (A closed, B parked, B2 UNTESTABLE, market reliability opened by owner; F8-MH frozen; combo to night 11-01/02).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -37,21 +37,19 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Current truth
 
-- **Production source:** read `origin/master` with git (`4e0939833` before this batch). **No integration ran on DST night 10-31/11-01**;
-  all six code heads plus the UTC ops fix (`claude/ops-freshness-utc-20261101` @ `28d149fe`, ROLL-FREE) land night 11-01/02.
+- **Production source:** read `origin/master` with git. **Night 11-01/02 combo** (six code heads, UTC fix `28d149fe`, R1+R2; r3 `b0e75e264`): 9 parents over
+  the M2 cap, master exception (D7-5, DL 11-01); gated on WS suite PASS on the exact tip, `roll_verdict`, merge-tree; no tip by 21:00 = out.
 - **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev.
   **09-30..10-14 released once for weather kill-only/atlas reads** (owner 10-30, DL): local target date; Austin 10-03 out; MG-2/B
   outputs out; **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17).
-- **Released reads 10-31:** row 80 NOT REPLICATED, KILL at edge size; atlas P1 descriptive (row 101); C3 BLOCKED (row 100);
-  R-ODC-lin KILL at edge, X13 UNTESTABLE (row 103); S31 Kalshi twin v1 UNTESTABLE (row 99), v2 KILL at edge (row 102, X83); P5: rows 93-95.
-- **Export 2 host staging deleted 11-01 07:22** after the weather reads and the WS batch1 archive verification; receipts kept on the host
-  (`C:\tmp\agent-kit\export2-receipts\`); shas in the [export 2 sub-manifest](../research/iterate-faster-2026-10-30/export2-submanifest-c1-c3-atlas.md) §7.
-- **11-01 closures (master):** #21 GEFS true mean CLOSED-BY-RULE by X57 (X91); direction A (high_so_far repair cost) closed, cost
-  bounded by X14 / row 33 and covered by fix 10 (register §0.2, EF §1k addendum); B (thin markets) PARKED; B2 UNTESTABLE (row 105, X90).
-- **Market price reliability by bin on our 12:** never measured; BARRED by the 10-23 model-only scope; **owner question pending**.
+- **Released reads 10-31** (ledger): row 80 NOT REPLICATED; rows 93-95 (P5), 99-103 (Kalshi twin, C3 BLOCKED, atlas P1, X13, X83).
+- **Export 2 host staging deleted 11-01 07:22**; receipts `C:\tmp\agent-kit\export2-receipts\`; shas in [sub-manifest](../research/iterate-faster-2026-10-30/export2-submanifest-c1-c3-atlas.md) §7.
+- **11-01 closures (master):** #21 GEFS true mean (X91); direction A (register §0.2, EF §1k); B PARKED; B2 UNTESTABLE (row 105, X90).
+- **Evening-fix host replay 11-02** (owner 11-01, DL): 04:25-06:45 and 07:15-08:55, one-night tiering-reserve exception; 05:00/06:00 tiering may skip, never twice running.
+- **Market price reliability by bin: owner scope exception 11-01 (DL)**: dev-only on US11, kill-only, power check first; kill-check `c62dd52e`
+  BARRED -> **OPENED-BY-OWNER 11-01**; prereg `claude/market-reliability-bin-prereg-20261101`, approved rev 2 `e541ad401`.
 - **F8-MH forward screen FROZEN** (row 104; Clarification 1 `d138f1d92`): D0 11-02, blind, one look 01-26 after PT-1's. MOSMIX-8 HOLD.
-- **Row 72 R-ODC P1** runs from D0 10-31; Clarification 1 (`9f112f3fa`, pinned 10-31 before the P1 window closed) corrects the
-  rounding refusal pre-look; the < 30°F filter is part of the candidate (ledger row 72 notes).
+- **Row 72 R-ODC P1** from D0 10-31; Clarification 1 `9f112f3fa` fixes the rounding refusal pre-look; the < 30°F filter is in the candidate.
 - **MG-1** forward shadow, single look after 11-28 ([reserved window](reserved-confirmation-window.md)). **MG-2 / Rule B-1 BOUND 10-28**
   ([design](B_FORWARD_TEST_DESIGN.md)): D0 10-29, N = 45, 45th date 12-12, NI margin +0.0027, look 12-13; daily WS pull runs.
 - **B's serial correlation** (dev ρ about 0.22): B's verdict stands; a frozen post-look module may only label a PASS "fragile" (master).
@@ -61,18 +59,20 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 - **Evening-fix scoring read** (prereg §5): scorer lands night 11-01/02, Stage 1 read after; targets 10-16..10-27 (+10-28 only).
 - **After-B list** (after 12-13 and an MG-2 export byte-identity check): fix 10 (high_so_far parity; defect measured, 53.8% of dev
   00-12), fix 11 (no SPECI in the floor from 10-23), `claude/ops-freshness-utc-mg2-after-b` @ `3957b9728`.
+- **Windows Update (owner 11-01, DL):** host pause to 12-02T12:00Z stays, no patch night; master brings a notify-only / no-auto-restart option before 12-02 if it cannot be extended. **WS pause EXPIRED 10-30T13:58:48Z** (not covering 12-13); owner decides in the WS chat.
 - **WS forward recorders:** ENS, GEM and IEM MOS: registered logon tasks plus the 15-min keepalive (owner yes 10-30), verified 11-01 04:00Z.
-- **Exchange economics refresh failing:** last accepted snapshot 09-26; rc 2 promotion-lane barrier since about 10-20; fix before
+- **Exchange economics refresh:** failed daily since at least 10-08; rc 0 11-01 06:50, accepted snapshot and barrier unverified; fix before
   any maker work ([runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
 - **No forecast_history / open_meteo_archives / reanalysis cache rebuild until `a399941e` lands (after 12-21)** (master).
-- **More markets** (owner 10-23): R1+R2 recorder-only, config lands night 11-01/02. **91a nightly** policy `eca4064a…` (expires 11-27).
-  **Maker shadow ACTIVE** (paper; `data\maker_shadow\STOP`). **88a hold:** UTC 09-27..10-30.
+- **More markets** (owner 10-23): **R1+R2 land together night 11-01/02** (master D1-7, DL 11-01; receipts 11-03). Roll-free config revert if
+  capture < 10/10, RAM < 3.5 GB 3 ticks, commit >= 70%, rising 88a 429s/errors or abnormal partitions; master watches until 11-02 redeploy.
+  **91a nightly** policy `eca4064a…` (expires 11-27). **Maker shadow ACTIVE** (paper; `data\maker_shadow\STOP`). **88a hold:** UTC 09-27..10-30.
 
 ## Ordered critical path
 
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
 2. **Night 11-01/02 integration** (six code heads plus the UTC fix), then the evening-fix Stage 1 read; R1/R2 receipts 11-03.
-3. **T+1 forward prereg** (WS decides by 11-02); forward arms accrue blind (row 72; F8-MH; L6_G, DL 10-28, N = 45, look after B).
+3. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72 and F8-MH accrue blind; L6_G emitting (first emission vectors d1e09134, runs.jsonl 6842d139).
 4. **MG-1 look after 11-28**, then B 12-13; **PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); 12-12..01-25) bound before D0; F8-MH 01-26.
 
 ## Open commitments (every row: owner, due, verify)
@@ -83,9 +83,9 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | MG-1 look rulings A1-A14, b_transfer T1-T5; scorer and writer reviews | master | 11-03; 11-20; 12-01 | notes |
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
 | Evening-fix Stage 1 read after the scorer lands | master + WS | 11-02 | scorer receipt |
-| Market reliability by bin: scope ruling | owner | open | DL row |
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
 | Economics refresh and rc 2 barrier fixed | production | before maker work | accepted snapshot |
+| Host hardening: Ethernet (host Ethernet disconnected, on Wi-Fi; owner buying cable 11-01) | owner | OPEN until the cable is in | Get-NetAdapter Up |
 | WU-vs-venue measurement 08-11..09-29 on the host (owner 10-23) | production | open | research doc; DL row |
 | R1+R2 24 h S2+S9 receipts (88a RSS, REST rate, partitions, built-ins unchanged) | master | 11-03 | receipt doc |
 
