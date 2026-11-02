@@ -483,6 +483,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_t
   - The only exemption is the live writer's own segment: the single newest unsealed segment in a
     UTC day folder. A partial last line there passes only if the file moves during a 2-second
     wait. A tail that stays still is torn, which is the crash-looping recorder case.
+  - A tail still partial after the wait but whose length changed also counts as in flight
+    (clean), on movement alone; that partial tail is never verified. This is accepted because
+    only a live writer extends a file. If the writer later dies mid-line, the next run sees a
+    still tail and returns exit 3. The task repeats every minute for 15 minutes after boot, so
+    that run comes within minutes; after the window it is the next boot's run.
   - The result carries `torn_tail_found`: `true`, `false`, or `null`. It is `false` only when
     everything was positively verified. It is `null` on any unreadable file or folder, reparse
     point, record or manifest that recovery would refuse, or more than 64 unsealed segments (only
