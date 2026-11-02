@@ -626,6 +626,8 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.backtesting.replay_backtest",
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
+        "weather.calibration.b_look_per_date",
+        "weather.calibration.b_post_look_serial",
         "weather.calibration.b_scorer",
         "weather.calibration.feature_model",
         "weather.calibration.gap_to_market_atlas",
