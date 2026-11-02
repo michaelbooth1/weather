@@ -359,7 +359,9 @@ function Assert-MemoryHeadroom {
     catch { Stop-Refused "memory guard status is unreadable: $path" }
     $row = $read.row
     $percent = if ($row.PSObject.Properties.Name -contains 'commit_percent') { $row.commit_percent } else { $null }
-    if (((Get-Date) - $read.last_write_time).TotalMinutes -gt $MaxMemoryStatusAgeMinutes -or
+    # UTC on both sides on the real clock (Get-WeatherMemoryGuardStatusAgeMinutes); a missing
+    # last_write_time_utc reads as stale. Not the fixture clock: the status file is real.
+    if ((Get-WeatherMemoryGuardStatusAgeMinutes -Read $read) -gt $MaxMemoryStatusAgeMinutes -or
         $null -eq $percent -or [double]$percent -ge $MaxCommitPercent) {
         Stop-Refused "memory evidence blocks admission (commit_percent=$percent, max $MaxCommitPercent, status age limit $MaxMemoryStatusAgeMinutes min)"
     }

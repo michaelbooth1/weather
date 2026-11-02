@@ -21,6 +21,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Versioned NBM parser diagnostics; network-free compilation smoke.",
     },
+    "mosmix_forward_recorder.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L13 DWD MOSMIX forward-capture recorder (free DWD open data); network-free compilation smoke.",
+    },
     "analyze_boundaries.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
@@ -75,6 +80,11 @@ SCRIPT_INVENTORY = {
         "status": "fixture-only",
         "smoke": "compile",
         "notes": "Local historical backfill queue summary.",
+    },
+    "t1_forward_emitter.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L3 T+1 forward-test daily emitter (research/shadow; forecast recorders only); network-free compilation smoke.",
     },
     "ten_minute_performance_audit.py": {
         "status": "retired",

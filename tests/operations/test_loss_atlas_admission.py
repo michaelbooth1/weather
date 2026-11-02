@@ -21,6 +21,7 @@ SCORECARD_MODULES = {
     "weather.reporting.scorecards.dev_scorecard",
     MODULE,
     "weather.reporting.scorecards.train_serve_feature_parity",
+    "weather.reporting.research.guidance_extract",  # row 80 look step 2, master (a) 2026-10-31
 }
 REFUSED = (MODULE + ".child", "weather.reporting.scorecards", "weather.reporting.scorecards.prereg_check")
 

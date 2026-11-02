@@ -51,7 +51,7 @@ citing it in a new decision.
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
 | [MODEL_IMPROVEMENT_METHOD.md](MODEL_IMPROVEMENT_METHOD.md) | *How does a model lane find and measure a candidate?* — locate the loss, OLS + floor baseline first, one ingredient per rung, served → MG-1 → capture-time market read → blend weight, pre-registration discipline. |
 | [DEV_WINDOW_LEDGER.md](DEV_WINDOW_LEDGER.md) | *What has already been scored on the 07-31..09-29 development window?* — one row per candidate, control or read; the reuse count every pre-registration cites and every edge test corrects for. |
-| [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count; enforced by `weather.reporting.scorecards.prereg_check`. |
+| [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count, plus (f) power gate and (g) futility for forward pre-registrations; enforced by `weather.reporting.scorecards.prereg_check` (`--forward` for (f) and (g)). |
 
 Open work is **not** tracked here. Owned work lives in numbered roadmap items, surfaced by the
 generated [`../roadmap/active-backlog.md`](../roadmap/active-backlog.md). What is open on the host

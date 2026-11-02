@@ -13,6 +13,7 @@ from weather.operations.daily_refresh_resources import (
     STAGE_A_ISOLATED_STEPS,
     STAGE_A_STEP_RESOURCE_POLICIES,
     StageAChildFailure,
+    StageAResourceDeferred,
     bounded_resume_command,
     build_stage_a_step_admission,
     prepare_step_child_invocation,
@@ -695,20 +696,27 @@ class TestDailyRefreshResources(unittest.TestCase):
             payload["current_step"]["resume_command"],
         )
 
-    def _postcheck_retry_run(self, tmp, after_admissions):
+    def _postcheck_retry_run(self, tmp, after_admissions, *, before_admissions=None, deadline_seconds=3600):
         args = _args(tmp)
         clock = {"now": datetime(2026, 10, 23, 14, 35, tzinfo=timezone.utc)}
+        sleeps = []
+        child_runs = []
+        self._sleeps = sleeps
+        self._child_runs = child_runs
 
         def sleep(seconds):
+            sleeps.append(seconds)
             clock["now"] = clock["now"] + timedelta(seconds=seconds)
 
         args._stage_a_now_fn = lambda: clock["now"]
         args._stage_a_sleep_fn = sleep
         args._stage_a_retry_log_fn = lambda message: None
-        args._stage_a_teardown_deadline_utc = clock["now"] + timedelta(hours=1)
+        args._stage_a_teardown_deadline_utc = clock["now"] + timedelta(seconds=deadline_seconds)
         payload = _parent_payload()
+        self._payload = payload
 
         def fake_run(command, **kwargs):
+            child_runs.append(command)
             kwargs["on_started"]({"pid": 9001, "started_before_user_code": True})
             result_path = Path(command[command.index("--result-json") + 1])
             result_path.write_text(
@@ -739,7 +747,7 @@ class TestDailyRefreshResources(unittest.TestCase):
 
         with patch(
             "weather.operations.daily_refresh.build_stage_a_step_admission",
-            side_effect=[{"status": "PASS", "decision": "ADMIT"}, *after_admissions],
+            side_effect=[*(before_admissions or [{"status": "PASS", "decision": "ADMIT"}]), *after_admissions],
         ), patch(
             "weather.operations.daily_refresh.run_isolated_subprocess",
             side_effect=fake_run,
@@ -809,6 +817,80 @@ class TestDailyRefreshResources(unittest.TestCase):
             "post_step_capture_or_physical_check_failed",
         )
         self.assertEqual(payload["current_step"]["name"], "market_day_labels_finalize")
+
+
+    # Pre-step admission: the same bounded transient re-sample (2026-11-01).
+    def _prestep_deferred(self, tmp, before_admissions, **kwargs):
+        with self.assertRaises(StageAResourceDeferred) as raised:
+            self._postcheck_retry_run(tmp, [], before_admissions=before_admissions, **kwargs)
+        self.assertEqual(self._child_runs, [])
+        self.assertEqual(self._payload["interruption"]["reason"], "resource_admission_blocked")
+        return raised.exception.payload["resource_execution"]
+
+    def test_transient_prestep_degradation_that_clears_runs_the_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, payload = self._postcheck_retry_run(
+                tmp,
+                [{"status": "PASS", "decision": "ADMIT", "blockers": []}],
+                before_admissions=[
+                    self._transient_block(),
+                    self._transient_block(),
+                    {"status": "PASS", "decision": "ADMIT", "blockers": []},
+                ],
+            )
+        record = result["resource_execution"]
+        self.assertEqual(record["status"], "ok")
+        self.assertEqual(len(self._child_runs), 1)
+        self.assertEqual(record["admission_before"]["decision"], "ADMIT")
+        retry = record["pre_step_transient_retry"]
+        self.assertEqual(retry["policy"], "pre_step_transient_capture_degradation_retry")
+        self.assertEqual(retry["outcome"], "recovered")
+        self.assertEqual(retry["recheck_count"], 2)
+        self.assertEqual(retry["initial"]["decision"], "DEFER")
+        self.assertNotIn("post_step_transient_retry", record)
+        self.assertEqual(self._sleeps, [30.0, 30.0])
+        self.assertFalse(payload["terminal"])
+
+    def test_transient_prestep_degradation_that_persists_defers_at_the_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._prestep_deferred(tmp, [self._transient_block() for _ in range(25)])
+        retry = record["pre_step_transient_retry"]
+        self.assertEqual(record["status"], "deferred")
+        self.assertEqual(retry["outcome"], "still_degraded")
+        self.assertEqual(retry["recheck_count"], 20)
+        self.assertEqual(sum(self._sleeps), 600.0)
+        self.assertEqual(record["admission_before"]["decision"], "DEFER")
+
+    def test_teardown_deadline_caps_the_prestep_wait(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = self._prestep_deferred(
+                tmp, [self._transient_block() for _ in range(25)], deadline_seconds=95
+            )
+        retry = record["pre_step_transient_retry"]
+        self.assertEqual(retry["outcome"], "deadline_exhausted")
+        self.assertTrue(retry["bounded_by_deadline"])
+        self.assertEqual(retry["recheck_count"], 3)
+        self.assertLessEqual(sum(self._sleeps), 95)
+
+    def test_non_transient_prestep_blocker_defers_at_once(self):
+        stale = self._transient_block()
+        stale["capture_loops"][0]["heartbeat_fresh"] = False
+        stale["blockers"][0]["heartbeat_age_seconds"] = 900.0
+        memory = {
+            "status": "BLOCK",
+            "decision": "DEFER",
+            "capture_loops": [],
+            "blockers": [{"code": "insufficient_physical_availability"}],
+        }
+        mixed = self._transient_block()
+        mixed["blockers"].append({"code": "insufficient_physical_availability"})
+        for initial in (stale, memory, mixed):
+            with self.subTest(blockers=[b["code"] for b in initial["blockers"]]):
+                with tempfile.TemporaryDirectory() as tmp:
+                    record = self._prestep_deferred(tmp, [initial, {"status": "PASS", "decision": "ADMIT"}])
+                self.assertEqual(self._sleeps, [])
+                self.assertNotIn("pre_step_transient_retry", record)
+                self.assertIs(record["admission_before"], initial)
 
 
 if __name__ == "__main__":

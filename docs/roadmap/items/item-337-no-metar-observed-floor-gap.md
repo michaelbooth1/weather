@@ -53,3 +53,13 @@ Acceptance:
 - [ ] On a PASS: flip `no_metar_observed_floor` on in a reviewed change with a model-version bump (the replay above
   must show zero below-anchor mass on no-METAR rows and no other change), the release-binding steps, and a quiet-window
   landing after a roll verdict.
+
+## Evening-fix read postponed (2026-10-31)
+
+The evening lock-in fix read (signed pre-registration
+`docs/research/evening-lockin-fix-scoring-preregistration-DRAFT-2026-10-13.md`, which reports this item's
+no-METAR rows separately in its safety count) did not run on 2026-10-29. Reason, as section 5 requires it to be
+recorded: "the scorer was never landed; it slipped on the night queue" (prereg line 193). The read is postponed, not
+cancelled; the window is unchanged (10-16..10-27, extension 10-28 only, never 10-29). It runs in two stages under
+[Clarification 1](../../research/evening-lockin-fix-scoring-clarification-1-2026-10-31.md), with the no-market
+scorer on `claude/evening-fix-no-market-20261031`. Nothing in this item's acceptance changes.
