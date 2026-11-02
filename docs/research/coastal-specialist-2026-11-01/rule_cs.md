@@ -1,5 +1,12 @@
 # Rung R-CS pre-registration DRAFT: coastal grid-cell choice and HRRR block gradients at 07-12
 
+**Status: PARKED 2026-11-01 (master), not killed.** Reasons: the dev HRRR was refetched from AWS and is not
+capture-time; a winner would be Aug-Sep only, and P3d_H's 07-12 gain did not carry into Oct-Dec; the prior is
+about 0.001 pooled; the KSFO grid gap is already exploited by R-R. Reopen if either (1) at least 30
+forward-recorded Oct-Dec HRRR 07-12 dates with block fields are readable under rule 9, or (2) the price-history
+atlas shows a coastal-specific seasonal gap. Master approved the draft at sha `ec9df693…` and then parked it before
+any module was built or any gate was run. No ledger row exists. A reopen needs a fresh rule revision and a go.
+
 Written 2026-11-01 by lane L49 (WS) as a **batch member**, before any scored read. Status: DRAFT until the
 coordinator assigns the row and master gives the go; the sha256 of this file is reported to the coordinator.
 

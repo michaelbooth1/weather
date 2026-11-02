@@ -1,5 +1,22 @@
 # L49 S0: coastal-specialist rung, data coverage and parity (inputs only)
 
+**Status: PARKED 2026-11-01 (master), not killed.** Reasons: the dev HRRR was refetched from AWS and is not
+capture-time; a winner would be Aug-Sep only, and P3d_H's 07-12 gain did not carry into Oct-Dec; the prior is
+about 0.001 pooled; the KSFO grid gap is already exploited by R-R. Reopen if either (1) at least 30
+forward-recorded Oct-Dec HRRR 07-12 dates with block fields are readable under rule 9, or (2) the price-history
+atlas shows a coastal-specific seasonal gap. No gate was run, no module was built, no ledger row exists.
+
+**How much of the coastal centre gap R-R already closes on dev (recorded results only): no recorded result gives
+it.** R-R recorded Brier only, not centre MAE. The market MAE gap is 1.17 vs 1.48 (SF 2.03/1.18, SEA 1.74/1.09;
+`docs/research/morning-loss-diagnosis-2026-10-24.md:216-224`). The nearest recorded figures, in `rungr/rr_summary.md` on
+`origin/claude/rung0712-20261025` @ `6488c7a3…`, are dev P3d_H − P3d_N_fix dR:
+- ALL −0.0598 [−0.0813, −0.0401] (line 38);
+- PRIMARY5 −0.0837 [−0.1272, −0.0481] (line 79);
+- san-francisco −0.0534 [−0.0948, −0.0151] (line 84).
+
+No Seattle/LA/NYC/Miami gate-3 figure is recorded there. The emitted dev rows (`C:\t\l2\rungr\emit\dev_P3d_H.jsonl`)
+could give a centre MAE, but only through new scoring, which was not done.
+
 Dated research evidence, 2026-11-01, lane L49 (WS). Not canonical. Read with `rule_cs.md` beside it.
 
 **No outcome, label, settlement, price or market row was read or joined.** Every number below is computed
