@@ -2581,8 +2581,9 @@ def test_exec_streak_carry_edges_of_the_process_start_rule(tmp_path: Path) -> No
     outcome = _run(
         tmp_path,
         [
-            # The record is 10 s old by first statements (age >= 0), but this run's
-            # process started 20 s ago, before the writer's: a = -10, no carry.
+            # The writer's record is 10 s old (age >= 0, not future-dated), but this
+            # run's process started 20 s ago, 10 s before the writer's process
+            # started: a = -10, so nothing carries.
             run("reader_start_earlier", prior(10), guard_startup_seconds=20),
             # A process start more than 300 s back, or in the future, is rejected as
             # unknown: capped, and neither field is written.
@@ -2591,9 +2592,11 @@ def test_exec_streak_carry_edges_of_the_process_start_rule(tmp_path: Path) -> No
             # run_seconds 300 is accepted (k = 5); 300.001 is not a usable value.
             run("rs_300", prior(300, run_seconds=300)),
             run("rs_300_001", prior(60, run_seconds=300.001)),
-            # k = 5 would allow 330 s, but the window stops at 300: a = 305 (the record
-            # itself is 290 s old, so it is not stale) is capped.
-            run("k5_a305", prior(290, started_before_update=15, run_seconds=300)),
+            # k = 5 would allow 330 s, but the window stops at 300. The record itself
+            # is 290 s old (not stale), so only the ceiling decides: a = 300 carries
+            # in full, a = 301 is capped.
+            run("k5_a300", prior(290, started_before_update=10, run_seconds=300)),
+            run("k5_a301", prior(290, started_before_update=11, run_seconds=300)),
         ],
     )
 
@@ -2612,4 +2615,5 @@ def test_exec_streak_carry_edges_of_the_process_start_rule(tmp_path: Path) -> No
         assert "run_started_at_utc" not in row["state"] and "run_seconds" not in row["state"], name
     check("rs_300", streak=3, carry="full", stopped=killed)
     check("rs_300_001", streak=2, carry="capped")
-    check("k5_a305", streak=2, carry="capped")
+    check("k5_a300", streak=3, carry="full", stopped=killed)
+    check("k5_a301", streak=2, carry="capped")

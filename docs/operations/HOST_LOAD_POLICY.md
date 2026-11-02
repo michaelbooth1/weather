@@ -671,20 +671,27 @@ Stage-A, workstation or live authority is added.
    build, and `StartWhenAvailable` catch-up starts
    (`register_memory_commit_guard.ps1`), which can be arbitrarily late; all of
    them grow under commit pressure. A forward clock step during the writer's
-   start-up also inflates `run_seconds` (its start-up part is wall clock), and
-   with the repeating triggers on wall-clock time that can raise `k` and widen
-   the window. Otherwise `run_seconds` misses only the launch latency before the
-   process and the status write after the state write (a tail that can cross a
-   trigger), so `k` can only be too low, which caps and only spares. A stale
-   count can therefore never push a run past the two-run limit under those
-   assumptions. The script's header comment states the same conditions in an
-   older three-part form; this paragraph is the authority. **Accepted
-   residual:** when the budget is exceeded (most plausibly at `k = 1`, when the
-   writer launched 30 seconds or more later than the reader, as a catch-up start
-   can), a wrong full carry ends torn-lock sparing one run early. The kill it allows can reach
-   only an agent-rooted tree (or an orphan adopted under its recorded root),
-   never capture: governed `-m weather.` pythons are never eligible, and the
-   orphan climb never passes its recorded root or a blocked image. A write failure
+   start-up also inflates `run_seconds` (its start-up part is wall clock) and
+   can raise `k`, widening the window. That case is **outside** the
+   assumptions: with the repeating triggers on wall-clock time and IgnoreNew,
+   the higher `k` may match a trigger the writer really did skip, but nothing
+   guarantees it, so the guard does not rely on it. Otherwise `run_seconds`
+   misses only the launch latency before the process and the status write
+   after the state write (a tail that can cross a trigger), so `k` can only be
+   too low, which caps and only spares. A stale count can therefore never push
+   a run past the two-run limit under those assumptions. The script's header
+   comment is looser and superseded: it allows a launch-latency difference and
+   a backward clock step of 30 seconds each (about 60 seconds together); this
+   paragraph is the authority. **Accepted residual:** when the budget is
+   exceeded (most plausibly at `k = 1`, when the writer's launch latency
+   exceeded the reader's by 30 seconds or more, as a catch-up start can), a
+   wrong full carry ends torn-lock sparing one run early. The kills it can then
+   reach are only those the normal window, concurrency and budget rules
+   already permit: agent-rooted or adopted-orphan trees, heavy-list
+   `-m weather.*` modules in them included; a governed branch is eligible only
+   when it alone reaches the budget. Scheduler-launched capture workers are
+   never agent-rooted, and the orphan climb never passes its recorded root or a
+   blocked image, so they are not among those trees. A write failure
    that persists keeps the count from building, so the two-run cap is then in
    effect off: torn locks keep sparing, never killing more. The status file
    reports `guard_state_read` (`absent`, `ok`, `stale`, `unreadable`, `invalid`),
