@@ -102,3 +102,10 @@ def test_published_corpus_is_refused_when_bytes_do_not_match(tmp_path):
 def test_season_dates_are_the_300_aug_sep_dates():
     dates = spc.season_dates()
     assert len(dates) == 300 and dates[0] == date(2021, 8, 1) and dates[-1] == date(2025, 9, 29)
+
+
+def test_rp2_classes_file_is_refused_unless_it_is_the_frozen_one(tmp_path):
+    path = tmp_path / "rp2_classes.json"
+    path.write_text(json.dumps({"stations": {}, "markets": {}}), encoding="utf-8")
+    with pytest.raises(spc.StationPoolError):
+        spc.load_rp2_classes(path)

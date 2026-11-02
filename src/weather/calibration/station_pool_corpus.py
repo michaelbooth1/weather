@@ -10,6 +10,7 @@ Subcommands (heavy; run only through ``scripts/ops/workstation_heavy.ps1 -Kind w
   build  -- pool NBM corpus (canonical parser v2, IEM zone injected in-process), venue-rule labels, cutoff
             features, controls C-a, C-c, C-d and D-x (pool side), coverage; publishes corpora/<sha256>/.
   precheck -- before the corpus exists: C-b and the base arm's C-0 on hour 07.
+  loyo-rp2 -- R-P2 screen (prereg_rp2.md): class-matched pools, two fits per fold, row-109 gate.
   loyo   -- arms P3d_N_11m (R-A's rows), P3d_N_pool (+300, gating) and P3d_N_pool100 (+100, descriptive);
             controls C-0 and C-b; the frozen kill gate (rule section 7). No dev data is read.
 
@@ -659,6 +660,118 @@ def precheck(*, records_root, l9_corpus, ra_loyo_rows, out_dir, hour=7):
     return report
 
 
+# ------------------------------------------------------------------ R-P2: class-matched pooling (prereg_rp2.md)
+
+RP2_RULE_SHA256 = "2a438306214ece68e6e58d6f288765dc8addace7d21b89a02a22141e9c2d3e70"
+RP2_CLASSES_SHA256 = "35d0090dddf7b082c5ce0d777cf488c09bbcf6baead14c786e68c39fbafe1689"
+RP2_ARMS = ("P3d_N_11m", "P3d_N_cls", "P3d_N_cls100")
+
+
+def load_rp2_classes(path):
+    """(station -> class, market -> class) from the frozen outcome-blind classes file."""
+    if _sha256_file(path) != RP2_CLASSES_SHA256:
+        raise StationPoolError("R-P2 classes file sha256 differs from the frozen prereg")
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return ({k: v["class"] for k, v in data["stations"].items()},
+            {m: v["class"] for m, v in data["markets"].items()})
+
+
+def loyo_rows_cls(base, pools, market_class, buckets, hours=HOURS, years=None, arms=RP2_ARMS):
+    """Blocked LOYO; ``pools`` maps arm -> None (base) or {class: pool frame}. One fit per class per fold;
+    each market is scored by its own class's fit. Base rows are identical in every arm and fit."""
+    import pandas as pd
+
+    rows = []
+    for hour in hours:
+        at_hour = base[base["hour"] == hour]
+        for year in sorted(at_hour["year"].unique()) if years is None else years:
+            val = at_hour[at_hour["year"] == year].reset_index(drop=True)
+            base_train = at_hour[at_hour["year"] != year]
+            scored = {}
+            for arm in arms:
+                by_class = pools.get(arm)
+                if by_class is None:
+                    scored[arm] = _score_arm(base_train.reset_index(drop=True), val, buckets)
+                    continue
+                scored[arm] = {}
+                for cls in sorted(by_class):
+                    markets = [m for m, c in market_class.items() if c == cls]
+                    part = val[val["market"].isin(markets)].reset_index(drop=True)
+                    if not len(part):
+                        continue
+                    pool = by_class[cls]
+                    extra = pool[(pool["hour"] == hour) & (pool["year"] != year)]
+                    train = pd.concat([base_train, extra[base_train.columns.intersection(extra.columns)]],
+                                      ignore_index=True)
+                    scored[arm].update(_score_arm(train, part, buckets))
+                    print(f"rp2 loyo h{hour:02d} held {year} {arm} {cls} train={len(train)}", flush=True)
+            for key in scored[arms[0]]:
+                row = {"hour": int(hour), "year": int(year), "market": key[0], "date": key[1],
+                       "y": scored[arms[0]][key][3]}
+                for arm in arms:
+                    b, lg, yh, _ = scored[arm][key]
+                    row.update({f"{arm}_brier": b, f"{arm}_log": lg, f"{arm}_yhat": yh})
+                rows.append(row)
+    return rows
+
+
+def loyo_rp2(*, corpus_dir, classes, records_root, l9_corpus, ra_loyo_rows, out_dir):
+    """R-P2 screen (prereg_rp2.md section 4): row-109 gate on P3d_N_cls; necessary only, never confirmation."""
+    from weather.calibration import pooled_residual_model as prm
+
+    out = prm.require_output_outside_repo(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    for name in ("rp2_loyo_rows.jsonl", "rp2_loyo_report.json"):
+        if (out / name).exists():
+            raise StationPoolError(f"refusing to overwrite {out / name}")
+    station_class, market_class = load_rp2_classes(classes)
+    pool, manifest = load_pool_frame(corpus_dir)
+    base, buckets, base_stats, _ = base_frame(records_root, l9_corpus)
+    if set(market_class) != set(base["market"].unique()):
+        raise StationPoolError("R-P2 market classes do not cover the 11 markets")
+    pool = pool[base.columns.intersection(pool.columns)]
+    pool_class = pool["market"].map(station_class)
+    if pool_class.isna().any():
+        raise StationPoolError("a pool station has no R-P2 class")
+    dose = set(manifest["dose_subset"])
+    classes_used = sorted(set(market_class.values()))
+    pools = {"P3d_N_11m": None,
+             "P3d_N_cls": {c: pool[pool_class == c] for c in classes_used},
+             "P3d_N_cls100": {c: pool[(pool_class == c) & pool["market"].isin(dose)] for c in classes_used}}
+    report = {"rule_sha256": RP2_RULE_SHA256, "classes_sha256": RP2_CLASSES_SHA256,
+              "corpus_sha256": manifest["corpus_sha256"], "module_sha256": _sha256_file(__file__),
+              "base_rows": int(len(base)), "base_train_nbm": base_stats, "market_class": market_class,
+              "pool_rows": {arm: {c: int(len(f)) for c, f in p.items()} for arm, p in pools.items() if p}}
+    empty = {c: base.iloc[0:0].copy() for c in classes_used}
+    cb_rows = loyo_rows_cls(base, {"P3d_N_11m": None, "P3d_N_cls": empty}, market_class, buckets, hours=(7,),
+                            years=(2021,), arms=("P3d_N_11m", "P3d_N_cls"))
+    worst = max(abs(r["P3d_N_cls_brier"] - r["P3d_N_11m_brier"]) for r in cb_rows)
+    report["C_b"] = {"rows": len(cb_rows), "max_abs_diff": worst, "pass": worst == 0.0}
+    if not report["C_b"]["pass"]:
+        raise StationPoolError(f"C-b refused: {report['C_b']}")
+    rows = loyo_rows_cls(base, pools, market_class, buckets)
+    _write_jsonl(out / "rp2_loyo_rows.jsonl", rows)
+    report["C_0"] = control_c0(rows, ra_loyo_rows)
+    if report["C_0"]["pass"]:
+        report["screen"] = gate(rows, "P3d_N_cls")
+        report["descriptive_cls100"] = gate(rows, "P3d_N_cls100")
+        report["descriptive_cls100"]["verdict"] = "descriptive only (never gating)"
+        report["D_x_residuals"] = {
+            m: {arm: sum(r["y"] - r[f"{arm}_yhat"] for r in rows if r["market"] == m)
+                / sum(1 for r in rows if r["market"] == m) for arm in RP2_ARMS}
+            for m in sorted({r["market"] for r in rows})}
+        report["verdict"] = "SCREEN " + report["screen"]["verdict"] + " (necessary only; not confirmation)"
+    else:
+        report["verdict"] = "REFUSED (C-0 failed)"
+    report["loyo_rows_sha256"] = _sha256_file(out / "rp2_loyo_rows.jsonl")
+    (out / "rp2_loyo_report.json").write_text(json.dumps(report, indent=1, sort_keys=True), encoding="utf-8")
+    summary = {"verdict": report["verdict"], "C_0": report["C_0"], "C_b": report["C_b"]}
+    if "screen" in report:
+        summary.update({k: report["screen"][k] for k in ("d_brier", "ci95_clustered", "ci95_block3", "kills")})
+    print(json.dumps(summary, default=str))
+    return report
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -680,7 +793,18 @@ def main(argv=None):
     pc.add_argument("--l9-corpus", required=True)
     pc.add_argument("--ra-loyo-rows", required=True)
     pc.add_argument("--out-dir", required=True)
+    r2 = sub.add_parser("loyo-rp2", help="R-P2 screen (prereg_rp2.md); run only on master's OK via -Queue")
+    r2.add_argument("--corpus-dir", required=True)
+    r2.add_argument("--classes", required=True)
+    r2.add_argument("--records-root", required=True)
+    r2.add_argument("--l9-corpus", required=True)
+    r2.add_argument("--ra-loyo-rows", required=True)
+    r2.add_argument("--out-dir", required=True)
     args = ap.parse_args(argv)
+    if args.cmd == "loyo-rp2":
+        loyo_rp2(corpus_dir=args.corpus_dir, classes=args.classes, records_root=args.records_root,
+                 l9_corpus=args.l9_corpus, ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out_dir)
+        return 0
     if args.cmd == "precheck":
         precheck(records_root=args.records_root, l9_corpus=args.l9_corpus, ra_loyo_rows=args.ra_loyo_rows,
                  out_dir=args.out_dir)
