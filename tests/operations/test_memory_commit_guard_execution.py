@@ -81,6 +81,15 @@ function Stop-Process {
     param($Id, [switch]$Force, $Confirm, $ErrorAction)
     $global:Stopped.Add([int]$Id)
 }
+# A scenario with fail_state_write makes the guard-state rename fail, as a full disk
+# or a denied ACL would; every other Move-Item is the real cmdlet.
+function Move-Item {
+    param($LiteralPath, $Destination, [switch]$Force, $ErrorAction)
+    if ($global:FailStateWrite -and ([string]$Destination).EndsWith('memory_commit_guard_state.json')) {
+        throw 'synthetic: the guard state cannot be written'
+    }
+    Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination -Force:$Force -ErrorAction Stop
+}
 function Get-ScheduledTask {
     param($TaskName, $ErrorAction)
     if ($global:FakeTaskState -and $TaskName -eq $global:FakeTaskName) {
@@ -183,7 +192,16 @@ $results = foreach ($scenario in $scenarios) {
             lease_records_unreadable_streak = [int]$prior.unreadable_streak
             lease_owner_trees = $trees
         }
-        [IO.File]::WriteAllText((Join-Path $logsDir 'memory_commit_guard_state.json'), (ConvertTo-Json -InputObject $stateRecord -Depth 4))
+        # A raw body stands for a damaged state file.
+        $stateBody = if ($null -ne $prior.raw) { [string]$prior.raw } else { ConvertTo-Json -InputObject $stateRecord -Depth 4 }
+        [IO.File]::WriteAllText((Join-Path $logsDir 'memory_commit_guard_state.json'), $stateBody)
+    }
+    $global:FailStateWrite = [bool]$scenario.fail_state_write
+    # lock_state holds the state file open with no sharing for the whole run, so the
+    # guard can neither read nor replace it.
+    $stateLock = $null
+    if ($scenario.lock_state) {
+        $stateLock = [IO.File]::Open((Join-Path $scenario.repo_root 'data\logs\memory_commit_guard_state.json'), 'Open', 'Read', 'None')
     }
     $global:FakeRuntime = @(foreach ($p in $scenario.processes) {
         [pscustomobject]@{
@@ -202,6 +220,8 @@ $results = foreach ($scenario in $scenarios) {
     $Error.Clear()
     $output = @(& $env:GUARD_SCRIPT @arguments | ForEach-Object { [string]$_ })
     $scriptErrors = @($Error | ForEach-Object { [string]$_ })
+    if ($null -ne $stateLock) { $stateLock.Dispose() }
+    $global:FailStateWrite = $false
     $ErrorActionPreference = 'Stop'
     $logs = Join-Path $scenario.repo_root 'data\logs'
     $statusPath = Join-Path $logs 'memory_commit_guard_status.json'
@@ -295,6 +315,8 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
         "task_state": extra.pop("task_state", None),
         "expected_host_id": extra.pop("expected_host_id", None),
         "prior_state": extra.pop("prior_state", None),
+        "fail_state_write": extra.pop("fail_state_write", False),
+        "lock_state": extra.pop("lock_state", False),
         # A repo lock defaults to the workstation_offline profile (no time window) taken on
         # this host, as workstation_heavy.ps1 writes it; scenarios name agent_heavy or
         # stage_a, or another execution_host_id, explicitly.
@@ -320,10 +342,17 @@ def _run(tmp_path: Path, scenarios: list[dict]) -> dict[str, dict]:
     rows = json.loads(result.stdout)
     by_name = {row["name"]: row for row in rows}
     assert set(by_name) == {s["name"] for s in scenarios}
+    expects_error_log = {
+        s["name"]
+        for s in scenarios
+        if s.get("fail_state_write") or s.get("lock_state") or (s.get("prior_state") or {}).get("raw")
+    }
     for row in rows:
-        # No swallowed PowerShell error and no internal failure logged by the guard itself.
+        # No swallowed PowerShell error and no internal failure logged by the guard itself
+        # (a scenario that breaks the guard state on purpose expects its ERROR line).
         assert row["errors"] == [], (row["name"], row["errors"])
-        assert "[ERROR]" not in row["log"], (row["name"], row["log"])
+        if row["name"] not in expects_error_log:
+            assert "[ERROR]" not in row["log"], (row["name"], row["log"])
     return by_name
 
 
@@ -1997,3 +2026,110 @@ def test_exec_unreadable_lease_records_stop_sparing_after_two_runs(tmp_path: Pat
     budget_third = outcome["budget_third"]
     assert set(budget_third["stopped"]) == {7_963_103, 7_963_105, 7_963_107}
     assert budget_third["status"]["actions"] == ["killed_agent_tree_pid_7963103"]
+
+
+def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
+    """Delta (a): a state file that cannot be written or read never makes the guard kill more."""
+    unleased = _claude_bash(7_964_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    torn = [
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.lock",
+            "pid": 1,
+            "age_minutes": 1,
+            "mtime_age_seconds": 5,
+            "raw": "",
+        }
+    ]
+
+    def prior(streak: int, age: float = 60, **extra) -> dict:
+        return {"owners": [], "unreadable_streak": streak, "age_seconds": age, **extra}
+
+    # An orphaned owner tree (as in the m4/M1 test) whose lease is past its window.
+    base = 7_964_100
+    owner, chunk = base + 7, base + 9
+    orphan = [
+        _proc(owner, "powershell.exe", WRAPPER, age=40, ppid=base + 5),
+        _proc(chunk, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=39, ppid=owner),
+    ]
+    late = [dict(_lock(owner, age=40), window="agent_heavy")]
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            # Control: the third unreadable run in a row with a good memory kills.
+            _scenario(tmp_path, "control", now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior(2)),
+            _scenario(
+                tmp_path, "write_fails", now=day, commit=50.0, processes=unleased, leases=torn,
+                prior_state=prior(1), fail_state_write=True,
+            ),
+            # The run after a failed write finds the record from two runs ago.
+            _scenario(tmp_path, "after_failed_write", now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior(2, 120)),
+            _scenario(
+                tmp_path, "read_locked", now=day, commit=50.0, processes=unleased, leases=torn,
+                prior_state=prior(2), lock_state=True,
+            ),
+            _scenario(
+                tmp_path, "read_invalid", now=day, commit=50.0, processes=unleased, leases=torn,
+                prior_state=prior(2, raw="{not json"),
+            ),
+            # The remembered orphan set: kept from a record left by a failed write...
+            _scenario(
+                tmp_path, "orphan_after_failed_write", now=day, commit=50.0, processes=orphan, leases=late,
+                prior_state={"owners": [owner], "unreadable_streak": 0, "age_seconds": 120},
+            ),
+            # ...and lost on an unreadable record, which only spares.
+            _scenario(
+                tmp_path, "orphan_read_locked", now=day, commit=50.0, processes=orphan, leases=late,
+                prior_state={"owners": [owner], "unreadable_streak": 0, "age_seconds": 60}, lock_state=True,
+            ),
+        ],
+    )
+
+    control = outcome["control"]
+    assert set(control["stopped"]) == {7_964_003, 7_964_005, 7_964_007}
+    assert control["status"]["guard_state_read"] == "ok"
+    assert control["status"]["guard_state_degraded"] is False
+    assert control["status"]["guard_state_written"] is True
+
+    # Write failure: logged as ERROR, status degraded, the previous record left as it was.
+    failed = outcome["write_fails"]
+    assert failed["stopped"] == []
+    assert failed["errors"] == []
+    assert failed["status"]["agent_heavy_lease_unreadable_streak"] == 2
+    assert failed["status"]["guard_state_degraded"] is True
+    assert failed["status"]["guard_state_written"] is False
+    assert "[ERROR]" in failed["log"] and "could not be written" in failed["log"]
+    assert failed["state"]["lease_records_unreadable_streak"] == 1
+    # The next run does not carry that record's streak (it may be short of the truth
+    # or past it), so the count restarts and the work is spared.
+    after = outcome["after_failed_write"]
+    assert after["stopped"] == []
+    assert after["status"]["agent_heavy_lease_unreadable_streak"] == 1
+    assert after["status"]["guard_state_read"] == "ok"
+    assert after["status"]["guard_state_degraded"] is False
+
+    # Read failures: empty memory, degraded, ERROR, nothing stopped.
+    for name, read in (("read_locked", "unreadable"), ("read_invalid", "invalid")):
+        row = outcome[name]
+        assert row["stopped"] == [], name
+        assert row["errors"] == [], name
+        assert row["status"]["guard_state_read"] == read, name
+        assert row["status"]["guard_state_degraded"] is True, name
+        assert row["status"]["agent_heavy_lease_unreadable_streak"] == 1, name
+        assert "[ERROR]" in row["log"] and f"is {read}" in row["log"], name
+    # An unreadable record is left for the next run; a damaged one is replaced.
+    assert outcome["read_locked"]["status"]["guard_state_written"] is False
+    assert outcome["read_locked"]["state"]["lease_records_unreadable_streak"] == 2
+    assert outcome["read_invalid"]["status"]["guard_state_written"] is True
+    assert outcome["read_invalid"]["state"]["lease_records_unreadable_streak"] == 1
+
+    # The orphan set survives a failed write for five minutes (the attribution is by
+    # PID and creation instant, so it is still exact)...
+    kept = outcome["orphan_after_failed_write"]
+    assert kept["status"]["agent_heavy_orphaned_lease_tree_count"] == 1
+    assert kept["stopped"] == [chunk]
+    # ...and an unreadable record attributes nothing: the orphan is spared, not stopped.
+    lost = outcome["orphan_read_locked"]
+    assert lost["status"]["agent_heavy_orphaned_lease_tree_count"] == 0
+    assert lost["stopped"] == []

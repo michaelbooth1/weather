@@ -968,27 +968,61 @@ function Get-VerifiedTopAncestor($ProcessRow, $ProcessByPid) {
 function Read-GuardState([string]$Path, [datetime]$NowUtc) {
     # The guard's memory between one-minute runs: the consecutive runs on which a
     # lease record was unreadable, and the lease owners last seen inside an agent
-    # tree (PID plus creation instant, so a reused PID never matches). A missing,
-    # damaged or stale (older than five minutes) state starts empty.
-    $empty = [pscustomobject]@{ UnreadableStreak = 0; LeaseOwnerTrees = @() }
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $empty }
+    # tree (PID plus creation instant, so a reused PID never matches).
+    #
+    # Fail-safe (review delta (a)): losing the memory only ever spares. An empty
+    # memory restarts the unreadable streak at 1 (spared again) and attributes no
+    # orphaned tree (no agent rule reaches it), so no read outcome can make the
+    # guard kill something it would otherwise have spared.
+    #   absent     no file (first run): empty, not degraded.
+    #   stale      older than five minutes (or dated in the future): empty.
+    #   ok         the remembered owners are kept; the streak carries over only
+    #              when the record is at most 90 seconds old, i.e. it was written by
+    #              the run one minute ago. An older record means at least one run in
+    #              between failed to write its own state, so its streak may be
+    #              higher than the truth and restarts at 0 instead.
+    #   unreadable the file exists but cannot be read (sharing violation, access
+    #              denied): empty and degraded, and this run does not overwrite the
+    #              file, so the last good record survives for the next run.
+    #   invalid    the file reads but is not a v1 state record: empty and degraded;
+    #              this run's write replaces it.
+    $result = [pscustomobject]@{ UnreadableStreak = 0; LeaseOwnerTrees = @(); Status = 'absent'; Error = $null }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $result }
     $errorMark = $Error.Count
     try {
-        $state = [IO.File]::ReadAllText($Path, (New-Object System.Text.UTF8Encoding($false))).TrimStart([char]0xFEFF) | ConvertFrom-Json
-        if ([string]$state.schema_version -cne 'memory_commit_guard_state_v1') { return $empty }
-        $updated = [datetime]::Parse([string]$state.updated_at_utc, [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
-        $age = ($NowUtc - $updated).TotalSeconds
-        if ($age -lt -60.0 -or $age -gt 300.0) { return $empty }
-        $trees = @(@($state.lease_owner_trees) | Where-Object { $null -ne $_ } | ForEach-Object {
-            [pscustomobject]@{ Pid = [uint32]$_.pid; CreationTicks = [long]$_.creation_utc_ticks }
-        })
-        return [pscustomobject]@{ UnreadableStreak = [int]$state.lease_records_unreadable_streak; LeaseOwnerTrees = $trees }
+        $text = [IO.File]::ReadAllText($Path, (New-Object System.Text.UTF8Encoding($false)))
     }
     catch {
         while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
-        return $empty
+        $result.Status = 'unreadable'
+        $result.Error = $_.Exception.Message
+        return $result
     }
+    try {
+        $state = $text.TrimStart([char]0xFEFF) | ConvertFrom-Json
+        if ([string]$state.schema_version -cne 'memory_commit_guard_state_v1') { throw ("schema_version '{0}'" -f [string]$state.schema_version) }
+        $updated = [datetime]::Parse([string]$state.updated_at_utc, [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        $age = ($NowUtc - $updated).TotalSeconds
+        $trees = @(@($state.lease_owner_trees) | Where-Object { $null -ne $_ } | ForEach-Object {
+            [pscustomobject]@{ Pid = [uint32]$_.pid; CreationTicks = [long]$_.creation_utc_ticks }
+        })
+        $streak = [int]$state.lease_records_unreadable_streak
+    }
+    catch {
+        while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
+        $result.Status = 'invalid'
+        $result.Error = $_.Exception.Message
+        return $result
+    }
+    if ($age -lt -60.0 -or $age -gt 300.0) {
+        $result.Status = 'stale'
+        return $result
+    }
+    $result.Status = 'ok'
+    $result.LeaseOwnerTrees = $trees
+    if ($age -le 90.0) { $result.UnreadableStreak = [math]::Max(0, $streak) }
+    return $result
 }
 
 function Get-ProcessTreeRows($RootRow, $AllProcesses) {
@@ -1186,6 +1220,9 @@ $status = @{
     agent_heavy_lease_records_unreadable = $false
     agent_heavy_max_private_mb = 0
     agent_heavy_window_allowed = $false
+    guard_state_read = 'not_read'
+    guard_state_degraded = $false
+    guard_state_written = $false
 }
 
 # A previous Codex session launched 42 pytest/compile invocations across
@@ -1238,6 +1275,12 @@ Add-AgentHeavyRows
 # Lease owners remembered from earlier runs (Read-GuardState) that are still alive
 # under the same creation instant.
 $guardState = Read-GuardState $guardStatePath $utcNow
+$status.guard_state_read = $guardState.Status
+if ($guardState.Status -in @('unreadable', 'invalid')) {
+    $status.guard_state_degraded = $true
+    Write-GuardLog "ERROR" ("guard state {0} is {1} ({2}); this run remembers nothing, which only spares: the unreadable-lease count restarts and no orphaned lease tree is attributed{3}" -f `
+        $guardStatePath, $guardState.Status, $guardState.Error, $(if ($guardState.Status -eq 'unreadable') { '; the file is left in place for the next run' } else { '' }))
+}
 $rememberedOwnerRows = @(foreach ($remembered in @($guardState.LeaseOwnerTrees)) {
     if (-not $processByPid.ContainsKey([uint32]$remembered.Pid)) { continue }
     $row = $processByPid[[uint32]$remembered.Pid]
@@ -1811,13 +1854,30 @@ $guardStateRecord = [ordered]@{
     lease_records_unreadable_streak = $unreadableStreak
     lease_owner_trees = $rememberedTrees.ToArray()
 }
-$guardStateTempPath = "{0}.{1}.tmp" -f $guardStatePath, [guid]::NewGuid().ToString("N")
-try {
-    ConvertTo-Json -InputObject $guardStateRecord -Depth 4 | Out-File -LiteralPath $guardStateTempPath -Encoding utf8
-    Move-Item -LiteralPath $guardStateTempPath -Destination $guardStatePath -Force
+# A failed write leaves the previous record in place (Read-GuardState: its owners
+# stay usable for five minutes, its streak is not carried past 90 seconds) and marks
+# this run degraded. An unreadable record is not overwritten, so it survives.
+if ($guardState.Status -eq 'unreadable') {
+    $status.guard_state_written = $false
 }
-finally {
-    if (Test-Path -LiteralPath $guardStateTempPath) { Remove-Item -LiteralPath $guardStateTempPath -Force }
+else {
+    $guardStateTempPath = "{0}.{1}.tmp" -f $guardStatePath, [guid]::NewGuid().ToString("N")
+    $errorMark = $Error.Count
+    try {
+        ConvertTo-Json -InputObject $guardStateRecord -Depth 4 | Out-File -LiteralPath $guardStateTempPath -Encoding utf8 -ErrorAction Stop
+        Move-Item -LiteralPath $guardStateTempPath -Destination $guardStatePath -Force -ErrorAction Stop
+        $status.guard_state_written = $true
+    }
+    catch {
+        while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
+        $status.guard_state_written = $false
+        $status.guard_state_degraded = $true
+        Write-GuardLog "ERROR" ("guard state {0} could not be written ({1}); the previous record stays in place and the next run carries no unreadable-lease count from it" -f `
+            $guardStatePath, $_.Exception.Message)
+    }
+    finally {
+        if (Test-Path -LiteralPath $guardStateTempPath) { Remove-Item -LiteralPath $guardStateTempPath -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 $statusTempPath = "{0}.{1}.tmp" -f $statusPath, [guid]::NewGuid().ToString("N")
