@@ -18,6 +18,13 @@ as pointers (CI, which runs ``lfs: false``), and serving differs between the two
 state, each with the sha256 of every tracked artifact file it was made with. The test picks the tier whose
 artifacts match the checkout byte for byte and fails, never skips, when neither does.
 
+The ``lfs_pointers`` tier is platform-scoped. Its records are served by the LR fallback (the pointer pickles do
+not load), and those bytes differ between the Windows workstation that generated the tier and Linux CI on 8 of
+36 records, with the same code, artifacts and pinned libraries. So the tier records ``generating_platform``
+(``sys.platform`` of the generating host), and the test skips that tier, with a reason naming that platform,
+on any other platform. On the generating platform the comparison stays exact byte identity, with no
+tolerance. The ``lfs_materialized`` tier carries no platform and is unchanged.
+
 Regenerating the golden: run ``generate_golden`` against a checkout of the reference commit, through
 ``scripts/ops/workstation_heavy.ps1 -Kind pytest -Queue``, once per LFS state. It is not regenerated to make
 this test pass: a moved output is a serving change and needs review.
@@ -27,6 +34,7 @@ import hashlib
 import json
 import math
 import re
+import sys
 from datetime import date, datetime
 from pathlib import Path
 
@@ -40,6 +48,8 @@ REFERENCE_COMMIT = "cda1acc3a7cb26142705464d65222e08794c9927"
 GOLDEN_SCHEMA = "high_so_far_byte_identity_golden/1"
 DAY = "2026-09-28"
 LFS_POINTER = b"version https://git-lfs.github.com/spec/v1\n"
+# Tiers whose served bytes are platform-dependent; each records the ``sys.platform`` it was generated on.
+PLATFORM_SCOPED_TIERS = {"lfs_pointers"}
 
 
 # ----------------------------------------------------------------------------- shared with the generator
@@ -143,6 +153,8 @@ def generate_golden(root, out, monkeypatch, tmp_path):
     golden["reference_commit"] = REFERENCE_COMMIT
     golden["tiers"][state] = {"artifacts_sha256": artifacts, "served_output_sha256": outputs,
                               "market_and_model_kind": kinds}
+    if state in PLATFORM_SCOPED_TIERS:
+        golden["tiers"][state]["generating_platform"] = sys.platform
     Path(out).write_bytes((json.dumps(golden, indent=1, sort_keys=True) + "\n").encode("utf-8"))
     return state
 
@@ -174,13 +186,23 @@ def test_the_fixture_is_one_captured_day_on_every_built_in_market():
     markets = {r["event_slug"].split("highest-temperature-in-")[1].split("-on-")[0] for r in records}
     assert markets == {spec.id for spec in BUILTIN_SPECS} and len(markets) == 12
     assert set(golden["tiers"]) == {"lfs_pointers", "lfs_materialized"}
-    for tier in golden["tiers"].values():
+    for state, tier in golden["tiers"].items():
         assert set(tier["served_output_sha256"]) == {r["snapshot_id"] for r in records}
+        # Only the platform-scoped tier names a generating platform; the materialized tier runs everywhere.
+        assert ("generating_platform" in tier) == (state in PLATFORM_SCOPED_TIERS)
+    assert golden["tiers"]["lfs_pointers"]["generating_platform"] == "win32"
 
 
 def test_variant_none_serves_byte_identical_output_to_master(tmp_path, monkeypatch):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     state, tier = _checkout_tier(golden)
+    generated_on = tier.get("generating_platform")
+    if state in PLATFORM_SCOPED_TIERS:
+        assert generated_on, f"the platform-scoped {state} tier records no generating_platform"
+    if state in PLATFORM_SCOPED_TIERS and generated_on != sys.platform:
+        pytest.skip(f"the {state} golden tier was generated on {generated_on!r} and its LR-fallback served "
+                    f"bytes are platform-dependent; it is checked byte for byte only on {generated_on!r}, "
+                    f"and this is {sys.platform!r}")
     models, differ = {}, []
     for record in read_records():
         market = record["event_slug"].split("highest-temperature-in-")[1].split("-on-")[0]
