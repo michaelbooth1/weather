@@ -58,7 +58,7 @@ def test_memory_guard_attributes_and_reaps_codex_heavy_tool_trees():
     assert "$minuteOfDay -ge 30.0" in block
     assert "$minuteOfDay -lt 540.0" in block
     assert "$MaxConcurrentAgentHeavyWorkloads" in block
-    assert "Codex heavy workload is outside the 00:30-09:00 host window" in block
+    assert "agent heavy workload is outside the 00:30-09:00 host window" in block
     assert "Test-GovernedWeatherProcess" in block
     assert "Get-ChildItem" in block
     assert "-Recurse" in block

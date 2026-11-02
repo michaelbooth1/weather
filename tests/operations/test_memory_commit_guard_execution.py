@@ -16,6 +16,7 @@ Guards: EF §10g (inert kill path hidden by substring tests), EF §8d (orphaned 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -136,6 +137,7 @@ $results = foreach ($scenario in $scenarios) {
                 pid = [int]$lease.pid
                 owner_process_creation_time_token = 'win32-filetime:{0}' -f $born.ToFileTimeUtc()
             }
+            if ($null -ne $lease.host_id) { $record['execution_host_id'] = [string]$lease.host_id }
             # policy_window as Get-WeatherHeavyWorkloadPolicyWindow or the profile sets it.
             if ($null -ne $lease.window) {
                 $record['policy_window'] = [string]$lease.window
@@ -163,6 +165,25 @@ $results = foreach ($scenario in $scenarios) {
         # Last write on the fake clock: at acquisition unless the scenario says otherwise.
         $writtenAgo = if ($null -ne $lease.mtime_age_seconds) { [double]$lease.mtime_age_seconds } else { 60.0 * [double]$lease.age_minutes }
         [IO.File]::SetLastWriteTimeUtc($leasePath, $global:FakeNow.AddSeconds(-$writtenAgo).ToUniversalTime())
+    }
+    # The guard's memory from an earlier run: owners named by synthetic pid get the
+    # creation instant of that row on the fake clock.
+    if ($null -ne $scenario.prior_state) {
+        $prior = $scenario.prior_state
+        $logsDir = Join-Path $scenario.repo_root 'data\logs'
+        New-Item -ItemType Directory -Force $logsDir | Out-Null
+        $trees = @(foreach ($ownerId in @($prior.owners)) {
+            if ($null -eq $ownerId) { continue }
+            $row = $global:FakeRows | Where-Object { [int]$_.ProcessId -eq [int]$ownerId } | Select-Object -First 1
+            [ordered]@{ pid = [int]$ownerId; creation_utc_ticks = $row.CreationDate.ToUniversalTime().Ticks }
+        })
+        $stateRecord = [ordered]@{
+            schema_version = 'memory_commit_guard_state_v1'
+            updated_at_utc = $global:FakeNow.AddSeconds(-[double]$prior.age_seconds).ToUniversalTime().ToString('o')
+            lease_records_unreadable_streak = [int]$prior.unreadable_streak
+            lease_owner_trees = $trees
+        }
+        [IO.File]::WriteAllText((Join-Path $logsDir 'memory_commit_guard_state.json'), (ConvertTo-Json -InputObject $stateRecord -Depth 4))
     }
     $global:FakeRuntime = @(foreach ($p in $scenario.processes) {
         [pscustomobject]@{
@@ -196,6 +217,7 @@ $results = foreach ($scenario in $scenarios) {
         status = if (Test-Path -LiteralPath $statusPath) { Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json } else { $null }
         history = if (Test-Path -LiteralPath $historyPath) { [string](Get-Content -LiteralPath $historyPath -Raw) } else { '' }
         log = if (Test-Path -LiteralPath $logPath) { [string](Get-Content -LiteralPath $logPath -Raw) } else { '' }
+        state = if (Test-Path -LiteralPath (Join-Path $logs 'memory_commit_guard_state.json')) { Get-Content -LiteralPath (Join-Path $logs 'memory_commit_guard_state.json') -Raw | ConvertFrom-Json } else { $null }
     }
 }
 ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
@@ -223,9 +245,46 @@ def _os(commit_percent: float, *, free_physical_mib: int = 4096) -> dict:
     }
 
 
+# The harness's stubbed MachineGuid, hashed exactly as Get-MemoryGuardExecutionHostId does.
+STUB_MACHINE_GUID = "00000000-1111-2222-3333-444444444444"
+GUARD_HOST_ID = hashlib.sha256(b"international_live_execution_host_v2\x00" + STUB_MACHINE_GUID.encode()).hexdigest()
+OTHER_HOST_ID = "a" * 64
+
+
+def _write_host_assignment(repo_root: Path, host: str) -> None:
+    """config/international_live_execution_host.json naming the guard's host as `host`."""
+    if host == "none":
+        return
+    if host == "workstation":
+        active, dedicated = GUARD_HOST_ID, OTHER_HOST_ID
+    elif host == "capture":
+        active, dedicated = OTHER_HOST_ID, GUARD_HOST_ID
+    elif host == "other":
+        active, dedicated = "b" * 64, OTHER_HOST_ID
+    else:
+        raise ValueError(host)
+    (repo_root / "config").mkdir()
+    (repo_root / "config" / "international_live_execution_host.json").write_text(
+        json.dumps(
+            {
+                "active_portable_execution_host_id": active,
+                "active_portable_execution_principal_id": "c" * 64,
+                "assignment_status": "ASSIGNED",
+                "dedicated_capture_execution_host_id": dedicated,
+                "reassignment_requires_new_production_tip": True,
+                "schema_version": "international_live_execution_host_assignment_v0.1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, **extra) -> dict:
     repo_root = tmp_path / name
     repo_root.mkdir()
+    # By default the guard runs on the assigned non-capture (workstation) host, where a
+    # workstation_offline lease has no time window; "capture", "other" and "none" test the rest.
+    _write_host_assignment(repo_root, extra.pop("host", "workstation"))
     return {
         "name": name,
         "repo_root": str(repo_root),
@@ -235,10 +294,12 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
         "task_name": EVIDENCE_TASK,
         "task_state": extra.pop("task_state", None),
         "expected_host_id": extra.pop("expected_host_id", None),
-        # A repo lock defaults to the workstation_offline profile (no time window), as
-        # workstation_heavy.ps1 takes it; scenarios name agent_heavy or stage_a explicitly.
+        "prior_state": extra.pop("prior_state", None),
+        # A repo lock defaults to the workstation_offline profile (no time window) taken on
+        # this host, as workstation_heavy.ps1 writes it; scenarios name agent_heavy or
+        # stage_a, or another execution_host_id, explicitly.
         "leases": [
-            {"window": "workstation_offline", **lease} if lease.get("kind") == "repo_lock" else lease
+            {"window": "workstation_offline", "host_id": GUARD_HOST_ID, **lease} if lease.get("kind") == "repo_lock" else lease
             for lease in extra.pop("leases", [])
         ],
     }
@@ -1215,7 +1276,7 @@ RELEASED = '{"schema_version":"weather_heavy_workload_lease_released_v1","worklo
 
 
 def test_exec_admitted_work_past_its_policy_window_is_stopped_and_the_owner_spared(tmp_path: Path) -> None:
-    """M2: an agent_heavy lease admits until 09:05; after that its heavy work dies, the owner lives."""
+    """M2/m1: an agent_heavy lease admits until 09:00 exactly; then its heavy work dies, the owner lives."""
     base = 7_950_000
     tree = _wrapper_tree(base)
     agent_heavy = [dict(_lock(base + 5, age=40), window="agent_heavy")]
@@ -1228,13 +1289,14 @@ def test_exec_admitted_work_past_its_policy_window_is_stopped_and_the_owner_spar
         _proc(parent + 7, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=2, ppid=parent + 5),
     ]
     parent_lease = [dict(_lock(parent + 5, age=29), window="agent_heavy")]
-    late, grace = "2026-11-01T09:10:00", "2026-11-01T09:03:00"
+    late, grace, nine = "2026-11-01T09:10:00", "2026-11-01T08:59:00", "2026-11-01T09:00:00"
     outcome = _run(
         tmp_path,
         [
             _scenario(tmp_path, "late", now=late, commit=50.0, processes=tree, leases=agent_heavy),
             _scenario(tmp_path, "grace", now=grace, commit=50.0, processes=tree, leases=agent_heavy),
-            _scenario(tmp_path, "grace_unleased", now=grace, commit=50.0, processes=tree),
+            _scenario(tmp_path, "grace_unleased", now=nine, commit=50.0, processes=tree),
+            _scenario(tmp_path, "nine", now=nine, commit=50.0, processes=tree, leases=agent_heavy),
             _scenario(tmp_path, "parent_late", now=late, commit=50.0, processes=python_parent, leases=parent_lease),
             _scenario(tmp_path, "parent_unleased", now=late, commit=50.0, processes=python_parent),
             _scenario(tmp_path, "workstation", now=late, commit=50.0, processes=tree, leases=[_lock(base + 5, age=40)]),
@@ -1248,9 +1310,10 @@ def test_exec_admitted_work_past_its_policy_window_is_stopped_and_the_owner_spar
     assert f"lease owner pid {base + 5} is past its policy window" in late_row["log"]
     assert "[CRITICAL]" in late_row["log"]
 
-    # Inside the five-minute teardown grace the lease still admits.
+    # Review m1: no teardown grace past the guard's own 09:00 edge; 08:59 still admits.
     assert outcome["grace"]["stopped"] == []
     assert outcome["grace"]["status"]["agent_heavy_admitted_workload_count"] == 1
+    assert outcome["nine"]["stopped"] == [base + 7]
     assert set(outcome["grace_unleased"]["stopped"]) == {base + 3, base + 5, base + 7}
 
     # A heavy owner ancestor is stopped alone; the owner is orphaned, its chunk stopped.
@@ -1695,3 +1758,242 @@ function Invoke-Case([string]$Mode) {
     none = payload["none"]
     assert none["ok"] is True
     assert none["stopped"] == [7_960_003, 7_960_005, 7_960_007, 7_960_009]
+
+
+# ---- L28 review of 1fe670753: B1, M1, M2, m1-m4 ----
+
+
+def _host_state(pid: int, *, age: float, file: str = "heavy_workload_v1.poison") -> dict:
+    return {"kind": "host_state", "file": file, "pid": pid, "age_minutes": age, "state": "ACTIVE"}
+
+
+def test_exec_windowless_profiles_need_the_assigned_non_capture_host(tmp_path: Path) -> None:
+    """B1: a daytime workstation_offline record admits only on the assigned workstation, for its own id."""
+    base = 7_960_000
+    tree = _wrapper_tree(base)
+    lock = [_lock(base + 5, age=40)]
+    day, night = "2026-11-01T14:00:00", "2026-11-01T02:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "workstation", now=day, commit=50.0, processes=tree, leases=lock),
+            _scenario(tmp_path, "capture_assigned", now=day, commit=50.0, processes=tree, leases=lock, host="capture"),
+            _scenario(
+                tmp_path,
+                "capture_registered",
+                now=day,
+                commit=50.0,
+                processes=tree,
+                leases=lock,
+                expected_host_id=GUARD_HOST_ID,
+            ),
+            _scenario(
+                tmp_path,
+                "forged_record",
+                now=day,
+                commit=50.0,
+                processes=tree,
+                leases=[dict(_lock(base + 5, age=40), host_id=OTHER_HOST_ID)],
+            ),
+            _scenario(tmp_path, "unassigned_host", now=day, commit=50.0, processes=tree, leases=lock, host="other"),
+            _scenario(tmp_path, "no_assignment", now=day, commit=50.0, processes=tree, leases=lock, host="none"),
+            _scenario(tmp_path, "state_workstation", now=day, commit=50.0, processes=tree, leases=[_host_state(base + 5, age=40)]),
+            _scenario(
+                tmp_path,
+                "state_capture",
+                now=day,
+                commit=50.0,
+                processes=tree,
+                leases=[_host_state(base + 5, age=40)],
+                host="capture",
+            ),
+            _scenario(tmp_path, "capture_night", now=night, commit=50.0, processes=tree, leases=lock, host="capture"),
+        ],
+    )
+
+    # The assigned non-capture host honours its own windowless records.
+    for name in ("workstation", "state_workstation"):
+        assert outcome[name]["stopped"] == [], name
+        assert outcome[name]["status"]["agent_heavy_admitted_workload_count"] == 1, name
+    # Anywhere else, or for a record naming another host, the agent_heavy window
+    # applies: the daytime chunk dies, the owner is spared.
+    for name in ("capture_assigned", "capture_registered", "forged_record", "unassigned_host", "no_assignment", "state_capture"):
+        row = outcome[name]
+        assert row["stopped"] == [base + 7], name
+        assert row["status"]["actions"] == [f"killed_agent_member_pid_{base + 7}"], name
+        assert row["status"]["agent_heavy_admitted_workload_count"] == 0, name
+        assert "which this host does not honour" in row["log"], name
+    assert "(registered capture host)" in outcome["capture_registered"]["log"]
+    assert "(assigned capture host)" in outcome["capture_assigned"]["log"]
+    # Inside 00:30-09:00 the same record still admits on the capture host.
+    assert outcome["capture_night"]["stopped"] == []
+    assert outcome["capture_night"]["status"]["agent_heavy_admitted_workload_count"] == 1
+
+
+def test_exec_heavy_shell_above_the_owner_is_not_admitted_and_its_orphan_stays_governed(tmp_path: Path) -> None:
+    """m4 + M1: the heavy shell on the spine dies alone; the orphaned owner tree stays attributed."""
+    base = 7_961_000
+    heavy_shell = (
+        r'powershell.exe -NoProfile -Command "python -m pytest tests/smoke.py; '
+        r'powershell -File scripts\ops\workstation_heavy.ps1 -Kind pytest"'
+    )
+    owner, chunk = base + 7, base + 9
+    tick1 = [
+        _proc(base + 1, "claude.exe", CLAUDE, age=300),
+        _proc(base + 3, "cmd.exe", CMD_LAUNCHER, age=42, ppid=base + 1),
+        _proc(base + 5, "powershell.exe", heavy_shell, age=41, ppid=base + 3),
+        _proc(owner, "powershell.exe", WRAPPER, age=40, ppid=base + 5),
+        _proc(chunk, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=39, ppid=owner),
+    ]
+    # After tick 1 the heavy shell is gone; the owner's parent pid names nothing.
+    orphan = [row for row in tick1 if row["pid"] in (owner, chunk)]
+    day = "2026-11-01T14:00:00"
+    workstation = [_lock(owner, age=40)]
+    agent_heavy = [dict(_lock(owner, age=40), window="agent_heavy")]
+    remembered = {"owners": [owner], "unreadable_streak": 0, "age_seconds": 60}
+    big_chunk = [dict(orphan[0]), dict(orphan[1], private_bytes=9 * GIB)]
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "tick1", now=day, commit=50.0, processes=tick1, leases=workstation),
+            _scenario(tmp_path, "orphan_admitted", now=day, commit=50.0, processes=orphan, leases=workstation, prior_state=remembered),
+            _scenario(tmp_path, "orphan_late", now=day, commit=50.0, processes=orphan, leases=agent_heavy, prior_state=remembered),
+            _scenario(tmp_path, "orphan_unremembered", now=day, commit=50.0, processes=orphan, leases=agent_heavy),
+            _scenario(tmp_path, "orphan_budget", now=day, commit=50.0, processes=big_chunk, leases=workstation, prior_state=remembered),
+            _scenario(tmp_path, "orphan_released", now=day, commit=50.0, processes=orphan, prior_state=remembered),
+        ],
+    )
+
+    # m4: the in-window owner admits its chunk, not the heavy shell above it, which
+    # is stopped alone (the owner is orphaned, never stopped) and the owner remembered.
+    tick1_row = outcome["tick1"]
+    assert tick1_row["stopped"] == [base + 5]
+    assert tick1_row["status"]["actions"] == [f"killed_agent_ancestor_pid_{base + 5}"]
+    assert [tree["pid"] for tree in tick1_row["state"]["lease_owner_trees"]] == [owner]
+
+    # M1: the orphaned owner becomes its own tool root; its lease still admits...
+    admitted = outcome["orphan_admitted"]
+    assert admitted["stopped"] == []
+    assert admitted["status"]["agent_heavy_orphaned_lease_tree_count"] == 1
+    assert admitted["status"]["agent_heavy_admitted_workload_count"] == 1
+    # ...a lease past its window no longer does, and the budget still applies...
+    late = outcome["orphan_late"]
+    assert late["stopped"] == [chunk]
+    assert late["status"]["actions"] == [f"killed_agent_member_pid_{chunk}"]
+    budget = outcome["orphan_budget"]
+    assert budget["stopped"] == [chunk]
+    assert budget["status"]["actions"] == [f"killed_agent_member_pid_{chunk}"]
+    # ...where without the memory the orphan escaped every agent rule.
+    assert outcome["orphan_unremembered"]["stopped"] == []
+    assert outcome["orphan_unremembered"]["status"]["agent_heavy_workload_count"] == 0
+    # A released lease ends the attribution and the memory.
+    released = outcome["orphan_released"]
+    assert released["stopped"] == []
+    assert released["status"]["agent_heavy_orphaned_lease_tree_count"] == 0
+    assert released["state"]["lease_owner_trees"] == []
+
+
+def test_exec_lease_owner_past_the_hard_ceiling_is_stopped(tmp_path: Path) -> None:
+    """M2: an owner growing in-process is spared below 97% / 2x budget and stopped above it."""
+    base = 7_962_000
+
+    def tree(owner_bytes: int, *, heavy_child: bool = True) -> list[dict]:
+        rows = _wrapper_tree(base)
+        rows[2] = dict(rows[2], private_bytes=owner_bytes)
+        if not heavy_child:
+            rows[3] = dict(rows[3], name="node.exe", cmd=r"node C:\scratch\idle.js")
+        return rows
+
+    lock = [_lock(base + 5, age=40)]
+    night = "2026-11-01T02:00:00"
+    owner_tree = {base + 5, base + 7}
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "budget_spared", now=night, commit=50.0, processes=tree(12 * GIB), leases=lock),
+            _scenario(tmp_path, "budget_double", now=night, commit=50.0, processes=tree(17 * GIB), leases=lock),
+            _scenario(tmp_path, "budget_ceiling", now=night, commit=97.5, processes=tree(12 * GIB), leases=lock),
+            _scenario(tmp_path, "budget_unleased", now=night, commit=50.0, processes=tree(12 * GIB)),
+            _scenario(
+                tmp_path, "emergency_spared", now=night, commit=95.0, processes=tree(12 * GIB, heavy_child=False), leases=lock
+            ),
+            _scenario(
+                tmp_path, "emergency_ceiling", now=night, commit=97.5, processes=tree(12 * GIB, heavy_child=False), leases=lock
+            ),
+            _scenario(
+                tmp_path, "emergency_unleased", now=night, commit=95.0, processes=tree(12 * GIB, heavy_child=False)
+            ),
+        ],
+    )
+
+    spared = outcome["budget_spared"]
+    assert spared["stopped"] == []
+    assert "spared below the hard ceiling" in spared["log"]
+    for name in ("budget_double", "budget_ceiling"):
+        row = outcome[name]
+        assert set(row["stopped"]) == owner_tree, name
+        assert row["status"]["actions"] == [f"killed_lease_owner_pid_{base + 5}"], name
+        assert "past the hard ceiling" in row["log"] and "[CRITICAL]" in row["log"], name
+    # Unleased, the same tree goes whole below any ceiling, as on master.
+    assert set(outcome["budget_unleased"]["stopped"]) == {base + 3, base + 5, base + 7}
+
+    em_spared = outcome["emergency_spared"]
+    assert em_spared["stopped"] == []
+    assert "spared below the hard ceiling" in em_spared["log"]
+    em_ceiling = outcome["emergency_ceiling"]
+    assert set(em_ceiling["stopped"]) == owner_tree
+    assert em_ceiling["status"]["actions"] == [f"killed_lease_owner_pid_{base + 5}"]
+    # Unleased, master's commit emergency still takes the agent tree from its root (B2).
+    em_unleased = outcome["emergency_unleased"]
+    assert set(em_unleased["stopped"]) == {base + 1, base + 3, base + 5, base + 7}
+    assert em_unleased["status"]["actions"] == [f"killed_agent_tree_pid_{base + 1}"]
+
+
+def test_exec_unreadable_lease_records_stop_sparing_after_two_runs(tmp_path: Path) -> None:
+    """m2/m3: a lock rewritten as garbage every minute cannot disable the window or budget rules."""
+    unleased = _claude_bash(7_963_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    big = _claude_bash(7_963_100, "python -c x", "python.exe", f'{VENV_PY} -c "run()"', age=30)
+    big[-1]["private_bytes"] = 9 * GIB
+    torn = [
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.lock",
+            "pid": 1,
+            "age_minutes": 1,
+            "mtime_age_seconds": 5,
+            "raw": "",
+        }
+    ]
+
+    def prior(streak: int, age: float = 60) -> dict:
+        return {"owners": [], "unreadable_streak": streak, "age_seconds": age}
+
+    day = "2026-11-01T14:00:00"
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, "second", now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior(1)),
+            _scenario(tmp_path, "third", now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior(2)),
+            _scenario(tmp_path, "stale_prior", now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior(5, 600)),
+            _scenario(tmp_path, "budget_second", now=day, commit=50.0, processes=big, leases=torn, prior_state=prior(1)),
+            _scenario(tmp_path, "budget_third", now=day, commit=50.0, processes=big, leases=torn, prior_state=prior(2)),
+        ],
+    )
+
+    second = outcome["second"]
+    assert second["stopped"] == []
+    assert second["status"]["agent_heavy_lease_unreadable_streak"] == 2
+    assert second["state"]["lease_records_unreadable_streak"] == 2
+    # A stale memory restarts the count.
+    assert outcome["stale_prior"]["stopped"] == []
+    assert outcome["stale_prior"]["status"]["agent_heavy_lease_unreadable_streak"] == 1
+    # From the third run in a row every rule applies again, as on master.
+    third = outcome["third"]
+    assert set(third["stopped"]) == {7_963_003, 7_963_005, 7_963_007}
+    assert third["status"]["agent_heavy_lease_records_unreadable"] is False
+    assert third["status"]["agent_heavy_lease_unreadable_streak"] == 3
+    assert "for 3 runs in a row; no longer sparing" in third["log"]
+    assert outcome["budget_second"]["stopped"] == [7_963_107]
+    budget_third = outcome["budget_third"]
+    assert set(budget_third["stopped"]) == {7_963_103, 7_963_105, 7_963_107}
+    assert budget_third["status"]["actions"] == ["killed_agent_tree_pid_7963103"]

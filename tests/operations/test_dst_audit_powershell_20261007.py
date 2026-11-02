@@ -309,7 +309,7 @@ $clockText = ($top | Where-Object { $_.Extent.Text -match '^\$(?:localNow|utcNow
     ForEach-Object { $_.Extent.Text }) -join "`n"
 if (-not $clockText.Contains('$localNow = Get-Date')) { throw 'missing $localNow = Get-Date' }
 $heavyText = Get-TopRange (Get-TopIndex { param($t) $t -eq '$heavyToolRoots = @{}' }) `
-    (Get-TopIndex { param($t) $t.StartsWith('foreach') -and $t.Contains('$AgentWorkloadGraceSeconds') })
+    (Get-TopIndex { param($t) $t -eq 'Add-AgentHeavyRows' })
 $sweepText = Get-TopRange (Get-TopIndex { param($t) $t -eq '$orphanActions = @()' }) `
     (Get-TopIndex { param($t) $t.StartsWith('foreach') -and $t.Contains('$OrphanGraceMinutes') })
 $sortText = Get-Assignment '$orderedRoots'
