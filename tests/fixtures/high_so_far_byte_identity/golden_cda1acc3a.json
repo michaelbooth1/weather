@@ -411,6 +411,7 @@
     "artifacts/models/hgb/item35_density_full_candidate.pkl": "b110be9c48da71d4b9485836f871021d58e567197290f41312e561a7bb0194a1",
     "artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl": "261b005f71793a66eb543559dbcb050639ae9f0ba56b55517659471a173d9197"
    },
+   "generating_platform": "win32",
    "market_and_model_kind": {
     "20260928T070008619238-0400": [
      "miami",

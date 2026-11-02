@@ -1,4 +1,11 @@
-# 339. EDGE-1 Model-Edge Pre-Registration Family [OPEN 2026-10-21 - OWNER APPROVED; SIGNING AFTER THE THURSDAY FABLE DELTA]
+# 339. EDGE-1 Model-Edge Pre-Registration Family [DORMANT 2026-10-23 - POSTPONED BY THE OWNER (DECISION_LOG 2026-10-23), FORWARD TEST B REPLACED IT; WAS OPEN 2026-10-21 - OWNER APPROVED, NEVER SIGNED]
+
+**POSTPONED (owner 2026-10-23, [DECISION_LOG](../../operations/DECISION_LOG.md) "EDGE-1 postponed"; recorded 2026-11-02 after
+the 2026-11-01 state review, item 31).** D0 10-28 no longer holds and the code freeze tied to it is lifted. The minimal
+forward edge test B ([design](../../operations/B_FORWARD_TEST_DESIGN.md), look 12-13) replaced it as the edge test (owner
+2026-10-25); a new EDGE-1 schedule would come only with an edge-test redesign. The outcome-read embargo after 09-29 stays
+([reserved confirmation window](../../operations/reserved-confirmation-window.md)). The status and acceptance below are the
+record as of 2026-10-22 and are not current.
 
 Goal: score the remaining model options against market prices once each, fairly and on new settled dates, under one
 signed pre-registration family (EDGE-1, with MG-1 and NBM-2 read by the same go / no-go rule), so the 2026-12-21

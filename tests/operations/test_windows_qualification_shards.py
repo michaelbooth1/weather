@@ -72,6 +72,8 @@ EXPECTED_SHARDS = {
             "tests/operations/test_ps_exit_in_finally_ratchet.py",
             "tests/operations/test_maker_shadow_ops_scripts.py",
             "tests/calibration/test_mg2_input_export.py",
+            # Hosted byte-identity coverage: lfs: false gives the win32 lfs_pointers golden tier.
+            "tests/model/test_high_so_far_variant_none_byte_identity.py",
         ],
     ),
     "launch": (
