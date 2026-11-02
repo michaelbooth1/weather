@@ -419,26 +419,48 @@ Record the gap in the panel notes.
 
 ### Torn-journal quarantine tool
 
-`scripts/ops/maker_evidence_torn_quarantine.ps1` automates the "Torn journal after
-power loss" procedure (Storage and brakes). It is report-only unless `-Apply`, and
-the default root is the core `data\maker_evidence`. A family root needs an explicit
-`-Root` and `-QuarantineRoot`. It never starts or changes a scheduled task; start
-the recorder yourself afterwards.
+`scripts/ops/maker_evidence_torn_quarantine.ps1` performs the torn-journal recovery
+after a hard power loss: it moves the unsealed segment's torn journals byte-exact to
+`data\maker_evidence_quarantine\<UTC-day>\<segment>\` with a receipt, so the next
+recorder start can seal the rest. It is report-only unless `-Apply`. The default root
+is the core `data\maker_evidence`, checked against `WeatherMakerEvidenceCapture`. A
+family root needs an explicit `-Root` and `-QuarantineRoot`, and is checked against a
+task only when `-TaskName` is given. It never starts or changes a scheduled task;
+start the recorder yourself afterwards.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1 -Apply
 ```
 
-It holds byte 0 of `.writer.lock` for the whole pass and refuses while a recorder
-holds it. It acts only on a single unsealed segment and moves at most 10 non-empty
-`*.jsonl` without a final newline. Each move is a same-volume rename with SHA-256
-before and after, `QUARANTINE_INTENT.json` first and `QUARANTINE_RECEIPT.json`
-last. A rerun reconciles from the intent. A NUL inside a newline-terminated journal
-is `UNRESOLVED` (exit 5) and moves nothing. So is a core-root run that finds no torn
-tail while `WeatherMakerEvidenceCapture` last returned 1. Exit 0 covers noop, report, quarantined
-and reconciled; 2 is refused; 4 is failed mid-apply (rerun). `-Apply` appends one
-line per pass to `data\alerts\maker_evidence_torn_quarantine.jsonl`.
+- It holds byte 0 of `.writer.lock` for the whole pass, refuses while a recorder holds
+  it, and releases it on every exit.
+- It acts only on a single unsealed segment. It moves at most 10 non-empty, non-dot
+  `*.jsonl` without a final newline. Root, quarantine, day, segment and journal must not
+  be reparse points, and root and quarantine must be on one volume.
+- Each move is a same-volume rename with SHA-256 before and after.
+  `QUARANTINE_INTENT.json` is written first and `QUARANTINE_RECEIPT.json` last. A rerun
+  reconciles from the intent. If the receipt failed and the recorder has since sealed
+  the segment, the rerun reports `REPORT_AFTER_SEAL`, and `-Apply` writes the receipt
+  (`RECONCILED_AFTER_SEAL`).
+- `UNRESOLVED` (exit 5, nothing moved) means a NUL inside a newline-terminated journal,
+  or quarantined bytes that no longer match the intent.
+- Every no-action (`NOOP_*`) result also reads the task's last result. If it is 1, and
+  newer than that segment's receipt when one exists, the result becomes
+  `TORN_SIGNATURE_UNRESOLVED` (exit 5). Examples: a torn `manifest.json`, or corruption
+  this tool may not move.
+
+Exit codes:
+
+| Code | Results |
+| --- | --- |
+| 0 | `NOOP_*`, `REPORT*`, `QUARANTINED`, `RECONCILED`, `RECONCILED_AFTER_SEAL` |
+| 2 | refused |
+| 4 | failed mid-apply; rerun |
+| 5 | unresolved; needs a human |
+| 6 | internal error; lock released |
+
+`-Apply` appends one line per pass to `data\alerts\maker_evidence_torn_quarantine.jsonl`.
 
 The central schema registration is additive. Its shared-registry placement
 means deployment must use the repository roll-verdict tool; independence of
