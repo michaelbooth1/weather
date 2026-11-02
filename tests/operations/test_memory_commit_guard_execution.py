@@ -73,6 +73,12 @@ function Get-CimInstance {
 }
 function Get-Process {
     param($Id, $ErrorAction)
+    # The guard asks for its own process start (Get-Process -Id $PID): a start-up
+    # delay of guard_startup_seconds before the fake now, or unknown.
+    if ($null -ne $Id -and [int]$Id -eq $PID) {
+        if ($global:FakeGuardStartUnknown) { throw 'synthetic: the guard process start cannot be read' }
+        return [pscustomobject]@{ Id = $PID; StartTime = $global:FakeNow.AddSeconds(-[double]$global:FakeGuardStartupSeconds) }
+    }
     $live = @($global:FakeRuntime | Where-Object { -not $global:Stopped.Contains([int]$_.Id) })
     if ($null -eq $Id) { return $live }
     return $live | Where-Object { [int]$_.Id -eq [int]$Id } | Select-Object -First 1
@@ -215,14 +221,21 @@ $results = foreach ($scenario in $scenarios) {
             lease_records_unreadable_streak = [int]$prior.unreadable_streak
             lease_owner_trees = $trees
         }
-        if ($null -ne $prior.run_seconds) { $stateRecord['run_seconds'] = [double]$prior.run_seconds }
+        # The writer's process start: started_before_update seconds before its
+        # updated_at_utc (its start-up time); absent from a legacy record.
+        $updatedAt = $global:FakeNow.AddSeconds(-[double]$prior.age_seconds).ToUniversalTime()
+        $writerStart = $updatedAt.AddSeconds(-[double]$prior.started_before_update).ToString('o')
+        if (-not $prior.legacy) { $stateRecord['run_started_at_utc'] = $writerStart }
+        # run_seconds is written as given (it may be a deliberately bad value).
+        if ($null -ne $prior.run_seconds) { $stateRecord['run_seconds'] = $prior.run_seconds }
         # chain: the record an earlier scenario left (a later run of the same guard),
         # re-dated to age_seconds before now and, when given, with the run_seconds of
         # a slow writer (the harness cannot make a run slow).
         if ($null -ne $prior.chain) {
             $stateRecord = $global:StateTexts[[string]$prior.chain] | ConvertFrom-Json
-            $stateRecord.updated_at_utc = $global:FakeNow.AddSeconds(-[double]$prior.age_seconds).ToUniversalTime().ToString('o')
-            if ($null -ne $prior.run_seconds) { $stateRecord | Add-Member -NotePropertyName run_seconds -NotePropertyValue ([double]$prior.run_seconds) -Force }
+            $stateRecord.updated_at_utc = $updatedAt.ToString('o')
+            if ($null -ne $stateRecord.run_started_at_utc) { $stateRecord.run_started_at_utc = $writerStart }
+            if ($null -ne $prior.run_seconds) { $stateRecord | Add-Member -NotePropertyName run_seconds -NotePropertyValue $prior.run_seconds -Force }
         }
         # A raw body stands for a damaged state file.
         $stateBody = if ($null -ne $prior.raw) { [string]$prior.raw } else { ConvertTo-Json -InputObject $stateRecord -Depth 4 }
@@ -230,6 +243,8 @@ $results = foreach ($scenario in $scenarios) {
     }
     $global:FailStateWrite = [bool]$scenario.fail_state_write
     $global:FailStateTempWrite = [bool]$scenario.fail_state_temp_write
+    $global:FakeGuardStartupSeconds = [double]$scenario.guard_startup_seconds
+    $global:FakeGuardStartUnknown = [bool]$scenario.guard_start_unknown
     # lock_state holds the state file open with no sharing for the whole run, so the
     # guard can neither read nor replace it.
     $stateLock = $null
@@ -354,6 +369,8 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
         "prior_state": extra.pop("prior_state", None),
         "fail_state_write": extra.pop("fail_state_write", False),
         "fail_state_temp_write": extra.pop("fail_state_temp_write", False),
+        "guard_startup_seconds": extra.pop("guard_startup_seconds", 0),
+        "guard_start_unknown": extra.pop("guard_start_unknown", False),
         "lock_state": extra.pop("lock_state", False),
         # A repo lock defaults to the workstation_offline profile (no time window) taken on
         # this host, as workstation_heavy.ps1 writes it; scenarios name agent_heavy or
@@ -365,6 +382,8 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
     }
 
 
+# ".*" rather than "\S*" before the file name: the state path sits under --basetemp,
+# which may contain spaces.
 GUARD_STATE_ERROR = re.compile(
     r"\[ERROR\] guard state .*memory_commit_guard_state\.json (could not be written|is unreadable|is invalid) "
 )
@@ -2124,8 +2143,17 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
             torn_run("slow_151", prior(2, 151, run_seconds=70)),
             # A run of exactly 60 s occupied one trigger minute: k = 1.
             torn_run("run_60_age_91", prior(2, 91, run_seconds=60)),
-            # A record from before run_seconds reads as k = 1 (the 90 s rule).
-            torn_run("legacy_120", prior(2, 120)),
+            # A record without run_started_at_utc (written before it) carries at most 1,
+            # however fresh: its start-up time is unknown.
+            torn_run("legacy_120", prior(2, 120, legacy=True)),
+            torn_run("legacy_60", prior(2, 60, legacy=True)),
+            # k = 3 (a 150 s writer): full carry up to 210 s.
+            torn_run("k3_210", prior(2, 210, run_seconds=150)),
+            torn_run("k3_211", prior(2, 211, run_seconds=150)),
+            # run_seconds that is negative, beyond 300 s or not a number caps the carry.
+            torn_run("rs_negative", prior(2, 60, run_seconds=-5)),
+            torn_run("rs_huge", prior(2, 60, run_seconds=400)),
+            torn_run("rs_text", prior(2, 60, run_seconds="abc")),
             torn_run("age_90", prior(2, 90)),
             torn_run("age_91", prior(2, 91)),
             torn_run("age_300", prior(2, 300)),
@@ -2179,6 +2207,15 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
     check("run_60_age_91", streak=2, read="ok")
     legacy = check("legacy_120", streak=2, read="ok")
     assert legacy["state"]["lease_records_unreadable_streak"] == 2
+    check("legacy_60", streak=2, read="ok")
+    check("k3_210", streak=3, read="ok", stopped=killed)
+    check("k3_211", streak=2, read="ok")
+    for name in ("legacy_120", "legacy_60", "k3_211", "rs_negative", "rs_huge", "rs_text", "slow_151", "age_91"):
+        row = check(name, streak=2, read="ok")
+        assert row["status"]["guard_state_carry"] == "capped", name
+    for name in ("control", "k3_210", "slow_150", "age_90"):
+        assert outcome[name]["status"]["guard_state_carry"] == "full", name
+    assert outcome["future_30"]["status"]["guard_state_carry"] == "none"
     # Every record the guard writes carries its run time.
     assert isinstance(legacy["state"]["run_seconds"], (int, float)) and legacy["state"]["run_seconds"] >= 0
     check("age_90", streak=3, read="ok", stopped=killed)
@@ -2187,8 +2224,9 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
     check("age_301", streak=1, read="stale")
     check("future_30", streak=1, read="ok")
     check("future_61", streak=1, read="stale")
-    for name in ("skipped_trigger", "slow_150", "slow_151", "run_60_age_91", "legacy_120", "age_90", "age_91",
-                 "age_300", "age_301", "future_30", "future_61"):
+    for name in ("skipped_trigger", "slow_150", "slow_151", "run_60_age_91", "legacy_120", "legacy_60", "k3_210",
+                 "k3_211", "rs_negative", "rs_huge", "rs_text", "age_90", "age_91", "age_300", "age_301",
+                 "future_30", "future_61"):
         assert outcome[name]["status"]["guard_state_degraded"] is False, name
 
     # Read failures: empty memory, degraded, ERROR, nothing stopped.
@@ -2439,3 +2477,79 @@ def test_exec_streak_carry_follows_the_writer_run_time(tmp_path: Path) -> None:
     double = outcome["r_double"]
     assert double["status"]["agent_heavy_lease_unreadable_streak"] == 2
     assert double["stopped"] == []
+
+
+def _seconds(stamp: str) -> float:
+    """An ISO instant written by PowerShell's 'o' format, as POSIX seconds."""
+    from datetime import datetime, timezone
+
+    match = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?", stamp)
+    assert match, stamp
+    base = datetime.fromisoformat(match.group(1)).replace(tzinfo=timezone.utc)
+    return base.timestamp() + float("0." + (match.group(2) or "0"))
+
+
+def test_exec_streak_carry_uses_the_guard_process_start(tmp_path: Path) -> None:
+    """Delta-3 review: the carry is measured between process starts, so start-up skew
+    cannot buy a full carry across a run that did not write."""
+    unleased = _claude_bash(7_975_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    killed = {7_975_003, 7_975_005, 7_975_007}
+    torn = [
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.lock",
+            "pid": 1,
+            "age_minutes": 1,
+            "mtime_age_seconds": 5,
+            "raw": "",
+        }
+    ]
+    day = "2026-11-01T14:00:00"
+
+    def run(name: str, prior_state=None, **extra) -> dict:
+        return _scenario(tmp_path, name, now=day, commit=50.0, processes=unleased, leases=torn, prior_state=prior_state, **extra)
+
+    outcome = _run(
+        tmp_path,
+        [
+            # The reviewer's timeline (k = 3). Trigger 0: R's process starts at 0, its
+            # first statement runs at 35 (updated_at_utc), it writes count 2 at 156
+            # (run_seconds 156 from its process start). R' at 180 reads cleanly and
+            # cannot write. R'' starts at 240 and its first statement runs at 244. By
+            # first statements the age is 209 <= 210 (a full carry would kill); by
+            # process starts it is 240 > 210: capped, spared.
+            run("skewed_writer", {"owners": [], "unreadable_streak": 2, "age_seconds": 209,
+                                  "started_before_update": 35, "run_seconds": 156},
+                guard_startup_seconds=4),
+            # Review minor 1: 5 s of start-up plus 58 s of work spans the 60 s trigger.
+            # run_seconds from the process start is 63 (k = 2) and the next run starts at
+            # 120: a full carry, so the count reaches the cap.
+            run("startup_spans_trigger", {"owners": [], "unreadable_streak": 2, "age_seconds": 120,
+                                          "started_before_update": 5, "run_seconds": 63},
+                guard_startup_seconds=5),
+            # What the guard writes: its process start, 7 s before its first statement.
+            run("written_reference", guard_startup_seconds=7),
+            # An unknown process start caps the carry and writes neither field.
+            run("start_unknown", {"owners": [], "unreadable_streak": 2, "age_seconds": 60}, guard_start_unknown=True),
+        ],
+    )
+    skewed = outcome["skewed_writer"]
+    assert skewed["stopped"] == []
+    assert skewed["status"]["agent_heavy_lease_unreadable_streak"] == 2
+    assert skewed["status"]["guard_state_carry"] == "capped"
+
+    spans = outcome["startup_spans_trigger"]
+    assert spans["status"]["agent_heavy_lease_unreadable_streak"] == 3
+    assert spans["status"]["guard_state_carry"] == "full"
+    assert set(spans["stopped"]) == killed
+
+    written = outcome["written_reference"]["state"]
+    assert _seconds(written["updated_at_utc"]) - _seconds(written["run_started_at_utc"]) == 7
+    assert 7 <= written["run_seconds"] < 67
+
+    unknown = outcome["start_unknown"]
+    assert unknown["errors"] == []
+    assert unknown["status"]["agent_heavy_lease_unreadable_streak"] == 2
+    assert unknown["status"]["guard_state_carry"] == "capped"
+    assert unknown["stopped"] == []
+    assert "run_started_at_utc" not in unknown["state"] and "run_seconds" not in unknown["state"]

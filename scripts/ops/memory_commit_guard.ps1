@@ -1000,7 +1000,7 @@ function Get-OrphanLeaseTreeTop($OwnerRow, $ProcessByPid, $Remembered) {
     return [pscustomobject]@{ Row = $null; Why = 'its ancestry is deeper than 64 processes' }
 }
 
-function Read-GuardState([string]$Path, [datetime]$NowUtc) {
+function Read-GuardState([string]$Path, [datetime]$NowUtc, $StartUtc) {
     # The guard's memory between one-minute runs: the consecutive runs on which a
     # lease record was unreadable, and the lease owners last seen inside an agent
     # tree (PID plus creation instant, so a reused PID never matches).
@@ -1014,33 +1014,37 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
     #   ok         the remembered owners are kept (they match by PID and creation
     #              instant, so an older or slightly future-dated record still names
     #              exactly the process it saw). The streak carried over depends on
-    #              the record's age and on run_seconds, how long the writing run
-    #              took from its start instant (updated_at_utc) to its write:
-    #              k = max(1, ceil(run_seconds / 60)), the trigger minutes that run
-    #              occupied (the task uses IgnoreNew, so a run over 60 s skips the
-    #              triggers it overlaps). A record without run_seconds (written
-    #              before the field) reads as k = 1.
-    #                0 to 60k+30 s  the full streak: the record was written by the
-    #                           previous run (age 300 s at most, as above);
-    #                beyond     at most 1: a run in between started and did not
-    #                           write, so the record's streak may be past the
-    #                           truth and must not push a run over the cap;
-    #                under 0 s  none: a record from the future (a backward clock
-    #                           step after failed writes) cannot be ordered.
-    #              Soundness: with no run in between, this run starts at the first
-    #              trigger after the writer ended, about 60k s plus start-up latency
-    #              after the writer's start, so it carries in full. With a run in
-    #              between that did not write, this run starts at least 60(k+1) s
-    #              after the writer's start, past 60k+30, so the carry is capped.
-    #              The 30 s margin is the one the plain 90 s rule had. run_seconds
-    #              misses the writer's start-up and the time after its write, so
-    #              its k can only be too low, which caps more and only spares.
+    #              when the writer ran and how long it took, both measured from the
+    #              writer's own process start (run_started_at_utc, run_seconds),
+    #              against this run's own process start ($StartUtc):
+    #              k = max(1, ceil(run_seconds / 60)), the trigger minutes the writer
+    #              occupied (the task uses IgnoreNew, so a run still going at a
+    #              trigger skips it). With start age a = $StartUtc - run_started_at_utc:
+    #                0 <= a <= 60k+30 (and 300)  the full streak;
+    #                otherwise                   at most 1;
+    #                a < 0                       none (a record from the future).
+    #              At most 1 is also carried when either process start is unknown
+    #              (a record written before run_started_at_utc, or Get-Process could
+    #              not say) or run_seconds is not a number from 0 to 300 (an absent
+    #              run_seconds reads as 0, k = 1). Capping only spares.
+    #              Why: both instants are process starts, so start-up time (slowest
+    #              under commit pressure) cancels out and only Task Scheduler's
+    #              launch latency is left. With no run in between, this run is the
+    #              first trigger after the writer ended, a = 60k plus the difference
+    #              in launch latency; with a run in between that did not write,
+    #              a >= 60(k+1) plus that difference, past 60k+30. This holds while
+    #              (1) the launch latency of the two runs differs by under 30 s,
+    #              (2) the clock is not stepped back 30 s or more between them, and
+    #              (3) no out-of-band guard run (by hand) starts in between. It is not
+    #              unconditional. run_seconds misses only the launch latency before
+    #              the process and the status-file write after the state write, so k
+    #              can only be too low, which caps and only spares.
     #   unreadable the file exists but cannot be read (sharing violation, access
     #              denied): empty and degraded, and this run does not overwrite the
     #              file, so the last good record survives for the next run.
     #   invalid    the file reads but is not a v1 state record: empty and degraded;
     #              this run's write replaces it.
-    $result = [pscustomobject]@{ UnreadableStreak = 0; LeaseOwnerTrees = @(); Status = 'absent'; Error = $null }
+    $result = [pscustomobject]@{ UnreadableStreak = 0; LeaseOwnerTrees = @(); Status = 'absent'; Error = $null; Carry = 'none' }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $result }
     $errorMark = $Error.Count
     try {
@@ -1065,7 +1069,6 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
                 RootPid = [uint32]$_.root_pid; RootTicks = [long]$_.root_creation_utc_ticks }
         })
         $streak = [int]$state.lease_records_unreadable_streak
-        $runSeconds = if ($null -ne $state.run_seconds) { [double]$state.run_seconds } else { 0.0 }
     }
     catch {
         while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
@@ -1080,11 +1083,32 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
     $result.Status = 'ok'
     $result.LeaseOwnerTrees = $trees
     $streak = [math]::Max(0, $streak)
-    $runMinutes = 1.0
-    if ($runSeconds -gt 0.0) { $runMinutes = [math]::Max(1.0, [math]::Ceiling($runSeconds / 60.0)) }
-    if ($age -lt 0.0) { $result.UnreadableStreak = 0 }
-    elseif ($age -le (60.0 * $runMinutes + 30.0)) { $result.UnreadableStreak = $streak }
-    else { $result.UnreadableStreak = [math]::Min($streak, 1) }
+    # Validation never fails the record (its owners stay usable): anything unusable
+    # here only caps the carry.
+    $result.Carry = 'capped'
+    $writerStart = $null
+    if ($null -ne $state.run_started_at_utc) {
+        $parsedStart = [datetime]::MinValue
+        if ([datetime]::TryParse([string]$state.run_started_at_utc, [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsedStart)) { $writerStart = $parsedStart.ToUniversalTime() }
+    }
+    $runSeconds = 0.0
+    $runSecondsValid = $true
+    if ($null -ne $state.run_seconds) {
+        $runSecondsValid = [double]::TryParse([string]$state.run_seconds, [Globalization.NumberStyles]::Float,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$runSeconds) -and
+            -not [double]::IsNaN($runSeconds) -and $runSeconds -ge 0.0 -and $runSeconds -le 300.0
+    }
+    if ($age -lt 0.0) { $result.UnreadableStreak = 0; $result.Carry = 'none'; return $result }
+    $result.UnreadableStreak = [math]::Min($streak, 1)
+    if ($null -eq $StartUtc -or $null -eq $writerStart -or -not $runSecondsValid) { return $result }
+    $startAge = ([datetime]$StartUtc - $writerStart).TotalSeconds
+    if ($startAge -lt 0.0) { $result.UnreadableStreak = 0; $result.Carry = 'none'; return $result }
+    $runMinutes = [math]::Max(1.0, [math]::Ceiling($runSeconds / 60.0))
+    if ($startAge -le [math]::Min(300.0, 60.0 * $runMinutes + 30.0)) {
+        $result.UnreadableStreak = $streak
+        $result.Carry = 'full'
+    }
     return $result
 }
 
@@ -1284,6 +1308,7 @@ $status = @{
     agent_heavy_max_private_mb = 0
     agent_heavy_window_allowed = $false
     guard_state_read = 'not_read'
+    guard_state_carry = 'none'
     guard_state_degraded = $false
     guard_state_written = $false
 }
@@ -1301,9 +1326,24 @@ $status = @{
 # The 00:30-09:00 and 12:00-18:00 windows are deliberately local.
 $localNow = Get-Date
 $utcNow = $localNow.ToUniversalTime()
-# Monotonic run timer from the start instant the state record stores: its
-# run_seconds tells the next run how many triggers this one overlapped.
+# The guard's own process start: the reference for the state record's
+# run_started_at_utc and run_seconds (Read-GuardState), so PowerShell start-up
+# time does not skew the unreadable-lease carry. Unknown (null) when Get-Process
+# cannot say or reports an implausible instant; the carry is then capped.
 $guardRunTimer = [Diagnostics.Stopwatch]::StartNew()
+$guardProcessStartUtc = $null
+$errorMark = $Error.Count
+try {
+    $guardProcessStart = (Get-Process -Id $PID -ErrorAction Stop).StartTime
+    if ($null -ne $guardProcessStart) {
+        $candidateStart = ([datetime]$guardProcessStart).ToUniversalTime()
+        $startupSeconds = ($utcNow - $candidateStart).TotalSeconds
+        if ($startupSeconds -ge 0.0 -and $startupSeconds -le 300.0) { $guardProcessStartUtc = $candidateStart }
+    }
+}
+catch {
+    while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
+}
 $minuteOfDay = (60 * $localNow.Hour) + $localNow.Minute + ($localNow.Second / 60.0)
 $agentHeavyWindowAllowed = ($minuteOfDay -ge 30.0) -and ($minuteOfDay -lt 540.0)
 $status.agent_heavy_window_allowed = $agentHeavyWindowAllowed
@@ -1340,8 +1380,9 @@ Add-AgentHeavyRows
 
 # Lease owners remembered from earlier runs (Read-GuardState) that are still alive
 # under the same creation instant.
-$guardState = Read-GuardState $guardStatePath $utcNow
+$guardState = Read-GuardState $guardStatePath $utcNow $guardProcessStartUtc
 $status.guard_state_read = $guardState.Status
+$status.guard_state_carry = $guardState.Carry
 if ($guardState.Status -in @('unreadable', 'invalid')) {
     $status.guard_state_degraded = $true
     Write-GuardLog "ERROR" ("guard state {0} is {1} ({2}); this run remembers nothing, which only spares: the unreadable-lease count restarts and no orphaned lease tree is attributed{3}" -f `
@@ -1940,8 +1981,14 @@ $guardStateRecord = [ordered]@{
     schema_version = 'memory_commit_guard_state_v1'
     updated_at_utc = $utcNow.ToString('o')
     lease_records_unreadable_streak = $unreadableStreak
-    run_seconds = [math]::Round($guardRunTimer.Elapsed.TotalSeconds, 3)
     lease_owner_trees = $rememberedTrees.ToArray()
+}
+# From the process start to this write: start-up (wall clock, read together with
+# $utcNow) plus the monotonic timer. Without a known process start neither field
+# is written, so the next run caps the carry.
+if ($null -ne $guardProcessStartUtc) {
+    $guardStateRecord['run_started_at_utc'] = $guardProcessStartUtc.ToString('o')
+    $guardStateRecord['run_seconds'] = [math]::Round(($utcNow - $guardProcessStartUtc).TotalSeconds + $guardRunTimer.Elapsed.TotalSeconds, 3)
 }
 # A failed write leaves the previous record in place (Read-GuardState: its owners
 # stay usable for five minutes; once a later run has started and not written, at
