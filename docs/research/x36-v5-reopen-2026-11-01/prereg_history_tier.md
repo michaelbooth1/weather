@@ -1,3 +1,5 @@
+**DRAFT - NOT FROZEN - parked 2026-11-02 - no history data read**
+
 # K112 history-tier test: pre-registration (DRAFT, lane L47, 2026-11-02)
 
 **Status: DRAFT for master's review. Not frozen and not run.** No history-tier label, price or outcome was read
@@ -168,3 +170,15 @@ of independent market-days.
   the history tier uninformative for K112 as pinned.
 - **O-H4, power** (section 5). Whether a run at about 0.14 power at the dev effect is worth spending, given that
   a KILL cannot rule the effect out.
+
+
+## 8. Parked (master, 2026-11-02)
+
+Master parked this test on 2026-11-02. It has not been run and nothing is killed. This is a deviation from C1.6's
+routing (CONSISTENT goes to the history tier), not a verdict. No fetch and no input-path build is made.
+
+Reopen triggers:
+
+1. Another lane produces a Dec-May NBM 07Z corpus plus P3d_N_fix inputs for 07:00 and 10:00.
+2. A forward-shadow lane with futility looks can take candidates cheaply. K112 would need serve-side d computed
+   from captured METAR there (C1.7).
