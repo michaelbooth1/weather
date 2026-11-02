@@ -328,3 +328,99 @@ the coordinator is asked to confirm.
 ### C1.7 Serving rule, recorded now
 
 "serve must compute d from captured METAR and must never read the Stage-A CSV."
+
+## Clarification 2 (2026-11-01), before any dev row: mechanism check, per-month rule, confirmed overlap, allowlist
+
+Docs only, additions only. Master ruled a dev GO conditional on these four items; no dev row has been opened. Code
+lives in `ca16a29903820feb9d1bd32d492de68dd0d65fdc`, which adds to `x36_trailing_g2p.py` only (new sha256
+`d682be2cb8c68194116d266344c729d0baad5f5465579edfbd6a87e9aeb2b857`; tests
+`bc4c9449228863b4e87439228d3000a74e565c8ff8addb9e9def1e1a67bc6f13`). `x36_trailing_g2.py` is still `022565cc…`.
+
+### C2.1 Ex-ante mechanism check (training era only, descriptive)
+
+`x36_trailing_g2p.py mechanism` was run directly; it is light. It used module `d682be2c…`, `g1_rows.jsonl`
+(gate rows) and G1's `dseries.json`. Output: `C:\t\L47b\g2\mech\mechanism.json`, sha256
+`d84f120d1189d7f3104fc319621c7ec621cae27f2fca74b9488d5c31ef7cde5f`.
+
+Definitions:
+- **gain**: per-year mean per gate row of the P3d_T − P3d_N_fix Brier. These are G1's out-of-fold rows; negative
+  is better.
+- **season departure** of a market in year Y: the mean of d over Y's Aug 1..Sep 29, minus the mean over the other
+  four years. That is G1's nested baseline.
+  - pooled signed: the mean over the 11 markets;
+  - pooled |·|: the absolute value of the pooled signed departure;
+  - market |·|: the mean of |departure| over markets.
+- **row level**, from the gate rows:
+  - mean |b_recent − b_train| = mean |shift / λ| over λ > 0 rows (clipped);
+  - mean |shift| = the applied shift in °F.
+
+| year | gain (dBrier) | pooled signed departure °F | market mean abs departure °F | row mean abs (b_recent − b_train) °F | row mean abs shift °F |
+| --- | --- | --- | --- | --- | --- |
+| 2021 | +0.00078 | +0.343 | 0.788 | 1.052 | 0.392 |
+| 2022 | −0.00591 | −0.363 | 0.854 | 1.277 | 0.319 |
+| 2023 | −0.00712 | −0.200 | 0.852 | 1.114 | 0.373 |
+| 2024 | +0.00125 | +0.031 | 0.382 | 0.969 | 0.314 |
+| 2025 | −0.00044 | +0.192 | 0.553 | 0.946 | 0.313 |
+
+Gain against departure, n = 5. With five points these correlations are tiny-sample and carry almost no weight; none
+is significant.
+
+| regressor | Spearman | OLS slope (dBrier per °F) | intercept |
+| --- | --- | --- | --- |
+| pooled abs departure (pre-stated for the prediction) | −0.50 | −0.01054 | +0.00009 |
+| market mean abs departure | −0.80 | −0.01371 | +0.00711 |
+| row mean abs (b_recent − b_train) | −0.60 | −0.02275 | +0.02209 |
+| row mean abs shift | −0.20 | −0.01203 | +0.00182 |
+| pooled SIGNED departure (disclosed secondary) | +0.60 | +0.01160 | −0.00230 |
+
+The signed row was computed with the same module functions (`spearman`, `ols`) from `mechanism.json` and is
+disclosed here.
+
+**Prediction for dev, stated before dev opens. It is NOT a gate.**
+- The 2026 departure comes from X36-v5's figures, not from dev. The source is `results_x36_v5.md` (sha256
+  `bb635e42…d546`), "Season control" table and text:
+  - "2026 dev Aug-Sep … NBM v2 mean +0.74" (from Morning-loss Analysis 5);
+  - training-era Aug-Sep raw NBP d, market mean +0.40;
+  - "The 2026 Aug-Sep dev figure (+0.74) is about 0.3 °F above the training-era Aug-Sep raw figure (+0.40)".
+  - The 2026 departure used is therefore +0.74 − 0.40 = **+0.34 °F, pooled and signed**. Its absolute value,
+    0.34, is the pre-stated regressor.
+- Caveat: +0.74 is an NBM v2 mean from a different analysis, not this module's NBP 07Z d over 07-31..09-28. There
+  is no per-market 2026 figure, so only the pooled regressor can be used.
+- **Implied gain from the pre-stated regressor (pooled |departure| 0.34): dBrier ≈ −0.0035.** This is in training
+  Brier units. G2's dR divides the Brier difference by the mean market Brier, which is not opened, so the dR
+  scale differs.
+
+**Plainly: the gain does not track the departure's size in a way that supports the mechanism.**
+- What separates winning years from losing years is the departure's sign.
+  - The two winning years (2022 and 2023) had cool departures: −0.36 and −0.20.
+  - The three warm or flat years (2021 +0.34, 2024 +0.03, 2025 +0.19) gained nothing or lost.
+- 2021 had the same pooled warm departure as 2026 (+0.34) and its gain was +0.00078, i.e. harm.
+- On the signed regressor the implied 2026 gain is **+0.0016 (harm)**.
+- The magnitude regressors lean negative, but they rest on five points and are driven by 2022 and 2023.
+- This is consistent with C1.5: two of the five years carry G1. The prediction above is recorded as stated. The
+  expectation it supports for dev is null to slightly harmful, not a gain.
+
+### C2.2 Pre-registered: per-month dev breakdown before promotion
+
+"A CONSISTENT result is promoted to the history-tier test only with a per-month dev breakdown (Aug vs Sep) in hand."
+
+G2's own outputs allow this breakdown:
+- `g2_rows.jsonl` and both distribution files carry `target_date`.
+- `x36_trailing_g2p.py mbbdev` (commit `ca16a299…`) now reports `months.aug` and `months.sep` on the same 07-12
+  covered cells. Each has the point, the date-clustered 95% (the run's weights restricted to the month) and the
+  circular MBB 95% (block 7 over that month's dates).
+- mbbdev is run on the G2 folder and on the G2-P folder.
+
+Aug runs 08-15..08-31 and Sep runs 09-01..09-29, subject to the scorecard's scored folds.
+
+### C2.3 Confirmed overlap reading (master)
+
+"UB < 0 under both bootstraps with −0.0005 ≤ point < 0 = PASS. A G2-P point ≥ 0 = flip = KILL."
+
+`three_way_verdict` already implements exactly this (C1.6), and the tests pin it.
+
+### C2.4 Allowlist (master-approved)
+
+The branch-local line `"tools.research.x36_v5_reopen.x36_trailing_g2p",` was added to
+`scripts/ops/workload_admission.ps1` after the g2 line. Commit `9267072cc696cbf11f664ba7568c9a72cef0f05f`: one
+line, additions only, `.codex` untouched.
