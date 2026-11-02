@@ -58,6 +58,7 @@ If (1) is 0, (2) equals B's primary row and is printed as such.
 
 **(3) SPECI attribution sub-count.** Among the cells in (1), the number where the paying band would be non-zero
 on every covered 07-16 snapshot with SPECI rows excluded from `high_so_far` and `trusted_current_max`.
+This sub-count reads MG-2's verified bundled METAR rows, beyond the bytes b_scorer opens.
 
 - **The flag.** Each captured METAR row carries its raw report text in the field `raw`, and that text begins
   with `SPECI` or `METAR`. The rows travel whole in MG-2's verified forward input bundle: `replay_inputs.jsonl`,
