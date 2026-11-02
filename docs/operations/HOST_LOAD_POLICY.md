@@ -552,25 +552,40 @@ Stage-A, workstation or live authority is added.
    (codex.exe, chatgpt.exe or claude.exe root) heavy tool trees outside
    00:30–09:00, and retains at most one such tree inside the window. A tool tree
    is the agent root's direct child (a PowerShell, cmd, Bash or sh shell, or a
-   bare tool such as `rg.exe`). It is heavy when any member is, judged by that
-   member's **own** command line, because Claude Code's PowerShell tool passes its
-   script text through an environment variable and the shell line shows nothing:
+   bare tool such as `rg.exe`); the 15-second grace runs on the tool root's age,
+   so a short-lived heavy child of an older shell is counted at once. A tree is
+   heavy when any member is, judged first by that member's **own** command line,
+   because Claude Code's PowerShell tool passes its script text through an
+   environment variable and the shell line shows nothing:
    pytest/compileall/coverage/tox/nox; inline, stdin or script Python (interpreter
-   options such as `-I` or `-X utf8` before the script included; a bare
-   interpreter, such as a REPL or a stdio server, is not); a `-m` module listed by
-   `Get-WeatherWorkstationOfflineModule` (read from `workload_admission.ps1`; there
-   is no module-name pattern) unless its first argument is `status`, `--help`, `-h`
-   or `--version`; an `rg`, recursive `grep` or GNU `find` process (never Windows
-   `find.exe`, never `find -maxdepth 0|1`) whose own path arguments, not its
-   pattern or option values, name a repository `data` directory (relative `data\...`,
-   or an absolute path whose parent of `data` holds `.git`); `robocopy` with `/S`,
-   `/E` or `/MIR`; or a PowerShell line with `Get-ChildItem -Recurse`. Bash, sh and
-   cmd lines are never classified, since they may only quote a command; their
-   children are judged instead. Every other `-m` CLI is outside this rule, so
-   heavy work under an unlisted module name (daily_refresh, replay_cache_retention,
-   `*_status`/`*_report` readers included) is caught only by the budget below.
-   Not visible: an in-process recursive scan inside a hidden PowerShell script,
-   until its tree's private bytes trip the budget below.
+   options such as `-I` or `-X utf8` before the script included, and an unquoted
+   interpreter path with spaces such as `C:\Program Files\Python312\python.exe`;
+   a bare interpreter, such as a REPL or a stdio server, is not); a `-m` module
+   on the explicit heavy list unless its first argument is `status`, `--help`,
+   `-h` or `--version`. The list is `Get-WeatherWorkstationOfflineModule` (read
+   from `workload_admission.ps1`) plus the guard's own entries:
+   `weather.operations.daily_refresh`, `weather.operations.daily_refresh_bounded`,
+   `weather.backtesting.r0_paired_replay`, `weather.backtesting.metar_keying_replay`,
+   `weather.backtesting.lockin_anchor_replay`, `weather.calibration.pooled_training`,
+   `weather.calibration.pooled_band_training` and
+   `weather.calibration.pooled_density_training`. Also heavy: an `rg`, recursive
+   `grep` or GNU `find` process (never Windows `find.exe`, never
+   `find -maxdepth 0|1`) whose own path arguments, not its pattern or option
+   values, name a repository `data` directory (relative `data\...`, or an
+   absolute path whose parent of `data` holds `.git`; a UNC path is never
+   probed); and `robocopy` with `/S`, `/E` or `/MIR`.
+   **Shell lines are a secondary signal** (master's rule, kept): a powershell,
+   pwsh or cmd line is heavy when it runs `-m pytest|compileall|coverage|tox|nox`,
+   a listed module or a `weather.*` module matching
+   `retrain|training|replay|backtest|daily_refresh|score_all` (readers exempt as
+   above), `Get-ChildItem -Recurse`, or `rg` over a `data` path. That catches a
+   `foreach { python -m pytest $f }` loop whose children each finish inside the
+   grace. Bash and sh lines are never classified, since they may only quote a
+   command; their children are judged instead. Other weather CLIs (recovery
+   checks, supervisors, `*_status`/`*_report` readers, replay_cache_retention) are
+   outside the rule and caught only by the budget below. Not visible: an
+   in-process recursive scan inside a hidden PowerShell script, until its tree's
+   private bytes trip the budget below.
    **Lease-admitted work is not a window or concurrency target.** A heavy member
    is admitted when it, a verified ancestor below the agent root, or any process
    in its own subtree is the live owner of a heavy-workload lease from
@@ -578,13 +593,26 @@ Stage-A, workstation or live authority is added.
    `data\logs\heavy_workload[.slotN].lock` of the guard's checkout, or an `ACTIVE`
    or `TEARDOWN_PENDING` host-global
    `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison` record),
-   matched by PID and process creation instant so a stale record admits nothing.
-   That covers `workstation_heavy.ps1`, the bounded suite, `training_window.ps1`
+   matched by PID and process creation instant so a stale record admits nothing,
+   **and only while the record's `policy_window` is open**: `agent_heavy`
+   00:30–09:00 plus a five-minute teardown grace (to 09:05); `stage_a` 09:30 to
+   its 11:55 teardown deadline; `workstation_offline` and `portable_execution`
+   (also read from a state record's `execution_host_profile`) at any hour; any
+   other record (the integration mutex, an older schema, an expired owner
+   exception) gets the `agent_heavy` window. Past its window an owner's heavy
+   descendants are stopped like unadmitted members, a heavy owner ancestor is
+   stopped alone (the owner is orphaned, not stopped), and only the owner is
+   spared, with a CRITICAL log. That covers `workstation_heavy.ps1`, the bounded
+   suite, `training_window.ps1`, `daily_refresh.ps1` (which takes its own lease)
    and one-off lease wrappers, including when a script, `py` or a git hook
    launched the wrapper. Each tree holding a live lease owner takes exactly one
    in-window slot first for its admitted work; its unadmitted heavy members, if
    any, compete with the other trees for the remaining slots, oldest first, and a
    losing leased tree loses only those members.
+   **Release.** `Exit-WeatherHeavyWorkloadLease` overwrites the repository lock
+   with a `weather_heavy_workload_lease_released_v1` marker before it disposes the
+   handle; the guard reads that marker as no lease, so a former owner that keeps
+   running after release admits nothing.
    The guard reads only the lock files of **its own checkout** plus the
    host-global state files: a lease taken against another checkout or worktree
    is invisible to it unless that profile also writes the host-global record.
@@ -597,30 +625,43 @@ Stage-A, workstation or live authority is added.
    file written within the last 60 seconds may be an acquisition mid-write: the
    guard logs a WARNING and skips window and concurrency kills for that minute
    (budget kills then stop heavy members only). An older empty or unparseable
-   file is stale and ignored.
+   file is stale and ignored. A file whose last-write time cannot be read counts
+   as mid-write only for a sharing or lock violation or a vanished file; any
+   other failure is logged as ERROR and the file is ignored.
    **No guard rule terminates a tree that contains a live lease owner as a
-   whole, nor the owner or the agent root,** and never a console host
-   (`conhost.exe`, `OpenConsole.exe`), whose termination would end every process
-   on its console, the owner included. Window and concurrency rules stop only
-   unadmitted heavy member subtrees. Over the budget, if the subtrees hanging off
-   the owner's spine (the tree root, each owner and the owner's ancestors) could
-   bring the tree under budget, the guard stops them largest first, of any
+   whole, nor the owner or the agent root.** As a last line, the tree-kill
+   routine itself skips any live owner (PID and creation instant), and while any
+   owner lives or a lease record is unreadable it leaves console hosts
+   (`conhost.exe`, `OpenConsole.exe`) running, since ending one ends every
+   process on its console, the owner included. Window and concurrency rules stop
+   only unadmitted heavy member subtrees. Over the budget, if the subtrees hanging
+   off the owner's spine (the tree root, each owner and the owner's ancestors)
+   could bring the tree under budget, the guard stops them largest first, of any
    process type, until it is; a subtree holding a governed `-m weather.*` process
    (such as capture children restored by `training_window`) is eligible only
    when it alone reaches the budget. If they could not, the memory sits on the
-   spine: the guard stops the spine's single largest process alone, never its
-   subtree (a parent such as `python toolsun_suite.py` that launched the lease
-   wrapper; the owner is orphaned but runs on, and its `finally` (lease release,
-   `training_window` re-enabling capture) still runs). When that largest process
-   is a lease owner itself, the guard logs CRITICAL and spares it. The
-   commit-92% emergency path below follows the same rules: a Python process
+   spine: the guard stops the spine's single largest non-owner process alone,
+   never its subtree, and only when stopping it brings the spine under budget
+   (it holds more than the spine's bytes minus the budget); otherwise it logs a
+   WARNING and stops nothing. A typical target is a parent such as
+   `python tools\run_suite.py` that launched the lease wrapper; the owner is
+   orphaned but runs on, and its `finally` (lease release, `training_window`
+   re-enabling capture) still runs. When the largest spine process is a lease
+   owner itself, the guard logs CRITICAL and spares it. **Job handles:** before
+   stopping any process alone while an owner lives, the guard asks whether that
+   process holds a handle to a job object containing a live owner (system handle
+   table, each job handle duplicated with query access, `IsProcessInJob` per
+   owner); if it does, or the answer cannot be determined, it refuses with
+   CRITICAL, since closing a kill-on-close job would end the owner. Job
+   membership alone is not checked: every process an agent spawns may share the
+   agent's own job, whose handle the never-stopped agent root holds.
+   The commit-92% emergency path below follows the same rules: a Python process
    whose subtree holds a lease owner is stopped alone, never with its subtree (an
-   owner itself is spared), and an agent tree holding an owner offers its largest
-   off-spine subtree only if that subtree reaches the budget, otherwise its
-   spine's largest non-owner process alone if that reaches the budget. Known
-   limitation: release leaves the repository lock record on disk (it has no
-   released field), so a former owner that keeps running after release still
-   admits its subtree until it exits.
+   owner itself is spared), and an agent tree holding an owner loses its
+   off-spine subtrees largest first, owner, owner ancestors and console hosts
+   never included, until it is under budget; when the spine alone is over budget,
+   the spine's largest non-owner process is stopped alone if that brings it under
+   (or if it reaches the budget itself), otherwise a WARNING.
    An agent-owned tool tree without a lease owner is independently terminated
    when its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
@@ -632,7 +673,7 @@ Stage-A, workstation or live authority is added.
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
    exact definition on the next session. Claude Code sessions have no
    pre-launch hook; the S4U guard is their only backstop, and it acts only after
-   launch (15-second grace, then the next one-minute tick).
+   launch (15-second grace on the tool root's age, then the next one-minute tick).
 7. **Test runs are disk writers.** The bounded wrapper keeps pytest and
    `TEMP`/`TMP` in sibling directories under each chunk's cleaned root, and
    restores the parent environment even on failure. Always pass `--basetemp <dir>` to pytest,
