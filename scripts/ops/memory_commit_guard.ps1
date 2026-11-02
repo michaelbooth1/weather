@@ -950,11 +950,15 @@ function Get-AgentToolRoot($ProcessRow, $ProcessByPid) {
     return $null
 }
 
-# Service-host images an orphan climb must never reach (capture-safety review):
-# matched exactly, case-insensitively, against Win32_Process.Name, the image file
-# name Windows reports for the process (not its command line, which a process can
-# set to anything).
-$orphanClimbBlockedImages = @('services.exe', 'wininit.exe', 'svchost.exe')
+# Service-host and session images an orphan climb must never reach (capture-safety
+# review; the session images are defence in depth against a forged root): matched
+# exactly, case-insensitively, against Win32_Process.Name, the image file name
+# Windows reports for the process (not its command line, which a process can set
+# to anything).
+$orphanClimbBlockedImages = @(
+    'services.exe', 'wininit.exe', 'svchost.exe',
+    'explorer.exe', 'taskhostw.exe', 'winlogon.exe', 'csrss.exe', 'smss.exe', 'lsass.exe'
+)
 
 function Get-OrphanLeaseTreeTop($OwnerRow, $ProcessByPid, $Remembered) {
     # The top of an orphaned lease owner's verified ancestry, bounded by the tool
@@ -1010,16 +1014,27 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
     #   ok         the remembered owners are kept (they match by PID and creation
     #              instant, so an older or slightly future-dated record still names
     #              exactly the process it saw). The streak carried over depends on
-    #              the record's age:
-    #                0-90 s     the full streak (written by the previous run);
-    #                90-300 s   at most 1: the previous trigger was skipped (the
-    #                           task uses IgnoreNew, so a run over 60 s skips the
-    #                           next one) or a run in between failed to write. The
-    #                           record's streak may then be short of the truth or
-    #                           past it; 1 keeps the two-run cap reachable on the
-    #                           next minute without letting a stale count kill;
+    #              the record's age and on run_seconds, how long the writing run
+    #              took from its start instant (updated_at_utc) to its write:
+    #              k = max(1, ceil(run_seconds / 60)), the trigger minutes that run
+    #              occupied (the task uses IgnoreNew, so a run over 60 s skips the
+    #              triggers it overlaps). A record without run_seconds (written
+    #              before the field) reads as k = 1.
+    #                0 to 60k+30 s  the full streak: the record was written by the
+    #                           previous run (age 300 s at most, as above);
+    #                beyond     at most 1: a run in between started and did not
+    #                           write, so the record's streak may be past the
+    #                           truth and must not push a run over the cap;
     #                under 0 s  none: a record from the future (a backward clock
     #                           step after failed writes) cannot be ordered.
+    #              Soundness: with no run in between, this run starts at the first
+    #              trigger after the writer ended, about 60k s plus start-up latency
+    #              after the writer's start, so it carries in full. With a run in
+    #              between that did not write, this run starts at least 60(k+1) s
+    #              after the writer's start, past 60k+30, so the carry is capped.
+    #              The 30 s margin is the one the plain 90 s rule had. run_seconds
+    #              misses the writer's start-up and the time after its write, so
+    #              its k can only be too low, which caps more and only spares.
     #   unreadable the file exists but cannot be read (sharing violation, access
     #              denied): empty and degraded, and this run does not overwrite the
     #              file, so the last good record survives for the next run.
@@ -1050,6 +1065,7 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
                 RootPid = [uint32]$_.root_pid; RootTicks = [long]$_.root_creation_utc_ticks }
         })
         $streak = [int]$state.lease_records_unreadable_streak
+        $runSeconds = if ($null -ne $state.run_seconds) { [double]$state.run_seconds } else { 0.0 }
     }
     catch {
         while ($Error.Count -gt $errorMark) { $Error.RemoveAt(0) }
@@ -1064,8 +1080,10 @@ function Read-GuardState([string]$Path, [datetime]$NowUtc) {
     $result.Status = 'ok'
     $result.LeaseOwnerTrees = $trees
     $streak = [math]::Max(0, $streak)
+    $runMinutes = 1.0
+    if ($runSeconds -gt 0.0) { $runMinutes = [math]::Max(1.0, [math]::Ceiling($runSeconds / 60.0)) }
     if ($age -lt 0.0) { $result.UnreadableStreak = 0 }
-    elseif ($age -le 90.0) { $result.UnreadableStreak = $streak }
+    elseif ($age -le (60.0 * $runMinutes + 30.0)) { $result.UnreadableStreak = $streak }
     else { $result.UnreadableStreak = [math]::Min($streak, 1) }
     return $result
 }
@@ -1283,6 +1301,9 @@ $status = @{
 # The 00:30-09:00 and 12:00-18:00 windows are deliberately local.
 $localNow = Get-Date
 $utcNow = $localNow.ToUniversalTime()
+# Monotonic run timer from the start instant the state record stores: its
+# run_seconds tells the next run how many triggers this one overlapped.
+$guardRunTimer = [Diagnostics.Stopwatch]::StartNew()
 $minuteOfDay = (60 * $localNow.Hour) + $localNow.Minute + ($localNow.Second / 60.0)
 $agentHeavyWindowAllowed = ($minuteOfDay -ge 30.0) -and ($minuteOfDay -lt 540.0)
 $status.agent_heavy_window_allowed = $agentHeavyWindowAllowed
@@ -1919,10 +1940,12 @@ $guardStateRecord = [ordered]@{
     schema_version = 'memory_commit_guard_state_v1'
     updated_at_utc = $utcNow.ToString('o')
     lease_records_unreadable_streak = $unreadableStreak
+    run_seconds = [math]::Round($guardRunTimer.Elapsed.TotalSeconds, 3)
     lease_owner_trees = $rememberedTrees.ToArray()
 }
 # A failed write leaves the previous record in place (Read-GuardState: its owners
-# stay usable for five minutes, at most a streak of 1 is carried past 90 seconds)
+# stay usable for five minutes; once a later run has started and not written, at
+# most a streak of 1 is carried from it)
 # and marks this run degraded. An unreadable record is not overwritten, so it
 # survives. Move-Item -Force is not an atomic replace on Windows PowerShell 5.1
 # (delete, then rename): a reader in that gap finds no file and starts empty,

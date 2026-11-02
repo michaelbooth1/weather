@@ -113,6 +113,8 @@ function Get-ScheduledTask {
     return $null
 }
 
+# The state file each scenario left behind, by name, for prior_state.chain.
+$global:StateTexts = @{}
 $results = foreach ($scenario in $scenarios) {
     $n = @($scenario.now_parts | ForEach-Object { [int]$_ })
     $global:FakeNow = New-Object DateTime ($n[0], $n[1], $n[2], $n[3], $n[4], 0, [DateTimeKind]::Local)
@@ -213,6 +215,15 @@ $results = foreach ($scenario in $scenarios) {
             lease_records_unreadable_streak = [int]$prior.unreadable_streak
             lease_owner_trees = $trees
         }
+        if ($null -ne $prior.run_seconds) { $stateRecord['run_seconds'] = [double]$prior.run_seconds }
+        # chain: the record an earlier scenario left (a later run of the same guard),
+        # re-dated to age_seconds before now and, when given, with the run_seconds of
+        # a slow writer (the harness cannot make a run slow).
+        if ($null -ne $prior.chain) {
+            $stateRecord = $global:StateTexts[[string]$prior.chain] | ConvertFrom-Json
+            $stateRecord.updated_at_utc = $global:FakeNow.AddSeconds(-[double]$prior.age_seconds).ToUniversalTime().ToString('o')
+            if ($null -ne $prior.run_seconds) { $stateRecord | Add-Member -NotePropertyName run_seconds -NotePropertyValue ([double]$prior.run_seconds) -Force }
+        }
         # A raw body stands for a damaged state file.
         $stateBody = if ($null -ne $prior.raw) { [string]$prior.raw } else { ConvertTo-Json -InputObject $stateRecord -Depth 4 }
         [IO.File]::WriteAllText((Join-Path $logsDir 'memory_commit_guard_state.json'), $stateBody)
@@ -250,6 +261,8 @@ $results = foreach ($scenario in $scenarios) {
     $statusPath = Join-Path $logs 'memory_commit_guard_status.json'
     $historyPath = Join-Path $logs 'memory_commit_guard_history.jsonl'
     $logPath = Join-Path $logs 'memory_commit_guard.log'
+    $statePath = Join-Path $logs 'memory_commit_guard_state.json'
+    if (Test-Path -LiteralPath $statePath) { $global:StateTexts[[string]$scenario.name] = [IO.File]::ReadAllText($statePath) }
     [pscustomobject]@{
         name = $scenario.name
         stopped = @($global:Stopped)
@@ -353,7 +366,7 @@ def _scenario(tmp_path: Path, name: str, *, now: str, commit: float, processes, 
 
 
 GUARD_STATE_ERROR = re.compile(
-    r"\[ERROR\] guard state \S*memory_commit_guard_state\.json (could not be written|is unreadable|is invalid) "
+    r"\[ERROR\] guard state .*memory_commit_guard_state\.json (could not be written|is unreadable|is invalid) "
 )
 
 
@@ -2103,9 +2116,16 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
             torn_run("control", prior(2)),
             torn_run("write_fails", prior(1), fail_state_write=True),
             torn_run("temp_write_fails", prior(1), fail_state_temp_write=True),
-            # A healthy run over 60 s skips the next trigger (IgnoreNew): the record is
-            # ~120 s old, and the count must still reach the cap one minute later.
-            torn_run("skipped_trigger", prior(2, 120)),
+            # A healthy 70 s run skips the next trigger (IgnoreNew): its record is ~125 s
+            # old when the next run reads it, and its run_seconds (k = 2, full carry up to
+            # 150 s) lets the count reach the cap.
+            torn_run("skipped_trigger", prior(2, 125, run_seconds=70)),
+            torn_run("slow_150", prior(2, 150, run_seconds=70)),
+            torn_run("slow_151", prior(2, 151, run_seconds=70)),
+            # A run of exactly 60 s occupied one trigger minute: k = 1.
+            torn_run("run_60_age_91", prior(2, 91, run_seconds=60)),
+            # A record from before run_seconds reads as k = 1 (the 90 s rule).
+            torn_run("legacy_120", prior(2, 120)),
             torn_run("age_90", prior(2, 90)),
             torn_run("age_91", prior(2, 91)),
             torn_run("age_300", prior(2, 300)),
@@ -2153,15 +2173,22 @@ def test_exec_guard_state_failures_only_ever_spare(tmp_path: Path) -> None:
 
     # Record age: the full streak up to 90 s, at most 1 up to 300 s, none beyond or
     # from the future. A skipped trigger still leaves the cap one run away.
-    skipped = check("skipped_trigger", streak=2, read="ok")
-    assert skipped["state"]["lease_records_unreadable_streak"] == 2
+    check("skipped_trigger", streak=3, read="ok", stopped=killed)
+    check("slow_150", streak=3, read="ok", stopped=killed)
+    check("slow_151", streak=2, read="ok")
+    check("run_60_age_91", streak=2, read="ok")
+    legacy = check("legacy_120", streak=2, read="ok")
+    assert legacy["state"]["lease_records_unreadable_streak"] == 2
+    # Every record the guard writes carries its run time.
+    assert isinstance(legacy["state"]["run_seconds"], (int, float)) and legacy["state"]["run_seconds"] >= 0
     check("age_90", streak=3, read="ok", stopped=killed)
     check("age_91", streak=2, read="ok")
     check("age_300", streak=2, read="ok")
     check("age_301", streak=1, read="stale")
     check("future_30", streak=1, read="ok")
     check("future_61", streak=1, read="stale")
-    for name in ("skipped_trigger", "age_90", "age_91", "age_300", "age_301", "future_30", "future_61"):
+    for name in ("skipped_trigger", "slow_150", "slow_151", "run_60_age_91", "legacy_120", "age_90", "age_91",
+                 "age_300", "age_301", "future_30", "future_61"):
         assert outcome[name]["status"]["guard_state_degraded"] is False, name
 
     # Read failures: empty memory, degraded, ERROR, nothing stopped.
@@ -2334,3 +2361,81 @@ def test_exec_orphan_climb_never_adopts_a_service_host_chain(tmp_path: Path) -> 
     assert "reaches svchost.exe" in outcome["forged_root_50"]["log"]
     assert "reaches svchost.exe" in outcome["young_root_50"]["log"]
     assert "no tool root was recorded" in outcome["no_root_50"]["log"]
+
+
+def test_exec_orphan_climb_never_adopts_a_forged_session_root(tmp_path: Path) -> None:
+    """T3 (defence in depth): a saved state whose recorded root is explorer.exe, mid-chain
+    and matching exactly, is refused at the image; explorer's other children are untouched."""
+    base = 7_973_000
+    owner = base + 7
+    desktop = [
+        _proc(base + 1, "explorer.exe", r"C:\WINDOWS\Explorer.EXE", age=3000),
+        _proc(base + 3, "cmd.exe", r"C:\WINDOWS\system32\cmd.exe", age=41, ppid=base + 1),
+        _proc(owner, "powershell.exe", WRAPPER, age=40, ppid=base + 3),
+        _proc(base + 9, "python.exe", f"{VENV_PY} -m pytest -q tests/a.py", age=39, private=7 * GIB, ppid=owner),
+        _proc(base + 11, "chrome.exe", r"C:\Program Files\Google\Chrome\Application\chrome.exe", age=600, private=2 * GIB, ppid=base + 1),
+    ]
+    lease = [dict(_lock(owner, age=40), window="agent_heavy")]
+    forged = {"owners": [owner], "unreadable_streak": 0, "age_seconds": 60, "root": {"pid": base + 1, "age_minutes": 3000}}
+    outcome = _run(
+        tmp_path,
+        [
+            _scenario(tmp_path, f"explorer_{int(c)}", now="2026-11-01T14:00:00", commit=c, processes=desktop, leases=lease, prior_state=forged)
+            for c in (50.0, 98.0)
+        ],
+    )
+    for name, row in outcome.items():
+        assert row["stopped"] == [], (name, row["stopped"])
+        assert row["status"]["agent_heavy_orphaned_lease_tree_count"] == 0, name
+        assert "is not adopted because its ancestry reaches explorer.exe" in row["log"], name
+
+
+def test_exec_streak_carry_follows_the_writer_run_time(tmp_path: Path) -> None:
+    """Second delta review: the unreadable-lease count across slow runs and failed writes."""
+    unleased = _claude_bash(7_974_000, "python -m pytest", "python.exe", f"{VENV_PY} -m pytest -q", age=30)
+    killed = {7_974_003, 7_974_005, 7_974_007}
+    idle = _claude_bash(7_974_100, "ls", "ls.exe", r"C:\Program Files\Git\usr\bin\ls.exe", age=30)
+    torn = [
+        {
+            "kind": "repo_lock",
+            "file": "heavy_workload.lock",
+            "pid": 1,
+            "age_minutes": 1,
+            "mtime_age_seconds": 5,
+            "raw": "",
+        }
+    ]
+    day = "2026-11-01T14:00:00"
+
+    def run(name: str, processes, leases, prior_state=None, **extra) -> dict:
+        return _scenario(tmp_path, name, now=day, commit=50.0, processes=processes, leases=leases, prior_state=prior_state, **extra)
+
+    outcome = _run(
+        tmp_path,
+        [
+            # Three consecutive runs, each over 60 s (70 s: every other trigger is
+            # skipped, so each reads a record ~125 s old), with a torn lock: the third kills.
+            run("slow_1", unleased, torn),
+            run("slow_2", unleased, torn, {"chain": "slow_1", "age_seconds": 125, "run_seconds": 70}),
+            run("slow_3", unleased, torn, {"chain": "slow_2", "age_seconds": 125, "run_seconds": 70}),
+            # A slow R (count 2), then R' reads the lease cleanly (true count 0) but cannot
+            # write, then R'' finds the lock torn: R's record is ~185 s old, past 150 s,
+            # so at most 1 carries and R'' spares (a full carry would kill).
+            run("r_slow", unleased, torn, {"owners": [], "unreadable_streak": 1, "age_seconds": 60}),
+            run("r_prime", idle, [], {"chain": "r_slow", "age_seconds": 125, "run_seconds": 70}, fail_state_write=True),
+            run("r_double", unleased, torn, {"chain": "r_prime", "age_seconds": 185, "run_seconds": 70}),
+        ],
+    )
+    assert [outcome[n]["status"]["agent_heavy_lease_unreadable_streak"] for n in ("slow_1", "slow_2", "slow_3")] == [1, 2, 3]
+    assert outcome["slow_1"]["stopped"] == [] and outcome["slow_2"]["stopped"] == []
+    assert set(outcome["slow_3"]["stopped"]) == killed
+
+    assert outcome["r_slow"]["state"]["lease_records_unreadable_streak"] == 2
+    prime = outcome["r_prime"]
+    assert prime["status"]["agent_heavy_lease_unreadable_streak"] == 0
+    assert prime["status"]["guard_state_written"] is False
+    assert prime["state"]["lease_records_unreadable_streak"] == 2
+    assert prime["stopped"] == []
+    double = outcome["r_double"]
+    assert double["status"]["agent_heavy_lease_unreadable_streak"] == 2
+    assert double["stopped"] == []
