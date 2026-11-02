@@ -6,6 +6,7 @@ import builtins
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -145,7 +146,74 @@ def test_existing_output_dir_refuses(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ex, "datetime", Fixed)
     assert _run(src, tmp_path / "out", "daily") == 0
-    assert _run(src, tmp_path / "out", "daily") == 3     # FileExistsError, reported by type only
+    assert _run(src, tmp_path / "out", "daily") == 2     # refused before anything is read or written
+    assert [p.name for p in (tmp_path / "out").iterdir()] == ["extract-daily-20261101T120000Z"]
+
+
+def _leftovers(out):
+    return sorted(p.name for p in out.iterdir()) if out.exists() else []
+
+
+def test_refused_run_leaves_no_output_and_no_staging(tmp_path, capsys):
+    src = tmp_path / "src"
+    _daily(src, "klga", ["2026-01-01,24,41", "2026-01-02,24,42"])      # written to staging first
+    _daily(src, "kord", ["2026-01-01,24,30", "not-a-date,24,66666"])
+    out = tmp_path / "out"
+    assert _run(src, out, "daily") == 2
+    assert _leftovers(out) == []
+    assert "66666" not in capsys.readouterr().err
+
+
+def test_unexpected_failure_after_writes_leaves_nothing(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "src"
+    _hourly(src, "klga", 2026, 3, ["2026-03-01"])
+    out = tmp_path / "out"
+
+    def boom(*a, **k):
+        raise OSError("disk")
+
+    monkeypatch.setattr(ex, "make_files_read_only", boom)                # after extract, manifest and sums
+    assert _run(src, out, "hourly") == 3
+    assert _leftovers(out) == []
+    assert "OSError" in capsys.readouterr().err
+
+
+def test_duplicate_in_range_daily_date_refuses_without_echo(tmp_path, capsys):
+    src = tmp_path / "src"
+    _daily(src, "klga", ["2026-01-01,24,41", "2026-01-01,24,55555"])
+    assert _run(src, tmp_path / "out", "daily") == 2
+    err = capsys.readouterr().err
+    assert "55555" not in err and "2026-01-01" not in err
+    assert _leftovers(tmp_path / "out") == []
+
+
+def test_duplicate_later_daily_date_is_not_inspected(tmp_path):
+    src = tmp_path / "src"
+    _daily(src, "klga", ["2026-01-01,24,41", "2026-06-01,24,1", "2026-06-01,24,2"])
+    assert _run(src, tmp_path / "out", "daily") == 0
+
+
+def test_manifest_names_stations_without_source_and_dirs_are_read_only(tmp_path):
+    src = tmp_path / "src"
+    _daily(src, "klga", ["2026-01-01,24,41"])
+    assert _run(src, tmp_path / "out", "daily", "--stations", "klga,kord") == 0
+    out = next((tmp_path / "out").glob("extract-daily-*"))
+    m = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert m["stations_without_source"] == ["kord"]
+    assert not any(p.name.startswith(".staging") for p in (tmp_path / "out").iterdir())
+    for p in [out, *out.rglob("*")]:
+        assert not os.stat(p).st_mode & stat.S_IWRITE
+
+
+def test_hourly_station_without_in_range_partition_is_named_only(tmp_path):
+    src = tmp_path / "src"
+    _hourly(src, "klga", 2026, 3, ["2026-03-01"])
+    _hourly(src, "kord", 2026, 7, ["2026-07-01"])
+    assert _run(src, tmp_path / "out", "hourly", "--stations", "klga,kord") == 0
+    out = next((tmp_path / "out").glob("extract-hourly-*"))
+    m = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert m["stations_without_source"] == ["kord"]
+    assert "2026-07" not in _all_text(out) and "month=07" not in _all_text(out)
 
 
 def test_month_bounds():

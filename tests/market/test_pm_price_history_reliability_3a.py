@@ -69,7 +69,10 @@ def make_run(root: Path, markets=("nyc", "chicago", "toronto", "miami"), first=d
              extra=None, seed=7):
     """A sealed-run lookalike: events.jsonl, tokens.jsonl, raw/*.f1.json.gz, SHA256SUMS."""
     rng = np.random.default_rng(seed)
-    all_specs = r3.specs_for(sorted(set(markets) | {m for m, _ in (extra or [])}))
+    names = sorted(set(markets) | {m for m, _ in (extra or [])})
+    # R1R2 markets are not in the registry; 3a drops them before any spec lookup, so a stub is enough here
+    all_specs = {**{m: {"tz": "Europe/London", "unit": "C", "icao": "egll"} for m in names if m in r3.R1R2},
+                 **r3.specs_for([m for m in names if m not in r3.R1R2])}
     specs = {m: all_specs[m] for m in markets}
     root.mkdir(parents=True)
     events, tokens = [], []
@@ -126,7 +129,7 @@ def test_load_population_excludes_duplicates_late_dates_and_incomplete(tmp_path)
         p.unlink()
     run = r3.SealedRun(tmp_path / "run", sums_sha)
     ladders, info = r3.load_population(run, specs)
-    assert info["events_after_2026_05_26_not_loaded"] == 1
+    assert not any("after" in k or "2026-06" in k for k in info)           # later events skipped silently
     assert info["duplicate_market_date_excluded:D"] == 1
     assert info["r1r2_excluded_no_venue_rule_label_extract:london"] == 1
     assert {(x["market"], x["date"]) for x in ladders} == {
@@ -273,19 +276,24 @@ def test_labels_winners_and_floor_from_extracts(tmp_path):
     _write_source(tmp_path / "src", specs, plan, buckets)
     daily = _extract(tmp_path / "src", tmp_path / "ex", "daily")
     hourly = _extract(tmp_path / "src", tmp_path / "ex", "hourly")
-    r3.verify_extract(daily, "daily")
-    r3.verify_extract(hourly, "hourly")
+    dext = r3.verify_extract(daily, "daily")
+    hext = r3.verify_extract(hourly, "hourly")
     with pytest.raises(r3.Refusal):
         r3.verify_extract(daily, "hourly")
+    with pytest.raises(r3.Refusal):                                     # not the pinned extractor
+        r3.Extract(daily, "daily", expect_extractor_sha="0" * 64)
+    with pytest.raises(r3.Refusal):
+        dext.read("klga/not_listed.csv")
     wanted = set(buckets)
-    got, info = r3.load_labels(daily, specs, wanted)
+    got, info = r3.load_labels(dext, specs, wanted)
     assert got == buckets and info["unusable"] == {}
     assert info["native_high"] == {k: v + 0.2 for k, v in buckets.items()}
     win, counts = r3.winners(ladders, got)
     assert counts == {"exactly_one": 6}
     assert win[("nyc", "2026-01-01")] == 2 and win[("nyc", "2026-01-02")] == 0 and win[("nyc", "2026-01-03")] == 6
     assert win[("toronto", "2026-01-03")] == 0 and win[("toronto", "2026-01-02")] == 5
-    floors = r3.load_floors(hourly, specs, wanted)
+    floors = r3.load_floors(hext, specs, wanted)
+    assert hext.summary()["files_read_and_verified"] >= 2
     assert floors[("nyc", "2026-01-01", 7)] == 61 and floors[("nyc", "2026-01-01", 10)] == 75.0
     rows, info = r3.build_rows(ladders, "D", "after", (7,), win, floors)
     nyc1 = rows[(rows["market"] == "nyc") & (rows["date"] == "2026-01-01")]
@@ -293,26 +301,69 @@ def test_labels_winners_and_floor_from_extracts(tmp_path):
     assert nyc1["impossible"].tolist() == [True, False, False, False, False, False, False]
 
 
-def test_labels_refuse_a_late_row(tmp_path):
-    root = tmp_path / "ex"
-    (root / "klga").mkdir(parents=True)
-    (root / "klga" / "daily_summary.csv").write_text("local_date,row_count,max_temp_bucket\n2026-05-27,24,70\n",
-                                                     encoding="utf-8")
+def _fake_extract(root: Path, files: dict, kind="daily", last="2026-05-26", script_sha=None):
+    """A hand-made extract (manifest + SHA256SUMS) to test 3a's own defences past the extractor."""
+    root.mkdir(parents=True)
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    manifest = {"kind": kind, "last": last, "script_sha256": script_sha or r3.EXTRACTOR_SHA256}
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    lines = [f"{hashlib.sha256((root / r).read_bytes()).hexdigest()}  {r}" for r in [*files, "manifest.json"]]
+    (root / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return r3.Extract(root, kind)
+
+
+def test_extractor_pin_matches_the_extractor_file():
+    assert r3.EXTRACTOR_SHA256 == ex.sha256_file(Path(ex.__file__))
+
+
+def test_extract_reader_refuses_unlisted_tampered_and_late(tmp_path):
+    ext = _fake_extract(tmp_path / "a", {"klga/daily_summary.csv": "local_date,row_count,max_temp_bucket\n"})
+    (tmp_path / "a" / "klga" / "extra.csv").write_text("x", encoding="utf-8")
     with pytest.raises(r3.Refusal):
-        r3.load_labels(root, r3.specs_for(("nyc",)), {("nyc", "2026-05-27")})
+        ext.read("klga/extra.csv")
+    (tmp_path / "a" / "klga" / "daily_summary.csv").write_text("tampered", encoding="utf-8")
+    with pytest.raises(r3.Refusal):
+        ext.read("klga/daily_summary.csv")
+    with pytest.raises(r3.Refusal):
+        _fake_extract(tmp_path / "b", {}, last="2026-05-27")
+    with pytest.raises(r3.Refusal):
+        _fake_extract(tmp_path / "c", {}, script_sha="1" * 64)
+
+
+def test_labels_refuse_a_late_row(tmp_path):
+    ext = _fake_extract(tmp_path / "ex", {
+        "klga/daily_summary.csv": "local_date,row_count,max_temp_bucket\n2026-05-27,24,70\n"})
+    with pytest.raises(r3.Refusal):
+        r3.load_labels(ext, r3.specs_for(("nyc",)), {("nyc", "2026-05-27")})
+
+
+def test_labels_refuse_a_duplicate_station_date_without_echo(tmp_path):
+    ext = _fake_extract(tmp_path / "ex", {
+        "klga/daily_summary.csv": "local_date,row_count,max_temp_bucket\n2026-01-01,24,70\n2026-01-01,24,71\n"})
+    with pytest.raises(r3.Refusal) as err:
+        r3.load_labels(ext, r3.specs_for(("nyc",)), {("nyc", "2026-01-01")})
+    assert "2026-01-01" not in str(err.value) and "71" not in str(err.value)
 
 
 def test_sparse_and_missing_labels_are_counted(tmp_path):
-    root = tmp_path / "ex"
-    (root / "klga").mkdir(parents=True)
-    (root / "klga" / "daily_summary.csv").write_text(
-        "local_date,row_count,max_temp_bucket\n2026-01-01,24,70\n2026-01-02,5,71\n", encoding="utf-8")
-    got, info = r3.load_labels(root, r3.specs_for(("nyc",)),
+    ext = _fake_extract(tmp_path / "ex", {
+        "klga/daily_summary.csv": "local_date,row_count,max_temp_bucket\n2026-01-01,24,70\n2026-01-02,5,71\n"})
+    got, info = r3.load_labels(ext, r3.specs_for(("nyc",)),
                                {("nyc", "2026-01-01"), ("nyc", "2026-01-02"), ("nyc", "2026-01-03")})
     assert got == {("nyc", "2026-01-01"): 70}
     assert info.pop("native_high") == {("nyc", "2026-01-01"): None}
     assert info == {"sparse_wu_day": 1, "missing_wu_day": 1,
                     "unusable": {("nyc", "2026-01-02"): "sparse", ("nyc", "2026-01-03"): "missing"}}
+
+
+def test_combined_cap_and_restate_boundaries_are_exact():
+    assert r3.within_unusable_cap(10, 500) and not r3.within_unusable_cap(11, 500)     # 2.0% passes, 2.2% fails
+    assert r3.within_unusable_cap(0, 500) and not r3.within_unusable_cap(0, 0)
+    assert not r3.restate_needed(5, 500) and r3.restate_needed(6, 500)                 # 1.0% no, 1.2% restates
+    assert r3.within_unusable_cap(2, 100) and not r3.within_unusable_cap(3, 100)
+    assert not r3.restate_needed(1, 100) and r3.restate_needed(2, 100)
 
 
 # ----------------------------------------------------------------------------- end to end (reduced draws)
@@ -344,6 +395,40 @@ def test_synthetic_only_end_to_end(tmp_path, small_draws, capsys):
     with pytest.raises(FileExistsError):                    # receipts are never overwritten
         r3.main(["--run", str(tmp_path / "run"), "--expect-run-sums", sums_sha, "--out", str(out),
                  "--synthetic-only"])
+
+
+def test_l21_step_names_are_mapped_to_3a_order(tmp_path, small_draws, monkeypatch):
+    sums_sha, _ = make_run(tmp_path / "run", markets=("nyc", "chicago", "toronto", "miami"), days=40)
+
+    def fail(ins, label):
+        raise l21.Untestable("3_training_score_check", {"why": "test"})
+
+    monkeypatch.setattr(r3, "step_synthetic_lomo", lambda pop, schemes: ({"status": "PASS"}, (None, None, None)))
+    monkeypatch.setattr(l21, "step_training", fail)
+    out = tmp_path / "r.json"
+    r3.main(["--run", str(tmp_path / "run"), "--expect-run-sums", sums_sha, "--out", str(out), "--synthetic-only"])
+    rec = json.loads(out.read_text(encoding="utf-8"))
+    assert rec["steps"]["4_training_score_check"] == {"status": "FAILED", "why": "test",
+                                                      "l21_step_name": "3_training_score_check"}
+    assert "3_training_score_check" not in rec["steps"]
+    assert rec["verdict"]["verdict"] == "B12-HIST: UNTESTABLE (failed at 4_training_score_check)"
+
+
+def test_unparseable_d_ladder_counts_as_non_tiling(tmp_path, small_draws):
+    sums_sha, _ = make_run(tmp_path / "run", markets=("nyc", "chicago", "toronto", "miami"), days=40)
+    run = tmp_path / "run"
+    events = [json.loads(x) for x in (run / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    events[3]["bands"][2]["band_label"] = "not a band"
+    (run / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+    lines = [f"{hashlib.sha256(q.read_bytes()).hexdigest()}  {q.relative_to(run).as_posix()}"
+             for q in sorted(run.rglob("*")) if q.is_file() and q.name != "SHA256SUMS"]
+    (run / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    sums_sha = hashlib.sha256((run / "SHA256SUMS").read_bytes()).hexdigest()
+    out = tmp_path / "r.json"
+    r3.main(["--run", str(run), "--expect-run-sums", sums_sha, "--out", str(out), "--synthetic-only"])
+    rec = json.loads(out.read_text(encoding="utf-8"))
+    tiling = rec["steps"]["2_label_integrity"]["tiling_outcome_free"]
+    assert tiling == {"ladders": 160, "tile": 159, "of_which_band_unparseable": 1}
 
 
 def test_mode_refusals(tmp_path):
@@ -409,6 +494,9 @@ def test_real_run_on_synthetic_extract(tmp_path, small_draws, monkeypatch):
     assert lab2["D_partial_counts_by_market_fold"] == {plan[10][0]: {"2026-01": 3}}
     assert lab2["D_scored_market_dates"] == 533
     assert lab2["power_restated"]["N"] == 533
+    assert lab2["power_restated"]["N_basis"].startswith("label-based")
+    assert lab2["N_final_scored_market_dates"] == 533
+    assert lab2["D_market_dates_incl_dropped_at_load"] == 540
     assert lab2["power_restated"]["MDE80_T2"] == pytest.approx(0.105 * np.sqrt(1419 / 533))
     assert rec2["population"]["market_dates"] == 533
 
@@ -425,6 +513,9 @@ def test_real_run_on_synthetic_extract(tmp_path, small_draws, monkeypatch):
     assert rc == 0 and rec3["verdict"]["verdict"] == "B12-HIST: UNTESTABLE (failed at 2_label_integrity)"
     assert rec3["steps"]["2_label_integrity"]["D_unusable_share"] == pytest.approx(12 / 540)
     assert "deciding" not in rec3 and "3_synthetic_controls" not in rec3["steps"]
+    lab3 = rec3["steps"]["2_label_integrity"]
+    # the cap is checked before winners, floors and the diagnostic: none of them was computed
+    assert "winner_counts_all_segments" not in lab3 and "containment_diagnostic" not in lab3
 
 
 def test_containment_pick():

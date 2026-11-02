@@ -6,11 +6,15 @@ Master's terms (row 113, O-1/O-2):
   ``local_date`` is within ``--first``..``--last`` with ``--last`` <= 2026-05-26;
 - NEVER writes, counts or logs anything about a later row: no skipped count, no maximum date, no source row
   total, no source sha or size. Every counter in the manifest is over emitted rows only;
-- an unparseable or missing ``local_date`` refuses the whole extraction (fail closed) without echoing the row;
-  every exception is reported by its type only;
+- an unparseable or missing ``local_date``, or a duplicated in-range daily date for one station, refuses the
+  whole extraction (fail closed) without echoing the row; every other exception is reported by type only;
 - hourly partitions (``year=YYYY/month=MM``) whose month starts after ``--last`` are never opened;
-- writes the extract, ``manifest.json`` (script sha256, arguments, emitted counts) and ``SHA256SUMS``, then
-  marks every output read-only. The output directory must not exist.
+- all output is built in a staging directory beside the final one. On ANY failure the staging directory is
+  deleted, so a refused run leaves nothing behind (no partial output can reveal where a bad row sits).
+  Only after the extract, ``manifest.json`` (script sha256, arguments, emitted counts, names of stations
+  without a source) and ``SHA256SUMS`` are written and every file is read-only is staging renamed to
+  ``extract-<kind>-<utc stamp>``; then the directories are marked read-only too. The final directory must
+  not exist.
 
 Refuses unless ``--expect-sha`` equals this file's sha256. No network. Standard library only.
 """
@@ -23,6 +27,7 @@ import io
 import json
 import os
 import re
+import shutil
 import stat
 import sys
 from datetime import date, datetime, timezone
@@ -69,6 +74,7 @@ def month_bounds(year: int, month: int) -> tuple[date, date]:
 class Emitted:
     def __init__(self):
         self.files = {}
+        self.no_source = []
 
     def add(self, rel: str, d: date):
         f = self.files.setdefault(rel, {"rows": 0, "first": None, "last": None})
@@ -79,13 +85,14 @@ class Emitted:
 
 
 def extract_daily(src_root: Path, out: Path, stations, first: date, last: date, em: Emitted):
+    """Each station file is parsed completely before anything for it is written."""
     for icao in stations:
         src = src_root / icao / "daily" / DAILY_NAME
         if not src.is_file():
+            em.no_source.append(icao)
             continue
         rel = f"{icao}/{DAILY_NAME}"
-        dst = out / icao / DAILY_NAME
-        dst.parent.mkdir(parents=True, exist_ok=False)
+        seen = set()
         with open(src, encoding="utf-8", newline="") as h:
             reader = csv.DictReader(h)
             header = reader.fieldnames
@@ -97,8 +104,13 @@ def extract_daily(src_root: Path, out: Path, stations, first: date, last: date, 
             for row in reader:
                 d = strict_date(row.get("local_date"))
                 if first <= d <= last:
+                    if d in seen:
+                        raise Refusal("refused: a station has two daily rows for one in-range date (not echoed)")
+                    seen.add(d)
                     writer.writerow(row)
                     em.add(rel, d)
+        dst = out / icao / DAILY_NAME
+        dst.parent.mkdir(parents=True, exist_ok=False)
         with open(dst, "x", encoding="utf-8", newline="") as w:
             w.write(buf.getvalue())
 
@@ -121,9 +133,11 @@ def hourly_partitions(base: Path, first: date, last: date):
 def extract_hourly(src_root: Path, out: Path, stations, first: date, last: date, em: Emitted):
     for icao in stations:
         base = src_root / icao / "hourly"
-        if not base.is_dir():
+        parts = hourly_partitions(base, first, last) if base.is_dir() else []
+        if not parts:
+            em.no_source.append(icao)
             continue
-        for year, month, src in hourly_partitions(base, first, last):
+        for year, month, src in parts:
             rel = f"{icao}/hourly/year={year:04d}/month={month:02d}/{HOURLY_NAME}"
             kept = []
             with open(src, encoding="utf-8") as h:
@@ -147,10 +161,49 @@ def extract_hourly(src_root: Path, out: Path, stations, first: date, last: date,
                     w.writelines(kept)
 
 
-def make_read_only(root: Path):
-    for path in sorted(root.rglob("*"), reverse=True):
+def _force_remove(func, path, _exc):
+    os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+    func(path)
+
+
+def remove_tree(path: Path):
+    if path.exists():
+        shutil.rmtree(path, onerror=_force_remove)
+
+
+def make_files_read_only(root: Path):
+    for path in root.rglob("*"):
         if path.is_file():
             os.chmod(path, stat.S_IREAD)
+
+
+def make_dirs_read_only(root: Path):
+    for path in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        os.chmod(path, stat.S_IREAD | stat.S_IEXEC)
+    os.chmod(root, stat.S_IREAD | stat.S_IEXEC)
+
+
+def build(args, script_sha: str, out: Path, first: date, last: date, stations, src_root: Path) -> dict:
+    em = Emitted()
+    (extract_daily if args.kind == "daily" else extract_hourly)(src_root, out, stations, first, last, em)
+    files = {rel: {**v, "sha256": sha256_file(out / rel)} for rel, v in sorted(em.files.items())}
+    if args.kind == "daily":
+        for rel in sorted(p.relative_to(out).as_posix() for p in out.rglob(DAILY_NAME)):
+            files.setdefault(rel, {"rows": 0, "first": None, "last": None, "sha256": sha256_file(out / rel)})
+    manifest = {"schema": "pm_history_bounded_extract/2", "kind": args.kind, "first": first.isoformat(),
+                "last": last.isoformat(), "hard_last": HARD_LAST.isoformat(), "stations": list(stations),
+                "stations_without_source": sorted(em.no_source),
+                "source_root": str(src_root), "script": Path(__file__).name, "script_sha256": script_sha,
+                "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "counters_note": "every counter is over emitted rows only; nothing about any later row is recorded",
+                "emitted_rows_total": sum(v["rows"] for v in files.values()), "files": files}
+    with open(out / "manifest.json", "x", encoding="utf-8") as h:
+        h.write(json.dumps(manifest, indent=1, sort_keys=True))
+    lines = [f"{sha256_file(out / rel)}  {rel}" for rel in [*files, "manifest.json"]]
+    with open(out / "SHA256SUMS", "x", encoding="utf-8", newline="\n") as h:
+        h.write("\n".join(lines) + "\n")
+    make_files_read_only(out)
+    return manifest
 
 
 def run(args, script_sha: str) -> dict:
@@ -167,29 +220,24 @@ def run(args, script_sha: str) -> dict:
     if not src_root.is_dir():
         raise Refusal("refused: --source-root is not a directory")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out = Path(args.out_root) / f"extract-{args.kind}-{stamp}"
-    out.mkdir(parents=True, exist_ok=False)
-    em = Emitted()
-    (extract_daily if args.kind == "daily" else extract_hourly)(src_root, out, stations, first, last, em)
-    files = {rel: {**v, "sha256": sha256_file(out / rel)} for rel, v in sorted(em.files.items())}
-    if args.kind == "daily":
-        for rel in sorted(p.relative_to(out).as_posix() for p in out.rglob(DAILY_NAME)):
-            files.setdefault(rel, {"rows": 0, "first": None, "last": None, "sha256": sha256_file(out / rel)})
-    manifest = {"schema": "pm_history_bounded_extract/1", "kind": args.kind, "first": first.isoformat(),
-                "last": last.isoformat(), "hard_last": HARD_LAST.isoformat(), "stations": list(stations),
-                "source_root": str(src_root), "script": Path(__file__).name, "script_sha256": script_sha,
-                "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "counters_note": "every counter is over emitted rows only; nothing about any later row is recorded",
-                "emitted_rows_total": sum(v["rows"] for v in files.values()), "files": files}
-    with open(out / "manifest.json", "x", encoding="utf-8") as h:
-        h.write(json.dumps(manifest, indent=1, sort_keys=True))
-    lines = [f"{sha256_file(out / rel)}  {rel}" for rel in [*files, "manifest.json"]]
-    with open(out / "SHA256SUMS", "x", encoding="utf-8", newline="\n") as h:
-        h.write("\n".join(lines) + "\n")
-    make_read_only(out)
-    return {"out": str(out), "manifest_sha256": sha256_file(out / "manifest.json"),
-            "sha256sums_sha256": sha256_file(out / "SHA256SUMS"), "emitted_rows_total": manifest["emitted_rows_total"],
-            "files": len(files), "script_sha256": script_sha}
+    out_root = Path(args.out_root)
+    final = out_root / f"extract-{args.kind}-{stamp}"
+    staging = out_root / f".staging-extract-{args.kind}-{stamp}"
+    if final.exists() or staging.exists():
+        raise Refusal("refused: the output directory already exists")
+    out_root.mkdir(parents=True, exist_ok=True)
+    staging.mkdir(exist_ok=False)
+    try:
+        manifest = build(args, script_sha, staging, first, last, stations, src_root)
+        os.rename(staging, final)
+    except BaseException:
+        remove_tree(staging)
+        raise
+    make_dirs_read_only(final)
+    return {"out": str(final), "manifest_sha256": sha256_file(final / "manifest.json"),
+            "sha256sums_sha256": sha256_file(final / "SHA256SUMS"),
+            "emitted_rows_total": manifest["emitted_rows_total"], "files": len(manifest["files"]),
+            "stations_without_source": manifest["stations_without_source"], "script_sha256": script_sha}
 
 
 def main(argv=None) -> int:

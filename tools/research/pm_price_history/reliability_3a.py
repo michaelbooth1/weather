@@ -31,6 +31,7 @@ import bisect
 import csv
 import gzip
 import hashlib
+import io
 import json
 import platform
 import sys
@@ -52,6 +53,8 @@ L21_COMMIT = "e541ad401110157c71b14b0bfa4589020bb6fe82"
 RULE_SHA256 = "023b75ed6fcdd14ecc83e5f36f961077c3e338130f7f0434bb3836732088837a"
 RUN_SUMS_SHA256 = "5073afd8f16ad4a7e9eb21b06df7bbaf78464f12ad4101b27440afc9ed31fe71"
 FIDCHECK_OUTPUT_SHA256 = "1ea5c9af53e48590f073b38868a355d956141c6a49b1d0730af03085341fbf55"
+# the only extractor whose output 3a accepts (extract_bounded_v1.py; its manifest records its own sha256)
+EXTRACTOR_SHA256 = "a93779d0cf696c88b999a2bd566592a0f1e2bc5ebabaf992bef68eb7eb40db6e"
 HARD_LAST = date(2026, 5, 26)
 D_FIRST, D_LAST = date(2025, 12, 1), HARD_LAST
 NYC25_FIRST, NYC25_LAST = date(2025, 1, 1), date(2025, 11, 30)
@@ -64,8 +67,13 @@ DESCRIPTIVE_HOURS = (13,)
 TOL_S = 120
 DJF = ("12", "01", "02")
 LABEL_EXACTLY_ONE_MIN = 0.99
-LABEL_UNUSABLE_MAX = 0.02          # Clarification 1 ruling 3: partial + missing <= 2% of D market-dates
-POWER_RESTATE_ABOVE = 0.01         # ruling 3: restate N and MDE80 when more than 1% of D is excluded
+LABEL_UNUSABLE_MAX_PCT = 2         # Clarification 1 ruling 3: partial + missing <= 2% of D market-dates
+POWER_RESTATE_ABOVE_PCT = 1        # ruling 3: restate N and MDE80 when more than 1% of D is excluded
+# L21 raises its own step names; 3a's C2 order numbers them one higher (Clarification 1 section 2).
+L21_STEP_NAMES = {"2_synthetic_controls": "3_synthetic_controls",
+                  "3_training_score_check": "4_training_score_check",
+                  "4_realised_power": "5_realised_power",
+                  "labels": "2_label_integrity"}
 RULE_T2_N, RULE_T2_MDE80 = 1419, 0.105
 # ruling 2: the completeness threshold is the settlement code's own, not a 3a number.
 COMPLETENESS_SOURCE = ("src/weather/backtesting/settlement_ledger.py:34 COMPLETE_DAY_MIN_ROWS "
@@ -82,6 +90,16 @@ def _check_vendored():
 
 class Refusal(Exception):
     """Fail-closed refusal; reported as a mechanical failure, never as a read."""
+
+
+def within_unusable_cap(unusable: int, n: int) -> bool:
+    """Ruling 3, integer-exact: partial + missing <= 2% of D (exactly 2.0% passes)."""
+    return n > 0 and unusable * 100 <= LABEL_UNUSABLE_MAX_PCT * n
+
+
+def restate_needed(excluded: int, n: int) -> bool:
+    """Ruling 3, integer-exact: N and MDE80 are restated only when MORE than 1% of D is excluded."""
+    return excluded * 100 > POWER_RESTATE_ABOVE_PCT * n
 
 
 def require_hist_date(d: date) -> date:
@@ -192,8 +210,7 @@ def load_population(run: SealedRun, specs: dict) -> tuple[list, dict]:
         if line.strip():
             e = json.loads(line)
             d = date.fromisoformat(e["event_date"])
-            if d > HARD_LAST:
-                info["events_after_2026_05_26_not_loaded"] += 1
+            if d > HARD_LAST:            # prices only (no outcome is in the run); skipped silently, uncounted
                 continue
             guards.require_admitted(d)
             if e["market"] in R1R2:
@@ -279,23 +296,56 @@ def build_rows(ladders, seg, side, hours, labels=None, floors=None):
 
 # ----------------------------------------------------------------------------- bounded extracts
 
-def verify_extract(root: Path, kind: str) -> dict:
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    if manifest.get("kind") != kind:
-        raise Refusal(f"refused: extract kind is not {kind}")
-    if date.fromisoformat(manifest["last"]) > HARD_LAST:
-        raise Refusal("refused: extract manifest declares a last date after 2026-05-26")
-    sums = root / "SHA256SUMS"
-    for line in sums.read_text(encoding="utf-8").splitlines():
-        digest, rel = line.split("  ", 1)
-        if l21.sha256_file(root / rel) != digest:
+class Extract:
+    """A bounded extract, read like the sealed run: every byte through its SHA256SUMS, at the moment it is read.
+
+    Refuses unless the manifest (itself read through SHA256SUMS) names ``kind``, declares ``last`` <= 2026-05-26
+    and records ``script_sha256`` equal to the pinned ``EXTRACTOR_SHA256``. A file not listed is never read.
+    """
+
+    def __init__(self, root: Path, kind: str, expect_extractor_sha: str = EXTRACTOR_SHA256):
+        self.root = Path(root)
+        raw = (self.root / "SHA256SUMS").read_bytes()
+        self.sums_sha256 = hashlib.sha256(raw).hexdigest()
+        self.sums = {}
+        for line in raw.decode("utf-8").splitlines():
+            digest, rel = line.split("  ", 1)
+            self.sums[rel.replace("\\", "/")] = digest
+        self.verified = 0
+        manifest = json.loads(self.read("manifest.json"))
+        if manifest.get("kind") != kind:
+            raise Refusal(f"refused: extract kind is not {kind}")
+        if date.fromisoformat(manifest["last"]) > HARD_LAST:
+            raise Refusal("refused: extract manifest declares a last date after 2026-05-26")
+        if manifest.get("script_sha256") != expect_extractor_sha:
+            raise Refusal("refused: the extract was not made by the pinned extractor")
+        self.kind, self.extractor_sha256 = kind, manifest["script_sha256"]
+
+    def read(self, rel: str) -> bytes:
+        rel = rel.replace("\\", "/")
+        digest = self.sums.get(rel)
+        if digest is None:
+            raise Refusal("refused: file not listed in the extract's SHA256SUMS")
+        data = (self.root / rel).read_bytes()
+        if hashlib.sha256(data).hexdigest() != digest:
             raise Refusal("refused: an extract file does not match its SHA256SUMS")
-    return {"root": str(root), "sha256sums_sha256": l21.sha256_file(sums),
-            "manifest_sha256": l21.sha256_file(root / "manifest.json"),
-            "extractor_sha256": manifest.get("script_sha256")}
+        self.verified += 1
+        return data
+
+    def listed(self, prefix: str, suffix: str) -> list:
+        return sorted(r for r in self.sums if r.startswith(prefix) and r.endswith(suffix))
+
+    def summary(self) -> dict:
+        return {"root": str(self.root), "kind": self.kind, "sha256sums_sha256": self.sums_sha256,
+                "manifest_sha256": self.sums["manifest.json"], "extractor_sha256": self.extractor_sha256,
+                "files_listed": len(self.sums), "files_read_and_verified": self.verified}
 
 
-def load_labels(root: Path, specs: dict, wanted: set) -> tuple[dict, dict]:
+def verify_extract(root: Path, kind: str) -> Extract:
+    return Extract(root, kind)
+
+
+def load_labels(ext: Extract, specs: dict, wanted: set) -> tuple[dict, dict]:
     """(market, date) -> settled whole-degree bucket, from the daily extract only (Clarification 1, L1-L3).
 
     A wanted market-date with no row, or a row without a numeric bucket, is *missing*; a row with
@@ -307,12 +357,16 @@ def load_labels(root: Path, specs: dict, wanted: set) -> tuple[dict, dict]:
     from weather.sources.daily_summary import native_bucket, native_high
     out, info, highs = {}, Counter(), {}
     for market, spec in specs.items():
-        path = root / spec["icao"] / "daily_summary.csv"
-        if not path.is_file():
-            continue
-        with open(path, encoding="utf-8", newline="") as h:
+        rel = f"{spec['icao']}/daily_summary.csv"
+        if rel not in ext.sums:
+            continue                       # no source for this station: its wanted dates count as missing
+        seen = set()
+        with io.StringIO(ext.read(rel).decode("utf-8"), newline="") as h:
             for row in csv.DictReader(h):
                 d = require_hist_date(date.fromisoformat(row["local_date"]))
+                if d in seen:
+                    raise Refusal("refused: two daily rows for one station-date (not echoed)")
+                seen.add(d)
                 key = (market, d.isoformat())
                 if key not in wanted:
                     continue
@@ -334,16 +388,13 @@ def load_labels(root: Path, specs: dict, wanted: set) -> tuple[dict, dict]:
     return {k: v for k, v in out.items() if v not in ("missing", "sparse")}, info
 
 
-def load_floors(root: Path, specs: dict, wanted: set) -> dict:
+def load_floors(ext: Extract, specs: dict, wanted: set) -> dict:
     """(market, date, hour) -> max observed temp_native with local time <= hour:00, hourly extract only."""
     from weather.units import to_float
     obs = defaultdict(list)
     for market, spec in specs.items():
-        base = root / spec["icao"] / "hourly"
-        if not base.is_dir():
-            continue
-        for path in sorted(base.glob("year=*/month=*/observations.jsonl")):
-            with open(path, encoding="utf-8") as h:
+        for rel in ext.listed(f"{spec['icao']}/hourly/", "/observations.jsonl"):
+            with io.StringIO(ext.read(rel).decode("utf-8")) as h:
                 for line in h:
                     if not line.strip():
                         continue
@@ -670,50 +721,63 @@ def main(argv=None):
         receipt["steps"]["1_price_integrity"] = {"status": "PASS", **run.summary(),
                                                  "fidcheck_output_sha256": FIDCHECK_OUTPUT_SHA256}
         d_ladders = [x for x in ladders if x["segment"] == "D"]
-        tiling = {"ladders": len(d_ladders), "tile": sum(x["tiles"] for x in d_ladders)}
+        d_unparseable = load_info.get("ladder_band_unparseable:D", 0)
+        d_token_missing = load_info.get("ladder_token_missing:D", 0)
+        # a D ladder whose bands do not parse cannot tile: it counts as a non-tiling ladder (fails step 2)
+        tiling = {"ladders": len(d_ladders) + d_unparseable, "tile": sum(x["tiles"] for x in d_ladders),
+                  "of_which_band_unparseable": d_unparseable}
         stage = "2_label_integrity"
         labels = floors = None
         if args.real_run:
-            receipt["input_sha256"] = {"labels_extract": verify_extract(Path(args.labels_extract), "daily")}
+            lab_ext = verify_extract(Path(args.labels_extract), "daily")
             wanted = {(x["market"], x["date"]) for x in ladders}
-            buckets, label_info = load_labels(Path(args.labels_extract), specs, wanted)
+            buckets, label_info = load_labels(lab_ext, specs, wanted)
+            receipt["input_sha256"] = {"labels_extract": lab_ext.summary()}
             unusable = label_info.pop("unusable")
             highs = label_info.pop("native_high")
             label_info = dict(label_info)
-            labels, win_counts = winners(ladders, buckets)
-            if args.hourly_extract:
-                receipt["input_sha256"]["hourly_extract"] = verify_extract(Path(args.hourly_extract), "hourly")
-                floors = load_floors(Path(args.hourly_extract), specs, wanted)
             n_d = len(d_ladders)
             d_keys = {(x["market"], x["date"]) for x in d_ladders}
             missing_keys = {k for k in d_keys if unusable.get(k) == "missing"}
             partial_keys = {k for k in d_keys if unusable.get(k) == "sparse"}
             d_missing, d_partial = len(missing_keys), len(partial_keys)
-            labelled = [x for x in d_ladders if (x["market"], x["date"]) in buckets]
-            one = sum(1 for x in labelled if (x["market"], x["date"]) in labels)
-            numbers = {"tiling": tiling, "label_load": label_info, "winner_counts_all_segments": win_counts,
+            numbers = {"tiling": tiling, "label_load": label_info,
                        "completeness_threshold": {"min_rows": completeness_min_rows(),
                                                   "source": COMPLETENESS_SOURCE},
                        "D_market_dates": n_d, "D_missing_wu": d_missing, "D_partial_wu": d_partial,
                        "D_unusable_share": (d_missing + d_partial) / n_d if n_d else None,
-                       "D_unusable_cap": LABEL_UNUSABLE_MAX,
+                       "D_unusable_cap_pct": LABEL_UNUSABLE_MAX_PCT,
                        "D_missing_dates_by_market_fold": by_market_fold(missing_keys),
                        "D_partial_counts_by_market_fold": {
                            m: {f: len(v) for f, v in folds.items()}
-                           for m, folds in by_market_fold(partial_keys).items()},
-                       "D_exactly_one_share": one / len(labelled) if labelled else None,
-                       "containment_diagnostic": containment_diagnostic(ladders, labels, highs)}
-            ok = (tiling["tile"] == tiling["ladders"] and n_d > 0
-                  and (d_missing + d_partial) / n_d <= LABEL_UNUSABLE_MAX and labelled
-                  and one / len(labelled) >= LABEL_EXACTLY_ONE_MIN)
-            if not ok:
+                           for m, folds in by_market_fold(partial_keys).items()}}
+            # tiling and the combined cap are checked before any winner, floor or diagnostic is computed
+            if tiling["tile"] != tiling["ladders"] or not within_unusable_cap(d_missing + d_partial, n_d):
                 raise l21.Untestable("2_label_integrity", numbers)
+            labels, win_counts = winners(ladders, buckets)
+            labelled = [x for x in d_ladders if (x["market"], x["date"]) in buckets]
+            one = sum(1 for x in labelled if (x["market"], x["date"]) in labels)
+            numbers.update({"winner_counts_all_segments": win_counts,
+                            "D_exactly_one_share": one / len(labelled) if labelled else None})
+            if not labelled or one / len(labelled) < LABEL_EXACTLY_ONE_MIN:
+                raise l21.Untestable("2_label_integrity", numbers)
+            numbers["containment_diagnostic"] = containment_diagnostic(ladders, labels, highs)
+            if args.hourly_extract:
+                hr_ext = verify_extract(Path(args.hourly_extract), "hourly")
+                floors = load_floors(hr_ext, specs, wanted)
+                receipt["input_sha256"]["hourly_extract"] = hr_ext.summary()
             n_scored = sum(1 for x in d_ladders if (x["market"], x["date"]) in labels)
-            numbers["D_scored_market_dates"] = n_scored
-            numbers["D_excluded_share"] = (n_d - n_scored) / n_d
-            if numbers["D_excluded_share"] > POWER_RESTATE_ABOVE:
+            # the 1% denominator also holds D ladders dropped at load (unparseable bands, missing token)
+            n_d_all = n_d + d_unparseable + d_token_missing
+            numbers.update({"D_market_dates_incl_dropped_at_load": n_d_all,
+                            "D_dropped_at_load": {"band_unparseable": d_unparseable,
+                                                  "token_missing": d_token_missing},
+                            "D_scored_market_dates": n_scored,
+                            "D_excluded_share": (n_d_all - n_scored) / n_d_all})
+            if restate_needed(n_d_all - n_scored, n_d_all):
                 numbers["power_restated"] = {
-                    "N": n_scored, "rule_N": RULE_T2_N, "rule_MDE80": RULE_T2_MDE80,
+                    "N": n_scored, "N_basis": "label-based (ruling 3 literal): D market-dates with a winner",
+                    "rule_N": RULE_T2_N, "rule_MDE80": RULE_T2_MDE80,
                     "MDE80_T2": RULE_T2_MDE80 * float(np.sqrt(RULE_T2_N / n_scored)) if n_scored else None,
                     "note": "T2 SE scaled by sqrt(1419 / N); the gate stays the realised SE (step 5)"}
             receipt["steps"]["2_label_integrity"] = {"status": "PASS", **numbers}
@@ -728,6 +792,8 @@ def main(argv=None):
         pop = l21.Pop(rows)
         schemes = l21.date_weights(pop.D)
         receipt["population"]["months"] = month_starts(pop)[1]
+        if args.real_run:                  # the scored N after build_rows exclusions, beside the label-based N
+            receipt["steps"]["2_label_integrity"]["N_final_scored_market_dates"] = info["market_dates"]
         stage = "3_synthetic_controls"
         synth, (y_null, null_res, null_ins) = step_synthetic_lomo(pop, schemes)
         receipt["steps"]["3_synthetic_controls"] = synth
@@ -758,8 +824,10 @@ def main(argv=None):
             receipt["steps"]["5_realised_power"] = l21.step_power(null_res, "synthetic null projection (dry run)")
             receipt["verdict"] = {"verdict": "NONE (synthetic-only dry run; no real Delta exists)"}
     except l21.Untestable as exc:
-        receipt["steps"][exc.step] = {"status": "FAILED", **exc.numbers}
-        receipt["verdict"] = {"verdict": f"B12-HIST: UNTESTABLE (failed at {exc.step})"}
+        step = L21_STEP_NAMES.get(exc.step, exc.step)
+        receipt["steps"][step] = {"status": "FAILED", **exc.numbers,
+                                  **({"l21_step_name": exc.step} if step != exc.step else {})}
+        receipt["verdict"] = {"verdict": f"B12-HIST: UNTESTABLE (failed at {step})"}
     except KeyboardInterrupt:
         raise
     except BaseException as exc:                                               # F2: everything else is mechanical
