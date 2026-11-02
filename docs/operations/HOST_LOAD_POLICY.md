@@ -542,7 +542,7 @@ Stage-A, workstation or live authority is added.
    `WeatherMemoryCommitGuard` task runs every minute. It warns when available
    physical RAM is below 1.5 GiB and records the top working-set processes. It
    warns at 85% commit and, at 92%, terminates the largest eligible ungoverned
-   Python or aggregate Codex/ChatGPT process tree above 8 GB. Physical-RAM
+   Python or aggregate Codex/ChatGPT/Claude process tree above 8 GB. Physical-RAM
    pressure is warning-only: every emergency memory kill remains commit-based.
    Production `-m weather.*` workers are excluded by process ancestry and
    command identity. Agents running unbounded materializations must chunk or
@@ -560,11 +560,224 @@ Stage-A, workstation or live authority is added.
    down evidence at 09:00 and settlement at 11:55. Stage B therefore releases
    the host before the 09:30 Stage-A exception, and Stage A cannot cross into
    the graded window.
-6. **Agent verification is serial and time-gated.** The OS guard terminates
-   recognized agent-owned (codex.exe, chatgpt.exe or claude.exe root) pytest, compileall, inline/bare Python, and recursive
-   data-scan tool trees outside 00:30–09:00, and retains at most one such tree
-   inside the window. An agent-owned tool tree is independently terminated when
-   its aggregate private bytes reach the 8 GB per-job ceiling; this does not
+6. **Agent verification is serial and time-gated.** The OS guard
+   (`scripts/ops/memory_commit_guard.ps1`) terminates recognized agent-owned
+   (codex.exe, chatgpt.exe or claude.exe root) heavy tool trees outside
+   00:30–09:00, and retains at most one such tree inside the window. A tool tree
+   is the agent root's direct child (a PowerShell, cmd, Bash or sh shell, or a
+   bare tool such as `rg.exe`); the 15-second grace runs on the tool root's age,
+   so a short-lived heavy child of an older shell is counted at once. A tree is
+   heavy when any member is, judged first by that member's **own** command line,
+   because Claude Code's PowerShell tool passes its script text through an
+   environment variable and the shell line shows nothing:
+   pytest/compileall/coverage/tox/nox; inline, stdin or script Python (interpreter
+   options such as `-I` or `-X utf8` before the script included, and an unquoted
+   interpreter path with spaces such as `C:\Program Files\Python312\python.exe`;
+   a bare interpreter, such as a REPL or a stdio server, is not); a `-m` module
+   on the explicit heavy list unless its first argument is `status`, `--help`,
+   `-h` or `--version`. The list is `Get-WeatherWorkstationOfflineModule` (read
+   from `workload_admission.ps1`) plus the guard's own entries:
+   `weather.operations.daily_refresh`, `weather.operations.daily_refresh_bounded`,
+   `weather.backtesting.r0_paired_replay`, `weather.backtesting.metar_keying_replay`,
+   `weather.backtesting.lockin_anchor_replay`, `weather.calibration.pooled_training`,
+   `weather.calibration.pooled_band_training` and
+   `weather.calibration.pooled_density_training`. Also heavy: an `rg`, recursive
+   `grep` or GNU `find` process (never Windows `find.exe`, never
+   `find -maxdepth 0|1`) whose own path arguments, not its pattern or option
+   values, name a repository `data` directory (relative `data\...`, or an
+   absolute path whose parent of `data` holds `.git`; a UNC path is never
+   probed); and `robocopy` with `/S`, `/E` or `/MIR`.
+   **Shell lines are a secondary signal** (master's rule, kept): a powershell,
+   pwsh or cmd line is heavy when it runs `-m pytest|compileall|coverage|tox|nox`,
+   a listed module or a `weather.*` module matching
+   `retrain|training|replay|backtest|daily_refresh|score_all` (readers exempt as
+   above), `Get-ChildItem -Recurse`, or `rg` over a `data` path. That catches a
+   `foreach { python -m pytest $f }` loop whose children each finish inside the
+   grace. Bash and sh lines are never classified, since they may only quote a
+   command; their children are judged instead. Other weather CLIs (recovery
+   checks, supervisors, `*_status`/`*_report` readers, replay_cache_retention) are
+   outside the rule and caught only by the budget below. Not visible: an
+   in-process recursive scan inside a hidden PowerShell script, until its tree's
+   private bytes trip the budget below.
+   **Lease-admitted work is not a window or concurrency target.** A heavy member
+   is admitted when it, a verified ancestor below the agent root, or (unless the
+   member is a `powershell`/`pwsh`/`cmd` line that is heavy by its own text) any
+   process in its own subtree is the live owner of a heavy-workload lease from
+   `workload_admission.ps1` (repository lock
+   `data\logs\heavy_workload[.slotN].lock` of the guard's checkout, or an `ACTIVE`
+   or `TEARDOWN_PENDING` host-global
+   `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison` record),
+   matched by PID and process creation instant so a stale record admits nothing,
+   **and only while the record's `policy_window` is open**: `agent_heavy`
+   00:30–09:00, the guard's own window with no grace; `stage_a` 09:30 to its
+   11:55 teardown deadline; `workstation_offline` and `portable_execution` (also
+   read from a state record's `execution_host_profile`) at any hour **on the
+   assigned non-capture host only**: the guard's own execution-host identity must
+   be `active_portable_execution_host_id` in
+   `config/international_live_execution_host.json`, must not be
+   `dedicated_capture_execution_host_id`, the guard must not be registered with
+   `-ExpectedExecutionHostId`, and a repository lock must name that identity as
+   its `execution_host_id` (a state record has no such field and lives in the
+   host's own `%ProgramData%`). Anywhere else, or on any doubt, such a record
+   gets the `agent_heavy` window with a WARNING. Any other record (the
+   integration mutex, an older schema, an expired owner exception) gets the
+   `agent_heavy` window too. Past its window an owner's heavy descendants are
+   stopped like unadmitted members, a heavy owner ancestor is stopped alone (the
+   owner is orphaned, not stopped), and only the owner is spared, with a
+   CRITICAL log. A heavy shell line above an in-window owner is stopped alone the
+   same way.
+   That covers `workstation_heavy.ps1`, the bounded
+   suite, `training_window.ps1`, `daily_refresh.ps1` (which takes its own lease)
+   and one-off lease wrappers, including when a script, `py` or a git hook
+   launched the wrapper. Each tree holding a live lease owner takes exactly one
+   in-window slot first for its admitted work; its unadmitted heavy members, if
+   any, compete with the other trees for the remaining slots, oldest first, and a
+   losing leased tree loses only those members.
+   **Orphaned lease trees.** The guard remembers, in
+   `data\logs\memory_commit_guard_state.json`, each live lease owner it saw
+   inside an agent tree (PID and creation instant), with the tool root it sat
+   under at sighting (PID and creation instant). When a remembered owner is
+   still a live lease owner but has lost its agent root (its parent was stopped
+   alone), the top of its verified ancestry becomes a tool root of its own, so
+   window, concurrency, budget and commit-emergency rules keep applying to the
+   orphaned tree. The climb stops at the recorded root and is refused (WARNING,
+   no agent rule applies to that tree) when it would leave the root's subtree
+   (it meets a process created before the root) or reach a service-host or
+   session image (`services.exe`, `wininit.exe`, `svchost.exe`, `explorer.exe`,
+   `taskhostw.exe`, `winlogon.exe`, `csrss.exe`, `smss.exe`, `lsass.exe`),
+   matched exactly and case-insensitively on the image file name Windows reports
+   (`Win32_Process.Name`), not the command line. A record written before the
+   root was stored names no root and adopts nothing: on rollout, an orphan the
+   guard governs from such a record loses its agent rules for good (it is not
+   remembered again once unadopted), which only spares. A released lease ends
+   the attribution.
+   **Guard state failures only ever spare.** The same file carries the
+   unreadable-lock count below. A state file that exists but cannot be read
+   (sharing violation, access denied) or does not parse as a v1 record is logged
+   as ERROR and the run proceeds with no memory: the unreadable-lock count
+   restarts and no orphaned tree is attributed, so the guard can only spare more,
+   never stop more. An unreadable file is left in place for the next run; a
+   damaged one is replaced. A failed write is logged as ERROR and leaves the
+   previous record in place. A record more than 300 seconds old or more than 60
+   seconds in the future is stale and ignored; otherwise its remembered owners
+   stay usable (they match by PID and creation instant). Each record also stores
+   the writing guard's own process start (`run_started_at_utc`, from
+   `Get-Process -Id $PID`) and `run_seconds`, its time from that start to the
+   write; `k = max(1, ceil(run_seconds / 60))` is the trigger minutes it occupied
+   (the task ignores triggers while a run is still going). With `a` the reader's
+   process start minus the writer's, the unreadable-lock count carries over in
+   full when `0 <= a <= 60k + 30` (and 300), otherwise at most 1, and none when
+   `a < 0` or the record is dated in the future. At most 1 also carries when
+   either process start is unknown (a record written before this field, so the
+   first run after rollout caps, or `Get-Process` could not say) or
+   `run_seconds` is not a number from 0 to 300 (absent reads as 0, `k = 1`).
+   Why: measuring both runs from their process starts cancels PowerShell
+   start-up time, which is slowest under commit pressure, and leaves only Task
+   Scheduler's launch latency. With no run in between, the reader is the first
+   trigger after the writer ended, `a = 60k` plus the launch-latency
+   difference; with a run in between that did not write, `a >= 60(k+1)` plus
+   that difference, past the window. This is not unconditional. It assumes one
+   shared budget, (launch-latency difference) + (clock step in either direction
+   between the two process starts) < 30 seconds, and no out-of-band (manual)
+   guard run starting in between. Launch latency is the time from a trigger
+   instant to the guard's process start: late trigger firing, the S4U token
+   build, and `StartWhenAvailable` catch-up starts
+   (`register_memory_commit_guard.ps1`), which can be arbitrarily late; all of
+   them grow under commit pressure. A forward clock step during the writer's
+   start-up also inflates `run_seconds` (its start-up part is wall clock) and
+   can raise `k`, widening the window. That case is **outside** the
+   assumptions: with the repeating triggers on wall-clock time and IgnoreNew,
+   the higher `k` may match a trigger the writer really did skip, but nothing
+   guarantees it, so the guard does not rely on it. Otherwise `run_seconds`
+   misses only the launch latency before the process and the status write
+   after the state write (a tail that can cross a trigger), so `k` can only be
+   too low, which caps and only spares. A stale count can therefore never push
+   a run past the two-run limit under those assumptions. The script's header
+   comment is looser and superseded: it allows a launch-latency difference and
+   a backward clock step of 30 seconds each (about 60 seconds together); this
+   paragraph is the authority. **Accepted residual:** when the budget is
+   exceeded (most plausibly at `k = 1`, when the writer's launch latency
+   exceeded the reader's by 30 seconds or more, as a catch-up start can), a
+   wrong full carry ends torn-lock sparing one run early. The kills it can then
+   reach are only those the normal window, concurrency and budget rules
+   already permit: agent-rooted or adopted-orphan trees, heavy-list
+   `-m weather.*` modules in them included; a governed branch is eligible only
+   when it alone reaches the budget. Scheduler-launched capture workers are
+   never agent-rooted, and the orphan climb never passes its recorded root or a
+   blocked image, so they are not among those trees. A write failure
+   that persists keeps the count from building, so the two-run cap is then in
+   effect off: torn locks keep sparing, never killing more. The status file
+   reports `guard_state_read` (`absent`, `ok`, `stale`, `unreadable`, `invalid`),
+   `guard_state_carry` (`full`, `capped`, `none`), `guard_state_written` and
+   `guard_state_degraded`; `guard_state_degraded` is a
+   status field only, nothing reads it, and no health alert is raised from it.
+   **Release.** `Exit-WeatherHeavyWorkloadLease` overwrites the repository lock
+   with a `weather_heavy_workload_lease_released_v1` marker before it disposes the
+   handle; the guard reads that marker as no lease, so a former owner that keeps
+   running after release admits nothing.
+   The guard reads only the lock files of **its own checkout** plus the
+   host-global state files: a lease taken against another checkout or worktree
+   is invisible to it unless that profile also writes the host-global record.
+   **Foreign, empty and torn lock records.** Any other JSON record with a `pid`
+   in a lock file (the integration control mutex writes
+   `weather_integration_control_mutex_v1` into `heavy_workload.lock` and never
+   clears it; older schemas) admits only a live process with that PID created no
+   later than the file's last write, so a leftover record whose PID was reused
+   admits nothing and does not disable any kill. An empty or unparseable lock
+   file written within the last 60 seconds may be an acquisition mid-write: the
+   guard logs a WARNING and skips window and concurrency kills for that minute
+   (budget kills then stop heavy members only), for at most two runs in a row
+   (counted in the state file above). From the third consecutive run every rule
+   applies as if the file were absent, so a lock rewritten as garbage every
+   minute cannot disable the guard, including while runs take over 60 seconds
+   or start slowly (`run_seconds` counts from the process start); only a run
+   that ends within Task Scheduler's launch latency of a trigger, or whose
+   status write after the state write crosses a trigger, can be undercounted,
+   which holds the count at 2 and only ever spares. An older empty or
+   unparseable file is stale and ignored. A file whose last-write time cannot be
+   read counts as mid-write only for a sharing or lock violation or a vanished
+   file; any other failure is logged as ERROR and the file is ignored.
+   **No guard rule terminates a tree that contains a live lease owner as a
+   whole, nor the owner or the agent root.** As a last line, the tree-kill
+   routine itself skips any live owner (PID and creation instant), and while any
+   owner lives, or a lease record is unreadable within the two-run limit above,
+   it leaves console hosts
+   (`conhost.exe`, `OpenConsole.exe`) running, since ending one ends every
+   process on its console, the owner included. Window and concurrency rules stop
+   only unadmitted heavy member subtrees. Over the budget, if the subtrees hanging
+   off the owner's spine (the tree root, each owner and the owner's ancestors)
+   could bring the tree under budget, the guard stops them largest first, of any
+   process type, until it is; a subtree holding a governed `-m weather.*` process
+   (such as capture children restored by `training_window`) is eligible only
+   when it alone reaches the budget. If they could not, the memory sits on the
+   spine: the guard stops the spine's single largest non-owner process alone,
+   never its subtree, and only when stopping it brings the spine under budget
+   (it holds more than the spine's bytes minus the budget); otherwise it logs a
+   WARNING and stops nothing. A typical target is a parent such as
+   `python tools\run_suite.py` that launched the lease wrapper; the owner is
+   orphaned but runs on, and its `finally` (lease release, `training_window`
+   re-enabling capture) still runs. When the largest spine process is a lease
+   owner itself, the guard logs CRITICAL and spares it, up to a **hard ceiling**:
+   at 97% commit, or when the owner process itself holds twice the per-job budget,
+   the guard stops the owner and its subtree too (CRITICAL; its `finally` blocks
+   are lost). The commit emergency below applies the same ceiling. **Job handles:** before
+   stopping any process alone while an owner lives, the guard asks whether that
+   process holds a handle to a job object containing a live owner (system handle
+   table, each job handle duplicated with query access, `IsProcessInJob` per
+   owner); if it does, or the answer cannot be determined, it refuses with
+   CRITICAL, since closing a kill-on-close job would end the owner. Job
+   membership alone is not checked: every process an agent spawns may share the
+   agent's own job, whose handle the never-stopped agent root holds.
+   The commit-92% emergency path below follows the same rules: a Python process
+   whose subtree holds a lease owner is stopped alone, never with its subtree (an
+   owner itself is spared), and an agent tree holding an owner loses its
+   off-spine subtrees largest first, owner, owner ancestors and console hosts
+   never included, until it is under budget; when the spine alone is over budget,
+   the spine's largest non-owner process is stopped alone if that brings it under
+   (or if it reaches the budget itself), otherwise a WARNING. An agent tree
+   without a lease owner is still stopped from its agent root, as before.
+   An agent-owned tool tree without a lease owner is independently terminated
+   when its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
    suites use the repository-owned full-suite wrapper (at most 25 files per chunk). Never use
@@ -572,8 +785,9 @@ Stage-A, workstation or live authority is added.
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
-   exact definition on the next session. Claude Code sessions have no hook; the
-   S4U guard is their only backstop.
+   exact definition on the next session. Claude Code sessions have no
+   pre-launch hook; the S4U guard is their only backstop, and it acts only after
+   launch (15-second grace on the tool root's age, then the next one-minute tick).
 7. **Test runs are disk writers.** The bounded wrapper keeps pytest and
    `TEMP`/`TMP` in sibling directories under each chunk's cleaned root, and
    restores the parent environment even on failure. Always pass `--basetemp <dir>` to pytest,
