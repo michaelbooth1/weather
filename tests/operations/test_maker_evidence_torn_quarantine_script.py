@@ -55,13 +55,17 @@ if ($env:FAKE_TASK_MODE) {
 }
 if ($env:FAKE_PROCESS_CMDLINE) {
     function global:Get-CimInstance { [CmdletBinding()] param([Parameter(Position = 0)][string]$ClassName, [string]$Filter)
+        if ($env:FAKE_PROCESS_CMDLINE -eq 'throw') { throw 'process query stub failure' }
         [pscustomobject]@{ ProcessId = 4242; CommandLine = $env:FAKE_PROCESS_CMDLINE } }
 }
-if ($env:FAKE_HASH_BAD_PREFIX) {
+if ($env:FAKE_HASH_BAD_PREFIX -or $env:FAKE_HASH_NULL_PREFIX) {
     # Get-FileHash is a function of this module in 5.1; an autoload after the stub would replace it.
     Import-Module Microsoft.PowerShell.Utility
     function global:Get-FileHash { [CmdletBinding()] param([string]$LiteralPath, [string]$Algorithm = 'SHA256')
-        if ($LiteralPath.StartsWith($env:FAKE_HASH_BAD_PREFIX, [StringComparison]::OrdinalIgnoreCase)) {
+        if ($env:FAKE_HASH_NULL_PREFIX -and
+            $LiteralPath.StartsWith($env:FAKE_HASH_NULL_PREFIX, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+        if ($env:FAKE_HASH_BAD_PREFIX -and
+            $LiteralPath.StartsWith($env:FAKE_HASH_BAD_PREFIX, [StringComparison]::OrdinalIgnoreCase)) {
             return [pscustomobject]@{ Hash = ('0' * 64) } }
         $stream = [IO.File]::OpenRead($LiteralPath); $sha = [Security.Cryptography.SHA256]::Create()
         try { [pscustomobject]@{ Hash = ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '') } }
@@ -317,6 +321,8 @@ def test_recorder_process_for_this_root_is_an_advisory_refusal(tmp_path):
     other = f'pythonw.exe -m weather.market.maker_evidence_capture --root "{tmp_path / "other"}"'
     code, payload = run(tmp_path, root, env={"FAKE_PROCESS_CMDLINE": other})
     assert (code, payload["status"]) == (0, "REPORT")
+    code, payload = run(tmp_path, root, "-Apply", env={"FAKE_PROCESS_CMDLINE": "throw"})
+    assert (code, payload["status"]) == (2, "REFUSED_PROCESS_CHECK_FAILED")
 
 
 # 9 -----------------------------------------------------------------------------------------
@@ -435,6 +441,26 @@ def test_hash_mismatch_after_move_fails_and_a_rerun_is_unresolved(tmp_path):
     assert (quarantine_dir(tmp_path) / "reward-a.jsonl").read_bytes() == TORN_NUL
 
 
+def test_null_hash_after_move_is_failed_hash_read_and_a_rerun_reconciles(tmp_path):
+    root, _ = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
+    destination = quarantine_dir(tmp_path)
+    code, payload = run(tmp_path, root, "-Apply", env={"FAKE_HASH_NULL_PREFIX": str(destination)})
+    assert (code, payload["status"]) == (4, "FAILED_HASH_READ")
+    assert (destination / "QUARANTINE_INTENT.json").exists()
+    assert not (destination / "QUARANTINE_RECEIPT.json").exists()
+    assert (destination / "reward-a.jsonl").read_bytes() == TORN_NUL
+    code, payload = run(tmp_path, root, "-Apply")
+    assert (code, payload["status"]) == (0, "RECONCILED")
+
+
+def test_null_hash_while_planning_is_failed_hash_read_and_nothing_moves(tmp_path):
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
+    code, payload = run(tmp_path, root, "-Apply", env={"FAKE_HASH_NULL_PREFIX": str(folder)})
+    assert (code, payload["status"]) == (4, "FAILED_HASH_READ")
+    assert (folder / "reward-a.jsonl").read_bytes() == TORN_NUL
+    assert not (tmp_path / "maker_evidence_quarantine").exists()
+
+
 # Intent validation -------------------------------------------------------------------------
 def write_intent(base, store_root, folder, files, **override):
     destination = quarantine_dir(base)
@@ -465,13 +491,28 @@ def test_intent_whose_hash_disagrees_with_the_source_is_unresolved(tmp_path):
     ({}, [entry("C:reward-a.jsonl", "a" * 64)]),
     ({}, [entry("reward-a.txt", "a" * 64)]),
     ({}, [entry("reward-a.jsonl", "not-a-hash")]),
-], ids=["other-segment", "other-root", "other-destination", "dotdot", "separator", "drive", "extension", "hash"])
+    ({}, [{**entry("reward-a.jsonl", "a" * 64), "size": -1}]),
+    ({}, [{**entry("reward-a.jsonl", "a" * 64), "size": "12"}]),
+    ({}, [{**entry("reward-a.jsonl", "a" * 64), "size": 1.5}]),
+    ({}, [{**entry("reward-a.jsonl", "a" * 64), "tail": "bogus"}]),
+], ids=["other-segment", "other-root", "other-destination", "dotdot", "separator", "drive", "extension", "hash",
+        "negative-size", "string-size", "fractional-size", "tail"])
 def test_malformed_or_foreign_intent_refuses(tmp_path, override, files):
     root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
     write_intent(tmp_path, root, folder, files or [entry("reward-a.jsonl", sha(folder / "reward-a.jsonl"))], **override)
     code, payload = run(tmp_path, root, "-Apply")
     assert (code, payload["status"]) == (2, "REFUSED_INTENT_INVALID")
     assert (folder / "reward-a.jsonl").read_bytes() == TORN_NUL
+
+
+def test_intent_without_receipt_whose_source_segment_is_gone_is_unresolved(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()}, sealed=True)
+    gone = quarantine_dir(tmp_path).parent / "07-0123456789ab"
+    gone.mkdir(parents=True)
+    (gone / "QUARANTINE_INTENT.json").write_text(json.dumps({"root": str(root), "files": []}), encoding="utf-8")
+    code, payload = run(tmp_path, root, "-Apply")
+    assert (code, payload["status"]) == (5, "UNRESOLVED")
+    assert "source segment is gone" in payload["reasons"][-1]
 
 
 # 11 + receipt guards ----------------------------------------------------------------------
@@ -484,6 +525,17 @@ def test_existing_destination_with_other_bytes_refuses_and_source_is_untouched(t
     assert (code, payload["status"]) == (2, "REFUSED_DESTINATION_EXISTS")
     assert (folder / "reward-a.jsonl").read_bytes() == TORN_NUL
     assert (destination / "reward-a.jsonl").read_bytes() == b"other\n"
+
+
+def test_receipt_time_without_offset_is_read_as_utc(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    destination = quarantine_dir(tmp_path)
+    destination.mkdir(parents=True)
+    (destination / "QUARANTINE_RECEIPT.json").write_text(json.dumps({"completed_at_utc": "2099-01-01T00:00:00"}),
+                                                         encoding="utf-8")
+    code, payload = run(tmp_path, root, "-TaskName", "T", env=task_env(1, offset_seconds=60))
+    assert (code, payload["status"]) == (0, "NOOP_ALREADY_QUARANTINED")
+    assert payload["task_check"].startswith("last result 1 predates")
 
 
 def test_receipt_exists_but_torn_journals_remain_refuses(tmp_path):
@@ -574,6 +626,7 @@ def test_quarantine_inside_the_store_root_refuses(tmp_path):
 
 
 def test_quarantine_on_another_volume_refuses(tmp_path):
+    """Exercises the path-root refusal only (a free drive letter); a same-root serial mismatch needs a mount."""
     root, _ = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
     free = next(letter for letter in reversed(string.ascii_uppercase[3:]) if not os.path.exists(f"{letter}:\\"))
     code, payload = run(tmp_path, root, "-Apply", quarantine=Path(f"{free}:\\maker_evidence_quarantine"))
@@ -619,7 +672,7 @@ $names = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Languag
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["errors"] == []
-    helpers = {"Release-Lock", "Write-Log", "Emit-And-Exit", "Test-TaskSignature", "Finish", "Get-Sha256",
+    helpers = {"Get-ShaChecked", "Release-Lock", "Write-Log", "Emit-And-Exit", "Test-TaskSignature", "Finish", "Get-Sha256",
                "Open-Shared", "Get-TailClass", "Test-ContainsNul", "Test-Reparse", "Test-ReparseChain",
                "Get-VolumeIdentity", "Write-AtomicNew", "Read-JsonFile", "Test-JournalName", "Get-IntentProblem"}
     cmdlets = {"Split-Path", "Join-Path", "Get-FileHash", "Test-Path", "New-Item", "ConvertTo-Json", "Out-Null",

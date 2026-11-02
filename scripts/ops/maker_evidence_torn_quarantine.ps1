@@ -29,7 +29,7 @@ Safety contract (design approved 2026-11-02, L54):
   .tmp, status.json or the lock file contents. No Scheduler mutation: start the task yourself.
 
 Exit codes: 0 NOOP / REPORT / QUARANTINED / RECONCILED / RECONCILED_AFTER_SEAL; 2 refused;
-4 failed mid-apply (intent kept; rerun reconciles); 5 UNRESOLVED / TORN_SIGNATURE_UNRESOLVED
+4 failed mid-apply or FAILED_HASH_READ (intent kept; rerun reconciles); 5 UNRESOLVED / TORN_SIGNATURE_UNRESOLVED
 (needs a human; no action taken); 6 INTERNAL_ERROR (unexpected throw; lock released). A
 parameter-binding error is raised by PowerShell before the script runs and is outside this
 contract.
@@ -112,6 +112,21 @@ function Finish([string]$Status, [int]$Code, [string]$Reason = "") {
 
 function Get-Sha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-ShaChecked([string]$Path) {
+    # Hash a journal during plan/apply; an unreadable or empty hash stops with FAILED_HASH_READ.
+    $hash = $null
+    $why = "no hash returned"
+    try {
+        $value = Get-FileHash -LiteralPath $Path -Algorithm SHA256
+        if ($value) { $hash = [string]$value.Hash }
+    }
+    catch { $why = $_.Exception.Message }
+    if ($hash -notmatch '^[0-9A-Fa-f]{64}$') {
+        Finish "FAILED_HASH_READ" 4 ("cannot hash {0} ({1}); intent kept, rerun reconciles" -f $Path, $why)
+    }
+    return $hash.ToLowerInvariant()
 }
 
 function Open-Shared([string]$Path) {
@@ -240,6 +255,9 @@ function Get-IntentProblem($Intent, [string]$Segment, [string]$Destination) {
         if ($seen.ContainsKey($name.ToLowerInvariant())) { return "intent repeats $name" }
         $seen[$name.ToLowerInvariant()] = $true
         if ([string]$file.sha256_before -cnotmatch '^[0-9a-f]{64}$') { return "intent hash is not a sha256: $name" }
+        $size = $file.size
+        if ($null -eq $size -or -not ($size -is [int] -or $size -is [long]) -or [int64]$size -lt 0) { return "intent size is not a non-negative integer: $name" }
+        if (@("nul_tail", "no_final_newline") -cnotcontains [string]$file.tail) { return "intent tail class is unknown: $name" }
     }
     if ($seen.Count -eq 0 -or $seen.Count -gt 10) { return "intent file count is outside 1..10" }
     return ""
@@ -283,7 +301,9 @@ try {
     }
 
     # ---- advisory process check (the lock below is authoritative) ----
-    $writers = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object {
+    try { $processes = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'") }
+    catch { Finish "REFUSED_PROCESS_CHECK_FAILED" 2 $_.Exception.Message }
+    $writers = @($processes | Where-Object {
         $line = [string]$_.CommandLine
         if ($line -notmatch 'weather\.market\.maker_evidence_capture' -or $line -match '--dry-run') { return $false }
         if ($line -match '--root\s+"([^"]+)"' -or $line -match '--root\s+(\S+)') {
@@ -334,6 +354,9 @@ try {
                 $source = Join-Path (Join-Path $Root $dayDir.Name) $segDir.Name
                 $sealed = (Test-Path -LiteralPath (Join-Path $source "manifest.json")) -or
                           (Test-Path -LiteralPath (Join-Path $source "manifest.json.gz"))
+                if (-not (Test-Path -LiteralPath $source)) {
+                    Finish "UNRESOLVED" 5 ("an intent has no receipt and its source segment is gone: " + $intentFile)
+                }
                 if ($sealed) { $afterSeal += [pscustomobject]@{ intent = $intentFile; source = $source; destination = $segDir.FullName } }
             }
         }
@@ -341,7 +364,7 @@ try {
     if ($afterSeal.Count -gt 0) {
         $script:result.after_seal = @()
         foreach ($item in $afterSeal) {
-            if (Test-Reparse (Get-Item -LiteralPath $item.destination -Force)) { Finish "REFUSED_REPARSE_POINT" 2 ("quarantine folder is a reparse point: " + $item.destination) }
+            if (Test-ReparseChain $item.destination) { Finish "REFUSED_REPARSE_POINT" 2 ("quarantine folder is a reparse point: " + $item.destination) }
             $intent = $null
             try { $intent = Read-JsonFile $item.intent } catch { Finish "REFUSED_INTENT_INVALID" 2 ("intent unreadable: " + $item.intent) }
             $problem = Get-IntentProblem $intent $item.source $item.destination
@@ -353,7 +376,7 @@ try {
                 if ((Test-Path -LiteralPath $src) -or -not (Test-Path -LiteralPath $dst)) {
                     Finish "UNRESOLVED" 5 ("sealed segment but planned journal is not only at the quarantine: " + $entry.name)
                 }
-                $after = Get-Sha256 $dst
+                $after = Get-ShaChecked $dst
                 if ($after -ne [string]$entry.sha256_before) { Finish "UNRESOLVED" 5 ("quarantined bytes differ from the intent: " + $entry.name) }
                 $files += [pscustomobject][ordered]@{ name = [string]$entry.name; size = [int64]$entry.size; tail = [string]$entry.tail
                     sha256_before = [string]$entry.sha256_before; sha256_after = $after; source = $src; destination = $dst }
@@ -411,7 +434,14 @@ try {
 
     $intent = $null
     if (Test-Path -LiteralPath $receiptPath) {
-        try { $script:receiptTime = [DateTimeOffset]::Parse([string](Read-JsonFile $receiptPath).completed_at_utc).UtcDateTime }
+        try {
+            $completed = (Read-JsonFile $receiptPath).completed_at_utc
+            if ($completed -is [datetime]) { $script:receiptTime = $completed.ToUniversalTime() }
+            else {
+                $script:receiptTime = [DateTimeOffset]::Parse([string]$completed, [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::AssumeUniversal).UtcDateTime
+            }
+        }
         catch { Finish "REFUSED_RECEIPT_UNREADABLE" 2 $_.Exception.Message }
         if ($candidates.Count -eq 0) { Finish "NOOP_ALREADY_QUARANTINED" 0 }
         Finish "REFUSED_RECEIPT_EXISTS" 2 "a receipt exists for this segment but torn journals remain"
@@ -441,7 +471,7 @@ try {
                 Finish "REFUSED_DESTINATION_EXISTS" 2 ("quarantine already holds " + $candidate.name)
             }
             $plan += [ordered]@{ name = $candidate.name; size = $candidate.size
-                sha256_before = (Get-Sha256 (Join-Path $segment.FullName $candidate.name)); tail = $candidate.tail }
+                sha256_before = (Get-ShaChecked (Join-Path $segment.FullName $candidate.name)); tail = $candidate.tail }
         }
         $mode = "fresh"
     }
@@ -454,7 +484,7 @@ try {
         if ($atSrc -and $atDst) { Finish "REFUSED_RECONCILE_MISMATCH" 2 ("present at source and destination: " + $entry.name) }
         if (-not $atSrc -and -not $atDst) { Finish "UNRESOLVED" 5 ("missing from source and destination: " + $entry.name) }
         $path = $src; if ($atDst) { $path = $dst }
-        if ((Get-Sha256 $path) -ne $entry.sha256_before) { Finish "UNRESOLVED" 5 ("bytes differ from the plan: " + $entry.name) }
+        if ((Get-ShaChecked $path) -ne $entry.sha256_before) { Finish "UNRESOLVED" 5 ("bytes differ from the plan: " + $entry.name) }
         if ($atSrc) { $pending += $entry }
     }
     $script:result.mode = $mode
@@ -481,7 +511,7 @@ try {
     $files = @()
     foreach ($entry in $plan) {
         $dst = Join-Path $destination $entry.name
-        $after = Get-Sha256 $dst
+        $after = Get-ShaChecked $dst
         if ($after -ne $entry.sha256_before) { Finish "FAILED_HASH_MISMATCH" 4 ("hash changed across move: " + $entry.name) }
         $files += [pscustomobject][ordered]@{ name = $entry.name; size = $entry.size; tail = $entry.tail
             sha256_before = $entry.sha256_before; sha256_after = $after

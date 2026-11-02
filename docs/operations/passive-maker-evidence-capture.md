@@ -444,11 +444,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_t
   the segment, the rerun reports `REPORT_AFTER_SEAL`, and `-Apply` writes the receipt
   (`RECONCILED_AFTER_SEAL`).
 - `UNRESOLVED` (exit 5, nothing moved) means a NUL inside a newline-terminated journal,
-  or quarantined bytes that no longer match the intent.
+  quarantined bytes that no longer match the intent, or an intent without a receipt
+  whose source segment is gone.
 - Every no-action (`NOOP_*`) result also reads the task's last result. If it is 1, and
   newer than that segment's receipt when one exists, the result becomes
   `TORN_SIGNATURE_UNRESOLVED` (exit 5). Examples: a torn `manifest.json`, or corruption
   this tool may not move.
+  If the tool's own run coincided with a recorder trigger, this can be a false alarm:
+  start the task and rerun.
 
 Exit codes:
 
@@ -456,7 +459,7 @@ Exit codes:
 | --- | --- |
 | 0 | `NOOP_*`, `REPORT*`, `QUARANTINED`, `RECONCILED`, `RECONCILED_AFTER_SEAL` |
 | 2 | refused |
-| 4 | failed mid-apply; rerun |
+| 4 | failed mid-apply, or `FAILED_HASH_READ`; intent kept, rerun reconciles |
 | 5 | unresolved; needs a human |
 | 6 | internal error; lock released |
 
