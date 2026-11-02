@@ -277,12 +277,18 @@ namespace WeatherTornQuarantine {
     public static class StoreScan {
         public const string Schema = "maker_evidence_v2";
         public const long MaxRawBytes = 500000000;
-        public const long SealReserveBytes = 1000000;
         public const int MaxPaths = 20000;
         public const int MaxLineBytes = 16 * 1024 * 1024;
+        // Upper bound of the manifest _seal writes for an interrupted segment (it is accounted with
+        // reserve=False): per journal, the name at 6 bytes per UTF-16 unit (worst JSON escape) plus
+        // the stats object with every number at 24 digits; per segment, the top-level fields.
+        public const long ManifestBytesPerJournal = 400;
+        public const long ManifestBytesPerNameUnit = 6;
+        public const long ManifestBytesPerSegment = 1024;
+        // A stream response_bytes wider than this cannot be bounded in the manifest: unknown.
+        public const int MaxResponseBytesDigits = 12;
         static readonly Regex SegmentName = new Regex(@"^\d{2}-[0-9a-f]{12}$");
         static readonly Regex DayName = new Regex(@"^\d{4}-\d{2}-\d{2}$");
-        static readonly UTF8Encoding Strict = new UTF8Encoding(false, true);
 
         static bool IsReparse(FileSystemInfo item) { return (item.Attributes & FileAttributes.ReparsePoint) != 0; }
 
@@ -293,7 +299,7 @@ namespace WeatherTornQuarantine {
         public static ScanResult Scan(string root, int maxSegments, int settleMs) {
             var r = new ScanResult();
             var unsealed = new List<DirectoryInfo>();
-            long raw = 0; int paths = 0;
+            long raw = 0, sealBound = 0; int paths = 0;
             foreach (var parent in new DirectoryInfo(root).GetDirectories()) {
                 if (IsReparse(parent)) { r.Errors.Add("store folder is a reparse point: " + parent.FullName); continue; }
                 DirectoryInfo[] folders;
@@ -305,22 +311,38 @@ namespace WeatherTornQuarantine {
                 }
                 catch (Exception e) { r.Errors.Add(parent.FullName + ": " + e.Message); continue; }
                 foreach (var folder in folders) {
+                    if (folder.Name.StartsWith("manifest.jsonl", StringComparison.OrdinalIgnoreCase))
+                        r.Errors.Add("legacy daily journal (recovery refuses the root): " + folder.FullName);
                     if (IsReparse(folder)) { r.Errors.Add("folder is a reparse point: " + folder.FullName); continue; }
-                    FileInfo[] files;
-                    try { files = folder.GetFiles(); }
+                    FileInfo[] files; DirectoryInfo[] subfolders;
+                    try { files = folder.GetFiles(); subfolders = folder.GetDirectories(); }
                     catch (Exception e) { r.Errors.Add(folder.FullName + ": " + e.Message); continue; }
                     FileInfo manifest = null, zipped = null;
+                    long journalBound = 0;
                     foreach (var f in files) {
-                        if (f.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) { paths++; raw += f.Length; }
+                        if (f.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) {
+                            paths++; raw += f.Length;
+                            journalBound += ManifestBytesPerJournal + ManifestBytesPerNameUnit * f.Name.Length;
+                        }
                         else if (string.Equals(f.Name, "manifest.json", StringComparison.OrdinalIgnoreCase)) { manifest = f; paths++; raw += f.Length; }
                         else if (string.Equals(f.Name, "manifest.json.gz", StringComparison.OrdinalIgnoreCase)) { zipped = f; }
                     }
+                    bool manifestFolder = false;
+                    foreach (var d in subfolders) {
+                        if (d.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) paths++;
+                        if (string.Equals(d.Name, "manifest.json", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(d.Name, "manifest.json.gz", StringComparison.OrdinalIgnoreCase)) manifestFolder = true;
+                    }
                     if (!SegmentName.IsMatch(folder.Name)) { continue; }
+                    if (manifestFolder) { r.Invalid.Add(folder.FullName + ": a folder named like a manifest"); continue; }
                     if (manifest != null || zipped != null) {
                         var used = manifest ?? zipped;
                         if (IsReparse(used)) { r.Invalid.Add(used.FullName + ": reparse point"); continue; }
-                        string why = CheckManifest(used.FullName, manifest == null);
-                        if (why != null) { r.Invalid.Add(used.FullName + ": " + why); }
+                        try {
+                            string why = CheckManifest(used.FullName, manifest == null);
+                            if (why != null) { r.Invalid.Add(used.FullName + ": " + why); }
+                        }
+                        catch (Exception e) { r.Invalid.Add(used.FullName + ": " + e.Message); }
                         continue;
                     }
                     if (unsealed.Count >= maxSegments) {
@@ -329,15 +351,16 @@ namespace WeatherTornQuarantine {
                     }
                     unsealed.Add(folder);
                     r.Unsealed.Add(folder.FullName);
-                    try {
-                        foreach (var d in folder.GetDirectories())
-                            if (d.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) r.Invalid.Add(d.FullName + ": a folder named like a journal");
-                    }
-                    catch (Exception e) { r.Errors.Add(folder.FullName + ": " + e.Message); }
+                    sealBound += ManifestBytesPerSegment + journalBound;
+                    foreach (var d in subfolders)
+                        if (d.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) r.Invalid.Add(d.FullName + ": a folder named like a journal");
                 }
             }
-            if (paths > MaxPaths || raw >= MaxRawBytes - SealReserveBytes) {
-                r.Errors.Add("uncompressed footprint at or near the recovery bound: " + paths + " paths, " + raw + " bytes");
+            // _recover refuses at startup over the bound, and _seal of each interrupted segment
+            // refuses when its manifest would reach it (_account(size, reserve=False)).
+            if (paths > MaxPaths || raw >= MaxRawBytes || raw + sealBound >= MaxRawBytes) {
+                r.Errors.Add("uncompressed footprint at or near the recovery bound: " + paths + " paths, " + raw +
+                    " bytes, up to " + sealBound + " bytes of manifests to seal");
             }
 
             // The live writer's own segment: the single newest unsealed one in a UTC day folder.
@@ -390,12 +413,52 @@ namespace WeatherTornQuarantine {
 
         static string Key(DirectoryInfo folder) { return folder.Parent.Name + "/" + folder.Name.Substring(0, 2); }
 
+        static byte[] ReadAll(string path) {
+            using (var file = OpenShared(path))
+            using (var buffer = new MemoryStream()) { file.CopyTo(buffer); return buffer.ToArray(); }
+        }
+
+        static uint[] crcTable;
+
+        static uint Crc32(byte[] data) {
+            if (crcTable == null) {
+                var table = new uint[256];
+                for (uint n = 0; n < 256; n++) {
+                    uint c = n;
+                    for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                    table[n] = c;
+                }
+                crcTable = table;
+            }
+            uint crc = 0xFFFFFFFFu;
+            foreach (byte b in data) crc = crcTable[(crc ^ b) & 0xFF] ^ (crc >> 8);
+            return crc ^ 0xFFFFFFFFu;
+        }
+
+        // One gzip member, verified end to end: the decompressed bytes must match the CRC32 and
+        // ISIZE in the file's last 8 bytes, so trailing data, a second member or a missing footer
+        // is a problem (stricter than Python's gzip, which can only turn clean into unknown).
+        static string ReadGzip(string path, out byte[] data) {
+            data = null;
+            byte[] packed = ReadAll(path);
+            if (packed.Length < 18 || packed[0] != 0x1f || packed[1] != 0x8b || packed[2] != 8) return "not a gzip member";
+            using (var input = new MemoryStream(packed))
+            using (var gz = new GZipStream(input, CompressionMode.Decompress))
+            using (var output = new MemoryStream()) { gz.CopyTo(output); data = output.ToArray(); }
+            uint crc = BitConverter.ToUInt32(packed, packed.Length - 8);
+            uint size = BitConverter.ToUInt32(packed, packed.Length - 4);
+            if (Crc32(data) != crc || (uint)data.LongLength != size)
+                return "gzip footer does not match the data (trailing bytes, several members or truncated)";
+            return null;
+        }
+
         static string CheckManifest(string path, bool gz) {
             byte[] bytes;
-            using (var file = OpenShared(path)) {
-                Stream input = gz ? (Stream)new GZipStream(file, CompressionMode.Decompress) : file;
-                using (var buffer = new MemoryStream()) { input.CopyTo(buffer); bytes = buffer.ToArray(); }
+            if (gz) {
+                string bad = ReadGzip(path, out bytes);
+                if (bad != null) return bad;
             }
+            else bytes = ReadAll(path);
             var top = new Dictionary<string, Json.Value>();
             string why = Json.Check(bytes, 0, bytes.Length, top);
             if (why != null) return why;
@@ -450,6 +513,7 @@ namespace WeatherTornQuarantine {
             if (!long.TryParse(v.Text, out parsed) || parsed != offset) return "record offset mismatch";
             if (top.TryGetValue("kind", out v) && v.Kind == 's' && v.Text == "stream") {
                 if (!top.TryGetValue("response_bytes", out v) || v.Kind != 'i') return "stream record without integer response_bytes";
+                if (v.Text.TrimStart('-').Length > MaxResponseBytesDigits) return "stream response_bytes too wide to bound";
             }
             return null;
         }
@@ -575,6 +639,7 @@ namespace WeatherTornQuarantine {
             if (i < t.Length && t[i] == '-') i++;
             if (i >= t.Length || t[i] < '0' || t[i] > '9') throw new FormatException("bad value");
             if (t[i] == '0') i++; else while (i < t.Length && t[i] >= '0' && t[i] <= '9') i++;
+            int digits = i - start - (t[start] == '-' ? 1 : 0);
             if (i < t.Length && t[i] == '.') {
                 i++; kind = 'd';
                 if (i >= t.Length || t[i] < '0' || t[i] > '9') throw new FormatException("bad fraction");
@@ -586,6 +651,8 @@ namespace WeatherTornQuarantine {
                 if (i >= t.Length || t[i] < '0' || t[i] > '9') throw new FormatException("bad exponent");
                 while (i < t.Length && t[i] >= '0' && t[i] <= '9') i++;
             }
+            // Python 3.11+ int() refuses more than 4300 digits, so json.loads raises.
+            if (kind == 'i' && digits > 4300) throw new FormatException("integer longer than 4300 digits");
             return t.Substring(start, i - start);
         }
     }

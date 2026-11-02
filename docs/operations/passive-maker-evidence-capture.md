@@ -471,9 +471,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_t
   sharing or lock violation on `.writer.lock`), it runs a read-only mirror of
   `EvidenceStore._recover` over the whole store, with shared opens and no writes.
   - Every unsealed segment, whenever written, is checked record by record: strict UTF-8, a strict
-    JSON object per line, the offset chain, the 16 MiB line bound, and `response_bytes` on stream
-    records. Every sealed `manifest.json` or `manifest.json.gz` must parse and name the store
-    schema, and the uncompressed footprint must be clear of the startup bound.
+    JSON object per line, no integer over 4300 digits, the offset chain, the 16 MiB line bound,
+    and an integer `response_bytes` of at most 12 digits on stream records.
+  - Every sealed `manifest.json` or `manifest.json.gz` must parse and name the store schema. A gzip
+    manifest must be one member whose CRC32 and size footer match, with no trailing bytes. A
+    folder named like a manifest, or a legacy `manifest.jsonl*` at day level, is a problem.
+  - Footprint: at most 20,000 journal and manifest paths, and the uncompressed bytes plus an
+    upper bound of every manifest recovery would write when sealing the unsealed segments must
+    stay under the 500 MB bound. Sealing is accounted without the reserve, so a segment with
+    thousands of journals can cross it.
   - The only exemption is the live writer's own segment: the single newest unsealed segment in a
     UTC day folder. A partial last line there passes only if the file moves during a 2-second
     wait. A tail that stays still is torn, which is the crash-looping recorder case.
