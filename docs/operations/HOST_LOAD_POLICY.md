@@ -663,13 +663,28 @@ Stage-A, workstation or live authority is added.
    Scheduler's launch latency. With no run in between, the reader is the first
    trigger after the writer ended, `a = 60k` plus the launch-latency
    difference; with a run in between that did not write, `a >= 60(k+1)` plus
-   that difference, past the window. This is not unconditional: it assumes the
-   two runs' launch latencies differ by under 30 seconds, no backward clock step
-   of 30 seconds or more between them, and no out-of-band (manual) guard run
-   starting in between. `run_seconds` misses only the launch latency before the
-   process and the status write after the state write, so `k` can only be too
-   low, which caps and only spares. A stale count can therefore never push a run
-   past the two-run limit under those assumptions. A write failure
+   that difference, past the window. This is not unconditional. It assumes one
+   shared budget, (launch-latency difference) + (clock step in either direction
+   between the two process starts) < 30 seconds, and no out-of-band (manual)
+   guard run starting in between. Launch latency is the time from a trigger
+   instant to the guard's process start: late trigger firing, the S4U token
+   build, and `StartWhenAvailable` catch-up starts
+   (`register_memory_commit_guard.ps1`), which can be arbitrarily late; all of
+   them grow under commit pressure. A forward clock step during the writer's
+   start-up also inflates `run_seconds` (its start-up part is wall clock), and
+   with the repeating triggers on wall-clock time that can raise `k` and widen
+   the window. Otherwise `run_seconds` misses only the launch latency before the
+   process and the status write after the state write (a tail that can cross a
+   trigger), so `k` can only be too low, which caps and only spares. A stale
+   count can therefore never push a run past the two-run limit under those
+   assumptions. The script's header comment states the same conditions in an
+   older three-part form; this paragraph is the authority. **Accepted
+   residual:** when the budget is exceeded (most plausibly at `k = 1`, when the
+   writer launched 30 seconds or more later than the reader, as a catch-up start
+   can), a wrong full carry ends torn-lock sparing one run early. The kill it allows can reach
+   only an agent-rooted tree (or an orphan adopted under its recorded root),
+   never capture: governed `-m weather.` pythons are never eligible, and the
+   orphan climb never passes its recorded root or a blocked image. A write failure
    that persists keeps the count from building, so the two-run cap is then in
    effect off: torn locks keep sparing, never killing more. The status file
    reports `guard_state_read` (`absent`, `ok`, `stale`, `unreadable`, `invalid`),
@@ -696,8 +711,9 @@ Stage-A, workstation or live authority is added.
    applies as if the file were absent, so a lock rewritten as garbage every
    minute cannot disable the guard, including while runs take over 60 seconds
    or start slowly (`run_seconds` counts from the process start); only a run
-   that ends within Task Scheduler's launch latency of a trigger can be
-   undercounted, which holds the count at 2 and spares. An older empty or
+   that ends within Task Scheduler's launch latency of a trigger, or whose
+   status write after the state write crosses a trigger, can be undercounted,
+   which holds the count at 2 and only ever spares. An older empty or
    unparseable file is stale and ignored. A file whose last-write time cannot be
    read counts as mid-write only for a sharing or lock violation or a vanished
    file; any other failure is logged as ERROR and the file is ignored.
