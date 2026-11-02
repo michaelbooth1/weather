@@ -622,11 +622,18 @@ Stage-A, workstation or live authority is added.
    losing leased tree loses only those members.
    **Orphaned lease trees.** The guard remembers, in
    `data\logs\memory_commit_guard_state.json`, each live lease owner it saw
-   inside an agent tree (PID and creation instant). When a remembered owner is
+   inside an agent tree (PID and creation instant), with the tool root it sat
+   under at sighting (PID and creation instant). When a remembered owner is
    still a live lease owner but has lost its agent root (its parent was stopped
    alone), the top of its verified ancestry becomes a tool root of its own, so
    window, concurrency, budget and commit-emergency rules keep applying to the
-   orphaned tree. A released lease ends the attribution.
+   orphaned tree. The climb stops at the recorded root and is refused (WARNING,
+   no agent rule applies to that tree) when it would leave the root's subtree
+   (it meets a process created before the root) or reach `services.exe`,
+   `wininit.exe` or `svchost.exe`, matched exactly and case-insensitively on the
+   image file name Windows reports (`Win32_Process.Name`), not the command line.
+   A record written before the root was stored names no root and adopts nothing.
+   A released lease ends the attribution.
    **Guard state failures only ever spare.** The same file carries the
    unreadable-lock count below. A state file that exists but cannot be read
    (sharing violation, access denied) or does not parse as a v1 record is logged
@@ -634,12 +641,19 @@ Stage-A, workstation or live authority is added.
    restarts and no orphaned tree is attributed, so the guard can only spare more,
    never stop more. An unreadable file is left in place for the next run; a
    damaged one is replaced. A failed write is logged as ERROR and leaves the
-   previous record in place; its remembered owners stay usable while it is at
-   most five minutes old, but its unreadable-lock count carries over only when
-   the record is at most 90 seconds old (written by the run one minute earlier),
-   so a stale count can never push a run past the two-run limit. The status file
+   previous record in place. A record more than 300 seconds old or more than 60
+   seconds in the future is stale and ignored; otherwise its remembered owners
+   stay usable (they match by PID and creation instant), and its unreadable-lock
+   count carries over by age: in full up to 90 seconds (written by the previous
+   run), at most 1 from 90 to 300 seconds (a skipped trigger: the task ignores a
+   trigger while a run over 60 seconds is still going, or a failed write in
+   between), and none if it is dated in the future (clock tolerance). A stale
+   count can therefore never push a run past the two-run limit. A write failure
+   that persists keeps the count from building, so the two-run cap is then in
+   effect off: torn locks keep sparing, never killing more. The status file
    reports `guard_state_read` (`absent`, `ok`, `stale`, `unreadable`, `invalid`),
-   `guard_state_written` and `guard_state_degraded`.
+   `guard_state_written` and `guard_state_degraded`; `guard_state_degraded` is a
+   status field only, nothing reads it, and no health alert is raised from it.
    **Release.** `Exit-WeatherHeavyWorkloadLease` overwrites the repository lock
    with a `weather_heavy_workload_lease_released_v1` marker before it disposes the
    handle; the guard reads that marker as no lease, so a former owner that keeps
@@ -658,7 +672,10 @@ Stage-A, workstation or live authority is added.
    (budget kills then stop heavy members only), for at most two runs in a row
    (counted in the state file above). From the third consecutive run every rule
    applies as if the file were absent, so a lock rewritten as garbage every
-   minute cannot disable the guard. An older empty or unparseable file is stale
+   minute cannot disable the guard. The third run is reached only when two
+   consecutive runs land within 90 seconds: while every run takes over 60
+   seconds (so each next trigger is skipped) the count holds at 2 and the lock
+   keeps being spared, a known spare-only limit. An older empty or unparseable file is stale
    and ignored. A file whose last-write time cannot be read counts
    as mid-write only for a sharing or lock violation or a vanished file; any
    other failure is logged as ERROR and the file is ignored.
