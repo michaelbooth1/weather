@@ -1,0 +1,1679 @@
+{
+ "markets": {
+  "atlanta": {
+   "change": -45,
+   "class": "continental",
+   "coast_km": 353.53,
+   "icao": "KATL",
+   "pool100_rp2": 89,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 255
+  },
+  "austin": {
+   "change": -45,
+   "class": "continental",
+   "coast_km": 189.46,
+   "icao": "KAUS",
+   "pool100_rp2": 89,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 255
+  },
+  "chicago": {
+   "change": -45,
+   "class": "continental",
+   "coast_km": 1186.81,
+   "icao": "KORD",
+   "pool100_rp2": 89,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 255
+  },
+  "dallas": {
+   "change": -45,
+   "class": "continental",
+   "coast_km": 383.25,
+   "icao": "KDAL",
+   "pool100_rp2": 89,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 255
+  },
+  "denver": {
+   "change": -45,
+   "class": "continental",
+   "coast_km": Infinity,
+   "icao": "KBKF",
+   "pool100_rp2": 89,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 255
+  },
+  "houston": {
+   "change": -255,
+   "class": "marine",
+   "coast_km": 22.7,
+   "icao": "KHOU",
+   "pool100_rp2": 11,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 45
+  },
+  "los-angeles": {
+   "change": -255,
+   "class": "marine",
+   "coast_km": 4.59,
+   "icao": "KLAX",
+   "pool100_rp2": 11,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 45
+  },
+  "miami": {
+   "change": -255,
+   "class": "marine",
+   "coast_km": 9.94,
+   "icao": "KMIA",
+   "pool100_rp2": 11,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 45
+  },
+  "nyc": {
+   "change": -255,
+   "class": "marine",
+   "coast_km": 0.16,
+   "icao": "KLGA",
+   "pool100_rp2": 11,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 45
+  },
+  "san-francisco": {
+   "change": -255,
+   "class": "marine",
+   "coast_km": 0.75,
+   "icao": "KSFO",
+   "pool100_rp2": 11,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 45
+  },
+  "seattle": {
+   "change": -255,
+   "class": "marine",
+   "coast_km": 3.8,
+   "icao": "KSEA",
+   "pool100_rp2": 11,
+   "pool_stations_rp": 300,
+   "pool_stations_rp2": 45
+  }
+ },
+ "pool100_counts": {
+  "continental": 89,
+  "marine": 11
+ },
+ "pool_counts": {
+  "continental": 255,
+  "marine": 45
+ },
+ "pool_near_threshold": [
+  "KAKQ",
+  "KBGR",
+  "KBKV",
+  "KCDW",
+  "KKLS",
+  "KLBX",
+  "KNIP",
+  "KSAV"
+ ],
+ "stations": {
+  "KAAF": {
+   "class": "marine",
+   "coast_km": 1.04,
+   "near_threshold_20_30km": false
+  },
+  "KABE": {
+   "class": "continental",
+   "coast_km": 79.03,
+   "near_threshold_20_30km": false
+  },
+  "KAEX": {
+   "class": "continental",
+   "coast_km": 175.77,
+   "near_threshold_20_30km": false
+  },
+  "KAGC": {
+   "class": "continental",
+   "coast_km": 290.78,
+   "near_threshold_20_30km": false
+  },
+  "KAIA": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KAKO": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KAKQ": {
+   "class": "continental",
+   "coast_km": 26.72,
+   "near_threshold_20_30km": true
+  },
+  "KALB": {
+   "class": "continental",
+   "coast_km": 161.27,
+   "near_threshold_20_30km": false
+  },
+  "KALK": {
+   "class": "continental",
+   "coast_km": 253.18,
+   "near_threshold_20_30km": false
+  },
+  "KALW": {
+   "class": "continental",
+   "coast_km": 341.65,
+   "near_threshold_20_30km": false
+  },
+  "KAMG": {
+   "class": "continental",
+   "coast_km": 97.92,
+   "near_threshold_20_30km": false
+  },
+  "KAND": {
+   "class": "continental",
+   "coast_km": 275.94,
+   "near_threshold_20_30km": false
+  },
+  "KAPN": {
+   "class": "continental",
+   "coast_km": 691.26,
+   "near_threshold_20_30km": false
+  },
+  "KARB": {
+   "class": "continental",
+   "coast_km": 661.99,
+   "near_threshold_20_30km": false
+  },
+  "KARG": {
+   "class": "continental",
+   "coast_km": 640.99,
+   "near_threshold_20_30km": false
+  },
+  "KART": {
+   "class": "continental",
+   "coast_km": 153.83,
+   "near_threshold_20_30km": false
+  },
+  "KAST": {
+   "class": "marine",
+   "coast_km": 0.78,
+   "near_threshold_20_30km": false
+  },
+  "KASX": {
+   "class": "continental",
+   "coast_km": 971.44,
+   "near_threshold_20_30km": false
+  },
+  "KATL": {
+   "class": "continental",
+   "coast_km": 353.53,
+   "near_threshold_20_30km": false
+  },
+  "KAUS": {
+   "class": "continental",
+   "coast_km": 189.46,
+   "near_threshold_20_30km": false
+  },
+  "KAXN": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KAZO": {
+   "class": "continental",
+   "coast_km": 790.67,
+   "near_threshold_20_30km": false
+  },
+  "KBAF": {
+   "class": "continental",
+   "coast_km": 91.98,
+   "near_threshold_20_30km": false
+  },
+  "KBAN": {
+   "class": "continental",
+   "coast_km": 172.57,
+   "near_threshold_20_30km": false
+  },
+  "KBBW": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KBDL": {
+   "class": "continental",
+   "coast_km": 67.98,
+   "near_threshold_20_30km": false
+  },
+  "KBGM": {
+   "class": "continental",
+   "coast_km": 193.96,
+   "near_threshold_20_30km": false
+  },
+  "KBGR": {
+   "class": "continental",
+   "coast_km": 27.41,
+   "near_threshold_20_30km": true
+  },
+  "KBIS": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KBJJ": {
+   "class": "continental",
+   "coast_km": 460.82,
+   "near_threshold_20_30km": false
+  },
+  "KBKE": {
+   "class": "continental",
+   "coast_km": 449.01,
+   "near_threshold_20_30km": false
+  },
+  "KBKF": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KBKV": {
+   "class": "marine",
+   "coast_km": 20.35,
+   "near_threshold_20_30km": true
+  },
+  "KBMG": {
+   "class": "continental",
+   "coast_km": 886.87,
+   "near_threshold_20_30km": false
+  },
+  "KBMI": {
+   "class": "continental",
+   "coast_km": 1115.3,
+   "near_threshold_20_30km": false
+  },
+  "KBML": {
+   "class": "continental",
+   "coast_km": 120.41,
+   "near_threshold_20_30km": false
+  },
+  "KBOI": {
+   "class": "continental",
+   "coast_km": 630.07,
+   "near_threshold_20_30km": false
+  },
+  "KBRD": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KBRL": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KBVO": {
+   "class": "continental",
+   "coast_km": 777.57,
+   "near_threshold_20_30km": false
+  },
+  "KBWI": {
+   "class": "marine",
+   "coast_km": 10.91,
+   "near_threshold_20_30km": false
+  },
+  "KBZN": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KCAK": {
+   "class": "continental",
+   "coast_km": 430.39,
+   "near_threshold_20_30km": false
+  },
+  "KCAR": {
+   "class": "continental",
+   "coast_km": 153.94,
+   "near_threshold_20_30km": false
+  },
+  "KCCR": {
+   "class": "marine",
+   "coast_km": 6.67,
+   "near_threshold_20_30km": false
+  },
+  "KCDW": {
+   "class": "marine",
+   "coast_km": 22.73,
+   "near_threshold_20_30km": true
+  },
+  "KCEZ": {
+   "class": "continental",
+   "coast_km": 783.09,
+   "near_threshold_20_30km": false
+  },
+  "KCGI": {
+   "class": "continental",
+   "coast_km": 734.17,
+   "near_threshold_20_30km": false
+  },
+  "KCHA": {
+   "class": "continental",
+   "coast_km": 483.52,
+   "near_threshold_20_30km": false
+  },
+  "KCID": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KCKB": {
+   "class": "continental",
+   "coast_km": 265.08,
+   "near_threshold_20_30km": false
+  },
+  "KCLT": {
+   "class": "continental",
+   "coast_km": 253.79,
+   "near_threshold_20_30km": false
+  },
+  "KCMH": {
+   "class": "continental",
+   "coast_km": 501.48,
+   "near_threshold_20_30km": false
+  },
+  "KCNM": {
+   "class": "continental",
+   "coast_km": 768.9,
+   "near_threshold_20_30km": false
+  },
+  "KCNU": {
+   "class": "continental",
+   "coast_km": 866.36,
+   "near_threshold_20_30km": false
+  },
+  "KCPR": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KCRE": {
+   "class": "marine",
+   "coast_km": 1.28,
+   "near_threshold_20_30km": false
+  },
+  "KCRG": {
+   "class": "marine",
+   "coast_km": 11.38,
+   "near_threshold_20_30km": false
+  },
+  "KCRQ": {
+   "class": "marine",
+   "coast_km": 4.6,
+   "near_threshold_20_30km": false
+  },
+  "KCSG": {
+   "class": "continental",
+   "coast_km": 250.9,
+   "near_threshold_20_30km": false
+  },
+  "KCSM": {
+   "class": "continental",
+   "coast_km": 726.6,
+   "near_threshold_20_30km": false
+  },
+  "KCTB": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KCUT": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KCVG": {
+   "class": "continental",
+   "coast_km": 635.24,
+   "near_threshold_20_30km": false
+  },
+  "KCVN": {
+   "class": "continental",
+   "coast_km": 865.29,
+   "near_threshold_20_30km": false
+  },
+  "KCVO": {
+   "class": "continental",
+   "coast_km": 58.26,
+   "near_threshold_20_30km": false
+  },
+  "KCXO": {
+   "class": "continental",
+   "coast_km": 75.49,
+   "near_threshold_20_30km": false
+  },
+  "KDAB": {
+   "class": "marine",
+   "coast_km": 7.14,
+   "near_threshold_20_30km": false
+  },
+  "KDAG": {
+   "class": "continental",
+   "coast_km": 172.09,
+   "near_threshold_20_30km": false
+  },
+  "KDAL": {
+   "class": "continental",
+   "coast_km": 383.25,
+   "near_threshold_20_30km": false
+  },
+  "KDAN": {
+   "class": "continental",
+   "coast_km": 201.83,
+   "near_threshold_20_30km": false
+  },
+  "KDEC": {
+   "class": "continental",
+   "coast_km": 1061.07,
+   "near_threshold_20_30km": false
+  },
+  "KDEN": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KDEQ": {
+   "class": "continental",
+   "coast_km": 454.29,
+   "near_threshold_20_30km": false
+  },
+  "KDHN": {
+   "class": "continental",
+   "coast_km": 111.28,
+   "near_threshold_20_30km": false
+  },
+  "KDHT": {
+   "class": "continental",
+   "coast_km": 968.92,
+   "near_threshold_20_30km": false
+  },
+  "KDLH": {
+   "class": "continental",
+   "coast_km": 1043.23,
+   "near_threshold_20_30km": false
+  },
+  "KDNL": {
+   "class": "continental",
+   "coast_km": 150.61,
+   "near_threshold_20_30km": false
+  },
+  "KDRA": {
+   "class": "continental",
+   "coast_km": 364.3,
+   "near_threshold_20_30km": false
+  },
+  "KDRO": {
+   "class": "continental",
+   "coast_km": 812.95,
+   "near_threshold_20_30km": false
+  },
+  "KDSV": {
+   "class": "continental",
+   "coast_km": 337.38,
+   "near_threshold_20_30km": false
+  },
+  "KDTO": {
+   "class": "continental",
+   "coast_km": 433.09,
+   "near_threshold_20_30km": false
+  },
+  "KDTS": {
+   "class": "marine",
+   "coast_km": 0.26,
+   "near_threshold_20_30km": false
+  },
+  "KDVL": {
+   "class": "continental",
+   "coast_km": 1075.91,
+   "near_threshold_20_30km": false
+  },
+  "KDWH": {
+   "class": "continental",
+   "coast_km": 60.03,
+   "near_threshold_20_30km": false
+  },
+  "KEAU": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KECG": {
+   "class": "marine",
+   "coast_km": 1.1,
+   "near_threshold_20_30km": false
+  },
+  "KEED": {
+   "class": "continental",
+   "coast_km": 307.0,
+   "near_threshold_20_30km": false
+  },
+  "KEEN": {
+   "class": "continental",
+   "coast_km": 114.84,
+   "near_threshold_20_30km": false
+  },
+  "KEGE": {
+   "class": "continental",
+   "coast_km": 1073.21,
+   "near_threshold_20_30km": false
+  },
+  "KELM": {
+   "class": "continental",
+   "coast_km": 259.34,
+   "near_threshold_20_30km": false
+  },
+  "KELN": {
+   "class": "continental",
+   "coast_km": 140.94,
+   "near_threshold_20_30km": false
+  },
+  "KEMP": {
+   "class": "continental",
+   "coast_km": 1025.19,
+   "near_threshold_20_30km": false
+  },
+  "KEQY": {
+   "class": "continental",
+   "coast_km": 216.29,
+   "near_threshold_20_30km": false
+  },
+  "KEVW": {
+   "class": "continental",
+   "coast_km": 1020.39,
+   "near_threshold_20_30km": false
+  },
+  "KEWB": {
+   "class": "marine",
+   "coast_km": 5.97,
+   "near_threshold_20_30km": false
+  },
+  "KEWR": {
+   "class": "marine",
+   "coast_km": 2.36,
+   "near_threshold_20_30km": false
+  },
+  "KFDY": {
+   "class": "continental",
+   "coast_km": 600.44,
+   "near_threshold_20_30km": false
+  },
+  "KFFZ": {
+   "class": "continental",
+   "coast_km": 279.02,
+   "near_threshold_20_30km": false
+  },
+  "KFIT": {
+   "class": "continental",
+   "coast_km": 61.75,
+   "near_threshold_20_30km": false
+  },
+  "KFLD": {
+   "class": "continental",
+   "coast_km": 1006.36,
+   "near_threshold_20_30km": false
+  },
+  "KFLG": {
+   "class": "continental",
+   "coast_km": 439.82,
+   "near_threshold_20_30km": false
+  },
+  "KFLP": {
+   "class": "continental",
+   "coast_km": 689.87,
+   "near_threshold_20_30km": false
+  },
+  "KFMN": {
+   "class": "continental",
+   "coast_km": 752.85,
+   "near_threshold_20_30km": false
+  },
+  "KFOE": {
+   "class": "continental",
+   "coast_km": 1062.11,
+   "near_threshold_20_30km": false
+  },
+  "KFTY": {
+   "class": "continental",
+   "coast_km": 365.74,
+   "near_threshold_20_30km": false
+  },
+  "KFUL": {
+   "class": "marine",
+   "coast_km": 18.52,
+   "near_threshold_20_30km": false
+  },
+  "KFWA": {
+   "class": "continental",
+   "coast_km": 716.98,
+   "near_threshold_20_30km": false
+  },
+  "KFWN": {
+   "class": "continental",
+   "coast_km": 53.93,
+   "near_threshold_20_30km": false
+  },
+  "KFYV": {
+   "class": "continental",
+   "coast_km": 669.84,
+   "near_threshold_20_30km": false
+  },
+  "KGAD": {
+   "class": "continental",
+   "coast_km": 384.12,
+   "near_threshold_20_30km": false
+  },
+  "KGCK": {
+   "class": "continental",
+   "coast_km": 1036.52,
+   "near_threshold_20_30km": false
+  },
+  "KGCN": {
+   "class": "continental",
+   "coast_km": 503.73,
+   "near_threshold_20_30km": false
+  },
+  "KGED": {
+   "class": "marine",
+   "coast_km": 17.13,
+   "near_threshold_20_30km": false
+  },
+  "KGGW": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KGKJ": {
+   "class": "continental",
+   "coast_km": 397.96,
+   "near_threshold_20_30km": false
+  },
+  "KGNA": {
+   "class": "continental",
+   "coast_km": 836.06,
+   "near_threshold_20_30km": false
+  },
+  "KGPT": {
+   "class": "marine",
+   "coast_km": 4.45,
+   "near_threshold_20_30km": false
+  },
+  "KGRB": {
+   "class": "continental",
+   "coast_km": 922.44,
+   "near_threshold_20_30km": false
+  },
+  "KGSO": {
+   "class": "continental",
+   "coast_km": 267.24,
+   "near_threshold_20_30km": false
+  },
+  "KGTR": {
+   "class": "continental",
+   "coast_km": 306.09,
+   "near_threshold_20_30km": false
+  },
+  "KGUC": {
+   "class": "continental",
+   "coast_km": 974.39,
+   "near_threshold_20_30km": false
+  },
+  "KGUP": {
+   "class": "continental",
+   "coast_km": 617.43,
+   "near_threshold_20_30km": false
+  },
+  "KGWO": {
+   "class": "continental",
+   "coast_km": 345.23,
+   "near_threshold_20_30km": false
+  },
+  "KGZH": {
+   "class": "continental",
+   "coast_km": 89.91,
+   "near_threshold_20_30km": false
+  },
+  "KHDO": {
+   "class": "continental",
+   "coast_km": 230.17,
+   "near_threshold_20_30km": false
+  },
+  "KHEI": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KHHR": {
+   "class": "marine",
+   "coast_km": 8.41,
+   "near_threshold_20_30km": false
+  },
+  "KHIE": {
+   "class": "continental",
+   "coast_km": 127.97,
+   "near_threshold_20_30km": false
+  },
+  "KHIO": {
+   "class": "continental",
+   "coast_km": 69.03,
+   "near_threshold_20_30km": false
+  },
+  "KHJO": {
+   "class": "continental",
+   "coast_km": 149.57,
+   "near_threshold_20_30km": false
+  },
+  "KHKS": {
+   "class": "continental",
+   "coast_km": 216.18,
+   "near_threshold_20_30km": false
+  },
+  "KHLG": {
+   "class": "continental",
+   "coast_km": 335.33,
+   "near_threshold_20_30km": false
+  },
+  "KHLN": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KHON": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KHOU": {
+   "class": "marine",
+   "coast_km": 22.7,
+   "near_threshold_20_30km": true
+  },
+  "KHRI": {
+   "class": "continental",
+   "coast_km": 292.16,
+   "near_threshold_20_30km": false
+  },
+  "KHSI": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KHUF": {
+   "class": "continental",
+   "coast_km": 947.45,
+   "near_threshold_20_30km": false
+  },
+  "KHUT": {
+   "class": "continental",
+   "coast_km": 1084.41,
+   "near_threshold_20_30km": false
+  },
+  "KHVR": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KHYA": {
+   "class": "marine",
+   "coast_km": 2.88,
+   "near_threshold_20_30km": false
+  },
+  "KHYR": {
+   "class": "continental",
+   "coast_km": 1101.02,
+   "near_threshold_20_30km": false
+  },
+  "KHYS": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KIAD": {
+   "class": "continental",
+   "coast_km": 32.98,
+   "near_threshold_20_30km": false
+  },
+  "KIAH": {
+   "class": "continental",
+   "coast_km": 39.54,
+   "near_threshold_20_30km": false
+  },
+  "KICR": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KILG": {
+   "class": "marine",
+   "coast_km": 2.22,
+   "near_threshold_20_30km": false
+  },
+  "KIMT": {
+   "class": "continental",
+   "coast_km": 799.64,
+   "near_threshold_20_30km": false
+  },
+  "KIND": {
+   "class": "continental",
+   "coast_km": 922.2,
+   "near_threshold_20_30km": false
+  },
+  "KIWD": {
+   "class": "continental",
+   "coast_km": 933.26,
+   "near_threshold_20_30km": false
+  },
+  "KJAN": {
+   "class": "continental",
+   "coast_km": 214.76,
+   "near_threshold_20_30km": false
+  },
+  "KJBR": {
+   "class": "continental",
+   "coast_km": 606.83,
+   "near_threshold_20_30km": false
+  },
+  "KJCT": {
+   "class": "continental",
+   "coast_km": 358.19,
+   "near_threshold_20_30km": false
+  },
+  "KJMS": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KJST": {
+   "class": "continental",
+   "coast_km": 217.11,
+   "near_threshold_20_30km": false
+  },
+  "KKLS": {
+   "class": "marine",
+   "coast_km": 22.57,
+   "near_threshold_20_30km": true
+  },
+  "KLAN": {
+   "class": "continental",
+   "coast_km": 749.52,
+   "near_threshold_20_30km": false
+  },
+  "KLAR": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KLAS": {
+   "class": "continental",
+   "coast_km": 367.54,
+   "near_threshold_20_30km": false
+  },
+  "KLAX": {
+   "class": "marine",
+   "coast_km": 4.59,
+   "near_threshold_20_30km": false
+  },
+  "KLBB": {
+   "class": "continental",
+   "coast_km": 728.08,
+   "near_threshold_20_30km": false
+  },
+  "KLBX": {
+   "class": "marine",
+   "coast_km": 24.06,
+   "near_threshold_20_30km": true
+  },
+  "KLCH": {
+   "class": "continental",
+   "coast_km": 38.9,
+   "near_threshold_20_30km": false
+  },
+  "KLCK": {
+   "class": "continental",
+   "coast_km": 499.96,
+   "near_threshold_20_30km": false
+  },
+  "KLEW": {
+   "class": "continental",
+   "coast_km": 30.29,
+   "near_threshold_20_30km": false
+  },
+  "KLEX": {
+   "class": "continental",
+   "coast_km": 636.12,
+   "near_threshold_20_30km": false
+  },
+  "KLFT": {
+   "class": "continental",
+   "coast_km": 40.68,
+   "near_threshold_20_30km": false
+  },
+  "KLGA": {
+   "class": "marine",
+   "coast_km": 0.16,
+   "near_threshold_20_30km": false
+  },
+  "KLGB": {
+   "class": "marine",
+   "coast_km": 5.83,
+   "near_threshold_20_30km": false
+  },
+  "KLIC": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KLIT": {
+   "class": "continental",
+   "coast_km": 516.44,
+   "near_threshold_20_30km": false
+  },
+  "KLLQ": {
+   "class": "continental",
+   "coast_km": 388.32,
+   "near_threshold_20_30km": false
+  },
+  "KLND": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KLNK": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KLPR": {
+   "class": "continental",
+   "coast_km": 505.87,
+   "near_threshold_20_30km": false
+  },
+  "KLUK": {
+   "class": "continental",
+   "coast_km": 613.78,
+   "near_threshold_20_30km": false
+  },
+  "KLVK": {
+   "class": "continental",
+   "coast_km": 30.45,
+   "near_threshold_20_30km": false
+  },
+  "KLWC": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KLWD": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KLWS": {
+   "class": "continental",
+   "coast_km": 422.0,
+   "near_threshold_20_30km": false
+  },
+  "KMAE": {
+   "class": "continental",
+   "coast_km": 149.32,
+   "near_threshold_20_30km": false
+  },
+  "KMBL": {
+   "class": "continental",
+   "coast_km": 859.5,
+   "near_threshold_20_30km": false
+  },
+  "KMDW": {
+   "class": "continental",
+   "coast_km": 1163.67,
+   "near_threshold_20_30km": false
+  },
+  "KMFE": {
+   "class": "continental",
+   "coast_km": 83.35,
+   "near_threshold_20_30km": false
+  },
+  "KMHE": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KMHK": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KMIA": {
+   "class": "marine",
+   "coast_km": 9.94,
+   "near_threshold_20_30km": false
+  },
+  "KMIV": {
+   "class": "marine",
+   "coast_km": 16.0,
+   "near_threshold_20_30km": false
+  },
+  "KMIW": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KMKC": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KMKE": {
+   "class": "continental",
+   "coast_km": 1110.75,
+   "near_threshold_20_30km": false
+  },
+  "KMKT": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KMLP": {
+   "class": "continental",
+   "coast_km": 494.37,
+   "near_threshold_20_30km": false
+  },
+  "KMLS": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KMLT": {
+   "class": "continental",
+   "coast_km": 120.99,
+   "near_threshold_20_30km": false
+  },
+  "KMOT": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KMRY": {
+   "class": "marine",
+   "coast_km": 2.66,
+   "near_threshold_20_30km": false
+  },
+  "KMSN": {
+   "class": "continental",
+   "coast_km": 1108.03,
+   "near_threshold_20_30km": false
+  },
+  "KMSY": {
+   "class": "marine",
+   "coast_km": 5.51,
+   "near_threshold_20_30km": false
+  },
+  "KMWH": {
+   "class": "continental",
+   "coast_km": 227.69,
+   "near_threshold_20_30km": false
+  },
+  "KMYL": {
+   "class": "continental",
+   "coast_km": 562.1,
+   "near_threshold_20_30km": false
+  },
+  "KMYR": {
+   "class": "marine",
+   "coast_km": 2.35,
+   "near_threshold_20_30km": false
+  },
+  "KMYV": {
+   "class": "continental",
+   "coast_km": 106.62,
+   "near_threshold_20_30km": false
+  },
+  "KNGU": {
+   "class": "marine",
+   "coast_km": 2.56,
+   "near_threshold_20_30km": false
+  },
+  "KNIP": {
+   "class": "continental",
+   "coast_km": 27.81,
+   "near_threshold_20_30km": true
+  },
+  "KNLC": {
+   "class": "continental",
+   "coast_km": 130.44,
+   "near_threshold_20_30km": false
+  },
+  "KNRB": {
+   "class": "marine",
+   "coast_km": 2.35,
+   "near_threshold_20_30km": false
+  },
+  "KNUI": {
+   "class": "marine",
+   "coast_km": 0.15,
+   "near_threshold_20_30km": false
+  },
+  "KOAJ": {
+   "class": "marine",
+   "coast_km": 18.18,
+   "near_threshold_20_30km": false
+  },
+  "KODO": {
+   "class": "continental",
+   "coast_km": 642.98,
+   "near_threshold_20_30km": false
+  },
+  "KOFP": {
+   "class": "continental",
+   "coast_km": 43.15,
+   "near_threshold_20_30km": false
+  },
+  "KOJC": {
+   "class": "continental",
+   "coast_km": 1019.03,
+   "near_threshold_20_30km": false
+  },
+  "KOKC": {
+   "class": "continental",
+   "coast_km": 668.24,
+   "near_threshold_20_30km": false
+  },
+  "KOLF": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KOMK": {
+   "class": "continental",
+   "coast_km": 203.06,
+   "near_threshold_20_30km": false
+  },
+  "KOPF": {
+   "class": "marine",
+   "coast_km": 12.09,
+   "near_threshold_20_30km": false
+  },
+  "KORD": {
+   "class": "continental",
+   "coast_km": 1186.81,
+   "near_threshold_20_30km": false
+  },
+  "KORE": {
+   "class": "continental",
+   "coast_km": 104.2,
+   "near_threshold_20_30km": false
+  },
+  "KORH": {
+   "class": "continental",
+   "coast_km": 63.84,
+   "near_threshold_20_30km": false
+  },
+  "KORL": {
+   "class": "continental",
+   "coast_km": 50.95,
+   "near_threshold_20_30km": false
+  },
+  "KOSU": {
+   "class": "continental",
+   "coast_km": 520.23,
+   "near_threshold_20_30km": false
+  },
+  "KOTM": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KPDT": {
+   "class": "continental",
+   "coast_km": 327.88,
+   "near_threshold_20_30km": false
+  },
+  "KPGA": {
+   "class": "continental",
+   "coast_km": 626.92,
+   "near_threshold_20_30km": false
+  },
+  "KPHD": {
+   "class": "continental",
+   "coast_km": 407.67,
+   "near_threshold_20_30km": false
+  },
+  "KPIE": {
+   "class": "marine",
+   "coast_km": 0.69,
+   "near_threshold_20_30km": false
+  },
+  "KPIH": {
+   "class": "continental",
+   "coast_km": 1070.83,
+   "near_threshold_20_30km": false
+  },
+  "KPIT": {
+   "class": "continental",
+   "coast_km": 320.71,
+   "near_threshold_20_30km": false
+  },
+  "KPMD": {
+   "class": "continental",
+   "coast_km": 77.97,
+   "near_threshold_20_30km": false
+  },
+  "KPNC": {
+   "class": "continental",
+   "coast_km": 797.33,
+   "near_threshold_20_30km": false
+  },
+  "KPQI": {
+   "class": "continental",
+   "coast_km": 169.53,
+   "near_threshold_20_30km": false
+  },
+  "KPRB": {
+   "class": "continental",
+   "coast_km": 35.15,
+   "near_threshold_20_30km": false
+  },
+  "KPRX": {
+   "class": "continental",
+   "coast_km": 431.95,
+   "near_threshold_20_30km": false
+  },
+  "KPSX": {
+   "class": "marine",
+   "coast_km": 4.54,
+   "near_threshold_20_30km": false
+  },
+  "KPTK": {
+   "class": "continental",
+   "coast_km": 666.97,
+   "near_threshold_20_30km": false
+  },
+  "KPUB": {
+   "class": "continental",
+   "coast_km": 1133.78,
+   "near_threshold_20_30km": false
+  },
+  "KPVC": {
+   "class": "marine",
+   "coast_km": 1.38,
+   "near_threshold_20_30km": false
+  },
+  "KPVU": {
+   "class": "continental",
+   "coast_km": 898.48,
+   "near_threshold_20_30km": false
+  },
+  "KPWK": {
+   "class": "continental",
+   "coast_km": 1189.64,
+   "near_threshold_20_30km": false
+  },
+  "KRAC": {
+   "class": "continental",
+   "coast_km": 1124.07,
+   "near_threshold_20_30km": false
+  },
+  "KRAL": {
+   "class": "continental",
+   "coast_km": 55.75,
+   "near_threshold_20_30km": false
+  },
+  "KRDU": {
+   "class": "continental",
+   "coast_km": 160.83,
+   "near_threshold_20_30km": false
+  },
+  "KREO": {
+   "class": "continental",
+   "coast_km": 521.1,
+   "near_threshold_20_30km": false
+  },
+  "KRIC": {
+   "class": "marine",
+   "coast_km": 19.09,
+   "near_threshold_20_30km": false
+  },
+  "KRIW": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KRKS": {
+   "class": "continental",
+   "coast_km": 1152.3,
+   "near_threshold_20_30km": false
+  },
+  "KRMG": {
+   "class": "continental",
+   "coast_km": 437.97,
+   "near_threshold_20_30km": false
+  },
+  "KRNO": {
+   "class": "continental",
+   "coast_km": 217.44,
+   "near_threshold_20_30km": false
+  },
+  "KROG": {
+   "class": "continental",
+   "coast_km": 710.43,
+   "near_threshold_20_30km": false
+  },
+  "KROW": {
+   "class": "continental",
+   "coast_km": 820.58,
+   "near_threshold_20_30km": false
+  },
+  "KRQE": {
+   "class": "continental",
+   "coast_km": 614.8,
+   "near_threshold_20_30km": false
+  },
+  "KRSL": {
+   "class": "continental",
+   "coast_km": 1201.23,
+   "near_threshold_20_30km": false
+  },
+  "KRST": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KRSW": {
+   "class": "marine",
+   "coast_km": 13.39,
+   "near_threshold_20_30km": false
+  },
+  "KRUT": {
+   "class": "continental",
+   "coast_km": 184.41,
+   "near_threshold_20_30km": false
+  },
+  "KRWF": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KRWI": {
+   "class": "continental",
+   "coast_km": 83.73,
+   "near_threshold_20_30km": false
+  },
+  "KRXE": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KSAD": {
+   "class": "continental",
+   "coast_km": 370.56,
+   "near_threshold_20_30km": false
+  },
+  "KSAF": {
+   "class": "continental",
+   "coast_km": 801.03,
+   "near_threshold_20_30km": false
+  },
+  "KSAN": {
+   "class": "marine",
+   "coast_km": 0.84,
+   "near_threshold_20_30km": false
+  },
+  "KSAV": {
+   "class": "continental",
+   "coast_km": 25.5,
+   "near_threshold_20_30km": true
+  },
+  "KSBN": {
+   "class": "continental",
+   "coast_km": 1081.03,
+   "near_threshold_20_30km": false
+  },
+  "KSEA": {
+   "class": "marine",
+   "coast_km": 3.8,
+   "near_threshold_20_30km": false
+  },
+  "KSET": {
+   "class": "continental",
+   "coast_km": 934.3,
+   "near_threshold_20_30km": false
+  },
+  "KSFB": {
+   "class": "continental",
+   "coast_km": 38.56,
+   "near_threshold_20_30km": false
+  },
+  "KSFF": {
+   "class": "continental",
+   "coast_km": 366.5,
+   "near_threshold_20_30km": false
+  },
+  "KSFM": {
+   "class": "marine",
+   "coast_km": 15.36,
+   "near_threshold_20_30km": false
+  },
+  "KSFO": {
+   "class": "marine",
+   "coast_km": 0.75,
+   "near_threshold_20_30km": false
+  },
+  "KSGT": {
+   "class": "continental",
+   "coast_km": 484.43,
+   "near_threshold_20_30km": false
+  },
+  "KSGU": {
+   "class": "continental",
+   "coast_km": 543.18,
+   "near_threshold_20_30km": false
+  },
+  "KSJC": {
+   "class": "marine",
+   "coast_km": 14.37,
+   "near_threshold_20_30km": false
+  },
+  "KSLK": {
+   "class": "continental",
+   "coast_km": 77.75,
+   "near_threshold_20_30km": false
+  },
+  "KSNA": {
+   "class": "marine",
+   "coast_km": 9.04,
+   "near_threshold_20_30km": false
+  },
+  "KSNT": {
+   "class": "continental",
+   "coast_km": 688.49,
+   "near_threshold_20_30km": false
+  },
+  "KSOP": {
+   "class": "continental",
+   "coast_km": 167.56,
+   "near_threshold_20_30km": false
+  },
+  "KSPS": {
+   "class": "continental",
+   "coast_km": 567.24,
+   "near_threshold_20_30km": false
+  },
+  "KSRC": {
+   "class": "continental",
+   "coast_km": 553.67,
+   "near_threshold_20_30km": false
+  },
+  "KSRQ": {
+   "class": "marine",
+   "coast_km": 1.64,
+   "near_threshold_20_30km": false
+  },
+  "KSTL": {
+   "class": "continental",
+   "coast_km": 914.07,
+   "near_threshold_20_30km": false
+  },
+  "KSUS": {
+   "class": "continental",
+   "coast_km": 909.64,
+   "near_threshold_20_30km": false
+  },
+  "KSWO": {
+   "class": "continental",
+   "coast_km": 735.92,
+   "near_threshold_20_30km": false
+  },
+  "KTAD": {
+   "class": "continental",
+   "coast_km": 1067.63,
+   "near_threshold_20_30km": false
+  },
+  "KTCS": {
+   "class": "continental",
+   "coast_km": 585.27,
+   "near_threshold_20_30km": false
+  },
+  "KTKI": {
+   "class": "continental",
+   "coast_km": 407.39,
+   "near_threshold_20_30km": false
+  },
+  "KTOI": {
+   "class": "continental",
+   "coast_km": 151.85,
+   "near_threshold_20_30km": false
+  },
+  "KTOP": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KTOR": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KTQE": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KTRI": {
+   "class": "continental",
+   "coast_km": 441.7,
+   "near_threshold_20_30km": false
+  },
+  "KTTN": {
+   "class": "continental",
+   "coast_km": 33.9,
+   "near_threshold_20_30km": false
+  },
+  "KTUS": {
+   "class": "continental",
+   "coast_km": 225.82,
+   "near_threshold_20_30km": false
+  },
+  "KTVC": {
+   "class": "continental",
+   "coast_km": 786.98,
+   "near_threshold_20_30km": false
+  },
+  "KTVL": {
+   "class": "continental",
+   "coast_km": 159.6,
+   "near_threshold_20_30km": false
+  },
+  "KTXK": {
+   "class": "continental",
+   "coast_km": 385.74,
+   "near_threshold_20_30km": false
+  },
+  "KUDG": {
+   "class": "continental",
+   "coast_km": 125.1,
+   "near_threshold_20_30km": false
+  },
+  "KUIN": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KUNO": {
+   "class": "continental",
+   "coast_km": 737.06,
+   "near_threshold_20_30km": false
+  },
+  "KVEL": {
+   "class": "continental",
+   "coast_km": 1039.26,
+   "near_threshold_20_30km": false
+  },
+  "KVIS": {
+   "class": "continental",
+   "coast_km": 166.22,
+   "near_threshold_20_30km": false
+  },
+  "KVNY": {
+   "class": "marine",
+   "coast_km": 19.65,
+   "near_threshold_20_30km": false
+  },
+  "KVRB": {
+   "class": "marine",
+   "coast_km": 3.8,
+   "near_threshold_20_30km": false
+  },
+  "KVTA": {
+   "class": "continental",
+   "coast_km": 469.34,
+   "near_threshold_20_30km": false
+  },
+  "KVUO": {
+   "class": "continental",
+   "coast_km": 72.9,
+   "near_threshold_20_30km": false
+  },
+  "KWLD": {
+   "class": "continental",
+   "coast_km": 843.42,
+   "near_threshold_20_30km": false
+  },
+  "KWMC": {
+   "class": "continental",
+   "coast_km": 443.32,
+   "near_threshold_20_30km": false
+  },
+  "KWRL": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KWVI": {
+   "class": "marine",
+   "coast_km": 6.17,
+   "near_threshold_20_30km": false
+  },
+  "KXWA": {
+   "class": "continental",
+   "coast_km": Infinity,
+   "near_threshold_20_30km": false
+  },
+  "KY50": {
+   "class": "continental",
+   "coast_km": 1021.79,
+   "near_threshold_20_30km": false
+  }
+ },
+ "threshold_km": 25.0
+}
