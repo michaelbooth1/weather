@@ -212,7 +212,12 @@ below applies: no exemption, no queue state, the same windows and the same bound
   `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
   value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`
   queue event records `thread_cap` (cap, logical processors, the values set). The exclusive pre-gate is not capped.
-- *Lock record.* Every slot's lock file keeps the schema tag `weather_heavy_workload_lease_v3`. A
+- *Lock record.* A lease written by the admission wrapper carries the schema tag
+  `weather_heavy_workload_lease_v3`, but a slot's lock file does not always hold one (corrected 2026-11-02,
+  master; this line said "every slot's lock file keeps the v3 tag"): the integration control mutex
+  (`scripts/ops/integration_attempt_contract.ps1:84`) writes `weather_integration_control_mutex_v1` into
+  `data\logs\heavy_workload.lock` and leaves it there after release (`:109`), and
+  `scripts/ops/workload_admission.ps1:2229` truncates the file before it proves identity. A
   `workstation_offline_v1` record, slot 1 included, adds `workstation_slot_id` under that unchanged tag, and
   `host_global_mutex` names the slot's own mutex; readers ignore unknown fields. Capture-colocated and
   portable records carry no new field.

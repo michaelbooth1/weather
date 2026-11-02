@@ -80,9 +80,9 @@ The sources are [the lever inventory](../../operations/LEVER_INVENTORY_2026-10-2
 | 25 | Station-grid offset | KILLED | Folded into R-K; X45 |
 | 26 | Mesonets / WU / venues | BLOCKED | Owner call |
 | 27 | Served path | BLOCKED | Owner / master call |
-| 28 | Cool-season P3d_N refit | KILLED | X40 |
+| 28 | Cool-season P3d_N refit | Oct-Dec part CLOSED by X40 (OPENED, NOT ADOPTED: the season gain is already in served state c6cc39f7; SM-N worse +0.00356 [+0.00185, +0.00523] at 13-16). 12-17..07-31 UNTESTED; scoped 11-02 (L59) as the year-round history step. (Corrected 2026-11-02, master; this cell said KILLED.) | X40 |
 
-**Counts (32 entries):** KILLED 13, ELIGIBLE NOW 8, BLOCKED 11.
+**Counts (32 entries):** KILLED 13, ELIGIBLE NOW 8, BLOCKED 11. (Counts as of 2026-10-30; row 28 is no longer KILLED after the 2026-11-02 correction.)
 
 ## 2. Register §6 "Reopen if" lines
 

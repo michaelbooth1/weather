@@ -113,7 +113,10 @@ its fix lands.
   capture host.
 - `tests/operations/test_international_live_session_runner.py` and
   `tests/operations/test_international_live_session_launcher_sealer.py`: they fail with `live-session artifact is absent`
-  (raised in `weather.operations.live_path_security`).
+  (raised in `weather.operations.live_path_security`). Root cause (master, 2026-11-02): `canonical_git_executable()`
+  (`src/weather/operations/live_path_security.py:566/572`) builds `<GitForWindows InstallPath>\mingw64\bin\git.exe` from
+  the registry, and the runner's Git 2.56 has no `mingw64` there, so it fails closed. This is also a
+  before-any-live-attempt prerequisite: [live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) prerequisite 10.
 
 ### Proposal: shrink the host suite once the Windows lane is green (not in force)
 

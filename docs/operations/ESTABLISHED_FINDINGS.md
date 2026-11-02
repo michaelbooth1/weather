@@ -132,6 +132,10 @@ sequence numbers, not calendar dates.
 | 10ap | B's false PASS at the null is 0.041-0.065 against a nominal 0.025 under the measured serial dependence (dev, descriptive, ledger rows 83/84); B unchanged |
 | 10aq | Market prices are calibrated by bin at dev (US11, ECE 0.0067, slope 1.030 [1.014, 1.045]); market-only recalibration is KILL at edge size on all three arms; row 106 (K), register X92 |
 | 10ar | Station pooling: R-P (L48) KILLED at LOYO gate 1 (Los Angeles CI-worse); class-matched R-P2 screen PASS, PARKED (confirmation needs 3-5 seasons); rows 108/109, register X94/X95 |
+| 10as | R28a DSC-NWS P0 at 07-12 (dev, US11): all three arms positive but far below the 0.2236 edge; NWS adds a little information beyond the market, not a tradable amount; row 107 (K), register X96-X101 |
+| 10at | R28b: 88a never held a complete 11-band ladder 09-25..10-08 (census 0/0/0); C3 T+1 kill tier closed untestable, a design gap not a kill; row 100 note, register X86 |
+| 10au | X36-v5: raw NBM 2026 Jan-May warm +0.74°F pooled equally under v4.3 and v5.0; the dev warm bias is seasonal plus a 2026 shift, not a v5.0 artefact; row 111 (C), register X36 |
+| 10av | WS 2026-11-01 22:06-22:08Z: all 10 recorders died together under one dead parent; 4 of 7 capture workers had dead parent PIDs; cause unverified; L34 live-parent design |
 
 ---
 
@@ -4883,6 +4887,49 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   `C:\archive\ruled-out\rp2-climate-pooling\`; register X94, X95.
 - **Do not** cite R-P2's screen as a model win: it is a design-informed screen, necessary only, with no dev or
   market read.
+
+### 10as. NWS adds a little information beyond the market at 07-12, not a tradable amount: R28a DSC-NWS market-residual P0, lane L40, ledger row 107 (K), 2026-11-01
+
+- **Scope.** Dev 08-15..09-29, US11, hours 07-12, against the market's own error; layout `C:/swarm/v3layout`.
+  Rule `rule_dsc_nws_p0.md` sha256 `aaa8d5f36404d721d97984fb74afcb51cf1ef58233ad76476c62665ba1f0fe86`
+  (freeze `95b1c19fc7fb07de5f5b48ffd9b0c01da58b24b9`); run `392e710bd5ed82133de2cb8719d6a719e5c0a1af` (never merged).
+- **Result.** NWS-FADE-0712 d +0.0331, wider [−0.0098, +0.0797]; NWS-GAP-0712 d +0.0284 [−0.0186, +0.0803];
+  W1-0712 d +0.0080 [−0.0123, +0.0373]; BH none (q 0.211 / 0.193 / 0.193); C0-C3 PASS. W1-0712's planted
+  control reaches only 0.2207 < 0.2236 (C5), so it is UNTESTABLE at edge; W1-0006 was dropped before any read.
+- **Master's reading (2026-11-01):** "All three R28a arms had positive point estimates (+0.008 / +0.033 / +0.028) but nowhere near the 0.2236 edge: NWS adds a little information beyond the market, not a tradable amount."
+- **Do not** read the positive points as a lever: each interval spans zero and every upper bound is below the
+  edge bar. Register X96-X101; archive `C:\archive\ruled-out\r28a-dsc-nws-p0\`.
+
+### 10at. The 88a recorder never held a complete ladder: the C3 T+1 kill tier is closed untestable, a design gap and not a kill: R28b, lane L41, ledger row 100 note, 2026-11-01
+
+- **Census (88a, 09-25..10-08):** 0 donor-flagged lead-1 event-hours (needed 200), 0 targets (needed 10),
+  0 markets (needed 5); no complete 11-band ladder at any instant (`yes_or_no_book_absent`).
+- **Why:** 88a held books for <0.7 of 11 bands at any instant (most lead-1 cells 0.2–0.4); no complete ladder ever captured 09-25..10-08.
+- **Consequence.** REPORT under T+1 §8.1; A1 unchanged; no K row. The T+2 presence check is dropped (lead 2
+  covered 0). The full-ladder T+1 recorder is the forward test. Master accepted. Register X86.
+
+### 10au. The 2026 dev warm NBM bias is not a v5.0 artefact: X36 reopen test (X36-v5), lane L47b, ledger row 111 (C), 2026-11-01
+
+- **Context (master):** X36 closed centre shifts fitted on 2021-25 (no bias there, ±0.4°F). On 2026 dev the NBM
+  read is +0.74–0.84°F warm against the outcome while the market is +0.02 (morning-loss Analysis 5), consistent
+  with an NBM v5.0 change (X35). X36's reopen test runs on 2026-01..05 v5.0 (L47).
+- **Result** (`7c0335f38395e952600e5c3743075aa9e6042c7b`): raw NBM 2026 Jan-May is warm by +0.74°F pooled
+  (Denver +1.86, LA +1.32), equally under v4.3 and v5.0: a year or seasonal effect, not a v5.0 change. X36's
+  reopen condition (a residual shift) is not met.
+- **Kept finding:** the dev warm bias is not a v5.0 artefact; it sits on a strongly seasonal raw NBM bias plus a
+  2026 shift. No speed or observations mechanism is established. A trailing-window centre correction is ruled
+  distinct from X36 (DL 2026-11-01; K row 112). Register X36.
+
+### 10av. All ten WS recorders died at once under one dead parent: a stale-parent tree kill, cause unverified: workstation, 2026-11-01
+
+- **Observed.** On the WS, 2026-11-01 22:06-22:08Z, all 10 recorders died together; they shared one parent (a WMI
+  host process) that had already exited. A host census found 4 of 7 capture workers also running under dead
+  parent PIDs (10004, 7428, 16984, 14672); PID 4600 is the execution tape.
+- **Cause UNVERIFIED.** A `taskkill /T` path in Claude Code 2.1.309 is real, but it is not verified as the
+  trigger.
+- **Consequence.** Long-lived recorders need a live, owned parent; the L34 design
+  ([recorder live-parent design](../research/recorder-live-parent-design-2026-11-01/design.md)) is the response.
+  The no-raw-taskkill rule waits for its code to reach master.
 
 ## Related
 
