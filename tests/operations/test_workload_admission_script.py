@@ -301,6 +301,45 @@ def test_every_heavy_wrapper_uses_the_shared_lease() -> None:
 
 
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_release_overwrites_the_owner_record_with_a_released_marker(tmp_path: Path) -> None:
+    """L28 review M2: memory_commit_guard.ps1 must never read a released lease as live.
+
+    No mutex is taken: the lease object carries only the record stream, so this runs at
+    any hour and inside an outer workstation lease.
+    """
+    lock = tmp_path / "heavy_workload.lock"
+    readonly = tmp_path / "readonly.lock"
+    v3 = json.dumps({"schema_version": "weather_heavy_workload_lease_v3", "workload": "holder", "pid": 4})
+    lock.write_text(v3 + "  padding that must not survive the overwrite", encoding="utf-8")
+    readonly.write_text(v3, encoding="utf-8")
+    script = (
+        f". '{LEASE_SCRIPT}'\n"
+        f"$stream = [IO.File]::Open('{lock}', 'Open', 'ReadWrite', 'Read')\n"
+        "$lease = [pscustomobject]@{ Workload = 'holder'; Stream = $stream }\n"
+        "Exit-WeatherHeavyWorkloadLease -Lease $lease\n"
+        "$disposed = -not $stream.CanRead\n"
+        f"$ro = [IO.File]::Open('{readonly}', 'Open', 'Read', 'ReadWrite')\n"
+        "Exit-WeatherHeavyWorkloadLease -Lease ([pscustomobject]@{ Workload = 'holder'; Stream = $ro }) 3>$null\n"
+        "[pscustomobject]@{ disposed = $disposed; ro_disposed = -not $ro.CanRead } | ConvertTo-Json -Compress\n"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == {"disposed": True, "ro_disposed": True}
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    assert set(record) == {"schema_version", "workload", "released_at"}
+    assert record["schema_version"] == "weather_heavy_workload_lease_released_v1"
+    assert record["workload"] == "holder"
+    # A stream that cannot be written leaves the record alone and still disposes.
+    assert json.loads(readonly.read_text(encoding="utf-8"))["pid"] == 4
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
 @pytest.mark.skipif(not _inside_heavy_window(), reason="lease acquisition is policy-blocked now")
 @pytest.mark.skipif(OUTER_WORKSTATION_LEASE, reason="outer workstation lease owns mutex")
 def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> None:
@@ -346,6 +385,14 @@ def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> Non
     assert blocked.returncode == 3
     assert blocked.stdout.strip() == "BLOCKED"
     assert owner.wait(timeout=10) == 0
+    # Release overwrites the owner record before the handle closes: no pid survives
+    # for a reader (memory_commit_guard.ps1) to admit (L46 M2 stale-record variant).
+    released = json.loads((tmp_path / "data" / "logs" / "heavy_workload.lock").read_text(encoding="utf-8"))
+    assert released == {
+        "schema_version": "weather_heavy_workload_lease_released_v1",
+        "workload": "holder",
+        "released_at": released["released_at"],
+    }
 
     recovered = subprocess.run(
         [*POWERSHELL, "-File", str(contender)],
@@ -1997,7 +2044,17 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
 ) -> None:
     _write_non_capture_assignment(tmp_path)
     focused = tmp_path / "test_wrapper_child.py"
-    focused.write_text("def test_ok():\n    assert 2 + 2 == 4\n", encoding="utf-8")
+    # The child copies the owner record while the lease is held; on release the
+    # record is overwritten with a released marker (memory guard L46 M2).
+    focused.write_text(
+        "from pathlib import Path\n"
+        "def test_ok():\n"
+        f"    root = Path({str(tmp_path)!r})\n"
+        "    held = (root / 'data' / 'logs' / 'heavy_workload.lock').read_text(encoding='utf-8')\n"
+        "    (root / 'held_record.json').write_text(held, encoding='utf-8')\n"
+        "    assert 2 + 2 == 4\n",
+        encoding="utf-8",
+    )
     approved_arguments = base64.b64encode(
         json.dumps(["-m", "pytest", str(focused), "-q"]).encode("utf-8")
     ).decode("ascii")
@@ -2023,9 +2080,12 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
     )
     assert approved.returncode == 0, approved.stderr
     assert "1 passed" in approved.stdout
-    owner = json.loads((tmp_path / "data" / "logs" / "heavy_workload.lock").read_text())
+    owner = json.loads((tmp_path / "held_record.json").read_text(encoding="utf-8"))
     assert owner["execution_host_profile"] == "workstation_offline_v1"
     assert owner["policy_window"] == "workstation_offline"
+    released = json.loads((tmp_path / "data" / "logs" / "heavy_workload.lock").read_text(encoding="utf-8"))
+    assert released["schema_version"] == "weather_heavy_workload_lease_released_v1"
+    assert "pid" not in released
 
     rejected = subprocess.run(
         [
