@@ -79,13 +79,20 @@ doubled `row_count`, `max_temp_times` and the synoptic sums (precipitation, ET0,
 antecedent windows), and reweighted means on partly duplicated days. Maxima and minima were unaffected.
 
 - Fix: `ReanalysisStore.rebuild` (`dedupe_hourly_records`) and `reanalysis_synoptic.load_raw_daily_metrics` keep
-  one copy per UTC hour: the first in raw-file order.
-- Audit trail: the rebuild manifest records `duplicate_hours_dropped`, plus `duplicate_disagreement_days` and
-  `duplicate_disagreement_dates` for the local dates where a dropped copy's record differed from the kept one (the
-  generation-time field is ignored). Disagreement is judged on the normalized record, not on the extra raw synoptic
-  fields.
-- Chicago scratch rebuild with the dedupe: 18,882 duplicate hours dropped, none disagreeing. Row counts 23:27,
-  24:9608, 25:26, none <=22 or >=26.
+  one copy per UTC hour, null-aware per field (master ruling R26 (i)/(ii)):
+  - The first copy in raw-file order is kept.
+  - A field that is null there takes the first later non-null value for that hour. A non-null value is never
+    overwritten.
+  - Two differing non-null values keep the first.
+  - The rebuild merges before it drops null-temperature hours, so a later copy can supply a missing temperature.
+- Audit trail: the rebuild manifest records `duplicate_hours_dropped`; `filled_null_fields` (a count per field);
+  and `duplicate_disagreement_days` with `duplicate_disagreement_dates`, the local dates where two non-null values
+  differ. The generation-time field is ignored. The rebuild's disagreement check uses the normalized record. The
+  synoptic reader merges its raw fields the same way, but it has no manifest and logs nothing.
+- Chicago scratch rebuild with the null-aware merge: 19,344 duplicate hours dropped, matching the census. No field
+  was filled and none disagreed. Row counts are 23:27, 24:9608, 25:26, none <=22 or >=26. The keep-first dedupe
+  dropped 18,882 because it ran after null-temperature hours were skipped. The other 462 duplicate hours have no
+  temperature in either copy, so none is filled and they stay skipped.
 
 `chunk_date_range` never makes two chunks that share an edge day, so the edge-sharing files came from an earlier or
 out-of-repo writer. A `backfill` run without `--skip-existing` from a different start date can still add a second,

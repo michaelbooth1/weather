@@ -5,7 +5,8 @@ a usable offset over naive labels that repeat, gap, or hold an unparseable label
 REFUSED_NOT_FIXED_OFFSET and counted; step 4: a399941e's spring-forward case ported unchanged, its
 unparseable-label case ported with the expectation reversed; step 5 option (b): partial days outside the
 archive's named range are dropped and counted, DST days inside it keep 23/25 rows; duplicate chunks:
-an hour held by overlapping raw chunks counts once, first copy kept, disagreements recorded). Every reader is checked:
+an hour held by overlapping raw chunks counts once, first copy kept, a null filled from a later copy,
+disagreements recorded). Every reader is checked:
 forecast_history (historical forecast and previous runs), open_meteo_archives (global models and air quality)
 and reanalysis_history. Synthetic payloads only.
 """
@@ -334,7 +335,27 @@ def test_an_hour_held_by_two_overlapping_chunks_counts_once(tmp_path):
     metadata = manifest_metadata(doubled)
     assert metadata["duplicate_hours_dropped"] == 24
     assert metadata["duplicate_disagreement_days"] == 0 and metadata["duplicate_disagreement_dates"] == []
+    assert metadata["filled_null_fields"] == {}
     assert manifest_metadata(single)["duplicate_hours_dropped"] == 0
+
+
+def test_a_null_in_the_first_copy_is_filled_from_a_later_copy_and_counted(tmp_path):
+    single, single_daily = store_with(tmp_path, "single", [
+        ("2025-03-01", "2025-03-05", agreeing_payload("2025-03-01T00:00", 120))])
+    first = agreeing_payload("2025-03-01T00:00", 72)
+    for index in range(48, 72):  # every 2025-03-03 hour: no temperature and no precipitation in the first copy
+        first["hourly"]["temperature_2m"][index] = None
+        first["hourly"]["precipitation"][index] = None
+    filled, filled_daily = store_with(tmp_path, "filled", [
+        ("2025-03-01", "2025-03-03", first),
+        ("2025-03-03", "2025-03-05", agreeing_payload("2025-03-03T00:00", 72)),
+    ])
+
+    assert filled_daily == single_daily  # the null-temperature hours are supplied by the second copy, not skipped
+    assert load_raw_daily_metrics(filled) == load_raw_daily_metrics(single)
+    metadata = manifest_metadata(filled)
+    assert metadata["filled_null_fields"] == {"temp_native": 24}
+    assert metadata["duplicate_hours_dropped"] == 24 and metadata["duplicate_disagreement_dates"] == []
 
 
 def test_disagreeing_copies_keep_the_first_and_record_the_dates(tmp_path):
