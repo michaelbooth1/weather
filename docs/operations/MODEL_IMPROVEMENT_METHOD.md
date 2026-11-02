@@ -180,7 +180,7 @@ The rationale is the dated [iterate-faster plan](../research/iterate-faster-2026
 12. **Record first.** Free forward-only sources start recording before any dev win; a standing defect lane runs alongside.
 
 Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 and 15 are master's rulings of
-2026-10-31, from the dated [research review](../research/research-review-2026-10-31/review.md); they are not owner decisions.
+2026-10-31, from the dated [research review](../research/research-review-2026-10-31/review.md); they are not owner decisions. Rules 16 and 17 are master's rulings of 2026-10-31 and 2026-11-02.
 
 13. **Archive what is ruled out.** Every ruled-out candidate, retro-filled for older rows, keeps its pre-registration or
     draft, script commit sha, raw outputs, receipts and logs under `C:\archive\ruled-out\<folder>` (workstation; copies,
@@ -202,6 +202,11 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
     S31 v1 (ledger row 99) and X13 (row 103, realised population 0). Template: the per-arm realised-population
     count in `rodc_released_p0 --rehearse-to-table` at `d4ebc9576a991f3fd8b4446250030b98494b1359`
     (`claude/rodc-released-p0-run-20261031`).
+17. **Compute an integrity cap's inputs before freezing it** (master, 2026-11-02, after ledger row 113, verbatim):
+    "Before freezing an integrity cap, compute its input counts outcome-blind (e.g. partial/missing label days per
+    period and market) and record them in the prereg, so a cap is set knowing the base rate." Instance: row 113 (3a,
+    register X93) closed UNTESTABLE at a 2% label-integrity cap (2.82%); 26 of its 40 partial days fall in the five
+    late-March markets (austin, denver, houston, los-angeles, san-francisco), label metadata available before any read.
 
 ## Update this file when
 
