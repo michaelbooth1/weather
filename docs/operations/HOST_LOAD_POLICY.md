@@ -629,11 +629,15 @@ Stage-A, workstation or live authority is added.
    window, concurrency, budget and commit-emergency rules keep applying to the
    orphaned tree. The climb stops at the recorded root and is refused (WARNING,
    no agent rule applies to that tree) when it would leave the root's subtree
-   (it meets a process created before the root) or reach `services.exe`,
-   `wininit.exe` or `svchost.exe`, matched exactly and case-insensitively on the
-   image file name Windows reports (`Win32_Process.Name`), not the command line.
-   A record written before the root was stored names no root and adopts nothing.
-   A released lease ends the attribution.
+   (it meets a process created before the root) or reach a service-host or
+   session image (`services.exe`, `wininit.exe`, `svchost.exe`, `explorer.exe`,
+   `taskhostw.exe`, `winlogon.exe`, `csrss.exe`, `smss.exe`, `lsass.exe`),
+   matched exactly and case-insensitively on the image file name Windows reports
+   (`Win32_Process.Name`), not the command line. A record written before the
+   root was stored names no root and adopts nothing: on rollout, an orphan the
+   guard governs from such a record loses its agent rules for good (it is not
+   remembered again once unadopted), which only spares. A released lease ends
+   the attribution.
    **Guard state failures only ever spare.** The same file carries the
    unreadable-lock count below. A state file that exists but cannot be read
    (sharing violation, access denied) or does not parse as a v1 record is logged
@@ -643,11 +647,19 @@ Stage-A, workstation or live authority is added.
    damaged one is replaced. A failed write is logged as ERROR and leaves the
    previous record in place. A record more than 300 seconds old or more than 60
    seconds in the future is stale and ignored; otherwise its remembered owners
-   stay usable (they match by PID and creation instant), and its unreadable-lock
-   count carries over by age: in full up to 90 seconds (written by the previous
-   run), at most 1 from 90 to 300 seconds (a skipped trigger: the task ignores a
-   trigger while a run over 60 seconds is still going, or a failed write in
-   between), and none if it is dated in the future (clock tolerance). A stale
+   stay usable (they match by PID and creation instant). Each record also stores
+   `run_seconds`, the writing run's time from its start instant to its write;
+   `k = max(1, ceil(run_seconds / 60))` is the trigger minutes it occupied (the
+   task ignores triggers while a run is still going). The unreadable-lock count
+   carries over in full when the record is at most `60k + 30` seconds old,
+   otherwise at most 1, and none if the record is dated in the future (clock
+   tolerance); a record without `run_seconds` reads as `k = 1`, the old 90 second
+   rule. Soundness: with no run in between, the reader starts at the first
+   trigger after the writer ended, about `60k` seconds plus start-up latency
+   after the writer's start, and carries in full; with a run in between that did
+   not write, it starts at least `60(k+1)` seconds after, so the carry is capped.
+   The 30 second margin is the old rule's, and `run_seconds` omits the writer's
+   start-up, so its `k` can only be too low, which caps and only spares. A stale
    count can therefore never push a run past the two-run limit. A write failure
    that persists keeps the count from building, so the two-run cap is then in
    effect off: torn locks keep sparing, never killing more. The status file
@@ -672,13 +684,11 @@ Stage-A, workstation or live authority is added.
    (budget kills then stop heavy members only), for at most two runs in a row
    (counted in the state file above). From the third consecutive run every rule
    applies as if the file were absent, so a lock rewritten as garbage every
-   minute cannot disable the guard. The third run is reached only when two
-   consecutive runs land within 90 seconds: while every run takes over 60
-   seconds (so each next trigger is skipped) the count holds at 2 and the lock
-   keeps being spared, a known spare-only limit. An older empty or unparseable file is stale
-   and ignored. A file whose last-write time cannot be read counts
-   as mid-write only for a sharing or lock violation or a vanished file; any
-   other failure is logged as ERROR and the file is ignored.
+   minute cannot disable the guard, including while every run takes over 60
+   seconds (the count follows each record's `run_seconds`). An older empty or
+   unparseable file is stale and ignored. A file whose last-write time cannot be
+   read counts as mid-write only for a sharing or lock violation or a vanished
+   file; any other failure is logged as ERROR and the file is ignored.
    **No guard rule terminates a tree that contains a live lease owner as a
    whole, nor the owner or the agent root.** As a last line, the tree-kill
    routine itself skips any live owner (PID and creation instant), and while any
