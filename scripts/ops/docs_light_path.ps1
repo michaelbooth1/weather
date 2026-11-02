@@ -18,6 +18,13 @@
 # The code defaults to 1 and is issued from the final finally, so an error or a
 # Ctrl+C never exits 0. ROLL-FREE needs roll_verdict exit 0 and its JSON naming
 # ROLL-FREE for the exact -ExpectedTip.
+#
+# Clock rule (STATE_OF_PLAY "Current authority"): the light path runs only
+# 00:30-12:00 local and is refused 12:00-00:30 (the graded capture window and the
+# near-close window), -CheckOnly included. The clock is checked first and again
+# immediately before the local merge, so a run that crosses 12:00 while fetching
+# or classifying refuses with nothing changed. The production agent's ~07:30
+# morning docs landing is inside the window.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
@@ -133,10 +140,24 @@ function Refuse([string]$m) {
     exit 1
 }
 
+# Allowed start window, local time, in minutes after midnight: [00:30, 12:00).
+$lightPathWindowStartMinute = 30
+$lightPathWindowEndMinute = 12 * 60
+function Assert-LightPathClock([string]$when) {
+    $now = Get-Date
+    $minute = $now.Hour * 60 + $now.Minute
+    if ($minute -lt $lightPathWindowStartMinute -or $minute -ge $lightPathWindowEndMinute) {
+        Refuse ("{0}: local time {1:HH:mm} is outside the light-path window 00:30-12:00 (never 12:00-00:30)" -f $when, $now)
+    }
+}
+
 # Default-fail: only a passed -CheckOnly and a proven publication set 0. Every
 # exit below records its code first; the final finally issues it.
 $lightPathExitCode = 1
 try {
+# ---- 0. clock: 00:30-12:00 local only ----
+Assert-LightPathClock "start"
+
 # ---- 1. repository state: on master, synchronized, nothing in flight ----
 $symbolic = Invoke-Git @("symbolic-ref", "-q", "HEAD")
 if ($symbolic.code -ne 0 -or $symbolic.lines.Count -ne 1 -or $symbolic.lines[0] -cne "refs/heads/master") {
@@ -229,6 +250,7 @@ if ($CheckOnly) {
 }
 
 # ---- 6. local merge, then prove its own diff ----
+Assert-LightPathClock "before the merge"
 $branchLabel = $Branch -replace '^origin/', ''
 $merge = Invoke-Git @("merge", "--no-ff", "--no-edit", "-m",
     "Merge $branchLabel into master (fail-forward light path, docs only)", $ExpectedTip)

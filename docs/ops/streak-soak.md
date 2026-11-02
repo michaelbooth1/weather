@@ -637,8 +637,10 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
 
 **Docs-only light path.** A branch that `roll_verdict.ps1` calls ROLL-FREE and whose diff is
 only `docs/**/*.md` lands with `scripts/ops/docs_light_path.ps1 -Branch origin/<b>
--ExpectedTip <sha>` at any hour, without the lease, quiet window or marker (Operations agent
-role §6 rule 2). It refuses unless local `master` is checked out with `HEAD == origin/master`
+-ExpectedTip <sha>` 00:30-12:00 local, without the lease, quiet window or marker (Operations agent
+role §6 rule 2). It is refused 12:00-00:30 (the graded and near-close windows), `-CheckOnly` included;
+the clock is checked at start and again immediately before the local merge, so the morning docs
+landing at about 07:30 is legal and a run that crosses 12:00 refuses with nothing changed. It refuses unless local `master` is checked out with `HEAD == origin/master`
 (and the `ls-remote` master when reachable), no `MERGE_HEAD`, no quiet-merge marker, nothing
 staged and no modified tracked `docs/` file, the branch is at the exact tip and not yet merged,
 both the branch diff and the resulting merge diff are only `docs/**/*.md`, the roll verdict
