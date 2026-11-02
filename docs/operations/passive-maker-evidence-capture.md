@@ -293,6 +293,36 @@ These journals are `canonical_evidence` in
 [the storage-class contract](data-storage-class-contract.md), with the same
 reviewed archive/reclaim gate as other original public evidence.
 
+### Torn journal after power loss
+
+At startup `EvidenceStore._recover` replays and seals every segment folder that has
+no `manifest.json`/`manifest.json.gz` (normally only the one the writer had open).
+A hard power loss can leave a journal there with a NUL-filled or partial last line,
+and recovery then refuses to start rather than truncate it. **Detection:**
+`WeatherMakerEvidenceCapture` returns `LastTaskResult` 1 at every PT5M trigger,
+`status.json` goes stale, and the startup traceback ends in `_recover` at
+`json.loads` (`UnicodeDecodeError` for a NUL tail; a partial line gives
+`JSONDecodeError` or `torn journal or invalid record offset`). Incident: host power
+loss 2026-11-02, five `reward-*.jsonl` journals, about six hours dark.
+
+**Procedure** (operator, while the task is failing, so no process holds
+`.writer.lock`):
+
+1. In the unsealed `<UTC-day>/<HH>-<segment-id>/` folder only, list the `*.jsonl`
+   whose tail is NUL bytes or lacks a final newline.
+2. Record each file's SHA-256 and size. Move it byte-exact to
+   `data\maker_evidence_quarantine\<UTC-day>\<segment-id-folder>\` (outside the
+   store root, which recovery globs). Re-hash after the move, and write
+   `QUARANTINE_RECEIPT.json` there with the before/after hashes, sizes, source paths
+   and reason.
+3. `Start-ScheduledTask -TaskName WeatherMakerEvidenceCapture`, or wait for the next
+   trigger. Recovery seals the remaining journals; the quarantined ones are absent
+   from that segment's `manifest.json`. Confirm `CAPTURING` in `status.json` and
+   record the gap in the panel notes.
+
+Never truncate, repair or rewrite a journal, and never touch a sealed segment.
+Quarantined files are retained evidence: never delete them.
+
 Before each cycle the worker checks actual free space on its output volume.
 Red (< 60 GiB) stops the raw update channel; Critical (< 40 GiB, owner 2026-09-25: below the bounded suite's 50 GiB
 floor so capture outlives nights when a suite cannot run) stops all capture and writes status.
