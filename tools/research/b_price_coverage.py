@@ -29,7 +29,7 @@ family records only its ``b_price_coverage/1`` schema). It imports only the stan
 and the exporter (itself stdlib plus the allow-list), so it runs on the capture host. Nothing imports it
 (roll-free: tools and ``.ps1``). It never reads labels, settlements or prices, and never touches the share.
 
-On the capture host it runs only through ``scripts\ops_price_coverage.ps1`` (host identity, 00:30-09:00, the
+On the capture host it runs only through ``scripts\ops\b_price_coverage.ps1`` (host identity, 00:30-09:00, the
 shared lease, a kill-on-close job, the PYTHONPATH pin proof for this tool and the exporter, 5 GiB free, UTC
 memory freshness).
 
