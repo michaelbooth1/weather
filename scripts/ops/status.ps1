@@ -61,6 +61,43 @@ function Get-WeatherSweepFlags {
     catch { "STALENESS_SWEEP: cannot read latest findings ($($_.Exception.Message))" }
 }
 
+# R20 (master ruling 2026-11-01): classify WeatherForwardArrivalCheck's atomic state file. ALERT is a FLAG
+# (and the task's deliberate exit 2 is then not "unexpected"); a state more than 14 hours old or unreadable is a
+# WARN; no state yet, or RETIRED after -LastDate, is silent.
+function Get-WeatherForwardArrivalState {
+    param([string]$Path, [datetime]$UtcNow = [DateTime]::UtcNow)
+    $result = [ordered]@{ status = 'ABSENT'; target_date = $null; slot = $null; checked_utc = $null
+        age_hours = $null; failures = @(); flag = $null; warn = $null }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return [pscustomobject]$result }
+    try {
+        $state = [IO.File]::ReadAllText($Path) | ConvertFrom-Json -ErrorAction Stop
+        $status = [string]$state.status
+        if ($status -cnotin @('OK', 'ALERT', 'RETIRED') -or [string]$state.schema -cne 'forward_arrival_check/1') {
+            throw "unknown status or schema"
+        }
+        $checked = [DateTimeOffset]::Parse([string]$state.checked_utc, [cultureinfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal).UtcDateTime
+        $result.status = $status
+        $result.target_date = [string]$state.target_date
+        $result.slot = [string]$state.slot
+        $result.checked_utc = [string]$state.checked_utc
+        $result.age_hours = [math]::Round(($UtcNow - $checked).TotalHours, 1)
+        $result.failures = @($state.failures | ForEach-Object { [string]$_ })
+    }
+    catch {
+        $result.status = 'UNREADABLE'
+        $result.warn = "FORWARD_ARRIVAL: state file is unreadable ($($_.Exception.Message))"
+        return [pscustomobject]$result
+    }
+    if ($result.status -ceq 'ALERT') {
+        $result.flag = "FORWARD_ARRIVAL ALERT for $($result.target_date) at $($result.slot): $($result.failures -join '; ')"
+    }
+    if ($result.status -cne 'RETIRED' -and $result.age_hours -gt 14) {
+        $result.warn = "FORWARD_ARRIVAL: last check $($result.checked_utc) is $($result.age_hours)h old (task not running?)"
+    }
+    return [pscustomobject]$result
+}
+
 # Swarm P audit 2026-10-07 G1: unclean boots with the outage interval, so the watchdog can
 # decide whether the outage overlapped the 12:00-18:00 graded window. $Boots holds
 # [pscustomobject]@{ boot = <datetime>; last_alive = <datetime or $null> }, any order.
@@ -4011,6 +4048,9 @@ $mustRemainDisabled = [System.Collections.Generic.HashSet[string]]::new(
 )
 [void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapSuite0822")
 [void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapMerge0822")
+$forwardArrival = Get-WeatherForwardArrivalState -Path (Join-Path $repo "data\alerts\forward_arrival_state.json")
+if ($forwardArrival.flag) { $flags.Add($forwardArrival.flag) }
+if ($forwardArrival.warn) { $warns.Add($forwardArrival.warn) }
 $taskCount = 0
 $interactiveTasks = 0
 $evidenceRefreshHeld = $false
@@ -4516,6 +4556,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             $warns.Add("$name last FAILED $res on $($ti.LastRunTime) and is NOT re-armed (spent one-shot) - re-register it if that work still needs to run")
             $ok = $true
         }
+        # R20: the arrival check exits 2 on ALERT by design; the FORWARD_ARRIVAL flag above already reports it.
+        if (-not $ok -and $name -eq "WeatherForwardArrivalCheck" -and $res -eq "0x2" -and $forwardArrival.status -eq "ALERT") { $ok = $true }
         if (-not $ok) { $flags.Add("$name $res unexpected (last run $($ti.LastRunTime))") }
     }
 }
@@ -5166,6 +5208,7 @@ if ($Json) {
         }
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
         watchdog_deployment = $watchdogDeployment
+        forward_arrival = $forwardArrival
         host_stability = $hostStability
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }); retirement = $qwRetirement }
         documentation = $documentationTransaction

@@ -1115,6 +1115,9 @@ stopped, or is proving their recovery. Do this task first. If the pass cannot fi
   - the rest have no duration.
 - The streak monitor's 30-minute repetition hangs off its daily trigger and moves with it, which is why it is row 9.
 - `WeatherDataMirror` and `WeatherMirrorRestoreVerify` are not enabled on the host, so they do not apply.
+- `WeatherForwardArrivalCheck` (07:45, 11:45, 18:05; R20) is built with `New-WeatherLocalDailyTrigger` from the
+  start, so it is offset-free and needs no reset. The workstation's R20 receipts beacon is a repeating `-Once`
+  trigger (PT30M) on another host.
 
 **When.** On 2026-10-29 or 2026-10-30, after the fix has landed and production is running it.
 - Work outside the 12:00-00:30 protected windows, and not while a Stage-A chain or bounded suite is running.
@@ -1247,6 +1250,38 @@ touches nothing.
   keyed to that IP form, so use it rather than the host name. `pull` only reads under `--share-root`: it creates,
   renames, locks and writes nothing there; its staging, `incoming\` and the receipt ledger are workstation-local.
 
+## Forward input arrival check (`WeatherForwardArrivalCheck`; registrar only)
+
+Master ruling R20 (2026-11-01) §2. The host checks that yesterday's (D) B and L6_G forward inputs reached the
+workstation and were verified there, from receipts the workstation pushes to the host. Nothing on the host reads
+workstation files directly.
+
+- **Workstation beacon.** `tools/research/ws_forward_receipts_beacon.ps1` runs as a workstation task registered by
+  `tools/research/register_ws_forward_receipts_beacon.ps1` (Interactive/Limited, the vault exception: the share
+  needs the workstation's stored credential; every 30 minutes plus at logon). It opens each forward ledger with
+  `[IO.File]::Open(p, 'Open', 'Read', 'ReadWrite,Delete')`, so a writer appending to the ledger is never blocked.
+  It reads only complete lines and never copies a ledger file. It projects each row to its date, status and sha
+  fields. It writes each file as `.tmp` and renames it under `<share root>\in\forward-receipts\`, with a fallback
+  share root, and adds `heartbeat.json`. Both share roots are parameters; the repository names no host address.
+  The workstation task is registered only on the owner's yes.
+- **Host check.** `scripts/ops/forward_input_arrival_check.ps1` runs as `WeatherForwardArrivalCheck`
+  (`scripts/ops/register_forward_input_arrival_check.ps1`; S4U/Limited; 07:45, 11:45 and 18:05 local; IgnoreNew;
+  a 5-minute limit; no `StartWhenAvailable`). It is pure PowerShell and light: no child process, no lease. It
+  reads the host-local folder behind the share (`-ReceiptsRoot`) and checks D by slot:
+  - at every slot, the export marker `data\exports\mg2-inputs\<D>\manifest.json.sha256` and a heartbeat at most 90
+    minutes old;
+  - from 11:45, a B row for D that is `verified` with `manifest_sha256` equal to the marker, and (D >= 2026-10-31)
+    a `verified` L6_G bundle row;
+  - at 18:05, an L6_G emit receipt for D.
+- **Output.** One row per run in `data\alerts\forward_arrival.jsonl` (`forward_arrival_check/1`) and the atomic
+  state file `data\alerts\forward_arrival_state.json`. Exit 2 on ALERT. After `-LastDate` (2026-12-16) it records
+  RETIRED and checks nothing.
+- **Status.** `status.ps1` reads the state file: ALERT is a `FORWARD_ARRIVAL ALERT` FLAG naming D, the slot and the
+  failures, and the task's exit 2 is then not reported a second time as unexpected. A state more than 14 hours old,
+  or one that cannot be read, is a WARN. No state yet, or RETIRED, is silent. JSON key `forward_arrival`.
+- **Registration.** Master registers the host task after the R20 head lands, from a clean checkout at
+  `-ExpectedSourceTip`, with `-WhatIf` first. The registrar refuses any host other than the dedicated capture host.
+
 ## Why Capture Is Not Packaged Into The Dashboard
 
 A shortcut or executable is useful for opening the dashboard, but it is not a
@@ -1259,5 +1294,5 @@ the owners of evidence capture.
 
 Update when capture-loop ownership, supervisor tasks/commands, status or log
 contracts, dashboard controls, deployment/restart behavior, which checkout a task executes from, daily-chain step
-order or settlement recovery, the MG-2 input export, daily-trigger construction or the DST re-registration list, or retraining
+order or settlement recovery, the MG-2 input export, the forward input arrival check, daily-trigger construction or the DST re-registration list, or retraining
 topology changes.
