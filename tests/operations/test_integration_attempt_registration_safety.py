@@ -403,6 +403,7 @@ function New-CrashTask([object]$record) {
             }
         })
         Settings = [pscustomobject]@{
+            Enabled = $true
             MultipleInstances = 'IgnoreNew'
             Compatibility = 'Win7'
             AllowDemandStart = $true
@@ -444,6 +445,7 @@ function Get-ScheduledTask {
 function Disable-ScheduledTask {
     param([string]$TaskName, [string]$TaskPath, $ErrorAction)
     $global:crashTasks[$TaskName].State = 'Disabled'
+    $global:crashTasks[$TaskName].Settings.Enabled = $false
     return $global:crashTasks[$TaskName]
 }
 function Get-ScheduledTaskInfo {
@@ -461,6 +463,7 @@ if ($evidence.Count -ne 2 -or
 }
 foreach ($task in $global:crashTasks.Values) {
     $task.State = 'Ready'
+    $task.Settings.Enabled = $true
 }
 function New-ReceiptTaskRecord([object]$record) {
     return [ordered]@{
@@ -518,6 +521,34 @@ if ($tornReceiptEvidence.Count -ne 2 -or
     @($tornReceiptEvidence | Where-Object { $_.binding_source -ne 'pre_registration_intent_receipt_unusable' }).Count -ne 0 -or
     @($tornReceiptEvidence | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.registration_receipt_error) }).Count -ne 0) {
     throw 'A torn final receipt stranded tasks despite a valid pre-registration intent.'
+}
+# Settings.Enabled proves the disable; State 'Running' after it (an instance
+# that started after the pre-disable read) is still refused as non-terminal,
+# and a disable that did not take is refused on Enabled alone.
+function Invoke-DisableProbe([scriptblock]$AfterDisable) {
+    foreach ($task in $global:crashTasks.Values) {
+        $task.State = 'Ready'
+        $task.Settings.Enabled = $true
+    }
+    $global:afterDisable = $AfterDisable
+    try {
+        Disable-WeatherIntegrationAttemptTasks -AttemptContract $contract | Out-Null
+        return 'accepted'
+    }
+    catch { return $_.Exception.Message }
+}
+function Disable-ScheduledTask {
+    param([string]$TaskName, [string]$TaskPath, $ErrorAction)
+    & $global:afterDisable $global:crashTasks[$TaskName]
+    return $global:crashTasks[$TaskName]
+}
+$raced = Invoke-DisableProbe { param($t) $t.Settings.Enabled = $false; $t.State = 'Running' }
+if ($raced -notlike 'Attempt task is disabled but not terminal:*state=Running') {
+    throw "A disabled task still running was not refused as non-terminal: $raced"
+}
+$ignored = Invoke-DisableProbe { param($t) }
+if ($ignored -notlike 'Attempt task did not disable:*enabled=True') {
+    throw "A disable that did not take was not refused on Settings.Enabled: $ignored"
 }
 "PASS"
 """

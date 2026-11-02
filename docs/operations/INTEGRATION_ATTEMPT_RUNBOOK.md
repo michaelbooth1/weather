@@ -362,7 +362,9 @@ attempt's frozen baseline, and proves the frozen source tip is absent from both
 local and remote master. Missing terminal merge evidence never substitutes for
 that Git non-integration proof. After disabling, it refuses any task that is not
 still exactly absent or terminal+Disabled (disabling does not stop an already
-running instance), then immediately repeats the marker, `MERGE_HEAD`, checked-
+running instance). The disable itself is proved by `Settings.Enabled` being
+false, because State stays `Running` while an instance runs; State answers only
+whether the task is terminal. It then immediately repeats the marker, `MERGE_HEAD`, checked-
 out branch, baseline, and source-ancestry proofs before writing the receipt. The
 post-disable proof is recorded in the closure receipt, which is a FAIL receipt
 suitable for `-RepairOfReceiptPath`.
