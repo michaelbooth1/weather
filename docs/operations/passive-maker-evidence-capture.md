@@ -417,6 +417,29 @@ the Scheduler). It waits up to `-WaitSeconds` (default 420) for a new pid in
 Exit 0 only for `RESTARTED_CURRENT`; 2 refused, 3 not restarted, 4 not current.
 Record the gap in the panel notes.
 
+### Torn-journal quarantine tool
+
+`scripts/ops/maker_evidence_torn_quarantine.ps1` automates the "Torn journal after
+power loss" procedure (Storage and brakes). It is report-only unless `-Apply`, and
+the default root is the core `data\maker_evidence`. A family root needs an explicit
+`-Root` and `-QuarantineRoot`. It never starts or changes a scheduled task; start
+the recorder yourself afterwards.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1 -Apply
+```
+
+It holds byte 0 of `.writer.lock` for the whole pass and refuses while a recorder
+holds it. It acts only on a single unsealed segment and moves at most 10 non-empty
+`*.jsonl` without a final newline. Each move is a same-volume rename with SHA-256
+before and after, `QUARANTINE_INTENT.json` first and `QUARANTINE_RECEIPT.json`
+last. A rerun reconciles from the intent. A NUL inside a newline-terminated journal
+is `UNRESOLVED` (exit 5) and moves nothing. So is a core-root run that finds no torn
+tail while `WeatherMakerEvidenceCapture` last returned 1. Exit 0 covers noop, report, quarantined
+and reconciled; 2 is refused; 4 is failed mid-apply (rerun). `-Apply` appends one
+line per pass to `data\alerts\maker_evidence_torn_quarantine.jsonl`.
+
 The central schema registration is additive. Its shared-registry placement
 means deployment must use the repository roll-verdict tool; independence of
 the worker does not itself prove the entire branch roll-free.
