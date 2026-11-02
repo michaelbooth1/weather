@@ -15,7 +15,7 @@
 # Scheduler rather than inside the Stage 1 script). IgnoreNew, no StartWhenAvailable, 5-minute run limit.
 # The action is maker_evidence_torn_quarantine_boot.ps1: one Stage 1 -Apply pass on the core root, with
 # REFUSED_WRITER_ALIVE (the recorder is up) reported as 0 only when Stage 1 proves torn_tail_found false, so
-# a normal boot ends with LastTaskResult 0 and a recorder racing a torn pre-boot segment stays non-zero.
+# a normal boot ends with LastTaskResult 0 and a writer alive over any still torn tail stays non-zero.
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,

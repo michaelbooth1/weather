@@ -467,17 +467,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_t
 
 - It holds byte 0 of `.writer.lock` for the whole pass, refuses while a recorder holds
   it, and releases it on every exit.
-- Before a writer-alive refusal (`REFUSED_WRITER_ALIVE`), it scans, read-only and with shared
-  opens, every unsealed segment whose journals all predate the last cold boot (uptime from
-  `GetTickCount64`, so a Fast Startup resume counts from the earlier cold boot; the rule trusts
-  the wall clock against file times). The live writer's own segment is skipped, because its last
-  line can be transiently partial.
-  - The result carries `torn_tail_found`: `true`, `false`, or `null`. It is `null` when a file
-    could not be read, a newline-terminated journal contains a NUL byte (recovery would refuse
-    it), or more than 64 pre-boot unsealed segments exist.
-  - A torn tail there is `REFUSED_WRITER_ALIVE_TORN` (exit 3), even if other files were
-    unreadable: a recorder is starting over a torn segment. The recorder then fails recovery and
-    releases the lock; the next quarantine run takes it and quarantines.
+- Before a writer-alive refusal (`REFUSED_WRITER_ALIVE`: a recorder process for the root, or a
+  sharing or lock violation on `.writer.lock`), it runs a read-only mirror of
+  `EvidenceStore._recover` over the whole store, with shared opens and no writes.
+  - Every unsealed segment, whenever written, is checked record by record: strict UTF-8, a strict
+    JSON object per line, the offset chain, the 16 MiB line bound, and `response_bytes` on stream
+    records. Every sealed `manifest.json` or `manifest.json.gz` must parse and name the store
+    schema, and the uncompressed footprint must be clear of the startup bound.
+  - The only exemption is the live writer's own segment: the single newest unsealed segment in a
+    UTC day folder. A partial last line there passes only if the file moves during a 2-second
+    wait. A tail that stays still is torn, which is the crash-looping recorder case.
+  - The result carries `torn_tail_found`: `true`, `false`, or `null`. It is `false` only when
+    everything was positively verified. It is `null` on any unreadable file or folder, reparse
+    point, record or manifest that recovery would refuse, or more than 64 unsealed segments (only
+    the first 64 are scanned). Lists in the result are capped at 20, with counts.
+  - Any torn tail is `REFUSED_WRITER_ALIVE_TORN` (exit 3), even if other files failed
+    (`torn_tail_scan` then starts `partial:`). A recorder cannot start over it, or something
+    other than a recorder holds the lock.
+- Any other failure to open or lock `.writer.lock` (access denied, I/O) is
+  `REFUSED_LOCK_UNAVAILABLE` (exit 2), never the writer-alive path.
 - It acts only on a single unsealed segment. It moves at most 10 non-empty, non-dot
   `*.jsonl` without a final newline. Root, quarantine, day, segment and journal must not
   be reparse points, and root and quarantine must be on one volume.
@@ -502,7 +510,7 @@ Exit codes:
 | --- | --- |
 | 0 | `NOOP_*`, `REPORT*`, `QUARANTINED`, `RECONCILED`, `RECONCILED_AFTER_SEAL` |
 | 2 | refused |
-| 3 | `REFUSED_WRITER_ALIVE_TORN`: a writer holds the store and a segment older than the last cold boot has a torn tail; nothing moved |
+| 3 | `REFUSED_WRITER_ALIVE_TORN`: a writer holds the store and an unsealed segment it is not writing has a torn tail; nothing moved |
 | 4 | failed mid-apply, or `FAILED_HASH_READ`; rerun reconciles, or reports `UNRESOLVED` (hash mismatch) |
 | 5 | unresolved; needs a human |
 | 6 | internal error; lock released |
@@ -529,15 +537,17 @@ Windows PowerShell path.
   `maker_evidence_torn_quarantine.ps1 -Apply` on the core root in a child PowerShell and passes its
   exit code through. The one exception is `REFUSED_WRITER_ALIVE` (exit 2: a running recorder or a
   held `.writer.lock`). It becomes 0 only when the same JSON says `torn_tail_found` is `false`, that
-  is, the pre-boot scan completed clean. A missing or `null` value stays 2, and
+  is, the recovery-mirror scan verified the whole store. A missing or `null` value stays 2, and
   `REFUSED_WRITER_ALIVE_TORN` stays 3. Family roots stay operator-run.
 - Behavior on a normal boot:
   - Before the recorder starts, a run classifies under the lock and moves torn tails, if there are
     any.
   - The recorder's next PT5M trigger then seals the rest. This task never starts the recorder
     itself.
-  - Once the recorder is up, it has sealed every pre-boot segment. Every later run is then a clean
-    `REFUSED_WRITER_ALIVE` mapped to 0, so the window ends with `LastTaskResult` 0.
+  - Once the recorder is up, it has sealed every older segment and writes only its own. Every
+    later run is then a clean `REFUSED_WRITER_ALIVE` mapped to 0, so the window ends with
+    `LastTaskResult` 0. Each such run reads the live segment once (up to the 100 MB rotation size)
+    and, if its tail is mid-write, waits 2 seconds.
 - Collision with the recorder's first start, which is likely: the recorder task has
   `StartWhenAvailable`, so its catch-up start falls near the boot trigger. A quarantine run holds
   the lock for a few seconds.
@@ -546,10 +556,12 @@ Windows PowerShell path.
   - Meanwhile the next quarantine run reports `TORN_SIGNATURE_UNRESOLVED` (exit 5).
   - The first run after the recorder is up returns 0 again. Capture starts at most one PT5M
     interval late.
-- Race: the recorder starts first over a torn pre-boot segment.
-  - Each quarantine run that sees the recorder alive (process or lock) and a torn tail in a
-    segment older than the boot returns `REFUSED_WRITER_ALIVE_TORN`, exit 3, and moves nothing.
-    `status.ps1` flags `WeatherMakerEvidenceTornQuarantine 0x3 unexpected`.
+- Race: the recorder starts first over a torn segment, or crash-loops on one (killed mid-write
+  after boot, then refused by recovery at every start), or something else holds the lock.
+  - Each quarantine run that sees a writer alive (process or lock) and a still torn tail returns
+    `REFUSED_WRITER_ALIVE_TORN`, exit 3, and moves nothing. Boot time plays no part, so Fast
+    Startup does not matter. `status.ps1` flags `WeatherMakerEvidenceTornQuarantine 0x3
+    unexpected`.
   - The recorder then fails in recovery and releases the lock, and the next run quarantines. A
     later 0 clears the flag.
   - If 0x3 is still the last result after the window, the recorder kept winning the race.
@@ -557,12 +569,13 @@ Windows PowerShell path.
     `data\alerts\maker_evidence_torn_quarantine.jsonl`. Wait until no recorder process runs for
     the core root, which is the case while `WeatherMakerEvidenceCapture` is failing. Then run the
     tool by hand, report-only and then `-Apply` (see the tool section), and start the recorder task.
-  - A scan that cannot complete (`torn_tail_found` `null`: unreadable file, interior NUL, or the
-    64-segment cap) stays exit 2 and is flagged the same way. Read `torn_tail_scan`,
-    `torn_tail_scan_errors` and `interior_nul_journals` in the alert row.
+  - A scan that cannot verify the store (`torn_tail_found` `null`) stays exit 2 and is flagged the
+    same way. Read `torn_tail_scan` and `torn_tail_scan_problems` in the alert row. The problem
+    names the file and the record offset that recovery would refuse; treat it as the manual
+    torn-journal procedure, not as something this tool moves.
 - Timeout overlap. At the PT5M limit, Task Scheduler may end only the wrapper and leave its Stage 1
   child running.
-  - The next run sees that orphan's lock as a live writer. While a torn pre-boot tail remains, that
+  - The next run sees that orphan's lock as a live writer. While a torn tail remains, that
     is exit 3. Once the orphan has moved the tails, it is a clean refusal mapped to 0, which hides
     the overlap.
   - The orphan still holds the lock, finishes or fails on its own, and appends its own log line.
@@ -571,8 +584,8 @@ Windows PowerShell path.
     line once it ends.
 - A non-zero last result shows in `status.ps1` like any `Weather*` task. A non-zero result at the
   end of the 15-minute window stays visible until the next boot and needs a human. That covers
-  exit 2 (cap, several unsealed segments, volume or reparse refusals, an incomplete writer-alive
-  scan), 3, 4, 5 and 6. Read
+  exit 2 (cap, several unsealed segments, volume or reparse refusals, `REFUSED_LOCK_UNAVAILABLE`,
+  an unverified writer-alive scan), 3, 4, 5 and 6. Read
   `data\alerts\maker_evidence_torn_quarantine.jsonl`.
 
 Registration (production agent only, never on the workstation):

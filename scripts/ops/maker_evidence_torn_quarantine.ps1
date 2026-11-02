@@ -27,10 +27,13 @@ Safety contract (design approved 2026-11-02, L54):
   receipt turns the NOOP into TORN_SIGNATURE_UNRESOLVED.
 - Never truncates, rewrites or deletes; never touches sealed segments' journals, manifests, .gz,
   .tmp, status.json or the lock file contents. No Scheduler mutation: start the task yourself.
-- A writer-alive refusal first scans, read-only, the unsealed segments older than the last cold
-  boot and reports torn_tail_found (true/false; null when the scan did not complete, found an
-  interior NUL or hit its 64-segment cap). A torn tail there is REFUSED_WRITER_ALIVE_TORN (exit 3):
-  a recorder is starting over a torn segment.
+- A writer-alive refusal first runs a read-only mirror of EvidenceStore._recover over the store
+  and reports torn_tail_found: false only when every unsealed segment and sealed manifest is
+  positively recoverable, null when anything is unverifiable or over 64 unsealed segments exist.
+  Only the live writer's own segment (the single newest unsealed one) may show a partial last
+  line, and only while it moves during a 2 s wait. Any other torn tail is
+  REFUSED_WRITER_ALIVE_TORN (exit 3): a recorder that cannot start, or a foreign lock holder.
+  A lock-open failure that is not a sharing or lock violation is REFUSED_LOCK_UNAVAILABLE (2).
 
 Exit codes: 0 NOOP / REPORT / QUARANTINED / RECONCILED / RECONCILED_AFTER_SEAL; 2 refused;
 3 REFUSED_WRITER_ALIVE_TORN;
@@ -249,87 +252,385 @@ function Test-JournalName([string]$Name) {
         $Name.EndsWith(".jsonl", [StringComparison]::OrdinalIgnoreCase))
 }
 
-function Get-BootTimeUtc {
-    # Boot instant from GetTickCount64 (no CIM, so the process-check stub in tests cannot shadow it).
-    if (-not ("WeatherTornQuarantine.Uptime" -as [type])) {
-        Add-Type -TypeDefinition @"
-using System.Runtime.InteropServices;
+function Get-StoreScanType {
+    # Compiled once per run; C# so a 100 MB live segment is checked in seconds.
+    if (-not ("WeatherTornQuarantine.StoreScan" -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 namespace WeatherTornQuarantine {
-    public static class Uptime {
-        [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
+    public sealed class ScanResult {
+        public List<string> Unsealed = new List<string>();
+        public List<string> Torn = new List<string>();
+        public List<string> Invalid = new List<string>();
+        public List<string> Errors = new List<string>();
+        public List<string> InFlight = new List<string>();
+        public string LiveSegment;
     }
-}
-"@
-    }
-    return [DateTime]::UtcNow.AddMilliseconds(-[double][WeatherTornQuarantine.Uptime]::GetTickCount64())
-}
 
-function Finish-WriterAlive([string]$Reason) {
-    # Writer alive: no lock, so nothing may move. First a read-only scan, shared open, no write, of
-    # unsealed segments whose journals all predate the last cold boot (a live writer's own segment
-    # can show a transient partial line and is skipped; the rule trusts the wall clock). A torn tail
-    # there means a recorder is (re)starting over a torn segment: REFUSED_WRITER_ALIVE_TORN, exit 3,
-    # even when other files could not be read. torn_tail_found is $false only when the scan
-    # completed clean; $null (unknown) on any read error, an interior NUL (EvidenceStore._recover
-    # would raise) or more than 64 pre-boot unsealed segments. Unattended callers may treat exit 2
-    # as benign only with torn_tail_found false.
-    $script:result.torn_tail_found = $null
-    $script:result.torn_tail_scan = "unknown"
-    try {
-        $bootUtc = Get-BootTimeUtc
-        $script:result.boot_time_utc = $bootUtc.ToString("o")
-        $maxSegments = 64
-        $torn = New-Object 'System.Collections.Generic.List[string]'
-        $interior = New-Object 'System.Collections.Generic.List[string]'
-        $errors = New-Object 'System.Collections.Generic.List[string]'
-        $preBoot = New-Object 'System.Collections.Generic.List[string]'
-        $capped = $false
-        foreach ($parent in @(Get-ChildItem -LiteralPath $Root -Directory -Force)) {
-            if ($capped) { break }
-            if ($parent.Name -cnotmatch '^\d{4}-\d{2}-\d{2}$') { continue }
-            if (Test-Reparse $parent) { $errors.Add("store folder is a reparse point: " + $parent.Name); continue }
-            try { $folders = @(Get-ChildItem -LiteralPath $parent.FullName -Directory -Force) }
-            catch { $errors.Add($parent.FullName + ": " + $_.Exception.Message); continue }
-            foreach ($folder in $folders) {
-                if ($folder.Name -cnotmatch '^\d{2}-[0-9a-f]{12}$') { continue }
-                if (Test-Reparse $folder) { $errors.Add("segment folder is a reparse point: " + $folder.FullName); continue }
+    // Read-only mirror of EvidenceStore._recover: anything it cannot positively verify is a problem.
+    public static class StoreScan {
+        public const string Schema = "maker_evidence_v2";
+        public const long MaxRawBytes = 500000000;
+        public const long SealReserveBytes = 1000000;
+        public const int MaxPaths = 20000;
+        public const int MaxLineBytes = 16 * 1024 * 1024;
+        static readonly Regex SegmentName = new Regex(@"^\d{2}-[0-9a-f]{12}$");
+        static readonly Regex DayName = new Regex(@"^\d{4}-\d{2}-\d{2}$");
+        static readonly UTF8Encoding Strict = new UTF8Encoding(false, true);
+
+        static bool IsReparse(FileSystemInfo item) { return (item.Attributes & FileAttributes.ReparsePoint) != 0; }
+
+        static FileStream OpenShared(string path) {
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+
+        public static ScanResult Scan(string root, int maxSegments, int settleMs) {
+            var r = new ScanResult();
+            var unsealed = new List<DirectoryInfo>();
+            long raw = 0; int paths = 0;
+            foreach (var parent in new DirectoryInfo(root).GetDirectories()) {
+                if (IsReparse(parent)) { r.Errors.Add("store folder is a reparse point: " + parent.FullName); continue; }
+                DirectoryInfo[] folders;
                 try {
-                    if ((Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json")) -or
-                        (Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json.gz"))) { continue }
-                    $journals = @(Get-ChildItem -LiteralPath $folder.FullName -File -Force | Where-Object { Test-JournalName $_.Name })
+                    foreach (var f in parent.GetFiles())
+                        if (f.Name.StartsWith("manifest.jsonl", StringComparison.OrdinalIgnoreCase))
+                            r.Errors.Add("legacy daily journal (recovery refuses the root): " + f.FullName);
+                    folders = parent.GetDirectories();
                 }
-                catch { $errors.Add($folder.FullName + ": " + $_.Exception.Message); continue }
-                if ($journals.Count -eq 0 -or @($journals | Where-Object { $_.LastWriteTimeUtc -ge $bootUtc }).Count -gt 0) { continue }
-                if ($preBoot.Count -ge $maxSegments) {
-                    $errors.Add("more than $maxSegments pre-boot unsealed segments; scan stopped")
-                    $capped = $true
-                    break
-                }
-                $preBoot.Add($folder.FullName)
-                foreach ($file in $journals) {
-                    if (Test-Reparse $file) { $errors.Add("journal is a reparse point: " + $file.FullName); continue }
-                    try {
-                        if ($null -ne (Get-TailClass $file.FullName)) { $torn.Add($file.FullName) }
-                        elseif ($file.Length -gt 0 -and (Test-ContainsNul $file.FullName)) { $interior.Add($file.FullName) }
+                catch (Exception e) { r.Errors.Add(parent.FullName + ": " + e.Message); continue; }
+                foreach (var folder in folders) {
+                    if (IsReparse(folder)) { r.Errors.Add("folder is a reparse point: " + folder.FullName); continue; }
+                    FileInfo[] files;
+                    try { files = folder.GetFiles(); }
+                    catch (Exception e) { r.Errors.Add(folder.FullName + ": " + e.Message); continue; }
+                    FileInfo manifest = null, zipped = null;
+                    foreach (var f in files) {
+                        if (f.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) { paths++; raw += f.Length; }
+                        else if (string.Equals(f.Name, "manifest.json", StringComparison.OrdinalIgnoreCase)) { manifest = f; paths++; raw += f.Length; }
+                        else if (string.Equals(f.Name, "manifest.json.gz", StringComparison.OrdinalIgnoreCase)) { zipped = f; }
                     }
-                    catch { $errors.Add($file.FullName + ": " + $_.Exception.Message) }
+                    if (!SegmentName.IsMatch(folder.Name)) { continue; }
+                    if (manifest != null || zipped != null) {
+                        var used = manifest ?? zipped;
+                        if (IsReparse(used)) { r.Invalid.Add(used.FullName + ": reparse point"); continue; }
+                        string why = CheckManifest(used.FullName, manifest == null);
+                        if (why != null) { r.Invalid.Add(used.FullName + ": " + why); }
+                        continue;
+                    }
+                    if (unsealed.Count >= maxSegments) {
+                        r.Errors.Add("more than " + maxSegments + " unsealed segments; only the first " + maxSegments + " scanned");
+                        return r;
+                    }
+                    unsealed.Add(folder);
+                    r.Unsealed.Add(folder.FullName);
+                    try {
+                        foreach (var d in folder.GetDirectories())
+                            if (d.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) r.Invalid.Add(d.FullName + ": a folder named like a journal");
+                    }
+                    catch (Exception e) { r.Errors.Add(folder.FullName + ": " + e.Message); }
+                }
+            }
+            if (paths > MaxPaths || raw >= MaxRawBytes - SealReserveBytes) {
+                r.Errors.Add("uncompressed footprint at or near the recovery bound: " + paths + " paths, " + raw + " bytes");
+            }
+
+            // The live writer's own segment: the single newest unsealed one in a UTC day folder.
+            DirectoryInfo live = null; bool tie = false;
+            foreach (var folder in unsealed) {
+                if (!DayName.IsMatch(folder.Parent.Name)) continue;
+                if (live == null) { live = folder; continue; }
+                int c = string.CompareOrdinal(Key(folder), Key(live));
+                if (c > 0) { live = folder; tie = false; } else if (c == 0) { tie = true; }
+            }
+            if (tie) live = null;
+            r.LiveSegment = live == null ? null : live.FullName;
+
+            var pending = new List<KeyValuePair<FileInfo, long>>();
+            foreach (var folder in unsealed) {
+                FileInfo[] journals;
+                try { journals = folder.GetFiles("*.jsonl"); }
+                catch (Exception e) { r.Errors.Add(folder.FullName + ": " + e.Message); continue; }
+                foreach (var f in journals) {
+                    if (!f.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (IsReparse(f)) { r.Errors.Add("journal is a reparse point: " + f.FullName); continue; }
+                    try {
+                        bool torn; long length;
+                        string why = CheckJournal(f.FullName, out torn, out length);
+                        if (why != null) r.Invalid.Add(f.FullName + ": " + why);
+                        else if (torn && live != null && folder.FullName == live.FullName) pending.Add(new KeyValuePair<FileInfo, long>(f, length));
+                        else if (torn) r.Torn.Add(f.FullName);
+                    }
+                    catch (Exception e) { r.Errors.Add(f.FullName + ": " + e.Message); }
+                }
+            }
+            // A partial last line in the live segment is the writer's only while it is moving: a tail
+            // still the same length after the settle wait is torn (a crash-looping recorder, or a
+            // lock held by something else).
+            if (pending.Count > 0) {
+                Thread.Sleep(settleMs);
+                foreach (var item in pending) {
+                    try {
+                        bool torn; long length;
+                        string why = CheckJournal(item.Key.FullName, out torn, out length);
+                        if (why != null) r.Invalid.Add(item.Key.FullName + ": " + why);
+                        else if (torn && length == item.Value) r.Torn.Add(item.Key.FullName);
+                        else r.InFlight.Add(item.Key.FullName);
+                    }
+                    catch (Exception e) { r.Errors.Add(item.Key.FullName + ": " + e.Message); }
+                }
+            }
+            return r;
+        }
+
+        static string Key(DirectoryInfo folder) { return folder.Parent.Name + "/" + folder.Name.Substring(0, 2); }
+
+        static string CheckManifest(string path, bool gz) {
+            byte[] bytes;
+            using (var file = OpenShared(path)) {
+                Stream input = gz ? (Stream)new GZipStream(file, CompressionMode.Decompress) : file;
+                using (var buffer = new MemoryStream()) { input.CopyTo(buffer); bytes = buffer.ToArray(); }
+            }
+            var top = new Dictionary<string, Json.Value>();
+            string why = Json.Check(bytes, 0, bytes.Length, top);
+            if (why != null) return why;
+            Json.Value v;
+            if (!top.TryGetValue("schema_version", out v) || v.Kind != 's' || v.Text != Schema) return "schema_version is not " + Schema;
+            if (!top.TryGetValue("stream_response_bytes", out v) || v.Kind != 'i') return "stream_response_bytes is not an integer";
+            if (!top.TryGetValue("stream_capped", out v) || (v.Kind != 't' && v.Kind != 'f')) return "stream_capped is not a boolean";
+            return null;
+        }
+
+        // null when every newline-terminated line is a recoverable record; torn when bytes follow the
+        // last newline; length = bytes read.
+        public static string CheckJournal(string path, out bool torn, out long length) {
+            torn = false; length = 0;
+            using (var file = OpenShared(path)) {
+                var chunk = new byte[1 << 20];
+                var line = new MemoryStream();
+                long offset = 0; int n; bool oversized = false;
+                while ((n = file.Read(chunk, 0, chunk.Length)) > 0) {
+                    length += n;
+                    if (oversized) {
+                        // An oversized run is torn if no newline follows it, else an oversized record.
+                        if (Array.IndexOf(chunk, (byte)10, 0, n) >= 0) return "oversized record at offset " + offset;
+                        continue;
+                    }
+                    int start = 0;
+                    for (int i = 0; i < n; i++) {
+                        if (chunk[i] != 10) continue;
+                        line.Write(chunk, start, i + 1 - start);
+                        start = i + 1;
+                        if (line.Length > MaxLineBytes) return "oversized record at offset " + offset;
+                        string why = CheckRecord(line.GetBuffer(), (int)line.Length, offset);
+                        if (why != null) return why + " at offset " + offset;
+                        offset += line.Length;
+                        line = new MemoryStream();
+                    }
+                    line.Write(chunk, start, n - start);
+                    if (line.Length > MaxLineBytes) { oversized = true; line = new MemoryStream(); }
+                }
+                torn = oversized || line.Length > 0;
+            }
+            return null;
+        }
+
+        static string CheckRecord(byte[] bytes, int count, long offset) {
+            var top = new Dictionary<string, Json.Value>();
+            string why = Json.Check(bytes, 0, count, top);
+            if (why != null) return why;
+            Json.Value v;
+            if (!top.TryGetValue("offset", out v) || v.Kind != 'i') return "offset is not an integer";
+            long parsed;
+            if (!long.TryParse(v.Text, out parsed) || parsed != offset) return "record offset mismatch";
+            if (top.TryGetValue("kind", out v) && v.Kind == 's' && v.Text == "stream") {
+                if (!top.TryGetValue("response_bytes", out v) || v.Kind != 'i') return "stream record without integer response_bytes";
+            }
+            return null;
+        }
+    }
+
+    // Strict RFC 8259 check of one UTF-8 document whose top level must be an object. Records the
+    // top-level members (a duplicate name is a problem). Rejects what Python's json accepts beyond
+    // the RFC (NaN, Infinity, a BOM), which can only turn a clean result into "unknown".
+    public static class Json {
+        public struct Value { public char Kind; public string Text; }
+        static readonly UTF8Encoding Strict = new UTF8Encoding(false, true);
+
+        public static string Check(byte[] bytes, int index, int count, Dictionary<string, Value> top) {
+            string text;
+            try { text = Strict.GetString(bytes, index, count); }
+            catch (ArgumentException) { return "record is not valid UTF-8"; }
+            int i = 0;
+            try {
+                Ws(text, ref i);
+                if (i >= text.Length || text[i] != '{') return "record is not a JSON object";
+                ParseObject(text, ref i, top, 0);
+                Ws(text, ref i);
+                if (i != text.Length) return "trailing bytes after the JSON record";
+            }
+            catch (FormatException e) { return "invalid JSON: " + e.Message; }
+            return null;
+        }
+
+        static void Ws(string t, ref int i) { while (i < t.Length && (t[i] == ' ' || t[i] == '\t' || t[i] == '\n' || t[i] == '\r')) i++; }
+
+        static Value ParseValue(string t, ref int i, int depth) {
+            if (depth > 512) throw new FormatException("nesting too deep");
+            Ws(t, ref i);
+            if (i >= t.Length) throw new FormatException("unexpected end");
+            char c = t[i];
+            var v = new Value();
+            if (c == '{') { ParseObject(t, ref i, null, depth + 1); v.Kind = 'o'; }
+            else if (c == '[') {
+                i++; Ws(t, ref i);
+                if (i < t.Length && t[i] == ']') { i++; }
+                else {
+                    while (true) {
+                        ParseValue(t, ref i, depth + 1); Ws(t, ref i);
+                        if (i < t.Length && t[i] == ',') { i++; continue; }
+                        if (i < t.Length && t[i] == ']') { i++; break; }
+                        throw new FormatException("bad array");
+                    }
+                }
+                v.Kind = 'a';
+            }
+            else if (c == '"') { v.Text = ParseString(t, ref i); v.Kind = 's'; }
+            else if (Lit(t, ref i, "true")) v.Kind = 't';
+            else if (Lit(t, ref i, "false")) v.Kind = 'f';
+            else if (Lit(t, ref i, "null")) v.Kind = 'n';
+            else { v.Text = ParseNumber(t, ref i, out v.Kind); }
+            return v;
+        }
+
+        static bool Lit(string t, ref int i, string word) {
+            if (string.CompareOrdinal(t, i, word, 0, word.Length) != 0) return false;
+            i += word.Length; return true;
+        }
+
+        static void ParseObject(string t, ref int i, Dictionary<string, Value> members, int depth) {
+            if (depth > 512) throw new FormatException("nesting too deep");
+            i++; Ws(t, ref i);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (i < t.Length && t[i] == '}') { i++; return; }
+            while (true) {
+                Ws(t, ref i);
+                if (i >= t.Length || t[i] != '"') throw new FormatException("bad object key");
+                string name = ParseString(t, ref i);
+                Ws(t, ref i);
+                if (i >= t.Length || t[i] != ':') throw new FormatException("missing colon");
+                i++;
+                var value = ParseValue(t, ref i, depth + 1);
+                if (members != null) {
+                    if (!seen.Add(name)) throw new FormatException("duplicate top-level name " + name);
+                    members[name] = value;
+                }
+                Ws(t, ref i);
+                if (i < t.Length && t[i] == ',') { i++; continue; }
+                if (i < t.Length && t[i] == '}') { i++; return; }
+                throw new FormatException("bad object");
+            }
+        }
+
+        static string ParseString(string t, ref int i) {
+            i++;
+            var sb = new StringBuilder();
+            while (true) {
+                if (i >= t.Length) throw new FormatException("unterminated string");
+                char c = t[i++];
+                if (c == '"') return sb.ToString();
+                if (c < 0x20) throw new FormatException("control character in string");
+                if (c != '\\') { sb.Append(c); continue; }
+                if (i >= t.Length) throw new FormatException("bad escape");
+                char e = t[i++];
+                switch (e) {
+                    case '"': sb.Append('"'); break;
+                    case '\\': sb.Append('\\'); break;
+                    case '/': sb.Append('/'); break;
+                    case 'b': sb.Append('\b'); break;
+                    case 'f': sb.Append('\f'); break;
+                    case 'n': sb.Append('\n'); break;
+                    case 'r': sb.Append('\r'); break;
+                    case 't': sb.Append('\t'); break;
+                    case 'u':
+                        if (i + 4 > t.Length) throw new FormatException("bad unicode escape");
+                        int code = 0;
+                        for (int k = 0; k < 4; k++) {
+                            if (!Uri.IsHexDigit(t[i + k])) throw new FormatException("bad unicode escape");
+                            code = code * 16 + Uri.FromHex(t[i + k]);
+                        }
+                        i += 4; sb.Append((char)code); break;
+                    default: throw new FormatException("bad escape");
                 }
             }
         }
-        $script:result.pre_boot_unsealed_segment_count = $preBoot.Count
-        $script:result.pre_boot_unsealed_segments = @($preBoot.GetRange(0, [Math]::Min(20, $preBoot.Count)).ToArray())
-        if ($errors.Count -gt 0) { $script:result.torn_tail_scan_errors = @($errors.GetRange(0, [Math]::Min(20, $errors.Count)).ToArray()) }
-        if ($interior.Count -gt 0) { $script:result.interior_nul_journals = @($interior.GetRange(0, [Math]::Min(20, $interior.Count)).ToArray()) }
-        if ($torn.Count -gt 0) {
+
+        static string ParseNumber(string t, ref int i, out char kind) {
+            int start = i; kind = 'i';
+            if (i < t.Length && t[i] == '-') i++;
+            if (i >= t.Length || t[i] < '0' || t[i] > '9') throw new FormatException("bad value");
+            if (t[i] == '0') i++; else while (i < t.Length && t[i] >= '0' && t[i] <= '9') i++;
+            if (i < t.Length && t[i] == '.') {
+                i++; kind = 'd';
+                if (i >= t.Length || t[i] < '0' || t[i] > '9') throw new FormatException("bad fraction");
+                while (i < t.Length && t[i] >= '0' && t[i] <= '9') i++;
+            }
+            if (i < t.Length && (t[i] == 'e' || t[i] == 'E')) {
+                i++; kind = 'd';
+                if (i < t.Length && (t[i] == '+' || t[i] == '-')) i++;
+                if (i >= t.Length || t[i] < '0' || t[i] > '9') throw new FormatException("bad exponent");
+                while (i < t.Length && t[i] >= '0' && t[i] <= '9') i++;
+            }
+            return t.Substring(start, i - start);
+        }
+    }
+}
+'@
+    }
+}
+
+function Get-Capped($List) { return @($List.GetRange(0, [Math]::Min(20, $List.Count)).ToArray()) }
+
+function Finish-WriterAlive([string]$Reason) {
+    # Writer alive (a recorder process, or a held lock): nothing may move. First a read-only
+    # mirror of EvidenceStore._recover over the whole store, shared opens, no write: every unsealed
+    # segment is checked record by record (UTF-8, strict JSON object, offset chain, line bound,
+    # stream response_bytes), every sealed manifest's schema, and the footprint bound. The one
+    # exception is the live writer's own segment (the single newest unsealed one): a partial last
+    # line there passes only if the file moves during a 2 s settle wait. A torn tail anywhere else,
+    # or a still one, is REFUSED_WRITER_ALIVE_TORN, exit 3, even when other files failed.
+    # torn_tail_found is $false only when everything was positively verified; $null (unknown) on
+    # any read error, unverifiable record, or more than 64 unsealed segments. Unattended callers may
+    # treat exit 2 as benign only with torn_tail_found false.
+    $script:result.torn_tail_found = $null
+    $script:result.torn_tail_scan = "unknown"
+    try {
+        Get-StoreScanType
+        $scan = [WeatherTornQuarantine.StoreScan]::Scan($Root, 64, 2000)
+        $problems = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($item in $scan.Errors) { $problems.Add($item) }
+        foreach ($item in $scan.Invalid) { $problems.Add($item) }
+        $script:result.unsealed_segment_count = $scan.Unsealed.Count
+        $script:result.unsealed_segments = @(Get-Capped $scan.Unsealed)
+        $script:result.live_segment = $scan.LiveSegment
+        if ($scan.InFlight.Count -gt 0) { $script:result.in_flight_journals = @(Get-Capped $scan.InFlight) }
+        if ($problems.Count -gt 0) {
+            $script:result.torn_tail_scan_problem_count = $problems.Count
+            $script:result.torn_tail_scan_problems = @(Get-Capped $problems)
+        }
+        if ($scan.Torn.Count -gt 0) {
             $script:result.torn_tail_found = $true
-            $script:result.torn_tail_scan = $(if ($errors.Count -gt 0) { "partial: " + $errors[0] } else { "complete" })
-            $script:result.torn_journals = @($torn.GetRange(0, [Math]::Min(20, $torn.Count)).ToArray())
-            Finish "REFUSED_WRITER_ALIVE_TORN" 3 ($Reason + "; a segment older than the last boot has a torn tail and a writer holds the store")
+            $script:result.torn_tail_scan = $(if ($problems.Count -gt 0) { "partial: " + $problems[0] } else { "complete" })
+            $script:result.torn_journal_count = $scan.Torn.Count
+            $script:result.torn_journals = @(Get-Capped $scan.Torn)
+            Finish "REFUSED_WRITER_ALIVE_TORN" 3 ($Reason + "; an unsealed segment the writer is not writing has a torn tail")
         }
-        if ($errors.Count -gt 0) { $script:result.torn_tail_scan = "unknown: " + $errors[0] }
-        elseif ($interior.Count -gt 0) {
-            $script:result.torn_tail_scan = "unknown: interior NUL in a pre-boot journal (recovery would refuse it)"
-        }
+        if ($problems.Count -gt 0) { $script:result.torn_tail_scan = "unknown: " + $problems[0] }
         else {
             $script:result.torn_tail_found = $false
             $script:result.torn_tail_scan = "complete"
@@ -422,7 +723,14 @@ try {
     }
     catch {
         Release-Lock
-        Finish-WriterAlive ("writer lock is held or unavailable: " + $_.Exception.Message)
+        # Only a sharing or lock violation means a writer; ACL or I/O failures are their own refusal.
+        $failure = $_.Exception
+        while ($null -ne $failure.InnerException -and -not ($failure -is [IO.IOException])) { $failure = $failure.InnerException }
+        $win32 = $failure.HResult -band 0xFFFF
+        if ($failure -is [IO.IOException] -and ($win32 -eq 32 -or $win32 -eq 33)) {
+            Finish-WriterAlive ("writer lock is held: " + $failure.Message)
+        }
+        Finish "REFUSED_LOCK_UNAVAILABLE" 2 ("cannot open or lock .writer.lock (not a sharing or lock violation): " + $failure.Message)
     }
 
     # ---- store layout: reparse guard and unsealed segments (EvidenceStore._recover's rule) ----
