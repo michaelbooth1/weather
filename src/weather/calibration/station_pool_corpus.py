@@ -234,7 +234,7 @@ def _describe(values):
             "p10": float(np.percentile(v, 10)), "p50": float(np.percentile(v, 50)), "p90": float(np.percentile(v, 90))}
 
 
-def build(*, corpus_root, stations_meta, records_root, l9_corpus, out_root):
+def build(*, corpus_root, stations_meta, records_root, l9_corpus, out_root, raw_root=None):
     import pandas as pd
 
     from weather.calibration import ols_floor_ladder as l9
@@ -243,7 +243,7 @@ def build(*, corpus_root, stations_meta, records_root, l9_corpus, out_root):
 
     out_root = prm.require_output_outside_repo(out_root)
     corpus_root = Path(corpus_root)
-    raw_root = corpus_root / "raw" / "iem"
+    raw_root = Path(raw_root) if raw_root else corpus_root / "raw" / "iem"
     station_set = json.loads((corpus_root / "station_set.json").read_text(encoding="utf-8"))
     pool = list(station_set["survivors"])
     dose = list(station_set["dose_subset"])
@@ -668,6 +668,7 @@ def main(argv=None):
     b.add_argument("--records-root", required=True)
     b.add_argument("--l9-corpus", required=True)
     b.add_argument("--out-root", required=True, help="corpora root; the corpus lands in <out-root>/<sha256>")
+    b.add_argument("--raw-root", help="IEM raw root (default <corpus-root>/raw/iem); smoke runs only")
     lo = sub.add_parser("loyo")
     lo.add_argument("--corpus-dir", required=True)
     lo.add_argument("--records-root", required=True)
@@ -685,7 +686,7 @@ def main(argv=None):
                  out_dir=args.out_dir)
     elif args.cmd == "build":
         build(corpus_root=args.corpus_root, stations_meta=args.stations_meta, records_root=args.records_root,
-              l9_corpus=args.l9_corpus, out_root=args.out_root)
+              l9_corpus=args.l9_corpus, out_root=args.out_root, raw_root=args.raw_root)
     else:
         loyo(corpus_dir=args.corpus_dir, records_root=args.records_root, l9_corpus=args.l9_corpus,
              ra_loyo_rows=args.ra_loyo_rows, out_dir=args.out_dir)
