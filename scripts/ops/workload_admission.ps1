@@ -621,6 +621,7 @@ function Get-WeatherWorkstationOfflineModule {
         "tools.research.nbm_target_trace.run",
         "tools.research.nbm_target_fix",
         "tools.research.x36_v5_reopen.x36_trailing_g1",
+        "tools.research.x36_v5_reopen.x36_trailing_g2",
         "weather.backtesting.backtest",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",
