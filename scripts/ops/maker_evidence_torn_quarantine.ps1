@@ -29,7 +29,7 @@ Safety contract (design approved 2026-11-02, L54):
   .tmp, status.json or the lock file contents. No Scheduler mutation: start the task yourself.
 
 Exit codes: 0 NOOP / REPORT / QUARANTINED / RECONCILED / RECONCILED_AFTER_SEAL; 2 refused;
-4 failed mid-apply or FAILED_HASH_READ (intent kept; rerun reconciles); 5 UNRESOLVED / TORN_SIGNATURE_UNRESOLVED
+4 failed mid-apply or FAILED_HASH_READ (rerun reconciles, or reports UNRESOLVED on a hash mismatch); 5 UNRESOLVED / TORN_SIGNATURE_UNRESOLVED
 (needs a human; no action taken); 6 INTERNAL_ERROR (unexpected throw; lock released). A
 parameter-binding error is raised by PowerShell before the script runs and is outside this
 contract.
@@ -114,7 +114,7 @@ function Get-Sha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
-function Get-ShaChecked([string]$Path) {
+function Get-ShaChecked([string]$Path, [bool]$HasIntent) {
     # Hash a journal during plan/apply; an unreadable or empty hash stops with FAILED_HASH_READ.
     $hash = $null
     $why = "no hash returned"
@@ -124,7 +124,9 @@ function Get-ShaChecked([string]$Path) {
     }
     catch { $why = $_.Exception.Message }
     if ($hash -notmatch '^[0-9A-Fa-f]{64}$') {
-        Finish "FAILED_HASH_READ" 4 ("cannot hash {0} ({1}); intent kept, rerun reconciles" -f $Path, $why)
+        $next = "nothing moved; no intent"
+        if ($HasIntent) { $next = "intent kept, rerun reconciles" }
+        Finish "FAILED_HASH_READ" 4 ("cannot hash {0} ({1}); {2}" -f $Path, $why, $next)
     }
     return $hash.ToLowerInvariant()
 }
@@ -376,7 +378,7 @@ try {
                 if ((Test-Path -LiteralPath $src) -or -not (Test-Path -LiteralPath $dst)) {
                     Finish "UNRESOLVED" 5 ("sealed segment but planned journal is not only at the quarantine: " + $entry.name)
                 }
-                $after = Get-ShaChecked $dst
+                $after = Get-ShaChecked $dst $true
                 if ($after -ne [string]$entry.sha256_before) { Finish "UNRESOLVED" 5 ("quarantined bytes differ from the intent: " + $entry.name) }
                 $files += [pscustomobject][ordered]@{ name = [string]$entry.name; size = [int64]$entry.size; tail = [string]$entry.tail
                     sha256_before = [string]$entry.sha256_before; sha256_after = $after; source = $src; destination = $dst }
@@ -471,7 +473,7 @@ try {
                 Finish "REFUSED_DESTINATION_EXISTS" 2 ("quarantine already holds " + $candidate.name)
             }
             $plan += [ordered]@{ name = $candidate.name; size = $candidate.size
-                sha256_before = (Get-ShaChecked (Join-Path $segment.FullName $candidate.name)); tail = $candidate.tail }
+                sha256_before = (Get-ShaChecked (Join-Path $segment.FullName $candidate.name) $false); tail = $candidate.tail }
         }
         $mode = "fresh"
     }
@@ -484,7 +486,7 @@ try {
         if ($atSrc -and $atDst) { Finish "REFUSED_RECONCILE_MISMATCH" 2 ("present at source and destination: " + $entry.name) }
         if (-not $atSrc -and -not $atDst) { Finish "UNRESOLVED" 5 ("missing from source and destination: " + $entry.name) }
         $path = $src; if ($atDst) { $path = $dst }
-        if ((Get-ShaChecked $path) -ne $entry.sha256_before) { Finish "UNRESOLVED" 5 ("bytes differ from the plan: " + $entry.name) }
+        if ((Get-ShaChecked $path ($mode -eq "reconcile")) -ne $entry.sha256_before) { Finish "UNRESOLVED" 5 ("bytes differ from the plan: " + $entry.name) }
         if ($atSrc) { $pending += $entry }
     }
     $script:result.mode = $mode
@@ -511,7 +513,7 @@ try {
     $files = @()
     foreach ($entry in $plan) {
         $dst = Join-Path $destination $entry.name
-        $after = Get-ShaChecked $dst
+        $after = Get-ShaChecked $dst $true
         if ($after -ne $entry.sha256_before) { Finish "FAILED_HASH_MISMATCH" 4 ("hash changed across move: " + $entry.name) }
         $files += [pscustomobject][ordered]@{ name = $entry.name; size = $entry.size; tail = $entry.tail
             sha256_before = $entry.sha256_before; sha256_after = $after

@@ -446,6 +446,7 @@ def test_null_hash_after_move_is_failed_hash_read_and_a_rerun_reconciles(tmp_pat
     destination = quarantine_dir(tmp_path)
     code, payload = run(tmp_path, root, "-Apply", env={"FAKE_HASH_NULL_PREFIX": str(destination)})
     assert (code, payload["status"]) == (4, "FAILED_HASH_READ")
+    assert payload["reasons"][-1].endswith("intent kept, rerun reconciles")
     assert (destination / "QUARANTINE_INTENT.json").exists()
     assert not (destination / "QUARANTINE_RECEIPT.json").exists()
     assert (destination / "reward-a.jsonl").read_bytes() == TORN_NUL
@@ -457,6 +458,7 @@ def test_null_hash_while_planning_is_failed_hash_read_and_nothing_moves(tmp_path
     root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
     code, payload = run(tmp_path, root, "-Apply", env={"FAKE_HASH_NULL_PREFIX": str(folder)})
     assert (code, payload["status"]) == (4, "FAILED_HASH_READ")
+    assert payload["reasons"][-1].endswith("nothing moved; no intent")
     assert (folder / "reward-a.jsonl").read_bytes() == TORN_NUL
     assert not (tmp_path / "maker_evidence_quarantine").exists()
 
@@ -531,11 +533,13 @@ def test_receipt_time_without_offset_is_read_as_utc(tmp_path):
     root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
     destination = quarantine_dir(tmp_path)
     destination.mkdir(parents=True)
-    (destination / "QUARANTINE_RECEIPT.json").write_text(json.dumps({"completed_at_utc": "2099-01-01T00:00:00"}),
-                                                         encoding="utf-8")
+    # Offset-free receipt 30 s before the fake task run. Only a UTC read makes the run newer; on a host
+    # behind UTC a local read would push the receipt hours later and wrongly report "predates".
+    from datetime import timedelta
+    receipt = (datetime.now(timezone.utc) + timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S")
+    (destination / "QUARANTINE_RECEIPT.json").write_text(json.dumps({"completed_at_utc": receipt}), encoding="utf-8")
     code, payload = run(tmp_path, root, "-TaskName", "T", env=task_env(1, offset_seconds=60))
-    assert (code, payload["status"]) == (0, "NOOP_ALREADY_QUARANTINED")
-    assert payload["task_check"].startswith("last result 1 predates")
+    assert (code, payload["status"], payload["noop_status"]) == (5, "TORN_SIGNATURE_UNRESOLVED", "NOOP_ALREADY_QUARANTINED")
 
 
 def test_receipt_exists_but_torn_journals_remain_refuses(tmp_path):

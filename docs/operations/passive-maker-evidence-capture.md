@@ -459,7 +459,7 @@ Exit codes:
 | --- | --- |
 | 0 | `NOOP_*`, `REPORT*`, `QUARANTINED`, `RECONCILED`, `RECONCILED_AFTER_SEAL` |
 | 2 | refused |
-| 4 | failed mid-apply, or `FAILED_HASH_READ`; intent kept, rerun reconciles |
+| 4 | failed mid-apply, or `FAILED_HASH_READ`; rerun reconciles, or reports `UNRESOLVED` (hash mismatch) |
 | 5 | unresolved; needs a human |
 | 6 | internal error; lock released |
 
