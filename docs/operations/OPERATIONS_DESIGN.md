@@ -613,7 +613,8 @@ through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that
   first clean sample. The outcome (`recovered`, `still_degraded`, `deadline_exhausted`,
   `non_transient_blocker`) and every sample are recorded as `post_step_transient_retry` in the step's
   `resource_execution`. Inactive loops, stale or missing heartbeats, any other degraded reason and any
-  memory/commit blocker still defer immediately.
+  memory/commit blocker still defer immediately. The pre-step admission uses the same re-sample (since
+  2026-11-01), recorded as `pre_step_transient_retry`; on a still-blocked outcome the step defers unstarted.
 - **The commit gate is relative to the live commit limit.** Stage A refuses above
   `DEFAULT_STAGE_A_MAX_COMMIT_PERCENT` (70, `daily_refresh_resources.py`; the CLI may only lower it) of the
   host's *current* commit limit, which moves with pagefile size. Never reason from a remembered limit. Read the
@@ -1102,6 +1103,24 @@ stopped, or is proving their recovery. Do this task first. If the pass cannot fi
 - Work outside the 12:00-00:30 protected windows, and not while a Stage-A chain or bounded suite is running.
 - Just before each row, confirm that the task's `State` is not `Running`.
 - Finish before 01:00 on 2026-11-01. Row 1 at least must be done by then.
+
+**Done 2026-10-31 10:55 (master-agent; the 10-29/30 slot was missed).** All nine rows were reset with
+`reset_daily_trigger_local.ps1 -Apply`, registrar rows included: the live tasks predate the current registrars (row 1's
+registrar needs base-retrain parameters the live task never had), so only the zone suffix changed. Row 2 was already
+local from its 10-30 re-registration. The GetRunTimes probe passed for 10-31..11-03, and no enabled `Weather*` task
+keeps a zoned daily trigger. Still pending, not DST-related: row 6's `-File`/status-file conversion by its registrar.
+
+**OD28 morning-after check, 2026-11-01 07:25 (master).** Of the 9 reset daily tasks, the five due by then fired at their
+local times with rc 0: `WeatherTrainingWindowRestore` 04:15, `WeatherClobTiering` 05:00, `WeatherClobRawTapeTiering` and
+`WeatherLocationConfigRefresh` 06:00, `WeatherExchangeEconomicsSnapshotRefresh` 06:50. Still due that day:
+`WeatherStalenessSweep` 08:10, `WeatherDailySettlementPromotionRefresh` 09:30, `WeatherStreakCaptureMonitor` 12:00.
+`WeatherEveningEvidenceRefresh` is disabled. `WeatherMg2InputExport` (04:15, 07:00) and `WeatherColdSnapshotNightly`
+(06:50) already had offset-free local triggers, were not reset, and also ran on time with rc 0. The 27 tasks whose XML
+carries zone-offset times re-hash after DST only because `Export-ScheduledTask` renders them in the current offset (for
+example `-05:00`); the 13 offset-free tasks are byte-identical. Read a post-DST XML diff split into offset-bearing and
+offset-free tasks.
+Disabled tasks still carry `-04:00` daily triggers (for example `WeatherMarketMakingDailyRoll`,
+`WeatherNightlyRetrainValidatePromote`, `WeatherMergeQueueDriver`); reset one before it is re-enabled.
 
 **Steps.** For a registrar row, re-run the registrar with exactly the parameters the live task was registered
 with; read them from the live action first. None of these changes the task's command except row 6. Row 6 converts

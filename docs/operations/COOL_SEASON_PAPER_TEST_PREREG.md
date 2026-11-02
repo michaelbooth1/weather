@@ -79,6 +79,13 @@ F = capture-time market mid p_market_yes with the rule-4 floor mask, renormalise
   arms is about 0 (EF §10ad; P3d_N at 13-16) makes this outcome plausible; nobody has measured w for L6
   at 07-12 against the market.
 
+**Source-provenance record items (2026-10-31, master-approved wording; record only, no design change).**
+- The served model v0.5.12 trains on Open-Meteo Historical Forecast `best_match` 2021-25, and the release records
+  no source provenance. L16's composition check: `best_match` tracks HRRR with no break, all held months (12
+  stations x 2021-26 x May-Jun; EF §10an "two archives differ").
+- Captured Open-Meteo `gfs_seamless` is HRRR inside HRRR's horizon (register X63, EF §10an), so a captured "GFS"
+  and "HRRR" pair is one source.
+
 ## 3. The paper decision rule (what a paper trade is)
 
 All inputs are dated by **receipt**, never by observation (method §3, the L11 look-ahead lesson). The rule

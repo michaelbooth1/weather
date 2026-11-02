@@ -693,6 +693,25 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
     # fallback denies the child. A hard stop must never leave status=running.
     _flush_incremental_status(args, payload, fail_closed=True)
     if admission_before.get("decision") != "ADMIT":
+        # Same bounded, deadline-respecting re-sample as the post-step check:
+        # one transient capture-loop error cycle must not defer the step.
+        def _record_prestep_recheck(record):
+            resource_record["pre_step_transient_retry"] = record
+            _flush_incremental_status(args, payload)
+
+        admission_before, prestep_retry = await_transient_capture_recovery(
+            args,
+            step_name,
+            budget,
+            admission_before,
+            admission_fn=build_stage_a_step_admission,
+            on_recheck=_record_prestep_recheck,
+            phase="before",
+        )
+        if prestep_retry is not None:
+            resource_record["pre_step_transient_retry"] = prestep_retry
+            resource_record["admission_before"] = admission_before
+    if admission_before.get("decision") != "ADMIT":
         resource_record["status"] = "deferred"
         payload["current_step"]["status"] = "deferred"
         payload["interruption"]["reason"] = "resource_admission_blocked"

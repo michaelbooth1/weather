@@ -47,7 +47,7 @@ sequence numbers, not calendar dates.
 | 1h | The point-in-time field test is pre-registered and frozen (`-09-61a`) |
 | 1i | α = 0.0025 is short on the thin tail; quantile amendment A1 (`-09-62a`) |
 | 1j | Decision 10 closed unused; Gate 3 fired on a floor never served (`-09-63a`) |
-| 1k | Missions `-09-64a`..`-09-78a`: instrument audit closed, `high_so_far` is not append-only, replay does not reproduce what was served, recovery thread closed unpowered |
+| 1k | Missions `-09-64a`..`-09-78a`: instrument audit closed, `high_so_far` is not append-only, replay does not reproduce what was served, recovery thread closed unpowered; 2026-11-01 addendum: the decreases are pervasive on dev and released dates, mechanism the 07:00 window |
 | 1m | Workstation research lineage 2026-09-01..04 (unmerged): the eleven extra free PIT fields are tested and inconclusive three times, never harmful; provider history depth by field/year; no free v2 PIT source |
 | 2 | The cool bias is real, seasonal-coverage caused, and not correctable at serve |
 | 3 | The serving floor fix: the one shipped win |
@@ -127,6 +127,8 @@ sequence numbers, not calendar dates.
 | 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet approved (master ruling (10-25)), landing 10-26/27 |
 | 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market; R-S KILL at gate 2 (NBM-published spread closed) |
 | 10al | Reads 2026-10-26/27: R-U CLOSED at P0 (HRRR 3x3 spread as width closed at all hours); C10 opened, not adopted; SM-H selected for MG-3 13-15 (h15 unresolved); CS-1 P3d_H 13-16 transfers, P3d_H 07-12 does not; R-V gate 2 (a) capture-proposal PASS, (b) KILL |
+| 10an | Open-Meteo `gfs_seamless` is HRRR over the US inside HRRR's horizon (provider docs; X63 probe ~57 h): "GFS" and "HRRR" from the multimodel feed are one source; row 78 effective K 16, no verdict change; Previous Runs history composition not established; Previous Runs history changes regime about 2024-01, while served Historical Forecast best_match shows no break (2026-10-31 bullets) |
+| 10ao | Released-window re-base of served vs market, out of sample and not countable (powered=False): R at 00-16 1.455 pre / 1.513 post, inside the dev positive-control CIs; the dev gap persists on released dates; row 101 (D) |
 
 ---
 
@@ -1383,6 +1385,26 @@ outcome, label or market price was read. Source:
 `agent-report-2026-09-02-workstation-estimand-power-and-sign.md`.
 
 ---
+
+### 2026-11-01 addendum — `high_so_far` decreases are pervasive after 06-30 too; mechanism the 07:00 window
+
+- **Released 10-01..10-14 (row 103 rehearsal, feature only).** `-09-70a`/`-71a`'s non-append-only high_so_far is
+  pervasive: 29% of snapshots (7,879 of 27,107 on the WU scale) fall below an earlier capture's value, in 150 of 152
+  cells; drops concentrate in local hours 1-8 (median 1.98°F, p90 5.22°F, max 24.66°F). Diag `780a61c8` /
+  `8f39b12e`; probe `02a3c5c1` / `030a6d48`. The register's master-approved wording cites this read as 29.2% of 10-01..10-14 (diag `780a61c8`).
+- **Dev 07-31..09-29 (direction A Q1, feature only).** 29.8% of snapshots decrease (receipt `015a5f88`, script
+  `c4b1bf1b`): 41.6% at 00-16 (00-06 69.9%, 07-12 36.2%, 13-16 2.0%, 17-23 0.9%), in 617 of 626 cells; 65% of
+  episodes return exactly to the earlier max.
+- **Served, not only replayed (gate (i), receipt `079b7953`).** Served high_so_far is byte-equal to the layout
+  (1,980 / 1,980 on the 09-28 sidecars) and decreases on 53.8% of dev 00-12 snapshots. The served hard floor =
+  round(high_so_far), recorded in `snapshot_explanations` (09-25..29 only), decreasing 55.5% at 00-12.
+- **Mechanism (gate (ii)).** The 07:00 window definition (t20.md:53), measured dev 00-12: pre-07 current reading
+  67.8%, post-07 window reset 30.2%, 2.0% undecidable post-07 drops. The register's "moot after 06-30 (WU dark)" is
+  contradicted.
+- **Cost and status.** Bounded by X14 / ledger row 33: the fix raises the HGB input AND the floor (row 33 rule l.32;
+  rows 96 and 98), −0.0088 at 00-16, NOT BOUND. Fix 10 (high_so_far train/serve parity, after 12-13) covers it and
+  should check parity under the early-hour decrease pattern; nothing changes before B. Direction A closed
+  2026-11-01; archive `C:\archive\ruled-out\hsf-repair-cost-A\` (SHA256SUMS `0dd65663…`).
 
 ## 1m. THE ELEVEN EXTRA FREE PIT FIELDS ARE TESTED, NOT UNTESTED — workstation research lineage, 2026-09-01..04 (unmerged)
 
@@ -4566,6 +4588,13 @@ Introduced in `fdd7ddc75`, fixed in `e40804dfe` (the C7/C8 line).
   already does for Markdown. It lands in the 10-26/27 chain; its `tests/AGENTS.md` note lives on that branch.
 - **Lesson:** a negative test must be shown to fail on a planted violation before it is trusted.
 - **Reopen if:** a control byte is found in a `.ps1` file or another type the ratchet does not cover.
+- **Reopened and widened (master ruling 10-30):** TAB/FF/CR reached a `.ps1` comment and broke a launcher, and
+  `"C:\t..."` became a TAB in ledger and register paths. The same test, on `claude/control-char-ratchet-20261030`,
+  now reads the index blobs of every tracked `.ps1`, `.psm1`, `.md`, `.json` and `.py` file. It normalises CRLF, then
+  refuses every control character other than LF and tab, lone CR included, with a justified `ALLOWLIST`. Its first
+  run found a single offender on `origin/master`: `"\restart"` had become CR + `estart` in two command lines of
+  `passive-maker-evidence-capture.md`. That has been fixed. The docs audit allows CR but forbids tab in docs
+  Markdown, so it is stricter for tab in its own scope and missed the CR.
 
 ### 10ak. Lane reads of 2026-10-26: R-P killed, R-PD and R-N closed at 00-06, R-L stopped on an NBS format fact, R-R a dev WIN at 07-12 — workstation, recorded 2026-10-26
 
@@ -4697,6 +4726,62 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   `72b97e0b…`; `results_rq.md` on `claude/rq-run-env-20261029` @ `558889b13`. Code unlanded (P3d_N family B-bound).
 - **Not claimed:** edge; any forward result; that the kill covers multi-model dispersion, observed-state predictors
   or a GEFS-anchored arm.
+
+### 10an. Open-Meteo `gfs_seamless` is HRRR over the United States inside HRRR's horizon, so "GFS" and "HRRR" from the multimodel feed are one source: L14, 2026-10-31 (docs plus the X63 probe; no data re-read)
+
+- **Fact.** For US points, Open-Meteo's `/v1/gfs` `gfs_seamless` returns HRRR values for every hour that HRRR
+  covers, and GFS after that.
+  - L2's live probe measured the handover at about 57 h (register X63, probe `1081d6d7…`, master ruling
+    2026-10-30: NOT A DEFECT).
+  - The provider documents the design (<https://open-meteo.com/en/docs/gfs-api>, page sha256 `c88ac6fb…`). The
+    API "combines them with high-resolution HRRR forecasts", "them" being NOAA GFS. High-resolution data
+    exist for the United States only. A "Seamless" model combines one provider's models.
+  - Captured rows agree. In row 78's `features.parquet`, `mm_gfs_seamless == mm_ncep_hrrr_conus` on 110,692 of
+    110,692 rows, because the 2-day capture window keeps target hours inside the horizon.
+- **Consequence.** Any test, feature or blend that lists `gfs_seamless` and `ncep_hrrr_conus` as two sources
+  counts one source twice. Any CONUS read that calls `gfs_seamless` "GFS" at short lead is reading HRRR.
+  - Row 78's K = 17 is effectively 16. BH recomputed from the recorded p-values (receipt `02c46630…`) still
+    rejects nothing: the smallest q goes from 0.8125 to 0.7647. No verdict changes.
+  - `open_meteo_gfs_high_delta` and `open_meteo_hrrr_high_delta` are duplicate columns.
+  - The multimodel medians (`reference_high` fallback, run-to-run change) double-weight HRRR.
+  - The range spreads (`OM-MM-SPREAD`, `open_meteo_multimodel_next_3h_spread`) are unaffected.
+  - F4's `gfs_seamless` (row 9) and L4's "GFS" member (X6) are HRRR-in-horizon reads.
+  - The full list is in [the duplication table](../research/s31-other-venue-prices-2026-10-31/gfs-hrrr-duplication-2026-10-31.md).
+- **Previous Runs composition (indirect; L14 JOB 2 and docs narrowing, 2026-10-31, master-approved wording).**
+  PIT day-1 `gfs_seamless` at f24-30 is within 0.2°F of native HRRR on 3% of rows in 2021-23 against 81% / 77% in
+  2024 / 2025, so the composition changes between 2023-09-29 and 2024-07-30; 2026 day-0 capture equals HRRR on 100%
+  (outcome-free; output `3af50b2f…`, receipt `49270197…`, archive `C:\archive\ruled-out\_s31-intake\gfs-hrrr\`).
+  The provider's Previous Runs page says most models are archived from January 2024 and GFS 2 m temperature from
+  March 2021; the inference is that 2021-23 seamless is a GFS-only back-extension and HRRR enters about 2024-01
+  (note `9d800fdd…`). Consumers that span the change: the PIT corpora, R0, L5 arm B, L4 and the retired MG-2 arm A;
+  the MG-2 live input is not affected. Register scope note (§6, after the pooled-candidate inventory).
+- **The two archives differ (L16, 2026-10-31, master-approved wording).** The served model's Historical Forecast
+  `best_match` tracks HRRR with **no break** 2021-26: no break in any held month (12 stations x 2021-26 x May-Jun,
+  the only months the cache holds; HRRR share 0.77-1.0, zero NOT_HRRR cells; tables `d3f0efbc…`, `3c5c7ab4…`,
+  archive `C:\archive\ruled-out\_s31-intake\best-match\`). Previous Runs `best_match` day-1 equals PIT seamless,
+  with the regime break about 2023-12 / 2024-01 (indicative). The break touches research refits only (R0, L5 arm B,
+  L4); no served or frozen-forward target reads PIT seamless (sweep table `7b9823e6…`). Lever draft `81b4fddb…`
+  (single regime from 2024-02-01, or a regime indicator) is on HOLD. PT-1 record item: the PT-1 draft §2.
+- **Do not re-chase** the equality as a capture defect (X63).
+- **Reopen if** Open-Meteo changes seamless blending, or a capture window extends past the HRRR horizon.
+
+### 10ao. On released dates the served path's loss to the market stays about 1.5x at 00-16, inside the dev positive-control CIs: atlas re-base P1, ledger row 101 (D), 2026-10-31
+
+- **Master's text (verbatim).** "Released-window re-base, out of sample, not countable (powered=False: 9 and 5
+  dates). Served/market loss R at 00-16 = 1.455 pre and 1.513 post; all-block 1.648 / 1.514. Both sit inside the
+  dev positive-control CIs, and every pooled block CI excludes 1. The dev served-vs-market gap persists on
+  released dates. The 17-23 block is degenerate (market loss about 0 after the print). Per-market ordering is
+  unstable between strata."
+- **Support.** Rule `docs/research/iterate-faster-2026-10-30/atlas-rebase-rule-2026-10-31.md`, sha256
+  `ece56e836cee9d3bf037e0e2c0b0847bd37a7cf2d60865a1ce949c18fd772bf7` (frozen by master 2026-10-31). Receipt
+  `d3e9db76c4761007290cac3ca114d41339536a755ccf7e7eec9b0c46e0db09ca`; archive `C:\archive\ruled-out\_atlas\row101_p1\`,
+  SHA256SUMS `e378991d24d3287d5707c1d4fcd967176633bb92006492e8cb9b884334f56a4d`. P1 only: US11, local targets
+  10-01..10-14 minus Austin 10-03, strata `pre` 10-01..10-09 and `post` 10-10..10-14, never pooled. P2 and P3 are
+  NOT RUNNABLE.
+- **Reading.** Descriptive only: no candidate, no fit, not counted in the dev reuse count, and nothing here kills
+  or closes anything (rule §8). It is consistent with row 80 NOT REPLICATED, and it implies no new lever.
+- **Relation to the dev number.** The TAINTED dev ratio 1.423246x (§1) is unchanged; this section describes
+  today's served path on released dates, which that ratio cannot.
 
 ## Related
 
