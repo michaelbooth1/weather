@@ -300,9 +300,11 @@ no `manifest.json`/`manifest.json.gz` (normally only the one the writer had open
 A hard power loss can leave a journal there with a NUL-filled or partial last line,
 and recovery then refuses to start rather than truncate it. **Detection:**
 `WeatherMakerEvidenceCapture` returns `LastTaskResult` 1 at every PT5M trigger,
-`status.json` goes stale, and the startup traceback ends in `_recover` at
-`json.loads` (`UnicodeDecodeError` for a NUL tail; a partial line gives
-`JSONDecodeError` or `torn journal or invalid record offset`). Incident: host power
+`status.json` goes stale (`status.ps1` flags `MAKER_EVIDENCE`). The task runs
+`pythonw.exe` and persists no traceback; when one is captured it ends in `_recover`
+at `json.loads` (`UnicodeDecodeError` for a NUL tail; a partial line gives
+`JSONDecodeError` or `torn journal or invalid record offset`). Confirm read-only from
+the journal tails in step 1. Incident: host power
 loss 2026-11-02, five `reward-*.jsonl` journals, about six hours dark.
 
 **Procedure** (operator, while the task is failing, so no process holds
