@@ -613,19 +613,33 @@ Stage-A, workstation or live authority is added.
    owner is orphaned, not stopped), and only the owner is spared, with a
    CRITICAL log. A heavy shell line above an in-window owner is stopped alone the
    same way.
-   **Orphaned lease trees.** The guard remembers, in
-   `data\logs\memory_commit_guard_state.json`, each live lease owner it saw
-   inside an agent tree (PID and creation instant). When a remembered owner is
-   still a live lease owner but has lost its agent root (its parent was stopped
-   alone), the top of its verified ancestry becomes a tool root of its own, so
-   window, concurrency, budget and commit-emergency rules keep applying to the
-   orphaned tree. A released lease ends the attribution. That covers `workstation_heavy.ps1`, the bounded
+   That covers `workstation_heavy.ps1`, the bounded
    suite, `training_window.ps1`, `daily_refresh.ps1` (which takes its own lease)
    and one-off lease wrappers, including when a script, `py` or a git hook
    launched the wrapper. Each tree holding a live lease owner takes exactly one
    in-window slot first for its admitted work; its unadmitted heavy members, if
    any, compete with the other trees for the remaining slots, oldest first, and a
    losing leased tree loses only those members.
+   **Orphaned lease trees.** The guard remembers, in
+   `data\logs\memory_commit_guard_state.json`, each live lease owner it saw
+   inside an agent tree (PID and creation instant). When a remembered owner is
+   still a live lease owner but has lost its agent root (its parent was stopped
+   alone), the top of its verified ancestry becomes a tool root of its own, so
+   window, concurrency, budget and commit-emergency rules keep applying to the
+   orphaned tree. A released lease ends the attribution.
+   **Guard state failures only ever spare.** The same file carries the
+   unreadable-lock count below. A state file that exists but cannot be read
+   (sharing violation, access denied) or does not parse as a v1 record is logged
+   as ERROR and the run proceeds with no memory: the unreadable-lock count
+   restarts and no orphaned tree is attributed, so the guard can only spare more,
+   never stop more. An unreadable file is left in place for the next run; a
+   damaged one is replaced. A failed write is logged as ERROR and leaves the
+   previous record in place; its remembered owners stay usable while it is at
+   most five minutes old, but its unreadable-lock count carries over only when
+   the record is at most 90 seconds old (written by the run one minute earlier),
+   so a stale count can never push a run past the two-run limit. The status file
+   reports `guard_state_read` (`absent`, `ok`, `stale`, `unreadable`, `invalid`),
+   `guard_state_written` and `guard_state_degraded`.
    **Release.** `Exit-WeatherHeavyWorkloadLease` overwrites the repository lock
    with a `weather_heavy_workload_lease_released_v1` marker before it disposes the
    handle; the guard reads that marker as no lease, so a former owner that keeps
@@ -651,7 +665,8 @@ Stage-A, workstation or live authority is added.
    **No guard rule terminates a tree that contains a live lease owner as a
    whole, nor the owner or the agent root.** As a last line, the tree-kill
    routine itself skips any live owner (PID and creation instant), and while any
-   owner lives or a lease record is unreadable it leaves console hosts
+   owner lives, or a lease record is unreadable within the two-run limit above,
+   it leaves console hosts
    (`conhost.exe`, `OpenConsole.exe`) running, since ending one ends every
    process on its console, the owner included. Window and concurrency rules stop
    only unadmitted heavy member subtrees. Over the budget, if the subtrees hanging

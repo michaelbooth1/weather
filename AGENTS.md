@@ -76,10 +76,10 @@ memory as project guidance; durable knowledge lives in this repository.
     parallel agents or parallel tool calls. **A direct full pytest run is
     forbidden at every hour**; use the full suite in chunks of at most 25 files,
     `scripts/ops/bounded_worktree_test_suite.ps1`, in the admitted window.
-  - The one-minute S4U guard enforces this policy for codex-, chatgpt- and
-    claude-rooted trees (Bash and PowerShell tools alike; lease-admitted work
-    exempt); only Codex also has a pre-launch hook. Do not bypass either, and
-    always retain and poll or terminate any yielded executor session ID.
+  - The S4U guard enforces this policy for codex-, chatgpt- and claude-rooted
+    trees (both tools; a lease admits work only in its policy window, and the
+    budget and commit rules still apply); only Codex has a pre-launch hook. Do
+    not bypass either; retain and poll or terminate yielded executor sessions.
 - That timetable binds only the capture host. A separate non-capture workstation
   (the 32 GB PC, even while it holds the portable live-executor assignment) may
   run implementation, tests, training, and replay without the window,
