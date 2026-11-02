@@ -6,7 +6,7 @@ Boot-task entry point of WeatherMakerEvidenceTornQuarantine (torn-journal quaran
 Runs maker_evidence_torn_quarantine.ps1 -Apply on the core root in a child Windows PowerShell and
 passes its exit code through, with one exception: exit 2 with status REFUSED_WRITER_ALIVE becomes 0
 only when the same JSON proves torn_tail_found is false (Stage 1's read-only scan of the unsealed
-segments older than this boot completed and found no torn tail). After a normal boot the recorder
+segments older than the last cold boot completed and found no torn tail). After a normal boot the recorder
 is up within one PT5M trigger, so every later run of the 15-minute poll is that clean refusal, and
 as a non-zero LastTaskResult it would be a status.ps1 failure until the next boot.
 A live writer over a torn pre-boot segment is REFUSED_WRITER_ALIVE_TORN (exit 3) and stays 3. A

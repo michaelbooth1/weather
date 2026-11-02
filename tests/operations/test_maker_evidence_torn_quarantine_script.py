@@ -413,6 +413,50 @@ def test_writer_alive_scan_that_cannot_read_a_journal_is_unknown(tmp_path):
     assert payload["torn_tail_found"] is None and payload["torn_tail_scan"].startswith("unknown: ")
 
 
+def test_writer_alive_scan_reads_a_journal_the_writer_holds_open_for_append(tmp_path):
+    # The scan opens shared: a recorder-style append handle does not block it and no byte changes.
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_PARTIAL})
+    age(folder)
+    with open(folder / "reward-a.jsonl", "ab"):
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+    assert payload["torn_tail_scan"] == "complete"
+    assert (folder / "reward-a.jsonl").read_bytes() == TORN_PARTIAL
+
+
+def test_writer_alive_over_an_interior_nul_pre_boot_journal_is_unknown_not_clean(tmp_path):
+    # Newline-terminated but NUL inside: EvidenceStore._recover would refuse it, so not "clean".
+    body = journal(2) + b"\x00" * 16 + b"\n" + journal(1)
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": body})
+    age(folder)
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", None)
+    assert payload["torn_tail_scan"].startswith("unknown: interior NUL")
+    assert payload["interior_nul_journals"] == [str(folder / "reward-a.jsonl")]
+    assert (folder / "reward-a.jsonl").read_bytes() == body
+
+
+def test_writer_alive_torn_tail_stays_torn_when_another_journal_is_unreadable(tmp_path):
+    import ctypes
+    from ctypes import wintypes
+    root, folder = make_store(tmp_path, {"book-1.jsonl": journal(), "reward-a.jsonl": TORN_NUL})
+    age(folder)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    handle = kernel32.CreateFileW(str(folder / "book-1.jsonl"), 0x80000000, 0, None, 3, 0x80, None)
+    assert handle not in (None, wintypes.HANDLE(-1).value)
+    try:
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    finally:
+        kernel32.CloseHandle(handle)
+    assert (code, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+    assert payload["torn_tail_scan"].startswith("partial: ")
+    assert payload["torn_journals"] == [str(folder / "reward-a.jsonl")]
+    assert len(payload["torn_tail_scan_errors"]) == 1
+
+
 # 9 -----------------------------------------------------------------------------------------
 def test_the_store_cannot_take_the_writer_lock_while_the_script_holds_it(tmp_path):
     root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})

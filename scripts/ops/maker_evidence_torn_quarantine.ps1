@@ -27,9 +27,10 @@ Safety contract (design approved 2026-11-02, L54):
   receipt turns the NOOP into TORN_SIGNATURE_UNRESOLVED.
 - Never truncates, rewrites or deletes; never touches sealed segments' journals, manifests, .gz,
   .tmp, status.json or the lock file contents. No Scheduler mutation: start the task yourself.
-- A writer-alive refusal first scans, read-only, the unsealed segments older than this boot and
-  reports torn_tail_found (true/false; null when the scan did not complete). A torn tail there is
-  REFUSED_WRITER_ALIVE_TORN (exit 3): a recorder is starting over a torn segment.
+- A writer-alive refusal first scans, read-only, the unsealed segments older than the last cold
+  boot and reports torn_tail_found (true/false; null when the scan did not complete, found an
+  interior NUL or hit its 64-segment cap). A torn tail there is REFUSED_WRITER_ALIVE_TORN (exit 3):
+  a recorder is starting over a torn segment.
 
 Exit codes: 0 NOOP / REPORT / QUARANTINED / RECONCILED / RECONCILED_AFTER_SEAL; 2 refused;
 3 REFUSED_WRITER_ALIVE_TORN;
@@ -265,40 +266,73 @@ namespace WeatherTornQuarantine {
 
 function Finish-WriterAlive([string]$Reason) {
     # Writer alive: no lock, so nothing may move. First a read-only scan, shared open, no write, of
-    # unsealed segments whose journals all predate this boot (a live writer's own segment can show
-    # a transient partial line and is skipped). A torn tail there means a recorder is (re)starting
-    # over a torn segment: REFUSED_WRITER_ALIVE_TORN, exit 3. torn_tail_found is $false only when the
-    # scan completed clean; $null (unknown) on any error. Unattended callers may treat exit 2 as
-    # benign only with torn_tail_found false.
+    # unsealed segments whose journals all predate the last cold boot (a live writer's own segment
+    # can show a transient partial line and is skipped; the rule trusts the wall clock). A torn tail
+    # there means a recorder is (re)starting over a torn segment: REFUSED_WRITER_ALIVE_TORN, exit 3,
+    # even when other files could not be read. torn_tail_found is $false only when the scan
+    # completed clean; $null (unknown) on any read error, an interior NUL (EvidenceStore._recover
+    # would raise) or more than 64 pre-boot unsealed segments. Unattended callers may treat exit 2
+    # as benign only with torn_tail_found false.
     $script:result.torn_tail_found = $null
     $script:result.torn_tail_scan = "unknown"
     try {
         $bootUtc = Get-BootTimeUtc
         $script:result.boot_time_utc = $bootUtc.ToString("o")
-        $torn = @(); $preBoot = @()
+        $maxSegments = 64
+        $torn = New-Object 'System.Collections.Generic.List[string]'
+        $interior = New-Object 'System.Collections.Generic.List[string]'
+        $errors = New-Object 'System.Collections.Generic.List[string]'
+        $preBoot = New-Object 'System.Collections.Generic.List[string]'
+        $capped = $false
         foreach ($parent in @(Get-ChildItem -LiteralPath $Root -Directory -Force)) {
+            if ($capped) { break }
             if ($parent.Name -cnotmatch '^\d{4}-\d{2}-\d{2}$') { continue }
-            if (Test-Reparse $parent) { throw ("store folder is a reparse point: " + $parent.Name) }
-            foreach ($folder in @(Get-ChildItem -LiteralPath $parent.FullName -Directory -Force)) {
+            if (Test-Reparse $parent) { $errors.Add("store folder is a reparse point: " + $parent.Name); continue }
+            try { $folders = @(Get-ChildItem -LiteralPath $parent.FullName -Directory -Force) }
+            catch { $errors.Add($parent.FullName + ": " + $_.Exception.Message); continue }
+            foreach ($folder in $folders) {
                 if ($folder.Name -cnotmatch '^\d{2}-[0-9a-f]{12}$') { continue }
-                if (Test-Reparse $folder) { throw ("segment folder is a reparse point: " + $folder.FullName) }
-                if ((Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json")) -or
-                    (Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json.gz"))) { continue }
-                $journals = @(Get-ChildItem -LiteralPath $folder.FullName -File -Force | Where-Object { Test-JournalName $_.Name })
+                if (Test-Reparse $folder) { $errors.Add("segment folder is a reparse point: " + $folder.FullName); continue }
+                try {
+                    if ((Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json")) -or
+                        (Test-Path -LiteralPath (Join-Path $folder.FullName "manifest.json.gz"))) { continue }
+                    $journals = @(Get-ChildItem -LiteralPath $folder.FullName -File -Force | Where-Object { Test-JournalName $_.Name })
+                }
+                catch { $errors.Add($folder.FullName + ": " + $_.Exception.Message); continue }
                 if ($journals.Count -eq 0 -or @($journals | Where-Object { $_.LastWriteTimeUtc -ge $bootUtc }).Count -gt 0) { continue }
-                $preBoot += $folder.FullName
+                if ($preBoot.Count -ge $maxSegments) {
+                    $errors.Add("more than $maxSegments pre-boot unsealed segments; scan stopped")
+                    $capped = $true
+                    break
+                }
+                $preBoot.Add($folder.FullName)
                 foreach ($file in $journals) {
-                    if (Test-Reparse $file) { throw ("journal is a reparse point: " + $file.FullName) }
-                    if ($null -ne (Get-TailClass $file.FullName)) { $torn += $file.FullName }
+                    if (Test-Reparse $file) { $errors.Add("journal is a reparse point: " + $file.FullName); continue }
+                    try {
+                        if ($null -ne (Get-TailClass $file.FullName)) { $torn.Add($file.FullName) }
+                        elseif ($file.Length -gt 0 -and (Test-ContainsNul $file.FullName)) { $interior.Add($file.FullName) }
+                    }
+                    catch { $errors.Add($file.FullName + ": " + $_.Exception.Message) }
                 }
             }
         }
-        $script:result.pre_boot_unsealed_segments = $preBoot
-        $script:result.torn_tail_found = ($torn.Count -gt 0)
-        $script:result.torn_tail_scan = "complete"
+        $script:result.pre_boot_unsealed_segment_count = $preBoot.Count
+        $script:result.pre_boot_unsealed_segments = @($preBoot.GetRange(0, [Math]::Min(20, $preBoot.Count)).ToArray())
+        if ($errors.Count -gt 0) { $script:result.torn_tail_scan_errors = @($errors.GetRange(0, [Math]::Min(20, $errors.Count)).ToArray()) }
+        if ($interior.Count -gt 0) { $script:result.interior_nul_journals = @($interior.GetRange(0, [Math]::Min(20, $interior.Count)).ToArray()) }
         if ($torn.Count -gt 0) {
-            $script:result.torn_journals = @($torn[0..([Math]::Min(20, $torn.Count) - 1)])
-            Finish "REFUSED_WRITER_ALIVE_TORN" 3 ($Reason + "; a segment older than this boot has a torn tail and a writer holds the store")
+            $script:result.torn_tail_found = $true
+            $script:result.torn_tail_scan = $(if ($errors.Count -gt 0) { "partial: " + $errors[0] } else { "complete" })
+            $script:result.torn_journals = @($torn.GetRange(0, [Math]::Min(20, $torn.Count)).ToArray())
+            Finish "REFUSED_WRITER_ALIVE_TORN" 3 ($Reason + "; a segment older than the last boot has a torn tail and a writer holds the store")
+        }
+        if ($errors.Count -gt 0) { $script:result.torn_tail_scan = "unknown: " + $errors[0] }
+        elseif ($interior.Count -gt 0) {
+            $script:result.torn_tail_scan = "unknown: interior NUL in a pre-boot journal (recovery would refuse it)"
+        }
+        else {
+            $script:result.torn_tail_found = $false
+            $script:result.torn_tail_scan = "complete"
         }
     }
     catch { $script:result.torn_tail_scan = "unknown: " + $_.Exception.Message }
@@ -388,7 +422,7 @@ try {
     }
     catch {
         Release-Lock
-        Finish-WriterAlive ("writer lock is held: " + $_.Exception.Message)
+        Finish-WriterAlive ("writer lock is held or unavailable: " + $_.Exception.Message)
     }
 
     # ---- store layout: reparse guard and unsealed segments (EvidenceStore._recover's rule) ----

@@ -370,7 +370,8 @@ def test_boot_wrapper_maps_the_status_stage1_actually_emits():
     assert stage1.count("Finish-WriterAlive (") == 2
     assert stage1.count('Finish "REFUSED_WRITER_ALIVE" 2') == 1
     assert stage1.count('Finish "REFUSED_WRITER_ALIVE_TORN" 3') == 1
-    assert "$script:result.torn_tail_found = ($torn.Count -gt 0)" in stage1
+    assert stage1.count("$script:result.torn_tail_found = $false") == 1
+    assert stage1.count("$script:result.torn_tail_found = $true") == 1
     boot = BOOT.read_text(encoding="utf-8")
     assert "[string]$parsed.status -ceq 'REFUSED_WRITER_ALIVE'" in boot
     assert "$parsed.torn_tail_found -is [bool] -and $parsed.torn_tail_found -eq $false" in boot
