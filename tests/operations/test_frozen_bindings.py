@@ -7,8 +7,12 @@ absent. The only permitted change of the code pins is the ``s1_edit`` of B-1 Cla
 R14 ruling, 2026-11-01): exactly two changed lines, ``b_scorer.py``'s ``MG1_LOOK_ENTRY_SHA256`` (as judged by
 ``b_scorer_entry_edit.s1_problems``) and the look wrapper's ``MG1_LOOK_ENTRY_PIN``, both set to the same value, and
 nothing else in either file. At S1 the MG-1 registry entry in ``mg1_reserved_window.py`` must equal the recorded
-``MG1_LOOK_ENTRY_SHA256``. The git-diff side (no modify or delete of a record, additions only to the registry, no
-other file in the S1 head) is ``scripts/ops/frozen_binding_guard.ps1``.
+``MG1_LOOK_ENTRY_SHA256``. The S1 commit is strict (master, 2026-11-01): besides the two lines it may add at most
+one new file, matching ``s1_companion_glob`` (``docs/research/**/b1-clarification-7-*.md``), and nothing else
+(``s1_commit_problems`` pins that rule; the guard applies it to the commit). A present release record is checked
+for B's rule sha, a committed ``receipt_path`` whose raw bytes hash to ``receipt_sha256``, and a DECISION_LOG row;
+an abandonment record's row must name an owner abandonment. The git-diff side (no modify or delete of a record,
+additions only to the registry, the strict S1 head) is ``scripts/ops/frozen_binding_guard.ps1``.
 
 Stdlib plus ``weather.calibration.b_scorer_entry_edit`` only, so it runs in every suite, host included. It reads no
 ``data/``.
@@ -75,23 +79,91 @@ def registry_problems(registry: dict) -> list[str]:
                 problems.append(f"{hold.get('id')}: s1_edit {path} is not a code pin")
         if not isinstance(hold.get("release_record"), str) or not hold["release_record"]:
             problems.append(f"{hold.get('id')}: no release_record")
+        rule = hold.get("record_rule_sha256")
+        if rule is not None and rule not in (hold.get("records") or {}).values():
+            problems.append(f"{hold.get('id')}: record_rule_sha256 {rule!r} is not a record pin")
+        if hold.get("s1_companion_glob") is not None and not isinstance(hold["s1_companion_glob"], str):
+            problems.append(f"{hold.get('id')}: s1_companion_glob is not a string")
     return problems
 
 
-def record_problems(text: str, hold: dict, decision_log: str) -> list[str]:
-    """A present release record: rule sha, receipt sha and DL row; or a master abandonment with its DL row."""
-    fields = {m.group("key"): m.group("value") for m in RECORD_FIELD.finditer(text)}
+RECORD_KEYS = ("rule_sha256", "receipt_path", "receipt_sha256", "decision_log_row", "b_abandonment")
+RECEIPT_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
+
+
+def owner_abandonment_rows(decision_log: str, row: str) -> list[str]:
+    """DL rows of date ``row`` that name an owner abandonment (master's R14 ruling 2026-11-01, constraint 3).
+
+    A simple textual test: the row contains the word ``owner`` and ``abandon``, and not ``not an owner
+    decision`` (the marker of master rulings), case-insensitive."""
+    return [line for line in decision_log.splitlines() if line.startswith(f"| {row} |")
+            and re.search(r"\bowner\b", line, re.I) and re.search("abandon", line, re.I)
+            and not re.search("not an owner decision", line, re.I)]
+
+
+def record_problems(text: str, hold: dict, decision_log: str, root: Path) -> list[str]:
+    """A present release record (master's R14 ruling 2026-11-01): a look record carries rule_sha256 (B's rule sha,
+    the hold's record_rule_sha256), receipt_path (repo-relative, committed) and receipt_sha256 over that file's
+    bytes exactly as written, plus decision_log_row; an abandonment carries b_abandonment and a decision_log_row
+    whose DL row names an owner abandonment."""
     problems = []
+    fields: dict[str, str] = {}
+    for m in RECORD_FIELD.finditer(text):
+        if m.group("key") not in RECORD_KEYS:
+            continue
+        if m.group("key") in fields:
+            problems.append(f"release record field {m.group('key')} appears more than once")
+        fields[m.group("key")] = m.group("value")
     row = fields.get("decision_log_row", "")
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", row) or f"| {row} |" not in decision_log:
+    has_row = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", row)) and any(
+        line.startswith(f"| {row} |") for line in decision_log.splitlines())
+    if not has_row:
         problems.append(f"release record decision_log_row {row!r} names no DECISION_LOG row")
     if "b_abandonment" in fields:
+        if has_row and not owner_abandonment_rows(decision_log, row):
+            problems.append(f"release record b_abandonment: no DECISION_LOG row of {row} names an owner abandonment")
         return problems
-    rule = fields.get("rule_sha256", "")
-    if rule not in set((hold.get("records") or {}).values()):
-        problems.append(f"release record rule_sha256 {rule!r} is not a record pin of hold {hold.get('id')}")
-    if not HEX64.match(fields.get("receipt_sha256", "")):
-        problems.append(f"release record receipt_sha256 {fields.get('receipt_sha256')!r} is not 64 hex")
+    rule = hold.get("record_rule_sha256")
+    if not rule or fields.get("rule_sha256") != rule:
+        problems.append(f"release record rule_sha256 {fields.get('rule_sha256')!r} is not B's rule sha {rule!r}")
+    receipt_sha = fields.get("receipt_sha256", "")
+    if not HEX64.match(receipt_sha):
+        problems.append(f"release record receipt_sha256 {receipt_sha!r} is not 64 lowercase hex")
+    receipt_path = fields.get("receipt_path", "")
+    if not RECEIPT_PATH.match(receipt_path) or {".", ".."} & set(receipt_path.split("/")):
+        problems.append(f"release record receipt_path {receipt_path!r} is not a repo-relative path")
+    elif not (root / receipt_path).is_file():
+        problems.append(f"release record receipt_path {receipt_path} is not in the checkout")
+    elif _sha((root / receipt_path).read_bytes()) != receipt_sha:  # raw bytes: no line-ending normalisation
+        problems.append(f"release record receipt_sha256 is not the sha256 of the bytes of {receipt_path}")
+    return problems
+
+
+def _glob_regex(pattern: str) -> re.Pattern[str]:
+    """The guard's glob: ``**/`` spans zero or more directories, ``*`` stays inside one segment."""
+    escaped = re.escape(pattern).replace(r"\*\*/", "(?:.+/)?").replace(r"\*", "[^/]*")
+    return re.compile(f"^{escaped}$")
+
+
+def s1_commit_problems(hold: dict, changes: list[tuple[str, str]]) -> list[str]:
+    """The strict S1 commit (master's R14 ruling 2026-11-01, (b)), over ``(status, path)`` name-status pairs.
+
+    Every s1_edit file is modified; besides them at most one path, an addition matching s1_companion_glob. The
+    guard applies this rule to the real commit; the suite cannot see commits, so it pins the rule here."""
+    s1_paths = set(hold.get("s1_edit") or {})
+    companion = _glob_regex(hold["s1_companion_glob"]) if hold.get("s1_companion_glob") else None
+    problems = [f"the S1 edit must also change {p}" for p in sorted(s1_paths - {p for s, p in changes if s == "M"})]
+    companions = []
+    for status, path in changes:
+        if path in s1_paths:
+            if status != "M":
+                problems.append(f"S1-edit file {path} is changed ({status}), not modified")
+        elif companion and status == "A" and companion.match(path):
+            companions.append(path)
+        else:
+            problems.append(f"the S1 head touches another path: {path} ({status})")
+    if len(companions) > 1:
+        problems.append(f"the S1 head adds {len(companions)} files matching {hold.get('s1_companion_glob')}")
     return problems
 
 
@@ -136,7 +208,7 @@ def hold_problems(root: Path, hold: dict, decision_log: str) -> list[str]:
     record = root / hold["release_record"]
     if record.is_file():
         return problems + [f"{hid}: {p}" for p in record_problems(record.read_text(encoding="utf-8"), hold,
-                                                                  decision_log)]
+                                                                  decision_log, root)]
     # Active: the code pins hold.
     release = root / hold["release_binding"] if hold.get("release_binding") else None
     if release is not None:
@@ -212,6 +284,8 @@ def test_b1_hold_pins_the_ruled_files():
     }
     assert len(json.loads((ROOT / b1["release_binding"]).read_text(encoding="utf-8"))["files"]) == 15
     assert b1["s1_edit"]["src/weather/calibration/b_scorer.py"]["judge"] == SCORER_JUDGE
+    assert b1["s1_companion_glob"] == "docs/research/**/b1-clarification-7-*.md"
+    assert b1["record_rule_sha256"] == b1["records"]["docs/operations/B_FORWARD_TEST_DESIGN.md"]
 
 
 # ---- mutants on tmp copies ----
@@ -386,40 +460,124 @@ def _record(tree: Path, text: str) -> None:
     (tree / RECORD).write_text(text, encoding="utf-8")
 
 
-GOOD_RECORD = ("# B look record\n\nrule_sha256: e8bad6e8ce9988180e41e5f9589e180326a8c1886f6043f182187de38a2a6030\n"
-               f"receipt_sha256: {'4' * 64}\ndecision_log_row: 2026-10-28\n")
+RECEIPT_REL = "docs/research/b-look-record/b_look_receipt.json"
+RECEIPT_BYTES = b'{\r\n  "look": "b"\r\n}\r\n'  # CRLF on purpose: the sha is over the bytes as written
+RULE = "e8bad6e8ce9988180e41e5f9589e180326a8c1886f6043f182187de38a2a6030"
+GOOD_RECORD = (f"# B look record\n\nrule_sha256: {RULE}\nreceipt_path: {RECEIPT_REL}\n"
+               f"receipt_sha256: {_sha(RECEIPT_BYTES)}\ndecision_log_row: 2026-10-28\n")
+ABANDON_ROW = "| 2099-02-01 | **B-1 abandoned (owner).** The owner abandons B-1. |\n"
+MASTER_ROW = "| 2099-02-01 | **MASTER RULING, not an owner decision: B-1 abandoned.** |\n"
+ABANDONMENT = "# B abandoned\n\nb_abandonment: B-1 abandoned\ndecision_log_row: 2099-02-01\n"
+
+
+def _receipt(tree: Path, data: bytes = RECEIPT_BYTES) -> None:
+    (tree / RECEIPT_REL).parent.mkdir(parents=True, exist_ok=True)
+    (tree / RECEIPT_REL).write_bytes(data)
+
+
+def _log_row(tree: Path, row: str) -> None:
+    log = tree / DECISION_LOG
+    log.write_bytes(log.read_bytes() + b"\n" + row.encode("utf-8"))
 
 
 def test_a_present_record_releases_the_code_pins(tree: Path):
     path = tree / "src/weather/calibration/b_look_per_date.py"
     path.write_bytes(path.read_bytes() + b"# after-B fix\n")
+    _receipt(tree)
     _record(tree, GOOD_RECORD)
     assert all_problems(tree) == []
 
 
 def test_a_present_record_still_holds_the_records(tree: Path):
+    _receipt(tree)
     _record(tree, GOOD_RECORD)
     path = tree / "docs/operations/B_FORWARD_TEST_DESIGN.md"
     path.write_bytes(path.read_bytes() + b"\n")
     assert len(all_problems(tree)) == 1
 
 
-def test_an_abandonment_record_releases(tree: Path):
-    _record(tree, "# B abandoned\n\nb_abandonment: master abandons B-1\ndecision_log_row: 2026-10-28\n")
+def test_receipt_sha_is_over_the_bytes_as_written(tree: Path):
+    _receipt(tree, RECEIPT_BYTES.replace(b"\r\n", b"\n"))  # normalised line endings: a different file
+    _record(tree, GOOD_RECORD)
+    assert any("not the sha256 of the bytes" in p for p in all_problems(tree))
+
+
+def test_an_owner_abandonment_record_releases(tree: Path):
+    _log_row(tree, ABANDON_ROW)
+    _record(tree, ABANDONMENT)
     assert all_problems(tree) == []
 
 
+@pytest.mark.parametrize("row", [MASTER_ROW, "| 2099-02-01 | **Owner approves a pilot.** |\n",
+                                 "| 2099-02-01 | **B-1 abandoned by master.** |\n"],
+                         ids=["master-ruling", "owner-not-abandonment", "abandonment-not-owner"])
+def test_an_abandonment_must_cite_an_owner_decision(tree: Path, row: str):
+    _log_row(tree, row)
+    _record(tree, ABANDONMENT)
+    problems = all_problems(tree)
+    assert any("names an owner abandonment" in p for p in problems), problems
+
+
 @pytest.mark.parametrize(("text", "fragment"), [
-    (GOOD_RECORD.replace("e8bad6e8ce99", "00bad6e8ce99"), "rule_sha256"),
-    (GOOD_RECORD.replace("4" * 64, "4" * 63), "receipt_sha256"),
+    (GOOD_RECORD.replace("e8bad6e8ce99", "00bad6e8ce99"), "is not B's rule sha"),
+    (GOOD_RECORD.replace(f"rule_sha256: {RULE}\n", ""), "is not B's rule sha"),
+    (GOOD_RECORD.replace(_sha(RECEIPT_BYTES), _sha(RECEIPT_BYTES)[:63]), "is not 64 lowercase hex"),
+    (GOOD_RECORD.replace(_sha(RECEIPT_BYTES), _sha(RECEIPT_BYTES).upper()), "is not 64 lowercase hex"),
+    (GOOD_RECORD.replace(_sha(RECEIPT_BYTES), "5" * 64), "not the sha256 of the bytes"),
+    (GOOD_RECORD.replace(f"receipt_path: {RECEIPT_REL}\n", ""), "receipt_path '' is not a repo-relative path"),
+    (GOOD_RECORD.replace(RECEIPT_REL, "C:/x/receipt.json"), "is not a repo-relative path"),
+    (GOOD_RECORD.replace(RECEIPT_REL, "/docs/receipt.json"), "is not a repo-relative path"),
+    (GOOD_RECORD.replace(RECEIPT_REL, "docs/../receipt.json"), "is not a repo-relative path"),
+    (GOOD_RECORD.replace(RECEIPT_REL, "docs\\receipt.json"), "is not a repo-relative path"),
+    (GOOD_RECORD.replace(RECEIPT_REL, "docs/research/b-look-record/missing.json"), "is not in the checkout"),
+    (GOOD_RECORD + f"rule_sha256: {RULE}\n", "appears more than once"),
     (GOOD_RECORD.replace("2026-10-28", "2099-01-01"), "decision_log_row"),
     ("# B look record\n", "decision_log_row"),
     ("b_abandonment: yes\n", "decision_log_row"),
-], ids=["wrong-rule", "short-receipt", "row-not-in-log", "empty", "abandonment-without-row"])
+], ids=["wrong-rule", "no-rule", "short-receipt-sha", "upper-receipt-sha", "receipt-sha-mismatch",
+        "no-receipt-path", "drive-path", "absolute-path", "dotdot-path", "backslash-path", "receipt-missing",
+        "duplicate-field", "row-not-in-log", "empty", "abandonment-without-row"])
 def test_a_malformed_record_fails(tree: Path, text: str, fragment: str):
+    _receipt(tree)
     _record(tree, text)
     problems = all_problems(tree)
     assert any(fragment in p for p in problems), problems
+
+
+# ---- the strict S1 commit (master's R14 ruling 2026-11-01, (b)) ----
+
+def _b1() -> dict:
+    [b1] = [h for h in json.loads((ROOT / REGISTRY).read_text(encoding="utf-8"))["holds"] if h["id"] == "B-1"]
+    return b1
+
+
+S1_PAIR = [("M", SCORER), ("M", WRAPPER)]
+CL7 = "docs/research/b-look-s1-2026-11-22/b1-clarification-7-s1-entry-2026-11-22.md"
+
+
+@pytest.mark.parametrize("extra", [[], [("A", CL7)]], ids=["two-lines-only", "with-clarification-7"])
+def test_strict_s1_commit_passes(extra: list):
+    assert s1_commit_problems(_b1(), S1_PAIR + extra) == []
+
+
+@pytest.mark.parametrize(("extra", "fragment"), [
+    ([("A", CL7.replace("clarification-7-", "clarification-8-"))], "touches another path"),
+    ([("A", CL7.replace("clarification-7-", "clarification-70-"))], "touches another path"),
+    ([("A", "docs/operations/b1-clarification-7-x.md")], "touches another path"),
+    ([("A", CL7), ("A", CL7.replace("s1-entry", "s1-entry-b"))], "adds 2 files"),
+    ([("A", CL7), ("A", "docs/other.md")], "touches another path: docs/other.md (A)"),
+    ([("M", CL7)], "touches another path"),
+    ([("M", "docs/README.md")], "touches another path: docs/README.md (M)"),
+    ([("A", "src/free.py")], "touches another path: src/free.py (A)"),
+], ids=["other-number", "number-prefix", "outside-research", "two-new-files", "clarification-plus-other",
+        "modify-clarification-7", "modify-existing", "extra-new-file"])
+def test_strict_s1_commit_refuses(extra: list, fragment: str):
+    problems = s1_commit_problems(_b1(), S1_PAIR + extra)
+    assert any(fragment in p for p in problems), problems
+
+
+def test_strict_s1_commit_needs_both_files():
+    assert s1_commit_problems(_b1(), [("M", SCORER)]) == [f"the S1 edit must also change {WRAPPER}"]
 
 
 @pytest.mark.parametrize("mutate", ["schema", "no_holds", "short_pin", "edit_not_code", "duplicate_id"])

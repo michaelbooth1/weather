@@ -9,20 +9,33 @@
 # malformed one refuses. A hold is active while its release_record is absent at $Base.
 #
 # Refused: any change to a record, or a modify/delete of a file matching a record glob (adding a
-# new b1-clarification-*.md passes); any change under a frozen prefix; a modify/delete of a present
-# release record; while active, any change to a code pin or a release-binding file except the
-# S1 edit; a registry change that is not a pure addition.
+# new b1-clarification-*.md passes outside the S1 head); any change under a frozen prefix; a
+# modify/delete of a present release record; an added release record whose fields fail (below);
+# while active, any change to a code pin or a release-binding file except the S1 edit; a registry
+# change that is not a pure addition.
 #
-# The S1 edit (B-1 Clarification 3 section 5; master's R14 ruling 2026-11-01): one head changes
-# every s1_edit file of the hold, each in exactly its constant line, from the S0 line to a quoted
-# 64-hex value, all values equal; the head touches no other path except new record-glob files (its
-# dated clarification). Its paths are returned in SuiteChecked: line endings and the
-# b_scorer_entry_edit verdict are re-checked by tests/operations/test_frozen_bindings.py, so a
-# head with SuiteChecked paths must be suite-gated.
+# The S1 edit (B-1 Clarification 3 section 5; master's R14 rulings 2026-11-01, strict): one head
+# changes every s1_edit file of the hold, each in exactly its constant line, from the S0 line to a
+# quoted 64-hex value, all values equal. Besides those files it may add at most ONE new file, and
+# only one matching the hold's s1_companion_glob (B-1: docs/research/**/b1-clarification-7-*.md);
+# any other path, any other clarification number, a second new file or a modify is refused. Its
+# paths are returned in SuiteChecked: line endings and the b_scorer_entry_edit verdict are
+# re-checked by tests/operations/test_frozen_bindings.py, so a head with SuiteChecked paths must
+# be suite-gated.
+#
+# The release record (master's R14 ruling 2026-11-01) is checked when a head adds it while the hold
+# is active. Fields are key: value lines. A look record has rule_sha256 equal to the hold's
+# record_rule_sha256, receipt_path (a repo-relative path committed at the tip), receipt_sha256 equal
+# to the sha256 of that blob's exact bytes, and decision_log_row (a YYYY-MM-DD with a DECISION_LOG
+# row at the tip). An abandonment record has b_abandonment and decision_log_row, and a DECISION_LOG
+# row of that date must name an owner abandonment: it contains the word "owner" and "abandon", and
+# not "not an owner decision" (case-insensitive).
 #
 # Warnings (never a refusal): changes to a hold's warn paths. The function never writes anything.
 
 $script:FrozenBindingRegistryPath = "config/frozen_bindings.json"
+$script:FrozenBindingDecisionLog = "docs/operations/DECISION_LOG.md"
+$script:FrozenBindingRecordKeys = @("rule_sha256", "receipt_path", "receipt_sha256", "decision_log_row", "b_abandonment")
 
 function Get-FrozenBindingProperty($Object, [string]$Name) {
     if ($null -eq $Object) { return $null }
@@ -52,6 +65,75 @@ function Get-FrozenBindingBlobLines([string]$Repo, [string]$Commit, [string]$Pat
     $r = Invoke-FrozenBindingGit $Repo @("show", "${Commit}:$Path")
     if ($r.code -ne 0) { throw "git show ${Commit}:$Path failed (exit $($r.code))" }
     return , @($r.lines)
+}
+
+function Get-FrozenBindingBlobSha256([string]$Repo, [string]$Commit, [string]$Path) {
+    # sha256 of the blob's exact bytes (cat-file applies no text conversion); $null if absent.
+    if (-not (Test-FrozenBindingBlob $Repo $Commit $Path)) { return $null }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "git"
+    $psi.Arguments = '-C "{0}" cat-file blob "{1}:{2}"' -f $Repo.TrimEnd('\'), $Commit, $Path
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $process = [System.Diagnostics.Process]::Start($psi)
+    $stderr = $process.StandardError.ReadToEndAsync()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { $hash = $sha.ComputeHash($process.StandardOutput.BaseStream) }
+    finally { $sha.Dispose() }
+    $process.WaitForExit()
+    [void]$stderr.Result
+    if ($process.ExitCode -ne 0) { return $null }
+    return (-join ($hash | ForEach-Object { $_.ToString("x2") }))
+}
+
+function Get-FrozenBindingRecordProblems([string]$Repo, [string]$Tip, $Hold, [string]$RecordPath) {
+    $problems = New-Object System.Collections.Generic.List[string]
+    $fields = @{}
+    foreach ($line in (Get-FrozenBindingBlobLines $Repo $Tip $RecordPath)) {
+        $m = [regex]::Match($line.TrimEnd("`r"), '^(?<key>[a-z0-9_]+):[ \t]*(?<value>\S.*?)[ \t]*$')
+        if (-not $m.Success -or $script:FrozenBindingRecordKeys -cnotcontains $m.Groups["key"].Value) { continue }
+        $key = $m.Groups["key"].Value
+        if ($fields.ContainsKey($key)) { $problems.Add("release record field $key appears more than once") }
+        $fields[$key] = $m.Groups["value"].Value
+    }
+    $row = [string]$fields["decision_log_row"]
+    $rows = @()
+    if ($row -cmatch '^\d{4}-\d{2}-\d{2}$' -and (Test-FrozenBindingBlob $Repo $Tip $script:FrozenBindingDecisionLog)) {
+        $rows = @((Get-FrozenBindingBlobLines $Repo $Tip $script:FrozenBindingDecisionLog) |
+                Where-Object { $_.StartsWith("| $row |", [StringComparison]::Ordinal) })
+    }
+    if ($rows.Count -eq 0) { $problems.Add("release record decision_log_row '$row' names no DECISION_LOG row") }
+    if ($fields.ContainsKey("b_abandonment")) {
+        $owner = @($rows | Where-Object {
+                $_ -match '(?i)\bowner\b' -and $_ -match '(?i)abandon' -and $_ -notmatch '(?i)not an owner decision' })
+        if ($rows.Count -gt 0 -and $owner.Count -eq 0) {
+            $problems.Add("release record b_abandonment: no DECISION_LOG row of $row names an owner abandonment")
+        }
+        return , $problems
+    }
+    $rule = [string](Get-FrozenBindingProperty $Hold "record_rule_sha256")
+    if (-not $rule -or [string]$fields["rule_sha256"] -cne $rule) {
+        $problems.Add("release record rule_sha256 '$($fields["rule_sha256"])' is not B's rule sha '$rule'")
+    }
+    $receiptPath = [string]$fields["receipt_path"]
+    $receiptSha = [string]$fields["receipt_sha256"]
+    if ($receiptSha -cnotmatch '^[0-9a-f]{64}$') {
+        $problems.Add("release record receipt_sha256 '$receiptSha' is not 64 lowercase hex")
+    }
+    $segments = @($receiptPath -split '/')
+    if ($receiptPath -cnotmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -or $segments -contains '.' -or $segments -contains '..') {
+        $problems.Add("release record receipt_path '$receiptPath' is not a repo-relative path")
+    }
+    else {
+        $actual = Get-FrozenBindingBlobSha256 $Repo $Tip $receiptPath
+        if ($null -eq $actual) { $problems.Add("release record receipt_path $receiptPath is not committed at the tip") }
+        elseif ($actual -cne $receiptSha) {
+            $problems.Add("release record receipt_sha256 is not the sha256 of the bytes of $receiptPath ($actual)")
+        }
+    }
+    return , $problems
 }
 
 function ConvertTo-FrozenBindingGlobRegex([string]$Glob) {
@@ -187,7 +269,6 @@ function Test-FrozenBindingHead {
         }
 
         $s1Changed = New-Object System.Collections.Generic.List[string]
-        $newRecords = New-Object System.Collections.Generic.List[string]
         foreach ($change in $changes) {
             $path = $change.path
             $status = $change.status
@@ -195,9 +276,8 @@ function Test-FrozenBindingHead {
             if ($recordPaths -ccontains $path) {
                 $result.Refusals.Add("${id}: record $path is changed ($status)")
             }
-            elseif ($isGlobRecord) {
-                if ($status -eq "A") { $newRecords.Add($path) }
-                else { $result.Refusals.Add("${id}: record $path is changed ($status); only new clarifications may be added") }
+            elseif ($isGlobRecord -and $status -ne "A") {
+                $result.Refusals.Add("${id}: record $path is changed ($status); only new clarifications may be added")
             }
             foreach ($prefix in $prefixes) {
                 if ($path.StartsWith([string]$prefix, [StringComparison]::Ordinal)) {
@@ -206,6 +286,11 @@ function Test-FrozenBindingHead {
             }
             if (-not $active -and $path -ceq $releaseRecord -and $status -ne "A") {
                 $result.Refusals.Add("${id}: the release record $path is changed ($status)")
+            }
+            if ($active -and $path -ceq $releaseRecord -and $status -eq "A") {
+                foreach ($problem in (Get-FrozenBindingRecordProblems $Repo $Tip $hold $releaseRecord)) {
+                    $result.Refusals.Add("${id}: $problem")
+                }
             }
             if ($warn -ccontains $path) { $result.Warnings.Add("${id}: warn path $path is changed ($status)") }
             if (-not $active) { continue }
@@ -226,10 +311,19 @@ function Test-FrozenBindingHead {
         foreach ($path in $s1Paths) {
             if (-not ($s1Changed -ccontains $path)) { $result.Refusals.Add("${id}: the S1 edit must also change $path") }
         }
+        $companionGlob = [string](Get-FrozenBindingProperty $hold "s1_companion_glob")
+        $companion = if ($companionGlob) { ConvertTo-FrozenBindingGlobRegex $companionGlob } else { $null }
+        $companions = New-Object System.Collections.Generic.List[string]
         foreach ($change in $changes) {
-            if (-not ($s1Paths -ccontains $change.path) -and -not ($newRecords -ccontains $change.path)) {
-                $result.Refusals.Add("${id}: the S1 head touches another path: $($change.path) ($($change.status))")
+            if ($s1Paths -ccontains $change.path) { continue }
+            if ($companion -and $change.status -eq "A" -and $change.path -cmatch $companion) { $companions.Add($change.path) }
+            else {
+                $result.Refusals.Add(("${id}: the S1 head touches another path: $($change.path) ($($change.status)); " +
+                        "it may only add one new file matching '$companionGlob'"))
             }
+        }
+        if ($companions.Count -gt 1) {
+            $result.Refusals.Add("${id}: the S1 head adds $($companions.Count) files matching '$companionGlob'; at most one")
         }
         $values = New-Object System.Collections.Generic.List[string]
         foreach ($path in $s1Changed) {

@@ -3,10 +3,14 @@
 Guards: ruling R14 (master 2026-11-01) and its S1 ruling: B-1 Clarification 3 section 5 permits exactly two changed
 lines in one head, the scorer's entry constant and the wrapper's pin, set to the same value, and nothing else; the
 registry is judged as it is at the merge base and may only grow by pure additions; records are frozen for good,
-code pins until the release record exists.
+code pins until the release record exists. Master's strict S1 ruling (2026-11-01): besides the two lines the S1
+head may add at most one new file, matching docs/research/**/b1-clarification-7-*.md. The release record ruling:
+B's rule sha, a committed receipt_path whose exact bytes hash to receipt_sha256, a DECISION_LOG row, and for an
+abandonment a row naming an owner abandonment.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -57,8 +61,10 @@ def _registry(**extra: object) -> dict[str, object]:
             "src/scorer.py": {"s0_line": "ENTRY = UNRECORDED", "constant": "ENTRY"},
             "src/wrapper.py": {"s0_line": "PIN = PIN_UNSET", "constant": "PIN", "equals": "src/scorer.py"},
         },
+        "s1_companion_glob": "docs/research/**/b1-clarification-7-*.md",
         "warn": ["scripts/export.ps1"],
         "release_record": "docs/record/b-look-record.md",
+        "record_rule_sha256": "1" * 64,
     }
     hold.update(extra)
     return {"schema": "frozen_bindings/1", "holds": [hold]}
@@ -76,6 +82,10 @@ BASE_FILES = {
     "src/released.py": "released = 1\n",
     "src/free.py": "free = 1\n",
     "scripts/export.ps1": "'export'\n",
+    "docs/operations/DECISION_LOG.md": ("# log\n| 2026-10-28 | **B-1 bound.** |\n"
+                                        "| 2099-02-01 | **B-1 abandoned (owner).** The owner abandons B-1. |\n"
+                                        "| 2099-03-01 | **MASTER RULING, not an owner decision: B-1 abandoned.** |\n"
+                                        "| 2099-04-01 | **Owner approves a pilot.** |\n"),
     "config/frozen_bindings.json": json.dumps(_registry(), indent=1) + "\n",
 }
 
@@ -152,10 +162,39 @@ def test_unrelated_change_passes(repo: Path):
 
 def test_s1_edit_with_equal_values_passes_as_suite_checked(repo: Path):
     files = _s1()
-    files["docs/y/b1-clarification-7-s1-2026-11-22.md"] = "clarification 7\n"
+    files[CL7] = "clarification 7\n"
     out = _judge(repo, files)
     assert out["Ok"] is True, out
     assert sorted(out["SuiteChecked"]) == ["src/scorer.py", "src/wrapper.py"]  # type: ignore[arg-type]
+
+
+def test_s1_edit_alone_passes(repo: Path):
+    out = _judge(repo, _s1())
+    assert out["Ok"] is True and len(out["SuiteChecked"]) == 2, out  # type: ignore[arg-type]
+
+
+CL7 = "docs/research/y/b1-clarification-7-s1-2026-11-22.md"
+
+
+@pytest.mark.parametrize(("extra", "fragment"), [
+    ({CL7.replace("-7-", "-8-"): "eight\n"}, "touches another path: docs/research/y/b1-clarification-8-"),
+    ({CL7.replace("-7-", "-70-"): "seventy\n"}, "touches another path: docs/research/y/b1-clarification-70-"),
+    ({"docs/y/b1-clarification-7-s1.md": "outside research\n"}, "touches another path: docs/y/b1-clarification-7-"),
+    ({CL7: "one\n", CL7.replace("s1-", "s1b-"): "two\n"}, "adds 2 files matching"),
+    ({CL7: "one\n", "docs/new.md": "new\n"}, "touches another path: docs/new.md (A)"),
+    ({"docs/x/b1-clarification-1-a.md": "edited\n"}, "touches another path: docs/x/b1-clarification-1-a.md (M)"),
+], ids=["other-number", "number-prefix", "outside-research", "two-new-files", "clarification-plus-other",
+        "modify-existing-clarification"])
+def test_strict_s1_head_refuses(repo: Path, extra: dict[str, str | None], fragment: str):
+    files = _s1()
+    files.update(extra)
+    _only(_judge(repo, files), fragment)
+
+
+def test_strict_s1_head_refuses_a_modify_of_an_existing_clarification_7(repo: Path):
+    files = _s1()
+    files[CL7] = "edited\n"
+    _only(_judge(repo, files, base_files={CL7: "existing\n"}), f"touches another path: {CL7} (M)")
 
 
 def test_s1_edit_with_unequal_values_refuses(repo: Path):
@@ -232,6 +271,47 @@ def test_present_release_record_releases_code_but_not_records(repo: Path):
     _only(_judge(repo, {"docs/rule.md": "# edited\n"}), "record docs/rule.md is changed (M)")
     _git(repo, "branch", "-D", "head")
     _only(_judge(repo, {"docs/record/b-look-record.md": None}), "the release record docs/record/b-look-record.md")
+
+
+RECORD = "docs/record/b-look-record.md"
+RECEIPT = "docs/record/b_look_receipt.json"
+RECEIPT_TEXT = '{\r\n  "look": "b"\r\n}\r\n'  # CRLF kept: the fake repo has no attributes and autocrlf off
+RECEIPT_SHA = hashlib.sha256(RECEIPT_TEXT.encode("utf-8")).hexdigest()
+GOOD_RECORD = (f"# record\nrule_sha256: {'1' * 64}\nreceipt_path: {RECEIPT}\nreceipt_sha256: {RECEIPT_SHA}\n"
+               "decision_log_row: 2026-10-28\n")
+
+
+def test_adding_a_valid_look_record_passes(repo: Path):
+    out = _judge(repo, {RECORD: GOOD_RECORD, RECEIPT: RECEIPT_TEXT})
+    assert out["Ok"] is True, out
+
+
+def test_adding_an_owner_abandonment_record_passes(repo: Path):
+    out = _judge(repo, {RECORD: "b_abandonment: B-1 abandoned\ndecision_log_row: 2099-02-01\n"})
+    assert out["Ok"] is True, out
+
+
+@pytest.mark.parametrize(("files", "fragment"), [
+    ({RECORD: GOOD_RECORD.replace("1" * 64, "2" * 64), RECEIPT: RECEIPT_TEXT}, "is not B's rule sha"),
+    ({RECORD: GOOD_RECORD.replace(f"rule_sha256: {'1' * 64}\n", ""), RECEIPT: RECEIPT_TEXT}, "is not B's rule sha"),
+    ({RECORD: GOOD_RECORD, RECEIPT: RECEIPT_TEXT.replace("\r\n", "\n")}, "is not the sha256 of the bytes"),
+    ({RECORD: GOOD_RECORD.replace(RECEIPT_SHA, RECEIPT_SHA.upper()), RECEIPT: RECEIPT_TEXT}, "not 64 lowercase hex"),
+    ({RECORD: GOOD_RECORD.replace(f"receipt_path: {RECEIPT}\n", ""), RECEIPT: RECEIPT_TEXT},
+     "receipt_path '' is not a repo-relative path"),
+    ({RECORD: GOOD_RECORD.replace(RECEIPT, "C:/x/r.json"), RECEIPT: RECEIPT_TEXT}, "is not a repo-relative path"),
+    ({RECORD: GOOD_RECORD.replace(RECEIPT, "docs/../r.json"), RECEIPT: RECEIPT_TEXT}, "is not a repo-relative path"),
+    ({RECORD: GOOD_RECORD}, f"receipt_path {RECEIPT} is not committed at the tip"),
+    ({RECORD: GOOD_RECORD + "decision_log_row: 2026-10-28\n", RECEIPT: RECEIPT_TEXT}, "appears more than once"),
+    ({RECORD: GOOD_RECORD.replace("2026-10-28", "2099-09-09"), RECEIPT: RECEIPT_TEXT}, "names no DECISION_LOG row"),
+    ({RECORD: "b_abandonment: x\ndecision_log_row: 2099-03-01\n"}, "names an owner abandonment"),
+    ({RECORD: "b_abandonment: x\ndecision_log_row: 2099-04-01\n"}, "names an owner abandonment"),
+    ({RECORD: "b_abandonment: x\ndecision_log_row: 2026-10-28\n"}, "names an owner abandonment"),
+    ({RECORD: "b_abandonment: x\n"}, "names no DECISION_LOG row"),
+], ids=["wrong-rule", "no-rule", "receipt-normalised", "upper-receipt-sha", "no-receipt-path", "drive-path",
+        "dotdot-path", "receipt-not-committed", "duplicate-field", "row-not-in-log", "abandonment-master-row",
+        "abandonment-owner-not-abandon", "abandonment-not-owner", "abandonment-without-row"])
+def test_adding_a_malformed_record_refuses(repo: Path, files: dict[str, str | None], fragment: str):
+    _only(_judge(repo, files), fragment)
 
 
 def test_registry_pure_addition_passes(repo: Path):

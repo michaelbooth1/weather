@@ -660,7 +660,10 @@ Step 3b (R14) dot-sources `scripts/ops/frozen_binding_guard.ps1` and refuses, be
 any branch that `Test-FrozenBindingHead` refuses against `config/frozen_bindings.json` as it is on
 master: an edited or deleted frozen record (for B-1, `B_FORWARD_TEST_DESIGN.md` or an existing
 `b1-clarification-*.md`) or any file under a frozen prefix (`docs/research/mg2-composite-binding-2026-10-25/`).
-A new dated `b1-clarification-*.md` passes. A malformed registry refuses every branch; fix it on a
+A new dated `b1-clarification-*.md` passes, except in the S1 head, which may add only one new
+`docs/research/**/b1-clarification-7-*.md` and is suite-checked, so never light-path. A head adding the
+release record is refused unless its fields pass (B's rule sha, a committed receipt whose bytes hash to
+`receipt_sha256`, a DECISION_LOG row; for an abandonment, a row naming an owner abandonment). A malformed registry refuses every branch; fix it on a
 suite-gated head, never by hand on production. The same function runs in the night sequencers and
 must pass before any manual quiet-window merge.
 

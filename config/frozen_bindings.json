@@ -26,7 +26,8 @@
         "tests/calibration/test_b_look_per_date.py": "b54cd895ff731db3ededd1b9242cb2e86efae49358dcda100a40447f6f893fce",
         "tests/calibration/test_b_post_look_serial.py": "42976969d7e7c2518fafa4adc44abb0f2f8bbab4b2e8676d53da5eae73730a66"
       },
-      "s1_edit_policy": "B-1 Clarification 3 section 5 (master ruling on R14, 2026-11-01): the S1 commit changes exactly the named constant line in every s1_edit file, all set to the same 64-hex value, and nothing else in those files; the head may add new record_globs files (its dated clarification) but touch no other path.",
+      "s1_edit_policy": "B-1 Clarification 3 section 5 (master ruling on R14, 2026-11-01, strict): the S1 commit changes exactly the named constant line in every s1_edit file, all set to the same 64-hex value, and nothing else in those files; besides them it may add at most one new file, matching s1_companion_glob, and touch no other path.",
+      "s1_companion_glob": "docs/research/**/b1-clarification-7-*.md",
       "s1_edit": {
         "src/weather/calibration/b_scorer.py": {
           "s0_line": "MG1_LOOK_ENTRY_SHA256 = MG1_LOOK_ENTRY_UNRECORDED",
@@ -51,7 +52,9 @@
         "scripts/ops/register_mg2_input_export.ps1",
         "src/weather/calibration/mg2_input_export.py"
       ],
-      "release_record": "docs/research/b-look-record/b-look-record.md"
+      "release_record": "docs/research/b-look-record/b-look-record.md",
+      "record_rule_sha256": "e8bad6e8ce9988180e41e5f9589e180326a8c1886f6043f182187de38a2a6030",
+      "release_record_policy": "Master ruling on R14 (2026-11-01): the record carries key: value lines. A look record: rule_sha256 equal to record_rule_sha256; receipt_path, the repo-relative path of the committed receipt; receipt_sha256 over that file's bytes exactly as b_scorer wrote them; decision_log_row, a date with a DECISION_LOG row. An abandonment record: b_abandonment and decision_log_row, where a DECISION_LOG row of that date names the owner (the word owner, not 'not an owner decision') and an abandonment (abandon)."
     }
   ]
 }
