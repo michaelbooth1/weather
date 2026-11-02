@@ -10,11 +10,14 @@ Master's terms (row 113, O-1/O-2):
   whole extraction (fail closed) without echoing the row; every other exception is reported by type only;
 - hourly partitions (``year=YYYY/month=MM``) whose month starts after ``--last`` are never opened;
 - all output is built in a staging directory beside the final one. On ANY failure the staging directory is
-  deleted, so a refused run leaves nothing behind (no partial output can reveal where a bad row sits).
+  deleted (best effort, a second Ctrl-C included), so a refused run leaves nothing behind and no partial
+  output can reveal where a bad row sits. If it cannot be deleted, the run fails with the fixed message
+  "delete <staging path> without reading it", never listing its contents, and every later run refuses
+  while any ``.staging-extract-*`` directory exists under ``--out-root``.
   Only after the extract, ``manifest.json`` (script sha256, arguments, emitted counts, names of stations
   without a source) and ``SHA256SUMS`` are written and every file is read-only is staging renamed to
-  ``extract-<kind>-<utc stamp>``; then the directories are marked read-only too. The final directory must
-  not exist.
+  ``extract-<kind>-<utc stamp>``; then the directories are marked read-only too (cosmetic on NTFS, where
+  the directory read-only bit does not stop writes). The final directory must not exist.
 
 Refuses unless ``--expect-sha`` equals this file's sha256. No network. Standard library only.
 """
@@ -166,9 +169,24 @@ def _force_remove(func, path, _exc):
     func(path)
 
 
-def remove_tree(path: Path):
-    if path.exists():
-        shutil.rmtree(path, onerror=_force_remove)
+def remove_tree(path: Path) -> bool:
+    """Best effort, including a second Ctrl-C during the delete. True when ``path`` is gone afterwards.
+
+    Never lists what is inside: the caller only learns whether the directory still exists.
+    """
+    try:
+        if path.exists():
+            shutil.rmtree(path, onerror=_force_remove)
+    except BaseException:                                  # noqa: B036 - an interrupt must not skip the check
+        pass
+    try:
+        return not path.exists()
+    except BaseException:                                  # noqa: B036
+        return False
+
+
+def staging_left_message(path: Path) -> str:
+    return f"refused: delete {path} without reading it"
 
 
 def make_files_read_only(root: Path):
@@ -223,7 +241,10 @@ def run(args, script_sha: str) -> dict:
     out_root = Path(args.out_root)
     final = out_root / f"extract-{args.kind}-{stamp}"
     staging = out_root / f".staging-extract-{args.kind}-{stamp}"
-    if final.exists() or staging.exists():
+    stale = sorted(out_root.glob(".staging-extract-*")) if out_root.is_dir() else []
+    if stale:                                              # a failed run left staging behind: path only
+        raise Refusal(staging_left_message(stale[0]))
+    if final.exists():
         raise Refusal("refused: the output directory already exists")
     out_root.mkdir(parents=True, exist_ok=True)
     staging.mkdir(exist_ok=False)
@@ -231,7 +252,8 @@ def run(args, script_sha: str) -> dict:
         manifest = build(args, script_sha, staging, first, last, stations, src_root)
         os.rename(staging, final)
     except BaseException:
-        remove_tree(staging)
+        if not remove_tree(staging):
+            raise Refusal(staging_left_message(staging)) from None
         raise
     make_dirs_read_only(final)
     return {"out": str(final), "manifest_sha256": sha256_file(final / "manifest.json"),

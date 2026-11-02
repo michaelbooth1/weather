@@ -54,7 +54,7 @@ RULE_SHA256 = "023b75ed6fcdd14ecc83e5f36f961077c3e338130f7f0434bb3836732088837a"
 RUN_SUMS_SHA256 = "5073afd8f16ad4a7e9eb21b06df7bbaf78464f12ad4101b27440afc9ed31fe71"
 FIDCHECK_OUTPUT_SHA256 = "1ea5c9af53e48590f073b38868a355d956141c6a49b1d0730af03085341fbf55"
 # the only extractor whose output 3a accepts (extract_bounded_v1.py; its manifest records its own sha256)
-EXTRACTOR_SHA256 = "a93779d0cf696c88b999a2bd566592a0f1e2bc5ebabaf992bef68eb7eb40db6e"
+EXTRACTOR_SHA256 = "65ce60f34a06f35488747cb60603701ab9aeb46a03d036bd973c457a9f6d945a"
 HARD_LAST = date(2026, 5, 26)
 D_FIRST, D_LAST = date(2025, 12, 1), HARD_LAST
 NYC25_FIRST, NYC25_LAST = date(2025, 1, 1), date(2025, 11, 30)
@@ -100,6 +100,11 @@ def within_unusable_cap(unusable: int, n: int) -> bool:
 def restate_needed(excluded: int, n: int) -> bool:
     """Ruling 3, integer-exact: N and MDE80 are restated only when MORE than 1% of D is excluded."""
     return excluded * 100 > POWER_RESTATE_ABOVE_PCT * n
+
+
+def mde80_t2(n: int):
+    """The rule's T2 MDE80 (0.105 at N = 1,419) scaled to N by sqrt(1419 / N); a projection, not the gate."""
+    return RULE_T2_MDE80 * float(np.sqrt(RULE_T2_N / n)) if n else None
 
 
 def require_hist_date(d: date) -> date:
@@ -205,6 +210,7 @@ def load_population(run: SealedRun, specs: dict) -> tuple[list, dict]:
             t = json.loads(line)
             paths[(t["market"], t["event_slug"], str(t["yes_token"]))] = t["path"]
     info = Counter()
+    dropped_d = []                         # D market-dates dropped at load (names/dates only, for the fold split)
     by_md = defaultdict(list)
     for line in run.read("events.jsonl").decode("utf-8").splitlines():
         if line.strip():
@@ -238,6 +244,8 @@ def load_population(run: SealedRun, specs: dict) -> tuple[list, dict]:
             bands.append({**pb, "band_index": i, "token": str(b["yes_token"])})
         if bands is None:
             info[f"ladder_band_unparseable:{seg}"] += 1
+            if seg == "D":
+                dropped_d.append((market, ds))
             continue
         stamps = {h: local_epoch(d, h, spec["tz"]) for h in (*DECIDING_HOURS, *DESCRIPTIVE_HOURS)}
         mids = {}
@@ -254,11 +262,15 @@ def load_population(run: SealedRun, specs: dict) -> tuple[list, dict]:
                     mids[(b["band_index"], side, hr)] = pick(st, pr, ts, side)
         if mids is None:
             info[f"ladder_token_missing:{seg}"] += 1
+            if seg == "D":
+                dropped_d.append((market, ds))
             continue
         ladders.append({"market": market, "date": ds, "segment": seg, "bands": bands, "mids": mids,
                         "tiles": tiles(bands)})
     info["ladders_loaded"] = len(ladders)
-    return ladders, dict(info)
+    info = dict(info)
+    info["_dropped_D_keys"] = sorted(dropped_d)
+    return ladders, info
 
 
 def build_rows(ladders, seg, side, hours, labels=None, floors=None):
@@ -471,6 +483,40 @@ def winners(ladders, buckets):
         if len(hits) == 1:
             out[key] = hits[0]
     return out, dict(counts)
+
+
+def deciding_population(ladders, dropped_keys):
+    """Clarification 1 addition of 2026-11-02: the deciding population, from prices alone.
+
+    Built with no label and no floor (``build_rows(..., labels=None, floors=None)``), before step 2 reads any
+    label, so the exclusion is outcome-blind and fixed in advance. Returns the HEADLINE line, the
+    per-market x hour exclusion table and the kept-vs-excluded market-date counts by month fold.
+    """
+    rows, info = build_rows(ladders, "D", "after", DECIDING_HOURS)
+    d_keys = {(x["market"], x["date"]) for x in ladders if x["segment"] == "D"}
+    kept = set(zip(rows["market"], rows["date"])) if len(rows) else set()
+    universe = len(d_keys) + len(dropped_keys)
+    table = defaultdict(dict)
+    for k, v in info.items():
+        reason, _, rest = k.partition(":")
+        if reason in ("incomplete", "zero_sum"):
+            market, hour = rest.rsplit(":", 1)
+            table[market][f"{reason}_{hour}h"] = v
+    folds = defaultdict(lambda: {"kept": 0, "excluded_price_incomplete": 0, "dropped_at_load": 0})
+    for key in d_keys:
+        folds[key[1][:7]]["kept" if key in kept else "excluded_price_incomplete"] += 1
+    for _, ds in dropped_keys:
+        folds[ds[:7]]["dropped_at_load"] += 1
+    headline = (f"HEADLINE: deciding population {len(kept)} of {universe} D market-dates "
+                f"({info['ladders']} ladder-hours at {'/'.join(f'{h:02d}:00' for h in DECIDING_HOURS)} local), "
+                f"excluded on price completeness only: outcome-blind, fixed before any label read")
+    return {"headline": headline, "market_dates_kept": len(kept), "D_market_dates_universe": universe,
+            "MDE80_T2_at_kept": mde80_t2(len(kept)),
+            "D_market_dates_loaded": len(d_keys), "D_dropped_at_load": len(dropped_keys),
+            "ladder_hours": info["ladders"],
+            "exclusions_by_market_hour": {m: dict(sorted(v.items())) for m, v in sorted(table.items())},
+            "kept_vs_excluded_by_month_fold": {f: folds[f] for f in sorted(folds)},
+            "note": "counts only; no label, floor or outcome is used"}
 
 
 # ----------------------------------------------------------------------------- LOMO adapters over L21
@@ -717,7 +763,9 @@ def main(argv=None):
         stage = "build_population"
         specs = specs_for(B12)
         ladders, load_info = load_population(run, specs)
+        dropped_d_keys = load_info.pop("_dropped_D_keys")
         receipt["population_load"] = load_info
+        receipt["deciding_population"] = deciding_population(ladders, dropped_d_keys)
         receipt["steps"]["1_price_integrity"] = {"status": "PASS", **run.summary(),
                                                  "fidcheck_output_sha256": FIDCHECK_OUTPUT_SHA256}
         d_ladders = [x for x in ladders if x["segment"] == "D"]
@@ -778,7 +826,7 @@ def main(argv=None):
                 numbers["power_restated"] = {
                     "N": n_scored, "N_basis": "label-based (ruling 3 literal): D market-dates with a winner",
                     "rule_N": RULE_T2_N, "rule_MDE80": RULE_T2_MDE80,
-                    "MDE80_T2": RULE_T2_MDE80 * float(np.sqrt(RULE_T2_N / n_scored)) if n_scored else None,
+                    "MDE80_T2": mde80_t2(n_scored),
                     "note": "T2 SE scaled by sqrt(1419 / N); the gate stays the realised SE (step 5)"}
             receipt["steps"]["2_label_integrity"] = {"status": "PASS", **numbers}
             keep = set(labels)
@@ -794,6 +842,7 @@ def main(argv=None):
         receipt["population"]["months"] = month_starts(pop)[1]
         if args.real_run:                  # the scored N after build_rows exclusions, beside the label-based N
             receipt["steps"]["2_label_integrity"]["N_final_scored_market_dates"] = info["market_dates"]
+            receipt["steps"]["2_label_integrity"]["MDE80_T2_at_N_final_scored"] = mde80_t2(info["market_dates"])
         stage = "3_synthetic_controls"
         synth, (y_null, null_res, null_ins) = step_synthetic_lomo(pop, schemes)
         receipt["steps"]["3_synthetic_controls"] = synth
@@ -825,6 +874,8 @@ def main(argv=None):
             receipt["verdict"] = {"verdict": "NONE (synthetic-only dry run; no real Delta exists)"}
     except l21.Untestable as exc:
         step = L21_STEP_NAMES.get(exc.step, exc.step)
+        if str(receipt["steps"].get(step, {}).get("status", "")).startswith("PASS"):
+            step = f"{step}__l21_{exc.step}"             # never overwrite a step that already passed
         receipt["steps"][step] = {"status": "FAILED", **exc.numbers,
                                   **({"l21_step_name": exc.step} if step != exc.step else {})}
         receipt["verdict"] = {"verdict": f"B12-HIST: UNTESTABLE (failed at {step})"}
@@ -842,9 +893,10 @@ def main(argv=None):
     receipt["seconds"] = round(time.perf_counter() - t0, 2)
     receipt["peak_working_set_mb"] = l21.peak_mb()
     text = json.dumps(receipt, indent=1, sort_keys=True, default=float)
-    with open(out_path, "x", encoding="utf-8") as h:
+    with open(out_path, "x", encoding="utf-8", newline="\n") as h:      # LF: the receipt sha is platform-stable
         h.write(text)
-    print(json.dumps({"verdict": receipt["verdict"], "steps": receipt["steps"],
+    print(json.dumps({"headline": (receipt.get("deciding_population") or {}).get("headline"),
+                      "verdict": receipt["verdict"], "steps": receipt["steps"],
                       "population": receipt.get("population"), "seconds": receipt["seconds"],
                       "peak_working_set_mb": receipt["peak_working_set_mb"],
                       "receipt_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()},

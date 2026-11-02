@@ -147,6 +147,30 @@ def test_load_population_excludes_duplicates_late_dates_and_incomplete(tmp_path)
                        atol=1e-4)
 
 
+def test_deciding_population_headline_table_and_folds_use_prices_only(tmp_path):
+    sums_sha, specs = make_run(tmp_path / "run", markets=("nyc", "toronto"), first=date(2026, 1, 30), days=4)
+    ladders, info = r3.load_population(r3.SealedRun(tmp_path / "run", sums_sha), specs)
+    dropped = info.pop("_dropped_D_keys")
+    assert dropped == []
+    # nyc 01-30: incomplete at 07 only (still kept via 10:00); toronto 02-01: incomplete at both (excluded)
+    by = {(x["market"], x["date"]): x for x in ladders}
+    by[("nyc", "2026-01-30")]["mids"][(0, "after", 7)] = None
+    for hr in (7, 10):
+        by[("toronto", "2026-02-01")]["mids"][(1, "after", hr)] = None
+    got = r3.deciding_population(ladders, [("nyc", "2026-02-03")])
+    assert got["market_dates_kept"] == 7 and got["D_market_dates_universe"] == 9
+    assert got["D_market_dates_loaded"] == 8 and got["D_dropped_at_load"] == 1 and got["ladder_hours"] == 13
+    assert got["headline"].startswith("HEADLINE: deciding population 7 of 9 D market-dates (13 ladder-hours")
+    assert "outcome-blind" in got["headline"]
+    assert got["exclusions_by_market_hour"] == {"nyc": {"incomplete_07h": 1},
+                                                "toronto": {"incomplete_07h": 1, "incomplete_10h": 1}}
+    assert got["kept_vs_excluded_by_month_fold"] == {
+        "2026-01": {"kept": 4, "excluded_price_incomplete": 0, "dropped_at_load": 0},
+        "2026-02": {"kept": 3, "excluded_price_incomplete": 1, "dropped_at_load": 1}}
+    keys = set(got) | {k for v in got["kept_vs_excluded_by_month_fold"].values() for k in v}
+    assert not any("winner" in k or "label" in k for k in keys)
+
+
 def test_nyc_2025_is_its_own_segment(tmp_path):
     sums_sha, specs = make_run(tmp_path / "run", markets=("nyc", "chicago"), first=date(2025, 11, 29), days=4)
     ladders, _ = r3.load_population(r3.SealedRun(tmp_path / "run", sums_sha), specs)
@@ -388,6 +412,12 @@ def test_synthetic_only_end_to_end(tmp_path, small_draws, capsys):
     assert rec["steps"]["2_label_integrity"]["status"].startswith("NOT RUN")
     assert rec["steps"]["2_label_integrity"]["tiling_outcome_free"]["tile"] == 540
     assert rec["population"]["months"] == ["2026-01", "2026-02", "2026-03"]
+    dp = rec["deciding_population"]
+    assert dp["headline"].startswith("HEADLINE: deciding population 540 of 540 D market-dates (1080 ladder-hours")
+    assert dp["market_dates_kept"] == rec["population"]["market_dates"]
+    assert "_dropped_D_keys" not in rec["population_load"]
+    assert dp["MDE80_T2_at_kept"] == pytest.approx(0.105 * np.sqrt(1419 / 540))
+    assert b"\r\n" not in out.read_bytes()                      # LF receipt: platform-stable sha
     assert "3_synthetic_controls" in rec["steps"]
     assert rec["verdict"]["verdict"].startswith(("NONE", "B12-HIST: UNTESTABLE"))
     assert "deciding" not in rec and "descriptive" not in rec
@@ -496,6 +526,7 @@ def test_real_run_on_synthetic_extract(tmp_path, small_draws, monkeypatch):
     assert lab2["power_restated"]["N"] == 533
     assert lab2["power_restated"]["N_basis"].startswith("label-based")
     assert lab2["N_final_scored_market_dates"] == 533
+    assert lab2["MDE80_T2_at_N_final_scored"] == pytest.approx(0.105 * np.sqrt(1419 / 533))
     assert lab2["D_market_dates_incl_dropped_at_load"] == 540
     assert lab2["power_restated"]["MDE80_T2"] == pytest.approx(0.105 * np.sqrt(1419 / 533))
     assert rec2["population"]["market_dates"] == 533
@@ -516,6 +547,18 @@ def test_real_run_on_synthetic_extract(tmp_path, small_draws, monkeypatch):
     lab3 = rec3["steps"]["2_label_integrity"]
     # the cap is checked before winners, floors and the diagnostic: none of them was computed
     assert "winner_counts_all_segments" not in lab3 and "containment_diagnostic" not in lab3
+
+    # an L21 "labels" Untestable raised after step 2 PASSED never overwrites the PASS record
+    def late_labels(*a, **k):
+        raise l21.Untestable("labels", {"snapshots_without_label": 1})
+
+    monkeypatch.setattr(l21, "step_training", late_labels)
+    out4 = tmp_path / "real4.json"
+    r3.main(["--run", str(tmp_path / "run"), "--expect-run-sums", sums_sha, "--out", str(out4), "--real-run",
+             "--labels-extract", str(daily), "--expect-sha", sha])
+    rec4 = json.loads(out4.read_text(encoding="utf-8"))
+    assert rec4["steps"]["2_label_integrity"]["status"] == "PASS"
+    assert rec4["steps"]["2_label_integrity__l21_labels"]["status"] == "FAILED"
 
 
 def test_containment_pick():

@@ -219,3 +219,42 @@ def test_hourly_station_without_in_range_partition_is_named_only(tmp_path):
 def test_month_bounds():
     assert ex.month_bounds(2026, 2) == (ex.date(2026, 2, 1), ex.date(2026, 2, 28))
     assert ex.month_bounds(2025, 12) == (ex.date(2025, 12, 1), ex.date(2025, 12, 31))
+
+
+def test_rename_failure_after_read_only_step_leaves_nothing(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "src"
+    _daily(src, "klga", ["2026-01-01,24,41"])
+    out = tmp_path / "out"
+
+    def no_rename(*a, **k):
+        raise OSError("rename")
+
+    monkeypatch.setattr(ex.os, "rename", no_rename)           # files are already read-only by then
+    assert _run(src, out, "daily") == 3
+    assert _leftovers(out) == []
+    assert "OSError" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("exc", [OSError("locked"), KeyboardInterrupt()])
+def test_undeletable_staging_fails_fixed_and_blocks_later_runs(tmp_path, monkeypatch, capsys, exc):
+    src = tmp_path / "src"
+    _daily(src, "klga", ["2026-01-01,24,41", "not-a-date,24,66666"])
+    out = tmp_path / "out"
+    real_rmtree = ex.shutil.rmtree
+
+    def stuck(*a, **k):
+        raise exc
+
+    monkeypatch.setattr(ex.shutil, "rmtree", stuck)
+    assert _run(src, out, "daily") == 2
+    left = [p for p in out.iterdir()]
+    assert len(left) == 1 and left[0].name.startswith(".staging-extract-daily-")
+    err = capsys.readouterr().err.strip()
+    assert err == f"refused: delete {left[0]} without reading it"
+    monkeypatch.setattr(ex.shutil, "rmtree", real_rmtree)
+    _daily(src, "klga", ["2026-01-01,24,41"])                    # a clean source still refuses
+    assert _run(src, out, "daily") == 2
+    err = capsys.readouterr().err.strip()
+    assert err == f"refused: delete {left[0]} without reading it"
+    assert "klga" not in err and "66666" not in err
+    assert [p.name for p in out.iterdir()] == [left[0].name]

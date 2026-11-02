@@ -6,15 +6,16 @@ the single 3a run will execute and states the mechanics `rule_3a.md` (sha256
 kill criterion, arm, bin, fold or gate. Section 3 records master's rulings of 2026-11-02 on the label
 mechanics. The Opus review of this clarification and of the extractor comes before any real read; row
 113 runs only after row 106's dev run and on the coordinator's go. The pins below are the files after
-the first Opus review's fixes (2026-11-02, section 8).
+the first Opus review's fixes and the re-review's folds, including master's 2026-11-02 report additions
+(sections 8 and 10).
 
 ## 1. Pinned files
 
 | File | sha256 |
 | --- | --- |
-| `tools/research/pm_price_history/reliability_3a.py` | `5b2822b7d5939a841a2b9be638ad891af076bd1c4f3b82851061cfeab28eee80` |
+| `tools/research/pm_price_history/reliability_3a.py` | `6e5beb395fbab734dcdb7ad54fe91e440f3b87cb96062c752536c8b62f8fb108` |
 | `tools/research/pm_price_history/l21_stats_e541ad401.py` (byte-identical copy of L21 `run_reliability.py` at `e541ad401110157c71b14b0bfa4589020bb6fe82`; checked at import) | `df12cc8cab980b2af71c55942ce9ec9bbc8422d17c5852bdfc7ae332e421f7a3` |
-| `tools/research/pm_price_history/extract_bounded_v1.py` (O-1/O-2 extractor; not yet run on real files) | `a93779d0cf696c88b999a2bd566592a0f1e2bc5ebabaf992bef68eb7eb40db6e` |
+| `tools/research/pm_price_history/extract_bounded_v1.py` (O-1/O-2 extractor; not yet run on real files) | `65ce60f34a06f35488747cb60603701ab9aeb46a03d036bd973c457a9f6d945a` |
 
 The run passes `--expect-sha` equal to the 3a sha above and refuses otherwise; the extractor does the
 same with its own sha. The 3a module also pins the extractor's sha (`EXTRACTOR_SHA256`) and refuses an
@@ -74,9 +75,10 @@ dated clarification.
   not parse, a token file missing from the sealed run), the results restate N and MDE80 (T2, scaled by
   √(1,419 / N)). The denominator `n` here includes the ladders dropped at load.
   - The restated N is **label-based**, ruling 3 literally: D market-dates with exactly one winner
-    (`power_restated.N`, `N_basis`). The final scored N, after `build_rows` also drops ladders with an
-    incomplete or zero-sum price ladder at the deciding hours, is reported separately as
-    `N_final_scored_market_dates`. The power gate is still the realised SE at step 5.
+    (`power_restated.N`, `N_basis`). The final scored N, after `build_rows` also drops ladder-hours with
+    an incomplete or zero-sum price ladder at the deciding hours (rule line 117), is reported separately
+    as `N_final_scored_market_dates`, with the T2 MDE80 scaled to it, `MDE80_T2_at_N_final_scored`
+    (about 0.150 at N = 695). The power gate is still the realised SE at step 5.
 - **L4.** A ladder without exactly one winning band is excluded and counted; step 2 FAILS if fewer than
   99% of labelled D ladders have exactly one. Band tiling must hold for 100% of D ladders, and a D ladder
   whose band labels do not parse counts as a non-tiling ladder (`tiling.of_which_band_unparseable`), so
@@ -113,10 +115,15 @@ message.
 
 - Everything is built in `.staging-extract-<kind>-<stamp>` beside the final directory. Each daily source
   is parsed in full before its output is written. On any refusal or exception the staging directory is
-  deleted, so a refused run leaves neither an output nor a staging directory, and nothing can show where a
-  bad row sits. Only after the extract, `manifest.json` and `SHA256SUMS` are written and the files made
-  read-only is staging renamed to `extract-<kind>-<stamp>`; then the directories are made read-only. An
-  existing final directory refuses before anything is read.
+  deleted (best effort, a second Ctrl-C during the delete included), so a refused run normally leaves
+  neither an output nor a staging directory, and nothing can show where a bad row sits. If the staging
+  directory cannot be deleted, the run fails with the fixed message "delete <staging path> without
+  reading it" and never lists its contents. Any later run refuses, printing only that path, while any
+  `.staging-extract-*` directory exists under `--out-root`. Only after the extract, `manifest.json` and
+  `SHA256SUMS` are written and the files made read-only is staging renamed to `extract-<kind>-<stamp>`;
+  then the directories are made read-only. That directory bit is cosmetic on NTFS, where it does not
+  stop writes; the files' read-only bit is the real protection. An existing final directory refuses
+  before anything is read.
 - The manifest lists `stations_without_source`: stations with no source file, or (hourly) no partition
   overlapping the window, as names only. It holds no count or date about any later row.
 
@@ -128,24 +135,85 @@ minors and nits are the items in sections 2, 3, 5 and 7 above that mention the e
 names, the unparseable ladders, the label-based N, the check order, duplicate rows, read-only
 directories, the names-only station list and the exact boundary tests.
 
+The re-review of `936078c7e1975bb870b33ec3cad48cec60e87b71` was CLEAN. Its folds are in this version:
+- best-effort staging deletion with a fixed failure message, and the stale-staging refusal (section 7);
+- an LF-only receipt, so its sha is the same on every platform;
+- the dry-run command line copied from the receipt (section 9);
+- the T2 MDE80 at the final scored N (section 3);
+- an L21 `labels` failure raised after step 2 has passed is recorded under its own key
+  (`2_label_integrity__l21_labels`) and never overwrites the PASS record;
+- the NTFS note (section 7);
+- "ladder-hours" wording (sections 3 and 9).
+
 ## 9. Synthetic-only dry run
 
-Run 2026-11-02 15:05 UTC on the WS, direct light run (PID 2924), with the pinned 3a sha above:
-`python -m tools.research.pm_price_history.reliability_3a --run C:	\l52\historyun-20261102T004422Z
---out C:	\l52a\dryrun-20261102T150533Z.json --synthetic-only`. It opened no label or observation file.
+Run 2026-11-02 15:16 UTC on the WS, a direct light run (PID 9964), with the pinned 3a sha above. It opened
+no label and no observation file. The command line, copied from the receipt's `command_line`, was:
+
+```
+C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe C:\wt\l52\tools\research\pm_price_history\reliability_3a.py --run C:\t\l52\history\run-20261102T004422Z --out C:\t\l52\3a\dryrun-20261102T151627Z.json --synthetic-only
+```
+
+It was started as `python -m tools.research.pm_price_history.reliability_3a` from `C:\wt\l52`, so the
+receipt shows the module's file path.
 
 | Item | Result |
 | --- | --- |
-| Receipt sha256 | `62c22714f7b1022772f0a3b9a74ee48ff2513dacdf6af71b4c200c35c4a55e8e` |
-| Wall time, peak working set | 56.6 s, 218 MB |
+| Receipt sha256 (on-disk file, LF) | `a1067a79879985ca47117b91915fc45740604ba43809b8624da854dcd7ac0369` |
+| Wall time, peak working set | 207.8 s, 217 MB. Two other heavy slots were busy; the earlier run of the previous pin took 56.6 s |
 | 1 price integrity | PASS: SHA256SUMS `5073afd8…fe71`, 43,195 files re-verified, 15,711 read and re-hashed |
 | 2 label integrity | NOT RUN (needs labels); outcome-free tiling 1,419 of 1,419 D ladders, 0 unparseable |
-| Deciding population | 1,355 ladder-hours, 695 market-dates, 169 dates, months 2025-12..2026-05; ladders with an incomplete mid at 07/10 are excluded and counted per market and hour |
-| 3 synthetic controls | all four checks true; null A1/A2/A3 widest intervals cover 0, in-sample β̂ 1.01; planted β̂ 1.51 with A3 widest lower 0.108 > 0 |
+| Deciding population | 695 of 1,419 D market-dates, 1,355 ladder-hours, months 2025-12..2026-05 (section 10) |
+| 3 synthetic controls | all four checks true. Null: A1/A2/A3 widest intervals cover 0, in-sample β̂ 1.01. Planted: β̂ 1.51, A3 widest lower bound 0.108 > 0 |
 | 4 training score (null) | ok |
 | 5 realised power (null projection) | MDE80 A1 0.027, A2 0.070, A3 0.062; power at the edge ≥ 0.99 for all three arms |
 | Verdict | NONE (synthetic-only; no real Δ exists) |
 
-The deciding population is 695 market-dates, not the 1,419 D ladders: ladders without a mid within
-±120 s at 07:00 or 10:00 local for every band are dropped by `build_rows` (the rule's completeness rule).
-The null projection's realised SE already reflects that population, and its power passes the gate.
+The previous pin's dry run (15:05 UTC, PID 2924) gave the same numbers. Its receipt
+(`C:\t\l52\3a\dryrun-20261102T150533Z.json`, on-disk sha256
+`26925f47aae0cd737f246dc186c266a269d2c93870405939ed851a23e8985961`, CRLF) is superseded.
+
+## 10. Addition of 2026-11-02 (master): deciding-population headline and fold split
+
+Master accepted the 695 / 1,419 disclosure and added two report requirements. Both are computed by
+`deciding_population` from prices alone: `build_rows` with no label and no floor, run right after the
+sealed run loads and before step 2 reads any label. The exclusion is therefore outcome-blind and fixed
+before any label read. Both appear in the receipt as `deciding_population` in every mode, and the
+headline leads the printed summary.
+
+- **(a) HEADLINE.** The receipt opens with "HEADLINE: deciding population 695 of 1419 D market-dates
+  (1355 ladder-hours at 07:00/10:00 local), excluded on price completeness only: outcome-blind, fixed
+  before any label read". `exclusions_by_market_hour` is the per-market × hour table of ladder-hours
+  dropped for an incomplete (or zero-sum) mid. `MDE80_T2_at_kept` is the T2 MDE80 scaled to the kept
+  market-dates (0.150 at 695).
+- **(b) Fold split (counts only, no labels).** `kept_vs_excluded_by_month_fold` gives, per calendar-month
+  fold, the D market-dates kept, excluded on price completeness, and dropped at load.
+
+From the dry run (prices only):
+
+| Market | Ladder-hours dropped at 07:00 | at 10:00 |
+| --- | ---: | ---: |
+| atlanta | 58 | 60 |
+| austin | 30 | 34 |
+| chicago | 62 | 66 |
+| dallas | 68 | 69 |
+| denver | 35 | 35 |
+| houston | 39 | 39 |
+| los-angeles | 49 | 50 |
+| miami | 63 | 64 |
+| nyc | 90 | 100 |
+| san-francisco | 48 | 50 |
+| seattle | 95 | 99 |
+| toronto | 87 | 93 |
+
+| Month fold | Kept | Excluded (price completeness) | Dropped at load |
+| --- | ---: | ---: | ---: |
+| 2025-12 | 79 | 63 | 0 |
+| 2026-01 | 101 | 73 | 0 |
+| 2026-02 | 115 | 81 | 0 |
+| 2026-03 | 139 | 108 | 0 |
+| 2026-04 | 142 | 218 | 0 |
+| 2026-05 | 119 | 181 | 0 |
+
+The excluded share is highest in 2026-04 (61%) and 2026-05 (60%), against 41% to 44% in the earlier
+folds. This is disclosed, not corrected: completeness is a price property fixed before any label read.
