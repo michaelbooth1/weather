@@ -94,6 +94,15 @@ remain explicit production actions. `WeatherMakerEvidenceLowestTemperature` runs
 same module with `--family lowest_temperature` in its own root (books and reward
 terms, no websocket); its registrar is
 `scripts/ops/register_maker_evidence_family_capture.ps1`.
+`WeatherMakerEvidenceTornQuarantine` is a startup task. Through
+`maker_evidence_torn_quarantine_boot.ps1`, it runs
+`maker_evidence_torn_quarantine.ps1 -Apply` on the core root every minute for 15
+minutes after boot. Its definition is the checked-in
+`scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml`. The registrar is
+`scripts/ops/register_maker_evidence_torn_quarantine.ps1`, which registers only on
+the capture host and never replaces an existing task. It is not registered until
+master does so after Stage 1 lands; the owning section is in
+[the capture contract](passive-maker-evidence-capture.md).
 
 The paper-only `WeatherMakerShadowRunner` (registrar
 `scripts/ops/register_maker_shadow_runner.ps1`) is a separate long-lived public-read
