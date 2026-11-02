@@ -28,7 +28,14 @@ try {
     if ($null -ne $childCode) {
         $exitCode = [int]$childCode
         $status = ''
-        try { $status = [string](($lines -join "`n") | ConvertFrom-Json).status } catch { $status = '' }
+        # Parse from the first line that starts with '{', so a stray WARNING line cannot break it.
+        # No parse leaves the child's code standing.
+        $start = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) { if ([string]$lines[$i] -like '{*') { $start = $i; break } }
+        if ($start -ge 0) {
+            try { $status = [string](($lines[$start..($lines.Count - 1)] -join "`n") | ConvertFrom-Json).status }
+            catch { $status = '' }
+        }
         if ($exitCode -eq 2 -and $status -ceq 'REFUSED_WRITER_ALIVE') { $exitCode = 0 }
     }
 }

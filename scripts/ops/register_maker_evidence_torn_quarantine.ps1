@@ -184,7 +184,10 @@ catch {
         $after = Get-ScheduledTask -TaskName $taskName -TaskPath $taskPath -ErrorAction Stop
         if ($after.Settings.Enabled -ne $false) { throw 'Settings.Enabled is still true' }
     }
-    catch { throw "$taskName registered but unverified ($why) and DISABLING FAILED ($($_.Exception.Message)); disable it by hand now" }
+    catch {
+        throw ("$taskName registration unverified ($why); disabling it or proving it disabled failed " +
+            "($($_.Exception.Message)). Check whether the task exists now and, if it does, disable it by hand")
+    }
     throw "$taskName registered but unverified ($why); the task was disabled (Settings.Enabled false)"
 }
 $plan.registered = $true

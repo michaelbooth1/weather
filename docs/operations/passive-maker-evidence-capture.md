@@ -532,6 +532,14 @@ Windows PowerShell path.
   - Meanwhile the next quarantine run reports `TORN_SIGNATURE_UNRESOLVED` (exit 5).
   - The first run after the recorder is up returns 0 again. Capture starts at most one PT5M
     interval late.
+- Timeout overlap. At the PT5M limit, Task Scheduler may end only the wrapper and leave its Stage 1
+  child running.
+  - The next run would then see that orphan as a live writer, report `REFUSED_WRITER_ALIVE` and
+    map it to 0, hiding the overlap.
+  - The orphan still holds the lock, finishes or fails on its own, and appends its own log line.
+  - A Stage 1 pass normally takes seconds. If the task history shows a timeout (run terminated at
+    the limit), look for a leftover `maker_evidence_torn_quarantine.ps1` process and read its log
+    line once it ends.
 - A non-zero last result shows in `status.ps1` like any `Weather*` task. A non-zero result at the
   end of the 15-minute window stays visible until the next boot and needs a human. That covers
   exit 2 (cap, several unsealed segments, volume or reparse refusals), 4, 5 and 6. Read

@@ -33,6 +33,10 @@ def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
             assert "<RunLevel>LeastPrivilege</RunLevel>" in template, templates[0]
             assert "-UserId $env:USERNAME" in text, path.name
             assert "LogonType -ceq 'S4U'" in text and "RunLevel -ceq 'Limited'" in text, path.name
+            # The XML principal must be the only one: no credential or principal override beside -Xml.
+            for line in text.splitlines():
+                if "Register-ScheduledTask" in line and not line.lstrip().startswith("#"):
+                    assert not re.search(r"-(User|Password|Principal)\b", line), (path.name, line)
             continue
         assert "$principal = New-ScheduledTaskPrincipal" in text
         assert "-UserId $env:USERNAME" in text

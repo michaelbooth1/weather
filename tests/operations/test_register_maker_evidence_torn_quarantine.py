@@ -333,9 +333,12 @@ exit ([int]$env:FAKE_STAGE1_CODE)
     (4, '{"status":"FAILED_HASH_READ"}', 4),
     (5, '{"status":"TORN_SIGNATURE_UNRESOLVED"}', 5),
     (6, '{"status":"INTERNAL_ERROR"}', 6),
+    (2, 'WARNING: stray host line\n{"status":"REFUSED_WRITER_ALIVE"}', 0),
+    (2, 'WARNING: stray host line\n{"status":"REFUSED_CAP"}', 2),
+    (2, '{"status":\n"REFUSED_WRITER_ALIVE"', 2),
 ])
 def test_boot_wrapper_maps_only_a_live_recorder_to_zero(tmp_path, code, output, expected):
-    ops = tmp_path / "scripts" / "ops"
+    ops = tmp_path / "prod repo & co" / "scripts" / "ops"
     ops.mkdir(parents=True)
     shutil.copyfile(BOOT, ops / BOOT.name)
     (ops / STAGE1.name).write_text(FAKE_STAGE1, encoding="utf-8")
@@ -344,7 +347,9 @@ def test_boot_wrapper_maps_only_a_live_recorder_to_zero(tmp_path, code, output, 
                              "-File", str(ops / BOOT.name)], capture_output=True, text=True, env=env,
                             timeout=120, check=False)
     assert result.returncode == expected, result.stdout + result.stderr
-    assert output in result.stdout and "FAKE_STAGE1_WITHOUT_APPLY" not in result.stdout
+    for line in output.split("\n"):
+        assert line in result.stdout
+    assert "FAKE_STAGE1_WITHOUT_APPLY" not in result.stdout
 
 
 def test_boot_wrapper_maps_the_status_stage1_actually_emits():
