@@ -497,6 +497,58 @@ Exit codes:
 
 `-Apply` appends one line per pass to `data\alerts\maker_evidence_torn_quarantine.jsonl`.
 
+### Torn-journal quarantine at boot (Stage 2)
+
+`WeatherMakerEvidenceTornQuarantine` runs the same tool unattended after a reboot (owner yes
+2026-11-02). Master registers it on the capture host only after Stage 1 has landed there.
+**It is not registered until then.** The canonical definition is the checked-in
+`scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml`, and
+`scripts/ops/register_maker_evidence_torn_quarantine.ps1` registers that definition and nothing
+else. The registrar substitutes three values into it: the current user, the checkout root and the
+Windows PowerShell path.
+
+- Trigger: at startup with no delay, then every minute for 15 minutes. The Scheduler repetition is
+  the bounded poll from the design, so the Stage 1 script is unchanged. There is no
+  `StartWhenAvailable`.
+- Settings: IgnoreNew, a 5-minute run limit, and it runs on batteries. Principal: current-user
+  S4U/Limited.
+- Action: `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+  "<root>\scripts\ops\maker_evidence_torn_quarantine.ps1" -Apply`. It acts on the core root only;
+  family roots stay operator-run.
+- Behavior on a normal boot:
+  - Once the recorder holds `.writer.lock`, each run is a no-op.
+  - Before the recorder starts, a run classifies under the lock and moves torn tails, if there are
+    any.
+  - The recorder's next PT5M trigger then seals the rest. This task never starts the recorder
+    itself.
+- If a run holds the lock at the moment the recorder's trigger fires, the recorder refuses that
+  start ("already has a writer") and retries 5 minutes later. The next quarantine run may then log
+  a one-off `TORN_SIGNATURE_UNRESOLVED`, which clears on the run after the recorder is up.
+- A non-zero last result shows in `status.ps1` like any `Weather*` task. Exit 5 or 2 at the end of
+  the 15-minute window stays visible until the next boot and needs a human; read
+  `data\alerts\maker_evidence_torn_quarantine.jsonl`.
+
+Registration (production agent only, never on the workstation):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\register_maker_evidence_torn_quarantine.ps1 -ExpectedSourceTip <full tip> -ExpectedScriptSha256 <sha256 of maker_evidence_torn_quarantine.ps1> -WhatIf
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\register_maker_evidence_torn_quarantine.ps1 -ExpectedSourceTip <full tip> -ExpectedScriptSha256 <sha256 of maker_evidence_torn_quarantine.ps1>
+```
+
+- `-WhatIf` prints one JSON plan line and then the exact XML. It touches nothing: no host check,
+  git call or Scheduler call.
+- Both modes refuse when the Stage 1 script does not hash to `-ExpectedScriptSha256`.
+- Without `-WhatIf`, the registrar refuses unless all of the following hold: it is on the
+  dedicated capture host, the checkout is at `-ExpectedSourceTip` with no tracked change, and no
+  task of that name exists. It never replaces a task.
+- After registering, it reads back the action, trigger, principal and settings. On any mismatch it
+  disables the task and fails. On success it prints the exported XML and its SHA-256 for the record.
+- The action runs the checkout's script, so a later merge that changes
+  `maker_evidence_torn_quarantine.ps1` changes what runs at boot without re-registration. Every
+  log line records the running script's `script_sha256`.
+- Undo: `Disable-ScheduledTask -TaskName WeatherMakerEvidenceTornQuarantine` (an owner decision,
+  like the registration).
+
 The central schema registration is additive. Its shared-registry placement
 means deployment must use the repository roll-verdict tool; independence of
 the worker does not itself prove the entire branch roll-free.
