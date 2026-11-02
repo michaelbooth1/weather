@@ -41,6 +41,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.process_job import KillOnCloseJob, terminate_job_and_wait
+
 pytestmark = [
     pytest.mark.spawns,
     pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell and Win32 consoles"),
@@ -755,28 +757,31 @@ def _ctrl_c_exit_code(tmp_path: Path, label: str, prefix: str, final: str) -> in
         encoding="utf-8",
     )
     command = [*POWERSHELL, "-File", str(script)]
-    process = subprocess.Popen(
-        [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
-        creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
-    )
-    try:
-        deadline = time.monotonic() + 60
-        while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
-            time.sleep(0.2)
-        _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
-        return process.wait(timeout=20)
-    except subprocess.TimeoutExpired:
-        return None
-    finally:
-        if process.poll() is None:
-            _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
-            process.wait(timeout=60)
+    with KillOnCloseJob() as job:
+        process = job.popen(
+            [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
+            creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
+        )
+        try:
+            deadline = time.monotonic() + 60
+            while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
+                time.sleep(0.2)
+            _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
+            return process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            return None
+        finally:
+            # Job containment, never a parent-PID tree kill (L33, 2026-11-01).
+            terminate_job_and_wait(job, process, timeout=60)
 
 
 def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_repo, tmp_path):
     # test_pregate_exit_is_issued_from_the_final_finally guards the same contract
     # statically wherever console Ctrl+C cannot be delivered.
     if not _ctrl_c_reaches_a_new_console(tmp_path):
+        # Skips only where console Ctrl+C is not delivered; the KillOnCloseJob
+        # launch and terminate_job_and_wait cleanup below are then unexercised.
+        # (A 2026-11-02 workstation_heavy.ps1 -Queue run did deliver it.)
         pytest.skip("console Ctrl+C is not delivered in this runner")
     root = Path(fixture_repo["root"])
     receipt_path = root / "receipt-interrupt.json"
@@ -789,9 +794,9 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
         "-OutputDirectory", str(root / "out-interrupt"), "-ReceiptPath", str(receipt_path),
         "-WorktreeParent", str(root / "wt"),
     ]
-    with _HeldWorkstationMutex():
+    with _HeldWorkstationMutex(), KillOnCloseJob() as job:
         # A private console so the Ctrl+C reaches only the pre-gate process.
-        process = subprocess.Popen(
+        process = job.popen(
             [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
             cwd=root, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
         )
@@ -806,8 +811,8 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
             returncode = process.wait(timeout=180)
         finally:
             if process.poll() is None:
-                _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
-                process.wait(timeout=60)
+                # Job containment, never a parent-PID tree kill (L33, 2026-11-01).
+                terminate_job_and_wait(job, process, timeout=60)
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["verdict"] == "FAIL"
     assert "host suite driver did not complete" in receipt["failure_reasons"]
