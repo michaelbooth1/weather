@@ -148,6 +148,8 @@ Re-verify rather than trusting this list):
 | `WeatherMemoryCommitGuard` | `scripts\ops\memory_commit_guard.ps1` in the production checkout, no hash pin (`register_memory_commit_guard.ps1`) | A merge to `master` changes guard behavior at the next one-minute tick, with no redeploy and no review gate. |
 | Integration-attempt suite and merge tasks | the orchestration scripts of the checkout that ran `register_integration_attempt.ps1`, with every dependency hash frozen in the manifest | Drift fails closed; see [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md). |
 
+`status.ps1` hashes the `-File` of every `Weather*` action that carries `-ExpectedSelfSha256` (except the pinned watchdog, which the G5 drift check owns) and reports each as `self_pinned_tasks`: a mismatch or a missing file is a FLAG, an action it cannot parse a WARN (R35; module pins are not recomputed).
+
 Check before reasoning about any task's behavior (read-only, light):
 
 ```powershell
