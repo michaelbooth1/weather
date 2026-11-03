@@ -1,4 +1,4 @@
-# Row 28 — run log (DRAFT, nothing has run)
+# Row 28 — run log (sentinel PASSED; no stage has run)
 
 This log records how the frozen row-28 prereg is executed.
 
@@ -6,9 +6,9 @@ This log records how the frozen row-28 prereg is executed.
   by `FREEZE_RECORD.md`.
 - **Read with:** `CLARIFICATION_1.md`, `CLARIFICATION_2.md` and `CLARIFICATION_3.md` (all 2026-11-03, committed
   before any control).
-- **Status:** nothing has run, not even the sentinel test. The v5 review: launcher v5 and C1–C3 CLEAN; a final
-  round gives runner v6 and sentinel test v4 (C3 second addendum); launcher v5 is unchanged. Gate order: the
-  coordinator's go for the sentinel test, then the sentinel test PASSES, then the coordinator's go for stage 1.
+- **Status:** the v6 final delta review was CLEAN on every file. Sentinel test v4 (stage 0) PASSED on
+  2026-11-03 (see the per-stage log). Next: stage 1 (`controls`) on the coordinator's go; build waits for a
+  separate go after the controls report.
 
 ## Exception to workstation_heavy admission
 
@@ -255,11 +255,19 @@ stage's Job, from `receipt.json` `job_memory.peak_job_memory_bytes`.
 
 | # | Stage | Start | Stop | Exit | Status | PeakJobMemoryUsed (peak committed private bytes) | walk.json sha256 | Other output shas |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | sentinel test v4 | 2026-11-03T04:40:49.2872160-05:00 | 2026-11-03T04:40:51.8190510-05:00 | 0 | PASS: 20 passed, 0 failed (0.98 s) | n/a (wrapper route) | n/a | wrapper stdout `2fd2e2b9666ee7b32d8254c7021785bc078d2eb6c872e633d0b77e0c3c4dd384`; queue events `3b0c25b5621cb16465f50042ef8f94660418ea66cec75f6bbdd883553bcf24a0` |
 | 1 | controls | | | | | | | |
 | 2 | build | | | | | | | |
 | 3 | integrity | | | | | | | |
 | 4 | labels | | | | | | | |
 | 5 | look | | | | | | | |
 | 6 | score | | | | | | | |
+
+Stage 0 detail: `workstation_heavy.ps1 -Kind pytest -Queue`, `PYTHONDONTWRITEBYTECODE=1`, args exactly the form
+above; queue ticket 1, admitted to slot 2 of 3 with no busy slots, thread cap 10 of 32 logical processors; the
+wrapper's stderr was empty. The queue events are the wrapper's own `data\logs\heavy_workload_queue.jsonl` in the
+worktree (git-ignored; the wrapper created it). The basetemp `C:\t\L59\row28\sentinel_bt` was deleted and
+`git status` was clean afterwards; the only ignored bytecode is a pre-existing `scripts/__pycache__/` from
+2026-11-02 (fetch scripts), older than the run.
 
 Gate commits: integrity — (pending); look — (pending).
