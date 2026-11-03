@@ -474,3 +474,118 @@ The d1 diagnostic keys `per_file` by the class-tagged file name (`row28_guard_di
   - the records sha manifest equal to a3's;
   - output guard 0, with the allowance firing `dated_tokens` = 276.
   Any deviation STOPs.
+
+## Appended 2026-11-03T05:46:52-05:00: records move, controls a4 (STOP: records manifest deviation) (append only)
+
+- **Quiesce** (05:37:42). `data\` held exactly the four junctions. No wrapper, launcher or runner of mine was
+  running; the only matching processes were two `tail.exe` log followers on `fetch\*.log`.
+- **Move** (05:38:06). `run\records` was moved to `run\records_a3_evidence` (a rename; afterwards `run\records`
+  was absent). a2, a3 and d1 were not touched. The sha manifest below was computed from the moved files.
+- **Pre-launch scan** (05:38:17). The OutDir name `s1_controls_a4` and its full path, the stage `controls`, and the
+  config's name and contents (`stage1_controls_v2.json`, `66e4b46e…`, unchanged) each have 0 ISO dates on or
+  after 2026-01-01. The config names neither `cap_counts_v2.json` nor `r4_deciding_dates_receipt.json`. Launcher v6
+  is `8a2f8759…`, runner v7 is `85f50b9c…`, and `run\s1_controls_a4` did not exist.
+- **Launch.** Launcher v6 started as pid 2972 at 05:38:23.79 in the RUN_LOG form, with OutDir
+  `run\s1_controls_a4`, runner v7 and `-ExpectSha 85f50b9c…`. Launcher stdout is `adc641d5…`; launcher stderr,
+  walker.stderr and the walker log are empty. Walker pid 45356 ran from 20261103T053833 to 20261103T054555.
+  No process remains.
+- **Receipt.** Status COMPLETE, walker exit code 0, receipt guard 0, no FLAG.
+  - receipt.json is `9c288c9f44de36c76aa804bfd0f64387cd34840e21c1244b753644ed2bc2c0d2`.
+  - walk.json is `198e15c78b1f423b5bb7aa946021fc9465a02171e1c2c3425924c33a81c5c0f8`.
+  - walk.csv is `54ec62e57ad19fe1542ac94c22bb1856c5e5e75ab30383dd593c3b0a5f792d38`.
+  - walker.stdout is `941b9c6c…`.
+  - Peak Job memory is 2,215,063,552 bytes.
+  - The junction manifest is unchanged (before = after `f93c2ad2…`).
+- **Runner.** Status PASS. The output guard is CLEAN: 68 files scanned, 0 hits, nothing withheld.
+  - `decision_allowance` is `dated_tokens` 276 and `values` 144.
+  - `decision_pins` holds r0_scope `e8bb0683…`, 2 values.
+- **Controls, all equal to a3.**
+  - C-0: 19,657 of 19,657 rows, identical keys, max abs diff Brier 0.0 and log 0.0.
+  - C-0b: 2 of 2 PASS.
+  - C-0c: 4,125 compared, 0 mismatched.
+  - C-b: 660 rows, 0.0, no arm halted.
+- **DEVIATION: the records sha manifest is not a3's.** Names and sizes are equal for 66 of 66 files, but the sha256
+  differs on 66 of 66. walk.json's `records_sha256` equals the a4 files on disk, and `records_a3_evidence`
+  re-hashes to its move-time manifest, so neither side changed after it was written.
+  - **Cause (byte comparison only, nothing parsed):** each a3 file and its a4 file are byte-identical except the
+    gzip header MTIME field (bytes 4-8), which differs in all 66. Their decompressed payloads are equal in all 66.
+  - **Why the MTIME differs:** `pooled_residual_model.py:256` writes records with `gzip.open(tmp, "wb")`, which
+    stamps the header with the write time. The runner's own Writer uses `gzip.compress(data, mtime=0)` (runner
+    v7:392), but records are not written through it.
+  - **Disclosure:** to locate the cause, the a3 evidence bytes were read for byte comparison and gzip-decompressed
+    for a sha comparison. Nothing was parsed or logged beyond counts.
+- **walk.csv vs a3 (sha only).** The whole-file shas differ (`54ec62e5…` vs a3's `c6f206e7…`). a4's walk.csv has 68
+  rows: the 66 records rows, whose shas differ for the reason above, and 2 other rows. a3's walk.csv was not opened.
+- **STOP** per the brief. Runner v8 and sentinel v6 were not written. Build was not started.
+
+Records sha manifest (`run\records_a3_evidence` at the move, and the a4 `run\records`). The year (2026) is elided
+from the centre in each name:
+
+| File (`records_<market>_2026-<MM-DD>.pkl.gz`) | Size | a3 sha256 (`records_a3_evidence`) | a4 sha256 (`records`) |
+| --- | --- | --- | --- |
+| `atlanta` `01-08` | 140377 | `eb44e776c6af55c7d809b4edffff53372d1905b8d6efacedd35add6339bebeae` | `164611fd0edf6459d4731f46126e8fd17d7acd197b456d79fe02efd68e74c68c` |
+| `atlanta` `08-08` | 222250 | `1df980e455930e9edfbbe6ba07b540bb76eac515d353625fe0355099f0936c5d` | `ab16f87e7a863268a7b06b57aa0d3bf0b7cfe6753cc52cfaab70df129f36fec1` |
+| `atlanta` `08-23` | 219394 | `7ef8e10660099825bb28b15f8eed54c8ea351eb39f72542787a1156fcba6db8e` | `549bd782fd4707a7cb344ca9aaae23d4f2b013dcfe1da0a5bef48ab165fdc47c` |
+| `atlanta` `09-07` | 216409 | `58759de168caf2fc2da069f684a54547a8edb0e578ed4deb0d1473542cb0dd95` | `eb80390939b3a1d143c83e747a862c0dfd08af6ea2672748f58d29e15ac88a80` |
+| `atlanta` `09-22` | 222892 | `16a8556bb5b08262caa49b3f3922a84c95b61d3cfcdf7d1788e7b67b55be212a` | `2bc17558b8f2b12fa55cf0f4db5c4e501825904affdc351bc2e1c09fad9641cb` |
+| `atlanta` `12-09` | 231395 | `37aeb249615e234b563015b23197d9273d508ac0d34e6f8954e8510590bd4b3b` | `f0ddd005d0023d54bd30d45e58e54610140980416589dc7367e5e37ad0ebddbb` |
+| `austin` `01-08` | 140482 | `6586946dd1affcddc4882dac8fe1781df1f28f996f852ae5bd655ee493dfc3ab` | `4ec9a9acb3688ad8631adff6df438474fa2f46ab7a1ac18652912c2a58678697` |
+| `austin` `08-08` | 214164 | `d96064173c5cb2bd1a3314f0dc8589d92f867265064c9f824e1663cf866e3836` | `b18944dc4e0cd179aa1a77f0733ef9ecfe5ce5c9a809ba1ebf98efc50938eca8` |
+| `austin` `08-23` | 219352 | `5bd420acb1450d15b4d55386576b37b44dfa558f14aae70cae6b8fa9c97d4165` | `d5208482e4310add24b42f972ad05db73a21ea6803341f82d2f9d5ffe56344a9` |
+| `austin` `09-07` | 216983 | `387b2cc01e96d92f540d9addeeddf553fd4629c75b53a882699057f05c77254d` | `9d107e41a713a3f1b3306a73919a2aeca810b00ac94ee71eaed044df40a71a99` |
+| `austin` `09-22` | 216446 | `72169d86972fb038d1c5273a67fcd19f0751116698d83faf32832381d6ac8861` | `0ffe40ec9ab0abb7a93c7aec93cbb1d42a0087cb9bdbaef1aed3b9491d83b863` |
+| `austin` `12-09` | 233397 | `81f5bca9b33f8ac9fcc8398036e0c54ed97ac683ad2c6b988495e6e3e76c4599` | `d19ae554c5845750dff57869343a43252780d5bb9a4bcaa7d728a4b4d8d87fce` |
+| `chicago` `01-08` | 140743 | `5379d294144b9d9db08398a1843867acd35f9849f4de98570ca69da40538899a` | `d0d2ec36d6a604b7265876d6f62ae52e43d2eb7b60c3b940985f4241446b0ef7` |
+| `chicago` `08-08` | 224626 | `ae95e56fc146514f5c7dfbb5fcddb7e7fdb6b60bcc43320ada9a85b871a0e815` | `de1a4ebdae419f915285a6633be101cda4c8002293bc46724c1ba9cea367deb9` |
+| `chicago` `08-23` | 225775 | `6fba44875fa7f7fa15cb1b0725559720ed02a1ea8b8f1de3dd56c89bb1a142a2` | `b2e5123e20101374f3fb2da2779b991b06ed1fdf8eb206cf4cbee6ea32ff5ae9` |
+| `chicago` `09-07` | 225567 | `f4a9e1a92fde4909c66a5186e95f99a693f0422ceea930512a1998d3a73c5e06` | `1c6d8f8b0f77ad0f0ee85a608a971f44fff13392252843fa9a77b84f2086bd85` |
+| `chicago` `09-22` | 225610 | `ffd74a3e0e48742ac9fcad8b4cc26be43799d94a0abf9b2f8bed16ffbe08ed36` | `d22bd08b689622b1952a000a5d326dff515749cef641427a03882c6a5cbb8f68` |
+| `chicago` `12-09` | 231724 | `be008ee82e8e4e39107d923beb72c9b1f0c91354bd71290a167ebff8dedb8f3d` | `99cb67270243fdeed9a9b139b9c5df9f6c4e819b6387292da1b08868547087b3` |
+| `dallas` `01-08` | 141932 | `5d3d73fb76cfc01edfe13937ef1549766256e8054ff0da3660682170859d227a` | `164e4bf5faf5a47e5f622ac582b5d68003c4679ac1f16fdac84910b5c0fcca55` |
+| `dallas` `08-08` | 216161 | `87db13adaf8ead57507187138853da0f2b110d1cb1166fc9c1ed18a001a590a2` | `003ee54fd67dfd8dc105b5607dcecead33370a497dbddfba539868ff1a0d60c4` |
+| `dallas` `08-23` | 220558 | `2dea83c48a9b169c7eea9fc46c116b140f63add3cfb1322184467b5bf7a07e98` | `69f6c41dc0b4bebe4cfd7521a7e376a772ac1d6ec79762ffa09c18d3b89b412e` |
+| `dallas` `09-07` | 218378 | `03fdf0e640d06e590b7c56edaa78c8a63f5e73bfe9a0b48c77520e926b7ee089` | `91ad9b8b84e2c5309ad4095e078838114dcc52e968a4e5d0d5fc1ce6cf27df11` |
+| `dallas` `09-22` | 220450 | `fcb3bc99fb9a7f626d18d12bcf26f5fda6d9a90d0c5970af26d4c73ebb2023fa` | `cdcf12eaa7909ad2d9f4ccf33c384ad4159a73bcc61a3bea021a1195551b348f` |
+| `dallas` `12-09` | 233736 | `4fb414a569132c9c010f0e9151cf9efa567c106ede516fae0c3518e9109ee696` | `dbff0c79446752d8e65a6ca188109fc1e5e9bf995854d4d64c0aaf0b5c2df6e4` |
+| `denver` `01-08` | 135819 | `568c7e9253b9e549b279b00d51b330cb8e58db720bd82055cb92f631cd790858` | `5ddb0c0ea060d1b762304a9895991b706938ff72989edefbad58ab771a586f31` |
+| `denver` `08-08` | 225928 | `b885cc2d98bc12f48d375e034eecbee6664d078793aca2771d8a35c984dd68e8` | `eaaff24324340651078f74bb8fa182f6d10ecd75d406acd51ef702bf08b0f5d4` |
+| `denver` `08-23` | 220772 | `1f2913cb6b4917432825b8ef86122f044d0109d3dcc6fc3ca531417f597c7397` | `a36b59bc2aa13034e8a50c83d1132fdab11b69e69936d06e8de8558be68bd4a9` |
+| `denver` `09-07` | 207926 | `cfeadba77a2c2ca04c7b32145ed1209b8c8d339ac27c4a92296c790b5c594a2a` | `9ab2ea29bbe33ff664a7e48aed95f0220d26c1126216379dfb16d728f3f065c8` |
+| `denver` `09-22` | 221630 | `693581d5bd42985a192d6ba29ed4ee94110f8b6b44b03f19024b0b192dd2a812` | `74c100ad4fd14e8498addc1bccf5e93a6493b690f96203c59820e4007465f587` |
+| `denver` `12-09` | 225562 | `9fb0b2e3bce8a296de90d559d47a94daa7817b521bc8d38576258134c00d07d4` | `0642651dc7dcc382288fecab2daf0e6751d0c5585e605525c7ea3b38b9f2a3d9` |
+| `houston` `01-08` | 143411 | `537af6deb1cedd41a68641fa0196034550527c1a384b681ee8a8aa0e6d077c48` | `0ed04798892abec38ae02414ec535b7500e87fb9c79df324eb65b8020f16565e` |
+| `houston` `08-08` | 215191 | `f9bc10ecf5c83b117f369bf20dcdca0e35ba7fa88b3d467cf289c02d2ca856ee` | `f1c105903f5798dd02a611c0c0c927e2a98eb4ef97279975027967cff130281d` |
+| `houston` `08-23` | 218969 | `a5318723975bce79e0e40fcc2a3f3e65ca3eb48ad6bbeb1f7936b7f51a0fb356` | `fb6ff75e388a77c5ee53986df3ae262700289fcd2a223bcbcd90af55fab79a09` |
+| `houston` `09-07` | 217622 | `eda3a7954766db8554950a3d6822859d903cceaab1c474c643938a4cba813033` | `6bb6c8002fc3a16c52f574995fcbc0fa545b91356a250c165ced89f52d31481e` |
+| `houston` `09-22` | 218086 | `fb19456676400ea40d45816a638142486e4167b4a22065b8399d2d24957de9ad` | `f267c863c4f08d3d973ba00d1baa0e7d3afe17f8058d480e9bab9cae9582627f` |
+| `houston` `12-09` | 231673 | `108580b4b4df76f5fddc01f794e6912f9142ee8391cebda4f6972f9a9bc1401e` | `7e405ecce4a64a44ab8b69a69b937624ccf740cce641f4842199857b07bbbfa9` |
+| `los-angeles` `01-08` | 135195 | `d4cf8f70bd6a881467a766e3af68e88cebe84bc6b57d257f9882cb9b20457d11` | `05629aab893698dcee4c63a12411715c14110641d0f7fb178c88cc442c4f7352` |
+| `los-angeles` `08-08` | 208092 | `d3d7a68eb1dbb9fb84989a99c58be0ac0337e1ad581c8981bfe186f0c31799c8` | `b29be56e7d710822e2e651f6718d79de4bbdc7eda44965f2a08a2d4f88e9b5b8` |
+| `los-angeles` `08-23` | 211511 | `e4863af37733a1ca8341cf46e26f3105ac41502a82b0af656dc3222b504fb2a9` | `a92678ea7b0259910d63575a8fd9bc390216417c9fee47b42c6dce1c83948af8` |
+| `los-angeles` `09-07` | 209733 | `edeb3a2d60b3655952be19cf7b221007042d14c406e3cc9509696e2f3e7a8998` | `c8affe5d874955c81b2d28b9c52ab4870abd10ccb398c4ef189ad06b65041854` |
+| `los-angeles` `09-22` | 213927 | `5371f46d4db6a9f240b65bda6803ca7eff66399aceb4cd26c141b488f940c6c6` | `6e7e2d6bb4076462fbe1d4d4a47ead0c0652d46f06f1a2c700de4dceacd61aa7` |
+| `los-angeles` `12-09` | 215475 | `88f33c264fa4da638d044374026b420aadb4047856c6dc36e67023561313d459` | `4387b550bdc344a50a7794678e4d51f8e8ee7e191ac3fd54d70ae9993069e285` |
+| `miami` `01-08` | 135579 | `d68c8d46f5ab2e693d105b1d1186b214eccb28add1c73057c5b27668e4163208` | `6f232badbe99d71fcdf3e88b9bb40d41ced8258ce66e8b866a06b29e517f58c0` |
+| `miami` `08-08` | 208305 | `daa31f46e4061f7dae9777d36b60a11807aad7818b3bc78eab5fdc924f083ddc` | `5d8d247389f8e24bce538b248029952690c5bc07bc01609c36d7f8923c5a33ec` |
+| `miami` `08-23` | 209860 | `270839aaede43ae948db52de06d9eb00a02ba836b4be1d9743a86c7a8751d680` | `a22d1bb5fe50fd0361b770fb62521b60239237ae08a8b474bcfd5123d2d9d5de` |
+| `miami` `09-07` | 208060 | `80fb9e7229d624b890cde49496b6b8ba5bc21eaee41c54f0064750933ec1ce72` | `4070c1e924442bc90496f0cd900191e95b082f775eca6b114af81f82480aeae1` |
+| `miami` `09-22` | 214530 | `dfe389ea257171c457d1242e5996f72c102601f6e8942268c85fbc34abd24c9c` | `c9bb3d6bf97eeaeb4174b13f78a0a25290442a7499c81584ba51cc7fdf5ab8f0` |
+| `miami` `12-09` | 215437 | `f7f9dff959d13653cafb3c8be7f12f5446ca2bda2ee30a62d1348f21c2d388fc` | `797c6ad56374076a261ca49cefc2870be9d5cd3195649573ea5b713e37dfdedd` |
+| `nyc` `01-08` | 137855 | `b5441b7f99adafd2ecf7ded7e137c8d05323692948bbd7fc7cadfdfcd4d7ac42` | `154ee1fcc4a95068ba784098421e4bb89eaf8efaa19a6d48e5ceea8f43b6bf42` |
+| `nyc` `08-08` | 224704 | `ed376c3beac42cf16a0835551daf0eb283f22fb01e137269cc8408aba324605b` | `4ea37afb677cc60569f4e58c6d5c79e9538e1c701fa811c5e9cb3eb0724d36ba` |
+| `nyc` `08-23` | 225720 | `0674d49456a62ef6e75975b00c0a6757c09ecd7325d1f42f8191ba16e4ee725d` | `70832be10afa98c1e8c25cc0ece1c421497884eb963182756929185c430455b0` |
+| `nyc` `09-07` | 222216 | `f9c3f77ee9bdd819cfb07ded0263bff7cea4ffc3dc2a4ef242360fb9f85e3672` | `d067798a0e75d31b0a6759378c64458943fbed24d24a6df58fe09c17299eda1e` |
+| `nyc` `09-22` | 225307 | `5046009e1fa8a72a5aaca04539f5fcbb75a0788badc27a29c1afd9237017fa3b` | `ddea9f7f02b62e738343c96de056585dd4c536e527b0084773de9c646972f8a4` |
+| `nyc` `12-09` | 230199 | `224755dc99f655dd61673028e1035f3b76addb15bb00cd7c3a1b0f4cbb854722` | `57d9fefaaa736ec728b7db0afb05276efcf93305461348bf178117c462a30b6c` |
+| `san-francisco` `01-08` | 135132 | `596df8ff76f6fc0d1c71817100370b696bf396bd9d419065f98fa60a5e07b92a` | `7eead4fe27892fe60e8afcdf55bb1a3f1367854702d577262002e7ec9b66db0d` |
+| `san-francisco` `08-08` | 215875 | `45603008179e83831caf37e630ec209b5a532d2ad44e74b6cb92dfef176876eb` | `9226d9475bae28f359300948e72bc13d5874cf028d22d181eaca300afe295780` |
+| `san-francisco` `08-23` | 215647 | `d9b095d149a04380464fb149ecc00cb6af262b8f1c77b7434859f8346fc7c1c3` | `0e3ef5b2851cc48f511507a84d7dce5d5c9d109ddea1f76715ce7332b712322d` |
+| `san-francisco` `09-07` | 214429 | `6896ec49c1eadc7a62c37a8c5f1d060b0e17dad85a0ea07e25289513954a8edd` | `808dd14d2747300501ee38b9eb36897acf9e4a08b26da963b6fc3b47ee72df3d` |
+| `san-francisco` `09-22` | 221236 | `c20d0004390854f4e9c1e678dce71ed4f7a2ff9f16d992392a939df3e9d62071` | `852bb9402214f8f992e1d281526ade60e58f3b36f5fdda7e66595ea98e818d44` |
+| `san-francisco` `12-09` | 219369 | `f951f3723e687a40d701fe1576b8a696538599885e5b027cf76adcdd6402a04b` | `dacbff24af00f7ba6d53d844c543e8c84e249950c5235e17a05b7804a182fbad` |
+| `seattle` `01-08` | 137082 | `0978cf7af0d134c0d4dbc49bf8e0c3ceeaff2726d17d9c1363cc03349e2ec55b` | `bbcbc6768fc7f8008caf77e3b8c4d3a40cc03bacea3683648b48ca93bd24982f` |
+| `seattle` `08-08` | 225967 | `c3d1521704e7e297ac0948df8ced4ef013ac61f8d36acc0e06fa88c29f3c00aa` | `8db1a89a78b5e8fea84c5ab324bf3f5c0e4947b5f67eff2dc51401948d513ba2` |
+| `seattle` `08-23` | 226906 | `fbe013756b926db0e03da55c93e0f3da3f9f92a8e98dfc01f118658d0fe8bac7` | `e83f72c27f40fc8c7dd16b43bb990a0faed78653ccb4aeb50ba187cbf0de4f11` |
+| `seattle` `09-07` | 220539 | `7550681604d2b01e838533057edb3607cc96fb3820b0f355948114393e3998a9` | `2b572f636848016ca0ae0dddbeb38e6595b385116d04dbf5b6cf35f6ff526b0d` |
+| `seattle` `09-22` | 226880 | `3c3bd80a72b4b01e35fae6206aa6d275634ec7895d1885941d5207e114e3c1f6` | `d8ecf3d34ce3f1653da8e81d31861203ab28f1323a41d38aa46f0461a1f0c1b1` |
+| `seattle` `12-09` | 223491 | `2f9785a8c888067fd693456eb424d75d6fbb35f349ddba1b07561139e5eb7e20` | `2859d1c7d040b2529723ce04ff83ad0ff530a8813c5fe7e70ce0f8b1196bae50` |
