@@ -38,7 +38,8 @@ INPUT_DATES = [D0 - timedelta(days=2), D0 - timedelta(days=1)] + [
     D0 + timedelta(days=k) for k in range(58) if D0 + timedelta(days=k) not in MISSING]
 BANDS = [("lte", 60, 60), ("eq", 61, 62), ("eq", 63, 64), ("gte", 65, 65)]
 BUCKET, WINNER = 63, 2
-SCHEMAS = {t.FREEZE_RECEIPT_NAME: "venue_label_freeze_receipt_v1", t.SIDECAR_NAME: "synthetic_sidecar/1"}
+SCHEMAS = {t.FREEZE_RECEIPT_NAME: "venue_label_freeze_receipt_v1", t.SIDECAR_NAME: "synthetic_sidecar/1",
+           t.OVERRIDE_NAME: "b_transfer_sidecar_override/1"}
 
 
 def _sha(path):
@@ -130,9 +131,14 @@ def _write_sidecars(root, market, dates=INPUT_DATES):
     return root
 
 
-def _write_sidecar(root, d, counts, match=True):
-    body = (json.dumps({"schema": SCHEMAS[t.SIDECAR_NAME], "target_date": d.isoformat(), "counts": counts,
-                        "match": match}, indent=1, sort_keys=True) + "\n").encode("utf-8")
+def _sidecar_body(d, counts):
+    return {"schema": SCHEMAS[t.SIDECAR_NAME], "target_date": d.isoformat(), "counts": counts, "match": True,
+            "bundle": {"ready_marker_matches": True}, "sources": {m: {"match": True} for m in ALL11}}
+
+
+def _write_sidecar(root, d, counts, body=None):
+    body = (json.dumps({**(body or _sidecar_body(d, counts)), "counts": counts}, indent=1, sort_keys=True)
+            + "\n").encode("utf-8")
     (root / f"{d.isoformat()}.json").write_bytes(body)
     (root / f"{d.isoformat()}{t.SIDECAR_SUMS_SUFFIX}").write_bytes(
         f"{hashlib.sha256(body).hexdigest()}  {d.isoformat()}.json\n".encode("ascii"))
@@ -353,6 +359,7 @@ def test_capture_price_matches_the_r19_predicate():
 
 def test_registered_looks_up_family_schemas_and_refuses_unknown_ones():
     assert t._registered("venue_label_record")  # a family schema on master
+    assert t._registered(t.OVERRIDE_NAME) == "b_transfer_sidecar_override/1"
     with pytest.raises(t.TransferRefused, match="not registered"):
         t._registered("no_such_schema_name")
 
@@ -369,7 +376,7 @@ def _sidecar_edit(kw, day, fn):
     path = kw["coverage_root"] / f"{day.isoformat()}.json"
     sidecar = json.loads(path.read_text(encoding="utf-8"))
     fn(sidecar)
-    _write_sidecar(kw["coverage_root"], day, sidecar["counts"], sidecar["match"])
+    _write_sidecar(kw["coverage_root"], day, sidecar["counts"], sidecar)
 
 
 def _break_bands(tmp, kw):
@@ -469,3 +476,73 @@ def test_the_writer_imports_neither_the_scorer_nor_mg2_composite_nor_mg2_inputs(
     source = Path(t.__file__).read_text(encoding="utf-8")
     assert "import b_scorer" not in source and "mg2_composite import" not in source
     assert "from weather.calibration import" not in source and "import mg2_inputs" not in source
+
+
+# Master ruling 2026-11-03 on the writer, item 4: a false sidecar match flag holds; only a dated, outcome-blind
+# master override naming that exact date and flag releases it, and its sha is pinned in the manifest.
+FLAG_DAY = D0 + timedelta(days=6)
+
+
+def _false_nyc_source(kw):
+    def edit(s):
+        s["sources"]["nyc"]["match"] = False
+        s["match"] = False
+    _sidecar_edit(kw, FLAG_DAY, edit)
+
+
+def _override(tmp, releases, **extra):
+    body = {"schema": SCHEMAS[t.OVERRIDE_NAME], "dated": "2027-01-12", "outcome_blind": True,
+            "releases": [{"date": d.isoformat(), "flag": f, "reason": "synthetic"} for d, f in releases], **extra}
+    path = tmp / "override.json"
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def test_a_false_sidecar_flag_holds_the_transfer(env):
+    tmp, kw = env
+    _false_nyc_source(kw)
+    with pytest.raises(t.TransferRefused, match="HOLD") as err:
+        t.write(**kw)
+    assert f"{FLAG_DAY.isoformat()}:sources.nyc.match" in str(err.value)
+    assert not Path(kw["out"]).exists()
+
+
+def test_a_missing_bundle_flag_counts_as_false():
+    assert t.false_flags({"match": True, "sources": {"nyc": {"match": True}}}) == ["bundle.ready_marker_matches"]
+
+
+def test_a_valid_override_releases_and_its_sha_is_pinned(env):
+    tmp, kw = env
+    _false_nyc_source(kw)
+    path = _override(tmp, [(FLAG_DAY, "match"), (FLAG_DAY, "sources.nyc.match")])
+    t.write(**kw, sidecar_override=path)
+    prices = _manifest(kw)["prices"]
+    assert prices["sidecar_override_sha256"] == _sha(path)
+    assert prices["sidecar_false_flags"] == {FLAG_DAY.isoformat(): ["match", "sources.nyc.match"]}
+    assert prices["sidecar_released"] == [f"{FLAG_DAY.isoformat()}:match", f"{FLAG_DAY.isoformat()}:sources.nyc.match"]
+
+
+def test_no_override_leaves_a_null_override_sha(env):
+    tmp, kw = env
+    t.write(**kw)
+    prices = _manifest(kw)["prices"]
+    assert prices["sidecar_override_sha256"] is None and prices["sidecar_false_flags"] == {}
+
+
+@pytest.mark.parametrize("case", ["wrong date", "wrong flag", "partial", "not outcome blind", "dated later",
+                                  "wrong schema"])
+def test_a_wrong_override_still_holds(env, case):
+    tmp, kw = env
+    _false_nyc_source(kw)
+    both = [(FLAG_DAY, "match"), (FLAG_DAY, "sources.nyc.match")]
+    path = {
+        "wrong date": lambda: _override(tmp, [(FLAG_DAY + timedelta(days=1), f) for _, f in both]),
+        "wrong flag": lambda: _override(tmp, [(FLAG_DAY, "match"), (FLAG_DAY, "sources.miami.match")]),
+        "partial": lambda: _override(tmp, both[:1]),
+        "not outcome blind": lambda: _override(tmp, both, outcome_blind=False),
+        "dated later": lambda: _override(tmp, both, dated="2027-02-01"),
+        "wrong schema": lambda: _override(tmp, both, schema="other/1"),
+    }[case]()
+    with pytest.raises(t.TransferRefused, match="HOLD|outcome_blind|dated|schema"):
+        t.write(**kw, sidecar_override=path)
+    assert not Path(kw["out"]).exists()

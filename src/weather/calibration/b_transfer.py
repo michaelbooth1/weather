@@ -26,7 +26,9 @@ every B layout snapshot on a countable date and the capture-time market prices o
   winner. On a mismatch the transfer refuses, writes nothing, and the look is held.
 * **T4 (R19 addendum).** ``p_market_yes`` is written only through :func:`capture_price` (a finite price in
   [0, 1], else NaN). A finite price outside [0, 1] refuses (``REFUSE_FINITE_OUT_OF_RANGE``). Every transferred
-  snapshot's ``[n_rows, n_priced]`` must equal its date's published R19 counts sidecar, else it refuses.
+  snapshot's ``[n_rows, n_priced]`` must equal its date's published R19 counts sidecar, else it refuses. Any
+  other sidecar match flag that is false HOLDS the transfer unless master's dated, outcome-blind override file
+  (``--sidecar-override``) names that exact date and flag; the override's sha256 is pinned in the manifest.
 
 Outputs, in a new separate directory (never an input-bundle inbox):
 
@@ -45,7 +47,7 @@ definitions only.
     python -m weather.calibration.b_transfer write --market <export market.parquet> \
         --input-window <window manifest.json> --ledger-root <settlements root> \
         --frozen-labels <venue_rule_labels/frozen/ID> --coverage-root <_b_coverage folder> \
-        --d0 YYYY-MM-DD --mg1-look-receipt <mg1 look receipt.json> --out <new transfer directory>
+        --d0 YYYY-MM-DD --mg1-look-receipt <mg1 look receipt.json> --out <new transfer directory>         [--sidecar-override <master override.json>]
 """
 from __future__ import annotations
 
@@ -102,6 +104,7 @@ FREEZE_RECEIPT_NAME = "venue_label_freeze_receipt"
 SIDECAR_NAME = "b_coverage_sidecar"
 FREEZE_RECEIPT = "freeze_receipt.json"
 SIDECAR_SUMS_SUFFIX = ".SHA256SUMS"
+OVERRIDE_NAME = "b_transfer_sidecar_override"  # master's dated release of a false sidecar match flag
 # T4: a finite capture-time price outside [0, 1] refuses (held) rather than silently becoming NaN.
 REFUSE_FINITE_OUT_OF_RANGE = True
 # T2 reasons (per date, never per market).
@@ -511,24 +514,70 @@ def read_sidecar(coverage_root, day):
     return sidecar, sha
 
 
+def false_flags(sidecar):
+    """Every R19 sidecar match flag that is false, by name: ``match``, ``bundle.ready_marker_matches``,
+    ``sources.<market>.match`` (a missing flag counts as false)."""
+    flags = {"match": sidecar.get("match"),
+             "bundle.ready_marker_matches": (sidecar.get("bundle") or {}).get("ready_marker_matches")}
+    for market, source in sorted((sidecar.get("sources") or {}).items()):
+        flags[f"sources.{market}.match"] = (source or {}).get("match")
+    return sorted(name for name, value in flags.items() if value is not True)
+
+
 def sidecar_problems(lab, mkt, coverage_root):
-    """T4: every transferred snapshot's ``[n_rows, n_priced]`` equals its date's sidecar counts."""
+    """T4: every transferred snapshot's ``[n_rows, n_priced]`` equals its date's sidecar counts.
+
+    Returns the count problems (each refuses), the sidecar shas, and per date the false match flags (each holds
+    the transfer unless a master override releases it).
+    """
     rows = mkt.groupby("row_key").p_market_yes.agg(["size", "count"])
-    shas, match, problems = {}, {}, []
+    shas, false, problems = {}, {}, []
     for day, group in lab.groupby("date", sort=True):
         sidecar, shas[day] = read_sidecar(coverage_root, day)
-        match[day] = bool(sidecar.get("match"))
+        if false_flags(sidecar):
+            false[day] = false_flags(sidecar)
         counts = sidecar.get("counts") or {}
         bad = 0
         for row_key, market in zip(group.row_key, group.market):
             sid = row_key.split("|", 1)[1]
-            got = [int(rows.loc[row_key, "size"]), int(rows.loc[row_key, "count"])] if row_key in rows.index \
-                else [0, 0]
+            got = [int(rows.loc[row_key, "size"]), int(rows.loc[row_key, "count"])] if row_key in rows.index                 else [0, 0]
             if list((counts.get(market) or {}).get(sid) or []) != got:
                 bad += 1
         if bad:
             problems.append(f"{day}: {bad} snapshots' [n_rows, n_priced] differ from the coverage sidecar")
-    return problems, shas, match
+    return problems, shas, false
+
+
+def read_override(path, now):
+    """Master's dated, outcome-blind sidecar override: ``{(date, flag)}`` it releases, and its sha256.
+
+    ``{"schema": b_transfer_sidecar_override, "dated": "YYYY-MM-DD", "outcome_blind": true,
+    "releases": [{"date": "YYYY-MM-DD", "flag": "<flag name>", "reason": "..."}]}``. Only the exact
+    (date, flag) pairs named are released; anything malformed refuses.
+    """
+    if not path:
+        return set(), None
+    p = Path(path)
+    if not p.is_file():
+        raise TransferRefused(f"sidecar override missing: {p}")
+    try:
+        body = json.loads(p.read_text(encoding="utf-8"))
+        dated = date.fromisoformat(str(body["dated"]))
+        releases = {(date.fromisoformat(str(r["date"])).isoformat(), str(r["flag"])) for r in body["releases"]}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise TransferRefused(f"sidecar override malformed: {exc}") from exc
+    if body.get("schema") != _registered(OVERRIDE_NAME):
+        raise TransferRefused(f"sidecar override schema {body.get('schema')!r}")
+    if body.get("outcome_blind") is not True:
+        raise TransferRefused("the sidecar override is not marked outcome_blind")
+    if dated > now.date():
+        raise TransferRefused(f"the sidecar override is dated {dated}, after the transfer")
+    return releases, sha256_file(p)
+
+
+def held_flags(false, releases):
+    """The false sidecar flags no override releases, as ``date:flag`` strings (each holds the transfer)."""
+    return [f"{day}:{flag}" for day, flags in sorted(false.items()) for flag in flags if (day, flag) not in releases]
 
 
 def _read_export(path, required, what):
@@ -545,7 +594,7 @@ def _read_export(path, required, what):
 
 
 def write(*, market, input_window, ledger_root, frozen_labels, coverage_root, d0, mg1_look_receipt, out,
-          now=None):
+          sidecar_override=None, now=None):
     """Write the one ``b_transfer/1`` transfer; every refusal comes before the first file is written."""
     now = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     d0 = date.fromisoformat(str(d0))
@@ -576,9 +625,14 @@ def write(*, market, input_window, ledger_root, frozen_labels, coverage_root, d0
         raise TransferRefused("T3 layout coverage: " + "; ".join(problems))
     mkt_src, market_sha = _read_export(market, MARKET_COLUMNS, "market")
     mkt = build_market(mkt_src, lab)
-    problems, sidecar_shas, sidecar_match = sidecar_problems(lab, mkt, coverage_root)
+    problems, sidecar_shas, sidecar_false = sidecar_problems(lab, mkt, coverage_root)
     if problems:
         raise TransferRefused("T4 price counts: " + "; ".join(problems))
+    releases, override_sha = read_override(sidecar_override, now)
+    held = held_flags(sidecar_false, releases)
+    if held:
+        raise TransferRefused(f"HOLD: {len(held)} sidecar match flags are false and not released by a master "
+                              f"override: {held[:5]}")
 
     out.mkdir(parents=True, exist_ok=True)
     lab.to_parquet(out / TRANSFER_FILES[0], index=False)
@@ -604,7 +658,9 @@ def write(*, market, input_window, ledger_root, frozen_labels, coverage_root, d0
                    "frozen_at_utc": freeze["frozen_at"].isoformat(), "audit_status": freeze["audit_status"]},
         "prices": {"predicate": "capture_price: a finite float in [0, 1], else NaN",
                    "refuse_finite_out_of_range": REFUSE_FINITE_OUT_OF_RANGE, "sidecar_sha256": sidecar_shas,
-                   "sidecar_match": sidecar_match},
+                   "sidecar_false_flags": sidecar_false, "sidecar_override_sha256": override_sha,
+                   "sidecar_released": sorted(f"{d}:{f}" for d, f in releases
+                                              if f in sidecar_false.get(d, []))},
         "writer": {"module": ENTRY_MODULE, "source_sha256": module_sha256(), "host": socket.gethostname()},
     }
     with open(out / TRANSFER_MANIFEST, "x", encoding="utf-8", newline="\n") as handle:
@@ -622,13 +678,15 @@ def build_parser():
     w = sub.add_parser("write", help="write the one b_transfer/1 transfer (host, at the look)")
     for name in ARGS:
         w.add_argument(f"--{name}", required=True)
+    w.add_argument("--sidecar-override", help="master's dated, outcome-blind override releasing false sidecar flags")
     return parser
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        result = write(**{name.replace("-", "_"): getattr(args, name.replace("-", "_")) for name in ARGS})
+        result = write(**{name.replace("-", "_"): getattr(args, name.replace("-", "_")) for name in ARGS},
+                       sidecar_override=args.sidecar_override)
     except TransferRefused as exc:
         print(json.dumps({"status": "refused", "reason": str(exc)}))
         return exc.exit_code
