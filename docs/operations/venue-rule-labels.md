@@ -161,9 +161,36 @@ labelled the date. Readers must not take `resolution_source_type` or
 
 Status: **draft plan.** It runs only after master's host WU-vs-venue
 measurement, and only if that measurement leaves the cutover date and the rule
-unchanged. Nothing below has been run. Window and heavy-work rules come from the
+unchanged. Steps 1-2 first ran on the host on 2026-11-03 (receipt below); steps 3-4 have not run. Window and heavy-work rules come from the
 [host load policy](HOST_LOAD_POLICY.md). The fetch and build are light, but keep
 them out of the 12:00-18:00 graded window.
+
+### First production run, steps 1-2 (2026-11-03, master)
+
+Receipt (master's host log, relayed by the coordinator): steps 1-2 ran on the host with the existing CLI,
+07:20:09-07:21:41, rc 0, under lease `r24_venue_rule_labels_first_run` (released), head `99fff6c48`. Fetch 13/13
+rc 0, window 10-22..11-03, 282-302 lines per station (KBKF 282, KORD 292, the rest 300-302). Build 12/12 rc 0,
+`skipped=0` in every market; `metar_routine` 11 rows per market (10-23..11-02); Denver has 2 inputs (KBKF and
+KDEN), every other market 1. Events snapshot sha256
+`99220d4d8362180d1ae51268198889eeab055d010195570bd17b16ebf6ee6900` (1,976,585 bytes). No label CSV was opened and no label value was read;
+the embargo is unchanged. Steps 3 and 4 have not run. Under the R24 ruling ([decision log](DECISION_LOG.md),
+2026-11-01, paragraphs (3) and (5)) a look reads only its look-morning frozen copy, through `read_venue_labels`
+inside its registered entry point, and Stage A stays `wu`; step 4 waits until after B.
+
+| Market | `wu_history` rows | `output_sha256` | `manifest_sha256` |
+| --- | --- | --- | --- |
+| toronto | 16,298 | `04380c3a0196ebb864e3142bb0e882d309b794577ee4224a1e5169378827e594` | `58fda7491777886f81b7df272204e9243f9e5022b4316664238b145af2bb8381` |
+| nyc | 5,161 | `187695340b9ed16de3161c3b68696bc76430b35d367d80acecc087fc617a5ffa` | `aadd02dfb0ba7852f70def587605e2784abbf8ae648a87b27f7c1027f26973a7` |
+| atlanta | 5,161 | `b1c541f115658bc2480759868267322d365a5847ac63cb95357a88825aa69909` | `983e6354b0b1209ec15186b0f970940a8eec1739c9cf099fdaad670e1357b230` |
+| austin | 5,076 | `bbe68186930f3280de3394be74a39c021ad6631aca6176ea8bf163713c6973dd` | `6098824b1d876badd1341ffa1c72b35dd7250fdfb2ddc3a22c39d3673d5633eb` |
+| chicago | 5,161 | `7231e80fb6ca44f145f3277daf6941dc338b6265c477027750d61438017c417b` | `4378b651e6178f8c32c817503fb7b80f0cdbeb20c25f405c53151e51a8850588` |
+| dallas | 5,161 | `02d0f758fc7b0958b22bd963c494708609b645971a4c4dd8baa49336c79c5f4c` | `b7e117ac76b03b2a73ac7c59561ebe411dfe38f4fd98c821603a80fa6acf8373` |
+| denver | 5,152 | `2e6ad1ab930348c8c57397c3a65f42ac7c55b9bdfe30a088ed190143de9df3f3` | `b6e6d0216b1e8887f8ddf9a2544de96f4527e337d40505adfb567ec4c6e6fb75` |
+| houston | 5,161 | `45344d835242223000f62bfdc7e148fac0fa8812be18c906d4e1b0e99f2509db` | `257491ae962e13d30323949b208ed1b194636598ee3d62dfa931fe4794ac797d` |
+| los-angeles | 5,160 | `5f49c228b011c52538a1342e155e1088ac597f4768ea9fdcd99f2b7617475c83` | `b8032de05fcffe4f2e779d2e8cda7333ee5c87a763b8f586c2d46be2759e87f2` |
+| miami | 5,161 | `4b8b081f37cbf9091bb49a079b98a5b443e721cae07d8a4e791d381912c9209d` | `325571cda47890aa920ce1bc38d40fc59a063d19edd373c34bd81592c8180e53` |
+| san-francisco | 5,160 | `497d9cb6acea675193bbc249e8eb3c45c026ea7e1d4dfc0cdf372f7dbb8ab46c` | `4908a9502b6da5128a7fc386c87bef6176c974a68452f2adecc9a2bbbc6d16f3` |
+| seattle | 5,160 | `8d06ce4580f2ee874a1a802e4b212e9d69495732e0f950b2eedc6d646307c410` | `fc2db319abc105218e49c19cfeb0430b1adb387d3cfd7e4ec2942d501499cf9e` |
 
 ### 1. Fetch routine METAR on the host
 

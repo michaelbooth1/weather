@@ -63,3 +63,21 @@ recorded: "the scorer was never landed; it slipped on the night queue" (prereg l
 cancelled; the window is unchanged (10-16..10-27, extension 10-28 only, never 10-29). It runs in two stages under
 [Clarification 1](../../research/evening-lockin-fix-scoring-clarification-1-2026-10-31.md), with the no-market
 scorer on `claude/evening-fix-no-market-20261031`. Nothing in this item's acceptance changes.
+
+## Evening-fix Stage 1 (2026-11-03, master ACCEPTED)
+
+Stage 1 (`--no-market`, Clarification 1): **CONDITIONS 1-2 MET, condition 3 pending.**
+
+- Primary -0.04854 [-0.05532, -0.04211], 11/11 markets, 128 market-days. Both sensitivities share its sign
+  (Denver-excluded -0.04981; Clarification 2 three-cell -0.04922). SAFETY 0 and 0.
+- Commit `7c4da79a9eb2a1591fe5e8ae0963668e96177817` (transport branch, never merged); `SHA256SUMS` sha256
+  `6dd3ad98478ac03c8e9c233c22e5a3fba5b96be8e98a915d7120ca34ae068cf2`. `prerun_receipt.json` was LF-normalised on
+  commit (disk `7cbac96f`, committed `806d51191700e3cb4b6fddfae7396ae0c3a5e8fcdcc86d127ebf9b894dd11178`), accepted
+  as disclosed.
+- "Stage 2 after MG-1 look receipt (after 11-28)": under Clarification 1 s5 the gap is read only after the MG-1
+  look receipt exists, with no market or price reads and no own gap; the embargo forbids price reads 10-16..10-27
+  outside that path.
+- H2 NOT TESTED: the `--no-market` transfer has no v3 arm. Computing it at Stage 2 needs a market-arm replay, which
+  is an owner question then.
+- Disclosures: the 10-28 disclosure, and the master one-off direct run (the wrapper refused the scorer module;
+  `stage1_score_v1.py` `ce70e3e8`). [Item 343](item-343-offline-year-round-refit-module-allowlist.md) folds the scorer module into the allowlist work.
