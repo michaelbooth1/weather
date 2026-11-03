@@ -32,6 +32,16 @@
     - "Unexplained absence holds".
 - **History only:** nothing in this draft comes from an outcome, label, price, settlement, ledger or panel value.
   It cites code and rulings only.
+- **Revision 2 (2026-11-03):** this revision applies master's rulings on revision 1 (`b015497a3`), cited as
+  "11-03 R1" to "R8" by point number. Two builds carry them; neither is landed:
+  - **[A]** `claude/mg1-look-holds-checkkeys-20261103` @ `ebf7bcda1c78cc8ea5ad1b178d1219523724bf78`, stacked on
+    look `8c307dbb8`. It adds the audit-status hold, `check-keys`, held exit 4 and FREEZE_THROUGH. The entry pin
+    is re-registered there at `6f17cf15cfcab686b63b298b57dfc6b58806b3748d502fd4293dc6844d5362bc`.
+  - **[B]** `claude/r24-freeze-atomic-20261103` @ `f27dc81962011812a7f8d3e0c77e583791357da4`, stacked on
+    freeze-keys `a1676b09f`; it lands with freeze-keys after combo C. It adds refuse-unless-OK, the atomic
+    tmp-and-rename and `freeze --recover`. It is split into a new module,
+    `src/weather/backtesting/venue_label_freeze.py`, so the 600-line budget of `venue_label_audit.py` is not raised.
+  - Line cites marked [A] or [B] are on those tips. Unmarked cites stay on the four trees above.
 
 ## 0. Rules for every step
 
@@ -42,9 +52,9 @@
   `$null`. Keep clear of the 04:15, 06:50 and 07:00 tasks, the sequencer suites and Stage A (rulings:241 R24 (1);
   `docs/operations/HOST_LOAD_POLICY.md` "An agent's one-off wrapper"). Steps run serially, one at a time (C14,
   rulings:705).
-  - **MISSING:** a repository-owned lease wrapper for these modules. None of `mg1_countable`, `mg1_look` or
-    `venue_label_audit` is named in `scripts/ops/workload_admission.ps1` on any of the four trees. Master runs
-    them through the one-off pattern of the host load policy.
+  - **The lease wrapper is master's** (11-03 R5): a host `.ps1` that master owns, following the one-off pattern of
+    the host load policy. It is not a repository file. Whether an admission or allowlist entry is needed is §4
+    item 5(e).
 - **Embargo.** Before the look, master reads only stdout, receipts, manifests and the counts-only audit. It never
   reads a CSV, a METAR file or a label value (R24 (2), rulings:240). After the look, the result file is read only
   as §1 step 7 says.
@@ -97,6 +107,11 @@ The code forces this order:
   (`:953`).
   - **Master's action:** fix the constant by a reviewed edit and re-pin. Nothing is consumed.
 - **Logged:** the four values in force are written into the result as `owner_constants` (`mg1_look.py:979-980`).
+- **Master's plan (11-03 R7):**
+  - Master asks the owner to answer A1, A1_MIN_NEGATIVE_MARKETS, A5 and A12 by 11-10. The constants are then in
+    `mg1_look.py` before the 11-12/13 pin.
+  - A later answer means a re-pin before S1, which master owns.
+  - Lanes do not ask the owner anything; this draft records the plan only.
 
 ### Step 1. P1 countability report, 2026-11-14
 
@@ -191,13 +206,13 @@ R24's weekly refresh, Mondays 11-09, 11-16, 11-23 and 11-30 (rulings:295), is th
 On the look morning, the freeze includes its own refresh (`venue_label_audit.py:410-418`; C14). So no separate
 refresh runs that morning.
 
-- **The weekly refresh is a hand run.** **MISSING:** a scheduled task. No `scripts/ops` file on the four trees
-  names `venue_label_audit`.
+- **The weekly refresh is a hand run, not a scheduled task** (11-03 R5). Master runs it by hand under the lease
+  on 11-16 and 11-23, and on the look morning (inside the freeze).
 - **Its refusals:**
   - `--through` after today (`:349-350`);
   - `--start` after `--through` (`:351-352`);
   - an existing run folder (`:356-359`).
-- **Exit 3 on `STATION_DRIFT`** (`:77`, `:517`). Master rules it outcome-blind the same day; for a real station
+- **Exit 3 on `STATION_DRIFT`** (`:77`, `:517`). Master rules it outcome-blind the same day. For a real station
   change, master adds a dated `venue_rule_stations.json` entry (rulings:295).
 
 ```powershell
@@ -207,15 +222,21 @@ refresh runs that morning.
 - **Flags:**
   - `--label-root` is a top-level flag, before the subcommand; its default is `DEFAULT_LABEL_ROOT`
     (`venue_label_audit.py:480`).
-  - `freeze --through` is required (`:484`).
+  - `freeze --through` is required (`:484`). In [B], `--through` and `--look` are optional at parse time, and
+    the command refuses (exit 2) unless both are given without `--ruling` (`venue_label_audit.py:438-443` [B]).
   - `--start` defaults to `2026-10-22` (`:71`, `:485`).
   - `--look` is required (`:487`).
   - The look reads only look id `mg1` (`FREEZE_LOOK_ID`, `mg1_look.py:252`, checked at `:436-438`).
-- **`<FREEZE_THROUGH>` is master's value, with these constraints from the code:**
-  - It is not after today (`:349-350`).
-  - It is not before `D45`, or the look holds (`mg1_look.py:440-441`).
-  - The R24 doc example is `--through 2026-11-29`. No MG-1 counterpart of B4 ("latest date final in all
-    markets") is ruled. **Open for master.**
+- **`<FREEZE_THROUGH>`, as ruled (11-03 R6):** the latest date with finality in ALL scored MG-1 markets on the
+  look morning. A value below `D45` is a hold.
+  - **Where it is enforced:** the freeze does not know a look's scored markets, so the look checks it.
+    - `mg1_look.latest_final_date(frozen_at_utc)` is the latest date that has ended in every scored market at
+      the freeze (`mg1_look.py:434-439` [A]).
+    - The look holds on any other `through` (`:480-482` [A]). It holds first on one below `D45` (`:474-475` [A]).
+    - [B]'s docs record the same rule (`docs/operations/venue-rule-labels.md`, "Through").
+  - **How to compute it:** take the scored markets at the freeze time, using the last time zone to reach
+    midnight. With the Pacific markets in, a freeze at 05:00 local (10:00Z) on 11-30 gives 2026-11-29.
+  - It must also not be after today (`:349-350`).
 - **Preconditions:**
   - Step 3 is done, so `D45` is known.
   - The freeze runs after `D45` has ended in every scored market (`settled_at`, `mg1_look.py:403-410`). The look
@@ -228,12 +249,32 @@ refresh runs that morning.
   - a build manifest without `label_dates` or `skipped_dates`, refused before any folder is made (`:422-425`).
   - **Master's action:** a refusal before `frozen/mg1` exists can be re-run with a new run id. A failed refresh
     makes no `frozen/mg1` (the folder is made at `:426`, after the refresh at `:418`).
-- **Outcomes that are not refusals:**
+- **Outcomes that are not refusals (freeze-keys, without [B]):**
   - **Exit 3 (`STATION_DRIFT`):** `frozen/mg1/freeze_receipt.json` IS written, with `audit_status` (`:455`).
-    `mg1_look` does not read `audit_status`. **Master's action: hold the look and rule the drift outcome-blind
-    before step 6.** See §4 item 1.
   - **A missing source file** is recorded with `sha256` null and `missing_source` (`:436-438`), and the freeze
-    still writes. The look then refuses (`mg1_look.py:457-460`). See §4 item 2.
+    still writes.
+- **With [B]**, both become refusals that leave no `frozen/mg1`:
+  - **Not OK.** Unless the run's audit status is `OK`, the freeze refuses before any folder under `frozen/` is
+    made (`FreezeDrift`, `venue_label_freeze.py:54-57`, `:111-113` [B]). On `STATION_DRIFT` it exits 3
+    (`venue_label_audit.py:482` [B]). Master rules the drift outcome-blind, then freezes again.
+  - **Atomic.** The copy and its receipt are built in `frozen/mg1.tmp-<utc>-<pid>/` (`:123` [B]). The freeze
+    re-reads and re-hashes them (`:161` [B]), and renames the folder to `frozen/mg1` only when verified
+    (`:165` [B]).
+    - A missing source, a sha mismatch or a manifest mismatch refuses (exit 2) and keeps the tmp folder.
+    - A crash keeps only the tmp folder.
+    - A later freeze lists such folders in `ignored_partial_dirs` and ignores them (`:70-73` [B]).
+  - **Recovery** (11-03 R2(c)), for a `frozen/mg1` left defective by a pre-[B] freeze:
+
+    ```powershell
+    .\venv\Scripts\python.exe -m weather.backtesting.venue_label_audit freeze --recover mg1 --ruling <MASTER_RULING.json>
+    ```
+
+    - It moves a receipt-less or null-sha folder to `frozen/mg1.void-<utc>/`, with `recovery_record.json`
+      (`venue_label_freeze.py:200-222` [B]).
+    - It runs only while `data/mg1_look/started-*` and `receipt-*` are absent (`LOOK_STAMPS`, `:48-51` [B]).
+    - The ruling file needs `schema_version` `venue_label_freeze_recovery_ruling_v1`, `dated`,
+      `outcome_blind: true`, `look_id` and `reason`.
+    - The re-freeze is outcome-blind, because the freeze copies bytes and reads no label value.
 - **Outcome** (exit 0): stdout carries `look_dir`, `freeze_receipt_sha256` and `frozen_sha256` per market for
   `label_csv`, `manifest` and `wu_daily_summary`, plus the counts-only audit (`:504-507`, `:516`).
 - **Logged** (R24 (3), rulings:241: "Log the shas before the look"): the stdout, the freeze receipt's sha256, and
@@ -259,10 +300,29 @@ The pre-stamp `label_key_check` (Q2; `mg1_look.py:472-532`) is the code-side che
 
 It parses no CSV and calls no reader.
 
-- **MISSING:** a standalone command for it. There is no `check-labels` subcommand and no dry-run flag; the only
-  subcommands are `check-receipt` and `run` (`:1038-1050`). The check runs only inside step 6, after the layout
-  hole check (`:970-971`) and before the stamp (`:998`). If every pre-stamp check passes, step 6 goes straight
-  on to the stamp.
+- **The dry run** (11-03 R3; [A]):
+
+  ```powershell
+  .\venv\Scripts\python.exe -m weather.calibration.mg1_look check-keys --rule <MG1_RULE_PATH> --countable <COUNTABLE_PATH> --label-freeze <FREEZE_RECEIPT_PATH> --out <CHECK_RECORD_PATH> [--layout <LAYOUT_ROOT>]
+  ```
+
+  - **Flags:** `--rule`, `--countable`, `--label-freeze` and `--out` are required; `--layout` is optional
+    (`mg1_look.py:1133-1138` [A]).
+  - **What it runs** (`check_keys`, `:998-1033` [A]), every pre-stamp check except the A6 status count, which
+    needs the MG-1 vector and runs only in step 6:
+    - the owner constants;
+    - the rule sha and the marker absence;
+    - the countable list;
+    - the window and finality;
+    - the freeze: audit status, FREEZE_THROUGH and hashes;
+    - the label keys and every inconsistency hold;
+    - with `--layout`, the A3 hole check.
+  - **It never stamps, joins or reads a label or price.** It writes `<CHECK_RECORD_PATH>` once (mode "x") for
+    every outcome. The record is counts-only `mg1_check_keys/1`, with the verdict and the reason text.
+  - **Exit:** 0 pass, 4 held, 2 refused, including a record path that already exists.
+  - **Master's action:** run it right before step 6. On 4 or 2, rule from the record; nothing is consumed.
+- **Without [A]**, there is no standalone command. The check runs only inside step 6, after the layout hole check
+  (`:970-971`) and before the stamp (`:998`).
 - **Logged:** each check as pass or fail, with the receipt fields read (the keys and the counts).
 
 ### Step 6. The look
@@ -293,9 +353,12 @@ It parses no CSV and calls no reader.
   - Steps 3 to 5 are done the same morning, under the lease.
   - Neither `data/mg1_look/started-<rule sha>.json` nor `receipt-<rule sha>.json` exists (`:139-141`).
   - The result file does not exist (`:966-968`).
-- **Before the stamp (nothing consumed).** These all exit 2, with stderr `refused: …`; a hold's message begins
-  `held:` (`:1064-1066`). **MISSING:** a separate exit code for a hold. Master tells a hold from a refusal only
-  by that text.
+- **Before the stamp (nothing consumed).**
+  - **With [A]** (11-03 R4): a refusal exits 2 (`EXIT_REFUSED`) with stderr `refused: …`, and a hold exits 4
+    (`EXIT_HELD`) with stderr `held: …` (`mg1_look.py:283`, `:1158-1163` [A]).
+  - **Without [A]**, both exit 2 and differ only in the `held:` text (`:1064-1066`).
+  - [A] adds two holds: a freeze `audit_status` other than `OK` (`:471-473` [A]), and a `through` other than
+    FREEZE_THROUGH (`:480-482` [A]).
   - **Refused:**
     - an owner constant outside the built branches (`:953`);
     - the rule sha (`:134-137`);
@@ -329,8 +392,11 @@ It parses no CSV and calls no reader.
   - A label refusal the metadata did not predict masks that market-day (T2, 11-03:20). It is disclosed in
     `label_masked` and raises the receipt flag `label_refusal_unpredicted_by_metadata` (`:1002-1007`).
   - Every exit writes the result and the receipt: a verdict, a VOID (`:940-943`), or ABORTED (`:1017-1023`).
-  - On ABORTED, the exception is re-raised after the receipt is written, so the exit is non-zero, with a
-    traceback rather than `refused:`.
+  - On ABORTED, the exception is re-raised after the receipt is written.
+    - If it is an `MG1LookRefused` (for example the `winner_band` refusal), `main` exits 2 with `refused:`, the
+      same as a pre-stamp refusal. That is true with and without [A]: `mg1_look.py:1161-1163` [A].
+    - Any other exception exits non-zero with a traceback.
+    - Master tells ABORTED apart by the start marker and the receipt existing. See §4 item 9.
   - **Master's action:** none re-runs. MG-1 has exactly one look (`:128`, `:968`). A VOID's dates "are spent
     and are not re-run" (`:942`).
 - **Outcome** (exit 0): stdout `{"receipt": <path>, "decision": …}` (`:1067-1068`). The receipt is
@@ -358,7 +424,7 @@ It parses no CSV and calls no reader.
 - **The commit:** the receipt, the start marker, the result and step 4's freeze receipt are copied into the
   repository record the same day (`mg1_look.py:21-22`; `look-day-dry-run-checklist.md:63`). The commit carries
   their sha256s and the look-log extract. Master owns this commit.
-  - **MISSING:** the record's path and file names. No code or doc on the four trees fixes them.
+  - **MISSING:** the record's path and file names. No code or doc on the four trees fixes them. See §4 item 5(d).
 - **Logged:** the check output, the commit sha, and each copied file's sha256, which must equal the
   originals'.
 
@@ -387,30 +453,47 @@ The pins above are therefore for the combined head that C10 requires (rulings:70
 | 1, 2 | 2 | refused, nothing written | fix, re-run in an admitted slot |
 | 1, 2 | 0, extension required | `MG1_LAST` must move | step 2a |
 | 3 | 2 | refused, nothing written | 2a if `MG1_LAST`; else the next morning, and the look moves with it |
-| 4 | 2 | refused; `frozen/mg1` absent | re-run (new run id) |
-| 4 | 3 | `STATION_DRIFT`; `frozen/mg1` written | hold the look; rule the drift outcome-blind (§4 item 1) |
-| 5 | n/a | a keys-only check fails | hold the look; rule |
-| 6 | 2, `refused:` | refused before the stamp; nothing consumed | fix the input |
-| 6 | 2, `refused: held:` | held before the stamp; nothing consumed | rule from the message |
+| 4 | 2 | refused; `frozen/mg1` absent (with [B], also a failed check: only a tmp folder is left) | re-run (new run id) |
+| 4 | 3 | `STATION_DRIFT`. With [B], refused and nothing frozen; without [B], `frozen/mg1` is written | rule the drift outcome-blind; with [B], freeze again; without [B], hold the look and recover by ruling |
+| 4 `--recover` | 0 / 2 | the defective freeze is moved to `.void-<utc>` / refused, nothing moved | re-freeze / rule |
+| 5 `check-keys` [A] | 0 | every pre-stamp check passes; nothing stamped | step 6 |
+| 5 `check-keys` [A] | 4 | held; record written; nothing consumed | rule from the record |
+| 5 `check-keys` [A] | 2 | refused; record written (unless the record path existed); nothing consumed | fix the input |
+| 6 | 2, `refused:` | refused before the stamp; nothing consumed, unless the start marker exists (ABORTED, §4 item 9) | fix the input |
+| 6 | 4, `held:` [A] (2, `refused: held:` without [A]) | held before the stamp; nothing consumed | rule from the message |
 | 6 | 0 | verdict or VOID, receipt written | step 7; never re-run |
-| 6 | non-zero, traceback | ABORTED after the stamp, receipt written | step 7; never re-run |
+| 6 | non-zero, traceback; or 2 with the marker present | ABORTED after the stamp, receipt written | step 7; never re-run |
 | 7 | 1 | receipt problems | rule before B's session |
 
-## 4. Open items for master (found in the code; no fix proposed here)
+## 4. Open items for master (revision 2: rulings applied, the rest inventoried)
 
-1. **The look does not gate on `audit_status`.** `freeze` writes `frozen/mg1` and its receipt even on
-   `STATION_DRIFT` (exit 3; `venue_label_audit.py:455`, `:517`). `mg1_look` never reads `audit_status`.
-   `frozen/mg1` cannot be frozen again (`:416-417`), and the look reads only look id `mg1` (`mg1_look.py:252`).
-   Once ruled, what proceeds is master's ruling.
-2. **A freeze that dies mid-copy.** If the freeze dies after `look_dir.mkdir` (`venue_label_audit.py:426`) and
-   before its receipt (`:461`), `frozen/mg1` exists without a receipt. Every later freeze for `mg1` is then
-   refused, and the look refuses the missing receipt. A null-sha source has the same end. Evidence is never
-   deleted, so recovery needs a ruling.
-3. **No standalone pre-stamp label check** (§1 step 5, MISSING). If every check passes, the check runs straight
-   on to the stamp.
-4. **Held and refused share exit 2.** They differ only in the `held:` text (`mg1_look.py:1064-1066`).
-5. **Producers missing on the named branches:** `--layout` (R11 Head 1, not read here), `--market`, the
-   look-log path, and the receipt-commit record path.
-6. **`<FREEZE_THROUGH>` for MG-1 is not ruled** (§1 step 4). The code needs at least `D45` and at most today.
-7. **The owner-constant timing against the B2 pin timetable** (§1 step R). An answer after 11-12/13 means a
-   re-pin; one after S1 cannot land without tripping B's VOID 5 (C10).
+1. **Audit status.** Ruled (11-03 R1, R2(a)) and built: [A] holds the look unless `OK`, and [B] refuses to
+   freeze unless `OK`.
+2. **A freeze that dies mid-copy.** Ruled (11-03 R2(b), R2(c)) and built in [B]: atomic tmp-and-rename, plus
+   `freeze --recover`.
+3. **A standalone pre-stamp check.** Ruled (11-03 R3) and built in [A]: `check-keys`.
+4. **Held and refused share exit 2.** Ruled (11-03 R4) and built in [A]: refused 2, held 4. Tests:
+   `tests/calibration/test_mg1_look_check_keys.py` [A].
+5. **Inventory of what is still missing** (11-03 R5), each with its owner:
+
+   | Item | State and file:line | Owner |
+   | --- | --- | --- |
+   | (a) `--layout` producer | R11 Head 1, `claude/r11-head1-20261101` @ `9dc1c9798366f17d8f0f8af1c3e41733d644c30d`, not on master. `src/weather/calibration/mg1_layout.py`: `concat --layouts --out [--ledger]` writes "one window layout for D0..MG1_LAST" (`mg1_layout.py:226`, `:269-272`), after per-date `stage`, `admit` and `build` (`:251-268`). The planned landing is an RF combo night, 11-04/05, with fallback 11-05/06 (rulings:27 (2)). The WS ships the concat layout and `SHA256SUMS` to the host before P3 (rulings:53). | R11 lane (head); master (landing, host copy) |
+   | (b) `--market` producer | None on any tree read. `mg1_look.load_outcomes` reads `row_key`, `band_index` and `p_market_yes` from it at the join only (`mg1_look.py:753`). B's `b_transfer` writes its own `market.parquet` for B's 45 dates, which is not MG-1's input. | master (to name or assign) |
+   | (c) look-log path | No code fixes it. R24 (3) requires the shas to be logged before the look (rulings:241). | master |
+   | (d) receipt repository record path | No code or doc fixes it. The receipt is copied into the repository record the same day (`mg1_look.py:21-22`; `look-day-dry-run-checklist.md:63`). | master |
+   | (e) admission or allowlist entry | Is one needed for an in-window, leased host run? <br>• `venue_label_audit` matches the heavy-module heuristic: its module name contains `backtest`, matched by the regex at `scripts/ops/workload_admission.ps1:908-917` on master. <br>• `mg1_look` and `mg1_countable` do not match it. <br>• None of the three is in the workstation offline list (`:611-667`), which matters only on the WS. <br>Whether the host S4U guard admits a leased in-window run without an entry is a host question. | master (host) |
+
+6. **FREEZE_THROUGH.** Ruled (11-03 R6) and built in [A]. See §1 step 4.
+7. **The owner-constant timing.** It is master's plan (11-03 R7; §1 step R): answers by 11-10, before the
+   11-12/13 pin. A later answer means a re-pin before S1, which master owns.
+8. **The combined-head pins.** Noted by master (11-03 R8). [A] moves the entry pin again, to `6f17cf15…`, so
+   §2's PIN slots stay open until the combined head is final.
+9. **New: ABORTED can exit 2.** A post-stamp `MG1LookRefused` re-raises after the receipt is written. `main` then
+   prints `refused:` and exits 2, so the exit code alone does not separate it from a pre-stamp refusal
+   (`mg1_look.py:1161-1163` [A]). Today the start marker existing is the only tell. No fix is proposed here; a
+   distinct code is master's call.
+10. **Pre-existing on look (8c307dbb8):** `tests/operations/test_schema_registry.py::...strict_audit...` fails
+    there because `mg1_look.FREEZE_RECEIPT_SCHEMA` names `venue_label_freeze_receipt_v1` before the
+    `venue_labels` family is on that tree. It is the same with and without [A], and it clears once look and
+    combo C's R24 module share a tree.
