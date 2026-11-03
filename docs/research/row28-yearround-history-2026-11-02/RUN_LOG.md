@@ -9,8 +9,9 @@ This log records how the frozen row-28 prereg is executed.
 - **Status:** the v6 final delta review was CLEAN on every file. Sentinel test v4 (stage 0) PASSED on
   2026-11-03 (see the per-stage log). Stage 1 (`controls`) attempt 1 HALTed (R4 junction check plus the launcher
   v5 G2 self-hit); no control was computed. Master accepted launcher v6 and OutDir `run\s1_controls_a2` (same
-  attempt). The launcher v6 smoke (stage 0b) PASSED. Gate for the a2 relaunch: the v6 delta review CLEAN, the smoke
-  PASS, then the coordinator's go. Build has not started.
+  attempt). The launcher v6 smoke (stage 0b) PASSED, and the v6 delta review was CLEAN (04:55:30). The a2 relaunch
+  then ended PARTIAL (walker ERROR): the worktree's 26 `artifacts/models/hgb` files are Git LFS pointers. No control
+  was computed. It is waiting on a ruling. Build has not started.
 
 ## Exception to workstation_heavy admission
 
@@ -266,6 +267,7 @@ stage's Job, from `receipt.json` `job_memory.peak_job_memory_bytes`.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | sentinel test v4 | 2026-11-03T04:40:49.2872160-05:00 | 2026-11-03T04:40:51.8190510-05:00 | 0 | PASS: 20 passed, 0 failed (0.98 s) | n/a (wrapper route) | n/a | wrapper stdout `2fd2e2b9666ee7b32d8254c7021785bc078d2eb6c872e633d0b77e0c3c4dd384`; queue events `3b0c25b5621cb16465f50042ef8f94660418ea66cec75f6bbdd883553bcf24a0` |
 | 0b | launcher v6 smoke | 2026-11-03T04:49:42.0447358-05:00 | 2026-11-03T04:49:42.8680856-05:00 | 0 | PASS: COMPLETE, receipt guard 0, log guard 0, `verify_prev` accepts | 8,200,192 | `c2cd0e8f457f61a60b01efbe9d7a68b9e6e0feb67fd1a169cd720adaebcd7c52` | receipt `113fed54a73390d235e143c4d769dbd927ed0dd6306289e807c3143ccef04c1d`; walk.csv `d0eed41164ce99563bcd9c877001a3051c873bcffb944b60f5208951ec192816`; walker.stdout and walker.stderr empty |
+| 1 | controls, attempt 1 (a2 OutDir) | 2026-11-03T04:56:15.7003831-05:00 (launch); walker 20261103T045616.401716-0500 | walker 20261103T045703.174957-0500 | 5 (walker 11) | PARTIAL: walker ERROR, `ColumnAllowlistError` (served artifact is an LFS pointer); no control computed; guard 0, receipt guard 0, no FLAG | 860,798,976 | `153d2af424271cd905d895536e09c72fdb5e12034fc717fe01839be9381d5d53` | receipt `2037644ebcdbf18f48c6440207d376fc1c008e8161116b3f594ff80ffc39ecc1`; walk.csv `7d48e52450407c4d661e2c6f0d83287f6c54c81b7a23fe960b2e3789297c4019`; junction manifest before = after `f93c2ad2…`; walker.stdout `9dfcd16a3dadb2e3668ba3b4d1fe08d05b290e953c63d729dcb9e48a2ba667fe` |
 | 1 | controls, attempt 1 | 2026-11-03T04:44:06.8117678-05:00 (launch); walker 20261103T044407.510313-0500 | walker 20261103T044419.855352-0500 | 6 | HALT (R4 + G2 self-hit): no control computed; receipt withheld by its own guard (1 hit), peak 0.13 GB | 131,993,600 | `131c02110c447019085168213e77c1c69aa676177a115880701bb14b3f8f1a4f` | receipt `aa525676f5008b7e020d3524b0fc030831e838d6f43923c7016c4431832f6073`; walk.csv `c0813fac922f17b9c9ee86e8b2a09982b8afd87979e87f69f12dbcb77e66ef5d`; junction manifest before = after `f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7`; walker.stdout `eb9978c8ed451dc3c517d04d6deba01bd2049cd98129118ae966e23ca23224c3` |
 | 2 | build | | | | | | | |
 | 3 | integrity | | | | | | | |
@@ -316,5 +318,31 @@ Stage 0b (launcher v6 smoke) detail.
   unchanged; it does not import the runner. Its output: `PASS verify_prev accepted controls`. Every check in
   `verify_prev` was exercised, including the stage and `walker_sha256` = `runner_sha256` binding. Negative control:
   on `run\s1_controls` (attempt 1) the same call refuses, with "status HALT is not ('PASS',)".
+
+Stage-launch dated-string scans (reviewer note 4; repeated before every stage launch). The scan looks for ISO dates
+on or after 2026-01-01 in the `--roots` config's contents and in its file name.
+- **Before controls a2** (2026-11-03T04:56:06-05:00): `stage1_controls_v2.json` (`66e4b46e…`) had 0 dated strings
+  in its contents and 0 in its name (0 on or after 2026-05-27, 0 in 2026 before 05-27). It names neither
+  `cap_counts_v2.json` nor `r4_deciding_dates_receipt.json`.
+- **Pre-launch state:** `data\` held exactly the four junctions, and no workstation_heavy, wrapper or row-28
+  launcher process was running.
+
+Stage 1, attempt 1 (a2 OutDir) detail.
+- **Launch.** Launcher v6 started as pid 22924 in the RUN_LOG form, with OutDir `run\s1_controls_a2` and without
+  `PYTHONWARNINGS`. Its stderr was empty, and none of its processes remain.
+- **Receipt.** The full receipt (not the minimal one) shows status PARTIAL, launcher exit 5 and walker exit code 11
+  (runner status ERROR). `output_guard` has `hits_total` 0 and `from` `20260101`. There are no receipt guard hits
+  and no `output_guard_flag`.
+- **walk.json.** It holds 3 raw dated strings, all of them the masked folder token in the traceback paths, and
+  nothing else dated. Its report guard is CLEAN. The junction manifest is unchanged, and the only junction read is
+  `training`.
+- **Cause.** The error came in `stage_controls` at the first `extract(prm.AUG_SEP_CENTRES)`, through
+  `pooled_residual_model.extract_market`, then `resolve_column_allowlist`, then `served_feature_names`. It raised
+  `ColumnAllowlistError`: "served artifact is an LFS pointer: `C:\wt\L59row28\artifacts\models\hgb\feature_model_hgb_atlanta.pkl`".
+  - In the worktree, all 26 LFS-tracked files (`artifacts/models/hgb`) are 133-byte pointers, never checked out.
+  - All 26 objects are present in the shared local LFS store (the worktree's git common dir).
+  - The main checkout has them materialised.
+- **Results.** No control check (C-0, C-0b, C-0c, C-b) ran, so there are no counts and no pass/fail.
+- **Folder.** `run\s1_controls_a2` stays in place as evidence. Nothing was repaired.
 
 Gate commits: integrity — (pending); look — (pending).
