@@ -14,12 +14,23 @@ and the B-look argument refusal stays in force for it.
 ## Inputs
 
 `fit` and `equivalence` take a config JSON by path and sha256 (`--config`, `--config-sha`). Its keys are
-`pit_corpora`, `l9_corpus`, `fetch_dir`, `bound_state` and, for equivalence only, `frozen_records_list` and
-`frozen_records_list_sha256`. The records root is the REQUIRED `--records-root` argument (master review
-2026-11-03): it has no default, and a config holding `records_root` is refused. No environment variable and no
-committed machine path names it. It must lie outside the repository, because the bound `extract_market` refuses an
-in-repo output root.
-The module reuses a records root only through its `records_manifest.json` payload shas and refuses a partial one.
+`pit_corpora`, `l9_corpus`, `fetch_dir`, `bound_state`, `frozen_records_lists` (a list of `[path, sha256]`
+pairs whose `records_*.pkl.gz` rows are unioned; an overlap, a duplicate or a union count other than every expected
+record window refuses) and, for equivalence, `frozen_new_nbm_rows_sha256`. The records root is the REQUIRED
+`--records-root` argument (master review 2026-11-03): it has no default, and a config holding `records_root` is
+refused. No environment variable and no committed machine path names it. It must lie outside the repository,
+because the bound `extract_market` refuses an in-repo output root.
+The module reuses a records root only through its `records_manifest.json` when the manifest was written by the same
+module source sha, lists no fail-closed or skipped centre, holds exactly the expected records with matching payload
+shas, and equals the frozen lists; it refuses a partial root. A records root under any junction or symlink, or under
+any checkout's `data` folder, is refused.
+
+`fit` refuses by name a (market, date) with no WU hourly value and a date with no NBM mean for any market (a
+per-market NBM gap stays the capped section 3.3b imputation). `emit` refuses by name a batch (market, date) with no
+captured snapshot, no usable NBM or no METAR replay observation.
+
+Disclosure (inherited from bound MG-2, not changed here): training anchors NBM with `nbm_at_cutoff` at h:00, while
+serving uses `usable_v2_mean` at capture time.
 
 ## 1. Fit (once, before `FROZEN_BEFORE_UTC`)
 
@@ -51,8 +62,10 @@ The module does not write it.
 
 - Weekly batches from 2026-12-21: at most `BATCH_MAX_DAYS` (7) days, `--last` before today, inside both the
   emission window (2026-12-17..2027-05-31) and the receipt window. There is no daily task and no Scheduler change.
-- Inputs are `as_of_capture` only. The snapshots file must hold only rows inside the batch, and is read through a
-  schema screen that takes the snapshot columns only.
+- Inputs are `as_of_capture` only. The snapshots parquet needs `target_date` row-group statistics; a row group
+  outside the batch refuses before any read, then the read is filtered to the batch. It passes a schema screen
+  that takes the snapshot columns only.
+- `emit` refuses when any serve helper's source sha (`SERVE_HELPERS`) differs from the one recorded at fit.
 - Writes `shadow/<first>_<last>/shadow_rows.jsonl` and `emit_receipt.json` under the fit directory and prints
   `shadow_rows_sha256` and the emit receipt sha. Record both per batch.
 - The scored window is 2026-12-17..2027-01-30 and is named separately from the emission window.
@@ -65,12 +78,17 @@ The module does not write it.
 ```
 
 - The frozen runner must be `row28_run_v12.py` at its pinned sha. Use a new records root.
-- Checks (a) the records against `frozen_records_list` (column 3, the decompressed payload sha) and the frames,
+- Checks (a) the records against the `frozen_records_lists` union (column 3, the decompressed payload sha; a record
+  built but not listed, or listed but not built, FAILS), the new NBM rows against `frozen_new_nbm_rows_sha256`
+  (absent FAILS) and the frames,
   (b) the training row-key sets and bucket spaces, and (c) the fits: the trainer against the runner's to 1e-12 and
   serve through per-hour states. The report is PASS or FAIL with counts and max absolute differences, and holds no
   label, Brier or log loss.
-- `--mode per_row` needs `--frozen-rows` and its sha and reads only label-free columns. v12's frozen rows keep only
-  `A_yhat`, so `state_sha` is the mode in use.
+- The report names its mode. `state_sha` passes a fit only when the trainer and serve compares cover every expected
+  row (Feb 29 excluded from serve), and the forward check only when the state sha is equal and serve, round trip and
+  trainer cover every row; the counts are in the report. `--mode per_row` additionally needs `per_row_compared`
+  equal to the rows, needs `--frozen-rows` and its sha, and reads only label-free columns. v12's frozen rows keep only
+  `A_yhat`, so `state_sha` is the mode in use. No mode passes with nothing compared.
 
 ## Update this file when
 

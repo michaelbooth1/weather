@@ -42,6 +42,22 @@ Master's BUILD GO rulings (2026-11-03), as built:
   none; MG-2's ``nearest_centre`` has no Rule L).
 * The module is never imported by a capture loop (runtime refusal below, and an AST ratchet in the tests).
 
+Master's review rulings (2026-11-03, L16 review), each a hard refusal BY NAME:
+
+* Records: a fail-closed extract or a centre with no covered year refuses fit, freeze and equivalence; a reused
+  records root needs this module's source sha, the full expected record set and equality with the union of the
+  config's ``frozen_records_lists`` (``(path, pinned sha)`` pairs; overlap, duplicates or a wrong count refuse).
+  A records root under any reparse point (junction or symlink) or any checkout's ``data`` folder is refused.
+* A silent None is a defect: ``fit`` refuses a (market, date) whose ``wu_hourly`` source is empty, or a date with
+  no NBM for any market; ``emit`` refuses a batch (market, date) with no captured snapshot, NBM or METAR replay.
+* Equivalence FAILS (never skips) when ``frozen_new_nbm_rows_sha256`` is absent, when a record is built but not
+  listed or listed but not built, or when any compare covers fewer rows than expected (``per_row`` needs every row;
+  ``state_sha`` needs the state sha AND full serve and trainer coverage). Nothing compared never passes.
+* ``emit`` reads the snapshots with a ``target_date`` filter after a row-group-statistics refusal, and refuses
+  when a serve helper's source sha (:data:`SERVE_HELPERS`) differs from the one the fit recorded.
+* Disclosure, inherited unchanged from bound MG-2: the NBM anchor is asymmetric. Training reads ``nbm_at_cutoff``
+  at h:00; serving reads ``usable_v2_mean`` at capture time. The module reproduces both sides as bound.
+
 Forward-prereg fields (design note section 6, as amended by master): ``candidate_id`` (``row28_B``), ``module``,
 ``module_source_sha256``, ``fit_kind`` (``forward``), ``fit_manifest_sha256``, ``state_sha256``,
 ``state_sidecar_sha256``, ``state_schema`` (``mg2_p3d_n_state/1``), ``arm``, ``centres``, ``season_of``, ``hours``,
@@ -70,6 +86,7 @@ import os
 import pickle
 import re
 import shutil
+import stat
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -100,6 +117,22 @@ BATCH_MAX_DAYS = 7
 INPUT_MODES = ("as_of_capture",)
 IMPUTE_CAP = 0.05
 TRAIN_F_SOURCE = "wu_hourly"
+# master 2026-11-03: a silent None is a defect. The state's bound feature set (FIT_KWARGS raw_columns=False, so
+# pooled_residual_model.MeanModel uses F, the LEVEL_COLUMNS present in the frame, fh and the registry/anchor
+# columns, pooled_residual_model.py:482-498/511) maps to these input sources; fit and emit refuse BY NAME when a
+# source is absent or empty for a row's (market, date).
+TRAIN_SOURCE_COLUMNS = {"wu_hourly": ("F", "x_high_so_far", "x_current_temp"), "nbm": ("fh",)}
+EMIT_SOURCES = ("captured_snapshots", "captured_nbm", "captured_metar_replay")
+# master review 2026-11-03 (ruling 5): the serve-path helpers emit relies on. Their inspect.getsource sha256 is
+# recorded in the fitted state's provenance; emit refuses by name when any differs at emission time.
+SERVE_HELPERS = (("weather.calibration.mg2_p3d_n", "serve_distribution"),
+                 ("weather.calibration.mg2_p3d_n", "as_of_capture"),
+                 ("weather.calibration.mg2_p3d_n", "scan_replay_as_of"),
+                 ("weather.calibration.mg2_p3d_n", "_observations"),
+                 ("weather.calibration.mg2_p3d_n", "convert_observation"),
+                 ("weather.calibration.mg2_p3d_n", "nearest_centre"),
+                 ("weather.calibration.yearround_refit", "_replay_dirs"))
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 SERVE_F_SOURCE = "captured_metar"
 TOLERANCE = 1e-12
 FRAME_TOLERANCE = 1e-9
@@ -323,6 +356,28 @@ def refuse_bound_sha(sha, *, where):
         raise YearroundRefused(f"{where}: the state sha {sha} is listed in {RELEASE_BINDING_REL}")
 
 
+def helper_source_shas():
+    """{"module.function": sha256 of inspect.getsource} for every SERVE_HELPERS entry (ruling 5)."""
+    import importlib
+    import inspect
+
+    out = {}
+    for module, name in SERVE_HELPERS:
+        func = getattr(importlib.import_module(module), name)
+        out[f"{module}.{name}"] = hashlib.sha256(inspect.getsource(func).encode("utf-8")).hexdigest()
+    return out
+
+
+def refuse_changed_helpers(recorded):
+    """Emit-time check: the serve helpers' sources equal those recorded in the frozen state."""
+    if not isinstance(recorded, dict) or set(recorded) != {f"{m}.{n}" for m, n in SERVE_HELPERS}:
+        raise YearroundRefused("the state records no complete helper_source_sha256 set (ruling 5)")
+    now = helper_source_shas()
+    changed = sorted(k for k in now if now[k] != recorded[k])
+    if changed:
+        raise YearroundRefused(f"serve helper source differs from the frozen state's record: {changed}")
+
+
 def replay_index_source_sha256(p3):
     """sha256 of ``inspect.getsource(mg2_p3d_n._replay_index)`` (the one private function the emit loop uses)."""
     import inspect
@@ -500,48 +555,120 @@ def market_frame(prm, files, with_labels):
     return frame, meta
 
 
+def _is_reparse_point(path):
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def check_records_root(records_root):
+    """Refuse a records root under any reparse point (junction or symlink) or under any checkout's ``data``.
+
+    Master review 2026-11-03 (ruling 2): a root reached through a junction can write into another tree (a
+    worktree's ``data\\training`` junction writes the main checkout). Every component of the absolute, unresolved
+    path is checked for a reparse point; then every ancestor of the resolved path named ``data`` whose parent
+    holds ``.git`` (a checkout or worktree) refuses.
+    """
+    raw = Path(os.path.abspath(records_root))
+    for part in (raw, *raw.parents):
+        if _is_reparse_point(part):
+            raise YearroundRefused(f"the records root lies under a reparse point (junction or symlink): {part}")
+    resolved = raw.resolve()
+    for part in (resolved, *resolved.parents):
+        if part.name.lower() == "data" and (part.parent / ".git").exists():
+            raise YearroundRefused(f"the records root lies under a checkout's data folder: {part}")
+    return guard_path(resolved)
+
+
 def records_root_arg(records_root, cfg):
     """The records root comes only from the required ``--records-root`` argument (master review 2026-11-03)."""
     if "records_root" in cfg:
         raise YearroundRefused("records_root is a required CLI argument (--records-root), not a config key")
     if not records_root:
         raise YearroundRefused("--records-root is required")
-    return guard_path(records_root)
+    return check_records_root(records_root)
+
+
+def record_centres(prm):
+    """The centres whose record windows are built: every A centre (v12 stage_build 2269)."""
+    return centre_sets(prm)["A"]
+
+
+def record_markets(prm):
+    """The markets whose record windows are built: the bound R0 set (v12 stage_build 2276)."""
+    return tuple(prm.R0_MARKETS)
+
+
+def expected_record_names(prm, records):
+    return sorted(prm.records_path(records, m, c).name for c in record_centres(prm) for m in record_markets(prm))
+
+
+def refuse_incomplete_records(manifest):
+    """Ruling 1: any fail-closed extract or skipped centre refuses by name (fit, freeze and equivalence)."""
+    failed = manifest.get("extract_failed_closed") or []
+    if failed:
+        shown = ", ".join(f"{e['market']} {e['centre']} ({e['reason']})" for e in failed[:5])
+        raise YearroundRefused(f"{len(failed)} record extract(s) failed closed or were skipped: {shown}"
+                               f"{' ...' if len(failed) > 5 else ''}")
+    empty = sorted(c for c, years in (manifest.get("covered_years") or {}).items() if not years)
+    if empty:
+        raise YearroundRefused(f"centre(s) with no covered year: {empty}")
+
+
+def refuse_records_not_frozen(ours, frozen):
+    """The records list must equal the frozen list exactly: payload shas, nothing missing, nothing extra."""
+    rec = compare_records(ours, frozen)
+    if not rec["pass"]:
+        raise YearroundRefused(f"the records differ from the frozen records list: {rec}")
+    return rec
 
 
 def build_records(cfg, prm, records_root):
     """Every A-centre record window through the bound ``extract_market`` (v12 stage_build 2267-2289).
 
-    A records root with a ``records_manifest.json`` is reused only when every listed file's payload sha matches;
-    a root holding files but no manifest is refused (a partial build). Returns (files, manifest).
+    A records root with a ``records_manifest.json`` is reused only when (ruling 1) its module sha equals this
+    module's, it has no fail-closed or skipped entry, its file set is exactly the expected one, every payload sha
+    matches, and it equals the config's frozen records list (which a reuse requires). A root holding files but no
+    manifest is refused (a partial build). A fresh build that fails closed anywhere writes its manifest as
+    evidence and then refuses. Returns (files, manifest).
     """
     from weather.sources.forecast_training_corpus import CorpusVerificationError
 
-    records = guard_path(records_root)
+    records = check_records_root(records_root)
     prm.require_output_outside_repo(records)
     manifest_path = records / RECORDS_MANIFEST
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("schema") != RECORDS_MANIFEST_SCHEMA:
             raise YearroundRefused("records manifest schema differs")
+        if manifest.get("module_source_sha256") != module_source_sha256():
+            raise YearroundRefused("the reused records root was built by a different module source sha256")
+        refuse_incomplete_records(manifest)
+        if sorted(manifest["files"]) != expected_record_names(prm, records):
+            raise YearroundRefused("the reused records root's file set differs from the expected record windows")
         for name, entry in manifest["files"].items():
             if payload_sha256(records / name) != entry["payload_sha256"]:
                 raise YearroundRefused(f"record {name} differs from its records manifest")
         present = sorted(p.name for p in records.glob("records_*.pkl.gz"))
         if present != sorted(manifest["files"]):
             raise YearroundRefused("the records root holds files outside its records manifest")
+        if not cfg.get("frozen_records_lists"):
+            raise YearroundRefused("a reused records root needs the frozen records lists (path and sha) to verify")
+        refuse_records_not_frozen({n: e["payload_sha256"] for n, e in manifest["files"].items()},
+                                  frozen_records_union(cfg, prm))
         return sorted(records / n for n in manifest["files"]), manifest
     if records.exists() and any(records.iterdir()):
         raise YearroundRefused(f"{records} holds files but no {RECORDS_MANIFEST} (a partial build); use a new root")
-    centres = centre_sets(prm)
     files, failed, years_by_centre = {}, [], {}
-    for centre in centres["A"]:
+    for centre in record_centres(prm):
         years = covered(cfg, prm, centre)
         years_by_centre[centre] = years
         if not years:
-            failed += [{"market": m, "centre": centre, "reason": "no covered year"} for m in prm.R0_MARKETS]
+            failed += [{"market": m, "centre": centre, "reason": "no covered year"} for m in record_markets(prm)]
             continue
-        for market in prm.R0_MARKETS:
+        for market in record_markets(prm):
             try:
                 path, _ = prm.extract_market(market, centre, manifests_for(cfg, prm, centre), records,
                                              training_years=years)
@@ -553,6 +680,7 @@ def build_records(cfg, prm, records_root):
     manifest = {"schema": RECORDS_MANIFEST_SCHEMA, "files": files, "extract_failed_closed": failed,
                 "covered_years": years_by_centre, "module_source_sha256": module_source_sha256()}
     _write_json(manifest_path, manifest)
+    refuse_incomplete_records(manifest)
     return sorted(records / n for n in files), manifest
 
 
@@ -642,6 +770,59 @@ def row_keys_sha256(train):
     lines = [f"{m}|{c}|{h}|{str(d)[:10]}|{a}" for m, c, h, d, a in
              zip(train["market"], train["payload_centre"], train["hour"], train["target_date"], train["centre"])]
     return sha256_bytes("\n".join(lines).encode("utf-8"))
+
+
+class SourceAbsent(YearroundRefused):
+    """An input source of the bound feature set is absent or empty for a row's (market, date)."""
+
+
+def _refuse_absent(source, keys, n_dates):
+    shown = ", ".join(f"{m} {d}" for m, d in keys[:5])
+    raise SourceAbsent(f"input source {source!r} is absent or empty for {len(keys)} (market, date) of "
+                       f"{n_dates}: {shown}{' ...' if len(keys) > 5 else ''}")
+
+
+def refuse_absent_training_sources(frame, arm):
+    """Refuse by name a (market, date) of the fit's training rows whose source is entirely missing.
+
+    The fit's rows are ``arm_rows`` for the scored hours (any fold). ``wu_hourly`` is absent for a (market, date)
+    when every one of its rows lacks F, x_high_so_far and x_current_temp. ``nbm`` is absent for a DATE when no
+    market has an NBM mean on it: per-(market, date) NBM gaps stay the pre-registered section 3.3b imputation,
+    counted and capped by ``imputation_shares`` / IMPUTE_CAP. A pure precondition: it raises or returns counts.
+    """
+    import numpy as np
+
+    days = frame["target_date"].astype(str).str[:10]
+    mask = frame["hour"].isin(SCORED_HOURS) & (days <= LAST_TRAIN.isoformat())
+    if arm == "B":
+        mask &= days.map(in_dec_may)
+    rows = frame[mask].assign(_d=days[mask])
+    if rows.empty:
+        raise SourceAbsent("the fit has no training rows at all")
+    groups = rows.groupby(["market", "_d"], sort=True)
+    cols = [c for c in TRAIN_SOURCE_COLUMNS["wu_hourly"] if c in rows]
+    if len(cols) != len(TRAIN_SOURCE_COLUMNS["wu_hourly"]):
+        raise SourceAbsent(f"input source 'wu_hourly' columns are absent from the frame: "
+                           f"{sorted(set(TRAIN_SOURCE_COLUMNS['wu_hourly']) - set(cols))}")
+    present = rows[cols].apply(lambda c: np.isfinite(c.to_numpy(float))).any(axis=1)
+    wu = present.groupby([rows["market"], rows["_d"]]).any()
+    missing = [k for k, ok in wu.items() if not ok]
+    if missing:
+        _refuse_absent("wu_hourly", missing, groups.ngroups)
+    fh_ok = np.isfinite(rows["fh"].to_numpy(float))
+    by_date = pd_series(fh_ok, rows["_d"]).groupby(level=0).any()
+    missing = [("all markets", d) for d, ok in by_date.items() if not ok]
+    if missing:
+        _refuse_absent("nbm", missing, len(by_date))
+    return {"wu_hourly_market_dates": int(groups.ngroups), "nbm_dates": int(len(by_date)),
+            "rows_missing_any_wu_hourly_value": int((~rows[cols].apply(
+                lambda c: np.isfinite(c.to_numpy(float))).all(axis=1)).sum())}
+
+
+def pd_series(values, index):
+    import pandas as pd
+
+    return pd.Series(values, index=pd.Index(index.to_numpy(), name="d"))
 
 
 def imputation_shares(frame, arm):
@@ -777,7 +958,11 @@ def fit(cfg, arm="B", now=None, *, records_root):
     upstream = upstream_shas()
     conversion, late_report = bound_hooks(mods, cfg)
     files, records_manifest = build_records(cfg, mods.prm, records_root_arg(records_root, cfg))
+    if cfg.get("frozen_records_lists"):
+        refuse_records_not_frozen({n: e["payload_sha256"] for n, e in records_manifest["files"].items()},
+                                  frozen_records_union(cfg, mods.prm))
     frame, payload_buckets, build_report = training_frame(cfg, mods, files, out / "work_nbm")
+    source_presence = refuse_absent_training_sources(frame, arm)
     shares = imputation_shares(frame, arm)
     if max((v["share"] for v in shares.values()), default=0.0) > IMPUTE_CAP:
         raise YearroundRefused("section 3.3b imputation cap breached")
@@ -785,7 +970,8 @@ def fit(cfg, arm="B", now=None, *, records_root):
     provenance = {"candidate": CANDIDATE_ID, "shadow_only": True, "module": MODULE,
                   "module_source_sha256": module_source_sha256(), "fit_id": fit_id, "arm": arm,
                   "fold": FORWARD_FOLD, "upstream_sha256": upstream, "bound_hooks_state_sha256":
-                  BOUND_P3D_N_STATE_SHA256, "sklearn_version": versions["sklearn"]}
+                  BOUND_P3D_N_STATE_SHA256, "sklearn_version": versions["sklearn"],
+                  "helper_source_sha256": helper_source_shas()}
     state, info = arm_state(mods, frame, payload_buckets, arm, FORWARD_FOLD, provenance=provenance,
                             conversion=conversion, late_report=late_report)
     if tuple(state["markets"]) != tuple(REQUIRED_FIT_MARKETS):
@@ -835,12 +1021,14 @@ def _replay_dirs(replay_root):
         yield slug, date(int(year), months[month], int(day)), folder
 
 
-def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_dec_may):
+def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_dec_may, presence=None):
     """[(market, snapshot_id, target_date, row_key, distribution)] plus stats; MG-2 ``emit_rows``' gate.
 
     The row gate is ``mg2_p3d_n.emit_rows`` with ``inputs="as_of_capture"`` (cutoff hour in the intraday set,
     local hour >= cutoff, a usable captured NBM mean, a replay observation with high_so_far and current_temp),
     with ``in_coverage`` in place of rule C5's 08-01..12-16 gate. With C5's gate it equals ``emit_rows``.
+    ``presence`` (optional dict) receives, per (market, date) of the gated rows, the counts that
+    ``refuse_absent_emit_sources`` reads; the returned rows and stats are unchanged by it.
     """
     from zoneinfo import ZoneInfo
 
@@ -883,6 +1071,12 @@ def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_
                 m["outside_training_coverage"] += 1
                 m["coverage_fallback"].append(getattr(row, "row_key", None) or row.snapshot_id)
                 continue
+            tally = None
+            if presence is not None:
+                tally = presence.setdefault((market, key[0]), {"gated": 0, "nbm": 0, "replay_folder": False,
+                                                              "observation": 0})
+                tally["gated"] += 1
+                tally["replay_folder"] = key[0] in folders
             nbm = float(row.nbm_usable)
             if not math.isfinite(nbm):
                 m["no_usable_nbm"] += 1
@@ -902,9 +1096,13 @@ def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_
                         cache[ck] = p3.scan_replay_as_of(folder, target, tz, hour, at_local, spec.display_unit,
                                                          indexes[key[0]])
                     rec = cache[ck]
+            if tally is not None:
+                tally["nbm"] += 1
             if rec is None:
                 m["no_replay_observation"] += 1
                 continue
+            if tally is not None and rec["high_so_far"] is not None and rec["current_temp"] is not None:
+                tally["observation"] += 1
             if rec["high_so_far"] is None or rec["current_temp"] is None:
                 m["missing_metar_feature"] += 1
                 continue
@@ -918,21 +1116,70 @@ def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_
     return rows, stats, used
 
 
-def read_snapshots(path):
-    """The captured snapshot layout's label-free columns; any label, settlement or price column refuses."""
-    import pandas as pd
+def refuse_absent_emit_sources(snaps, presence, first, last, markets, in_coverage=in_dec_may):
+    """Refuse by name a batch (market, date) whose captured source is absent or empty (master 2026-11-03).
+
+    ``captured_snapshots``: no snapshot row at all for an emission market on a batch date in coverage.
+    ``captured_metar_replay``: rows passed the hour gates but the date has no replay folder, or no row found an
+    observation with high_so_far and current_temp. ``captured_nbm``: no gated row had a usable NBM mean.
+    Per-row drops inside a present source stay counted in the receipt's stats.
+    """
+    days = snaps["target_date"].astype(str).str[:10]
+    have = set(zip(snaps["market"].astype(str), days))
+    want = [(m, (first + timedelta(days=i)).isoformat()) for m in markets
+            for i in range((last - first).days + 1) if in_coverage((first + timedelta(days=i)).isoformat())]
+    missing = [k for k in want if k not in have]
+    if missing:
+        _refuse_absent("captured_snapshots", missing, len(want))
+    gated = {k: v for k, v in presence.items() if v["gated"]}
+    for source, bad in (("captured_metar_replay", [k for k, v in gated.items() if not v["replay_folder"]]),
+                        ("captured_nbm", [k for k, v in gated.items() if not v["nbm"]]),
+                        ("captured_metar_replay", [k for k, v in gated.items() if v["nbm"] and not v["observation"]])):
+        if bad:
+            _refuse_absent(source, sorted(bad), len(gated))
+    return {"market_dates": len(want), "gated_market_dates": len(gated)}
+
+
+def _stat_day(value):
+    return value.isoformat()[:10] if hasattr(value, "isoformat") else str(value)[:10]
+
+
+def read_snapshots(path, first=None, last=None):
+    """The captured snapshot layout's label-free columns; any label, settlement or price column refuses.
+
+    With a batch (``first``, ``last``; ruling 4) the row-group statistics of ``target_date`` are checked BEFORE
+    any row is read: a row group without statistics, or whose range leaves the batch, refuses (slice the layout
+    to the batch). The read then carries a pyarrow ``target_date`` filter, so no out-of-batch row is read.
+    """
     import pyarrow.parquet as pq
 
     from weather.calibration.mg2_p3d_n import SNAPSHOT_COLUMNS
 
-    names = list(pq.read_schema(guard_path(path)).names)
+    path = guard_path(path)
+    names = list(pq.read_schema(path).names)
     bad = [n for n in names if FORBIDDEN_INPUT_COLUMN.search(n)]
     if bad:
         raise YearroundRefused(f"the snapshot input carries label, settlement or price columns: {bad}")
     missing = [c for c in SNAPSHOT_COLUMNS if c not in names]
     if missing:
         raise YearroundRefused(f"the snapshot input lacks {missing}")
-    return pd.read_parquet(guard_path(path), columns=list(SNAPSHOT_COLUMNS))
+    if first is None and last is None:
+        return pq.read_table(path, columns=list(SNAPSHOT_COLUMNS)).to_pandas()
+    first, last = as_date(first).isoformat(), as_date(last).isoformat()
+    meta = pq.ParquetFile(path).metadata
+    col = names.index("target_date")
+    for i in range(meta.num_row_groups):
+        st = meta.row_group(i).column(col).statistics
+        if st is None or not st.has_min_max:
+            raise YearroundRefused(f"snapshot row group {i} has no target_date statistics; rewrite the layout")
+        if _stat_day(st.min) < first or _stat_day(st.max) > last:
+            raise YearroundRefused(f"snapshot row group {i} lies outside the batch window {first}..{last}; "
+                                   "slice the layout to the batch")
+    kind = pq.read_schema(path).field("target_date").type
+    lo, hi = (as_date(first), as_date(last)) if "date" in str(kind) else (first, last + "\uffff")
+    table = pq.read_table(path, columns=list(SNAPSHOT_COLUMNS),
+                          filters=[("target_date", ">=", lo), ("target_date", "<=", hi)])
+    return table.to_pandas()
 
 
 def check_window(first, last, receipt_window, today):
@@ -995,13 +1242,17 @@ def emit(*, state_path, state_sha, fit_manifest, fit_manifest_sha, forward_recei
         raise YearroundRefused("the state is not a shadow-only row28_B state")
     if _versions()["sklearn"] != manifest.get("sklearn_version"):
         raise YearroundRefused("the sklearn version differs from the fit's (the HGB pickle pin)")
-    snaps = read_snapshots(snapshots)
+    refuse_changed_helpers(prov.get("helper_source_sha256"))
+    snaps = read_snapshots(snapshots, first, last)
     days = snaps["target_date"].astype(str).str[:10]
     if len(days) and (days.min() < first.isoformat() or days.max() > last.isoformat()):
         raise YearroundRefused("a snapshot row lies outside the batch window; slice the layout to the batch")
     out = _new_dir(state_root() / CANDIDATE_ID / manifest["fit_id"] / "shadow" /
                    f"{first:%Y%m%d}_{last:%Y%m%d}")
-    rows, stats, used = shadow_rows(state, snaps, guard_path(replay_root), first, last, EMIT_MARKETS)
+    presence = {}
+    rows, stats, used = shadow_rows(state, snaps, guard_path(replay_root), first, last, EMIT_MARKETS,
+                                    presence=presence)
+    source_presence = refuse_absent_emit_sources(snaps, presence, first, last, EMIT_MARKETS)
     body = "".join(mods.p3.jsonl_line(m, sid, t, d) for m, sid, t, _, d in rows).encode("utf-8")
     (out / SHADOW_ROWS).write_bytes(body)
     shadow_sha = sha256_bytes(body)
@@ -1033,22 +1284,61 @@ def load_frozen_runner(path, sha):
 
 
 def frozen_records_list(path, sha):
-    """{records basename: payload_sha256} from the frozen path/sha list (columns path, sha256, payload_sha256)."""
+    """{records basename: payload_sha256} from one frozen path/sha list (columns path, sha256, payload_sha256).
+
+    Only ``records_*.pkl.gz`` rows are kept; a duplicate record name in the list refuses.
+    """
     text = _read_verified(path, sha, "frozen records list").decode("utf-8-sig")
+    reader = csv.DictReader(text.splitlines())
+    if reader.fieldnames is None or list(reader.fieldnames)[:3] != ["path", "sha256", "payload_sha256"]:
+        raise YearroundRefused(f"frozen records list {path} is not a path,sha256,payload_sha256 list")
     out = {}
-    for row in csv.DictReader(text.splitlines()):
+    for row in reader:
         name = Path(str(row["path"]).replace("\\", "/")).name
         if _RECORD_NAME.match(name):
+            if name in out:
+                raise YearroundRefused(f"frozen records list {path} names {name} twice")
             out[name] = str(row["payload_sha256"]).strip().lower()
     return out
 
 
+def frozen_records_lists(sources, expected=None):
+    """The union of several frozen lists, given as (path, pinned sha) pairs (master amended ruling 2, 2026-11-03).
+
+    Each list keeps only ``records_*.pkl.gz`` rows. A record named in two lists, or twice in one, refuses; so
+    does a union whose count differs from ``expected``.
+    """
+    if not sources:
+        raise YearroundRefused("no frozen records list was given")
+    union = {}
+    for entry in sources:
+        path, sha = (entry["path"], entry["sha256"]) if isinstance(entry, dict) else entry
+        if not _SHA_RE.fullmatch(str(sha)):
+            raise YearroundRefused(f"frozen records list {path} has no pinned sha256")
+        part = frozen_records_list(path, sha)
+        overlap = sorted(set(part) & set(union))
+        if overlap:
+            raise YearroundRefused(f"frozen records lists overlap on {len(overlap)} record(s): {overlap[:3]}")
+        union.update(part)
+    if expected is not None and len(union) != expected:
+        raise YearroundRefused(f"the frozen records union holds {len(union)} records, expected {expected}")
+    return union
+
+
+def frozen_records_union(cfg, prm):
+    """The config's ``frozen_records_lists`` union, required to hold every expected record window (24 x 11)."""
+    return frozen_records_lists(cfg.get("frozen_records_lists"),
+                                expected=len(record_centres(prm)) * len(record_markets(prm)))
+
+
 def compare_records(ours, frozen):
+    """Exact equality with the frozen list (ruling 3): a record missing on EITHER side fails, as does any differ."""
     listed = sorted(set(ours) & set(frozen))
     differ = [n for n in listed if ours[n] != frozen[n]]
-    return {"compared": len(listed), "equal": len(listed) - len(differ), "differ": len(differ),
-            "frozen_not_built": len(set(frozen) - set(ours)), "built_not_listed": len(set(ours) - set(frozen)),
-            "pass": not differ and not (set(frozen) - set(ours))}
+    out = {"compared": len(listed), "equal": len(listed) - len(differ), "differ": len(differ),
+           "frozen_not_built": len(set(frozen) - set(ours)), "built_not_listed": len(set(ours) - set(frozen))}
+    out["pass"] = bool(listed) and not differ and not out["frozen_not_built"] and not out["built_not_listed"]
+    return out
 
 
 def reference_frame(ref, ctx, mods, files, nbm_new_rows, cfg):
@@ -1131,13 +1421,16 @@ def synthetic_serve_rows(markets=None, hours=None):
 
 
 def _serve_compare(p3, state_a, state_b, rows):
-    worst, mismatch = 0.0, 0
+    worst, mismatch, compared = 0.0, 0, 0
     for r in rows:
         a = p3.serve_distribution(state_a, **r)
         b = p3.serve_distribution(state_b, **r)
+        if a is None or b is None:
+            mismatch += 1
+            continue
         d, m = _dist_diff(a, b)
-        worst, mismatch = max(worst, d), mismatch + int(m)
-    return worst, mismatch
+        worst, mismatch, compared = max(worst, d), mismatch + int(m), compared + 1
+    return worst, mismatch, compared
 
 
 def _forward_trainer_compare(mods, state, fits_ref, buckets_ref, rows):
@@ -1145,7 +1438,7 @@ def _forward_trainer_compare(mods, state, fits_ref, buckets_ref, rows):
     import pandas as pd
 
     p3, prm = mods.p3, mods.prm
-    worst = 0.0
+    worst, compared = 0.0, 0
     for r in rows:
         served = p3.serve_distribution(state, **r)
         hs = p3.convert_observation(r["high_so_far"], state)
@@ -1163,7 +1456,8 @@ def _forward_trainer_compare(mods, state, fits_ref, buckets_ref, rows):
         entry = fits_ref[(r["hour"], None)]
         ((_, _, _), _, _, dist), = trainer_predict(mods, entry["fit"], entry["train_y"], buckets_ref, part)
         worst = max(worst, _dist_diff(served, dist)[0])
-    return worst
+        compared += 1
+    return worst, compared
 
 
 def read_frozen_rows(path, sha):
@@ -1204,16 +1498,15 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
     # (a) build
     files, records_manifest = build_records(cfg, prm, records)
     ours = {n: e["payload_sha256"] for n, e in records_manifest["files"].items()}
-    rec = compare_records(ours, frozen_records_list(cfg["frozen_records_list"], cfg["frozen_records_list_sha256"]))
+    rec = compare_records(ours, frozen_records_union(cfg, prm))
     report["records"] = rec
     passes.append(("records", rec["pass"]))
     frame, payload_buckets, build_report = training_frame(cfg, mods, files, out / "work_nbm")
     new_rows = out / "work_nbm" / "new" / "nbm_pit_corpus_rows.jsonl"
     want = cfg.get("frozen_new_nbm_rows_sha256")
-    report["new_nbm_rows"] = {"sha256": build_report["new_nbm_rows_sha256"],
-                              "equal_to_frozen": None if not want else build_report["new_nbm_rows_sha256"] == want}
-    if want:
-        passes.append(("new_nbm_rows", report["new_nbm_rows"]["equal_to_frozen"]))
+    report["new_nbm_rows"] = {"sha256": build_report["new_nbm_rows_sha256"], "frozen_sha256_given": bool(want),
+                              "equal_to_frozen": bool(want) and build_report["new_nbm_rows_sha256"] == want}
+    passes.append(("new_nbm_rows", report["new_nbm_rows"]["equal_to_frozen"]))  # ruling 3: absent FAILS
     ref_frame, ref_noy, _ = reference_frame(ref, ctx, mods, files, new_rows, cfg)
     our_noy, _ = market_frame(prm, files, with_labels=False)
     our_noy = our_noy[our_noy["target_date"].astype(str) <= LAST_TRAIN.isoformat()].reset_index(drop=True)
@@ -1263,13 +1556,17 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
                                              season_of=season_map(prm, centres[arm]),
                                              coords=prm.station_coordinates(prm.R0_MARKETS), fit_kind=FIT_KIND,
                                              provenance={"equivalence": True})
-                c = {"arm": arm, "fold": fold, "hour": hour, "rows": len(mine), "max_abs_yhat": 0.0,
+                feb29 = int(val["target_date"].astype(str).str[5:10].eq("02-29").sum())
+                c = {"arm": arm, "fold": fold, "hour": hour, "mode": mode, "rows": len(mine),
+                     "expected_rows": int(len(val)), "rows_reference": len(theirs), "trainer_compared": 0,
+                     "expected_serve": int(len(val)) - feb29, "serve_compared": 0, "max_abs_yhat": 0.0,
                      "max_abs_s": 0.0, "max_abs_dist": 0.0, "max_abs_serve": 0.0, "bucket_set_mismatch": 0,
                      "feb29_serve_skipped": 0, "per_row_compared": 0, "max_abs_per_row_yhat": 0.0,
                      "max_abs_per_row_s": 0.0}
                 if [k for k, *_ in mine] != [k for k, *_ in theirs]:
                     c["row_keys_differ"] = True
                 for (key, yh, s, dist), (_, yh_r, s_r, dist_r) in zip(mine, theirs):
+                    c["trainer_compared"] += 1
                     c["max_abs_yhat"] = max(c["max_abs_yhat"], abs(yh - yh_r))
                     c["max_abs_s"] = max(c["max_abs_s"], abs(s - s_r))
                     d, m = _dist_diff(dist, dist_r)
@@ -1283,6 +1580,7 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
                                                        nbm_mean=float(row["fh"]), high_so_far=float(row["F"]),
                                                        current_temp=float(row["x_current_temp"]))
                         c["max_abs_serve"] = max(c["max_abs_serve"], _dist_diff(served, dist_r)[0])
+                        c["serve_compared"] += 1
                     frozen = per_row.get((fold, h, market, day))
                     if frozen and frozen.get(f"{arm}_yhat") not in (None, ""):
                         c["per_row_compared"] += 1
@@ -1290,11 +1588,17 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
                                                         abs(yh - float(frozen[f"{arm}_yhat"])))
                         if frozen.get(f"{arm}_s") not in (None, ""):
                             c["max_abs_per_row_s"] = max(c["max_abs_per_row_s"], abs(s - float(frozen[f"{arm}_s"])))
-                c["pass"] = (not c.get("row_keys_differ") and c["bucket_set_mismatch"] == 0
+                # every compare covers ALL rows against counts fixed before comparing; none passes with 0
+                c["coverage_complete"] = (c["expected_rows"] > 0 and c["rows"] == c["rows_reference"]
+                                          == c["trainer_compared"] == c["expected_rows"]
+                                          and c["feb29_serve_skipped"] == feb29
+                                          and c["serve_compared"] == c["expected_serve"] > 0)
+                c["pass"] = (c["coverage_complete"] and not c.get("row_keys_differ") and c["bucket_set_mismatch"] == 0
                              and max(c["max_abs_yhat"], c["max_abs_s"], c["max_abs_dist"], c["max_abs_serve"])
                              <= TOLERANCE)
                 if mode == "per_row":
-                    c["pass"] = c["pass"] and max(c["max_abs_per_row_yhat"], c["max_abs_per_row_s"]) <= TOLERANCE
+                    c["pass"] = (c["pass"] and c["per_row_compared"] == c["rows"]
+                                 and max(c["max_abs_per_row_yhat"], c["max_abs_per_row_s"]) <= TOLERANCE)
                 for k in ("max_abs_yhat", "max_abs_s", "max_abs_dist", "max_abs_serve"):
                     worst_ref[k] = max(worst_ref[k], c[k])
                 fits_out.append(c)
@@ -1306,6 +1610,8 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
     report["row_sets"] = sets
     report["fits"] = fits_out
     report["max_abs"] = dict(worst_ref)
+    if mode == "state_sha" and "forward" not in report:
+        passes.append(("forward", False))  # STATE-SHA mode cannot pass without its forward state compare
     report["failed_checks"] = [name for name, ok in passes if not ok]
     report["pass"] = bool(passes) and not report["failed_checks"]
     report["status"] = "PASS" if report["pass"] else "FAIL"
@@ -1330,18 +1636,23 @@ def _forward_equivalence(mods, cfg, out, arm, centres, frame, hour_fits, hour_bu
     sha_m = sha256_bytes(pickle.dumps(state_m, protocol=4))
     sha_r = sha256_bytes(pickle.dumps(state_r, protocol=4))
     rows = synthetic_serve_rows(markets=[m for m in EMIT_MARKETS if m in state_m["markets"]])
-    serve_max, serve_mismatch = _serve_compare(p3, state_m, state_r, rows)
+    expected = len(rows)  # fixed before any compare (ruling 4 per mode: counts asserted, none passes with 0)
+    serve_max, serve_mismatch, serve_n = _serve_compare(p3, state_m, state_r, rows)
     sha_written = p3.write_state(state_m, out / "forward_state")
     loaded = p3.load_state(out / "forward_state" / p3.STATE_FILE, sha_written, forward=True)
-    rt_max, rt_mismatch = _serve_compare(p3, state_m, loaded, rows)
-    trainer_max = _forward_trainer_compare(mods, loaded, {(h, None): hour_fits[h][1] for h in SCORED_HOURS}, b[1],
-                                           rows)
+    rt_max, rt_mismatch, rt_n = _serve_compare(p3, state_m, loaded, rows)
+    trainer_fits = {(h, None): hour_fits[h][1] for h in SCORED_HOURS}
+    trainer_max, trainer_n = _forward_trainer_compare(mods, loaded, trainer_fits, b[1], rows)
     result = {"state_sha256_module": sha_m, "state_sha256_reference": sha_r, "state_sha_equal": sha_m == sha_r,
               "serve_rows": len(rows), "max_abs_serve": serve_max, "serve_bucket_mismatch": serve_mismatch,
               "round_trip_sha_equal": sha_written == sha_m, "max_abs_round_trip": rt_max,
-              "round_trip_bucket_mismatch": rt_mismatch, "max_abs_trainer": trainer_max}
-    result["pass"] = (result["state_sha_equal"] and result["round_trip_sha_equal"] and serve_mismatch == 0
-                      and rt_mismatch == 0 and max(serve_max, rt_max, trainer_max) <= TOLERANCE)
+              "round_trip_bucket_mismatch": rt_mismatch, "max_abs_trainer": trainer_max,
+              "expected_rows": expected, "serve_compared": serve_n, "round_trip_compared": rt_n,
+              "trainer_compared": trainer_n}
+    result["coverage_complete"] = expected > 0 and serve_n == rt_n == trainer_n == expected
+    result["pass"] = (result["coverage_complete"] and result["state_sha_equal"] and result["round_trip_sha_equal"]
+                      and serve_mismatch == 0 and rt_mismatch == 0
+                      and max(serve_max, rt_max, trainer_max) <= TOLERANCE)
     return result
 
 

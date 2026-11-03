@@ -14,6 +14,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import pickle
 import re
 import sys
@@ -113,6 +114,9 @@ def world(tmp_path, monkeypatch):
 
     monkeypatch.setattr(prm, "covered_years", covered_years)
     monkeypatch.setattr(prm, "extract_market", extract_market)
+    real_sets = yr.centre_sets  # the synthetic world builds only its own record windows (ruling 1 refuses gaps)
+    monkeypatch.setattr(yr, "record_centres", lambda prm_: tuple(c for c in real_sets(prm_)["A"] if c in CENTRES))
+    monkeypatch.setattr(yr, "record_markets", lambda prm_: MARKETS)
     # NBM: an L9-format corpus with a 07Z mean for every (market, date) but one; the new-rows build is empty.
     rows = []
     for market in MARKETS:
@@ -165,8 +169,8 @@ def world(tmp_path, monkeypatch):
 
 def _frame(world, tmp_path):
     mods = yr._modules()
-    files, _ = yr.build_records(world(), mods.prm, world.root())
     n = len(list((tmp_path / "data").glob("yearround_refit/t/nbm*")))
+    files, _ = yr.build_records(world(), mods.prm, world.root(f"records{n}"))  # a fresh root: a reuse needs lists
     frame, payload_buckets, report = yr.training_frame(world(), mods, files, yr.state_root() / "t" / f"nbm{n}")
     return mods, frame, payload_buckets, report
 
@@ -397,7 +401,8 @@ def _replay_world(root, days, tz):
 def b_state(world, tmp_path):
     mods, frame, payload_buckets, _ = _frame(world, tmp_path)
     state, _ = yr.arm_state(mods, frame, payload_buckets, "B", 2026, hours=(13,),
-                            provenance={"candidate": yr.CANDIDATE_ID, "shadow_only": True})
+                            provenance={"candidate": yr.CANDIDATE_ID, "shadow_only": True,
+                                        "helper_source_sha256": yr.helper_source_shas()})
     return state
 
 
@@ -477,7 +482,8 @@ def _emit_inputs(tmp_path, state):
     return out, sha, msha, _sha(tmp_path / "receipt.json")
 
 
-def test_emit_end_to_end_prints_both_shas_and_refuses_a_rerun(b_state, tmp_path):
+def test_emit_end_to_end_prints_both_shas_and_refuses_a_rerun(b_state, tmp_path, monkeypatch):
+    monkeypatch.setattr(yr, "EMIT_MARKETS", ("atlanta",))  # the synthetic replay world captures atlanta only
     tz = ZoneInfo("America/New_York")
     days = [date(2026, 12, 21), date(2026, 12, 22)]
     snaps = _replay_world(tmp_path / "replay", days, tz)
@@ -494,7 +500,8 @@ def test_emit_end_to_end_prints_both_shas_and_refuses_a_rerun(b_state, tmp_path)
     receipt = json.loads((batch / yr.EMIT_RECEIPT).read_text(encoding="utf-8"))
     assert receipt["shadow_rows_sha256"] == result["shadow_rows_sha256"] and receipt["inputs"] == "as_of_capture"
     assert len(receipt["replay_sha256"]) == 2 and receipt["state_sha256"] == sha
-    rows, _, _ = yr.shadow_rows(b_state, yr.read_snapshots(tmp_path / "snaps.parquet"), tmp_path / "replay",
+    rows, _, _ = yr.shadow_rows(b_state, yr.read_snapshots(tmp_path / "snaps.parquet", days[0], days[1]),
+                                tmp_path / "replay",
                                 days[0], days[1], yr.EMIT_MARKETS)
     body = "".join(p3.jsonl_line(m, s, t, d) for m, s, t, _, d in rows).encode()
     assert hashlib.sha256(body).hexdigest() == result["shadow_rows_sha256"]  # re-emission is byte-identical
@@ -569,7 +576,8 @@ def _runner(tmp_path, drop=False):
 def _frozen_list(tmp_path, world, alter=False):
     """The frozen side's path/sha list (built once from a separate records root of the same synthetic world)."""
     mods = yr._modules()
-    yr.build_records(world(), mods.prm, world.root("records_frozen"))
+    if not (tmp_path / "records_frozen" / yr.RECORDS_MANIFEST).is_file():  # a reuse would need the frozen lists
+        yr.build_records(world(), mods.prm, world.root("records_frozen"))
     manifest = json.loads((tmp_path / "records_frozen" / yr.RECORDS_MANIFEST).read_text(encoding="utf-8"))
     lines = ["path,sha256,payload_sha256"]
     for i, (name, entry) in enumerate(sorted(manifest["files"].items())):
@@ -582,7 +590,11 @@ def _frozen_list(tmp_path, world, alter=False):
 
 
 def _run_equivalence(tmp_path, world, *, records, runner, walk, minute, **kw):
-    cfg = world() | {"frozen_records_list": str(walk[0]), "frozen_records_list_sha256": walk[1]}
+    cfg = world() | {"frozen_records_lists": [[str(walk[0]), walk[1]]],
+                     "frozen_new_nbm_rows_sha256": hashlib.sha256(b"").hexdigest()}  # the world's empty new rows
+    cfg = cfg | kw.pop("cfg_extra", {})
+    for key in kw.pop("cfg_drop", ()):
+        cfg.pop(key)
     result = yr.equivalence(cfg, records_root=world.root(records), frozen_runner=runner[0], frozen_runner_sha=runner[1],
                             now=datetime(2026, 11, 3, 12, minute, tzinfo=timezone.utc), **kw)
     report = json.loads((Path(result["out_dir"]) / yr.EQUIVALENCE_REPORT).read_text(encoding="utf-8"))
@@ -599,6 +611,11 @@ def test_equivalence_passes_on_identical_inputs_and_holds_no_value(world, tmp_pa
     assert report["forward"]["state_sha_equal"] and report["forward"]["round_trip_sha_equal"]
     assert {(e["arm"], e["fold"]) for e in report["row_sets"]} == {("A", 2023), ("B", 2023), ("B", 2026)}
     assert all(c["rows"] > 0 and c["max_abs_serve"] <= 1e-12 for c in report["fits"])
+    assert report["mode"] == "state_sha" and report["new_nbm_rows"]["equal_to_frozen"]
+    assert report["records"]["built_not_listed"] == 0 and report["records"]["frozen_not_built"] == 0
+    assert all(c["coverage_complete"] and c["trainer_compared"] == c["expected_rows"] > 0
+               and c["serve_compared"] == c["expected_serve"] > 0 for c in report["fits"])
+    assert report["forward"]["coverage_complete"] and report["forward"]["serve_compared"] > 0
 
     def walk_values(obj, path=""):
         if isinstance(obj, dict):
@@ -753,3 +770,190 @@ def test_cli_has_no_live_path():
     for flag in ("--live", "--execute", "--place", "--cancel", "--promote=1"):
         with pytest.raises(SystemExit, match="no live"):
             yr.main(["emit", flag])
+
+
+# ----------------------------------------------------------------------------- review fixes (master 2026-11-03)
+
+def test_equivalence_fails_without_the_frozen_new_nbm_sha_or_when_coverage_is_incomplete(world, tmp_path,
+                                                                                          monkeypatch):
+    walk = _frozen_list(tmp_path, world)
+    _, report = _run_equivalence(tmp_path, world, records="rec_nn", runner=_runner(tmp_path), walk=walk, minute=6,
+                                 cfg_drop=("frozen_new_nbm_rows_sha256",))
+    assert report["status"] == "FAIL" and report["failed_checks"] == ["new_nbm_rows"]
+    monkeypatch.setattr(yr, "synthetic_serve_rows", lambda **kw: [])  # nothing compared may never pass
+    _, report = _run_equivalence(tmp_path, world, records="rec_zero", runner=_runner(tmp_path), walk=walk, minute=7)
+    assert report["status"] == "FAIL" and report["failed_checks"] == ["forward"]
+    assert not report["forward"]["coverage_complete"] and report["forward"]["expected_rows"] == 0
+
+
+def test_per_row_mode_fails_unless_every_row_is_compared(world, tmp_path):
+    rows = tmp_path / "rows.csv"
+    rows.write_text("fold,hour,market,date,A_yhat\n", encoding="utf-8")
+    _, report = _run_equivalence(tmp_path, world, records="rec_pr", runner=_runner(tmp_path),
+                                 walk=_frozen_list(tmp_path, world), minute=8, mode="per_row", frozen_rows=rows,
+                                 frozen_rows_sha=_sha(rows))
+    assert report["status"] == "FAIL" and report["mode"] == "per_row"
+    assert all(c["per_row_compared"] == 0 < c["rows"] and not c["pass"] for c in report["fits"])
+
+
+def test_frozen_lists_union_refuses_overlap_duplicates_and_a_wrong_count(tmp_path):
+    def write(name, records):
+        path = tmp_path / name
+        path.write_text("path,sha256,payload_sha256\n" + "".join(
+            f"C:\\r\\records_{m}_{c}.pkl.gz,{'1' * 64},{'2' * 64}\n" for m, c in records)
+            + f"C:\\r\\walk.json,{'3' * 64},\n", encoding="utf-8")
+        return [str(path), _sha(path)]
+
+    a = write("a.csv", [("atlanta", "2026-01-08"), ("denver", "2026-01-08")])
+    b = write("b.csv", [("atlanta", "2026-02-22")])
+    assert len(yr.frozen_records_lists([a, b], expected=3)) == 3
+    with pytest.raises(yr.YearroundRefused, match="expected 4"):
+        yr.frozen_records_lists([a, b], expected=4)
+    with pytest.raises(yr.YearroundRefused, match="overlap"):
+        yr.frozen_records_lists([a, write("c.csv", [("denver", "2026-01-08")])])
+    with pytest.raises(yr.YearroundRefused, match="twice"):
+        yr.frozen_records_lists([write("d.csv", [("atlanta", "2026-01-08")] * 2)])
+    with pytest.raises(yr.YearroundRefused, match="pinned sha256"):
+        yr.frozen_records_lists([[a[0], "abc"]])
+    with pytest.raises(yr.YearroundRefused, match="no frozen"):
+        yr.frozen_records_lists([])
+
+
+def test_build_records_refuses_fail_closed_extracts_and_skipped_centres(world, tmp_path, monkeypatch):
+    from weather.sources.forecast_training_corpus import CorpusVerificationError
+
+    real = prm.extract_market
+
+    def flaky(market, centre, manifests, out_root, training_years=None):
+        if (market, centre) == ("denver", "2026-02-22"):
+            raise CorpusVerificationError("synthetic fail-closed extract")
+        return real(market, centre, manifests, out_root, training_years=training_years)
+
+    monkeypatch.setattr(prm, "extract_market", flaky)
+    with pytest.raises(yr.YearroundRefused, match="failed closed or were skipped: denver 2026-02-22"):
+        yr.build_records(world(), yr._modules().prm, world.root("rec_fc"))
+    with pytest.raises(yr.YearroundRefused, match="failed closed"):  # the evidence manifest refuses on reuse too
+        yr.build_records(world(), yr._modules().prm, world.root("rec_fc"))
+    monkeypatch.setattr(prm, "extract_market", real)
+    monkeypatch.setattr(prm, "covered_years", lambda centre, manifests: [] if centre == "2026-05-23" else list(YEARS))
+    with pytest.raises(yr.YearroundRefused, match="no covered year"):
+        yr.build_records(world(), yr._modules().prm, world.root("rec_nc"))
+
+
+def test_a_reused_records_root_needs_this_module_sha_the_full_set_and_the_frozen_lists(world, tmp_path):
+    mods = yr._modules()
+    walk = _frozen_list(tmp_path, world)  # builds records_frozen
+    with pytest.raises(yr.YearroundRefused, match="frozen records lists"):
+        yr.build_records(world(), mods.prm, world.root("records_frozen"))
+    cfg = world() | {"frozen_records_lists": [[str(walk[0]), walk[1]]]}
+    files, _ = yr.build_records(cfg, mods.prm, world.root("records_frozen"))
+    assert len(files) == len(MARKETS) * len(CENTRES)
+    altered = _frozen_list(tmp_path, world, alter=True)
+    with pytest.raises(yr.YearroundRefused, match="differ from the frozen"):
+        yr.build_records(world() | {"frozen_records_lists": [[str(altered[0]), altered[1]]]}, mods.prm,
+                         world.root("records_frozen"))
+    manifest_path = tmp_path / "records_frozen" / yr.RECORDS_MANIFEST
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_path.write_text(json.dumps(manifest | {"module_source_sha256": "0" * 64}), encoding="utf-8")
+    with pytest.raises(yr.YearroundRefused, match="different module source"):
+        yr.build_records(cfg, mods.prm, world.root("records_frozen"))
+
+
+def test_records_root_refuses_a_checkout_data_folder_and_any_reparse_point(tmp_path):
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    with pytest.raises(yr.YearroundRefused, match="checkout's data"):
+        yr.check_records_root(checkout / "data" / "training" / "records")
+    assert yr.check_records_root(tmp_path / "plain" / "records") == (tmp_path / "plain" / "records").resolve()
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+    try:
+        with pytest.raises(yr.YearroundRefused, match="reparse point"):
+            yr.check_records_root(link / "records")
+        with pytest.raises(yr.YearroundRefused, match="reparse point"):
+            yr.records_root_arg(str(link / "records"), {})
+    finally:
+        os.rmdir(link) if os.name == "nt" else link.unlink()  # the link itself, never its target
+    assert target.is_dir()
+
+
+def test_read_snapshots_refuses_by_row_group_statistics_and_filters_the_batch(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    tz = ZoneInfo("America/New_York")
+    snaps = _replay_world(tmp_path / "replay", [date(2026, 12, 21), date(2026, 12, 22)], tz)
+    path = tmp_path / "snaps.parquet"
+    pq.write_table(pa.Table.from_pandas(snaps, preserve_index=False), path, row_group_size=4)
+    assert pq.ParquetFile(path).metadata.num_row_groups == 2
+    assert len(yr.read_snapshots(path, "2026-12-21", "2026-12-22")) == len(snaps)
+    with pytest.raises(yr.YearroundRefused, match="row group 1 lies outside the batch"):
+        yr.read_snapshots(path, "2026-12-21", "2026-12-21")
+    pq.write_table(pa.Table.from_pandas(snaps, preserve_index=False), path, write_statistics=False)
+    with pytest.raises(yr.YearroundRefused, match="no target_date statistics"):
+        yr.read_snapshots(path, "2026-12-21", "2026-12-22")
+
+
+def test_emit_refuses_when_a_serve_helper_source_changed_since_the_fit(b_state, tmp_path, monkeypatch):
+    monkeypatch.setattr(yr, "EMIT_MARKETS", ("atlanta",))
+    tz = ZoneInfo("America/New_York")
+    snaps = _replay_world(tmp_path / "replay", [date(2026, 12, 21)], tz)
+    snaps.to_parquet(tmp_path / "snaps.parquet")
+    recorded = dict(b_state["provenance"]["helper_source_sha256"])
+    assert set(recorded) == {f"{m}.{n}" for m, n in yr.SERVE_HELPERS} and len(recorded) == 7
+    stale = dict(b_state, provenance=dict(b_state["provenance"], helper_source_sha256=recorded
+                                          | {"weather.calibration.mg2_p3d_n.serve_distribution": "0" * 64}))
+    out, sha, msha, rsha = _emit_inputs(tmp_path, stale)
+    kw = dict(state_path=out / p3.STATE_FILE, state_sha=sha, fit_manifest=out / yr.FIT_MANIFEST,
+              fit_manifest_sha=msha, forward_receipt=tmp_path / "receipt.json", forward_receipt_sha=rsha,
+              snapshots=tmp_path / "snaps.parquet", replay_root=tmp_path / "replay", first="2026-12-21",
+              last="2026-12-21", today=date(2026, 12, 28))
+    with pytest.raises(yr.YearroundRefused, match="serve_distribution"):
+        yr.emit(**kw)
+    with pytest.raises(yr.YearroundRefused, match="no complete helper_source_sha256"):
+        yr.refuse_changed_helpers(None)
+    yr.refuse_changed_helpers(yr.helper_source_shas())
+
+
+def test_fit_refuses_by_name_a_training_source_absent_for_a_market_date():
+    nan = float("nan")
+    rows = [{"market": m, "target_date": d, "hour": 13, "F": 60.0, "x_high_so_far": 60.0, "x_current_temp": 58.0,
+             "fh": 62.0} for m in ("atlanta", "denver") for d in ("2023-01-05", "2023-01-06")]
+    frame = pd.DataFrame(rows)
+    assert yr.refuse_absent_training_sources(frame, "B")["wu_hourly_market_dates"] == 4
+    gap = frame.copy()
+    wu_cols = ["F", "x_high_so_far", "x_current_temp"]
+    gap.loc[(gap.market == "denver") & (gap.target_date == "2023-01-06"), wu_cols] = nan
+    with pytest.raises(yr.SourceAbsent, match="'wu_hourly' is absent or empty for 1 .*denver 2023-01-06"):
+        yr.refuse_absent_training_sources(gap, "B")
+    no_nbm = frame.copy()
+    no_nbm.loc[no_nbm.target_date == "2023-01-05", "fh"] = nan
+    with pytest.raises(yr.SourceAbsent, match="'nbm' is absent or empty .*all markets 2023-01-05"):
+        yr.refuse_absent_training_sources(no_nbm, "B")
+    one_market = frame.copy()
+    one_market.loc[(one_market.market == "atlanta") & (one_market.target_date == "2023-01-05"), "fh"] = nan
+    yr.refuse_absent_training_sources(one_market, "B")  # a per-market NBM gap stays the capped 3.3b imputation
+
+
+def test_emit_refuses_by_name_a_captured_source_absent_for_a_market_date(tmp_path):
+    snaps = pd.DataFrame({"market": ["atlanta", "atlanta"], "target_date": ["2026-12-21", "2026-12-22"]})
+    full = {("atlanta", "2026-12-21"): {"gated": 2, "nbm": 2, "replay_folder": True, "observation": 2},
+            ("atlanta", "2026-12-22"): {"gated": 1, "nbm": 1, "replay_folder": True, "observation": 1}}
+    first, last = date(2026, 12, 21), date(2026, 12, 22)
+    assert yr.refuse_absent_emit_sources(snaps, full, first, last, ["atlanta"])["market_dates"] == 2
+    with pytest.raises(yr.SourceAbsent, match="'captured_snapshots' .*denver 2026-12-21"):
+        yr.refuse_absent_emit_sources(snaps, full, first, last, ["atlanta", "denver"])
+    cases = (("replay_folder", False, "captured_metar_replay"), ("nbm", 0, "captured_nbm"),
+             ("observation", 0, "captured_metar_replay"))
+    for field, value, source in cases:
+        broken = dict(full)
+        broken[("atlanta", "2026-12-22")] = dict(full[("atlanta", "2026-12-22")], **{field: value})
+        with pytest.raises(yr.SourceAbsent, match=f"'{source}' .*atlanta 2026-12-22"):
+            yr.refuse_absent_emit_sources(snaps, broken, first, last, ["atlanta"])
