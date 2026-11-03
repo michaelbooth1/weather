@@ -20,7 +20,7 @@ Why this matters: the wrapper admits a weather-heavy job only when its module is
 "weather-heavy workload must be an offline training/replay module" (`:146`) for any other module, and for a
 `--live`, `execute`, `place`, `cancel` or `promote` argument. The list lives in
 `scripts/ops/workload_admission.ps1:611-667`, next to the B-look argument refusal (`:696`) and the command-line
-test (`:898`). The one-minute guard parses that file on every tick and uses the list to classify processes
+test (`:898`); after item 17 (combo B), the S4U memory-commit guard parses this file every tick; workstation_pregate.ps1:82 and the wrapper dot-source it. The list classifies processes
 (`:1176-1177`), so a parse error or a wrong entry there affects every guard tick, not only this lever. Each
 one-off launcher is another reviewed script outside the shared admission path.
 
@@ -66,6 +66,17 @@ Checklist:
 - [ ] `README.md` and the owning runbook for the new command in the same change.
 - **Trigger (master 2026-11-03):** a second approved year-round lever, OR the next row-28 stage that needs the
   wrapper. Until then nothing in 343b is built.
+
+Evidence (343a):
+
+- Guard parse at `c8e9b611d` (WS, read-only): `Parser::ParseFile` reports 0 errors on `workload_admission.ps1`,
+  `workstation_heavy.ps1`, `memory_commit_guard.ps1` and `workstation_pregate.ps1`; 51 modules listed, the scorer
+  once, nothing named yearround; the scorer is classified offline and its `_x` sibling and `yearround_refit` are not.
+- Master's combo-tip expectation: after B and A', the module count becomes 52 (A' adds
+  `weather.calibration.b_drop_list`), with the scorer listed once and nothing named yearround. Master re-runs the
+  guard parse at the combo tip on the host with B's `memory_commit_guard.ps1`.
+- WS exact-tip suite: recorded in the combo's report (26 chunks of at most 25 files through
+  `workstation_heavy.ps1 -Queue`).
 
 Acceptance:
 
