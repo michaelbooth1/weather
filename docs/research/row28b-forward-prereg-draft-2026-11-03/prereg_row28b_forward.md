@@ -1,5 +1,10 @@
 # Row 28b — forward test of row-28 candidate B (season-matched P3d_N refit), DRAFT prereg
 
+**This prereg's verdict is B − S and claims MODEL IMPROVEMENT ONLY** (master ruling on Q1, 2026-11-03). Under
+MODEL_IMPROVEMENT_METHOD §5 rule 4 (MIM:160-161), "A dev win against served or MG-1 is not edge progress", and a
+candidate earns a market test only if its walk-forward w beats the placebo and the floor-only control. A PASS here
+is not an edge claim and not an adoption.
+
 Status: **DRAFT, NOT FROZEN.** Nothing in this file binds. Master reviews it; it freezes only after the owner OKs
 row-28 prereg §9 item 3 (a named forward embargo line starting 12-17), and a freeze commit records its sha256.
 Drafted by lane L59 on the WS (non-capture) on 2026-11-03 from origin/master `621d67f0f`, outcome-blind for the
@@ -9,10 +14,22 @@ opened. The only numbers used are row 28's frozen history results (branch
 `32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b` @ `741174e5f`) and the post-hoc D2 diagnostic
 (`claude/row28-posthoc-diag-20261103` @ `2a9cfcdf6`), used for sizing only.
 
-**Master rulings on the first draft (2026-11-03), applied here.** Q2 ACCEPTED (the 1.5× planning bound, rule 19).
-Q3: the futility looks are dropped for one single look (§6). Q4 ACCEPTED (forward = NBM v5.0, disclosed). Q5
-ACCEPTED (venue-rule labels through the R24 frozen copy, mismatch with WU history disclosed). Q1, Q6, Q7 and Q8
-stay open. Still DRAFT, NOT FROZEN.
+**Master rulings (2026-11-03), applied here; all of Q1-Q9 are answered.**
+
+- Q1 ANSWERED, (c) two stages: the verdict here is B − S, model improvement only. The rule-4 w step is its own
+  later prereg (§7a).
+- Q2 ACCEPTED: the 1.5× planning bound (rule 19).
+- Q3 SUPERSEDED by Q9.
+- Q4 ACCEPTED: forward = NBM v5.0, disclosed.
+- Q5 ACCEPTED: venue-rule labels through the R24 frozen copy; the mismatch with WU history is disclosed.
+- Q6 ANSWERED, (a): MG-2's fallback log from the WS daily pull, counts and sha only (§4).
+- Q7 ANSWERED, (c): a master ruling, recorded verbatim in (c).
+- Q8 ANSWERED, (a): ledger rows are a pre-D0 requirement (§1a).
+- Q9 ANSWERED, (a): the Rule B looks are restored and applied in date order at the single read, with the 4-7% MDE
+  inflation. No checker change and no rule change. Master's note: MIM rule 7 already covers this case ("A look
+  reads a date only when rule 9 allows it").
+- Archive path `C:\archive\row28b-forward-state\<fit_id>\` and equivalence (c) in STATE-SHA mode: OK (master).
+- Still DRAFT, NOT FROZEN until the owner OKs the 12-17 embargo line.
 
 **Re-test from zero.** Row 28 prereg §8.3: "The forward test re-tests the candidate from zero, and the history point
 is not carried as evidence." The history point (B − S −0.1368) sizes this test; it never enters its verdict.
@@ -41,12 +58,17 @@ is not carried as evidence." The history point (B − S −0.1368) sizes this te
   DEV_WINDOW_LEDGER and the reserved window at freeze):** PT-1 (12-12..01-25), F8-MH (D0 11-02, look 01-26), row 72
   R-ODC P1 (D0 10-31), MG-1 forward shadow (NBM-derived reads only), MG-2 / Rule B-1 (45th date 12-12), T+1 (not yet
   frozen), L6_G. A claim whose scope cannot be shown not to intersect is treated as intersecting.
-- **One look (master ruling on Q3).** The test has a single look, taken after the 45th deciding date (01-30 if
+- **Single read (master ruling on Q9).** All reads happen at one read, taken after the 45th deciding date (01-30 if
   none drops) is final, that is after its venue-rule label is in the R24 frozen copy. **Earliest read date:
-  2027-01-31**, and only once PT-1 and F8-MH (01-26) and every other earlier-frozen claimant have looked; the
-  actual read date is recorded in the look receipt.
-- **No fail-fast in calendar time.** Every forward read waits for the earlier-frozen claimants' 01-26 looks, so an
-  interim look could not be read earlier than the final one; futility looks would save no calendar time.
+  2027-01-31**, and only once PT-1, F8-MH (01-26) and every other earlier-frozen claimant have looked. The actual
+  read date is recorded in the look receipt. At that read, the Rule B looks of (g) are applied in date order
+  (k = 7, 14, 21, 31) before the final test; a look reads a date only when rule 9 allows it (MIM §5 rule 7).
+- **No early stop in calendar time.** Every forward read waits for the earlier-frozen claimants' 01-26 looks, so
+  the looks give no early stop in calendar time. A HARM or FUTILE stop is still final for this prereg.
+
+1a. **Pre-D0 requirement (master ruling on Q8).** A DEV_WINDOW_LEDGER K row for B on forward dates, as the freeze
+branch's first commit and before D0 (as F8-MH did, ledger row 104), plus a C row if a control stage is kept, each
+with verdict pending. No ledger row is added while this file is a draft.
 
 ## 2. Candidate and comparator
 
@@ -80,38 +102,41 @@ interval (blocks of 3 consecutive dates) is reported beside the date-clustered o
 - S dual-implementation check (1e-12), as §2.
 - B state and training manifest shas equal the freeze commit.
 - Input-availability check: every scored row's NBM inputs were available by the row's cutoff (PIT rule).
-- A parity control comparing the built S inputs with the captured MG-2 C5 fallback rows where both exist (Q6).
+- **Parity control (master ruling on Q6, option (a)).** The built S inputs are compared with MG-2's own C5
+  fallback log (`mg2_post_coverage_fallback.jsonl`) from the WS daily pull, counts and sha only. This needs an
+  outcome-blind check first that the pull runs past 12-17. If it does not, option (b) applies: a host bounded extract,
+  counts only. S's dual-implementation check is kept either way.
 - The spring-DST day 2027-03-14 is excluded (outside the first 45 dates if none drops).
 - A HALT before any score allows a reviewed amendment; after any score exists, no re-run.
 
 ## 5. Decision
 
-- **PASS** iff all N = 45 dates are scored, the point is ≤ −0.0057 (row 28's G floor),
+- **PASS** iff all N = 45 dates are scored, no (g) look stopped the test, the point is ≤ −0.0057 (row 28's G floor),
   and the 95% upper bound is < 0 on **both** the date-clustered and the block-3 interval (the more conservative verdict
   holds).
-- **FAIL** otherwise. **HALTED** if §4 fires.
-- A PASS ends this prereg. It earns a market-facing test request only (method §5 rule 4), never adoption.
+- **FAIL** otherwise, including a (g) HARM or FUTILE stop. **HALTED** if §4 fires.
+- A PASS ends this prereg and claims model improvement only. It earns no market test by itself; the rule-4 w step
+  (§7a) comes first.
 
-## 6. Power, single look (method §5 rule 6, rule 16, rule 19)
+## 6. Power and futility (method §5 rules 6-7, rule 16, rule 19)
 
 - **SD source (rule 19).** Same contrast, same hours, same season: the row-28 history B − S per-date SD 0.0803 over
   657 dates (ρ 0.222, κ_AR 1.570, κ_block3 1.419). Rule 19 also asks for the realised/projected SD ratio after the
   look; it is reported.
 - **Planning bound (master ruling on Q2, accepted).** The forward season is one NBM v5.0 season with venue-rule
   labels, so the gate below uses a stated conservative bound of **1.5 × 0.0803 = 0.1205**.
-- **Single look, no inflation.** With no interim look, the futility-look SE inflation (method §5 rule 7, ×1.07) is
-  not applied. Alpha: one final test, two-sided 95% (one-sided 2.5%) on each of the date-clustered and block-3
-  intervals, and a PASS needs both, so the false-PASS rate is at most 2.5%.
+- **Futility inflation restored (Q9).** The MDE uses the 4-7% futility-look inflation at its upper end (×1.07,
+  method §5 rule 7). Futility and harm stops cost power; no interim look produces a PASS.
 - **Effect.** delta = half the history point (0.1368 / 2 = 0.0684), method §5 rule 6. Power at the edge size 0.0057 is
   about 0.04-0.10 at any N ≤ 166 and is stated, not claimed: this test can only confirm a large B − S effect.
 
-| SD basis | N | MDE80 | Power at delta | Power at the history point |
+| SD basis | N | MDE80 (×1.07) | Power at delta | Power at the history point |
 | --- | --- | --- | --- | --- |
-| realised 0.0803 | 45 | 0.0420 | 0.995 | 1.00 |
-| bound 1.5× (gate) | 45 | 0.0630 | 0.86 | 1.00 |
-| 2× | 45 | 0.0841 | 0.63 | 0.995 |
-| bound 1.5× | 20 | 0.0946 | 0.53 | 0.98 |
-| bound 1.5× | 166 | 0.0328 | 1.00 | 1.00 |
+| realised 0.0803 | 45 | 0.0450 | 0.99 | 1.00 |
+| bound 1.5× (gate) | 45 | 0.0675 | 0.81 | 1.00 |
+| 2× | 45 | 0.0900 | 0.57 | 0.99 |
+| bound 1.5× | 20 | 0.1012 | 0.47 | 0.97 |
+| bound 1.5× | 166 | 0.0351 | 1.00 | 1.00 |
 
 ## (a) Positive control
 
@@ -126,13 +151,17 @@ rows: paired per (market, date, hour), the same build function, the same label c
 
 ## (c) Targeted loss slice
 
-The post-13 (hours 13-16) Dec 17 – May 31 slice that MG-2 serves with the MG-1 fallback; history size of the gap
-B closes: −0.1368 per-row Brier (row-28 score result `32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b`).
-No loss atlas exists for this season; the history score result stands in for it (Q7).
+Master ruling on Q7, verbatim: "The (c) slice is the scored population itself (h13-16, US10, the scored window).
+No Dec-May loss atlas exists (the atlas is dev-scoped), and row-28's POST-HOC D1 shows the history gain is broad
+across every month and fold for A, B and C. No sub-slice is claimed. (Master, 2026-11-03.)"
+
+History size, for sizing only: B − S −0.1368 per-row Brier (row-28 score result
+`32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b`).
 
 ## (d) MDE and clusters
 
-MDE80 0.0630 at the planning bound (0.0420 at the realised SD), at 45 date clusters and 10 market clusters.
+MDE80 0.0675 at the planning bound (0.0450 at the realised SD), ×1.07 inflated, at 45 date clusters and 10 market
+clusters.
 
 ## (e) Dev-window reuse
 
@@ -145,17 +174,22 @@ DEV_WINDOW_LEDGER.md: reuse count 212 (2026-11-03) plus one for this row; this t
 - VIF: 1.570
 - delta: 0.0684 (half the history point; power at the history point 1.00)
 - N: 45
-- MDE80: 0.0630 (2.802 x sigma_d x sqrt(VIF) / sqrt(N); single look, no futility inflation)
-- power: 0.86
+- MDE80: 0.0675 (2.802 x sigma_d x sqrt(VIF) / sqrt(N), inflated 7%)
+- power: 0.81
 - class: POWERED
 - intervals: date-clustered (verdict) and block-3 (reported beside it; the more conservative verdict holds)
 
 ## (g) Futility
+- look 7: HARM if t > 3.143
+- look 14: FUTILE if z > +0.5
+- look 21: FUTILE if z > 0
+- look 31: FUTILE if z > -0.5
 - final N: 45
 - interim PASS: never
 
-No futility look (master ruling on Q3): one single look after the 45th date is final; see §1 for the
-earliest read date and why fail-fast in calendar time is unavailable.
+z_k = mean_k / (s_k × √VIF / √k) on the first k deciding dates, positive meaning harm. The looks are applied in date
+order at the single read (§1); they give no early stop in calendar time. A stop is final for this prereg. No look
+produces a PASS, changes N or the estimand, or starts a refit.
 
 ## 7. Descriptive only (decides nothing)
 
@@ -163,21 +197,24 @@ earliest read date and why fail-fast in calendar time is unavailable.
   floor-only control. Prices are read only under the §1 read rule.
 - Per-market d, per-month d, and the realised/projected SD ratio (rule 19).
 
-## 8. Open questions for master (draft only)
+## 7a. The rule-4 w step (pointer only; not drafted here)
 
-1. Q1 — Estimand: keep B − S primary (row 28's question), or make the market w read primary under rule 4?
-2. Q2 — CLOSED: the 1.5× planning bound is accepted (master 2026-11-03).
-3. Q3 — CLOSED: a single look, no futility looks (master 2026-11-03).
-4. Q4 — CLOSED: forward = NBM v5.0, disclosed (master 2026-11-03).
-5. Q5 — CLOSED: venue-rule labels via the R24 frozen copy, mismatch disclosed (master 2026-11-03).
-6. Q6 — Which captured MG-2 fallback rows exist from 12-17 for the §4 parity control (a host read, counts only)?
-7. Q7 — Does the checker's (c) accept the history score result in place of an atlas?
-8. Q8 — Ledger: one K row for B on forward dates, written before D0.
-9. Q9 — CHECKER CONFLICT (new, for master): `prereg_check --forward` REFUSES this single-look design, because
-   `check_futility` requires every Rule B look before final N (`src/weather/reporting/scorecards/prereg_check.py`
-   lines 76 and 171-182; MIM §5 rule 7). Options: a ruling that restores the four looks (applied in order at the
-   single read), a reviewed checker change that admits a declared single-look design, or a recorded exemption.
-   This draft must pass the checker before it can freeze.
+The rule-4 w step (walk-forward w against the placebo and the floor-only control, MIM §3 rung 4 and §5 rule 4) is
+its OWN later prereg, run before any forward market test, as a history-tier screen on the L52 public price history.
+Its data scope follows STATE_OF_PLAY line 50 as recorded; if that needs an owner yes, it goes to master first.
+
+## 8. Questions (all answered by master, 2026-11-03)
+
+1. Q1 — ANSWERED (c): two stages; B − S here, model improvement only; the w step per §7a.
+2. Q2 — ACCEPTED: the 1.5× planning bound.
+3. Q3 — SUPERSEDED by Q9.
+4. Q4 — ACCEPTED: forward = NBM v5.0, disclosed.
+5. Q5 — ACCEPTED: venue-rule labels via the R24 frozen copy, mismatch disclosed.
+6. Q6 — ANSWERED (a): MG-2's fallback log, counts and sha, after the outcome-blind pull check; else (b) (§4).
+7. Q7 — ANSWERED (c): master's ruling, recorded verbatim in (c).
+8. Q8 — ANSWERED (a): the pre-D0 ledger requirement (§1a).
+9. Q9 — ANSWERED (a): the Rule B looks are restored, applied in date order at the single read, with the ×1.07
+   inflation; no checker change, no rule change.
 
 ## 8a. Freeze record fields (L56's accepted prereg field names; PLACEHOLDER = unknown until freeze)
 
@@ -225,5 +262,5 @@ earliest read date and why fail-fast in calendar time is unavailable.
 
 ## 9. Related
 
-Row 28 prereg §8.3, §9 (`claude/row28-yearround-history-20261102`); EF §10aw; method §5 rules 4, 6, 9, 16, 19;
+Row 28 prereg §8.3, §9 (`claude/row28-yearround-history-20261102`); EF §10aw; method §5 rules 4, 6, 7, 9, 16, 19;
 [pre-registration checklist](../../operations/PREREGISTRATION_CHECKLIST.md).
