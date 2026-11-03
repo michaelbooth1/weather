@@ -1690,3 +1690,49 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
 ```
 
 - **STOP.** The look and the score each need master's go.
+
+## Appended 2026-11-03T09:23:28-05:00: labels accepted; the post-push screen deviation; look (stage 5) GO, config, pre-launch checks and exact command (append only)
+
+- **Labels accepted (relayed).** Receipt `d38235a3…`, report `0f019343…`, commit `b129f39ee`. No per-fold or
+  per-arm label reader is built.
+- **Deviation, accepted as disclosed.** At the labels commit, `run/labels_report.json` was screened just after the
+  push, not before it. A shell quoting error had swallowed the pre-push screen line. The screen found 0 control bytes,
+  0 `0x`+40-hex and 0 secret patterns. The RUN_LOG append text was screened before the push.
+- **GO for the look on folds 2021–23, relayed.** Under C1 F1 and C2 N2 as frozen, at n_look 388.
+  - No 2024–25 score. STOP either way: after a futility stop no score of any kind; after CONTINUE the score needs a
+    separate go.
+  - The look file is committed and pushed, screened BEFORE the push, before anything else is computed.
+- **Config.** `C:\t\L59\row28\run_config\stage5_look_v1.json`, sha256
+  `4940bb150bd754d85a1731b659d75a0e5d120770f2558f98f4747bfbee554335`. It is new. Compared with
+  `stage4_labels_v1.json`, it has `stage: look` and
+  `prev = {integrity d8404064…, labels 0f019343…, build 80c70b2f…}`; `load_scoring_inputs` verifies all three.
+- **Pre-launch checks** (read-only, `l59_prelaunch_s5_v1.py`):
+  - **Dated scan.** 0 hits in the config path, the OutDir `s5_look`, the stage, the log dir `ctl_s5_logs` and the
+    launcher path. The walker path has 1, the masked doc dir name.
+    - The config contents have 1 raw match, in a prev sha hex, with 0 valid calendar dates. The runner's guard on the
+      config is clean.
+    - The forbidden roots are referenced 0 times.
+  - **The three prev bindings.** Each walk sha equals the config's, and each report is PASS. Each receipt is
+    COMPLETE, with guard 0 and no FLAG, and its stage and walker sha are bound:
+    - integrity `fa5b5243…`;
+    - labels `d38235a3…`;
+    - build `eb60509b…`.
+    - Junction manifest after each: `9dff281c…`.
+  - **Outputs unchanged.** The integrity outputs `kept_rows` and `s_dist`, and the labels outputs, equal their
+    reported shas.
+  - **No scored rows yet.** There are no `look_rows.jsonl` or `final_rows.jsonl` files under the run root.
+  - **The look set.** The integrity-committed kept dates of folds 2021–23 are 388, equal to the restated n_look 388.
+    halted_arms is empty in both integrity and labels.
+  - The runner itself re-checks the look set and runs `precheck_folds` before any fit.
+- **Launch block** `C:\t\L59\row28\launch_s5_look_v1.ps1`. The data\ check (exactly the 4 named junctions) and the
+  0-wrapper check run, then Start-Process immediately. Launcher v6 is unchanged (`8a2f8759…`). Timebox 14,400 s, as
+  in the stage plan. The 12.8 GB monitor runs.
+- **Exact command:**
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s5_look -Stage look -TimeboxSeconds 14400 `
+  -RootsPath C:\t\L59\row28\run_config\stage5_look_v1.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
+  -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
+```
