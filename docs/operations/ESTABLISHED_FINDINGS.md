@@ -5003,8 +5003,9 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
     2022 163, 0.0662, 0.169 / 0.033; 2023 164, 0.0790, 0.243 / 0.001; 2024 120, 0.0845, 0.203 / 0.021; 2025 149,
     0.0851, 0.256 / 0.003. The projection input that was wrong is the per-date SD (method rule 19).
   - **Master's reading (post-hoc, master's, 2026-11-03).** The "S scored out of season" hypothesis is not supported
-    in its simple form: X−S is negative in every month and fold, and the S/A Brier ratio is 1.18-1.29 in every month.
-    It is still a comparison to S, not to the market.
+    in its simple form. X-S is negative in every month and every fold for arms A, B and C. D (KILL) is positive in
+    Dec (+0.099), Jan (+0.050) and fold 2022 (+0.004). The S/A Brier ratio is 1.18-1.29 in every month. It is still
+    a comparison to S, not to the market.
 
 ## Related
 
