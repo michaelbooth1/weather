@@ -789,3 +789,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
 | `seattle` `09-07` | 220539 | `2b572f636848016ca0ae0dddbeb38e6595b385116d04dbf5b6cf35f6ff526b0d` | `54fcb56c39e2595ce2fa7e453fe7897de4660fe522a832226878f14a9ce72350` |
 | `seattle` `09-22` | 226880 | `d8ecf3d34ce3f1653da8e81d31861203ab28f1323a41d38aa46f0461a1f0c1b1` | `ad19cea1d1127852cd776edbf2d77a5b636c55d9bbf6331f84959aed9fc8187f` |
 | `seattle` `12-09` | 223491 | `2859d1c7d040b2529723ce04ff83ad0ff530a8813c5fe7e70ce0f8b1196bae50` | `5fc6271acd0be6c7c6669732944793209d0a530810306818f0816e7675c2e5ef` |
+
+## Appended 2026-11-03T06:19:30-05:00: a5 pre-launch scans and sentinel v8 (append only)
+
+- **Dated-string scan (ISO >= 2026-01-01).** 0 hits in each of the following:
+  - the config's contents;
+  - the config's name and path (`stage1_controls_v2.json`);
+  - the OutDir name and path (`s1_controls_a5`);
+  - the stage (`controls`);
+  - the log directory (`ctl_a5_logs`);
+  - the sentinel basetemp path (`sentinel_bt8`).
+- **Forbidden roots.** Neither `cap_counts_v2.json` nor `r4_deciding_dates_receipt.json` is referenced by the config or
+  passed as a root.
+- **Pinned input shas, verified:**
+  - config `66e4b46e…`;
+  - launcher v6 `8a2f8759…`;
+  - runner v10 `dc58715c…`;
+  - sentinel v8 `1807e3d4…`.
+- **State before launch.** OutDir `s1_controls_a5` is absent and `run\records` is absent. `data\` holds exactly 4
+  junctions; no wrapper is running.
+- **Sentinel v8.** Run through `workstation_heavy.ps1 -Kind pytest -Queue` with `PYTHONDONTWRITEBYTECODE=1` and
+  `--basetemp C:\t\L59\row28\sentinel_bt8`, from 06:19:03 to 06:19:05: **34 passed**, exit 0.
+  - The basetemp was deleted afterwards, and no new bytecode was written.
