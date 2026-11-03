@@ -5,23 +5,23 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-03T07:07:45.484383+00:00
+Generated: 2026-11-03T07:32:50.482957+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 331 |
-| Active items | 14 |
-| OPEN | 2 |
+| Items | 332 |
+| Active items | 15 |
+| OPEN | 3 |
 | PARTIAL | 12 |
 | COMPLETE | 289 |
 | DORMANT | 28 |
 | Active, no disposition within 45 days of 2026-11-03 | 11 |
-| ROADMAP rows | 331 |
-| ROADMAP primary rows | 331 |
-| Metadata manifest rows | 331 |
+| ROADMAP rows | 332 |
+| ROADMAP primary rows | 332 |
+| Metadata manifest rows | 332 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -42,6 +42,7 @@ Status: `OK`
 | 336 | PARTIAL | 2026-10-08 | LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
 | 337 | OPEN | 2026-10-08 | OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
 | 342 | OPEN | 2026-11-03 | MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math](items/item-342-feb29-bound-centre-lookup-crash.md) |
+| 343 | OPEN | 2026-11-03 | MASTER OPTION 1; ROW 28'S FIRST RUN USES THE ONE-OFF OPTION-2 LAUNCHER | [Offline Year-Round Refit Module And Workstation Allowlist Line](items/item-343-offline-year-round-refit-module-allowlist.md) |
 
 ## Active Items Without A Disposition In 45 Days
 
