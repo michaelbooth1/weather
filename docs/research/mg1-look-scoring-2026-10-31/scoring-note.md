@@ -146,7 +146,13 @@ Rules:
 - A receipt without `label_dates` is refused by name. The list is never derived from the CSV.
 - The list must equal the manifest's own `label_dates` and count `sum(label_source_counts)`.
 - The list must be disjoint from `skipped_dates`, and a receipt copy of `skipped_dates` must equal the manifest's.
-- A countable market-day that is skipped, or that has no label key, raises `MG1LookHeld`. Nothing is consumed.
+- Master ruled on 2026-11-03 so that this matches b_transfer. Each of these raises `MG1LookHeld`, and nothing is
+  consumed:
+  - a countable market-day in neither `label_dates` nor `skipped_dates`. It is never masked
+    (`UNEXPLAINED_ABSENCE_HOLDS = True`, the same name as b_transfer; a ruling, so any other value is refused);
+  - any metadata inconsistency: a date in both lists, a receipt list that differs from the manifest's, a count
+    that differs, an unsorted list, or a freeze `through` before a countable date;
+  - a countable market-day in `skipped_dates`, which is a predicted skip.
 - The result records counts only (`inputs.label_key_check`).
 
 **T2: refused labels after the stamp.** A label the reader refuses that the metadata did not predict masks its
@@ -160,3 +166,18 @@ holds. A B-1 look-chain clarification should list the two additions.
 
 **CLI (Q4).** `run` takes only `--label-freeze <receipt>`; `--labels` is gone. No runbook or operations
 document names `--labels` for `mg1_look`; this note was the only one.
+
+### Handback note: WIP state before the R24 rebase
+
+WIP heads `4489e0f30` and `5dbcf2c15`, and the head after them, are never landing candidates (master,
+2026-11-03). The landing candidate is a new branch rebased onto master after combo C lands R24. On that branch:
+- `FREEZE_RECEIPT_SCHEMA` becomes `schema_version("venue_label_freeze_receipt")`;
+- a test pins it to `venue_label_audit.FREEZE_RECEIPT_SCHEMA`;
+- the final entry sha is fixed at the rebased tip.
+
+**Known red before the rebase (accepted by master as pre-rebase only).**
+- The failing test is `tests/operations/test_schema_registry.py::test_source_tree_strict_audit_has_only_explicit_exclusions`.
+- It reports `unregistered_versions == ['venue_label_freeze_receipt_v1']`.
+- The cause is the literal schema string in `mg1_look.py`. Only R24's `schema_families/venue_labels.py` registers
+  that version (`513475d31`), and it is not on master yet.
+- Every other focused test passes. The rebased branch must be fully green, including the strict schema audit.

@@ -404,7 +404,7 @@ def test_an_unpredicted_reader_refusal_masks_its_market_day_and_flags_the_receip
 
 @pytest.mark.parametrize("kw,match", [
     ({"drop_labels": {("nyc", D0 + timedelta(days=12))}}, r"held: 1 countable market-days have no label key .*"
-                                                           r"'no_label_key': 1.*2026-10-27:nyc"),
+                                                           r"'unexplained_absence': 1.*2026-10-27:nyc"),
     ({"skipped_labels": {("denver", D0 + timedelta(days=30))}}, r"held: 1 countable .*'skipped': 1"),
 ])
 def test_a_countable_market_day_without_a_label_key_holds_before_the_stamp(tmp_path, monkeypatch, kw, match):
@@ -457,8 +457,10 @@ def test_a_freeze_without_the_label_key_list_is_refused_by_name(tmp_path, monkey
     ("overlap", "overlap its manifest's skipped_dates"),
     ("skipped_differs", "skipped_dates differ from its manifest's"),
     ("unsorted", "not a sorted list of distinct dates"),
+    ("through", "runs through 2026-11-27, before the countable date 2026-11-28"),
 ])
-def test_inconsistent_label_metadata_is_refused_before_the_stamp(tmp_path, monkeypatch, edit, match):
+def test_inconsistent_label_metadata_holds_before_the_stamp(tmp_path, monkeypatch, edit, match):
+    """Master 2026-11-03 (as b_transfer): ANY metadata inconsistency holds; nothing is consumed."""
     inputs = _synthetic(tmp_path)
     freeze = inputs["label_freeze"]
     listed = json.loads(freeze.read_text(encoding="utf-8"))["markets"]["houston"]["label_dates"]
@@ -471,11 +473,23 @@ def test_inconsistent_label_metadata_is_refused_before_the_stamp(tmp_path, monke
         _edit_market(freeze, "houston", skipped_dates={listed[0]: "x"})
     elif edit == "skipped_differs":
         _edit_market(freeze, "houston", skipped_dates={listed[0]: "x"})
+    elif edit == "through":
+        _edit_freeze(freeze, through="2026-11-27")
     else:
         _edit_market(freeze, "houston", label_dates=listed[::-1])
         _rewrite_manifest(freeze, "houston", label_dates=listed[::-1])
-    with pytest.raises(m.MG1LookRefused, match=match):
+    with pytest.raises(m.MG1LookHeld, match="held: .*" + match + ".*label metadata inconsistency"):
         _score(monkeypatch, inputs)
+    assert _nothing_spent(tmp_path)
+    m.Look(RULE)  # the look is still available
+
+
+def test_an_unexplained_absence_holds_and_is_never_masked(tmp_path, monkeypatch):
+    """Master 2026-11-03: UNEXPLAINED_ABSENCE_HOLDS is a ruling, not an owner branch."""
+    assert m.UNEXPLAINED_ABSENCE_HOLDS is True
+    monkeypatch.setattr(m, "UNEXPLAINED_ABSENCE_HOLDS", False)
+    with pytest.raises(m.MG1LookRefused, match="must be True"):
+        _score(monkeypatch, _synthetic(tmp_path, drop_labels={("miami", D0 + timedelta(days=2))}))
     assert _nothing_spent(tmp_path)
 
 
@@ -673,7 +687,6 @@ def _edit_freeze(path, **changes):
 @pytest.mark.parametrize("change,match", [
     ("absent", "does not exist: the look waits"),
     ({"frozen_at_utc": "2026-11-29T06:00:00+00:00"}, "before the 45th date ended in every"),
-    ({"through": "2026-11-27"}, "runs through 2026-11-27"),
     ({"look_id": "b"}, "freeze for look 'mg1'"),
     ("tamper", "nyc label_csv is missing or differs"),
     ("mismatch", "do not match their manifest"),

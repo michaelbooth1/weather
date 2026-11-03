@@ -257,6 +257,9 @@ FREEZE_FILES = ("label_csv", "manifest", "wu_daily_summary")
 # name when absent; the look never derives it from the CSV.
 FREEZE_LABEL_KEYS = "label_dates"
 UNPREDICTED_REFUSAL_FLAG = "label_refusal_unpredicted_by_metadata"
+# Master 2026-11-03, the same name as b_transfer: a countable market-day in neither label_dates nor skipped_dates
+# holds (never masks). It is a ruling, not an owner branch, so any other value is refused.
+UNEXPLAINED_ABSENCE_HOLDS = True
 MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": "America/New_York",
              "austin": "America/Chicago", "chicago": "America/Chicago", "dallas": "America/Chicago",
              "houston": "America/Chicago", "denver": "America/Denver", "los-angeles": "America/Los_Angeles",
@@ -435,7 +438,7 @@ def read_freeze_receipt(path, last_date, settled):
         raise MG1LookRefused(f"the label freeze receipt is not a {FREEZE_RECEIPT_SCHEMA} freeze for look "
                              f"{FREEZE_LOOK_ID!r}")
     if through < last_date:
-        raise MG1LookRefused(f"the label freeze runs through {through}, before the 45th date {last_date}")
+        _inconsistent(f"the label freeze runs through {through}, before the countable date {last_date}")
     if frozen.tzinfo is None or frozen < settled:
         raise MG1LookRefused(f"the labels were frozen at {frozen.isoformat()}, before the 45th date ended in every "
                              f"scored market ({settled.isoformat()})")
@@ -461,6 +464,11 @@ def read_freeze_receipt(path, last_date, settled):
             "frozen_at_utc": frozen.isoformat(), "files": files, "keys": keys}
 
 
+def _inconsistent(message):
+    """Any label-metadata inconsistency holds the look before the stamp (master, 2026-11-03)."""
+    raise MG1LookHeld(f"held: {message}; nothing was consumed (label metadata inconsistency)")
+
+
 def label_key_check(freeze, rows):
     """Q2: the pre-stamp, METADATA-ONLY label check. It reads no CSV and calls no reader.
 
@@ -473,9 +481,18 @@ def label_key_check(freeze, rows):
     own ``label_dates`` when the manifest has one, must count ``sum(label_source_counts)``, and must be disjoint
     from ``skipped_dates``.
 
-    A countable market-day that is skipped, or that has no label key, holds the look. Nothing is consumed.
+    Master's ruling of 2026-11-03, matching b_transfer, applies before the stamp:
+
+    - a countable market-day in neither ``label_dates`` nor ``skipped_dates`` holds the look and is never masked
+      (``UNEXPLAINED_ABSENCE_HOLDS``);
+    - any metadata inconsistency holds, including a freeze whose ``through`` is before a countable date;
+    - a countable market-day in ``skipped_dates`` is a predicted skip, and it also holds.
+
+    Nothing is consumed in any of these cases.
     Returns the disclosed metadata: counts only.
     """
+    if UNEXPLAINED_ABSENCE_HOLDS is not True:
+        raise MG1LookRefused("UNEXPLAINED_ABSENCE_HOLDS must be True (master ruling of 2026-11-03)")
     flags = market_day_flags(rows)
     wanted = sorted(k for k, flag in flags.items() if flag)
     holes, sources = [], {}
@@ -494,18 +511,18 @@ def label_key_check(freeze, rows):
         except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
             raise MG1LookRefused(f"the frozen {market} label metadata is unreadable: {exc}") from exc
         if listed != sorted(set(listed)):
-            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} is not a sorted list of distinct dates")
+            _inconsistent(f"the frozen {market} {FREEZE_LABEL_KEYS} is not a sorted list of distinct dates")
         if FREEZE_LABEL_KEYS in manifest and list(manifest[FREEZE_LABEL_KEYS]) != listed:
-            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} differs from its manifest's")
+            _inconsistent(f"the frozen {market} {FREEZE_LABEL_KEYS} differs from its manifest's")
         if keys.get("skipped_dates") is not None and dict(keys["skipped_dates"]) != skipped:
-            raise MG1LookRefused(f"the frozen {market} skipped_dates differ from its manifest's")
+            _inconsistent(f"the frozen {market} skipped_dates differ from its manifest's")
         if len(listed) != sum(counts.values()):
-            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} count differs from its manifest's "
-                                 "label_source_counts")
+            _inconsistent(f"the frozen {market} {FREEZE_LABEL_KEYS} count differs from its manifest's "
+                          "label_source_counts")
         present = set(listed)
         if present & set(skipped):
-            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} overlap its manifest's skipped_dates")
-        holes += [(d, m, "skipped" if d in skipped else "no_label_key") for d, m in wanted
+            _inconsistent(f"the frozen {market} {FREEZE_LABEL_KEYS} overlap its manifest's skipped_dates")
+        holes += [(d, m, "skipped" if d in skipped else "unexplained_absence") for d, m in wanted
                   if m == market and (d in skipped or d not in present)]
         sources[market] = counts
     if holes:
