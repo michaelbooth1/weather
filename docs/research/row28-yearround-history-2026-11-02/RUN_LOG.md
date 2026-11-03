@@ -645,3 +645,30 @@ from the centre in each name:
 - **The a5 targets** are those of the 05:59 append, plus:
   - `gz_header_allowance` `fname_own_tmp` 66 and `dated_tokens` 66;
   - `gz_header_summary.hits` 0.
+
+## Appended 2026-11-03T06:12:02-05:00: runner v10 (v9 review m-1), a5 targets (m-3) (append only)
+
+- **The v9 review is CLEAN** (no B or M findings). The coordinator adopted m-1 to m-3 (C3 eighth addendum).
+- **Runner v10** `row28_run_v10.py` = `dc58715ca4f8834746051e3aa8c5408f115e384a63cbf512ef1940cfea82abaa`: v9 plus m-1
+  (any FCOMMENT or FEXTRA on any `.gz` is a hit).
+- **Sentinel test v8** `test_row28_s7_sentinel_v8.py` =
+  `1807e3d488c025732867c3ef29e514512934202c79eb82aa98f236c710a6add9`.
+- v9 and sentinel v7 are unchanged. Not run.
+- **a5 runs on v10** after its delta review is CLEAN and the coordinator's go:
+  1. Move `run\records` to `run\records_a4_evidence`, with the raw and decompressed manifests.
+  2. Run the pre-scans.
+  3. Launch `run\s1_controls_a5`.
+- **a5 targets (m-3).** These supersede the header lines of the 06:07 append; everything else in the 05:59 list
+  stands:
+  - **Controls:** C-0 19,657 / 0.0; C-0b 2 of 2; C-0c 4,125 / 0; C-b 660 / 0.0.
+  - **Records:** equal to a4 on the decompressed manifest (66 of 66).
+  - **Walk-side guard:** output guard 0; `decision_allowance` `dated_tokens` 276.
+  - **M1:** `m1_summary.remaining_total` 0, with 0 remaining on each of the 66 records files.
+  - **gz header summary:** files 68 and members 68 (66 records plus 2 junction manifests), fname 66,
+    fname_own_tmp 66, fcomment 0, fextra 0, hits 0. `gz_header_allowance`: fname_own_tmp 66, dated_tokens 66.
+  - **walk.csv:** `compare_walk_csv(a4, a5)` returns `equal: False` BY DESIGN. a4's walk.csv was written by runner
+    v7 and has no `payload_sha256` column, so its 66 records rows count as unverified (`records_unverified` 66).
+    a5 is judged on two things:
+    - the non-records rows: `other_equal`, with an empty `differing` list;
+    - the records: equal on the decompressed manifest (`compare_records_identity`).
+    An `equal: False` from `compare_walk_csv` is NOT a STOP on its own; any other deviation STOPs.

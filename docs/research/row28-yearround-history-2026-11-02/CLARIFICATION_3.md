@@ -393,7 +393,8 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
     (60 files × 1, 6 files × 2).
   - **Cost:** peak working set 32,468,992 bytes, 6.88 s wall in all (import, decompress and genops over 66 files).
 - **The headers before v9.** Runners v4-v8 never scanned raw gzip headers: the guard scanned decompressed payloads
-  only. The headers were by construction only prm:256's own tmp name, so there is no retroactive concern.
+  only. The headers were by construction only prm:256's own tmp name, so there is no retroactive concern (code
+  reading; not measured on the a3/a4 evidence, which stays unopened; a5 measures it prospectively).
 - **Runner v9** (`row28_run_v9.py`) is v8 plus the raw-header scan and nothing else (10 counted exact
   replacements; scratchpad `make_v9.py`).
   - `gz_header_members` (`:869`) parses the header of EVERY member, because `gzip.decompress` accepts
@@ -408,8 +409,8 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
     (`gz_header_allowance` `fname_own_tmp` and `dated_tokens`).
   - **Hits:**
     - any other FNAME on any `.gz` (`gz_fname`);
-    - any FCOMMENT on a non-records `.gz`, Writer outputs included, since `gzip.compress` writes neither field
-      (`gz_fcomment`);
+    - any FCOMMENT or FEXTRA on any `.gz` (`gz_fcomment`, `gz_fextra`; v10, m-1: neither `gzip.compress` nor
+      prm:256's `gzip.open` writes either field. v9 itself hit only an FCOMMENT on a non-records `.gz`);
     - every dated token in any other header text, by category.
   - walk.json adds `output_guard.gz_headers` (per `.gz` basename: members, MTIME values, field counts, hits),
     `gz_header_allowance` and `gz_header_summary`.
@@ -433,3 +434,25 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
     mask, while the walk applies both. This is intended: M1 is stricter, and fail-closed.
   - **m-d.** genops runs over every records file at stage end, which adds time: the pre-check measured 6.88 s for
     all 66 files, import included.
+
+## Eighth addendum (2026-11-03T06:12-05:00): the v9 review minors m-1 to m-3, runner v10
+
+- **The v9 review is CLEAN** (no B or M findings). The coordinator adopted m-1 to m-3.
+- **m-1, runner v10** (`row28_run_v10.py`): v9 plus m-1 and nothing else (6 counted exact replacements; scratchpad
+  `make_v10.py`). In `gz_header_scan`:
+  - ANY FCOMMENT on ANY `.gz` is a hit (`gz_fcomment`);
+  - ANY FEXTRA present on any `.gz` is a hit (`gz_fextra`);
+  - the dated-token count is kept on top.
+  Neither `gzip.compress` (the Writer) nor prm:256's `gzip.open` writes either field. The hits are therefore any
+  other FNAME on any `.gz`, any FCOMMENT or FEXTRA on any `.gz`, and every dated token in any header text other
+  than the one allowed own tmp FNAME. The seventh addendum's hit list now carries this wording too, marked v10.
+  - **Sentinel v8** pins v10 and updates the header expectations:
+    - comment and comment_own → `gz_fcomment` 1 plus 1 dated;
+    - extra → `gz_fextra` 1 plus 1 dated;
+    - undated_comment → `gz_fcomment` 1;
+    - second_member → `gz_fcomment` 1 plus 1 dated;
+    - new: an undated FEXTRA → `gz_fextra` 1.
+- **m-2.** The seventh addendum's no-retroactive-concern sentence now ends with the qualifier "(code reading; not
+  measured on the a3/a4 evidence, which stays unopened; a5 measures it prospectively)".
+- **m-3.** The a5 header targets and the `compare_walk_csv` expectation are in RUN_LOG ("Appended
+  2026-11-03T06:12").
