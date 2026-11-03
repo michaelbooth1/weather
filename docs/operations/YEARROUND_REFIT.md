@@ -53,6 +53,11 @@ serving uses `usable_v2_mean` at capture time.
   P3d_N state or any release-binding sha.
 - Writes once to `data/yearround_refit/row28_B/<fit_id>/`: the state, its sidecar and `fit_manifest.json`. An
   existing directory is refused.
+- A refusal after the fit directory exists (the frozen-list compare, a source or calendar-grid check, the pooled
+  imputation cap, a missing training market) writes a `REFUSED` marker there: the reason, the message and a UTC
+  stamp. A directory with `REFUSED` (or without `fit_manifest.json`) is never a fit; leave it as evidence and fit
+  again with a new fit id. The records root and the NBM work files it wrote stay as they are.
+- An empty calendar grid (no covered year in the training window) refuses by name.
 - Copies the three files to `C:\archive\row28b-forward-state\<fit_id>\` and verifies them sha-equal. Record that
   path and the state and fit-manifest shas in the forward prereg.
 - Freeze the forward 13-16 state only at the FINAL module sha, after `--hours` lands: `emit` refuses when this
@@ -92,7 +97,8 @@ The module does not write it.
   --records-root <new dir> --frozen-runner <row28_run_v12.py> [--mode state_sha]
 ```
 
-- The frozen runner must be `row28_run_v12.py` at its pinned sha. Use a new records root.
+- The frozen runner must be `row28_run_v12.py` at its pinned sha. Use a new records root. A missing
+  `frozen_records_lists`, a retired key or a non-empty records root refuses before any directory is written.
 - Checks (a) the records against the `frozen_records_lists` union (column 3, the decompressed payload sha; a record
   built but not listed, or listed but not built, FAILS), the new NBM rows against `frozen_new_nbm_rows_sha256`
   (absent FAILS) and the frames,

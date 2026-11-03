@@ -992,6 +992,11 @@ def test_emit_refuses_a_module_or_pinned_file_changed_since_the_fit(b_state, tmp
     extra = ({"module_source_sha256": "0" * 64} if what == "module"
              else {"upstream_sha256": up | {what: "0" * 64}})
     out, sha, msha, rsha = _emit_inputs(tmp_path, b_state, extra)
+
+    def never(*a, **k):
+        raise AssertionError("load_state ran before the whole-file pin refusal")
+
+    monkeypatch.setattr(p3, "load_state", never)  # the pin refuses before any state is unpickled
     name = yr.MODULE if what == "module" else what
     with pytest.raises(yr.YearroundRefused, match=re.escape(name)):
         yr.emit(**_emit_kw(tmp_path, out, sha, msha, rsha))
@@ -1118,3 +1123,35 @@ def test_reuse_refuses_a_stray_file_and_a_short_expected_set(world, tmp_path, mo
     monkeypatch.setattr(yr, "record_centres", lambda prm_: real(prm_)[:-1])
     with pytest.raises(yr.YearroundRefused, match="file set differs from the expected"):
         yr.build_records(cfg, mods.prm, world.root("records_frozen"))
+
+
+# ----------------------------------------------------------------------------- third fix (L16 re-check, 11-03)
+
+def test_a_refused_fit_leaves_a_refused_marker_in_its_dir(world, tmp_path):
+    altered = _frozen_list(tmp_path, world, alter=True)
+    now = datetime(2026, 11, 3, 12, 30, tzinfo=timezone.utc)
+    cfg = world() | {"frozen_records_lists": [[str(altered[0]), altered[1]]]}
+    with pytest.raises(yr.YearroundRefused, match="differ from the frozen"):
+        yr.fit(cfg, arm="B", now=now, records_root=world.root("rec_refused"))
+    fit_dir = tmp_path / "data" / "yearround_refit" / "row28_B" / "20261103T123000Z"
+    marker = json.loads((fit_dir / yr.REFUSED_MARKER).read_text(encoding="utf-8"))
+    assert marker["refused"] is True and marker["reason"] == "YearroundRefused"
+    assert "differ from the frozen" in marker["message"] and marker["refused_utc"].endswith("+00:00")
+    assert not (fit_dir / p3.STATE_FILE).exists() and not (fit_dir / yr.FIT_MANIFEST).exists()
+
+
+def test_equivalence_refuses_missing_frozen_lists_before_writing_anything(world, tmp_path):
+    with pytest.raises(yr.YearroundRefused, match="equivalence requires frozen_records_lists"):
+        yr.equivalence(world(), records_root=world.root("rec_nolists"), frozen_runner=tmp_path / "none.py",
+                       frozen_runner_sha="0" * 64)
+    assert not (tmp_path / "data" / "yearround_refit" / "row28_B" / "equivalence").exists()
+    assert not (tmp_path / "rec_nolists").exists()
+
+
+def test_an_empty_training_grid_refuses_by_name():
+    frame = pd.DataFrame([{"market": "atlanta", "target_date": "2023-01-05", "hour": 13}])
+    for covered in ({}, None, {"2026-01-08": []}):
+        grid = yr.expected_training_grid(prm, covered, "B")
+        assert grid == set()
+        with pytest.raises(yr.SourceAbsent, match="'training_calendar_grid' is empty"):
+            yr.refuse_training_grid_holes(frame, grid)

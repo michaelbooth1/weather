@@ -154,6 +154,7 @@ EMIT_PINNED_MODULES = ("src/weather/calibration/mg2_p3d_n.py", "src/weather/cali
 LEGACY_CONFIG_KEYS = ("frozen_records_list", "frozen_records_list_sha256")
 SNAPSHOT_TARGET_DATE_TYPES = ("date32[day]", "string", "large_string")
 HOLES = "holes.jsonl"
+REFUSED_MARKER = "REFUSED"  # written into a fit dir on any refusal after the dir exists (L16 re-check, 11-03)
 SERVE_F_SOURCE = "captured_metar"
 TOLERANCE = 1e-12
 FRAME_TOLERANCE = 1e-9
@@ -888,7 +889,13 @@ def training_grid_holes(frame, expected):
 
 
 def refuse_training_grid_holes(frame, expected):
-    """F3(b), a HARD check: a hole in the calendar grid refuses by name (never filtered or filled)."""
+    """F3(b), a HARD check: a hole in the calendar grid refuses by name (never filtered or filled).
+
+    An EMPTY expected grid (no covered years recorded) refuses too: it would pass vacuously.
+    """
+    if not expected:
+        raise SourceAbsent("input source 'training_calendar_grid' is empty: the records manifest lists no covered "
+                           "year in the training window")
     holes = training_grid_holes(frame, expected)
     if holes:
         _refuse_absent("training_calendar_grid", holes, len(expected))
@@ -943,8 +950,10 @@ def training_source_checks(frame, arm, covered_years, prm):
         out["source_presence"] = refuse_absent_training_sources(frame, arm)
     except SourceAbsent as exc:
         out["source_presence"] = {"refused": str(exc)}
-    holes = training_grid_holes(frame, expected_training_grid(prm, covered_years, arm))
-    out["calendar_grid"] = {"holes": len(holes), "first_holes": [f"{m} {d}" for m, d in holes[:5]]}
+    expected = expected_training_grid(prm, covered_years, arm)
+    holes = training_grid_holes(frame, expected)
+    out["calendar_grid"] = {"expected_market_dates": len(expected), "empty": not expected, "holes": len(holes),
+                            "first_holes": [f"{m} {d}" for m, d in holes[:5]]}
     out["imputation_by_market_month"] = imputation_by_market_month(frame, arm)
     return out
 
@@ -1067,6 +1076,15 @@ def fit(cfg, arm="B", now=None, *, records_root):
         raise YearroundRefused(f"the forward state must be frozen before {FROZEN_BEFORE_UTC}")
     fit_id = now.strftime("%Y%m%dT%H%M%SZ")
     out = _new_dir(state_root() / CANDIDATE_ID / fit_id)
+    try:
+        return _fit_in(cfg, arm, now, fit_id, out, records_root)
+    except Exception as exc:  # a partial fit dir is never mistaken for a fit: it carries a REFUSED marker
+        _write_json(out / REFUSED_MARKER, {"refused": True, "reason": type(exc).__name__, "message": str(exc),
+                                           "refused_utc": utc_now().isoformat()})
+        raise
+
+
+def _fit_in(cfg, arm, now, fit_id, out, records_root):
     mods = _modules()
     upstream = upstream_shas()
     conversion, late_report = bound_hooks(mods, cfg)
@@ -1369,6 +1387,7 @@ def emit(*, state_path, state_sha, fit_manifest, fit_manifest_sha, forward_recei
         raise YearroundRefused("the fit manifest does not name this state")
     if datetime.fromisoformat(manifest["fitted_at_utc"]) >= datetime.fromisoformat(FROZEN_BEFORE_UTC):
         raise YearroundRefused(f"the state was not frozen before {FROZEN_BEFORE_UTC}")
+    refuse_changed_sources(manifest)  # whole-file pins BEFORE any state is unpickled (L16 re-check, 11-03)
     refuse_bound_sha(state_sha, where="emit")
     receipt = load_forward_receipt(forward_receipt, forward_receipt_sha, state_sha=state_sha,
                                    manifest_sha=fit_manifest_sha)
@@ -1381,7 +1400,6 @@ def emit(*, state_path, state_sha, fit_manifest, fit_manifest_sha, forward_recei
     if _versions()["sklearn"] != manifest.get("sklearn_version"):
         raise YearroundRefused("the sklearn version differs from the fit's (the HGB pickle pin)")
     refuse_changed_helpers(prov.get("helper_source_sha256"))
-    refuse_changed_sources(manifest)
     snaps = read_snapshots(snapshots, first, last)
     days = snaps["target_date"].astype(str).str[:10]
     if len(days) and (days.min() < first.isoformat() or days.max() > last.isoformat()):
@@ -1637,11 +1655,13 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
     if mode == "per_row" and not (frozen_rows and frozen_rows_sha):
         raise YearroundRefused("mode per_row needs --frozen-rows and --frozen-rows-sha")
     refuse_legacy_config(cfg)
-    now = now or utc_now()
-    out = _new_dir(state_root() / CANDIDATE_ID / "equivalence" / now.strftime("%Y%m%dT%H%M%SZ"))
+    if not cfg.get("frozen_records_lists"):  # refused before any directory or record is written
+        raise YearroundRefused("equivalence requires frozen_records_lists ([path, sha256] pairs) in the config")
     records = records_root_arg(records_root, cfg)
     if records.exists() and any(records.iterdir()):
         raise YearroundRefused("the equivalence run needs a NEW records root")
+    now = now or utc_now()
+    out = _new_dir(state_root() / CANDIDATE_ID / "equivalence" / now.strftime("%Y%m%dT%H%M%SZ"))
     mods = _modules()
     prm, p3 = mods.prm, mods.p3
     report = {"schema": EQUIVALENCE_SCHEMA, "candidate_id": CANDIDATE_ID, "mode": mode,
