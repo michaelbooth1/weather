@@ -1348,3 +1348,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
     - launcher COMPLETE, both guards 0, no FLAG;
     - junction manifest `f93c2ad2…`;
     - peak memory ≤ 12.8 GB.
+
+## Appended 2026-11-03T07:45:42-05:00: the pool bound restated after the v12 review (append only)
+
+- **The v12 review was CLEAN** (runner v12, sentinel v10, C3). It found one wording minor in the 07:38 append. That
+  append's statement "at most 300 × 3 cycles = 900" is superseded by the following:
+  - pool count bound = 300 × |distinct cycles across c07/addon/gap/L48 on 12-31 rows|. ≤900 holds only if the L48
+    blocks carry cycles within {07,01,00}, which is not established by code. A pool count above 900 is a FLAG to
+    investigate, not a STOP, since the count is reported, not targeted.
+- **L48 cycle evidence, by name only.** The blocks file was not opened.
+  - `C:\t\l48\corpus\receipts_nbp.jsonl` (sha256 `87a2b36f53c809b11a791f51c206990dc6ffd0cb56281d1f6841f5bca079a7c3`) has
+    300 receipts. Its fields carry no cycle. Every receipt's object `key` has the one shape
+    `blend.<date>/<HH>/text/blend_nbptx.t<HH>z`, and the cycle named in it is `07` in 300 of 300.
+  - The L48 run log (`nbp_run.log`) header gives dates 300. This matches 300 receipts.
+  - So, by the receipt names, the L48 blocks carry cycle 07 only, which lies within {07,01,00}. The 900 bound is
+    therefore supported by the receipts, not by code. It remains a FLAG threshold, not a target.
