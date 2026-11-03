@@ -227,6 +227,10 @@ The module introduces **no cutoff logic of its own**. Both sides inherit the bou
 - **Disclosed asymmetry** (prereg §3.3; MG-2 rule C1): history F is WU-hourly, while serve F is captured METAR.
   The module does not hide it. `fit_manifest.json` records `train_F_source: "wu_hourly"`, and the emit receipt
   records `serve_F_source: "captured_metar"`. The forward test is where METAR-F parity is confirmed.
+- **Disclosed NBM anchor asymmetry** (master review ruling 6, 2026-11-03; inherited from bound MG-2, not
+  introduced or changed by this module): training anchors NBM with `nbm_at_cutoff` at h:00, while serving anchors
+  it with `usable_v2_mean` at capture time. The module reproduces both sides exactly as bound; the runbook
+  (`docs/operations/YEARROUND_REFIT.md`) and the module docstring carry the same disclosure.
 
 ## 4. Captured-input replay
 
