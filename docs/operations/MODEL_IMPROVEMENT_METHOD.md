@@ -202,6 +202,9 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
     S31 v1 (ledger row 99) and X13 (row 103, realised population 0). Template: the per-arm realised-population
     count in `rodc_released_p0 --rehearse-to-table` at `d4ebc9576a991f3fd8b4446250030b98494b1359`
     (`claude/rodc-released-p0-run-20261031`).
+    Instance, projection vs realised: row 28 (ledger rows 114-117, 2026-11-03): the pre-look projection gave X−S
+    power 0.99999 (σ_eff 0.01872, MDE80 0.00261); realised SE_wide 0.00415 / 0.00420 / 0.00398 / 0.01021 (arms
+    A-D) against 0.001707, power 0.130 / 0.127 / 0.143 / 0.026, all < 0.50 (EF §10aw).
 17. **Compute an integrity cap's inputs before freezing it** (master, 2026-11-02, after ledger row 113, verbatim):
     "Before freezing an integrity cap, compute its input counts outcome-blind (e.g. partial/missing label days per
     period and market) and record them in the prereg, so a cap is set knowing the base rate." Instance: row 113 (3a,
