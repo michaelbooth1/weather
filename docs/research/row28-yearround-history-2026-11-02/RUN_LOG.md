@@ -1894,3 +1894,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   - **Correction.** My first append wrote a literal backslash-r instead of CR, and I replaced it at once. Only those
     2 just-written lines were rewritten, with exact CRLF bytes. The prefix was verified equal.
 - **STOP.**
+
+## Appended 2026-11-03T13:41:48-05:00: INDEX.md second correction accepted; root cause; standing rule (append only)
+
+- **Second correction (accepted by master 2026-11-03).** After the first correction, the 2 row-28 KILL lines in
+  `C:\archive\ruled-out\INDEX.md` still held control bytes in the receipts path: BEL (0x07) and CR (0x0D) where the
+  backslashes before `archive`, `ruled-out` and `row28-yearround-history-2026-11-02` should be. At 13:33 EST only those
+  2 path strings were replaced, by bytes, with the literal path. The prefix is byte-identical to the backup taken before
+  row 28 (366,242 bytes); the tail is 2 CRLF lines with no control bytes; new file sha256
+  `f5f49b3bb414292066c7745921086a6e96124f5b3f33ce75eab92626553b1780`.
+- **Root cause.** Backslash paths passed through an escape-interpreting write: `\a` became BEL and `\r` became CR.
+  The first correction fixed the line endings only and did not re-check the whole tail for control bytes.
+- **Standing rule (master, 2026-11-03).** INDEX appends write bytes from a file, verify the tail bytes, and contain no
+  control bytes.
