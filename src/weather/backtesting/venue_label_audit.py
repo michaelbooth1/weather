@@ -64,6 +64,8 @@ from weather.sources.daily_summary import native_bucket, native_high
 
 REFRESH_RECEIPT_SCHEMA = schema_version("venue_label_refresh_receipt")
 FREEZE_RECEIPT_SCHEMA = schema_version("venue_label_freeze_receipt")
+# The build-manifest key lists the freeze copies into each market's receipt entry (keys only, never the CSV).
+FREEZE_KEY_FIELDS = ("label_dates", "skipped_dates")
 AUDIT_SCHEMA = schema_version("venue_label_audit")
 
 DEFAULT_START = date(2026, 10, 22)
@@ -414,11 +416,17 @@ def freeze(look_id, through, *, label_root=DEFAULT_LABEL_ROOT, **refresh_kwargs)
     if look_dir.exists():
         raise AuditRefused(f"{look_dir} exists: a look is frozen once")
     run_dir, receipt, audit = refresh(through, label_root=label_root, **refresh_kwargs)
+    labels = run_dir / LABELS_DIRNAME
+    manifests = {spec.id: json.loads(default_manifest_path(spec, labels).read_text(encoding="utf-8"))
+                 for spec in BUILTIN_SPECS}
+    for market_id, manifest in manifests.items():  # key lists come from the manifest only, never the CSV
+        for name in FREEZE_KEY_FIELDS:
+            if name not in manifest:
+                raise AuditRefused(f"the {market_id} build manifest has no {name}: rebuild the labels")
     look_dir.mkdir(parents=True)
     markets = {}
     for spec in BUILTIN_SPECS:
-        labels = run_dir / LABELS_DIRNAME
-        manifest = json.loads(default_manifest_path(spec, labels).read_text(encoding="utf-8"))
+        manifest = manifests[spec.id]
         copies = {
             "label_csv": (default_label_path(spec, labels), default_label_path(spec, look_dir)),
             "manifest": (default_manifest_path(spec, labels), default_manifest_path(spec, look_dir)),
@@ -435,6 +443,8 @@ def freeze(look_id, through, *, label_root=DEFAULT_LABEL_ROOT, **refresh_kwargs)
         entry["label_csv_matches_manifest"] = entry["label_csv"]["sha256"] == manifest.get("output_sha256")
         entry["wu_daily_summary_matches_manifest"] = (
             entry["wu_daily_summary"]["sha256"] == manifest.get("wu_daily_summary_sha256"))
+        entry["label_dates"] = sorted(str(day) for day in manifest["label_dates"])  # keys only
+        entry["skipped_dates"] = {str(day): str(reason) for day, reason in sorted(manifest["skipped_dates"].items())}
         markets[spec.id] = entry
     freeze_receipt = {
         "schema_version": FREEZE_RECEIPT_SCHEMA,

@@ -74,11 +74,20 @@ python -m weather.backtesting.venue_rule_labels build --market nyc
 `data/venue_rule_labels/metar/<icao>/routine/`; run it only where downloads are
 approved. `build` writes `data/venue_rule_labels/<market>/daily/daily_summary.csv`
 and a `manifest.json` (input hashes, station config hash, counts, skipped dates
-with reasons). The CSV keeps the shared daily columns (`max_temp`,
+with reasons, `label_dates`). The CSV keeps the shared daily columns (`max_temp`,
 `max_temp_bucket`, `row_count`, `max_temp_times`) and adds `label_source`,
 `label_station`, `label_station_basis`, `label_event_station`,
 `label_rule_version`, `label_cutover_date`, `label_value_basis` and report
 counts. `row_count` is the routine report count.
+
+`label_dates` is the sorted ISO `local_date` of every row written, taken from
+the build's in-memory rows (keys only, never a label value). Before writing the
+CSV or the manifest, the build checks `len(label_dates) ==
+sum(label_source_counts)` and that `label_dates` is disjoint from
+`skipped_dates`; a violation raises `LabelKeyInvariantError` and writes
+nothing. The field is additive (the manifest schema is unchanged): a consumer
+that needs it refuses by name when it is absent and never falls back to the
+CSV.
 
 - Ledger: `python -m weather.market.market_day_labels finalize --label-rule venue`
   finalizes each market's folders dated on or after the cutover against its
@@ -171,8 +180,11 @@ directly, never through the workstation wrapper (like `venue_rule_labels`).
   and the WU daily summary its manifest names to
   `data/venue_rule_labels/frozen/ID/<market>/` as `daily/daily_summary.csv`,
   `manifest.json` and `wu/daily_summary.csv`, with `freeze_receipt.json`
-  (`venue_label_freeze_receipt_v1`). A look is frozen once; an existing `ID`
-  is refused. The layout is the reader's: a look reads only that copy, through
+  (`venue_label_freeze_receipt_v1`). Each market's receipt entry also copies
+  the manifest's `label_dates` and `skipped_dates`. These are keys only, taken
+  from the manifest and never from the CSV, and a manifest without them is
+  refused by name before any folder is made. A look's pre-stamp label check
+  reads them. A look is frozen once; an existing `ID` is refused. The layout is the reader's: a look reads only that copy, through
   `read_venue_labels(..., label_root=frozen/ID,
   wu_daily_summary=frozen/ID/<market>/wu/daily_summary.csv)`, inside its
   registered entry point. Log the receipt's shas before the look starts.

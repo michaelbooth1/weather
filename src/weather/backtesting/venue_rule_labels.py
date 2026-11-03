@@ -434,6 +434,34 @@ def build_label_rows(
     return rows, skipped
 
 
+class LabelKeyInvariantError(ValueError):
+    """A build whose label keys disagree with its own counts or skipped dates; nothing is written."""
+
+
+def label_keys(rows, skipped):
+    """The manifest's key-only ``label_dates`` and ``label_source_counts`` of one build, from its in-memory rows.
+
+    Both invariants are checked before anything is written:
+
+    - one row per date, with ``len(label_dates) == sum(label_source_counts)``;
+    - ``label_dates`` disjoint from ``skipped_dates``.
+
+    Consumers such as the R24 freeze and the MG-1 look read these keys. They never re-read the CSV.
+    """
+    label_dates = sorted({str(row["local_date"]) for row in rows})
+    counts = defaultdict(int)
+    for row in rows:
+        counts[row["label_source"]] += 1
+    if len(label_dates) != sum(counts.values()):
+        raise LabelKeyInvariantError(
+            f"{sum(counts.values())} label rows carry {len(label_dates)} distinct dates; nothing was written")
+    overlap = sorted(set(label_dates) & set(skipped))
+    if overlap:
+        raise LabelKeyInvariantError(
+            f"{len(overlap)} dates are both labelled and skipped (first {overlap[0]}); nothing was written")
+    return label_dates, dict(sorted(counts.items()))
+
+
 def write_label_csv(path, rows):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -498,11 +526,9 @@ def build_market_labels(
         event_sources=event_sources,
         cutover=cutover,
     )
+    label_dates, counts = label_keys(rows, skipped)  # before the CSV or the manifest is written
     out = Path(out or default_label_path(spec))
     write_label_csv(out, rows)
-    counts = defaultdict(int)
-    for row in rows:
-        counts[row["label_source"]] += 1
     payload = {
         "schema_version": MANIFEST_SCHEMA,
         "market_id": spec.id,
@@ -516,7 +542,8 @@ def build_market_labels(
         "station_config": str(station_config_path),
         "station_config_sha256": _sha256(station_config_path),
         "metar_inputs": inputs,
-        "label_source_counts": dict(sorted(counts.items())),
+        "label_source_counts": counts,
+        "label_dates": label_dates,
         "skipped_dates": dict(sorted(skipped.items())),
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
     }

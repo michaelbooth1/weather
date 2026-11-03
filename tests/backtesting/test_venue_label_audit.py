@@ -336,3 +336,38 @@ def test_module_size_schema_and_docs():
     section = doc.split("## Forward-look labels", 1)[1].split("\n## ", 1)[0]
     for needle in ("-m weather.backtesting.venue_label_audit", "refresh", "freeze", "audit", "STATION_DRIFT"):
         assert needle in section
+
+
+def test_the_freeze_copies_the_manifest_key_lists_keys_only(world):
+    """R24 freeze keys (master 2026-11-03): label_dates and skipped_dates come from the sha-verified frozen
+    manifest only, and equal it."""
+    look_dir, receipt, _ = vla.freeze("mg1", THROUGH, **world["kwargs"])
+    for market_id, entry in receipt["markets"].items():
+        manifest_path = Path(entry["manifest"]["path"])
+        assert vrl._sha256(manifest_path) == entry["manifest"]["sha256"]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert entry["label_dates"] == manifest["label_dates"] == sorted(manifest["label_dates"])
+        assert entry["skipped_dates"] == manifest["skipped_dates"]
+        assert len(entry["label_dates"]) == sum(manifest["label_source_counts"].values())
+        assert all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) for day in entry["label_dates"])
+    nyc = receipt["markets"]["nyc"]
+    with open(nyc["label_csv"]["path"], encoding="utf-8", newline="") as handle:
+        assert nyc["label_dates"] == sorted(row["local_date"] for row in csv.DictReader(handle))
+    _assert_no_label_values(receipt)
+    on_disk = (look_dir / "freeze_receipt.json").read_text(encoding="utf-8")
+    assert not any(canary in on_disk for canary in CANARY_TEXT) and "max_temp" not in on_disk
+
+
+def test_a_manifest_without_the_key_lists_is_refused_by_name_before_any_folder(world, monkeypatch):
+    real = vrl.build_market_labels
+
+    def legacy(*args, **kwargs):
+        payload = real(*args, **kwargs)
+        payload.pop("label_dates")
+        Path(kwargs["manifest"]).write_text(json.dumps(payload), encoding="utf-8")
+        return payload
+
+    monkeypatch.setattr(vla, "build_market_labels", legacy)
+    with pytest.raises(vla.AuditRefused, match="build manifest has no label_dates"):
+        vla.freeze("mg1", THROUGH, **world["kwargs"])
+    assert not (world["kwargs"]["label_root"] / "frozen" / "mg1").exists()
