@@ -72,6 +72,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_ps_exit_in_finally_ratchet.py",
             "tests/operations/test_maker_shadow_ops_scripts.py",
             "tests/calibration/test_mg2_input_export.py",
+            "tests/calibration/test_b_look_record.py",
         ],
     ),
     "launch": (
