@@ -667,6 +667,97 @@ function Get-WeatherWorkstationOfflineModule {
 }
 
 
+# Named research scripts the workstation wrapper's research_script kind admits:
+# one entry per exact absolute path under C:\t\<lane>\ and its lowercase sha256.
+# No wildcards and no directories; a script whose bytes change needs a new
+# reviewed entry (HOST_LOAD_POLICY workstation scope, master 2026-11-03 item b).
+function Get-WeatherWorkstationResearchScriptAllowlist {
+    [CmdletBinding()]
+    param()
+
+    @()
+}
+
+
+# The only directory research scripts are admitted under, one lane segment below.
+function Get-WeatherWorkstationResearchScriptRoot {
+    [CmdletBinding()]
+    param()
+
+    "C:\t"
+}
+
+
+# The SHA-256 of an open stream as lowercase hex.
+function Get-WeatherStreamSha256 {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][IO.Stream]$Stream)
+
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $Stream.Position = 0
+        $digest = $algorithm.ComputeHash($Stream)
+    }
+    finally { $algorithm.Dispose() }
+    return (($digest | ForEach-Object { $_.ToString("x2") }) -join "")
+}
+
+
+# Returns the refusal text for a research script, or $null when it is admitted.
+# Admitted only when the path is <Root>\<lane>\...\<name>.py with plain segments
+# (no "..", wildcards, short names or streams), every component from <Root> down
+# exists and is not a reparse point or junction, the leaf is a regular file, the
+# allowlist holds exactly one well-formed entry for that exact path, and
+# -ActualSha256 equals the pinned sha256 exactly.
+function Get-WeatherWorkstationResearchScriptRefusal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$ScriptPath,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$ActualSha256
+    )
+
+    $Root = Get-WeatherWorkstationResearchScriptRoot
+    $segment = '[A-Za-z0-9_][A-Za-z0-9_.-]*'
+    $pattern = '\A' + [regex]::Escape($Root) +
+        '\\[A-Za-z0-9][A-Za-z0-9_-]{0,31}\\(?:' + $segment + '\\)*' + $segment + '\.py\z'
+    if (
+        $ScriptPath.Length -gt 260 -or
+        $ScriptPath.Contains("..") -or
+        $ScriptPath -cnotmatch $pattern
+    ) {
+        return "research script must be a named .py file under $Root\<lane>\ (no '..', wildcards or streams)"
+    }
+    $components = @($ScriptPath.Substring($Root.Length + 1).Split("\"))
+    $current = $Root
+    for ($index = -1; $index -lt $components.Count; $index++) {
+        if ($index -ge 0) { $current = Join-Path $current $components[$index] }
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { return "research script path component is absent: $current" }
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            return "research script path component is a reparse point or junction: $current"
+        }
+        $isLeaf = $index -eq $components.Count - 1
+        if ($item.PSIsContainer -eq $isLeaf) {
+            return "research script path component has the wrong type: $current"
+        }
+    }
+    $entries = @(Get-WeatherWorkstationResearchScriptAllowlist | Where-Object {
+        [string]::Equals([string]$_.path, $ScriptPath, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($entries.Count -ne 1) {
+        return "research script has no single allowlist entry: $ScriptPath"
+    }
+    $pinned = [string]$entries[0].sha256
+    if ($pinned -cnotmatch '\A[0-9a-f]{64}\z') {
+        return "research script allowlist entry is malformed: $ScriptPath"
+    }
+    if ($ActualSha256 -cne $pinned) {
+        return "research script sha256 $ActualSha256 does not match the pinned $pinned"
+    }
+    return $null
+}
+
+
 # Arguments refused although their module is admitted (mirror of the Codex hook's
 # offline_argument_refusal; master ruling 2026-11-01, M4, and the second adversarial
 # pass): B's one look runs only through the pinned b_look_wrapper (B-1 Clarification 3).
@@ -2009,7 +2100,7 @@ function Enter-WeatherHeavyWorkloadLease {
         if (
             $Workload.Length -gt 96 -or
             $Workload -cnotmatch
-                '\AWorkstationOffline-(?:pytest|compileall|weather_heavy)-[A-Za-z0-9._-]+\z'
+                '\AWorkstationOffline-(?:pytest|compileall|weather_heavy|research_script)-[A-Za-z0-9._-]+\z'
         ) {
             throw "workstation-offline admission requires a canonical offline workload"
         }
