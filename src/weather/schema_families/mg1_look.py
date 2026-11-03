@@ -14,7 +14,8 @@ SCHEMAS = (
         "active",
         "MG-1's look receipt, written once (mode x) at data/mg1_look/receipt-<mg1_rule_sha256>.json by the "
         "registered MG-1 look entry point: entry point and source sha, rule sha, window, dates scored, the "
-        "code-stamped looked_at_utc, completion time, result sha, mg1.py sha, commit, host and body_sha256. "
+        "code-stamped looked_at_utc, completion time, result sha, mg1.py sha, commit, host, the R24 label "
+        "freeze receipt sha, the raised flags (label_refusal_unpredicted_by_metadata) and body_sha256. "
         "Rule B-1 reads it first and checks it in VOID 5.",
     ),
     SchemaSpec(

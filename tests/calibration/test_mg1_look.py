@@ -195,16 +195,23 @@ def _bucket_winner(truth):
     return bucket, 0 if bucket <= 59 else 1 if bucket <= 61 else 2 if bucket <= 63 else 3
 
 
-def _freeze(root, labels, drop=()):
-    """The R24 frozen copy (label_root layout) and its freeze receipt. ``labels``: {(market, date): (high, bucket)};
-    ``drop``: (market, date) rows left out of the frozen files (the reader then refuses them)."""
+def _freeze(root, labels, drop=(), thin=(), skipped=(), keys=True):
+    """The R24 frozen copy (label_root layout) and its freeze receipt. ``labels``: {(market, date): (high, bucket)}.
+
+    - ``drop``: (market, date) rows left out of the frozen files and of the key list (metadata predicts them);
+    - ``skipped``: the same, but recorded in the manifest's ``skipped_dates``;
+    - ``thin``: rows written with 10 observations and still listed (the reader refuses them; the metadata does not
+      predict it);
+    - ``keys``: whether the receipt carries the proposed ``label_dates`` key list.
+    """
     import csv
 
     from weather.backtesting import venue_rule_labels as vrl
 
     markets = {}
     for name in sorted({mk for mk, _ in labels}):
-        days = sorted(d for mk, d in labels if mk == name and (mk, d) not in drop)
+        days = sorted(d for mk, d in labels if mk == name and (mk, d) not in set(drop) | set(skipped))
+        rows = {d: 10 if (name, d) in thin else 24 for d in days}
         wu = root / name / "wu" / "daily_summary.csv"
         wu.parent.mkdir(parents=True)
         with wu.open("w", encoding="utf-8", newline="") as handle:
@@ -212,20 +219,29 @@ def _freeze(root, labels, drop=()):
             writer.writeheader()
             for d in days:
                 high, bucket = labels[(name, d)]
-                writer.writerow({"local_date": d.isoformat(), "temperature_unit": "F", "row_count": 24,
+                writer.writerow({"local_date": d.isoformat(), "temperature_unit": "F", "row_count": rows[d],
                                  "max_temp_native": high, "max_temp_bucket_native": bucket})
         venue = vrl.write_label_csv(root / name / "daily" / "daily_summary.csv", [
-            {"local_date": d.isoformat(), "temperature_unit": "F", "row_count": 24, "max_temp": labels[(name, d)][0],
+            {"local_date": d.isoformat(), "temperature_unit": "F", "row_count": rows[d],
+             "max_temp": labels[(name, d)][0],
              "max_temp_bucket": labels[(name, d)][1], "label_source": vrl.LABEL_SOURCE_METAR,
              "label_station": "KXXX", "label_station_basis": vrl.STATION_BASIS_REGISTRY,
              "label_rule_version": vrl.VENUE_RULE_VERSION,
              "label_cutover_date": vrl.VENUE_RULE_CUTOVER_DATE.isoformat(), "label_value_basis": "t_group"}
             for d in days if d >= vrl.VENUE_RULE_CUTOVER_DATE])
         manifest = root / name / "manifest.json"
-        manifest.write_text(json.dumps({"market_id": name, "skipped_dates": {}}), encoding="utf-8")
+        post = sum(1 for d in days if d >= vrl.VENUE_RULE_CUTOVER_DATE)
+        manifest.write_text(json.dumps({
+            "market_id": name, "label_dates": [d.isoformat() for d in days],
+            "skipped_dates": {d.isoformat(): "no_routine_metar_and_no_wu_row" for mk, d in skipped if mk == name},
+            "label_source_counts": {vrl.LABEL_SOURCE_METAR: post, vrl.LABEL_SOURCE_WU: len(days) - post}}),
+            encoding="utf-8")
         markets[name] = {key: {"path": str(path), "sha256": m.sha256_file(path)}
                          for key, path in (("label_csv", venue), ("manifest", manifest), ("wu_daily_summary", wu))}
         markets[name].update(label_csv_matches_manifest=True, wu_daily_summary_matches_manifest=True)
+        if keys:
+            body = json.loads(manifest.read_text(encoding="utf-8"))
+            markets[name].update(label_dates=body["label_dates"], skipped_dates=body["skipped_dates"])
     receipt = root / "freeze_receipt.json"
     receipt.write_text(json.dumps({"schema_version": m.FREEZE_RECEIPT_SCHEMA, "look_id": m.FREEZE_LOOK_ID,
                                    "through": LAST.isoformat(), "frozen_at_utc": FROZEN_AT, "audit_status": "ok",
@@ -233,7 +249,8 @@ def _freeze(root, labels, drop=()):
     return receipt
 
 
-def _synthetic(tmp_path, *, bad_markets=(), mutate=None, drop_labels=(), seed=7):
+def _synthetic(tmp_path, *, bad_markets=(), mutate=None, drop_labels=(), thin_labels=(), skipped_labels=(),
+               keys=True, seed=7):
     """45 dates x the support markets x 5 hours; MG-1 centred near the truth (``bad_markets``: 6 F too warm), served
     uniform, market sharp. Returns the paths ``score`` takes."""
     rng = np.random.default_rng(seed)
@@ -269,7 +286,7 @@ def _synthetic(tmp_path, *, bad_markets=(), mutate=None, drop_labels=(), seed=7)
     outcomes = tmp_path / "outcomes"
     outcomes.mkdir()
     market.to_parquet(outcomes / "market.parquet", index=False)
-    freeze = _freeze(tmp_path / "frozen" / "mg1", labels, drop_labels)
+    freeze = _freeze(tmp_path / "frozen" / "mg1", labels, drop_labels, thin_labels, skipped_labels, keys)
     return {"rule": RULE, "layout_root": layout, "countable": _countable(tmp_path / "countable.json"),
             "label_freeze": freeze, "market": outcomes / "market.parquet", "out": tmp_path / "out"}
 
@@ -290,19 +307,22 @@ def _nothing_spent(tmp_path):
 def test_the_registered_rule_constants_are_the_preregistrations():
     assert (m.N_DATES, m.PRIMARY, m.DRAWS, m.SEED, m.CROSSED_SEED) == (45, ("00-16", 0, 16), 2000, 20261004,
                                                                         20260921)
-    assert (m.MIN_NEGATIVE_MARKETS, m.MATERIALITY, m.COVERAGE_MIN, m.REPLAY_TOLERANCE) == (8, 0.05, 0.90, 1e-12)
+    assert (m.A1_MIN_NEGATIVE_MARKETS, m.MATERIALITY, m.COVERAGE_MIN, m.REPLAY_TOLERANCE) == (8, 0.05, 0.90, 1e-12)
     assert len(m.MARKETS) == 11 and set(m.MARKET_TZ) == set(m.MARKETS)
     assert sorted(m.VOID_CONDITIONS) == ["coverage", "parser", "pit", "replay", "window_leakage"]
 
 
 def test_the_owner_constants_keep_the_reviewed_behaviour_until_answered():
-    """A1, A5 and A12 are owner questions, open (MG-1 Clarification 2 section 3): one constant each."""
-    assert m.owner_constants() == {"A1_DENVER_SCORED": True, "A5_BAR": "as_written", "A12_FALSIFIER_4": "point"}
+    """A1 (with its Q3 count), A5 and A12 are owner questions, open (MG-1 Clarification 2 section 3)."""
+    assert m.owner_constants() == {"A1_DENVER_SCORED": True, "A1_MIN_NEGATIVE_MARKETS": 8, "A5_BAR": "as_written",
+                                   "A12_FALSIFIER_4": "point"}
     assert m.support_markets() == m.MARKETS
 
 
 @pytest.mark.parametrize("name,value", [("A1_DENVER_SCORED", "yes"), ("A5_BAR", "abs"),
-                                        ("A12_FALSIFIER_4", "both")])
+                                        ("A12_FALSIFIER_4", "both"), ("A1_MIN_NEGATIVE_MARKETS", 0),
+                                        ("A1_MIN_NEGATIVE_MARKETS", 12), ("A1_MIN_NEGATIVE_MARKETS", True),
+                                        ("A1_MIN_NEGATIVE_MARKETS", "8"), ("A1_MIN_NEGATIVE_MARKETS", 8.0)])
 def test_an_unbuilt_owner_branch_is_refused(monkeypatch, name, value):
     monkeypatch.setattr(m, name, value)
     with pytest.raises(m.MG1LookRefused, match="not one of the built branches"):
@@ -323,7 +343,10 @@ def test_a_clean_synthetic_window_passes_and_writes_one_receipt(tmp_path, monkey
     assert _result(tmp_path)["decision"]["verdict"] == "PASS"
     assert payload["owner_constants"] == m.owner_constants() and payload["markets"] == list(m.MARKETS)
     assert payload["outcome_blind_checks"]["coverage"]["share_00_16"] == 1.0
-    assert payload["label_masked"]["market_days"] == 0
+    assert payload["label_masked"]["market_days"] == 0 and receipt["flags"] == [] and payload["receipt_flags"] == []
+    keys = payload["inputs"]["label_key_check"]
+    assert keys["countable_market_days"] == keys["with_label_key"] == 45 * 11
+    assert sorted(keys["label_source_counts"]) == sorted(m.MARKETS)
     assert payload["inputs"]["market_day_mask"] == {"countable_market_days": 45 * 11, "masked_market_days": 0}
     assert payload["inputs"]["label_freeze_receipt_sha256"] == receipt["label_freeze_receipt_sha256"]
     assert payload["reported"]["15-16"]["label"].startswith("known development cost")
@@ -365,14 +388,95 @@ def test_winner_band_maps_a_label_bucket_to_exactly_one_band():
         m.winner_band(ladder[1:3], 70)
 
 
-def test_a_refused_label_masks_its_market_day_and_never_voids(tmp_path, monkeypatch):
-    """T2: a reader refusal masks that market-day for MG-1; it is disclosed and the look still scores."""
-    gone = ("nyc", D0 + timedelta(days=12))
-    _, payload = _score(monkeypatch, _synthetic(tmp_path, drop_labels={gone}))
+def test_an_unpredicted_reader_refusal_masks_its_market_day_and_flags_the_receipt(tmp_path, monkeypatch):
+    """Q2 after the stamp (T2): a refusal the metadata did not predict (a thin day still listed) masks that
+    market-day, is disclosed in label_masked, raises the receipt flag and never voids."""
+    thin = ("nyc", D0 + timedelta(days=12))
+    path, payload = _score(monkeypatch, _synthetic(tmp_path, thin_labels={thin}))
     masked = payload["label_masked"]
-    assert masked["market_days"] == 1 and masked["snapshots"] == len(HOURS)
-    assert masked["market_days_masked"] == [f"{gone[1].isoformat()}:nyc"]
+    assert masked["market_days"] == masked["unpredicted_by_metadata"] == 1 and masked["snapshots"] == len(HOURS)
+    assert masked["market_days_masked"] == [f"{thin[1].isoformat()}:nyc"]
     assert payload["decision"]["verdict"] == "PASS" and payload["primary"]["n_market_days"] == 45 * 11 - 1
+    receipt = json.loads(path.read_text(encoding="utf-8"))
+    assert receipt["flags"] == [m.UNPREDICTED_REFUSAL_FLAG] == payload["receipt_flags"]
+    assert m.receipt_problems(path) == []
+
+
+@pytest.mark.parametrize("kw,match", [
+    ({"drop_labels": {("nyc", D0 + timedelta(days=12))}}, r"held: 1 countable market-days have no label key .*"
+                                                           r"'no_label_key': 1.*2026-10-27:nyc"),
+    ({"skipped_labels": {("denver", D0 + timedelta(days=30))}}, r"held: 1 countable .*'skipped': 1"),
+])
+def test_a_countable_market_day_without_a_label_key_holds_before_the_stamp(tmp_path, monkeypatch, kw, match):
+    """Q2 before the stamp: metadata only (no CSV parse, no reader call); a hole holds and consumes nothing."""
+    from weather.backtesting import venue_label_reader as vlr
+
+    inputs = _synthetic(tmp_path, **kw)
+
+    def no_reader(*args, **kwargs):
+        raise AssertionError("the label reader ran before the stamp")
+
+    monkeypatch.setattr(vlr, "read_venue_labels", no_reader)
+    monkeypatch.setattr(pd, "read_csv", no_reader)
+    with pytest.raises(m.MG1LookHeld, match=match):
+        _score(monkeypatch, inputs)
+    assert _nothing_spent(tmp_path)
+    m.Look(RULE)  # the look is still available
+
+
+def _edit_market(path, market, **changes):
+    body = json.loads(path.read_text(encoding="utf-8"))
+    for key, value in changes.items():
+        if value is None:
+            body["markets"][market].pop(key)
+        else:
+            body["markets"][market][key] = value
+    path.write_text(json.dumps(body), encoding="utf-8")
+
+
+def _rewrite_manifest(path, market, **changes):
+    """Edit one frozen manifest and re-record its sha in the receipt (an internally consistent but bad freeze)."""
+    manifest = path.parent / market / "manifest.json"
+    body = json.loads(manifest.read_text(encoding="utf-8"))
+    body.update(changes)
+    manifest.write_text(json.dumps(body), encoding="utf-8")
+    _edit_market(path, market, manifest={"path": str(manifest), "sha256": m.sha256_file(manifest)})
+
+
+def test_a_freeze_without_the_label_key_list_is_refused_by_name(tmp_path, monkeypatch):
+    """No CSV fallback, ever: the look refuses naming the field the R24 freeze must carry."""
+    inputs = _synthetic(tmp_path, keys=False)
+    with pytest.raises(m.MG1LookRefused, match=r"no markets\['atlanta'\]\.label_dates key list"):
+        _score(monkeypatch, inputs)
+    assert _nothing_spent(tmp_path)
+
+
+@pytest.mark.parametrize("edit,match", [
+    ("receipt_differs", "label_dates differs from its manifest's"),
+    ("count", "count differs from its manifest's label_source_counts"),
+    ("overlap", "overlap its manifest's skipped_dates"),
+    ("skipped_differs", "skipped_dates differ from its manifest's"),
+    ("unsorted", "not a sorted list of distinct dates"),
+])
+def test_inconsistent_label_metadata_is_refused_before_the_stamp(tmp_path, monkeypatch, edit, match):
+    inputs = _synthetic(tmp_path)
+    freeze = inputs["label_freeze"]
+    listed = json.loads(freeze.read_text(encoding="utf-8"))["markets"]["houston"]["label_dates"]
+    if edit == "receipt_differs":
+        _edit_market(freeze, "houston", label_dates=listed[:-1])
+    elif edit == "count":
+        _rewrite_manifest(freeze, "houston", label_source_counts={"wu": 1})
+    elif edit == "overlap":
+        _rewrite_manifest(freeze, "houston", skipped_dates={listed[0]: "x"})
+        _edit_market(freeze, "houston", skipped_dates={listed[0]: "x"})
+    elif edit == "skipped_differs":
+        _edit_market(freeze, "houston", skipped_dates={listed[0]: "x"})
+    else:
+        _edit_market(freeze, "houston", label_dates=listed[::-1])
+        _rewrite_manifest(freeze, "houston", label_dates=listed[::-1])
+    with pytest.raises(m.MG1LookRefused, match=match):
+        _score(monkeypatch, inputs)
+    assert _nothing_spent(tmp_path)
 
 
 def test_the_primary_is_equal_cell_and_date_clustered_at_seed_20261004(tmp_path, monkeypatch):
@@ -451,12 +555,29 @@ def test_a12_falsifier_4_branches(monkeypatch):
     assert m.decide(primary, per, 0.1, -0.01)["verdict"] == "PASS"  # a bare point estimate has no interval
 
 
+def test_a1_min_negative_markets_is_the_fleet_wide_count(monkeypatch):
+    """Q3 (owner question tied to A1): one constant, 8 with Denver in and out until the owner records a value."""
+    per = {k: {"mean_delta": -0.01 if i < 7 else 0.01} for i, k in enumerate(m.MARKETS)}
+    primary = {"estimate": -0.01, "ci95": [-0.02, -0.001]}
+    d = m.decide(primary, per, 0.1, -0.01)
+    assert d["n_markets_negative"] == 7 and d["conditions"]["markets_negative"] is False
+    monkeypatch.setattr(m, "A1_MIN_NEGATIVE_MARKETS", 7)
+    assert m.decide(primary, per, 0.1, -0.01)["verdict"] == "PASS"
+    monkeypatch.setattr(m, "A1_DENVER_SCORED", False)
+    monkeypatch.setattr(m, "A1_MIN_NEGATIVE_MARKETS", 10)
+    assert m.owner_constants()["A1_MIN_NEGATIVE_MARKETS"] == 10
+    monkeypatch.setattr(m, "A1_MIN_NEGATIVE_MARKETS", 11)
+    with pytest.raises(m.MG1LookRefused, match="exceeds the 10 scored markets"):
+        m.owner_constants()
+
+
 def test_a1_without_denver_scores_the_ten(tmp_path, monkeypatch):
     """A1 (owner question, open), the other branch: Denver leaves the support and the scored markets."""
     monkeypatch.setattr(m, "A1_DENVER_SCORED", False)
     assert "denver" not in m.support_markets() and len(m.support_markets()) == 10
     _, payload = _score(monkeypatch, _synthetic(tmp_path))
     assert payload["markets"] == [x for x in m.MARKETS if x != "denver"]
+    assert payload["owner_constants"]["A1_MIN_NEGATIVE_MARKETS"] == 8
     assert sorted(payload["per_market"]) == sorted(payload["markets"])
     assert payload["inputs"]["market_day_mask"]["countable_market_days"] == 45 * 10
     with pytest.raises(m.MG1LookRefused, match="exactly the support"):

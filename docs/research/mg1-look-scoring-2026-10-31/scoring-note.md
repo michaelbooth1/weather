@@ -59,7 +59,7 @@ Each step runs only after the one before it passes.
 | # | Spec text | What the code does for now | Question for master |
 | --- | --- | --- | --- |
 | A1 | "US11", "the fixed 11-market support" (§4, §7) | B-1's ten markets plus `denver` | Which 11? Denver settles on KDEN from 2026-10-23 (the MG-2 C8 note), while MG-1 reads KBKF guidance. Does Denver stay in? |
-| A2 | "The settlement label is the venue winner" (§3) | `--labels` (`row_key, winner`) and `--market` parquet files, read only at the join | Where do the labels and prices come from: their transfer, provenance and manifest? Should it reuse B's `b_transfer/1` or have its own? |
+| A2 | "The settlement label is the venue winner" (§3) | At 1179f990d: `--labels` (`row_key, winner`) and `--market` parquet files, read only at the join. Now `--label-freeze <receipt>` (section 5) | Where do the labels and prices come from: their transfer, provenance and manifest? Should it reuse B's `b_transfer/1` or have its own? |
 | A3 | Countable dates (§3, Clarification 1 §3-4; master owns countability) | An `mg1_countable/1` JSON written by master. It has one row per calendar date, with `promotion_countable`, `parser_v2_verified` and `shadow_stage_captured` | Is that format and that owner right? |
 | A4 | "after the 45th counted date has settled" (§4) | The window has closed, AND it is past the latest US11 market-local midnight after the 45th date | Is "settled" a later instant, such as the label being final? |
 | A5 | "estimate ≤ −5% of the window's own 00-16 served − market gap" | The bar is −0.05·gap, as written. If gap ≤ 0 (served beat the market), the bar becomes ≥ 0 | Intended? |
@@ -93,8 +93,13 @@ Synthetic tests only.
 
 **Owner questions.** A1, A5 and A12 stay owner questions, open. Each is one constant: `A1_DENVER_SCORED`
 (True), `A5_BAR` ("as_written") and `A12_FALSIFIER_4` ("point"). Both branches of each are built and tested,
-the result records the values in force, and `owner_constants()` refuses any value outside the two branches.
-With A1 False, Denver leaves both the support and the scored markets, and `MIN_NEGATIVE_MARKETS` stays 8.
+the result records the values in force, and `owner_constants()` refuses any value outside the built branches.
+With A1 False, Denver leaves both the support and the scored markets.
+
+Q3 (master, 2026-11-03) adds an owner question tied to A1: `A1_MIN_NEGATIVE_MARKETS`.
+- It replaces the former `MIN_NEGATIVE_MARKETS` and defaults to 8, both with Denver in and with Denver out.
+- Its value is recorded with the owner's A1 answer, before the look.
+- `owner_constants()` refuses a non-integer, a value below 1, and a value above the number of scored markets.
 
 **A3: countability and the hole check.**
 - `mg1_countable/1` rows carry `markets{m: bool}` over the support. `promotion_countable` must equal
@@ -130,8 +135,28 @@ the schema string to its schema family.
 `winner_band` maps `label_bucket` to the snapshot's band index (lte, range, gte). The look receipt gains
 `label_freeze_receipt_sha256`.
 
-**T2: refused labels.** A label the reader refuses masks its market-day after the join. It is disclosed in
-`label_masked` (count, reasons, market-day keys) and never voids or aborts the look. A bucket that falls in
-zero or several bands of its ladder still aborts.
+**Q2: the label key check before the stamp (master, 2026-11-03).** `label_key_check` runs before
+`looked_at_utc` is stamped. It reads metadata only: no CSV parse and no reader call. Its inputs are:
+- the freeze receipt's per-market key list, `markets[<market>].label_dates`. This is a sorted list of ISO dates:
+  the `local_date` of every row of the frozen label CSV, copied from the build manifest's `label_dates`.
+  The field and its manifest source are confirmed by master and built on `claude/r24-freeze-keys-20261103`;
+- the sha-verified frozen manifest's `skipped_dates` and `label_source_counts`.
 
-**CLI.** `--labels` is replaced by `--label-freeze`.
+Rules:
+- A receipt without `label_dates` is refused by name. The list is never derived from the CSV.
+- The list must equal the manifest's own `label_dates` and count `sum(label_source_counts)`.
+- The list must be disjoint from `skipped_dates`, and a receipt copy of `skipped_dates` must equal the manifest's.
+- A countable market-day that is skipped, or that has no label key, raises `MG1LookHeld`. Nothing is consumed.
+- The result records counts only (`inputs.label_key_check`).
+
+**T2: refused labels after the stamp.** A label the reader refuses that the metadata did not predict masks its
+market-day. It is disclosed in `label_masked`: count, reasons, market-day keys and `unpredicted_by_metadata`.
+It raises the receipt flag `label_refusal_unpredicted_by_metadata`; the receipt gains `flags`. It never voids
+or aborts the look. A bucket that falls in zero or several bands of its ladder still aborts.
+
+**Receipt fields.** The receipt adds `label_freeze_receipt_sha256` and `flags` to the fields listed in the B-1
+receipt clarification of 2026-10-26. Every field listed there is unchanged, so VOID 5's "every field present" still
+holds. A B-1 look-chain clarification should list the two additions.
+
+**CLI (Q4).** `run` takes only `--label-freeze <receipt>`; `--labels` is gone. No runbook or operations
+document names `--labels` for `mg1_look`; this note was the only one.

@@ -33,15 +33,20 @@ order:
 Non-countable market-days are dropped from the layout (A3). Then come the holds, which consume nothing:
 
 - a countable market-day with no layout rows;
+- a countable market-day with no label key in the frozen label metadata (``label_key_check``, Q2). It reads only
+  the freeze receipt's ``label_dates`` key list and the frozen manifest's ``skipped_dates`` and
+  ``label_source_counts``. It parses no CSV and calls no reader. A missing key list is refused by name;
 - a used row whose ``v2_status`` is not "available" (A6).
 
 It then builds the MG-1 vector (``free_source_candidates.mg1.predict``, whose sha the receipt records) and runs
 every outcome-blind VOID check. Only then does ``join_outcomes`` read the labels (``read_venue_labels`` on the
-frozen copy, A2) and the capture-time prices. A label the reader refuses masks that market-day (T2). Every exit
-after that first join writes the result and the receipt (a verdict, a VOID, or ABORTED).
+frozen copy, A2) and the capture-time prices. A label the reader refuses that the metadata did not predict masks
+that market-day (T2). It is disclosed in ``label_masked`` and raises the receipt flag
+``label_refusal_unpredicted_by_metadata``. Every exit after that first join writes the result and the receipt (a
+verdict, a VOID, or ABORTED).
 
-The owner's open questions A1, A5 and A12 are one constant each (``A1_DENVER_SCORED``, ``A5_BAR``,
-``A12_FALSIFIER_4``). Both branches of each are built, and the result records the values in force.
+The owner's open questions are one constant each: ``A1_DENVER_SCORED`` and ``A1_MIN_NEGATIVE_MARKETS`` (A1, Q3),
+``A5_BAR`` and ``A12_FALSIFIER_4``. Every branch is built, and the result records the values in force.
 """
 from __future__ import annotations
 
@@ -67,6 +72,7 @@ MG1_FILE = "src/weather/reporting/scorecards/free_source_candidates/mg1.py"
 LOOK_ROOT = paths.data_path("mg1_look")
 RECEIPT_FIELDS = ("schema", "entry_point", "mg1_rule_sha256", "window", "dates_scored", "looked_at_utc",
                   "completed_at_utc", "result", "mg1_py_sha256", "repo_commit", "host", "label_freeze_receipt_sha256",
+                  "flags",
                   "body_sha256")
 
 
@@ -155,10 +161,11 @@ class Look:
             self.looked_at_utc = stamped
         return loader(*args, **kwargs)
 
-    def finish(self, *, result, dates, root=None, label_freeze_receipt_sha256=None):
+    def finish(self, *, result, dates, root=None, label_freeze_receipt_sha256=None, flags=()):
         """Write the receipt (mode "x") at the fixed path for the rule and return its path.
 
-        ``label_freeze_receipt_sha256`` is the R24 freeze receipt the look read its labels through (A2)."""
+        ``label_freeze_receipt_sha256`` is the R24 freeze receipt the look read its labels through (A2). ``flags``
+        are the flags the look raised (Q2: ``label_refusal_unpredicted_by_metadata``)."""
         if self.looked_at_utc is None:
             raise MG1LookRefused("no outcome was joined through join_outcomes: there is no look to record")
         if self.receipt is not None:
@@ -176,7 +183,8 @@ class Look:
                    "looked_at_utc": self.looked_at_utc, "completed_at_utc": _utc_now(),
                    "result": {"path": str(Path(result).resolve()), "sha256": sha256_file(result)},
                    "mg1_py_sha256": sha256_file(root / MG1_FILE), "repo_commit": head_commit(root),
-                   "host": socket.gethostname(), "label_freeze_receipt_sha256": label_freeze_receipt_sha256}
+                   "host": socket.gethostname(), "label_freeze_receipt_sha256": label_freeze_receipt_sha256,
+                   "flags": sorted({str(f) for f in flags})}
         receipt["body_sha256"] = body_sha256(receipt)
         path = receipt_path(self.rule_sha256)
         _write_x(path, receipt)
@@ -232,15 +240,23 @@ MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-a
 A1_DENVER_SCORED = True        # A1: True keeps Denver in the support and the scored markets (KDEN labels from
 #                                the cutover, read with model_scoring=False); False drops Denver from both
 A5_BAR = "as_written"          # A5: "as_written" bar = -0.05 * gap; "magnitude" bar = -0.05 * |gap|
+A1_MIN_NEGATIVE_MARKETS = 8    # A1 (Q3): section 4's fleet-wide count (">= 8/11"); 8 with Denver in and out until
+#                                the owner records a value with the A1 answer, before the look
 A12_FALSIFIER_4 = "point"      # A12: "point" = the crossed point estimate has the opposite sign; "interval" = the
 #                                crossed 95% interval lies entirely on the opposite side of 0
-OWNER_CHOICES = {"A1_DENVER_SCORED": (True, False), "A5_BAR": ("as_written", "magnitude"),
-                 "A12_FALSIFIER_4": ("point", "interval")}
+OWNER_CHOICES = {"A1_DENVER_SCORED": (True, False), "A1_MIN_NEGATIVE_MARKETS": tuple(range(1, len(MARKETS) + 1)),
+                 "A5_BAR": ("as_written", "magnitude"), "A12_FALSIFIER_4": ("point", "interval")}
 # R24 freeze receipt (weather.backtesting.venue_label_audit ``freeze --look mg1``, R24 paragraph 3). The schema
 # string is the venue_labels schema family's; it is pinned by a test once that module lands.
 FREEZE_RECEIPT_SCHEMA = "venue_label_freeze_receipt_v1"
 FREEZE_LOOK_ID = "mg1"
 FREEZE_FILES = ("label_csv", "manifest", "wu_daily_summary")
+# The label key list the pre-stamp metadata check reads (Q2, confirmed by master 2026-11-03; R24 freeze-keys head
+# claude/r24-freeze-keys-20261103): ``markets[<market>].label_dates``, the sorted ISO local_date of every row of the
+# frozen label CSV, copied from the build manifest's ``label_dates`` (with its ``skipped_dates``). It is refused by
+# name when absent; the look never derives it from the CSV.
+FREEZE_LABEL_KEYS = "label_dates"
+UNPREDICTED_REFUSAL_FLAG = "label_refusal_unpredicted_by_metadata"
 MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": "America/New_York",
              "austin": "America/Chicago", "chicago": "America/Chicago", "dallas": "America/Chicago",
              "houston": "America/Chicago", "denver": "America/Denver", "los-angeles": "America/Los_Angeles",
@@ -250,7 +266,6 @@ PRIMARY = ("00-16", 0, 16)        # section 4: local 00:00-16:59
 DRAWS = 2000                      # section 4: multinomial date bootstrap, 2,000 draws
 SEED = 20261004                   # section 4: seed 20261004 (fixed-market, date-clustered)
 CROSSED_SEED = 20260921           # section 4 reported: "81a's statistics, seed 20260921" (the scorecard's Table.w)
-MIN_NEGATIVE_MARKETS = 8          # section 4: >= 8/11 markets with a negative per-market mean delta
 MATERIALITY = 0.05                # section 4: estimate <= -5% of the window's own 00-16 served - market gap
 COVERAGE_MIN = 0.90               # section 6 VOID: 00-16 MG-1 coverage below 90% of snapshots
 REPLAY_TOLERANCE = 1e-12          # section 6 VOID: replay reproduces the shadow vector to 1e-12
@@ -272,10 +287,17 @@ VOID_CONDITIONS = {
 
 def owner_constants():
     """The owner-question constants in force (A1, A5, A12); refuses a value outside the two built branches."""
-    values = {"A1_DENVER_SCORED": A1_DENVER_SCORED, "A5_BAR": A5_BAR, "A12_FALSIFIER_4": A12_FALSIFIER_4}
+    values = {"A1_DENVER_SCORED": A1_DENVER_SCORED, "A1_MIN_NEGATIVE_MARKETS": A1_MIN_NEGATIVE_MARKETS,
+              "A5_BAR": A5_BAR, "A12_FALSIFIER_4": A12_FALSIFIER_4}
     for name, value in values.items():
-        if value not in OWNER_CHOICES[name] or (name == "A1_DENVER_SCORED" and not isinstance(value, bool)):
+        typed = {"A1_DENVER_SCORED": bool, "A1_MIN_NEGATIVE_MARKETS": int}.get(name, str)
+        if (not isinstance(value, typed) or (typed is int and isinstance(value, bool))
+                or value not in OWNER_CHOICES[name]):
             raise MG1LookRefused(f"{name} = {value!r} is not one of the built branches {OWNER_CHOICES[name]}")
+    scored = len(MARKETS) - (0 if A1_DENVER_SCORED else 1)
+    if A1_MIN_NEGATIVE_MARKETS > scored:
+        raise MG1LookRefused(f"A1_MIN_NEGATIVE_MARKETS = {A1_MIN_NEGATIVE_MARKETS} exceeds the {scored} scored "
+                             "markets")
     return values
 
 
@@ -418,7 +440,7 @@ def read_freeze_receipt(path, last_date, settled):
         raise MG1LookRefused(f"the labels were frozen at {frozen.isoformat()}, before the 45th date ended in every "
                              f"scored market ({settled.isoformat()})")
     root = p.parent
-    files = {}
+    files, keys = {}, {}
     for market in support_markets():
         entry = entries.get(market) if isinstance(entries, dict) else None
         if not isinstance(entry, dict):
@@ -434,8 +456,63 @@ def read_freeze_receipt(path, last_date, settled):
             if not want or not local[name].is_file() or sha256_file(local[name]) != want:
                 raise MG1LookRefused(f"the frozen {market} {name} is missing or differs from the freeze receipt")
         files[market] = local
+        keys[market] = {name: entry.get(name) for name in (FREEZE_LABEL_KEYS, "skipped_dates")}
     return {"path": str(p), "sha256": sha256_file(p), "through": through.isoformat(),
-            "frozen_at_utc": frozen.isoformat(), "files": files}
+            "frozen_at_utc": frozen.isoformat(), "files": files, "keys": keys}
+
+
+def label_key_check(freeze, rows):
+    """Q2: the pre-stamp, METADATA-ONLY label check. It reads no CSV and calls no reader.
+
+    Inputs:
+
+    - the freeze receipt's per-market ``label_dates`` key list (keys only);
+    - the sha-verified frozen build manifest's ``skipped_dates`` and ``label_source_counts``.
+
+    A missing key list is refused by name, and never derived from the CSV. The key list must equal the manifest's
+    own ``label_dates`` when the manifest has one, must count ``sum(label_source_counts)``, and must be disjoint
+    from ``skipped_dates``.
+
+    A countable market-day that is skipped, or that has no label key, holds the look. Nothing is consumed.
+    Returns the disclosed metadata: counts only.
+    """
+    flags = market_day_flags(rows)
+    wanted = sorted(k for k, flag in flags.items() if flag)
+    holes, sources = [], {}
+    for market in support_markets():
+        keys = freeze["keys"][market]
+        listed = keys.get(FREEZE_LABEL_KEYS)
+        if listed is None:
+            raise MG1LookRefused(f"the label freeze receipt has no markets[{market!r}].{FREEZE_LABEL_KEYS} key list: "
+                                 "the R24 freeze must copy it from the build manifest (the look never derives it "
+                                 "from the CSV)")
+        try:
+            manifest = json.loads(Path(freeze["files"][market]["manifest"]).read_text(encoding="utf-8"))
+            listed = [date.fromisoformat(str(d)).isoformat() for d in listed]
+            skipped = {date.fromisoformat(str(d)).isoformat(): str(r) for d, r in manifest["skipped_dates"].items()}
+            counts = {str(k): int(v) for k, v in manifest["label_source_counts"].items()}
+        except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise MG1LookRefused(f"the frozen {market} label metadata is unreadable: {exc}") from exc
+        if listed != sorted(set(listed)):
+            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} is not a sorted list of distinct dates")
+        if FREEZE_LABEL_KEYS in manifest and list(manifest[FREEZE_LABEL_KEYS]) != listed:
+            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} differs from its manifest's")
+        if keys.get("skipped_dates") is not None and dict(keys["skipped_dates"]) != skipped:
+            raise MG1LookRefused(f"the frozen {market} skipped_dates differ from its manifest's")
+        if len(listed) != sum(counts.values()):
+            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} count differs from its manifest's "
+                                 "label_source_counts")
+        present = set(listed)
+        if present & set(skipped):
+            raise MG1LookRefused(f"the frozen {market} {FREEZE_LABEL_KEYS} overlap its manifest's skipped_dates")
+        holes += [(d, m, "skipped" if d in skipped else "no_label_key") for d, m in wanted
+                  if m == market and (d in skipped or d not in present)]
+        sources[market] = counts
+    if holes:
+        by = {r: sum(1 for h in holes if h[2] == r) for r in sorted({h[2] for h in holes})}
+        raise MG1LookHeld(f"held: {len(holes)} countable market-days have no label key in the frozen label "
+                          f"metadata {by} (first {holes[0][0]}:{holes[0][1]}); nothing was consumed (Q2)")
+    return {"countable_market_days": len(wanted), "with_label_key": len(wanted), "label_source_counts": sources}
 
 
 def read_inputs(layout_root, rows):
@@ -767,7 +844,7 @@ def decide(primary, per_market, gap, crossed):
     negative = sorted(m for m, r in per_market.items() if r["mean_delta"] is not None and r["mean_delta"] < 0)
     bar = materiality_bar(gap)
     conditions = {"upper_bound_below_0": up is not None and up < 0,
-                  "markets_negative": len(negative) >= MIN_NEGATIVE_MARKETS,
+                  "markets_negative": len(negative) >= owner_constants()["A1_MIN_NEGATIVE_MARKETS"],
                   "material": bar is not None and est <= bar}
     falsifiers = []
     if est >= 0 or up is None or up >= 0:
@@ -874,6 +951,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
         raise MG1LookRefused(f"{result} already exists: MG-1 has exactly one look")
     changes = sorted({date.fromisoformat(str(d)) for d in serving_changes})
     snaps, bands, input_shas = read_inputs(layout_root, rows)  # A3 mask and hole check (a hole holds)
+    label_keys = label_key_check(freeze, rows)  # Q2: metadata-only; a countable day without a label key holds
     frame = mg1_vector(snaps, bands)
     checks, reasons, reason_of = outcome_blind_checks(snaps, bands, frame, shadow, look.absence)
     bad_status = checks["pit"]["used_status_not_available"]
@@ -892,18 +970,24 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
                                         for r in rows if r["countable"]},
             "inputs": {**input_shas, "countable_sha256": sha256_file(countable),
                        "label_freeze": {k: freeze[k] for k in ("path", "sha256", "through", "frozen_at_utc")},
+                       "label_key_check": label_keys,
                        "mg1_frame_rows": int(len(frame))},
             "markets": list(support_markets()), "outcome_blind_checks": checks, "coverage_reasons": reasons,
             "served_releases": served_releases(snaps), "serving_changes": [d.isoformat() for d in changes],
             "outcomes_opened": False}
     finish = {"dates": [d.isoformat() for d in counted], "root": root,
-              "label_freeze_receipt_sha256": freeze["sha256"]}
+              "label_freeze_receipt_sha256": freeze["sha256"], "flags": []}
     try:
         lab, mkt, priced, shas, keep, masked = look.join_outcomes(load_outcomes, freeze, market, snaps, bands,
                                                                   counted[-1])
         base["outcomes_opened"] = True
         base["inputs"].update(shas)
-        base["label_masked"] = masked  # T2: refused labels mask their market-day, never a VOID
+        # T2: a refusal masks its market-day, never a VOID. The metadata check passed, so every refusal here is one
+        # it did not predict: disclosed, and flagged in the receipt (Q2).
+        base["label_masked"] = {**masked, "unpredicted_by_metadata": masked["market_days"]}
+        if masked["market_days"]:
+            finish["flags"] = [UNPREDICTED_REFUSAL_FLAG]
+        base["receipt_flags"] = list(finish["flags"])
         kept = snaps[keep].reset_index(drop=True)
         kept_bands = bands[bands.row_key.isin(set(kept.row_key))].reset_index(drop=True)
         table = _table(kept, kept_bands, lab, mkt)
