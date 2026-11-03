@@ -9,7 +9,7 @@ FROZEN"; it is superseded by this record, and the prereg itself is not edited af
   `cb6d4e8da0ab5a144a185cf8dbaf777881402ea8a95db99f2a0e98f20a5e132b`.
 - **Tip:** `2a0b3ffbac16a245123f288587e5d7857842e642` on
   `claude/row28-yearround-history-20261102`.
-- **Frozen by master:** 2026-11-03 02:3x EST, per master's log. Relayed to the WS
+- **Frozen by master:** 2026-11-03 02:25:03 EST (master's host-logged Get-Date). Relayed to the WS
   (lane L59) at 2026-11-03T02:25:21.6934278-05:00 (WS Get-Date at receipt of the relay).
 
 ## Inputs bound by the freeze
