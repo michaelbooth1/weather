@@ -1604,3 +1604,89 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
   -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
 ```
+
+## Appended 2026-11-03T09:20:47-05:00: labels (stage 4) PASS, consistency only (append only, counts only)
+
+- **Run.** Launched at 09:06:23 with the exact form. Walker 09:06:24 → 09:20:01, about 13m37s.
+  - Launcher: COMPLETE, exit 0, stderr 0 bytes. Walker exit 0, stderr 0 bytes.
+  - Receipt `d38235a33a3efbc0b288129feda974ecf8011104daffc3fbb096dcc1d60b65cb`; walk.json
+    `0f019343316f4e37a4acd543faf77b3cae54aca70d54ea96ab48615f91e73363`; walk.csv `68d3da1b028d1da18c5883b496c77eeebce9d9eff43300c7bd5c0399ae79a496`.
+  - Peak job memory 4,034,621,440 bytes, under 12.8 GB.
+  - **Guards:** output_guard CLEAN, hits 0, 4 files scanned, nothing withheld (`report_keys_withheld(_bytes)`
+    absent), post_score false. Receipt guard 0, no FLAG.
+- **The report.** Status PASS. No HALT; halted_arms none.
+  - **integrity_gate:** commit `95762ae89…`, `run/integrity_report.json` sha `d8404064…`, verified.
+  - **y_free_parity:** PASS. Rows 250,245 = 250,245, identical keys, no one-sided columns, max-abs-diff 0.0 in all
+    16 compared columns.
+  - **pool_label_counts:** label_complete 1,908,436; label_incomplete 31,660.
+  - **Per fold and per arm.** The runner reports label_complete only as the pooled total above, not per fold or per
+    arm. The per-arm × hour realised population and the per-fold kept dates are in the integrity report.
+- **Junction manifest diff.** `9dff281c…` before = after, changed false, count 0, empty in all 4 subdirectories.
+  83,937 files. Subdirectories read: declared all 4; observed `training`.
+- Labels' outputs (`market_frame_y`, `pool_frame_y`) stay under the run root and were not opened. No score and no
+  look were run.
+- **The report file** is committed as `run/labels_report.json`, a byte copy of the stage-4 walk.json. It was
+  screened: 0 control bytes, 0 `0x`+40-hex, 0 secret patterns.
+- **Restated values, copied verbatim from the integrity report** (`d8404064…`, key `restated`): §6.3 MDE80, power
+  and futility, and the §8.4 thresholds at n = 657 / look n = 388.
+
+```json
+{
+ "formulas": "SE = 1.07*sigma/sqrt(n); MDE80 = 3.340*SE; power = Phi(0.0057/SE - 2.498); futility false-stop = 1 - Phi(0.00285/(sigma/sqrt(n_look))); sigma_hat thresholds = SE_thr*sqrt(n)/1.07",
+ "frozen_n": 660,
+ "frozen_n_look": 390,
+ "n": 657,
+ "n_look": 388,
+ "table_6_3": {
+  "2x_sigma_eff": {
+   "futility_false_stop_look": 0.06685749184161882,
+   "mde80_x1.07": 0.005219506312646536,
+   "power_at_edge_x1.07": 0.8748191734615414,
+   "sigma": 0.03743534737586924
+  },
+  "3x_sigma_eff": {
+   "futility_false_stop_look": 0.158717880574344,
+   "mde80_x1.07": 0.007829259468969806,
+   "power_at_edge_x1.07": 0.4735486330957824,
+   "sigma": 0.05615302106380386
+  },
+  "4x_sigma_eff": {
+   "futility_false_stop_look": 0.22668580415529727,
+   "mde80_x1.07": 0.010439012625293072,
+   "power_at_edge_x1.07": 0.25007164831361484,
+   "sigma": 0.07487069475173848
+  },
+  "sigma_dec": {
+   "futility_false_stop_look": 0.009665032898956039,
+   "mde80_x1.07": 0.003346253214796251,
+   "power_at_edge_x1.07": 0.9992919477013618,
+   "sigma": 0.024
+  },
+  "sigma_eff": {
+   "futility_false_stop_look": 0.0013533427369343265,
+   "mde80_x1.07": 0.002609753156323268,
+   "power_at_edge_x1.07": 0.9999991944720932,
+   "sigma": 0.01871767368793462
+  }
+ },
+ "thresholds_8_4": {
+  "se_wide_rule16": 0.0022818254603682946,
+  "se_wide_xa_adequate": 0.0020342612419700216,
+  "se_wide_xs_adequate": 0.0017065868263473052,
+  "sigma_hat_rule16": {
+   "sigma_hat": 0.054661472746395164,
+   "x_sigma_eff": 2.9203133710803955
+  },
+  "sigma_hat_xa_adequate": {
+   "sigma_hat": 0.04873103458975558,
+   "x_sigma_eff": 2.6034770881366267
+  },
+  "sigma_hat_xs_adequate": {
+   "sigma_hat": 0.040881544586974586,
+   "x_sigma_eff": 2.184114611065517
+  }
+ }
+}
+```
+
+- **STOP.** The look and the score each need master's go.

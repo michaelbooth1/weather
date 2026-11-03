@@ -1,0 +1,248 @@
+{
+ "calibrated_weights_pins": {
+  "files": 12,
+  "pins_sha256": "b1c8d98acdaaff6580945bd45b0d71cfc316dd3113de004cf80f3305dac3d6f9"
+ },
+ "config_sha256": "b038ed36375bd4235874fd2e9f7892292a6c668e6087959dde05bb96e5044044",
+ "decision_pins": {
+  "r0_scope_sha256": "e8bb0683ed7c252b4f07e18f83709c9e0a5fcfd4c835d803b80c5c531f18607b",
+  "values": 2
+ },
+ "end": "20261103T092000.933691-0500",
+ "guard_arm_centre_set": {
+  "count": 24,
+  "sha256": "38a17ec2a04d764bac8ea43c8add0f89eb3fa542480eec73aaf0ab12febf6d83"
+ },
+ "halted_arms": [],
+ "integrity_gate": {
+  "commit": "95762ae89da78b831ccf5b1a340aac124dcf8b6d",
+  "path": "docs/research/row28-yearround-history-2026-11-02/run/integrity_report.json",
+  "sha256": "d840406447dd9d70b8f2603e32363b06daa93d5532500e478fc84032acede71e"
+ },
+ "junction_manifest_after_sha256": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+ "junction_manifest_before_sha256": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+ "junction_manifest_files": 83937,
+ "junction_subdirs_read": {
+  "declared": [
+   "marine_water_contrast",
+   "reanalysis",
+   "training",
+   "wunderground"
+  ],
+  "observed_guard_read": [
+   "training"
+  ],
+  "union": [
+   "marine_water_contrast",
+   "reanalysis",
+   "training",
+   "wunderground"
+  ]
+ },
+ "junctions": {
+  "marine_water_contrast": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\marine_water_contrast",
+  "reanalysis": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\reanalysis",
+  "training": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\training",
+  "wunderground": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\wunderground"
+ },
+ "m1_pins": {
+  "gap_centres": 4
+ },
+ "manifest_changed": false,
+ "manifest_diff": {
+  "by_subdir": {
+   "marine_water_contrast": {},
+   "reanalysis": {},
+   "training": {},
+   "wunderground": {}
+  },
+  "changed": false,
+  "count": 0,
+  "hashed_keys": {}
+ },
+ "output_guard": {
+  "decision_allowance": {
+   "dated_tokens": 0,
+   "values": 0
+  },
+  "files_scanned": 4,
+  "files_with_hits": {},
+  "from": "20260101",
+  "gz_header_allowance": {
+   "dated_tokens": 0,
+   "fname_own_tmp": 0
+  },
+  "gz_header_summary": {
+   "fcomment": 0,
+   "fextra": 0,
+   "files": 4,
+   "fname": 0,
+   "fname_own_tmp": 0,
+   "hits": 0,
+   "members": 4
+  },
+  "gz_headers": {
+   "junction_manifest_after.json.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   },
+   "junction_manifest_before.json.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   },
+   "market_frame_y.pkl.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   },
+   "pool_frame_y.pkl.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   }
+  },
+  "hits_total": 0,
+  "log_writes_withheld": {
+   "stderr": 0,
+   "stdout": 0
+  },
+  "m1_records": {},
+  "m1_summary": {
+   "cut_total": {
+    "centre": 0,
+    "decision": 0,
+    "generated_at": 0
+   },
+   "files": 0,
+   "protocols": [],
+   "remaining_total": 0,
+   "span_mismatch_total": 0
+  },
+  "pattern": "(?<![0-9])(20[0-9]{2}-[01][0-9]-[0-3][0-9])(?![0-9])",
+  "post_score": false,
+  "result": "CLEAN",
+  "v11_nbm_allowance": {},
+  "v11_nbm_bytes": {},
+  "writes_withheld": []
+ },
+ "outputs_payload_sha256": {
+  "C:\\t\\L59\\row28\\run\\s4_labels\\junction_manifest_after.json.gz": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+  "C:\\t\\L59\\row28\\run\\s4_labels\\junction_manifest_before.json.gz": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+  "C:\\t\\L59\\row28\\run\\s4_labels\\market_frame_y.pkl.gz": "677a1d883504b246bef0e6d7650d9afdb883116389f77c27387666ac9a051c0a",
+  "C:\\t\\L59\\row28\\run\\s4_labels\\pool_frame_y.pkl.gz": "db957284efa51f022eafd5b5d24fdb5aa29db4d2b3f0185af7d79060d501ba29"
+ },
+ "outputs_sha256": {
+  "C:\\t\\L59\\row28\\run\\s4_labels\\junction_manifest_after.json.gz": "f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7",
+  "C:\\t\\L59\\row28\\run\\s4_labels\\junction_manifest_before.json.gz": "f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7",
+  "C:\\t\\L59\\row28\\run\\s4_labels\\market_frame_y.pkl.gz": "0132425299059fa53b8425ed1abb14fd13b44b4994afe83ee567569aed5ca114",
+  "C:\\t\\L59\\row28\\run\\s4_labels\\pool_frame_y.pkl.gz": "1adb6c0b5375be918cf94fb45c9777726fb8e1f2b67bf3112b1a1d0eb4264ee7"
+ },
+ "pool_label_counts": {
+  "label_complete": 1908436,
+  "label_incomplete": 31660
+ },
+ "prereg_sha256": "cb6d4e8da0ab5a144a185cf8dbaf777881402ea8a95db99f2a0e98f20a5e132b",
+ "rulings": {
+  "RULING_C2_DAILY_PREFIX": "raw_line_prefix_filter",
+  "RULING_C2_OUTPUT_GUARD": "halt_pre_score",
+  "RULING_C2_S7_RAW_PREFIX": "rb_prefix_before_decode",
+  "RULING_F14_PER_MARKET_CI": "ci95_wide",
+  "RULING_F9_SECTION7_GATE": "compute",
+  "RULING_GUARD_POST_SCORE": "withhold_and_flag",
+  "RULING_N1_NO_HALT_AFTER_SCORE": true,
+  "RULING_N1_STAGE_END_MANIFEST": "flag_classified",
+  "RULING_N2_N": "integrity_restated",
+  "RULING_R10_IMPUTE_GROUP": "calendar_month",
+  "RULING_R11_POOL_NO_NBM": "fill_from_normal",
+  "RULING_R6_ALL_HALTS_BEFORE_LABEL_JOIN": true,
+  "RULING_R9_TOP_BUCKET_GTE": true,
+  "RULING_S7_SEALED_LINES": "skip_undecoded",
+  "RULING_V10_GZ_FCOMMENT_FEXTRA": "any FCOMMENT or FEXTRA on any .gz is a hit (m-1), dated tokens counted on top",
+  "RULING_V11_NBM_ROLLOVER": "build only: valid_time_utc at a row's top level in nbm_market_new/nbm_pit_corpus_rows.jsonl or pool_nbm_rows.jsonl; literal Y26_PRE0527, local date <= 2025-12-31 in the pinned row tz, instant <= V11_INSTANT_LAST (noon UTC of the first day of that year); counted; byte side cuts the exact spans",
+  "RULING_V12_V11_REVIEW": "ruling texts hold no guard-range date; v11 tz must equal the bound parser's station tz where it has one (counted, pinned); the allowance fires only for a dict row at the JSONL line root, rows are walked one by one in the Writer and at stage end, a non-dict line is a hit",
+  "RULING_V4_ALLOWLIST_SCOPE": "context",
+  "RULING_V4_INCOMPLETE_ON_WITHHOLD": true,
+  "RULING_V4_RECORDS_GENERATED_AT": [
+   "calibrated_weights",
+   "metadata",
+   "generated_at"
+  ],
+  "RULING_V5_B_CENTRE_FIELDS": "B_*centre*",
+  "RULING_V5_GENERATED_AT_OWN_MARKET": true,
+  "RULING_V5_WRITER_BYTE_CHECK": true,
+  "RULING_V6_REPORT_BYTE_CHECK": true,
+  "RULING_V6_THREADS": 10,
+  "RULING_V7_DECISION_ALLOWANCE": "whole value equals a pinned r0_scope constant; counted",
+  "RULING_V7_DECISION_PATH": [
+   "plan",
+   "column_differences_from_served",
+   "decision"
+  ],
+  "RULING_V7_PERIOD": "str",
+  "RULING_V7_TZ_AWARE": "isoformat",
+  "RULING_V8_M1_RECORDS_BYTES": "whole-span cuts: own centre label(s), own generated_at, decision constants; then 0",
+  "RULING_V8_M2_PANDAS_SURFACES": "index, columns, name, names, attrs, every MultiIndex level, every category",
+  "RULING_V8_RECORDS_IDENTITY": "sha256 of the decompressed payload; raw sha256 cross-checked with gzip MTIME masked",
+  "RULING_V9_GZ_HEADERS": "every member's FNAME/FCOMMENT/FEXTRA scanned raw; only a records file's own tmp FNAME passes"
+ },
+ "runner": "row28_run_v12",
+ "runner_sha256": "9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b",
+ "stage": "labels",
+ "start": "20261103T090624.606709-0500",
+ "started": "20261103T090630.518917-0500",
+ "status": "PASS",
+ "y_free_parity": {
+  "columns_only_left": [],
+  "columns_only_right": [],
+  "identical_keys": true,
+  "max_abs_diff": {
+   "F": 0.0,
+   "doy_cos": 0.0,
+   "doy_sin": 0.0,
+   "elev": 0.0,
+   "fh": 0.0,
+   "hour": 0.0,
+   "lat": 0.0,
+   "lon": 0.0,
+   "market": 0.0,
+   "market_code": 0.0,
+   "payload_centre": 0.0,
+   "target_date": 0.0,
+   "x_current_temp": 0.0,
+   "x_high_so_far": 0.0,
+   "y_present": 0.0,
+   "year": 0.0
+  },
+  "pass": true,
+  "rows": [
+   250245,
+   250245
+  ]
+ }
+}
