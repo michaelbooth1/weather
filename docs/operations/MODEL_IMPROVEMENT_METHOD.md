@@ -207,6 +207,24 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
     period and market) and record them in the prereg, so a cap is set knowing the base rate." Instance: row 113 (3a,
     register X93) closed UNTESTABLE at a 2% label-integrity cap (2.82%); 26 of its 40 partial days fall in the five
     late-March markets (austin, denver, houston, los-angeles, san-francisco), label metadata available before any read.
+18. **Guard and run-hygiene lessons from the row-28 control stage** (master, 2026-11-03; lever-inventory row 28,
+    ledger rows 114-118; these are process lessons and say nothing about row 28's results):
+    - (a) The output guard hit 276 `r0_scope` `DECISION_*` owner-date constants embedded in records plans; the
+      reviewer's "docstrings only" claim was wrong.
+    - (b) `gzip.open` stamps MTIME, so raw records shas differ run to run; identity is the decompressed sha (or the
+      raw sha with bytes 4-8 masked).
+    - (c) The diag category list lacked `DECISION_CONST` and would have mis-routed hits (caught before d2 ran).
+    - (d) Launcher v5's G2 self-hit passed all reviews, hence the smoke-run requirement.
+    - (e) Master (2026-11-03, wording): "a wrapper run with -RepoRoot inside a guarded worktree creates data\logs
+      and breaks the exactly-4-junctions check; seen a1 and a5". Rule: the junction count is re-checked inside the
+      same command block immediately before every launch; the wrapper's -RepoRoot is outside the worktree.
+    - (f) "build 1 guard HALT: 11 market (+ pool) NBM valid_time_utc values fell on 2026-01-01 UTC as UTC rollovers
+      of 2025-12-31 local rows; a date-prefix guard must scope by local date and market tz, not raw UTC string, or it
+      halts on legitimate pre-cutoff rows (fixed by a narrowly scoped, byte-span-cut allowance)."
+    - (g) "runner v11 review B-1: the ruling text embedded in the runner contained a literal dated instant that the
+      runner's own rulings report would withhold under the guard, so the run would HALT on its own ruling; fixed in
+      v12 by rewording plus a sentinel over the rulings dict. Lesson: guard-scanned outputs must not quote
+      guard-matching literals, including in rulings/docstrings."
 
 ## Update this file when
 

@@ -4,7 +4,7 @@ Goal: give the lever-inventory row 28 year-round P3d_N refit (and later year-rou
 offline module under `src/weather/` and one line in the workstation offline-module allowlist, so that they run
 through `scripts\ops\workstation_heavy.ps1` instead of a one-off guarded launcher.
 
-Owner/package: `weather.calibration` (the new module) and `scripts/ops/workload_admission.ps1` (the allowlist
+Owner/package: `weather.calibration` (the new module), `weather.backtesting.evening_fix_scorer` (allowlist only) and `scripts/ops/workload_admission.ps1` (the allowlist
 line), with the Codex hook mirror in `.codex/hooks/pre_tool_use_host_load.py`. Workstation research builds the
 module; master owns the combo landing.
 
@@ -36,6 +36,9 @@ Checklist:
 - [ ] One allowlist line in `Get-WeatherWorkstationOfflineModule` (`scripts/ops/workload_admission.ps1`) and the
   matching entry in the Codex hook mirror, with an admission test beside `test_r0_full_year_admission.py`. The
   B-look argument refusal stays in force for the new module.
+- [ ] Fold `weather.backtesting.evening_fix_scorer` into the same offline-module allowlist work, with the same review
+  and combo (master 2026-11-03). The evening-fix Stage 1 score ran once as a direct run of `stage1_score_v1.py`
+  (`ce70e3e8`) under a master one-off ruling, because the wrapper refused the scorer module ([item 337](item-337-no-metar-observed-floor-gap.md)).
 - [ ] Land through a combo with WS exact-tip suite evidence (the bounded suite at the combo's exact tip) and
   guard-parse evidence: the guard script parses the edited `workload_admission.ps1` cleanly and classifies the new
   module as offline.
@@ -43,7 +46,7 @@ Checklist:
 
 Acceptance:
 
-- `workstation_heavy.ps1 -Workload weather_heavy` admits the new module and still refuses an unlisted module and
+- `workstation_heavy.ps1 -Kind weather_heavy` admits the new module and `weather.backtesting.evening_fix_scorer`, and still refuses an unlisted module and
   the live/execute/place/cancel/promote arguments.
 - The guard parses the edited file at the combo tip, with the evidence recorded in the combo's report.
 - A later year-round run needs no option-2 launcher; the row-28 option-2 exception stays a one-off.

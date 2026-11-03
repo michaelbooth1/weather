@@ -231,7 +231,7 @@ centres. Calendar arithmetic only.
 | `FORWARD_CENTRES` (prm:1258; forward state prm:1573) | 98 | 01-01..04-08 | 01-01: 08-08 vs 12-09 |
 | `VALIDATION_CENTRE` (prm:90; P0/P1/U0) | 0 | — | — |
 
-Note a (master accepted):78 counts the 10-15 circular tie (01-08 and 07-22 are both 85 days away); an independent count that does not treat a tie as a difference when the linear pick is one of the tied centres gives 77.
+Note a (master accepted): 78 counts the 10-15 circular tie (01-08 and 07-22 are both 85 days away); an independent count that does not treat a tie as a difference when the linear pick is one of the tied centres gives 77.
 
 **Reachability today.** None of these month-days reaches a bound call:
 - Dev scoring uses `AUG_SEP` on Aug-Sep rows only (prm:1035, :1226).

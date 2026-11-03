@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-03 America/Toronto (rows 106/107/109/113 closed, R28b untestable, R-CS/R-P2/K112 PARKED, CONTINUE/STOP ruled; night 11-02/03 combo landed).**
+**Last updated: 2026-11-03 America/Toronto (evening-fix Stage 1 accepted, R24 first host label run, Denver 107-miss open, rows 106/107/109/113 closed, R-CS/R-P2/K112 PARKED; night 11-02/03 combo landed).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -44,12 +44,11 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 - **Market price reliability by bin CLOSED (row 106, X92, EF §10aq):** KILL at edge size on US11 dev (08-01..09-29; ECE 0.0067,
   slope 1.030 [1.014, 1.045]; all three arms below 0.2236). It is not an exploitable lever, and it is silent on the overround.
 - **R28a NWS P0 (row 107, X96-X101, EF §10as):** FADE and GAP KILL at edge, W1-0712 UNTESTABLE at edge; NWS adds a little, not a tradable amount. **R28b:** C3 closed untestable (R28b census 0/0/0; design gap, not a kill; A1 unchanged). X86, EF §10at.
-- **R-CS coastal specialist PARKED** (master 11-01; no ledger row; register note, two reopen conditions). **L47 2a and lever 2 PARKED** (X102, X103). 11-01 closures (master): #21 GEFS true mean (X91); direction A (register §0.2, EF §1k); B PARKED; B2 UNTESTABLE (row 105, X90).
-- **X36-v5 (row 111 C, EF §10au):** 2026 raw NBM warm +0.74°F equally under v4.3 and v5.0; not a v5.0 artefact; X36 reopen not met.
+- **R-CS coastal specialist PARKED** (master 11-01; no ledger row; register note, two reopen conditions). **L47 2a and lever 2 PARKED** (X102, X103). 11-01 closures (master): #21 GEFS true mean (X91); direction A (register §0.2, EF §1k); B PARKED; B2 UNTESTABLE (row 105, X90). **X36-v5 (row 111 C, EF §10au):** 2026 raw NBM warm +0.74°F equally under v4.3 and v5.0; not a v5.0 artefact; X36 reopen not met.
+- **Evening-fix Stage 1 ACCEPTED (master 11-03): CONDITIONS 1-2 MET, condition 3 pending.** Primary -0.04854 [-0.05532, -0.04211], 11/11 markets, 128 market-days; both sensitivities share sign; SAFETY 0 and 0; "Stage 2 after MG-1 look receipt (after 11-28)"; H2 NOT TESTED; 10-28 outside frozen window, extension not triggered; shas and the one-off direct-run disclosure in [item 337](../roadmap/items/item-337-no-metar-observed-floor-gap.md).
 - **Row 113** (L52, 3a history-tier market reliability, B12 2025-12..2026-05): UNTESTABLE at the step 2 label-integrity cap (2.82% > 2%), accepted as frozen 11-02; no successor; the lever is covered by row 106's KILL (X93).
 - **L52 price history** (owner GO 11-01, DL): International PM public closed-event `/prices-history` at fidelity 1, sealed 11-02 (22 markets, events 2025-01-22..2026-09-29, no guarded dates); the series is the book mid, not last trade. HISTORY-TIER selection evidence only, never an edge claim.
-- **R-P (L48 station-pooled corpus) KILLED** at LOYO gate 1 (row 109, X94; Los Angeles CI-worse). **R-P2** (class-matched pooling): screen PASS, confirmation infeasible at size (3-5 seasons); **PARKED** as the default corpus-expansion ingredient (X95, three reopen triggers).
-  L48 station-pooled corpus: GO N=300 (rule 33d5c67a…, rows 108 C / 109 K); R-I scope ruled not covering a rows-only retrain.
+- **R-P (L48 station-pooled corpus) KILLED** at LOYO gate 1 (row 109, X94; Los Angeles CI-worse). **R-P2** (class-matched pooling): screen PASS, confirmation infeasible at size (3-5 seasons); **PARKED** as the default corpus-expansion ingredient (X95, three reopen triggers). L48 GO N=300 (rule 33d5c67a…, rows 108 C / 109 K); R-I scope ruled not covering a rows-only retrain.
 - **K112:** dev CONSISTENT (C1.6). History-tier test NOT RUN: Dec-May NBM 07Z and P3d_N_fix inputs absent on WS; power ~0.14 at dev point (MDE80 ~0.009 vs -0.0027); seasonal transfer of b_train unresolved. PARKED, not killed.
 - **L47 step 0:** the 07-12 market gap is mostly centre (P3d +0.0049..+0.0077 of +0.0101); width ≤ +0.0038, day-specific scale ≤ +0.0007, skew ~0; 2a and lever 2 PARKED (EF §10ag correction, X27).
 - **L50:** captured NBM v2 exists only from target 06-24 (US only), so NBM-dependent arms get at most 06-24..07-30 of the sealed panel (WS bytes 07-14..07-30); power is too low for parity-sized 07-12 steps (L50, `5a805dda7`).
@@ -59,7 +58,8 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
   ([design](B_FORWARD_TEST_DESIGN.md)): D0 10-29, N = 45, 45th date 12-12, NI margin +0.0027, look 12-13; daily WS pull runs.
 - **B's serial correlation** (dev ρ about 0.22): B's verdict stands; a frozen post-look module may only label a PASS "fragile" (master).
 - **Kill scopes (master):** R-I maps only; R-G/R-J Aug-Sep only; kill-only reads need power >= 0.5 at edge size on the wider of date-clustered and block-3 bounds, projected on the full population rule (method rule 16).
-- **Labels (master 10-25):** WU before 10-23, venue rule (routine METAR, WU fallback) from it. **Denver >= 10-23: KDEN, out of MG-2 and B.**
+- **Labels (master 10-25):** WU before 10-23, venue rule (routine METAR, WU fallback) from it. **Denver >= 10-23: KDEN, out of MG-2 and B.** **R24 first host run 11-03 (master; DL):** venue-rule labels are built for 10-23..11-02 on all 12; under the R24 ruling's paragraphs (3) and (5), a look reads only its look-morning frozen copy, through `read_venue_labels` inside its registered entry point, and Stage A stays `wu` (runbook step 4 waits until after B). Fetch 13/13, build 12/12, 0 skipped; shas in the [runbook](venue-rule-labels.md) receipt; no label value read.
+- **Denver 107-miss (B2 finding): OPEN INVESTIGATION, cause unexplained** (contiguous hour runs 10-22/25/27/28). Comparer v5 `scratch-transport/denver_miss_names_v5.py` sha256 `8067c8d995fd311cd485e82500d4b6a538d2f730a5914122ae0df64ab9366c6d` @ `ce7abacb55e8d1952e38c25cbac60007633a3672` (transport branch), armed for the host 11-04 about 04:30, `--features-only`; it copies only features.jsonl and replay_inputs.jsonl.
 - **After-B list** (after 12-13 and an MG-2 export byte-identity check): fix 10 (high_so_far parity; defect measured, 53.8% of dev 00-12), fix 11 (no SPECI in the floor from 10-23), `claude/ops-freshness-utc-mg2-after-b` @ `3957b9728`.
 - **Windows Update (owner 11-01, DL):** host pause to 12-02T12:00Z stays, no patch night; master brings a notify-only / no-auto-restart option before 12-02 if it cannot be extended. **WS pause EXPIRED 10-30T13:58:48Z** (not covering 12-13); owner decides in the WS chat.
 - **WS forward recorders:** ENS, GEM and IEM MOS logon tasks plus the 15-min keepalive (owner yes 10-30). All 10 died at once 11-01 22:06-22:08Z under one dead parent (cause unverified, EF §10av); L34 [live-parent design](../research/recorder-live-parent-design-2026-11-01/design.md).
@@ -81,12 +81,12 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | PT-1 bound: PT_D0, G = 15 s, rule sha; fixes 10/11 candidate-side; Miami floor | master | before PT_D0 | binding commit; DL row |
 | MG-1 look rulings A1-A14, b_transfer T1-T5; scorer and writer reviews | master | 11-03; 11-20; 12-01 | notes |
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
-| Evening-fix Stage 1 read after the scorer lands | master + WS | 11-02 | scorer receipt |
+| Evening-fix Stage 2: gap read after the MG-1 look receipt (Clarification 1 s5); H2 then needs a market-arm replay (owner question) | master + WS | after 11-28 | MG-1 look receipt; Stage 2 receipt |
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
 | Economics refresh and rc 2 barrier fixed | production | before maker work | accepted snapshot |
 | Host hardening: Ethernet (host on Wi-Fi; owner 11-02 "Ethernet cord is coming"); Wi-Fi stays connected with it (DL 11-02) | owner | OPEN until the cable is in | Get-NetAdapter Up |
 | Torn-journal Stage 1 lands RF on a CLEAN review; then master registers Stage 2 on the host | master | open | registration receipt |
-| Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run 11-03 AM (fallback 11-04 AM); module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
+| Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run DONE 11-03 (rc 0, runbook receipt); Mondays; module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
 | R1+R2 24 h S2+S9 receipts (88a RSS, REST rate, partitions, built-ins unchanged) | master | 11-03 | receipt doc |
 
 ## Update this file when
