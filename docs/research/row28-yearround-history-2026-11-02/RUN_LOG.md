@@ -1833,3 +1833,64 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
   -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
 ```
+
+## Appended 2026-11-03T13:27:39-05:00: score (stage 6, all folds) PASS; outcomes per prereg §8.2 (append only)
+
+- **Launch.**
+  - **Hold.** The lane held while L56's suite held the wrapper (from 11:23), and then on the coordinator's hold.
+  - **GO.** The coordinator relayed that L56's driver had ended (12:26:26; checked at 12:27:00). The lane's
+    2-consecutive-clear-polls backup also passed at 12:29:51.
+  - **Block.** `launch_s6_score_v1.ps1`, its first run: 4 junctions and 0 wrappers. Launched at 12:30:00.
+- **Run.** Walker 12:30:01 → 13:25:36, about 55m35s.
+  - Launcher: COMPLETE, exit 0, stderr 0 bytes. Walker exit 0, stderr 0 bytes.
+  - Receipt `50cdadd1c028a55e04d307cf4c67298de889a912f180ded37af5c1edc1745430`.
+  - Peak job memory 4,926,054,400 bytes, under 12.8 GB.
+  - **Guards:** output_guard CLEAN, hits 0, nothing withheld. Receipt guard 0, no FLAG.
+  - **Flags:** post_score_flags none, no ERROR.
+- **Commit `741174e5f154e94ab4a9ed7b1d679cf8a952e7a4`** (screened BEFORE the push: 0 control bytes, 0 `0x`+40-hex, 0
+  secret patterns):
+  - `run/score_result.json`, a byte copy of the stage-6 walk.json:
+    `32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b`.
+  - `run/score_receipt.json`: the receipt. Git's `text=auto eol=lf` normalised its CRLF to LF, so the blob is
+    `d376961378957e29…`, which equals the CRLF-stripped file. The run file sha is `50cdadd1…`.
+  - `final_rows.jsonl` stays under the run root.
+- **Start-of-stage checks.** C2 n: the kept rows equal the integrity-committed list, restated n 657. The look rows
+  cover exactly the 2021–23 kept dates. `precheck_folds` ran before any fit. None HALTed.
+- **Stage-end manifest.** `9dff281c…` before = after, changed false, count 0, empty in all 4 subdirectories, 83,937
+  files. Nothing changed (mtime, size, add or remove), so no arm is INPUT-CHANGED.
+- **The frozen deciding statistics** (X−S pooled, n = 657 dates per arm; decisions use ci95_wide):
+
+| Arm | X−S point | ci95_wide | Holm p (threshold, rejected) | outcome (§8.2) |
+| --- | --- | --- | --- | --- |
+| A | -0.1361435077084128 | [-0.14375306511527866, -0.12853395030154693] | 0.0 (0.0125, yes) | SURVIVES-history |
+| B | -0.1368376830046977 | [-0.1445342466657366, -0.1291411193436588] | 0.0 (0.016666666666666666, yes) | SURVIVES-history |
+| C | -0.1412025733154026 | [-0.1484956683891957, -0.13390947824160948] | 0.0 (0.025, yes) | KILL |
+| D | -0.07570473125571656 | [-0.09440552904878349, -0.05700393346264962] | 2.220446049250313e-15 (0.05, yes) | KILL |
+
+  - **The X−A gate** (C and D):
+    - C−A point -0.005059065606989814, ci95_wide [-0.0068501141023500686, -0.003268017111629559];
+    - D−A point 0.060438776452696234, ci95_wide [0.04529227712823671, 0.07558527577715575].
+  - **The conditions the runner recorded for each verdict:**
+    - C, crossing: "a per-market X-A 95% lower bound (wide) > 0".
+    - D, crossing: "a per-market X-S 95% CI (wide) lies above 0", "X-A point >= -0.0005" and "a per-market X-A 95%
+      lower bound (wide) > 0". D, failure-to-show X−A: "X-A wide 95% upper bound >= 0" and "more than 1 of 5 folds
+      have X-A d > 0".
+    - A and B: no crossing and no failure-to-show conditions.
+  - **§8.2 wording.** KILL is "(a true kill). Any one of the *crossing* conditions, at any power". SURVIVES-history
+    is "Everything else. Survival is V4-scoped and is not an adoption."
+  - **Realised power, §8.4** (the X−S rule-16 band is "< 0.50 (rule-16 failure flagged)" for every arm):
+    - A: power_xs 0.13010525363167047;
+    - B: power_xs 0.12685075883348407;
+    - C: power_xs 0.14313154819437646, power_xa 0.999945496113139;
+    - D: power_xs 0.026209595189528923, power_xa 0.10192521116294162.
+  - **§8.3 selection** (the runner's output): survivors [A, B], passing G [A, B], candidate B. G: A -0.03027736205541938,
+    B -0.0306235477424221.
+  - **Pre-stated descriptive outputs:** top-bucket y > top: S 1; A, B and C 0. `not_implemented_descriptive`:
+    S_bound, hours 07–12 vs the L6 stack, fold 2026 / V5.0.
+- **Archive.** The score receipt was copied to `C:\archive\ruled-out\row28-yearround-history-2026-11-02\receipt_s6_score.json`
+  (sha-equal, `50cdadd1…`).
+  - **INDEX.md.** Two CRLF lines were appended to `C:\archive\ruled-out\INDEX.md`, one for KILL arm C and one for KILL
+    arm D, each with the result sha. The prior bytes are unchanged.
+  - **Correction.** My first append wrote a literal backslash-r instead of CR, and I replaced it at once. Only those
+    2 just-written lines were rewritten, with exact CRLF bytes. The prefix was verified equal.
+- **STOP.**
