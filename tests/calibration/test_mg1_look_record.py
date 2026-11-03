@@ -14,6 +14,7 @@ from weather.calibration import mg1_look_record as rec
 ROW = "2026-12-01"
 DL = ("| Date | Decision |\n| --- | --- |\n"
       f"| {ROW} | MG-1 look record (master ruling) |\n")
+DL_ABANDON = DL + "| 2026-12-02 | The owner abandons MG-1: abandonment recorded |\n"
 RECEIPT = b'{"schema": "mg1_look_receipt/1", "result": {"x": 1}}\r\n'  # CRLF on purpose: bytes must survive
 
 
@@ -150,9 +151,41 @@ def test_record_problems_name_each_break(tmp_path):
     assert any("not in the checkout" in p for p in rec.record_problems(text, rec.MG1_RULE_SHA256, DL, root))
 
 
+def test_abandonment_record_needs_an_owner_abandonment_row(tmp_path):
+    root, _ = _checkout(tmp_path, dl=DL_ABANDON)
+    with pytest.raises(rec.RecordRefused, match="owner abandonment"):
+        rec.write_abandonment_record(root=root, decision_log_row=ROW, reason="x")  # a master ruling row
+    with pytest.raises(rec.RecordRefused, match="needs a reason"):
+        rec.write_abandonment_record(root=root, decision_log_row="2026-12-02", reason="  ")
+    assert not (root / rec.RECORD).exists()
+    result = rec.write_abandonment_record(root=root, decision_log_row="2026-12-02", reason="owner abandons\n MG-1")
+    assert result["commit"] == [rec.RECORD] and not (root / rec.RECEIPT_DEFAULT).exists()
+    text = (root / rec.RECORD).read_text(encoding="utf-8")
+    assert text.startswith("# MG-1 abandonment record\n")
+    fields, _ = rec.record_fields(text)
+    assert fields == {"mg1_abandonment": "owner abandons MG-1", "decision_log_row": "2026-12-02"}
+    assert rec.record_problems(text, rec.MG1_RULE_SHA256, DL_ABANDON, root) == []
+    assert rec.record_problems(text.replace("2026-12-02", ROW), rec.MG1_RULE_SHA256, DL_ABANDON, root)
+    with pytest.raises(rec.RecordRefused, match="one release record"):
+        rec.write_abandonment_record(root=root, decision_log_row="2026-12-02", reason="again")
+
+
+def test_not_an_owner_decision_row_is_no_abandonment():
+    dl = "| 2026-12-03 | owner asked; abandon considered (not an owner decision) |\n"
+    assert rec.owner_abandonment_rows(dl, "2026-12-03") == []
+    assert rec.owner_abandonment_rows(DL_ABANDON, "2026-12-02")
+
+
+def test_cli_abandon(tmp_path, capsys):
+    root, _ = _checkout(tmp_path, dl=DL_ABANDON)
+    args = ["--root", str(root), "abandon", "--reason", "owner abandons MG-1", "--decision-log-row"]
+    assert rec.main(args + [ROW]) == 2 and "owner abandonment" in capsys.readouterr().err
+    assert rec.main(args + ["2026-12-02"]) == 0 and (root / rec.RECORD).is_file()
+
+
 def test_cli_writes_and_refuses(tmp_path, capsys):
     root, receipt = _checkout(tmp_path)
-    args = ["--root", str(root), "--receipt", str(receipt), "--decision-log-row", ROW]
+    args = ["--root", str(root), "look", "--receipt", str(receipt), "--decision-log-row", ROW]
     assert rec.main(args + ["--expect-sha256", "0" * 64]) == 2 and "refused" in capsys.readouterr().err
     assert rec.main(args + ["--expect-sha256", _sha(RECEIPT)]) == 0
     assert (root / rec.RECORD).is_file()

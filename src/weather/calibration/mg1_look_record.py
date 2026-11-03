@@ -10,7 +10,8 @@ that head's files in a checkout, without committing:
    unmodified to a repo path (mode "x");
 2. it adds the line ``<receipt_path> -text`` at the end of ``.gitattributes``;
 3. it writes the record (mode "x") as ``key: value`` lines: ``rule_sha256`` (MG-1's rule sha), ``receipt_path``,
-   ``receipt_sha256`` (over those bytes) and ``decision_log_row``.
+   ``receipt_sha256`` (over those bytes) and ``decision_log_row``. An abandonment record carries
+   ``mg1_abandonment`` and ``decision_log_row`` instead, and that row must name an owner abandonment.
 
 It never parses the receipt, so no verdict or outcome value is read or written. ``--expect-sha256`` (the copy in
 the WS never-cleaned archive) must match the receipt's bytes. Every check runs before anything is written, and the
@@ -34,7 +35,7 @@ GITATTRIBUTES = ".gitattributes"
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 RECORD_FIELD = re.compile(r"^(?P<key>[a-z0-9_]+):[ \t]*(?P<value>\S.*?)[ \t]*$", re.M)
-RECORD_KEYS = ("rule_sha256", "receipt_path", "receipt_sha256", "decision_log_row")
+RECORD_KEYS = ("rule_sha256", "receipt_path", "receipt_sha256", "decision_log_row", "mg1_abandonment")
 RECEIPT_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
 DL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")  # decision_log_row is a date
 
@@ -60,6 +61,13 @@ def decision_log_rows(decision_log: str, row: str) -> list[str]:
     if not DL_DATE.match(row):
         return []
     return [line for line in decision_log.splitlines() if line.startswith(f"| {row} |")]
+
+
+def owner_abandonment_rows(decision_log: str, row: str) -> list[str]:
+    """Rows of date ``row`` that name an owner abandonment (b_look_record.owner_abandonment_rows)."""
+    return [line for line in decision_log_rows(decision_log, row)
+            if re.search(r"\bowner\b", line, re.I) and re.search("abandon", line, re.I)
+            and not re.search("not an owner decision", line, re.I)]
 
 
 def receipt_attribute_problem(gitattributes: str, path: str) -> str | None:
@@ -100,20 +108,26 @@ def record_fields(text: str) -> tuple[dict[str, str], list[str]]:
     return fields, problems
 
 
-def record_text(fields: dict[str, str]) -> str:
+def record_text(fields: dict[str, str], title: str = "MG-1 look record") -> str:
     """The record: a title, one ``key: value`` line per field, and no outcome value."""
-    lines = ["# MG-1 look record", "",
+    lines = [f"# {title}", "",
              "MG-1 release record (mirrors b_look_record; not R14-bound). No outcome values.", ""]
     lines += [f"{key}: {fields[key]}" for key in RECORD_KEYS if key in fields]
     return "\n".join(lines) + "\n"
 
 
 def record_problems(text: str, rule_sha256: str, decision_log: str, root: Path) -> list[str]:
-    """The checks on a present record in checkout ``root`` (b_look_record.record_problems, look branch)."""
+    """The checks on a present record in checkout ``root`` (b_look_record.record_problems)."""
     fields, problems = record_fields(text)
     row = fields.get("decision_log_row", "")
-    if not decision_log_rows(decision_log, row):
+    has_row = bool(decision_log_rows(decision_log, row))
+    if not has_row:
         problems.append(f"release record decision_log_row {row!r} names no DECISION_LOG row")
+    if "mg1_abandonment" in fields:
+        if has_row and not owner_abandonment_rows(decision_log, row):
+            problems.append(f"release record mg1_abandonment: no DECISION_LOG row of {row} names an owner "
+                            "abandonment")
+        return problems
     if not rule_sha256 or fields.get("rule_sha256") != rule_sha256:
         problems.append(f"release record rule_sha256 {fields.get('rule_sha256')!r} is not MG-1's rule sha "
                         f"{rule_sha256!r}")
@@ -144,10 +158,11 @@ def _preflight(root, receipt_path, decision_log_row, rule_sha256):
     decision_log = log.read_text(encoding="utf-8") if log.is_file() else ""
     if not decision_log_rows(decision_log, decision_log_row):
         problems.append(f"decision_log_row {decision_log_row!r} names no DECISION_LOG row")
-    if (problem := receipt_path_problem(receipt_path)) is not None:
-        problems.append(problem)
-    elif (root / receipt_path).exists():
-        problems.append(f"{receipt_path} exists: the receipt copy is written once")
+    if receipt_path is not None:
+        if (problem := receipt_path_problem(receipt_path)) is not None:
+            problems.append(problem)
+        elif (root / receipt_path).exists():
+            problems.append(f"{receipt_path} exists: the receipt copy is written once")
     return problems, decision_log
 
 
@@ -201,22 +216,49 @@ def write_look_record(*, root, receipt, decision_log_row, expect_sha256, receipt
     return {"record": RECORD, **fields, "commit": [receipt_path, GITATTRIBUTES, RECORD]}
 
 
+def write_abandonment_record(*, root, decision_log_row, reason):
+    """An abandonment record: ``mg1_abandonment`` plus a DECISION_LOG row naming an owner abandonment."""
+    root = Path(root)
+    problems, decision_log = _preflight(root, None, decision_log_row, MG1_RULE_SHA256)
+    if not owner_abandonment_rows(decision_log, decision_log_row):
+        problems.append(f"no DECISION_LOG row of {decision_log_row} names an owner abandonment")
+    reason = " ".join(str(reason).split())
+    if not reason:
+        problems.append("an abandonment needs a reason")
+    if problems:
+        raise RecordRefused("; ".join(problems))
+    text = record_text({"mg1_abandonment": reason, "decision_log_row": decision_log_row}, "MG-1 abandonment record")
+    _write_or_undo(root, [(root / RECORD, text.encode("utf-8"), "x")],
+                   lambda: record_problems((root / RECORD).read_text(encoding="utf-8"), MG1_RULE_SHA256,
+                                           decision_log, root))
+    return {"record": RECORD, "decision_log_row": decision_log_row, "commit": [RECORD]}
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="python -m weather.calibration.mg1_look_record",
                                      description=__doc__.splitlines()[0])
     parser.add_argument("--root", required=True, help="the checkout that will carry the docs head")
-    parser.add_argument("--receipt", required=True, help="MG-1's look receipt (receipt-<rule>.json)")
-    parser.add_argument("--expect-sha256", required=True, help="sha256 of the archive copy of the receipt")
-    parser.add_argument("--decision-log-row", required=True, help="the date of the DECISION_LOG row (YYYY-MM-DD)")
-    parser.add_argument("--receipt-path", default=RECEIPT_DEFAULT)
+    sub = parser.add_subparsers(dest="command", required=True)
+    look = sub.add_parser("look", help="commit MG-1's receipt byte-exact and write the look record")
+    look.add_argument("--receipt", required=True, help="MG-1's look receipt (receipt-<rule>.json)")
+    look.add_argument("--expect-sha256", required=True, help="sha256 of the archive copy of the receipt")
+    look.add_argument("--decision-log-row", required=True, help="the date of the DECISION_LOG row (YYYY-MM-DD)")
+    look.add_argument("--receipt-path", default=RECEIPT_DEFAULT)
+    abandon = sub.add_parser("abandon", help="write an abandonment record")
+    abandon.add_argument("--decision-log-row", required=True, help="the date of an owner-abandonment DECISION_LOG row")
+    abandon.add_argument("--reason", required=True)
     return parser
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        result = write_look_record(root=args.root, receipt=args.receipt, decision_log_row=args.decision_log_row,
-                                   expect_sha256=args.expect_sha256, receipt_path=args.receipt_path)
+        if args.command == "look":
+            result = write_look_record(root=args.root, receipt=args.receipt, decision_log_row=args.decision_log_row,
+                                       expect_sha256=args.expect_sha256, receipt_path=args.receipt_path)
+        else:
+            result = write_abandonment_record(root=args.root, decision_log_row=args.decision_log_row,
+                                              reason=args.reason)
     except (RecordRefused, OSError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
