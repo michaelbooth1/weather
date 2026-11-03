@@ -215,7 +215,7 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
       raw sha with bytes 4-8 masked).
     - (c) The diag category list lacked `DECISION_CONST` and would have mis-routed hits (caught before d2 ran).
     - (d) Launcher v5's G2 self-hit passed all reviews, hence the smoke-run requirement.
-    - (e) Master (11-03 06:2x, wording): "a wrapper run with -RepoRoot inside a guarded worktree creates data\logs
+    - (e) Master (2026-11-03, wording): "a wrapper run with -RepoRoot inside a guarded worktree creates data\logs
       and breaks the exactly-4-junctions check; seen a1 and a5". Rule: the junction count is re-checked inside the
       same command block immediately before every launch; the wrapper's -RepoRoot is outside the worktree.
     - (f) "build 1 guard HALT: 11 market (+ pool) NBM valid_time_utc values fell on 2026-01-01 UTC as UTC rollovers

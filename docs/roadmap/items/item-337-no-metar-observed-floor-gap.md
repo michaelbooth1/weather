@@ -79,5 +79,7 @@ Stage 1 (`--no-market`, Clarification 1): **CONDITIONS 1-2 MET, condition 3 pend
   outside that path.
 - H2 NOT TESTED: the `--no-market` transfer has no v3 arm. Computing it at Stage 2 needs a market-arm replay, which
   is an owner question then.
-- Disclosures: the 10-28 disclosure, and the master one-off direct run (the wrapper refused the scorer module;
+- Disclosures: The countability step (commit `1c52ec519`, script `ac8a5be5`, output `2b412a3a`; verify PASS 156) listed
+  2026-10-28 as the only zero-countable date. It lies outside the frozen window 10-16..10-27, so the extension was not
+  triggered and Stage 1 scored the frozen window only. Also the master one-off direct run (the wrapper refused the scorer module;
   `stage1_score_v1.py` `ce70e3e8`). [Item 343](item-343-offline-year-round-refit-module-allowlist.md) folds the scorer module into the allowlist work.
