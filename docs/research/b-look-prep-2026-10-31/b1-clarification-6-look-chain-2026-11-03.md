@@ -100,7 +100,12 @@ MG-2 score.
 
 5. **SPECI / floor-zeroed-band disclosure** (non-deciding; draft on `claude/b-speci-disclosure-20261101` @
    `468aa514cd8b3efc89458c44555ffb884fade8e2`, §3). Run it only on a scored verdict.
-   - Module and command: `<PIN: SPECI-disclosure module — NOT BUILT; see blocker B1>`.
+   - Command: `python -m weather.calibration.b_floor_disclosure --look-out <look out> --layout <step 0d window> --vectors … --transfer <step 0c directory> --drop-list <step 0e>`.
+   - Module: `src/weather/calibration/b_floor_disclosure.py` `<PIN: b_floor_disclosure>`.
+   - It writes `b_floor_disclosure.json` and `b_floor_disclosure_receipt.json` beside B's look, with mode "x".
+   - SPECI attribution is given only from a flag in B's bytes (master 2026-11-03). B's layout, vectors and
+     transfer carry none, so the sub-count is reported NOT_COMPUTED with the columns checked. The module never
+     opens MG-2's bundle.
    - If no pinned implementation exists at the look, the disclosure is reported as NOT COMPUTED, and nothing
      about B changes (draft §3, "Code").
 
@@ -132,7 +137,8 @@ SHA256` on the production checkout. Any mismatch stops the session before the tr
 | `src/weather/calibration/b_scorer_entry_edit.py` | step 2 | `a08c1eaa09d26d38e0481dfcd651d7dc46d11ce524ca29d913bb4a1a50a0005c` | pinned |
 | `src/weather/calibration/b_post_look_serial.py` | step 4 | `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed` | frozen at `fa380db09980692f6afe50eb48b949b6c21aa88a` |
 | `tests/calibration/test_b_post_look_serial.py` | step 4 test | `42976969d7e7c2518fafa4adc44abb0f2f8bbab4b2e8676d53da5eae73730a66` | re-pinned 2026-10-31 |
-| SPECI-disclosure module | step 5 | `<PIN: SPECI-disclosure module>` | **not built** (blocker B1) |
+| `src/weather/calibration/b_floor_disclosure.py` (SPECI / floor disclosure) | step 5 | `<PIN: b_floor_disclosure>` | candidate `4f7f742607becac9c163f01438fc4b9c6aed5e1b0afc7b6db359500b0f18cfa4` at `claude/b-speci-disclosure-20261103` @ `1a0a04f9dd729e4773b3da39df48cc045782209b`; lands in a suite-gated RF combo before 11-25 |
+| `tests/calibration/test_b_floor_disclosure.py` | step 5 test | `<PIN: test_b_floor_disclosure>` | candidate `d2ba535ffc2f64c6344d925f5adc0bf8ef84e8374fe5fb4c6bf0f2a59f839d5a` at the same commit |
 | `src/weather/calibration/mg1_look.py` | step 0a, VOID 5 | `<PIN: mg1_look re-registered>` = `MG1_LOOK_ENTRY_SHA256` | candidate on `claude/mg1-look-scoring-r11-20261103`; set by Clarification 7 |
 | `src/weather/backtesting/venue_label_audit.py` | step 0b | `<PIN: venue_label_audit>` | on master by 11-20 (rulings:265) |
 | `src/weather/calibration/b_drop_list.py` | step 0e | `<PIN: b_drop_list>` | R19 head |
@@ -220,9 +226,10 @@ Host dry-run checklist additions, before step 0c:
 
 ## 6. Open items and blockers (not invented here)
 
-- **B1. SPECI-disclosure module not built.** No branch carries an implementation; only the docs draft exists
-  (`claude/b-speci-disclosure-20261101` @ `468aa514…`, filed under `docs/research/b-floor-disclosure-2026-11-01/`).
-  Step 5's pin is a placeholder. If nothing is pinned by the look, the disclosure is NOT COMPUTED.
+- **B1. SPECI-disclosure module: built, not landed.** `b_floor_disclosure.py` is on
+  `claude/b-speci-disclosure-20261103` @ `1a0a04f9d…`, from L51's accepted draft (`468aa514…`). It lands in a
+  suite-gated RF combo before 11-25, and its sha replaces step 5's placeholder in the landing commit. If nothing
+  is pinned by the look, the disclosure is NOT COMPUTED.
 - **B2. Pins not yet fixed (expected; master 2026-11-03).** Every pin is filled in the landing commit (the 11-25
   docs head), and every pinned module must be on master by then:
   - `venue_label_audit.py`: combo C, 11-04/05;
