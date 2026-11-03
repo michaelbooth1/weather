@@ -906,3 +906,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v10.py `
   -ExpectSha dc58715ca4f8834746051e3aa8c5408f115e384a63cbf512ef1940cfea82abaa
 ```
+
+## Appended 2026-11-03T07:13:59-05:00: build (stage 2) STOP, runner output-guard HALT (append only, counts and classes only)
+
+- **Run.** Launched at 06:33:23 with the exact 06:33 form. In the same block immediately before launch, `data\` held
+  exactly the 4 junctions and nothing else, and no wrapper was running.
+- **Receipt.** PARTIAL, `8ff0d20bfc12f58e6c8c272f7e449a1a8f812115045a1fbb2faa200d38f11977`.
+  - Walker exit 10; launcher log guard 0; receipt guard 0; no FLAG.
+  - Walker time 20261103T063324.2552317-05:00 to 20261103T071315.0990749-05:00 (39 min 51 s).
+  - Peak job memory 4,756,045,824 bytes; the 40% line (12.8 GB) was never crossed.
+- **Runner.** status HALT, halt_scope run, reason class "output guard".
+  - Output guard result HIT: files_scanned 3,206, hits_total 11, all in 1 file, class Y26_PRE0527 (11). The file
+    is `nbm_market_new\nbm_pit_corpus_rows.jsonl`, the L9 NBM corpus tool's output.
+  - One further write was refused and not written: 300 disallowed date strings, all class Y26_PRE0527.
+  - `writes_withheld` [], log writes withheld 0 / 0.
+  - decision_allowance: dated_tokens 828, values 432.
+- **M1 and gz headers (the records part passed).**
+  - m1_summary: files 198, remaining_total 0, span_mismatch_total 0, cut_total {centre 198, generated_at 198,
+    decision 216}, protocols [5].
+  - gz_header_summary: files 202, members 202, fname 198, fname_own_tmp 198, fcomment 0, fextra 0, hits 0.
+  - gz_header_allowance: 198 / 198.
+- **Junction manifest.** before = after (payload `9dff281c…`), manifest_changed False.
+- **State, left as is.**
+  - `run\records` now holds 264 files: a6's 66 plus 198 extracted by build.
+  - `run\s2_build` holds the HALT outputs.
+  - No hit content was opened or logged. The build report has no `records_sha256`, because the HALT came after
+    extraction and before the report merge.
+- **STOP.** Waiting for a ruling.
