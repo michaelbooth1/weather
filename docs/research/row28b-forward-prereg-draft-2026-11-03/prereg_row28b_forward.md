@@ -51,16 +51,16 @@ is not carried as evidence." The history point (B − S −0.1368) sizes this te
 | --- | --- |
 | D0 | 2026-12-17 (not earlier; row 28 §9 item 3), and not before this file's freeze commit |
 | Deciding dates | the first **N = 45** forward dates from D0 that pass §4's integrity rules, in date order (12-17..01-30 if none drops) |
-| Read rule | no input-derived score, label or price of any forward date is read before (i) the PT-1 look and (ii) the F8-MH look (01-26) have both been taken, and (iii) every earlier-frozen claimant of that date has looked (method §5 rule 9; look order follows freeze time) |
+| Read rule | no input-derived score, label or price of any forward date is read before (i) the F8-MH look (01-26) has been taken and (ii) every earlier-frozen or bound claimant of that date has looked (method §5 rule 9; look order follows freeze time). PT-1 is NOT RUNNABLE (R21) and claims no date; its R21 receipt stands where a PT-1 look would |
 | Hard excluded | everything before D0 for scoring; the sealed panel 2026-05-27..07-30 and 2026-06-01..09-29 are never read, as in row 28 §1 |
 
 - **Claimants to clear before freeze (rule 9, listed by name; to be verified against the CAMPAIGN_LEDGER, the
-  DEV_WINDOW_LEDGER and the reserved window at freeze):** PT-1 (12-12..01-25), F8-MH (D0 11-02, look 01-26), row 72
+  DEV_WINDOW_LEDGER and the reserved window at freeze):** PT-1 (NOT RUNNABLE (R21), claims no date; receipt `docs/research/pt1-not-runnable-2026-11-03/receipt.md` sha256 `8c45c8d99dabf1e38b21ad3ebd6e1b015a723b54054dd73d72e2373686cf7c35`), F8-MH (D0 11-02, look 01-26), row 72
   R-ODC P1 (D0 10-31), MG-1 forward shadow (NBM-derived reads only), MG-2 / Rule B-1 (45th date 12-12), T+1 (not yet
   frozen), L6_G. A claim whose scope cannot be shown not to intersect is treated as intersecting.
 - **Single read (master ruling on Q9).** All reads happen at one read, taken after the 45th deciding date (01-30 if
   none drops) is final, that is after its venue-rule label is in the R24 frozen copy. **Earliest read date:
-  2027-01-31**, and only once PT-1, F8-MH (01-26) and every other earlier-frozen claimant have looked. The actual
+  2027-01-31**, and only once F8-MH (01-26) and every other earlier-frozen or bound claimant have looked (PT-1 claims no date: NOT RUNNABLE, R21). The actual
   read date is recorded in the look receipt. At that read, the Rule B looks of (g) are applied in date order
   (k = 7, 14, 21, 31) before the final test; a look reads a date only when rule 9 allows it (MIM §5 rule 7).
 - **No early stop in calendar time.** Every forward read waits for the earlier-frozen claimants' 01-26 looks, so
