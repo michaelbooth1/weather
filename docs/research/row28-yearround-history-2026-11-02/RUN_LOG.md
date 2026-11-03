@@ -1287,3 +1287,64 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
     - launcher COMPLETE, both guards 0, no FLAG;
     - junction manifest `f93c2ad2…`;
     - peak memory ≤ 12.8 GB.
+
+## Appended 2026-11-03T07:37:21-05:00: v11 review NOT CLEAN, runner v12 and sentinel v10, rebuild launch form and targets (append only)
+
+- **The v11 review was NOT CLEAN: 1 blocker and 4 minors.** v12 and sentinel v10 are new files; v11 and v9 are not
+  edited. CLARIFICATION_3.md's tenth addendum (append-only) records them.
+  - **B-1:** the v11 ruling text held a guard-range instant; the rebuild would have HALTed on its own report.
+  - **m-1:** the parser tz agreement.
+  - **m-2:** more sentinels.
+  - **m-3:** dict rows at the line root only, the Writer row by row, and non-dict lines are HITs.
+  - **m-4:** the addendum itself.
+
+| File | sha256 |
+| --- | --- |
+| Runner v12, `scripts/row28_run_v12.py` (from v11 by `make_v12.py`, 9 exact replacements) | `9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b` |
+| Sentinel v10, `scripts/test_row28_s7_sentinel_v10.py` (from v9 by `make_test_v10.py`; 48 tests; pins v12) | `f5d90516e587d1c2aacdf0875f70f4d2a465b12e06d1d6a3022ea73f2dda15c3` |
+
+- **Static checks.**
+  - Undefined names: [`__file__`] only, the same as the v10 baseline.
+  - No control bytes, no CR.
+  - The AST dated-constant pass: v11 FAILs (`RULING_V11_NBM_ROLLOVER`), as the review found. v12 PASSes: 0 of 33
+    `RULING_*`. Its other dated constants are not reported as values (tenth addendum).
+- **Rebuild launch form.** The config `stage2_build_v1.json` (`31a751a4…`) is unchanged. The OutDir is new. This
+  supersedes the 07:27 form, which used v11:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s2_build_a2 -Stage build -TimeboxSeconds 21600 `
+  -RootsPath C:\t\L59\row28\run_config\stage2_build_v1.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
+  -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
+```
+
+- **Before the rebuild.** The order is the 07:27 one, with sentinel v10 (target 48 passed) and
+  `--basetemp C:\t\L59\row28\sentinel_bt10`. The wrapper's `-RepoRoot C:\t\L59\row28\wrapper_root` is outside the
+  worktree. Each step waits for review CLEAN plus the coordinator's go.
+- **Rebuild targets** (these add to and supersede the 07:27 list; any difference is a FLAG and a STOP):
+  - **`v11_pins`:**
+    - markets 11, `market_tz_sha256` `5ea728ab…`, stations 300, `pool_tz_sha256` `4bf76e7a…`;
+    - `registry_sha256` {`market_registry.py` `b738b286…`, `config/markets.json` `25a3db6d…`};
+    - `files` = the 2 allowed names;
+    - `parser_sha256` `c469229b…`, `parser_tz_agreements` {market 11, pool 0}.
+  - **`v11_nbm_bytes`:** exactly 3 keys: `writer|pool_nbm_rows.jsonl`, `stage_end|pool_nbm_rows.jsonl` and
+    `stage_end|nbm_market_new/nbm_pit_corpus_rows.jsonl`. Each has remaining 0, span_mismatch 0, and spans_cut equal
+    to its allowance count.
+  - **`v11_nbm_allowance`:**
+    - market `stage_end` = 11;
+    - pool `writer` count = pool `stage_end` count = each one's spans_cut; no other key.
+    - **The pool count is reported, not targeted.** Build 1 refused 300. An upper bound from code and file names
+      only: the block inputs are c07 (cycle 07), addon_01_00 (cycles 01 and 00), gap_c07 (07) and the L48 pool
+      blocks. The runner HALTs on any duplicate (station, date, cycle) (`stage_build`), and only a 12-31 target
+      rolls into 2026. So it is at most 300 × 3 cycles = 900.
+  - **Report:** `report_keys_withheld_bytes` is absent, so `rulings` is not withheld. Guard hits_total 0.
+  - **gz headers:** files 204, members 204; fname 198, fname_own_tmp 198, fcomment 0, fextra 0, hits 0; allowance
+    198 / 198.
+  - **Unchanged:**
+    - M1: 198 files, remaining 0, span_mismatch 0, cuts {198, 198, 216}, protocols [5];
+    - decision allowance 828 / 432;
+    - the 198 records payload-equal to `records_build1_evidence`;
+    - launcher COMPLETE, both guards 0, no FLAG;
+    - junction manifest `f93c2ad2…`;
+    - peak memory ≤ 12.8 GB.

@@ -528,3 +528,42 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
     - a non-exact span;
     - an unarmed stage.
   - **Other tests:** the counts are reported by the stage-end scan, and unpinned sources are refused.
+
+## Tenth addendum (2026-11-03T07:37:21-05:00): the v11 review (B-1, m-1 to m-4), runner v12
+
+- **B-1 (blocker), fixed.** v11's `RULING_V11_NBM_ROLLOVER` held a literal ISO instant in the guard's range.
+  - main reports every `RULING_*` in `report["rulings"]`, and the report guard has no allowance there. The rebuild
+    would therefore have withheld `rulings` and HALTed (code 10).
+  - v12 rewords it as "instant <= V11_INSTANT_LAST (noon UTC of the first day of that year)". The rule itself is
+    unchanged.
+  - An AST pass over every module-level constant of v12 (`l59_static_dates_v1.py`) finds 0 of 33 `RULING_*` with a
+    2026+ date. The other constants holding one are not reported as values:
+    - `DOC_DIR`: masked by `GUARD_MASK_TOKEN` in the gate paths;
+    - `CALIBRATED_WEIGHTS_PINS`: reported as a count and a sha;
+    - `DECISION_ALLOWED_VALUES`: reported as a count;
+    - `GUARD_FROM`: reported in compact form;
+    - `S7_*`: only the section 7 `cap` field, its declared constant field;
+    - `V11_*`: never reported.
+  - Sentinel v10 guards the real `RULING_*` dict.
+- **m-1, adopted.** `spc.nbm_pool_rows` setdefaults its `tz_pool` into
+  `nbm_probabilistic_tmax.NBM_NBP_STATION_TIMEZONES`, and the bound parser uses that table for market stations. So
+  the pool rows' local dates follow the parser's table wherever it has an entry, not `tz_pool`.
+  - **Qualifier on the ninth addendum's "the same `tz_pool` the producer uses":** true for stations without a
+    parser entry. For stations with one, the parser's entry governs.
+  - v12 therefore HALTs at stage start if any v11 market tz or pool tz differs from the parser's entry for the
+    same station (market: via `NBM_STATIONS[market]`; pool: the ICAO itself).
+  - The parser module is pinned: `src/weather/sources/nbm_probabilistic_tmax.py`
+    `c469229b979c9a29fe96ec15db64d80e30038045fbc000a7a128e1ffca84f70b`.
+  - The agreement counts are pinned and reported in `v11_pins.parser_tz_agreements`: market 11 (all 11 have an
+    entry, all agree) and pool 0 (no survivor has an entry).
+- **m-3, adopted.** The allowance fires only for a dict row at the JSONL line root (`o is obj`).
+  - The Writer walks each row separately, as the stage-end scan walks each written line.
+  - A non-dict line in an allowed file is a HIT (`v11_non_row_line`), and so is a list-wrapped row.
+- **m-2, adopted.** Sentinel v10 (`test_row28_s7_sentinel_v10.py`, from v9; 48 tests) adds:
+  - the real rulings-dict guard;
+  - a naive instant is a HIT, and a `Z` instant passes;
+  - every `set_v11_allowance` pin HALT branch: market tz map, station list, pool tz map, parser disagreement (pool
+    station and market), and the agreement-count pin; the pinned case arms the allowance;
+  - a list-wrapped line and a non-dict line are HITs, in the Writer and at stage end.
+- **m-4.** This addendum records the above. The ninth addendum's statement that a naive instant is a HIT is now
+  tested.
