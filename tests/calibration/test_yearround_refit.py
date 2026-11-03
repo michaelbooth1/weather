@@ -1,0 +1,722 @@
+"""Item 343b: the offline year-round refit of row 28's candidate B (synthetic data only).
+
+Guards: item 343b design (docs/research/item343b-yearround-module-design-2026-11-03.md, accepted 2026-11-03) and
+master's BUILD GO rulings: Rule L and the kept 2024-02-29 training row (row28_run_v12.py:1595-1600, 2004-2008),
+fit_kind "forward" with both sha guards (Q-S), hard date bounds and no label or price reader (Q-G), weekly
+as-of-capture emission (Q-W), train/serve parity to 1e-12, MG-2 emit_rows equality on the C5 window, the
+equivalence harness and loop isolation (section 7).
+"""
+from __future__ import annotations
+
+import ast
+import builtins
+import gzip
+import hashlib
+import json
+import math
+import pickle
+import re
+import sys
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import pytest
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+yr = import_or_skip_on_capture_host("weather.calibration.yearround_refit")
+p3 = import_or_skip_on_capture_host("weather.calibration.mg2_p3d_n")
+prm = import_or_skip_on_capture_host("weather.calibration.pooled_residual_model")
+
+ROOT = Path(__file__).resolve().parents[2]
+MODULE_FILE = ROOT / "src" / "weather" / "calibration" / "yearround_refit.py"
+MARKETS = ("atlanta", "denver", "seattle")
+CENTRES = ("2026-12-09", "2026-12-24", "2026-01-08", "2026-02-22", "2026-05-23", "2026-06-07")
+YEARS = (2022, 2023, 2024)
+FORBIDDEN_IMPORT = re.compile(r"venue_label|venue_rule_labels|settlement_ledger|market_day_labels|clob|price|"
+                              r"orderbook|polymarket|execution_tape|b_scorer|ledger")
+
+
+# ----------------------------------------------------------------------------- synthetic world
+
+def _unit(*parts):
+    h = hashlib.sha256("|".join(map(str, parts)).encode()).digest()
+    return int.from_bytes(h[:4], "big") / 2 ** 32
+
+
+def _y(market, day):
+    doy = day.timetuple().tm_yday
+    return int(round(65 + 18 * math.sin(2 * math.pi * (doy - 100) / 365.25) + 3 * MARKETS.index(market)
+                     + 6 * (_unit("y", market, day) - 0.5)))
+
+
+def _payload(market, centre, years):
+    records = {}
+    for hour in (13, 14, 15, 16):
+        rows = []
+        for year in years:
+            for day in prm.window_days(centre, year):
+                y = _y(market, day)
+                f = y - (16 - hour) * _unit("f", market, day, hour) * 1.5 - 0.3
+                rows.append({"target_date": day.isoformat(), "final_bucket": y, "high_so_far": round(f, 1),
+                             "current_temp": round(f - 1.0, 1),
+                             "forecast_high": round(y + 4 * (_unit("fh", market, day) - 0.5), 1)})
+        records[hour] = rows
+    ys = [r["final_bucket"] for rs in records.values() for r in rs]
+    return {"market": market, "centre": centre, "unit": "F", "bucket_space": list(range(min(ys) - 4, max(ys) + 5)),
+            "plan": {"numeric_feature_names": ["high_so_far", "current_temp"], "all_wind_groups": [],
+                     "all_cloud_groups": []},
+            "records": records}
+
+
+def _write_records(root, market, centre, payload):
+    path = prm.records_path(root, market, centre)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wb") as handle:
+        pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return path
+
+
+def _sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _minimal_bound_state():
+    return {"schema": p3.STATE_SCHEMA, "arm": p3.ARM, "fit_kind": "forward", "markets": [], "centres": [],
+            "season_of": {}, "coords": {}, "buckets": {}, "constants": {"levels": []},
+            "conversion": {"enabled": False, "rule_id": None, "rule": None},
+            "late_report": {"rule": "last_in_hour", "grace_minutes": None}, "hours": {}, "provenance": {}}
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    """Synthetic records, NBM and fetch inputs, the module's constants pointed at them, hour 13 only."""
+    monkeypatch.setattr(yr, "SCORED_HOURS", (13,))
+    monkeypatch.setattr(yr, "FOLDS", (2023,))
+    monkeypatch.setattr(yr, "REQUIRED_FIT_MARKETS", MARKETS)
+    monkeypatch.setattr(yr, "state_root", lambda: tmp_path / "data" / "yearround_refit")
+    monkeypatch.setattr(yr, "ARCHIVE_ROOT", tmp_path / "archive")
+    from weather.sources.forecast_training_corpus import CorpusVerificationError
+
+    def covered_years(centre, manifests):
+        return list(YEARS) if centre in CENTRES else []
+
+    def extract_market(market, centre, manifests, out_root, training_years=None):
+        if market not in MARKETS:
+            raise CorpusVerificationError("synthetic: market not in the test set")
+        target = prm.records_path(out_root, market, centre)
+        if target.exists():
+            raise prm.PooledModelError("refusing to overwrite")
+        return _write_records(out_root, market, centre, _payload(market, centre, training_years)), {}
+
+    monkeypatch.setattr(prm, "covered_years", covered_years)
+    monkeypatch.setattr(prm, "extract_market", extract_market)
+    # NBM: an L9-format corpus with a 07Z mean for every (market, date) but one; the new-rows build is empty.
+    rows = []
+    for market in MARKETS:
+        for centre in CENTRES:
+            for year in YEARS:
+                for day in prm.window_days(centre, year):
+                    if (market, day) == ("atlanta", date(2023, 2, 20)):
+                        continue
+                    rows.append({"market_id": market, "target_date": day.isoformat(), "cycle": "07",
+                                 "available": True,
+                                 "mean": _y(market, day) + 1.0 + 5 * (_unit("nbm", market, day) - 0.5),
+                                 "last_modified": f"{day.isoformat()}T08:30:00Z"})
+    l9_corpus = tmp_path / "l9" / "nbm_pit_corpus_rows.jsonl"
+    l9_corpus.parent.mkdir()
+    l9_corpus.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows), encoding="utf-8")
+    monkeypatch.setattr(yr, "L9_CORPUS_SHA256", _sha(l9_corpus))
+    fetch = tmp_path / "fetch"
+    (fetch / "nbp").mkdir(parents=True)
+    blocks = {}
+    for key, (rel, manifest) in yr.BLOCK_FILES.items():
+        path = fetch / rel
+        path.write_text(json.dumps({"utc_date": "2023-06-05", "k": key}) + "\n"
+                        + json.dumps({"utc_date": "2023-03-05", "k": key}) + "\n", encoding="utf-8")
+        blocks.setdefault(manifest, {})[rel] = {"sha256": _sha(path)}
+    shas = {}
+    for manifest, files in blocks.items():
+        (fetch / manifest).write_text(json.dumps({"files": files}), encoding="utf-8")
+        shas[manifest] = _sha(fetch / manifest)
+    monkeypatch.setattr(yr, "FETCH_MANIFEST_SHA256", shas)
+
+    def build_new_nbm_rows(l9, blocks_in, out_dir):
+        Path(out_dir).mkdir(parents=True)
+        path = Path(out_dir) / "nbm_pit_corpus_rows.jsonl"
+        path.write_text("", encoding="utf-8")
+        return path
+
+    monkeypatch.setattr(yr, "build_new_nbm_rows", build_new_nbm_rows)
+    bound = tmp_path / "bound" / "p3d_n_state.pkl"
+    bound.parent.mkdir()
+    bound.write_bytes(pickle.dumps(_minimal_bound_state(), protocol=4))
+    monkeypatch.setattr(yr, "BOUND_P3D_N_STATE_SHA256", _sha(bound))
+
+    def cfg(records="records"):
+        return {"pit_corpora": str(tmp_path / "pit"), "fetch_dir": str(fetch), "l9_corpus": str(l9_corpus),
+                "records_root": str(tmp_path / records), "bound_state": str(bound)}
+
+    return cfg
+
+
+def _frame(world, tmp_path):
+    mods = yr._modules()
+    files, _ = yr.build_records(world(), mods.prm)
+    n = len(list((tmp_path / "data").glob("yearround_refit/t/nbm*")))
+    frame, payload_buckets, report = yr.training_frame(world(), mods, files, yr.state_root() / "t" / f"nbm{n}")
+    return mods, frame, payload_buckets, report
+
+
+# ----------------------------------------------------------------------------- centres, rows, buckets
+
+def test_centre_sets_rule_l_and_wrap_check_over_a_leap_year():
+    sets = yr.centre_sets(prm)
+    assert len(sets["A"]) == 24 and len(sets["B"]) == 11 and set(sets["B"]) <= set(sets["A"])
+    assert sets["B"] == tuple(prm.JAN_JUL_CENTRES[:10]) + ("2026-12-24",)
+    for arm in yr.ARMS:
+        assert yr.centre_for(prm, sets[arm], "2024-02-29") == "2026-02-22"
+        assert yr.centre_for(prm, sets[arm], "2024-02-28") == "2026-02-22"
+        days = [date(2024, 1, 1) + timedelta(days=k) for k in range(366)]
+        assert yr.wrap_check(prm, days, sets[arm]) == 366
+    with pytest.raises(ValueError):
+        prm.nearest_centre("2024-02-29", sets["B"])  # the bound lookup that Rule L protects
+    assert yr.centre_for(prm, sets["B"], "2025-05-31") == "2026-05-23"
+    assert yr.centre_for(prm, sets["B"], "2024-12-17") == "2026-12-24"
+    assert yr.centre_for(prm, sets["B"], "2025-01-03") == "2026-01-08"
+    assert yr.season_map(prm, sets["B"]) == {"01": "jan_jul", "02": "jan_jul", "03": "jan_jul", "04": "jan_jul",
+                                            "05": "jan_jul", "12": "oct_dec"}
+
+
+def test_feb29_training_row_is_kept_with_its_real_date_and_held_out_only_in_fold_2024(world, tmp_path):
+    mods, frame, payload_buckets, _ = _frame(world, tmp_path)
+    framed = yr.with_arm_centres(prm, yr.centre_sets(prm), frame, "B")
+    leap = framed[framed["target_date"] == "2024-02-29"]
+    assert len(leap) == len(MARKETS) * 4 and set(leap["centre"]) == {"2026-02-22"}
+    doy = date(2024, 2, 29).timetuple().tm_yday
+    assert (leap["doy_sin"] == math.sin(2 * math.pi * doy / 365.25)).all()
+    for fold in (2021, 2022, 2023, 2025, 2026):
+        assert "2024-02-29" in set(yr.arm_rows(framed, "B", 13, fold)["target_date"])
+    assert "2024-02-29" not in set(yr.arm_rows(framed, "B", 13, 2024)["target_date"])
+
+
+def test_b_filters_on_target_date_and_folds_hold_out_a_season_year(world, tmp_path):
+    mods, frame, payload_buckets, _ = _frame(world, tmp_path)
+    sets = yr.centre_sets(prm)
+    framed = yr.with_arm_centres(prm, sets, frame, "B")
+    train = yr.arm_rows(framed, "B", 13, 2026)
+    assert train["target_date"].map(yr.in_dec_may).all() and (train["hour"] == 13).all()
+    assert "2023-05-31" in set(train["target_date"])  # May 31 sits in the 06-07 payload window
+    assert set(train.loc[train["target_date"] == "2023-05-31", "centre"]) == {"2026-05-23"}
+    assert set(train.loc[train["payload_centre"] == "2026-12-09", "target_date"]) == set()
+    assert set(train.loc[train["target_date"].str[5:7] == "12", "centre"]) == {"2026-12-24"}
+    assert (train["target_date"] <= "2025-12-16").all()
+    held = yr.arm_rows(framed, "B", 13, 2023)
+    assert not (held["sy"] == 2023).any() and (train["sy"] == 2023).any()
+    assert yr.season_year("2022-12-17") == 2023 and yr.season_year("2022-12-16") == 2022
+    framed_a = yr.with_arm_centres(prm, sets, frame, "A")
+    assert len(yr.arm_rows(framed_a, "A", 13, 2026)) > len(train)
+
+
+def test_bucket_space_is_payload_union_plus_training_label_range():
+    frame = pd.DataFrame({"market": ["atlanta"] * 3, "payload_centre": ["2026-01-08", "2026-01-08", "2026-02-22"],
+                          "y": [50.0, 75.0, 61.0]})
+    buckets = yr.arm_buckets({("atlanta", "2026-01-08"): [60, 61], ("atlanta", "2026-02-22"): [80]}, frame)
+    assert buckets == {"atlanta": list(range(50, 76)) + [80]}
+
+
+def test_training_window_bound_refuses_a_row_outside_it():
+    ok = pd.DataFrame({"target_date": ["2020-12-17", "2025-12-16"]})
+    yr.check_training_window(ok)
+    for bad in ("2020-12-16", "2025-12-17", "2026-01-05"):
+        with pytest.raises(yr.YearroundRefused, match="training_window"):
+            yr.check_training_window(pd.DataFrame({"target_date": ["2023-01-05", bad]}))
+
+
+# ----------------------------------------------------------------------------- state and parity
+
+def test_forward_state_contract_and_train_serve_parity_to_1e12(world, tmp_path):
+    mods, frame, payload_buckets, report = _frame(world, tmp_path)
+    assert report["train_nbm"]["train_nbm_imputed_forecast"] == 4  # the one missing (market, date), hours 13-16
+    state, info = yr.arm_state(mods, frame, payload_buckets, "B", 2026, hours=(13, 15),
+                               provenance={"candidate": yr.CANDIDATE_ID, "shadow_only": True})
+    assert p3.state_problems(state) == [] and state["fit_kind"] == "forward"
+    assert state["markets"] == list(MARKETS) and state["centres"] == list(yr.centre_sets(prm)["B"])
+    assert set(info["training_rows_sha256"]) == {13, 15}
+    framed = yr.with_arm_centres(prm, yr.centre_sets(prm), frame, "B")
+    months = set()
+    for hour in (13, 15):
+        train = yr.arm_rows(framed, "B", hour, 2026)
+        rows = train[train["target_date"] != "2024-02-29"].drop(columns=["y"])
+        entry = state["hours"][hour]
+        fitted = {"mean": None, "scale": entry["scale"], "z": entry["z"]}
+        refit = yr.fit_hour(prm, train)
+        fitted["mean"] = refit["fit"]["mean"]
+        trainer = yr.trainer_predict(mods, refit["fit"], refit["train_y"], state["buckets"], rows)
+        for (market, day, h), _, _, dist in trainer:
+            row = rows[(rows["market"] == market) & (rows["target_date"] == day)].iloc[0]
+            served = p3.serve_distribution(state, market=market, target_date=day, hour=h, nbm_mean=float(row["fh"]),
+                                           high_so_far=float(row["F"]), current_temp=float(row["x_current_temp"]))
+            assert set(served) == set(dist)
+            assert max(abs(served[k] - dist[k]) for k in dist) <= 1e-12
+            assert abs(sum(served.values()) - 1.0) <= 1e-12 and min(served.values()) >= 0.0
+            months.add(day[5:7])
+    assert {"12", "01", "02", "05"} <= months
+
+
+def test_freeze_refuses_the_bound_sha_before_writing_and_writes_once(world, tmp_path, monkeypatch):
+    state = _minimal_bound_state() | {"provenance": {"candidate": yr.CANDIDATE_ID}}
+    sha = hashlib.sha256(pickle.dumps(state, protocol=4)).hexdigest()
+    out = tmp_path / "data" / "yearround_refit" / "f"
+    monkeypatch.setattr(yr, "BOUND_P3D_N_STATE_SHA256", sha)
+    with pytest.raises(yr.YearroundRefused, match="bound P3d_N"):
+        yr.freeze_state(p3, state, out)
+    assert not (out / p3.STATE_FILE).exists()
+    monkeypatch.setattr(yr, "BOUND_P3D_N_STATE_SHA256", "0" * 64)
+    assert yr.freeze_state(p3, state, out) == sha
+    with pytest.raises(p3.P3dNRefused, match="overwrite"):
+        yr.freeze_state(p3, state, out)
+
+
+def test_release_binding_shas_are_refused_and_include_the_bound_state():
+    listed = yr.release_binding_shas()
+    assert yr.BOUND_P3D_N_STATE_SHA256 in listed
+    for sha in sorted(listed)[:3]:
+        with pytest.raises(yr.YearroundRefused):
+            yr.refuse_bound_sha(sha, where="emit")
+    yr.refuse_bound_sha("f" * 64, where="emit")
+
+
+def test_state_schema_and_family_pins():
+    from weather.schema_families import yearround_refit as fam
+
+    assert yr.STATE_SCHEMA == p3.STATE_SCHEMA
+    got = {s.name: s.version for s in fam.SCHEMAS}
+    assert got == {"yearround_refit_fit_manifest": yr.FIT_MANIFEST_SCHEMA,
+                   "yearround_refit_shadow_receipt": yr.SHADOW_RECEIPT_SCHEMA,
+                   "yearround_refit_equivalence": yr.EQUIVALENCE_SCHEMA,
+                   "yearround_refit_forward_receipt": yr.FORWARD_RECEIPT_SCHEMA,
+                   "yearround_refit_records_manifest": yr.RECORDS_MANIFEST_SCHEMA}
+    from weather.model import toronto_model
+    from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
+
+    assert tuple(toronto_model.INTRADAY_CUTOFF_HOURS) == tuple(INTRADAY_CUTOFF_HOURS)  # emit_rows' source
+
+
+# ----------------------------------------------------------------------------- fit end to end
+
+def test_fit_freezes_writes_once_and_archives_sha_equal(world, tmp_path):
+    now = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+    result = yr.fit(world(), arm="B", now=now)
+    fit_dir = Path(result["fit_dir"])
+    manifest = json.loads((fit_dir / yr.FIT_MANIFEST).read_text(encoding="utf-8"))
+    assert _sha(fit_dir / yr.FIT_MANIFEST) == result["fit_manifest_sha256"]
+    assert manifest["state_sha256"] == result["state_sha256"] == _sha(fit_dir / p3.STATE_FILE)
+    assert manifest["fit_kind"] == "forward" and manifest["candidate_id"] == "row28_B"
+    assert manifest["markets"] == list(yr.EMIT_MARKETS) and "denver" not in manifest["markets"]
+    assert manifest["scored_window"] == ["2026-12-17", "2027-01-30"]
+    assert manifest["emission_window"] == ["2026-12-17", "2027-05-31"]
+    assert manifest["frozen_before_utc"] == yr.FROZEN_BEFORE_UTC and manifest["input_modes"] == ["as_of_capture"]
+    assert set(manifest["upstream_sha256"]) >= set(yr.PINNED_MODULE_SHA256)
+    archive = Path(result["archive_dir"])
+    assert archive == tmp_path / "archive" / fit_dir.name
+    for name in (p3.STATE_FILE, p3.STATE_SIDECAR, yr.FIT_MANIFEST):
+        assert _sha(archive / name) == _sha(fit_dir / name) == result["archive_sha256"][name]
+    assert all(yr.verify_archive(fit_dir, archive, result["archive_sha256"]).values())
+    text = (fit_dir / yr.FIT_MANIFEST).read_text(encoding="utf-8")
+    assert '"y"' not in text and "final_bucket" not in text and "brier" not in text.lower()
+    state = p3.load_state(fit_dir / p3.STATE_FILE, result["state_sha256"], forward=True)
+    assert state["provenance"]["shadow_only"] is True and state["provenance"]["candidate"] == "row28_B"
+    with pytest.raises(yr.YearroundRefused, match="write-once"):
+        yr.fit(world(), arm="B", now=now)
+    with pytest.raises(yr.YearroundRefused, match="frozen before"):
+        yr.fit(world(), arm="B", now=datetime(2026, 12, 17, tzinfo=timezone.utc))
+    with pytest.raises(yr.YearroundRefused, match="forward fit"):
+        yr.fit(world(), arm="A", now=now)
+
+
+# ----------------------------------------------------------------------------- emit
+
+def _metar_row(obs_local, temp, tz):
+    t = obs_local.astimezone(timezone.utc)
+    return {"raw": f"METAR KATL {t:%d%H%M}Z 00000KT 10SM CLR {round((temp - 32) * 5 / 9):02d}/10 A3000",
+            "datetime": t.isoformat(), "report_time": t.isoformat(), "temp_native": temp, "station_id": "KATL"}
+
+
+def _replay(folder, day, tz, captures):
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for i, (cap, obs) in enumerate(captures):
+        lines.append(json.dumps({"snapshot_id": f"s{i}", "captured_at_local": cap.isoformat(),
+                                 "captured_at_utc": cap.astimezone(timezone.utc).isoformat(),
+                                 "target_date": day.isoformat(),
+                                 "sources": {"metar": {"data": {"rows": [_metar_row(o, t, tz) for o, t in obs],
+                                                                "station_id": "KATL"}}}}))
+    (folder / "replay_inputs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _event_folder(root, market, day):
+    months = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+              "november", "december")
+    return root / "snapshots" / f"highest-temperature-in-{market}-on-{months[day.month - 1]}-{day.day}-{day.year}"
+
+
+def _f(t):
+    return 32 + 9 * t / 50
+
+
+def _snaps(rows, tz):
+    return pd.DataFrame({
+        "row_key": [r[0] for r in rows], "snapshot_id": [r[0].split("|")[1] for r in rows],
+        "market": ["atlanta"] * len(rows), "target_date": [r[1].isoformat() for r in rows],
+        "local_hour": [r[2].hour for r in rows], "cutoff_hour": [str(r[3]) for r in rows],
+        "v2_mean": [80.0] * len(rows), "v2_stddev": [2.0] * len(rows),
+        "v2_available_at": [datetime.combine(r[1], datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
+                            .isoformat() for r in rows],
+        "captured_at_utc": [r[2].astimezone(timezone.utc).isoformat() for r in rows]})
+
+
+def _replay_world(root, days, tz):
+    rows = []
+    for day in days:
+        def at(h, m, d=day):
+            return datetime(d.year, d.month, d.day, h, m, tzinfo=tz)
+
+        early = [(at(11, 52), _f(256)), (at(12, 52), _f(261))]
+        late = early + [(at(12, 59), _f(283))]
+        _replay(_event_folder(root, "atlanta", day), day, tz, [(at(13, 5), early), (at(13, 40), late)])
+        rows += [(f"atlanta|a{day.day}", day, at(13, 20), 13), (f"atlanta|b{day.day}", day, at(13, 45), 13),
+                 (f"atlanta|c{day.day}", day, at(12, 30), 13), (f"atlanta|d{day.day}", day, at(13, 50), 21)]
+    return _snaps(rows, tz)
+
+
+@pytest.fixture
+def b_state(world, tmp_path):
+    mods, frame, payload_buckets, _ = _frame(world, tmp_path)
+    state, _ = yr.arm_state(mods, frame, payload_buckets, "B", 2026, hours=(13,),
+                            provenance={"candidate": yr.CANDIDATE_ID, "shadow_only": True})
+    return state
+
+
+def test_shadow_rows_equal_mg2_emit_rows_on_the_c5_window(b_state, tmp_path):
+    tz = ZoneInfo("America/New_York")
+    days = [date(2026, 11, 2), date(2026, 12, 16), date(2026, 12, 17)]
+    snaps = _replay_world(tmp_path / "replay", days, tz)
+    ours, stats, used = yr.shadow_rows(b_state, snaps, tmp_path / "replay", days[0], days[-1], ["atlanta"],
+                                       in_coverage=p3.in_training_coverage)
+    theirs, their_stats = p3.emit_rows(b_state, snaps, tmp_path / "replay", days[0], days[-1], markets=["atlanta"],
+                                       inputs="as_of_capture")
+    assert ours == theirs and stats == their_stats
+    body = "".join(p3.jsonl_line(m, s, t, d) for m, s, t, _, d in ours)
+    assert body == "".join(p3.jsonl_line(m, s, t, d) for m, s, t, _, d in theirs)
+    assert stats["atlanta"]["outside_training_coverage"] == 2 and len(used) == 2  # 12-17: rows a and b
+
+
+def test_b_coverage_emits_dec_to_may_and_never_admits_a_late_report(b_state, tmp_path):
+    tz = ZoneInfo("America/New_York")
+    day = date(2026, 12, 21)
+    snaps = _replay_world(tmp_path / "replay", [day], tz)
+    rows, stats, _ = yr.shadow_rows(b_state, snaps, tmp_path / "replay", day, day, ["atlanta"])
+    kw = dict(market="atlanta", target_date=day.isoformat(), hour=13, nbm_mean=80.0)
+    no_late = p3.serve_distribution(b_state, **kw, high_so_far=_f(261), current_temp=_f(261))
+    with_late = p3.serve_distribution(b_state, **kw, high_so_far=_f(283), current_temp=_f(283))
+    assert {r[3]: r[4] for r in rows} == {"atlanta|a21": no_late, "atlanta|b21": with_late}
+    assert stats["atlanta"]["local_hour_before_cutoff"] == 1 and stats["atlanta"]["outside_cutoff_hours"] == 1
+    again, _, _ = yr.shadow_rows(b_state, snaps, tmp_path / "replay", day, day, ["atlanta"])
+    assert again == rows
+
+
+def test_window_bounds_batch_receipt_and_after_the_fact(monkeypatch):
+    receipt = ["2026-12-17", "2027-05-31"]
+    today = date(2027, 1, 10)
+    yr.check_window(date(2026, 12, 17), date(2026, 12, 20), receipt, today)
+    yr.check_window(date(2026, 12, 21), date(2026, 12, 27), receipt, today)
+    cases = [((date(2026, 12, 16), date(2026, 12, 18)), "emission window"),
+             ((date(2027, 5, 30), date(2027, 6, 1)), "emission window"),
+             ((date(2026, 12, 21), date(2026, 12, 28)), "at most 7"),
+             ((date(2027, 1, 8), date(2027, 1, 10)), "after the fact"),
+             ((date(2026, 12, 20), date(2026, 12, 19)), "after last")]
+    for (first, last), needle in cases:
+        with pytest.raises(yr.YearroundRefused, match=needle):
+            yr.check_window(first, last, receipt, today)
+    with pytest.raises(yr.YearroundRefused, match="receipt"):
+        yr.check_window(date(2026, 12, 21), date(2026, 12, 22), ["2027-01-01", "2027-05-31"], today)
+    monkeypatch.setattr(yr, "EMISSION_WINDOW", ("2027-12-17", "2028-05-31"))
+    with pytest.raises(yr.YearroundRefused, match="Feb 29"):
+        yr.check_window(date(2028, 2, 27), date(2028, 3, 1), ["2027-12-17", "2028-05-31"], date(2028, 4, 1))
+
+
+def test_snapshot_screen_refuses_label_settlement_and_price_columns(tmp_path):
+    base = {c: ["x"] for c in p3.SNAPSHOT_COLUMNS}
+    pd.DataFrame(base).to_parquet(tmp_path / "ok.parquet")
+    assert list(yr.read_snapshots(tmp_path / "ok.parquet").columns) == list(p3.SNAPSHOT_COLUMNS)
+    for bad in ("settlement_high", "yes_price", "label_native", "y", "outcome", "best_bid"):
+        pd.DataFrame(base | {bad: ["v"]}).to_parquet(tmp_path / f"{bad}.parquet")
+        with pytest.raises(yr.YearroundRefused, match="label, settlement or price"):
+            yr.read_snapshots(tmp_path / f"{bad}.parquet")
+    pd.DataFrame({c: ["x"] for c in p3.SNAPSHOT_COLUMNS[:-1]}).to_parquet(tmp_path / "short.parquet")
+    with pytest.raises(yr.YearroundRefused, match="lacks"):
+        yr.read_snapshots(tmp_path / "short.parquet")
+
+
+def _emit_inputs(tmp_path, state):
+    out = tmp_path / "data" / "yearround_refit" / "row28_B" / "20261103T120000Z"
+    sha = yr.freeze_state(p3, state, out)
+    manifest = {"schema": yr.FIT_MANIFEST_SCHEMA, "candidate_id": "row28_B", "state_sha256": sha,
+                "fit_id": "20261103T120000Z", "fitted_at_utc": "2026-11-03T12:00:00+00:00",
+                "sklearn_version": yr._versions()["sklearn"]}
+    (out / yr.FIT_MANIFEST).write_text(json.dumps(manifest), encoding="utf-8")
+    msha = _sha(out / yr.FIT_MANIFEST)
+    receipt = {"schema": yr.FORWARD_RECEIPT_SCHEMA, "candidate_id": "row28_B", "state_sha256": sha,
+               "fit_manifest_sha256": msha, "forward_prereg_sha256": "a" * 64,
+               "owner_approval": "synthetic test record", "window": ["2026-12-17", "2027-05-31"]}
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+    return out, sha, msha, _sha(tmp_path / "receipt.json")
+
+
+def test_emit_end_to_end_prints_both_shas_and_refuses_a_rerun(b_state, tmp_path):
+    tz = ZoneInfo("America/New_York")
+    days = [date(2026, 12, 21), date(2026, 12, 22)]
+    snaps = _replay_world(tmp_path / "replay", days, tz)
+    snaps.to_parquet(tmp_path / "snaps.parquet")
+    out, sha, msha, rsha = _emit_inputs(tmp_path, b_state)
+    kw = dict(state_path=out / p3.STATE_FILE, state_sha=sha, fit_manifest=out / yr.FIT_MANIFEST,
+              fit_manifest_sha=msha, forward_receipt=tmp_path / "receipt.json", forward_receipt_sha=rsha,
+              snapshots=tmp_path / "snaps.parquet", replay_root=tmp_path / "replay", first="2026-12-21",
+              last="2026-12-22", today=date(2026, 12, 28))
+    result = yr.emit(**kw)
+    batch = Path(result["out_dir"])
+    assert result["shadow_rows_sha256"] == _sha(batch / yr.SHADOW_ROWS)
+    assert result["emit_receipt_sha256"] == _sha(batch / yr.EMIT_RECEIPT) and result["rows"] == 4
+    receipt = json.loads((batch / yr.EMIT_RECEIPT).read_text(encoding="utf-8"))
+    assert receipt["shadow_rows_sha256"] == result["shadow_rows_sha256"] and receipt["inputs"] == "as_of_capture"
+    assert len(receipt["replay_sha256"]) == 2 and receipt["state_sha256"] == sha
+    rows, _, _ = yr.shadow_rows(b_state, yr.read_snapshots(tmp_path / "snaps.parquet"), tmp_path / "replay",
+                                days[0], days[1], yr.EMIT_MARKETS)
+    body = "".join(p3.jsonl_line(m, s, t, d) for m, s, t, _, d in rows).encode()
+    assert hashlib.sha256(body).hexdigest() == result["shadow_rows_sha256"]  # re-emission is byte-identical
+    with pytest.raises(yr.YearroundRefused, match="write-once"):
+        yr.emit(**kw)
+    with pytest.raises(yr.YearroundRefused, match="as_of_capture"):
+        yr.emit(**kw | {"inputs": "last_in_hour"})
+    with pytest.raises(yr.YearroundRefused, match="outside the batch"):
+        yr.emit(**kw | {"first": "2026-12-22"})
+    with pytest.raises(yr.YearroundRefused, match="sha256 differs"):
+        yr.emit(**kw | {"forward_receipt_sha": "0" * 64})
+
+
+def test_forward_receipt_must_name_the_state_the_manifest_and_an_approval(tmp_path):
+    good = {"schema": yr.FORWARD_RECEIPT_SCHEMA, "candidate_id": "row28_B", "state_sha256": "1" * 64,
+            "fit_manifest_sha256": "2" * 64, "forward_prereg_sha256": "3" * 64, "owner_approval": "ok",
+            "window": ["2026-12-17", "2027-01-30"]}
+    for change, needle in ((None, None), ({"state_sha256": "9" * 64}, "does not name"),
+                           ({"owner_approval": " "}, "owner approval"), ({"forward_prereg_sha256": "x"}, "prereg"),
+                           ({"window": ["2026-12-01", "2027-01-30"]}, "outside the emission"),
+                           ({"schema": "other/1"}, "not a row28_B")):
+        path = tmp_path / "r.json"
+        path.write_text(json.dumps(good | (change or {})), encoding="utf-8")
+        call = dict(state_sha="1" * 64, manifest_sha="2" * 64)
+        if needle is None:
+            assert yr.load_forward_receipt(path, _sha(path), **call)["window"] == good["window"]
+        else:
+            with pytest.raises(yr.YearroundRefused, match=needle):
+                yr.load_forward_receipt(path, _sha(path), **call)
+
+
+# ----------------------------------------------------------------------------- equivalence harness
+
+FAKE_RUNNER = '''
+"""A stand-in with the frozen runner's API, built from the module's own port (harness test only)."""
+from weather.calibration import yearround_refit as yr
+
+LAST_TRAIN = yr.LAST_TRAIN
+season_year = yr.season_year
+DROP_FIRST_TRAINING_ROW = {drop}
+
+
+def market_frame(ctx, files, with_labels):
+    return yr.market_frame(ctx.prm, files, with_labels)
+
+
+def merged_table(ctx, paths):
+    return yr.merged_table(ctx.l9, paths)
+
+
+def with_arm_centres(ctx, frame, arm):
+    return yr.with_arm_centres(ctx.prm, ctx.centres, frame, arm)
+
+
+def arm_training(frame, arm, hour, fold):
+    out = yr.arm_rows(frame, arm, hour, fold)
+    return out.iloc[1:].reset_index(drop=True) if DROP_FIRST_TRAINING_ROW else out
+
+
+def arm_buckets(payload_buckets, train):
+    return yr.arm_buckets(payload_buckets, train)
+
+'''
+
+
+def _runner(tmp_path, drop=False):
+    path = tmp_path / f"runner_{int(drop)}.py"
+    path.write_text(FAKE_RUNNER.format(drop=drop), encoding="utf-8")
+    return path, _sha(path)
+
+
+def _frozen_list(tmp_path, world, alter=False):
+    """The frozen side's path/sha list (built once from a separate records root of the same synthetic world)."""
+    mods = yr._modules()
+    yr.build_records(world("records_frozen"), mods.prm)
+    manifest = json.loads((tmp_path / "records_frozen" / yr.RECORDS_MANIFEST).read_text(encoding="utf-8"))
+    lines = ["path,sha256,payload_sha256"]
+    for i, (name, entry) in enumerate(sorted(manifest["files"].items())):
+        payload = ("0" * 64) if (alter and i == 0) else entry["payload_sha256"]
+        lines.append(f"C:\\run\\records\\{name},{entry['sha256']},{payload}")
+    lines.append("C:\\run\\controls_report.json," + "e" * 64 + ",")
+    path = tmp_path / f"walk_{int(alter)}.csv"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path, _sha(path)
+
+
+def _run_equivalence(tmp_path, world, *, records, runner, walk, minute, **kw):
+    cfg = world(records) | {"frozen_records_list": str(walk[0]), "frozen_records_list_sha256": walk[1]}
+    result = yr.equivalence(cfg, frozen_runner=runner[0], frozen_runner_sha=runner[1],
+                            now=datetime(2026, 11, 3, 12, minute, tzinfo=timezone.utc), **kw)
+    report = json.loads((Path(result["out_dir"]) / yr.EQUIVALENCE_REPORT).read_text(encoding="utf-8"))
+    assert result["equivalence_report_sha256"] == _sha(Path(result["out_dir"]) / yr.EQUIVALENCE_REPORT)
+    return result, report
+
+
+def test_equivalence_passes_on_identical_inputs_and_holds_no_value(world, tmp_path):
+    walk = _frozen_list(tmp_path, world)
+    result, report = _run_equivalence(tmp_path, world, records="rec_ok", runner=_runner(tmp_path), walk=walk,
+                                      minute=1)
+    assert result["status"] == "PASS", report["failed_checks"]
+    assert report["records"]["compared"] == len(MARKETS) * len(CENTRES) and report["records"]["differ"] == 0
+    assert report["forward"]["state_sha_equal"] and report["forward"]["round_trip_sha_equal"]
+    assert {(e["arm"], e["fold"]) for e in report["row_sets"]} == {("A", 2023), ("B", 2023), ("B", 2026)}
+    assert all(c["rows"] > 0 and c["max_abs_serve"] <= 1e-12 for c in report["fits"])
+
+    def walk_values(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                assert not re.search(r"brier|log_loss|label|price|^y$|final_bucket", str(k), re.I), path + "/" + k
+                walk_values(v, path + "/" + str(k))
+        elif isinstance(obj, list):
+            for v in obj:
+                walk_values(v, path)
+
+    walk_values(report)
+    with pytest.raises(yr.YearroundRefused, match="NEW records root"):
+        _run_equivalence(tmp_path, world, records="rec_ok", runner=_runner(tmp_path), walk=walk, minute=2)
+
+
+def test_equivalence_fails_on_a_record_a_row_key_or_a_fit_change(world, tmp_path):
+    _, report = _run_equivalence(tmp_path, world, records="rec_rb", runner=_runner(tmp_path),
+                                 walk=_frozen_list(tmp_path, world, alter=True), minute=3)
+    assert report["status"] == "FAIL" and report["records"]["differ"] == 1
+    walk = _frozen_list(tmp_path, world)
+    _, report = _run_equivalence(tmp_path, world, records="rec_rk", runner=_runner(tmp_path, drop=True), walk=walk,
+                                 minute=4)
+    assert report["status"] == "FAIL" and not any(e["ordered_keys_equal"] for e in report["row_sets"])
+
+    def other_fit(prm_, train):  # a changed fit: the standardised errors scaled by 1 + 1e-6
+        out = yr.fit_hour(prm_, train)
+        out["fit"]["z"] = out["fit"]["z"] * (1 + 1e-6)
+        return out
+
+    _, report = _run_equivalence(tmp_path, world, records="rec_seed", runner=_runner(tmp_path), walk=walk,
+                                 minute=5, fit=other_fit)
+    assert report["status"] == "FAIL" and report["records"]["pass"]
+    assert all(e["pass"] for e in report["row_sets"]) and not report["forward"]["state_sha_equal"]
+    assert any(c["max_abs_dist"] > 1e-12 for c in report["fits"])
+
+
+def test_frame_compare_treats_missing_strings_as_equal_and_finds_a_change():
+    a = pd.DataFrame({"k": [2, 1], "c": pd.array(["07", None], dtype="string"), "v": [1.0, float("nan")]})
+    b = pd.DataFrame({"k": [1, 2], "c": pd.array([None, "07"], dtype="string"), "v": [float("nan"), 1.0]})
+    assert yr.frame_compare(a, b, ["k"], 0.0)["pass"]
+    assert not yr.frame_compare(a, b.assign(c=pd.array([None, "01"], dtype="string")), ["k"], 0.0)["pass"]
+    assert not yr.frame_compare(a, b.assign(v=[1.0, 1.0]), ["k"], 0.0)["pass"]
+    assert not yr.frame_compare(a, b.assign(k=[1, 3]), ["k"], 0.0)["identical_keys"]
+
+
+def test_per_row_mode_reads_only_a_label_free_extract(tmp_path):
+    path = tmp_path / "rows.csv"
+    path.write_text("fold,hour,market,date,A_yhat\n2023,13,atlanta,2023-01-05,61.5\n", encoding="utf-8")
+    assert yr.read_frozen_rows(path, _sha(path))[0]["A_yhat"] == "61.5"
+    path.write_text("fold,hour,market,date,A_yhat,A,y\n2023,13,atlanta,2023-01-05,61.5,0.1,60\n", encoding="utf-8")
+    with pytest.raises(yr.YearroundRefused, match="label-free"):
+        yr.read_frozen_rows(path, _sha(path))
+
+
+# ----------------------------------------------------------------------------- isolation and no label reader
+
+def _imports(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            yield from (a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            yield node.module
+            yield from (f"{node.module}.{a.name}" for a in node.names)
+
+
+def test_no_capture_loop_or_product_module_imports_the_module():
+    importer = re.compile(r"calibration\.yearround_refit\b|\bimport\s+yearround_refit\b|yearround_refit\s+import\b")
+    hits = [str(p.relative_to(ROOT)) for base in ("src", "app") for p in (ROOT / base).rglob("*.py")
+            if p != MODULE_FILE and "schema_families" not in p.parts
+            and importer.search(p.read_text(encoding="utf-8"))]
+    assert hits == []
+
+
+def test_module_imports_no_production_label_or_price_module():
+    allowed = {"weather.market.market_registry", "weather.market.market_registry.spec_for_id",
+               "weather.model.model_constants", "weather.model.model_constants.INTRADAY_CUTOFF_HOURS",
+               "weather.sources.forecast_training_corpus",
+               "weather.sources.forecast_training_corpus.CorpusVerificationError"}
+    names = set(_imports(MODULE_FILE))
+    production = {n for n in names if n.startswith(yr._PRODUCTION_PREFIXES)}
+    assert production <= allowed, sorted(production - allowed)
+    assert not [n for n in names if FORBIDDEN_IMPORT.search(n)]
+    assert not {"requests", "urllib", "urllib3", "httpx", "http", "aiohttp", "socket"} & {n.split(".")[0]
+                                                                                          for n in names}
+
+
+def test_runtime_refusal_of_a_production_importer():
+    saved = sys.modules.pop("weather.calibration.yearround_refit")
+    try:
+        for name in ("weather.operations.x", "weather.serving.x", "app.views.x"):
+            with pytest.raises(ImportError, match="research-only"):
+                exec("import weather.calibration.yearround_refit", {"__name__": name})
+    finally:
+        sys.modules["weather.calibration.yearround_refit"] = saved
+
+
+def test_sentinel_no_label_or_price_reader_is_imported_on_fit_or_emit(b_state, world, tmp_path, monkeypatch):
+    seen = []
+    real = builtins.__import__
+
+    def spy(name, globals=None, locals=None, fromlist=(), level=0):
+        seen.append(name)
+        seen.extend(f"{name}.{f}" for f in (fromlist or ()))
+        return real(name, globals, locals, fromlist, level)
+
+    tz = ZoneInfo("America/New_York")
+    day = date(2026, 12, 21)
+    snaps = _replay_world(tmp_path / "replay", [day], tz)
+    monkeypatch.setattr(builtins, "__import__", spy)
+    mods, frame, payload_buckets, _ = _frame(world, tmp_path)
+    yr.arm_state(mods, frame, payload_buckets, "B", 2026, hours=(13,), provenance={"candidate": yr.CANDIDATE_ID})
+    rows, _, _ = yr.shadow_rows(b_state, snaps, tmp_path / "replay", day, day, ["atlanta"])
+    monkeypatch.setattr(builtins, "__import__", real)
+    assert rows and seen
+    assert [n for n in seen if FORBIDDEN_IMPORT.search(n)] == []
+
+
+def test_cli_has_no_live_path():
+    for flag in ("--live", "--execute", "--place", "--cancel", "--promote=1"):
+        with pytest.raises(SystemExit, match="no live"):
+            yr.main(["emit", flag])

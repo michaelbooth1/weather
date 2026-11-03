@@ -72,6 +72,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_ps_exit_in_finally_ratchet.py",
             "tests/operations/test_maker_shadow_ops_scripts.py",
             "tests/calibration/test_mg2_input_export.py",
+            "tests/calibration/test_yearround_refit.py",
         ],
     ),
     "launch": (
@@ -124,6 +125,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_b_scorer_admission.py",
             "tests/operations/test_b_look_wrapper_admission.py",
             "tests/operations/test_evening_fix_scorer_admission.py",
+            "tests/operations/test_yearround_refit_admission.py",
             "tests/operations/test_l6_own_state_admission.py",
             "tests/operations/test_pooled_residual_model_admission.py",
             "tests/operations/test_r0_ols_floor_challenger_admission.py",

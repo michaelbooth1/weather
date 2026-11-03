@@ -661,6 +661,15 @@ draws, seed 20261024) and checks the windowed rows against the trainer's
 `feature_model_blocked_validation_rows_<market>.jsonl`. It writes no model
 artifact; its seasonal columns are not served features.
 
+Year-round refit, row 28 candidate B (research only; workstation, through
+`scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`).
+`weather.calibration.yearround_refit fit --arm B --config <cfg> --config-sha <sha>`
+fits B's forward state once, write-once under `data\yearround_refit\`, and
+copies it to the archive; `emit ...` writes one weekly after-the-fact shadow batch
+on captured inputs; `equivalence ...` checks the module against the frozen v12
+runner. The [year-round refit runbook](docs/operations/YEARROUND_REFIT.md) owns
+the flags, windows and archive step. It serves nothing.
+
 ### Trading Simulations
 
 The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls

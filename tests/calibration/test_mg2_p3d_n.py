@@ -445,6 +445,8 @@ def test_module_has_no_network_and_no_production_importer():
     # ("mg2_p3d_n_state/1") without importing this module.
     importer = re.compile(r"calibration\.mg2_p3d_n\b|\bimport\s+mg2_p3d_n\b|mg2_p3d_n\s+import\b")
     hits = [str(p.relative_to(ROOT)) for p in (ROOT / "src").rglob("*.py")
-            if p.name not in ("mg2_composite.py", "mg2_p3d_n.py")
+            # yearround_refit (item 343b) imports the state contract and serve math read-only; its own
+            # ratchet keeps it out of every capture loop and product module.
+            if p.name not in ("mg2_composite.py", "mg2_p3d_n.py", "yearround_refit.py")
             and importer.search(p.read_text(encoding="utf-8"))]
     assert hits == []
