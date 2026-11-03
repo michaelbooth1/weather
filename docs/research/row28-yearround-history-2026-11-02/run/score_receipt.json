@@ -1,0 +1,59 @@
+﻿{
+    "schema":  "storage_audit_guarded_walk_receipt/1",
+    "exception":  "one-off exception to workstation_heavy admission, master ruling 2026-11-02, read-only metadata walk",
+    "walker":  "C:\\wt\\L59row28\\docs\\research\\row28-yearround-history-2026-11-02\\scripts\\row28_run_v12.py",
+    "walker_sha256":  "9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b",
+    "launcher":  "C:\\t\\L59\\row28\\run_row28_guarded_v6.ps1",
+    "launcher_sha256":  "8a2f8759047845a3c67f373faf43b86db459aeda15f243ef8d8e996298374405",
+    "roots":  "C:\\t\\L59\\row28\\run_config\\stage6_score_v1.json",
+    "roots_sha256":  "8285bd50db328641b6cd640fa2c8b24b1e73fa23c06edcf26d97e8c73a33a431",
+    "python":  "C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe",
+    "mutexes_held":  [
+                         "Global\\WeatherProjectHeavyWorkloadV1.Exclusive",
+                         "Global\\WeatherProjectHeavyWorkloadV1",
+                         "Global\\WeatherProjectHeavyWorkloadV1.Slot2",
+                         "Global\\WeatherProjectHeavyWorkloadV1.Slot3",
+                         "Global\\WeatherProjectHeavyWorkloadV1.Slot4",
+                         "Global\\WeatherProjectHeavyWorkloadV1.Slot5",
+                         "Global\\WeatherProjectHeavyWorkloadV1.Slot6",
+                         "Global\\WeatherProjectHeavyWorkloadV1.Slot7",
+                         "Global\\WeatherProjectHeavyWorkloadV1.Slot8"
+                     ],
+    "timebox_seconds":  21600,
+    "start":  "20261103T123000.6967878-05:00",
+    "stage":  "score",
+    "job_helper_sha256":  "05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669",
+    "admission_helper_sha256":  "48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441",
+    "start_available_physical_bytes":  12766281728,
+    "start_commit_percent":  59.1,
+    "start_free_disk_bytes":  92535988224,
+    "walker_pid":  45276,
+    "job_memory":  {
+                       "peak_job_memory_bytes":  4926054400,
+                       "peak_process_memory_bytes":  4923944960,
+                       "job_limit_flags":  "0x00002000",
+                       "job_total_processes":  10,
+                       "job_active_processes":  0,
+                       "read_at":  "20261103T132536.6824151-05:00"
+                   },
+    "output_capture":  {
+                           "stdout_truncated":  false,
+                           "stderr_truncated":  false,
+                           "stdout_bytes_seen":  374,
+                           "stderr_bytes_seen":  0
+                       },
+    "walker_exit_code":  0,
+    "status":  "COMPLETE",
+    "walk_json_sha256":  "32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b",
+    "walk_csv_sha256":  "237f3167e1cd27c227664fd4fa588e6c5c8f617a84b53c740c6f6c2bc2c31862",
+    "output_guard":  {
+                         "pattern":  "(?\u003c![0-9])(20[0-9]{2}-[01][0-9]-[0-3][0-9])(?![0-9])",
+                         "from":  "20260101",
+                         "files":  {
+                                       "walker.stdout":  0,
+                                       "walker.stderr":  0
+                                   },
+                         "hits_total":  0
+                     },
+    "end":  "20261103T132536.7210321-05:00"
+}
