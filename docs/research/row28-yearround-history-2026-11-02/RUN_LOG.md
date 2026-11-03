@@ -6,9 +6,9 @@ This log records how the frozen row-28 prereg is executed.
   by `FREEZE_RECORD.md`.
 - **Read with:** `CLARIFICATION_1.md`, `CLARIFICATION_2.md` and `CLARIFICATION_3.md` (all 2026-11-03, committed
   before any control).
-- **Status:** nothing has run, not even the sentinel test. Gate order: the v4 delta review (runner v4, launcher v4,
-  sentinel test v2, C1–C3) is CLEAN, then the coordinator's go for the sentinel test, then the sentinel test PASSES,
-  then the coordinator's go for stage 1.
+- **Status:** nothing has run, not even the sentinel test. The v4 delta review found no MAJOR; master gave v5 a GO
+  (runner v5, launcher v5, sentinel test v3, the C3 addendum). Gate order: the coordinator's go for the sentinel
+  test, then the sentinel test PASSES, then the coordinator's go for stage 1.
 
 ## Exception to workstation_heavy admission
 
@@ -43,18 +43,22 @@ runs through a guarded one-off launcher.
   - F4: a withheld receipt's minimal replacement records `receipt_guard_hits`;
   - F6: in look and score a withheld receipt keeps the stage status and adds `output_guard_flag` (a FLAG, not HALT);
   - F7: the receipt's `exception` string is reverted to the v2 text (C2 §5); G2 masks exactly that one string,
-    because it contains a 2026 date. The v3 exception-string change is therefore undone.
+    because it contains a 2026 date. The v3 exception-string change is therefore undone. The masked string,
+    verbatim (G6; also in the C3 addendum):
+    "one-off exception to workstation_heavy admission, master ruling 2026-11-02, read-only metadata walk".
+- **Launcher v5** is v4 plus one change (G4, C3 addendum): the minimal receipt that replaces a guarded receipt also
+  carries `job_memory` (guarded first), so every stage's receipt records `job_memory.peak_job_memory_bytes`.
 
 ## Pinned files
 
 | File | sha256 |
 | --- | --- |
-| Launcher v4, `C:\t\L59\row28\run_row28_guarded_v4.ps1` (= `scripts/run_row28_guarded_v4.ps1`) | `3f356f38676ac680281b71c3981fd3f6d557a86246e4fc48584d6b4d79aad4ca` |
-| Runner v4, `scripts/row28_run_v4.py` (run from `C:\wt\L59row28`) | `059cb05b72caf0736faa74019293ca89205c0fd7fcb5c70d8943b934bfa17552` |
-| Sentinel test v2, `scripts/test_row28_s7_sentinel_v2.py` (pins runner v4) | `2cc674246829701c733e25fa1694a7fce73d4ef94b5ad9f704e6db8a166eea30` |
+| Launcher v5, `C:\t\L59\row28\run_row28_guarded_v5.ps1` (= `scripts/run_row28_guarded_v5.ps1`) | `0b0d0f977ecba384a8ae4257a7d7f49af2fb92ca7d23f43916696ac9890ade5d` |
+| Runner v5, `scripts/row28_run_v5.py` (run from `C:\wt\L59row28`) | `e138d9af14476ef918cc1768b1589c2ac5e95d8faf18ac32eeff308d149d7d32` |
+| Sentinel test v3, `scripts/test_row28_s7_sentinel_v3.py` (pins runner v5) | `1f5be86cd6737cbc6692ad480960310839071e4afe2b35cfddd6d28e164bb0b6` |
 | `CLARIFICATION_1.md` | `d9e70a2f47e05d9046893d3b5f461b7ab3ce658b5166748c5eaedca5d8187495` |
 | `CLARIFICATION_2.md` | `a71ba0e87c2d887309be41a57f0aceeccd03039acb1d20532e0dfa61d7df6bdd` |
-| `CLARIFICATION_3.md` | `c4eff5a3f60a38ef1cf5d7a472160a27af84234c007e7e51fc6ca3a0eccac74c` |
+| `CLARIFICATION_3.md` (with its 2026-11-03 addendum) | `ab6168a20c12082bdc1f4e3141acfa3136231a348cb2d63ac5769bbfe45786c1` |
 | R-P2 module copy, `C:\t\L59\row28\tools\station_pool_corpus_d4947cfe.py` | `d4947cfe1b02c537ec84fca994ef0c1c26572be0251810eb744b421aae09f0b7` |
 | Job helper, `C:\wt\L59row28\scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` |
 | Admission helper, `C:\wt\L59row28\scripts\ops\workload_admission.ps1` (memory reading only) | `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441` |
@@ -62,14 +66,16 @@ runs through a guarded one-off launcher.
 | Stage-1 config, `C:\t\L59\row28\run_config\stage1_controls_v2.json` (no runner-version key; reused for v3 and v4) | `66e4b46e9488d95ab32d7d65ab793ab1986de2204045402b1703d47096a439b9` |
 
 - **Superseded, never run:** runner v1 `e39ce884…`, launcher v1 `34235d44…`, config `stage1_controls_v1.json`,
-  runner v2 `0a74bb3d…`, launcher v2 `8bfea248…`, runner v3 `949464ab…`, launcher v3 `fb039782…` and sentinel
-  test v1 `e91cbb46…`. They stay in the branch as review history.
+  runner v2 `0a74bb3d…`, launcher v2 `8bfea248…`, runner v3 `949464ab…`, launcher v3 `fb039782…`, sentinel
+  test v1 `e91cbb46…`, runner v4 `059cb05b…`, launcher v4 `3f356f38…` and sentinel test v2 `2cc67424…`. They stay
+  in the branch as review history.
 - **F2 pins (runner v4 `CALIBRATED_WEIGHTS_PINS`, checked at every stage before it starts).** The one allowlisted
   key path is `["calibrated_weights"]["metadata"]["generated_at"]`, in `records_*.pkl.gz` only, with a pinned value.
   It is copied by `src/weather/calibration/pooled_residual_model.py` 249 and loaded by
   `src/weather/model/toronto_model.py` 145 and 227–238 from `artifacts/calibration/calibrated_weights*.json`, line
   1147 of each file. The 12 values differ per file (all 2026-06-07, 22:05:46 to 22:15:56), so each file has its own
-  pinned value:
+  pinned value. Runner v5 (G3) accepts in a records file only the value of `calibrated_weights_<payload market>.json`
+  (`MarketSpec.artifact_suffix` = `_<id>`, `market_registry.py` 78-80); with no mapping it is a hit:
 
 | `artifacts/calibration/` file | sha256 | `metadata.generated_at` (line 1147) |
 | --- | --- | --- |
@@ -88,7 +94,7 @@ runs through a guarded one-off launcher.
 
 - **Pins inside the runner:** it pins every bound module, input and corpus sha256 it reads. It also pins the run root
   `C:\t\L59\row28\run` and the main data root.
-- **Later stages:** each gets a new config, `stageN_<name>_v4.json`. That config names the previous stages'
+- **Later stages:** each gets a new config, `stageN_<name>_v5.json`. That config names the previous stages'
   `walk.json` files with their sha256 values (from the table below) and, for stages labels and score, the gate commit.
   The config's own sha256 is logged here before its stage starts.
 
@@ -123,7 +129,7 @@ untouched.
 
 | # | Stage (`-Stage`) | Timebox (pre-stated) | Gate before it |
 | --- | --- | --- | --- |
-| 0 | sentinel test v2 (`scripts/test_row28_s7_sentinel_v2.py`, synthetic only) via `workstation_heavy.ps1 -Kind pytest -Queue` | the wrapper's own | v4 delta review CLEAN + coordinator go |
+| 0 | sentinel test v3 (`scripts/test_row28_s7_sentinel_v3.py`, synthetic only) via `workstation_heavy.ps1 -Kind pytest -Queue` | the wrapper's own | coordinator go (v5 GO given) |
 | 1 | `controls`: C-0, C-0b, C-0c, C-b | 4 h = 14,400 s | sentinel PASS + coordinator go |
 | 2 | `build`: every record window, the y-free frame with label presence, NBM tables, pool feature rows with presence | 6 h = 21,600 s | stage 1 PASS |
 | 3 | `integrity`: outcome-blind integrity report; every HALT (R6); the C-pool control; empty pool; S; the §7 gate; restated n, MDE and §8.4 thresholds (N2) | 2 h = 7,200 s | stage 2 PASS |
@@ -139,17 +145,17 @@ untouched.
 - **Launch form.** One invocation per stage on the WS. OutDir is new each time, under `C:\t\L59\row28\run`:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v4.ps1 `
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v5.ps1 `
   -OutDir C:\t\L59\row28\run\s1_controls -Stage controls -TimeboxSeconds 14400 `
   -RootsPath C:\t\L59\row28\run_config\stage1_controls_v2.json `
-  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v4.py `
-  -ExpectSha 059cb05b72caf0736faa74019293ca89205c0fd7fcb5c70d8943b934bfa17552
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v5.py `
+  -ExpectSha e138d9af14476ef918cc1768b1589c2ac5e95d8faf18ac32eeff308d149d7d32
 ```
 
 - **Sentinel test form (stage 0).** It goes through the WS's standard pytest route, so no new exception is needed. The
   arguments are a JSON array passed as canonical base64; the basetemp is deleted afterwards. The process environment
   sets `PYTHONDONTWRITEBYTECODE=1` (F8; the test also sets `sys.dont_write_bytecode`). Arguments:
-  `-m pytest <abs path of scripts\test_row28_s7_sentinel_v2.py> -q -p no:cacheprovider --basetemp C:\t\L59\row28\sentinel_bt`.
+  `-m pytest <abs path of scripts\test_row28_s7_sentinel_v3.py> -q -p no:cacheprovider --basetemp C:\t\L59\row28\sentinel_bt`.
 
 ```
 $env:PYTHONDONTWRITEBYTECODE = "1"
@@ -165,8 +171,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\wt\L59row28\scripts\ops\w
   Clarification 3 §3) may HALT there, and the HALT carries its code only; any other exception is an ERROR carrying
   only its type name. In-memory partial results are discarded, never written or logged. Any repair after such a
   HALT is a reviewed, committed amendment made before any re-run, recorded here with the HALT code.
-- **F4.** Each stage refuses a previous stage whose `receipt.json` is not `COMPLETE` with
-  `output_guard.hits_total == 0`, no `receipt_guard_hits` and no `output_guard_flag`.
+- **F4 / G2.** Each stage refuses a previous stage whose `receipt.json` is not `COMPLETE` with
+  `output_guard.hits_total == 0`, no `receipt_guard_hits` and no `output_guard_flag`, or whose `stage` and
+  `walker_sha256` do not equal the stage name and the report's `runner_sha256`.
 
 ## Disclosures and resolved flags (details in CLARIFICATION_1.md, CLARIFICATION_2.md and CLARIFICATION_3.md)
 
@@ -211,6 +218,18 @@ superseded by ruling 2 (Clarification 3 §4).
   the centre set as `guard_arm_centre_set` = sha256 + count), F4, F5 (no stats or futility from rows whose file was
   withheld), F6/F7 (launcher v4), F8 (sentinel test v2, `PYTHONDONTWRITEBYTECODE=1`), F9 (`post_score` stays where
   it is; the conditions above).
+
+## v5 (the v4 delta review, master GO 2026-11-03; runner v5 constants; C3 addendum)
+
+| Item | Change | Runner v5 constant / function |
+| --- | --- | --- |
+| G1 | Ruling 1, "withheld, never written": every Writer output is serialised first; the walk and the byte cross-check of the serialised bytes run before any write; a hit HALTs pre-score and withholds (not on disk) post-score. The walk covers all categorical categories. | `RULING_V5_WRITER_BYTE_CHECK = True`, `Writer._put` |
+| G2 | `verify_prev` binds the receipt to its report: `receipt.stage == name`, `receipt.walker_sha256 == report.runner_sha256`. | `verify_prev` |
+| G3 | A records file's `generated_at` must be the pin of its own market's `calibrated_weights_<market>.json`; no mapping is a hit. | `RULING_V5_GENERATED_AT_OWN_MARKET = True`, `records_generated_at_for` |
+| G4 | Every receipt records `job_memory.peak_job_memory_bytes` (launcher v5 keeps it in a minimal receipt too). | launcher v5 |
+| G5 | Confirmed by code: no child process inside `score_folds` (sklearn HGB OpenMP threads in-process, capped at 10 by `pooled_residual_model.py` 48-50; no n_jobs / joblib / multiprocessing; the runner's only subprocess is `git` in `verify_committed_gate`, at stage start). | — |
+| G6 | The masked launcher string, verbatim, is in the C3 addendum and above. | — |
+| Item 9 | `set_guard_centres` asserts B ⊆ A (non-empty) and union = A; a `B_*centre*` field is checked against B's set. No written output carries an arm-specific centre today. | `RULING_V5_B_CENTRE_FIELDS = "B_*centre*"`, `centre_set_for` |
 
 Kept from v1 (no ruling changed them):
 

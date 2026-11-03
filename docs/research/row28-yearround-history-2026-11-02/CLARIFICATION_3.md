@@ -81,3 +81,36 @@ following cases.
   - The reviewer preferred hashing record paths. The exact record-name rule was used instead, because the
     `records_sha256` names are reused to open the files (runner v4 `stage_labels`) and the `outputs_sha256` keys are
     used for lookups.
+
+## Addendum (2026-11-03, before any control): the v4 delta review
+
+Master accepted the four v4 disclosures and required v5. Runner v5, launcher v5 and sentinel test v3 implement this
+addendum; their sha256 values are in `RUN_LOG.md`.
+
+- **§1 F7, the masked string, verbatim (G6).** Launcher v4 and v5 mask exactly this receipt `exception` string, and
+  nothing else, before G2 counts:
+  "one-off exception to workstation_heavy admission, master ruling 2026-11-02, read-only metadata walk".
+- **G1, nothing withheld is ever written.** The Writer serialises each output first. Before anything is written it
+  runs the structural walk and the byte cross-check on the serialised (uncompressed) bytes. A hit HALTs before a score
+  exists, and after a score it withholds the output, which is never on disk. The walk also covers every categorical
+  category, used or not (Series, Index, CategoricalIndex, DataFrame columns).
+- **G2.** `verify_prev` also requires `receipt.stage` to equal the stage name and `receipt.walker_sha256` to equal the
+  report's `runner_sha256`.
+- **G3.** In a records file, `generated_at` passes only if it equals the pinned value of
+  `calibrated_weights_<payload market>.json`. That is the file `toronto_model.load_calibrated_weights` opens, because
+  `MarketSpec.artifact_suffix` is `_<id>` for every R0 market (`market_registry.py` 78-80). If no mapping exists, it is a hit.
+- **G4.** Every stage's receipt records `job_memory.peak_job_memory_bytes`, on the success path and the timebox path.
+  Launcher v5 also copies it, after guarding it, into the minimal receipt that replaces a guarded receipt.
+- **G5, score_folds stays in-process.** The fits inside `score_folds` are `pooled_residual_model.fit_pooled`, which
+  uses sklearn `HistGradientBoostingRegressor` with `MEAN_HGB_PARAMS` and `SCALE_HGB_PARAMS` and no `n_jobs`.
+  - HGB parallelises with OpenMP threads inside the process. `pooled_residual_model.py` 48-50 caps
+    `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` at 10 when it is imported.
+  - None of `pooled_residual_model`, the R-P2 module copy, or the parts of `feature_model` that `score_folds` calls
+    (`smoothed_dist`, `brier_score`, `log_loss`) uses joblib, multiprocessing, concurrent.futures or subprocess.
+  - The runner's only subprocess is `git` in `verify_committed_gate`, which runs at stage start, outside `score_folds`.
+  - No child process can be spawned inside `score_folds`, so no extra pin was needed.
+- **Item 9, required.**
+  - `set_guard_centres` asserts that B's centre set is non-empty and lies within A's, and that the arm union equals A.
+  - A field whose name starts with `B_` and contains `centre` is checked against B's centre set.
+  - No written output carries an arm-specific centre today. Every centre field holds a label of A's set, and B's
+    labels are a subset of A's by code (`B = JAN_JUL[:10] + 2026-12-24`, `A = FORWARD + JAN_JUL + 2026-12-24`).
