@@ -388,3 +388,25 @@ the module, and not before. That change contains:
 
 Until then, nothing names the module in any allowlist, hook mirror or test, and row 28's remaining stages stay on
 launcher v6 under the one-off exception. This note adds no allowlist line.
+
+## 10. OPEN OWNER QUESTION: the forward emission input route
+
+Status: **OPEN**. Master asks the owner; agents do not. An answer is needed by about 2026-12-15, ahead of the
+first weekly batch on 2026-12-21. The forward-state freeze does not depend on it.
+
+**The finding (master accepted, 2026-11-03).** The existing MG-2 host export (`WeatherMg2InputExport`,
+`scripts/ops/mg2_input_export.ps1`) is the natural input route for `emit`. Its bundles cut once per date, at local
+midnight ending D in America/Los_Angeles (`mg2_input_allowlist.export_cut_utc`), and only by capture time. METAR
+rows travel whole, and no per-snapshot or per-observation trim exists on either side. The late snapshots of D,
+and `prev_day/` (D-1's last snapshot), therefore carry the whole local day's METAR observations: the bytes on the
+workstation are outcome-proxy (label-equivalent) bytes, even though `emit` itself reads them strictly as of each
+snapshot's capture.
+
+**The question, as master puts it to the owner:** may the workstation hold forward outcome-proxy bytes (full-day
+METAR) for forward dates from D+1, read only by the sha-pinned 343b emitter, with agents seeing names, sizes and
+shas only? Master recommends yes, together with option (a) below as defence in depth.
+
+- (a) an export-side as-of-capture trim (defence in depth). **Not built** until the owner answers.
+- (b) the owner's explicit carve-out for row 28 B's emitter.
+
+Until the owner answers: no pull for this route, and no build of (a).
