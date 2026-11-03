@@ -53,14 +53,14 @@
   `docs/operations/HOST_LOAD_POLICY.md` "An agent's one-off wrapper"). Steps run serially, one at a time (C14,
   rulings:705).
   - **The lease wrapper is master's** (11-03 R5): a host `.ps1` that master owns, following the one-off pattern of
-    the host load policy. It is not a repository file. Whether an admission or allowlist entry is needed is §4
-    item 5(e).
+    the host load policy. It is not a repository file. **No allowlist entry** (11-03 §4 ruling (e)):
+    `venue_label_audit` and `mg1_look` run only under master's lease, 00:30-09:00, through that `.ps1`.
 - **Embargo.** Before the look, master reads only stdout, receipts, manifests and the counts-only audit. It never
   reads a CSV, a METAR file or a label value (R24 (2), rulings:240). After the look, the result file is read only
   as §1 step 7 says.
 - **Logging.** Every step's full stdout and stderr, its exit code, `Get-Date -Format o` before and after, and the
-  sha256 of every file it wrote go into master's look log. The log's path is not fixed by any code (**MISSING**:
-  look-log path).
+  sha256 of every file it wrote go into master's look log: on the host, `C:\tmp\suite-logs\mg1-look-<yyyymmdd>.log`,
+  written by master's wrapper (11-03 §4 ruling (c)).
 - **Command form.** One bare line per command. Every module runs as `.\venv\Scripts\python.exe -m <module>`.
   The look must run exactly as `python -m weather.calibration.mg1_look`, because only that `__main__` name at the
   registered bytes can stamp (`mg1_look.py:150-162`; `mg1_reserved_window.registered_confirmation_entry`).
@@ -424,7 +424,9 @@ It parses no CSV and calls no reader.
 - **The commit:** the receipt, the start marker, the result and step 4's freeze receipt are copied into the
   repository record the same day (`mg1_look.py:21-22`; `look-day-dry-run-checklist.md:63`). The commit carries
   their sha256s and the look-log extract. Master owns this commit.
-  - **MISSING:** the record's path and file names. No code or doc on the four trees fixes them. See §4 item 5(d).
+  - **Record path** (11-03 §4 ruling (d)): `docs/research/mg1-look-record/` in the repository, holding
+    `mg1_look_receipt.json` (a byte-exact copy) and `mg1-look-record.md`. It mirrors B's R14 record pattern but
+    is **not** an R14 frozen record. A small record writer (`mg1_look_record.py`) is planned after combo C.
 - **Logged:** the check output, the commit sha, and each copied file's sha256, which must equal the
   originals'.
 
@@ -480,9 +482,9 @@ The pins above are therefore for the combined head that C10 requires (rulings:70
    | --- | --- | --- |
    | (a) `--layout` producer | R11 Head 1, `claude/r11-head1-20261101` @ `9dc1c9798366f17d8f0f8af1c3e41733d644c30d`, not on master. `src/weather/calibration/mg1_layout.py`: `concat --layouts --out [--ledger]` writes "one window layout for D0..MG1_LAST" (`mg1_layout.py:226`, `:269-272`), after per-date `stage`, `admit` and `build` (`:251-268`). The planned landing is an RF combo night, 11-04/05, with fallback 11-05/06 (rulings:27 (2)). The WS ships the concat layout and `SHA256SUMS` to the host before P3 (rulings:53). | R11 lane (head); master (landing, host copy) |
    | (b) `--market` producer | None on any tree read. `mg1_look.load_outcomes` reads `row_key`, `band_index` and `p_market_yes` from it at the join only (`mg1_look.py:753`). B's `b_transfer` writes its own `market.parquet` for B's 45 dates, which is not MG-1's input. | master (to name or assign) |
-   | (c) look-log path | No code fixes it. R24 (3) requires the shas to be logged before the look (rulings:241). | master |
-   | (d) receipt repository record path | No code or doc fixes it. The receipt is copied into the repository record the same day (`mg1_look.py:21-22`; `look-day-dry-run-checklist.md:63`). | master |
-   | (e) admission or allowlist entry | Is one needed for an in-window, leased host run? <br>• `venue_label_audit` matches the heavy-module heuristic: its module name contains `backtest`, matched by the regex at `scripts/ops/workload_admission.ps1:908-917` on master. <br>• `mg1_look` and `mg1_countable` do not match it. <br>• None of the three is in the workstation offline list (`:611-667`), which matters only on the WS. <br>Whether the host S4U guard admits a leased in-window run without an entry is a host question. | master (host) |
+   | (c) look-log path | **Ruled 11-03:** on the host, `C:\tmp\suite-logs\mg1-look-<yyyymmdd>.log`, written by master's wrapper. R24 (3) requires the shas to be logged before the look (rulings:241). | master |
+   | (d) receipt repository record path | **Ruled 11-03:** `docs/research/mg1-look-record/` with `mg1_look_receipt.json` (byte-exact) and `mg1-look-record.md`. It mirrors B's R14 pattern but is not an R14 frozen record. The receipt is copied the same day (`mg1_look.py:21-22`; `look-day-dry-run-checklist.md:63`). | master |
+   | (e) admission or allowlist entry | **Ruled 11-03: no allowlist entry.** `venue_label_audit` and `mg1_look` run only under master's lease, 00:30-09:00, through master's host `.ps1`. (Context: `venue_label_audit` matches the heavy-module regex at `scripts/ops/workload_admission.ps1:908-917`; `mg1_look` and `mg1_countable` do not.) | master (host) |
 
 6. **FREEZE_THROUGH.** Ruled (11-03 R6) and built in [A]. See §1 step 4.
 7. **The owner-constant timing.** It is master's plan (11-03 R7; §1 step R): answers by 11-10, before the
