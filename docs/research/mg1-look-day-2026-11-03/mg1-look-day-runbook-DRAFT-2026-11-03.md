@@ -42,6 +42,16 @@
     tmp-and-rename and `freeze --recover`. It is split into a new module,
     `src/weather/backtesting/venue_label_freeze.py`, so the 600-line budget of `venue_label_audit.py` is not raised.
   - Line cites marked [A] or [B] are on those tips. Unmarked cites stay on the four trees above.
+- **Revision 3 (2026-11-03):** master's `--market` rulings, cited as "11-03 M1" to "M5":
+  - **[A]** moves to `3f2e500e7cf982f62a67c019d1c8584acb13b096`. It adds the pre-stamp `--market` check (M3), and
+    the entry pin is re-registered at `1130ece532bfb8673d68c0610aaa41ccdf3b780fe76348c26b0413a8af6fa379`. [A]
+    line cites below are on this tip; cites on `ebf7bcda1` above them in the file were not renumbered.
+  - **[C]** `claude/mg1-capture-price-export-20261103` @ `d3926b85c740f4c51072cdec0ce05da5f5c2f116`, on combo
+    A' `a026af7f6`. It adds the host price tool `tools/research/capture_price_export.py` and the host concat
+    `src/weather/calibration/mg1_market.py` (step 4a). Unprefixed [C] cites are in the price tool.
+  - M1: prices gate the MG-1 verdict only through the signed materiality condition (the 00-16 served-minus-market
+    gap, then the bar; A9, A5). `--market` stays required.
+  - M4: B takes `--market` from the same producer, with its own layout, on B's look morning.
 
 ## 0. Rules for every step
 
@@ -58,6 +68,9 @@
 - **Embargo.** Before the look, master reads only stdout, receipts, manifests and the counts-only audit. It never
   reads a CSV, a METAR file or a label value (R24 (2), rulings:240). After the look, the result file is read only
   as §1 step 7 says.
+  - **Prices** (11-03 M2): step 4a's price tool and concat are registered steps of the look path. They run only
+    on the look morning, after D45's finality, under the lease, in the same session as the look, on the host. No
+    price CSV or parquet goes to the WS before the look receipt, and no agent or human views a price value.
 - **Logging.** Every step's full stdout and stderr, its exit code, `Get-Date -Format o` before and after, and the
   sha256 of every file it wrote go into master's look log: on the host, `C:\tmp\suite-logs\mg1-look-<yyyymmdd>.log`,
   written by master's wrapper (11-03 §4 ruling (c)).
@@ -280,6 +293,60 @@ refresh runs that morning.
 - **Logged** (R24 (3), rulings:241: "Log the shas before the look"): the stdout, the freeze receipt's sha256, and
   each frozen file's sha256.
 
+### Step 4a. Capture-time prices for `--market` [C] (same session, after step 4)
+
+  - **Embargo** (11-03 M2). The price tool and the concat are **registered steps of the look path**:
+    - they run ONLY on this look morning, after D45's finality, under master's lease, in the same session as
+      the look, ON THE HOST;
+    - neither the concat nor the look ever exports a price CSV or parquet to the WS before the look receipt.
+      Both refuse an `--out` under `data\exports`, the capture tree or a UNC (share) path (`:109-125` [C];
+      `mg1_market.py:117-130` [C]);
+    - logs and manifests carry counts, shas and booleans only. No agent or human views a price value;
+    - the same rule as B's T4: a finite price outside [0, 1] refuses, and the look is HELD.
+
+- **The price tool** (on the host, through master's `.ps1`):
+
+  ```powershell
+  .\venv\Scripts\python.exe -P -B -m tools.research.capture_price_export --look mg1 --data-root <repo>\data --out <PRICES_DIR> --from 2026-10-15 --through <D45> [--coverage-root <repo>\data\exports\mg2-inputs]
+  ```
+
+  - **What it reads:** per date, the 11 markets' `snapshots_long.csv` through the unchanged exporter's bounded
+    reader, rows at or before `export_cut_utc(D)` only, so its row set is the bundle's (`export_market`,
+    `:153-185`).
+  - **What it writes**, create-only per date: `<D>.prices.csv` (`row_key, kind, low, high, p_market_yes,
+    out_of_range`), the counts-only `<D>.capture_prices.json` (`capture_price_export/1`), then `<D>.SHA256SUMS`
+    last (`export_date`, `:215-271`). Prices go through R19's `capture_price`. A finite price outside [0, 1] is
+    flagged and never written as a value.
+  - **The R19 cross-check** (M5, `cross_check`, `:188-207`). From 10-29, each snapshot's `[n_rows, n_priced]` must
+    equal the R19 sidecar, or the date refuses. For 10-15..10-28 no sidecar exists: the receipt records
+    `none_before_r19` and the tool's own counts, disclosed, with no refusal.
+  - **Refusals** (exit 2, nothing written for the date):
+    - off the capture host (`:99-106`);
+    - `--through` not yet ended in every market (`:222-225`);
+    - a date after `--through` (`:220-221`);
+    - an `--out` under `data\exports`, the capture tree or a share (`:109-125`);
+    - files already present for the date (`:227-229`);
+    - a missing R19 sidecar from 10-29, or one that differs (`:194-205`).
+  - **Exit 3:** a source changed in the last 30 minutes; re-run once quiet.
+- **The concat** (on the host, same session):
+
+  ```powershell
+  .\venv\Scripts\python.exe -m weather.calibration.mg1_market build --look mg1 --layout <LAYOUT_ROOT> --prices <PRICES_DIR> --out <MARKET_DIR>
+  ```
+
+  - **Host guard:** it refuses unless the execution-host id equals the dedicated capture id. This is the
+    identity check the R19 host wrapper makes. It runs at command time, not at import (`mg1_market.py:101-114`).
+  - **The join:** each layout band `(row_key, kind, low, high)` takes its `band_index` from exactly one price row
+    (`build`, `:181-254`).
+  - **Refused** (exit 2): an unmatched layout band, a duplicate price row, a date without a published file set,
+    or a SUMS or sha mismatch (`:133-165`, `:218-223`).
+  - **Held** (exit 4): a matched price that is flagged, or not empty and not finite in [0, 1] (`:224-226`).
+  - **Writes** `<MARKET_DIR>\market.parquet`, then `mg1_market_manifest.json` (`mg1_market/1`): the look id,
+    the layout and market shas, the per-date file shas and cross-check, the counts, and `range_ok` and
+    `duplicate_free`.
+- **Logged:** both commands' stdout (counts only), exit codes, and the sha256 of every receipt, SUMS file, the
+  market file and its manifest. A price CSV or the parquet is never opened or copied off the host.
+
 ### Step 5. Keys-only checks of the freeze (master, read-only, before step 6)
 
 Master reads only `frozen/mg1/freeze_receipt.json` and the audit. It never reads a frozen CSV. It checks:
@@ -303,7 +370,7 @@ It parses no CSV and calls no reader.
 - **The dry run** (11-03 R3; [A]):
 
   ```powershell
-  .\venv\Scripts\python.exe -m weather.calibration.mg1_look check-keys --rule <MG1_RULE_PATH> --countable <COUNTABLE_PATH> --label-freeze <FREEZE_RECEIPT_PATH> --out <CHECK_RECORD_PATH> [--layout <LAYOUT_ROOT>]
+  .\venv\Scripts\python.exe -m weather.calibration.mg1_look check-keys --rule <MG1_RULE_PATH> --countable <COUNTABLE_PATH> --label-freeze <FREEZE_RECEIPT_PATH> --out <CHECK_RECORD_PATH> [--layout <LAYOUT_ROOT>] [--market <MARKET_DIR>\market.parquet]
   ```
 
   - **Flags:** `--rule`, `--countable`, `--label-freeze` and `--out` are required; `--layout` is optional
@@ -316,7 +383,8 @@ It parses no CSV and calls no reader.
     - the window and finality;
     - the freeze: audit status, FREEZE_THROUGH and hashes;
     - the label keys and every inconsistency hold;
-    - with `--layout`, the A3 hole check.
+    - with `--layout`, the A3 hole check;
+    - with `--market` (M3, [A] `mg1_look.py:621-667`), the `--market` check: see step 6.
   - **It never stamps, joins or reads a label or price.** It writes `<CHECK_RECORD_PATH>` once (mode "x") for
     every outcome. The record is counts-only `mg1_check_keys/1`, with the verdict and the reason text.
   - **Exit:** 0 pass, 4 held, 2 refused, including a record path that already exists.
@@ -339,8 +407,15 @@ It parses no CSV and calls no reader.
   - `--countable`: step 3's file.
   - `--label-freeze`: `frozen/mg1/freeze_receipt.json` from step 4 (`:1045-1046`). The frozen files are read
     from that receipt's own folder (`:446-456`).
-  - `--market`: the capture-time prices parquet, columns `row_key`, `band_index` and `p_market_yes`, read only at
-    the join (`:753`). **MISSING on the named branches:** its producer.
+  - `--market`: `<MARKET_DIR>\market.parquet` from step 4a, columns `row_key`, `band_index` and
+    `p_market_yes`, read only at the join (`:753`). Its producer is step 4a [C].
+    - **The pre-stamp `--market` check** (M3; `market_check`, [A] `mg1_look.py:621-667`, called at `:1120`). It
+      reads no price value. It needs:
+      - the file to exist;
+      - its parquet schema to name exactly the three columns;
+      - its sha to equal the manifest's `market_sha256`, where the manifest is MG-1's and names this layout;
+      - the manifest's `range_ok` and `duplicate_free` to be true.
+    - A missing or mismatched file refuses (2). A false or absent boolean holds (4).
   - `--out`: the folder for `mg1_look_result.json` (`:230`, `:965-968`).
   - `--shadow`: optional; the captured `nbm_v2_guidance_read_v1` shadow vector, "when it exists" (`:1049`).
     Whether it is passed is **open for master**.
@@ -442,6 +517,9 @@ It parses no CSV and calls no reader.
 | venue_rule_labels (writes the manifest `label_dates`) | `src/weather/backtesting/venue_rule_labels.py` | `1842b6da48af90a62999262dd6b92b1b66eaaf323553bb90455c020e5be83405` (freeze-keys); `7bababd2…` elsewhere has no `label_dates` | `<PIN: venue_rule_labels final>` |
 | read_venue_labels | `src/weather/backtesting/venue_label_reader.py` | `a4483777143446f309d569ad90e0b9fac695d371bbb1d62b6a7d6367e6a32b66` (all four trees and master) | `<PIN: venue_label_reader at the look>` |
 | MG-1 rule | `docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md` | `b044e0f196512379d2f74a22a2a97a10cf58fdbcf5a255c4eb6a470f7f6ba665` (`MG1_RULE_SHA256`, `mg1_look.py:70`) | fixed |
+| capture_price_export [C] | `tools/research/capture_price_export.py` | on [C] `d3926b85c` | `<PIN: price tool at the look>` |
+| mg1_market [C] | `src/weather/calibration/mg1_market.py` | on [C] `d3926b85c` | `<PIN: concat at the look>` |
+| market file and manifest | `<MARKET_DIR>\market.parquet`, `mg1_market_manifest.json` | written on the look morning (step 4a) | logged in step 4a |
 | mg1.py (recorded in the receipt) | `src/weather/reporting/scorecards/free_source_candidates/mg1.py` | `ad6e524ee103072e7738d78264cf1df855a30b01b43099425d4a1de7ae3d889d` (master) | `<PIN: mg1.py at the look>` |
 
 Countable's tree was built on mg1_look `4489e0f30`. Its file there hashes to `8baede1d…`, not look's `825d57a3…`.
@@ -458,6 +536,8 @@ The pins above are therefore for the combined head that C10 requires (rulings:70
 | 4 | 2 | refused; `frozen/mg1` absent (with [B], also a failed check: only a tmp folder is left) | re-run (new run id) |
 | 4 | 3 | `STATION_DRIFT`. With [B], refused and nothing frozen; without [B], `frozen/mg1` is written | rule the drift outcome-blind; with [B], freeze again; without [B], hold the look and recover by ruling |
 | 4 `--recover` | 0 / 2 | the defective freeze is moved to `.void-<utc>` / refused, nothing moved | re-freeze / rule |
+| 4a price tool [C] | 0 / 2 / 3 | dates written / refused, nothing written for that date / a source too fresh | step 4a concat / fix and re-run / re-run once quiet |
+| 4a concat [C] | 0 / 2 / 4 | market file and manifest written / refused (unmatched, duplicate, files) / held: a price out of range | step 5 / fix the files / the look is held; rule outcome-blind |
 | 5 `check-keys` [A] | 0 | every pre-stamp check passes; nothing stamped | step 6 |
 | 5 `check-keys` [A] | 4 | held; record written; nothing consumed | rule from the record |
 | 5 `check-keys` [A] | 2 | refused; record written (unless the record path existed); nothing consumed | fix the input |
@@ -481,7 +561,7 @@ The pins above are therefore for the combined head that C10 requires (rulings:70
    | Item | State and file:line | Owner |
    | --- | --- | --- |
    | (a) `--layout` producer | R11 Head 1, `claude/r11-head1-20261101` @ `9dc1c9798366f17d8f0f8af1c3e41733d644c30d`, not on master. `src/weather/calibration/mg1_layout.py`: `concat --layouts --out [--ledger]` writes "one window layout for D0..MG1_LAST" (`mg1_layout.py:226`, `:269-272`), after per-date `stage`, `admit` and `build` (`:251-268`). The planned landing is an RF combo night, 11-04/05, with fallback 11-05/06 (rulings:27 (2)). The WS ships the concat layout and `SHA256SUMS` to the host before P3 (rulings:53). | R11 lane (head); master (landing, host copy) |
-   | (b) `--market` producer | None on any tree read. `mg1_look.load_outcomes` reads `row_key`, `band_index` and `p_market_yes` from it at the join only (`mg1_look.py:753`). B's `b_transfer` writes its own `market.parquet` for B's 45 dates, which is not MG-1's input. | master (to name or assign) |
+   | (b) `--market` producer | **Ruled and built 11-03 (M1-M5):** step 4a, [C] `d3926b85c` (the price tool and the `mg1_market` concat, on the host, as registered look-path steps), plus [A]'s pre-stamp check. `--market` stays required. B takes `--market` from the same producer with its own layout (M4). | L16 (built); master (landing) |
    | (c) look-log path | **Ruled 11-03:** on the host, `C:\tmp\suite-logs\mg1-look-<yyyymmdd>.log`, written by master's wrapper. R24 (3) requires the shas to be logged before the look (rulings:241). | master |
    | (d) receipt repository record path | **Ruled 11-03:** `docs/research/mg1-look-record/` with `mg1_look_receipt.json` (byte-exact) and `mg1-look-record.md`. It mirrors B's R14 pattern but is not an R14 frozen record. The receipt is copied the same day (`mg1_look.py:21-22`; `look-day-dry-run-checklist.md:63`). | master |
    | (e) admission or allowlist entry | **Ruled 11-03: no allowlist entry.** `venue_label_audit` and `mg1_look` run only under master's lease, 00:30-09:00, through master's host `.ps1`. (Context: `venue_label_audit` matches the heavy-module regex at `scripts/ops/workload_admission.ps1:908-917`; `mg1_look` and `mg1_countable` do not.) | master (host) |
@@ -489,8 +569,10 @@ The pins above are therefore for the combined head that C10 requires (rulings:70
 6. **FREEZE_THROUGH.** Ruled (11-03 R6) and built in [A]. See §1 step 4.
 7. **The owner-constant timing.** It is master's plan (11-03 R7; §1 step R): answers by 11-10, before the
    11-12/13 pin. A later answer means a re-pin before S1, which master owns.
-8. **The combined-head pins.** Noted by master (11-03 R8). [A] moves the entry pin again, to `6f17cf15…`, so
-   §2's PIN slots stay open until the combined head is final.
+8. **The combined-head pins.** Noted by master (11-03 R8). [A] moved the entry pin to `6f17cf15…`, and its
+   M3 commit moves it again, to `1130ece5…`. §2's PIN slots stay open until the combined head is final. A test
+   pinning `mg1_look`'s copied `MARKET_*` constants to `mg1_market`'s lands with that head, where both modules
+   share a tree.
 9. **New: ABORTED can exit 2.** A post-stamp `MG1LookRefused` re-raises after the receipt is written. `main` then
    prints `refused:` and exits 2, so the exit code alone does not separate it from a pre-stamp refusal
    (`mg1_look.py:1161-1163` [A]). Today the start marker existing is the only tell. No fix is proposed here; a
