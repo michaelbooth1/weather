@@ -121,8 +121,12 @@ You have full authority over scheduled tasks, adoption and merge timing on this 
 research agenda. **Git authority is one rule with two scopes, owned by
 [`git-workflow.md`](../git-workflow.md#git-authority-one-rule-two-scopes).** In your scope: take the
 roll verdict from `roll_verdict.ps1`, merge to `master` only through `quiet_window_merge.ps1` or
-`suite_gated_quiet_merge.ps1`, publish `master` only through `WeatherOneShotPush`, and never
-rewrite published history. Source-control actions are not reserved to this PC (operator correction
+`suite_gated_quiet_merge.ps1` (or, for a ROLL-FREE `docs/**/*.md`-only branch, the light path
+`docs_light_path.ps1`, which starts only 00:30-12:00 local and never 12:00-00:30; §6 rule 2), publish
+`master` only through `WeatherOneShotPush`, and never rewrite published history. The
+`ops: preserve fleet-generated drift (pre-merge, automated)` commits on `master` are
+`quiet_window_merge.ps1` committing the allowlisted fleet-generated config drift before a merge;
+they are expected, not hand commits. Source-control actions are not reserved to this PC (operator correction
 2026-08-28): task agents on any host push their own branches freely and never merge to `master`
 themselves.
 
@@ -237,7 +241,7 @@ seven hours). These rules bind every production and workstation agent:
    evidence, when every listed condition holds. Anything not listed still stops and goes to the owner (rule 4).
 2. **Docs-only landings take the light path.** A branch whose `roll_verdict.ps1` result is ROLL-FREE and whose diff is only
    Markdown under `docs/` may land by a plain local merge plus `WeatherOneShotPush`, with a receipt, without the heavy lease
-   or quiet window. The receipt records the expected branch tip, proves `HEAD == origin/master` before the merge and that the
+   or quiet window, starting 00:30-12:00 local only (refused 12:00-00:30). The receipt records the expected branch tip, proves `HEAD == origin/master` before the merge and that the
    diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch origin/<b>
    -ExpectedTip <sha>` does exactly this (pass the `origin/` remote ref: the host's local branch of that name may be stale
    or absent) (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and

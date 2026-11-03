@@ -145,6 +145,11 @@ switch ($Kind) {
         ) {
             throw "weather-heavy workload must be an offline training/replay module"
         }
+        $argumentRefusal = Get-WeatherWorkstationOfflineArgumentRefusal `
+            -Module $module -Arguments @($arguments | Select-Object -Skip 2)
+        if ($null -ne $argumentRefusal) {
+            throw $argumentRefusal
+        }
     }
 }
 
@@ -208,7 +213,9 @@ $threadCapRecord = [ordered]@{
 
 $job = $null
 $child = $null
+# Default-fail: only the child's own exit code replaces it.
 $exitCode = 1
+$childWaited = $false
 try {
     $job = New-WeatherKillOnCloseJob
     $argumentString = ConvertTo-WeatherWindowsArgumentString -Tokens $arguments
@@ -247,8 +254,17 @@ try {
     }
     $child.WaitForExit()
     $exitCode = $child.ExitCode
+    $childWaited = $true
+}
+catch {
+    # The exit issued from the finally below discards an uncaught error, so print it here.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
+    throw
 }
 finally {
+    # Set the host exit code before any cleanup: a cleanup statement that is
+    # aborted by Ctrl+C would otherwise leave this advanced script exiting 0.
+    $Host.SetShouldExit($exitCode)
     $teardownTransitionError = $null
     $jobTeardownError = $null
     if ($null -ne $lease) {
@@ -276,16 +292,18 @@ finally {
     }
     if ($null -ne $teardownTransitionError) { throw $teardownTransitionError }
     if ($jobTeardownError) { throw $jobTeardownError }
+    # As before, the queue "finish" event is written only after the child was waited for.
+    if ($Queue -and $childWaited) {
+        Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "finish" `
+            -Ticket ([long]$lease.QueueTicket) -Position ([int]$lease.QueuePosition) `
+            -WaitedSeconds ([double]$lease.QueueWaitedSeconds) -Workload $workloadName `
+            -Extra @{
+                exit_code = $exitCode
+                slot_id = $slotId
+                slot_count = $SlotCount
+                thread_cap = $threadCapRecord
+            }
+    }
+    $Host.SetShouldExit($exitCode)
+    exit $exitCode
 }
-if ($Queue) {
-    Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "finish" `
-        -Ticket ([long]$lease.QueueTicket) -Position ([int]$lease.QueuePosition) `
-        -WaitedSeconds ([double]$lease.QueueWaitedSeconds) -Workload $workloadName `
-        -Extra @{
-            exit_code = $exitCode
-            slot_id = $slotId
-            slot_count = $SlotCount
-            thread_cap = $threadCapRecord
-        }
-}
-exit $exitCode

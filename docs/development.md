@@ -163,7 +163,7 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Chunk size | `-MaxFilesPerChunk` default 25 (owner decision 2026-10-04; was 20), which is also the hard maximum and what new integration attempts freeze; always `ceil(files / MaxFilesPerChunk)` chunks |
 | Chunk grouping | time-packed (longest first into the lightest chunk with room) from the candidate's `tests/bounded_suite_file_timings.json`; an unlisted file weighs `default_seconds`, an absent table weighs every file equally, a malformed one refuses. Grouping never changes the file set, the cap or the chunk count. Regenerate the table from one or more complete Windows JUnit runs with `python tools/bounded_suite_timings.py --run "<run>/*.xml" --source "<what, when, sha>"` |
 | Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
-| Clean tree | `git status --porcelain` must be empty before and after the run. That Git runs hermetically (no system or global config, no hooks, no fsmonitor) but names the standard `filter.lfs.*` driver explicitly, so a racily clean LFS file in a smudged worktree is compared through its pointer, not reported modified (fix of 2026-10-25); `git-lfs` must be reachable from the bound `git.exe` (with `filter.lfs.required=true` a missing one fails closed). Integration attempts bind this script by hash, so an attempt created before a suite change refuses its suite receipt; create it afresh. Known pre-existing failure, unrelated to this check: `tests/operations/test_workstation_pregate_script.py::test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt` exits 0 on the workstation wrapper (Ctrl+C delivery inside the Job), identically with the earlier suite script |
+| Clean tree | `git status --porcelain` must be empty before and after the run. That Git runs hermetically (no system or global config, no hooks, no fsmonitor) but names the standard `filter.lfs.*` driver explicitly, so a racily clean LFS file in a smudged worktree is compared through its pointer, not reported modified (fix of 2026-10-25); `git-lfs` must be reachable from the bound `git.exe` (with `filter.lfs.required=true` a missing one fails closed). Integration attempts bind this script by hash, so an attempt created before a suite change refuses its suite receipt; create it afresh. |
 | Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
 | Exclusivity | takes the `data/logs/heavy_workload.lock` lease; refuses if another heavy workload holds it |
@@ -205,7 +205,11 @@ host. The run:
   **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
   follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
   issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
-  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  otherwise exit 0. Because the pre-gate is a `[CmdletBinding()]` script, even that `exit` yields 0 after
+  a Ctrl+C (measured 2026-10-27), so when it is the host's own `-File` script it first sets the host
+  exit code (`$host.SetShouldExit`). Run it as `powershell.exe -File …`; called in-process (`&` in an open
+  session or another script) it skips that step so the caller's session survives, and only the receipt
+  is reliable after a Ctrl+C. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
   `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
 
 Known gaps (Defender review of 2026-10-07, not fixed):
@@ -281,7 +285,7 @@ $argumentJson = ConvertTo-Json -InputObject @("-m", "pytest", "-q") -Compress
 $argumentBase64 = [Convert]::ToBase64String(
   [Text.Encoding]::UTF8.GetBytes($argumentJson)
 )
-& (Join-Path $repoRoot "scripts\ops\workstation_heavy.ps1") `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot "scripts\ops\workstation_heavy.ps1") `
   -Kind pytest -PythonPath $pythonPath -ArgumentsBase64 $argumentBase64 `
   -RepoRoot $repoRoot
 ```
@@ -377,7 +381,7 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 | Settlement ledger, tape scoring, replay | matching `tests/backtesting` |
 | Market, maker, or taker logic | matching `tests/market`; keep execution non-live |
 | Daily/nightly/supervisor behavior | matching `tests/operations`; use status/dry-run paths |
-| `scripts/ops/*.ps1` | the matching `tests/operations/test_*_script*.py`; tests that execute PowerShell are skipped off Windows, so CI does not prove them. A clean parse does not prove parameter binding; read the `param()` block |
+| `scripts/ops/*.ps1` | the matching `tests/operations/test_*_script*.py`; tests that execute PowerShell are skipped off Windows, so CI does not prove them. A clean parse does not prove parameter binding; read the `param()` block. Exit codes after Ctrl+C: see below |
 | Shared root modules (`weather.io`, `weather.artifacts`, release serving) | the top-level `tests/test_*.py` files plus the owning package tests |
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
@@ -388,6 +392,19 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
+
+**Exit codes after Ctrl+C (Windows PowerShell 5.1, measured 2026-10-22).** A `-File` script stopped by
+Ctrl+C runs its `finally` blocks and traps but no `catch` block, and nothing after the stopped statement,
+so it exits 0 unless the code is set from a `finally` or trap. In an *advanced* script (`[CmdletBinding()]`
+or any `[Parameter()]` attribute) the code of an `exit` in a `finally` is dropped as well; in any script a
+trap cannot start a command during the stop, so its `exit` or rethrow (`throw`, `break`) after a cmdlet or
+function call never runs. Put `$Host.SetShouldExit(<code>)` immediately before such a `finally` exit and
+first in every trap that exits, throws or breaks (directly or through any `scripts/ops` function it calls);
+a trap whose first statement is an `exit` that starts no command is exempt. A trap that sets the exit code
+must not resume with `continue`, or a run that was never stopped exits with that code.
+`tests/operations/test_ps_exit_in_finally_ratchet.py` enforces both over `scripts/ops/*.ps1`.
+`SetShouldExit` sets the host's exit code, so it also ends an interactive or line-by-line session that ran
+the script in-process: start these scripts with `powershell.exe -File` or from a fresh shell.
 
 ### Affected-test selection
 
@@ -469,6 +486,25 @@ Use `--help`, read the relevant [operations runbook](operations/README.md), and
 prefer status, audit, dry-run, read-only, shadow, or paper modes. Never assume an
 argument-free registration example is valid; the script parameter block is the
 executable source of truth.
+
+**Default-fail exit codes for critical ops wrappers (2026-10-22).** A Windows PowerShell 5.1 script
+stopped by Ctrl+C, or ended by an uncaught error after a success path set its code, must never exit 0.
+`quiet_window_merge.ps1`, `docs_light_path.ps1`, `workstation_heavy.ps1`,
+`bounded_worktree_test_suite.ps1`, `integration_attempt_suite.ps1`, `training_window.ps1` and
+`daily_refresh.ps1` therefore initialise their exit-code variable to a non-zero literal before their
+outermost `try`, record the code in it immediately before every `exit` inside that `try` (an `exit`
+there runs the `finally`, whose own `exit` decides the process code), set 0 only on the proven-success
+path, print an uncaught error from a `catch` (the `finally`'s `exit` would discard it), and end the
+final `finally` with `$Host.SetShouldExit($code); exit $code`. Where cleanup in that `finally` can be
+aborted by the stop, the code is also set at its start. `tests/operations/test_ps_exit_default_fail_ratchet.py`
+enforces the shape. In-process `& script.ps1` calls whose exit code is read seed
+`$global:LASTEXITCODE = 9009` first, so a child that returns without `exit` reads as a failure, not
+as a stale 0 from an earlier `git` call (`suite_gated_quiet_merge.ps1`,
+`adopt_execution_tape_after_merge.ps1`, and the roll-verdict call in `quiet_window_merge.ps1`).
+Roll-verdict consumers (`quiet_window_merge.ps1`, `docs_light_path.ps1`) treat a branch as ROLL-FREE
+only for exit 0 **and** a readable `-JsonOut` whose `verdict` is `ROLL-FREE` and whose `branch` is the
+exact tip being merged. Because `SetShouldExit` sets the host's code, start these scripts with
+`powershell.exe -File`, not by dot-sourcing or `&` from an interactive session.
 
 ## Model-change evidence
 

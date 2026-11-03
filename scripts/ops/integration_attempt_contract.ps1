@@ -1362,8 +1362,14 @@ function Disable-WeatherIntegrationAttemptTasks {
         else {
             $disabledTask = Get-ScheduledTask -TaskName $spec.name -ErrorAction Stop
         }
+        # Prove the disable with Settings.Enabled: a running instance keeps
+        # State 'Running' after Disable-ScheduledTask. State still refuses a
+        # task that started running during this pass (closure needs terminal).
+        if ($disabledTask.Settings.Enabled -ne $false) {
+            throw "Attempt task did not disable: $($spec.name) enabled=$($disabledTask.Settings.Enabled)"
+        }
         if ([string]$disabledTask.State -ne "Disabled") {
-            throw "Attempt task did not enter Disabled state: $($spec.name)"
+            throw "Attempt task is disabled but not terminal: $($spec.name) state=$($disabledTask.State)"
         }
         $info = if ($null -ne $strictRegistration) {
             Get-ScheduledTaskInfo -TaskName $spec.name -TaskPath "\" -ErrorAction SilentlyContinue

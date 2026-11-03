@@ -25,15 +25,33 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAM
 ROLL_VERDICT_STUB = """param([string]$Branch, [string]$JsonOut)
 $code = [int]$env:FAKE_ROLL_EXIT
 $name = if ($code -eq 0) { "ROLL-FREE" } else { "ROLL-SENSITIVE" }
-@{ verdict = $name; branch = $Branch } | ConvertTo-Json | Set-Content -Path $JsonOut -Encoding utf8
+$payload = @{ verdict = $name; branch = $Branch }
+# FAKE_ROLL_JSON scripts a defective JSON beside the exit code.
+$mode = [string]$env:FAKE_ROLL_JSON
+if ($mode -like "verdict=*") { $payload.verdict = $mode.Substring(8) }
+if ($mode -like "branch=*") { $payload.branch = $mode.Substring(7) }
+if ($mode -eq "garbage") { Set-Content -Path $JsonOut -Value "{ not json" -Encoding utf8 }
+elseif ($mode -ne "missing") { $payload | ConvertTo-Json | Set-Content -Path $JsonOut -Encoding utf8 }
 "VERDICT: $name"
 exit $code
 """
 
 # Cmdlet shadows: functions win over cmdlets in command lookup, so the script
 # under test talks to this fake WeatherOneShotPush. A successful "push" moves
-# the tracking ref, exactly as a real push does.
-WRAPPER = """function global:Get-ScheduledTask { [CmdletBinding()] param([string]$TaskName)
+# the tracking ref, exactly as a real push does. Get-Date is shadowed with a
+# fixed offset so the local clock reads FAKE_NOW_HHMM today at the start and
+# keeps running from there (the push wait still reaches its deadline).
+WRAPPER = """$global:FakeClockOffset = [TimeSpan]::Zero
+if ($env:FAKE_NOW_HHMM) {
+    $real = [datetime]::Now
+    $target = $real.Date.Add([TimeSpan]::Parse($env:FAKE_NOW_HHMM))
+    $global:FakeClockOffset = $target - $real
+}
+function global:Get-Date { param([string]$Format)
+    $d = [datetime]::Now.Add($global:FakeClockOffset)
+    if ($Format) { return $d.ToString($Format) }
+    return $d }
+function global:Get-ScheduledTask { [CmdletBinding()] param([string]$TaskName)
     if ($env:FAKE_TASK_MISSING) { return }
     [pscustomobject]@{ TaskName = $TaskName; State = $env:FAKE_TASK_STATE } }
 function global:Get-ScheduledTaskInfo { [CmdletBinding()] param([string]$TaskName)
@@ -102,10 +120,10 @@ def _branch(fx: dict[str, object], files: dict[str, str]) -> str:
 
 
 def _run(fx: dict[str, object], tip: str, *extra: str, roll_exit: int = 0, push_result: int = 0,
-         task_state: str = "Ready", transient_polls: int = 0,
-         transient_result: int = 0x41301) -> subprocess.CompletedProcess[str]:
-    env = dict(os.environ, **GIT_ENV, FAKE_SCRIPT=str(SCRIPT), FAKE_REPO=str(fx["repo"]),
-               FAKE_STARTED=str(fx["started"]), FAKE_ROLL_EXIT=str(roll_exit),
+         task_state: str = "Ready", roll_json: str = "", transient_polls: int = 0,
+         transient_result: int = 0x41301, now: str = "07:30") -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ, **GIT_ENV, FAKE_SCRIPT=str(SCRIPT), FAKE_REPO=str(fx["repo"]), FAKE_NOW_HHMM=now,
+               FAKE_STARTED=str(fx["started"]), FAKE_ROLL_EXIT=str(roll_exit), FAKE_ROLL_JSON=roll_json,
                FAKE_PUSH_RESULT=str(push_result), FAKE_TASK_STATE=task_state,
                FAKE_TRANSIENT_POLLS=str(transient_polls), FAKE_TRANSIENT_RESULT=str(transient_result))
     return subprocess.run(
@@ -164,6 +182,45 @@ def test_check_only_changes_nothing(fx: dict[str, object]) -> None:
     assert _receipts(fx) == []
 
 
+@pytest.mark.spawns
+@pytest.mark.parametrize("now", ["00:30", "07:30", "11:59"])
+def test_clock_window_admits_00_30_to_before_12_00(fx: dict[str, object], now: str) -> None:
+    # STATE_OF_PLAY: docs-only by the light path before 12:00, never 12:00-00:30.
+    # 07:30 is the production agent's morning docs landing and must stay legal.
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+    result = _run(fx, tip, "-CheckOnly", now=now)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "CHECK PASS" in result.stdout
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("now", ["12:00", "15:00", "18:00", "23:59", "00:00", "00:29"])
+@pytest.mark.parametrize("check_only", [True, False])
+def test_clock_window_refuses_12_00_to_00_30_and_changes_nothing(
+    fx: dict[str, object], now: str, check_only: bool
+) -> None:
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+    result = _run(fx, tip, *(["-CheckOnly"] if check_only else []), now=now)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "outside the light-path window 00:30-12:00" in result.stdout
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    assert _git(repo, "rev-parse", "HEAD") == fx["base"]
+    assert not Path(str(fx["started"])).exists()
+    assert _receipts(fx) == []
+
+
+def test_clock_is_checked_again_immediately_before_the_merge() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    step0 = text.index('Assert-LightPathClock "start"')
+    step1 = text.index("# ---- 1. repository state")
+    pre_merge = text.index('Assert-LightPathClock "before the merge"')
+    merge = text.index('$merge = Invoke-Git @("merge", "--no-ff"')
+    assert step0 < step1 < pre_merge < merge
+    assert "$lightPathWindowStartMinute = 30" in text
+    assert "$lightPathWindowEndMinute = 12 * 60" in text
+
+
 @pytest.mark.parametrize(
     ("case", "message"),
     [
@@ -207,6 +264,45 @@ def test_refusals_change_nothing(fx: dict[str, object], case: str, message: str)
     assert "REFUSED" in result.stdout and message in result.stdout, result.stdout
     assert _git(repo, "rev-parse", "HEAD") == fx["base"]
     assert not Path(str(fx["started"])).exists()
+    assert _receipts(fx) == []
+
+
+@pytest.mark.parametrize(
+    "roll_json",
+    ["missing", "garbage", "verdict=ROLL-SENSITIVE", "branch=" + "0" * 40, "branch=origin/codex/x"],
+    ids=["json-missing", "json-unparseable", "json-verdict-mismatch", "json-other-tip", "json-movable-ref"],
+)
+@pytest.mark.spawns
+def test_exit_zero_without_a_matching_roll_free_json_refuses(fx: dict[str, object], roll_json: str) -> None:
+    # Exit 0 alone is not ROLL-FREE: the JSON must name ROLL-FREE for the exact tip.
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+
+    result = _run(fx, tip, "-CheckOnly", roll_exit=0, roll_json=roll_json)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "REFUSED: roll verdict JSON" in result.stdout and "CHECK PASS" not in result.stdout, result.stdout
+    assert _git(repo, "rev-parse", "HEAD") == fx["base"]
+    assert not Path(str(fx["started"])).exists()
+    assert _receipts(fx) == []
+
+
+@pytest.mark.spawns
+def test_uncaught_error_exits_one_and_still_prints_it(fx: dict[str, object]) -> None:
+    # The default-fail exit is issued from the final finally, which would discard
+    # an uncaught error; the error is printed first and the code stays 1.
+    repo = fx["repo"]
+    assert isinstance(repo, Path)
+    tip = _branch(fx, {"docs/a.md": "two\n"})
+    # Without the tracking ref, Get-GitCommit throws (no Refuse wraps it).
+    _git(repo, "update-ref", "-d", "refs/remotes/origin/master")
+
+    result = _run(fx, tip)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "refs/remotes/origin/master^{commit} failed (exit" in result.stderr, result.stderr
+    assert _git(repo, "rev-parse", "HEAD") == fx["base"]
     assert _receipts(fx) == []
 
 
