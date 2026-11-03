@@ -79,7 +79,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
 | PT-1 bound: PT_D0, G = 15 s, rule sha; fixes 10/11 candidate-side; Miami floor | master | before PT_D0 | binding commit; DL row |
-| MG-1 look rulings A1-A14, b_transfer T1-T5; scorer and writer reviews | master | 11-03; 11-20; 12-01 | notes |
+| MG-1/B rulings DONE 11-03 (MG-1 Cl. 2, B-1 Cl. 5); owner A1/A5/A12 open; mg1_look scoring head; b_transfer T1/T3/T4 + B label loader; scorer and writer reviews | master (owner A1/A5/A12); WS heads | owner answers before the look; head 11-12/13; 11-20; 12-01 | DL 11-03 row; head tips |
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
 | Evening-fix Stage 2: gap read after the MG-1 look receipt (Clarification 1 s5); H2 then needs a market-arm replay (owner question) | master + WS | after 11-28 | MG-1 look receipt; Stage 2 receipt |
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
