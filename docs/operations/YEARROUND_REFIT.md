@@ -13,15 +13,18 @@ and the B-look argument refusal stays in force for it.
 
 ## Inputs
 
-All three commands take a config JSON by path and sha256 (`--config`, `--config-sha`). Its keys are
-`records_root`, `pit_corpora`, `fetch_dir`, `bound_state` and, for equivalence only, `frozen_records_list`.
-`records_root` must lie outside the repository, because the bound `extract_market` refuses an in-repo output root.
+`fit` and `equivalence` take a config JSON by path and sha256 (`--config`, `--config-sha`). Its keys are
+`pit_corpora`, `l9_corpus`, `fetch_dir`, `bound_state` and, for equivalence only, `frozen_records_list` and
+`frozen_records_list_sha256`. The records root is the REQUIRED `--records-root` argument (master review
+2026-11-03): it has no default, and a config holding `records_root` is refused. No environment variable and no
+committed machine path names it. It must lie outside the repository, because the bound `extract_market` refuses an
+in-repo output root.
 The module reuses a records root only through its `records_manifest.json` payload shas and refuses a partial one.
 
 ## 1. Fit (once, before `FROZEN_BEFORE_UTC`)
 
 ```powershell
--m weather.calibration.yearround_refit fit --arm B --config <cfg.json> --config-sha <sha256>
+-m weather.calibration.yearround_refit fit --arm B --config <cfg.json> --config-sha <sha256> --records-root <dir>
 ```
 
 - Refuses at or after `FROZEN_BEFORE_UTC` (2026-12-17T00:00Z), any training row outside `TRAINING_WINDOW`, any
@@ -58,7 +61,7 @@ The module does not write it.
 
 ```powershell
 -m weather.calibration.yearround_refit equivalence --config <cfg.json> --config-sha <sha> `
-  --frozen-runner <row28_run_v12.py> [--mode state_sha]
+  --records-root <new dir> --frozen-runner <row28_run_v12.py> [--mode state_sha]
 ```
 
 - The frozen runner must be `row28_run_v12.py` at its pinned sha. Use a new records root.

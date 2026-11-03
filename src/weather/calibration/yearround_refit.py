@@ -8,8 +8,9 @@ code and adds a shadow emitter on captured inputs. Design: ``docs/research/item3
 
 Commands (offline; admitted on the workstation by ``scripts\ops\workstation_heavy.ps1 -Kind weather_heavy``):
 
-* ``fit --arm B --config <cfg.json>``: builds the record windows through the bound ``extract_market`` (into the
-  config's ``records_root``, outside the repository as the bound extractor requires), fits B's forward state
+* ``fit --arm B --config <cfg.json> --records-root <dir>``: builds the record windows through the bound
+  ``extract_market`` (into the REQUIRED ``--records-root``, outside the repository as the bound extractor
+  requires; master review 2026-11-03: a CLI argument, never a config key, env var or committed path), fits B's forward state
   (fold 2026: every B row dated at or before 2025-12-16, no season-year held out) and writes ``p3d_n_state.pkl``,
   its sidecar and ``fit_manifest.json`` write-once under ``data/yearround_refit/row28_B/<fit_id>/``. It then
   copies the three files into the never-cleaned archive ``C:\archive\row28b-forward-state\<fit_id>\`` and
@@ -151,6 +152,9 @@ PINNED_MODULE_SHA256 = {  # v12 MODULE_SHA256 (row28_run_v12.py 81-90), the modu
     "src/weather/calibration/feature_column_allowlist.py": "956ddac245d182f2428da42d61a820c8a2dd455a083f30d86c63fcfe9390ae1d",
     "src/weather/model/mg_serve_core.py": "179fcbe495f36f6fd194c1bd0052ed6e150b0f016adbe0f8e9bb6128bd42e5d8",
 }
+# master review 2026-11-03 (deviation 2): the emit loop calls MG-2's private ``_replay_index`` read-only, so its
+# source is pinned; any change to it refuses here (``_modules``) and fails the pin test loudly.
+REPLAY_INDEX_SOURCE_SHA256 = "25c20aa1e0a87ae0f33286f9ee65523cc26632f906ad833c41343b976bd174a0"
 RECORDED_MODULES = ("src/weather/calibration/mg2_p3d_n.py", "src/weather/calibration/r0_ols_floor_devfit.py",
                     "src/weather/calibration/r0_ols_floor_challenger.py")
 FIT_KWARGS = {"market_id": False, "doy": True, "raw_columns": False, "bias_by": "season"}  # v12 1977
@@ -319,6 +323,13 @@ def refuse_bound_sha(sha, *, where):
         raise YearroundRefused(f"{where}: the state sha {sha} is listed in {RELEASE_BINDING_REL}")
 
 
+def replay_index_source_sha256(p3):
+    """sha256 of ``inspect.getsource(mg2_p3d_n._replay_index)`` (the one private function the emit loop uses)."""
+    import inspect
+
+    return hashlib.sha256(inspect.getsource(p3._replay_index).encode("utf-8")).hexdigest()
+
+
 def _modules():
     from weather.calibration import feature_model as fm
     from weather.calibration import mg2_p3d_n as p3
@@ -327,6 +338,8 @@ def _modules():
 
     if tuple(prm.R0_MARKETS) != TRAINING_MARKETS or p3.STATE_SCHEMA != STATE_SCHEMA:
         raise YearroundRefused("the bound market set or state schema differs from this module's pins")
+    if replay_index_source_sha256(p3) != REPLAY_INDEX_SOURCE_SHA256:
+        raise YearroundRefused("mg2_p3d_n._replay_index differs from its pinned source sha256")
     return SimpleNamespace(prm=prm, fm=fm, l9=l9, p3=p3)
 
 
@@ -487,7 +500,16 @@ def market_frame(prm, files, with_labels):
     return frame, meta
 
 
-def build_records(cfg, prm):
+def records_root_arg(records_root, cfg):
+    """The records root comes only from the required ``--records-root`` argument (master review 2026-11-03)."""
+    if "records_root" in cfg:
+        raise YearroundRefused("records_root is a required CLI argument (--records-root), not a config key")
+    if not records_root:
+        raise YearroundRefused("--records-root is required")
+    return guard_path(records_root)
+
+
+def build_records(cfg, prm, records_root):
     """Every A-centre record window through the bound ``extract_market`` (v12 stage_build 2267-2289).
 
     A records root with a ``records_manifest.json`` is reused only when every listed file's payload sha matches;
@@ -495,7 +517,7 @@ def build_records(cfg, prm):
     """
     from weather.sources.forecast_training_corpus import CorpusVerificationError
 
-    records = guard_path(cfg["records_root"])
+    records = guard_path(records_root)
     prm.require_output_outside_repo(records)
     manifest_path = records / RECORDS_MANIFEST
     if manifest_path.is_file():
@@ -743,7 +765,7 @@ def freeze_state(p3, state, out_dir):
     return sha
 
 
-def fit(cfg, arm="B", now=None):
+def fit(cfg, arm="B", now=None, *, records_root):
     if arm not in FIT_ARMS:
         raise YearroundRefused(f"only arm(s) {FIT_ARMS} have a forward fit")
     now = now or utc_now()
@@ -754,7 +776,7 @@ def fit(cfg, arm="B", now=None):
     mods = _modules()
     upstream = upstream_shas()
     conversion, late_report = bound_hooks(mods, cfg)
-    files, records_manifest = build_records(cfg, mods.prm)
+    files, records_manifest = build_records(cfg, mods.prm, records_root_arg(records_root, cfg))
     frame, payload_buckets, build_report = training_frame(cfg, mods, files, out / "work_nbm")
     shares = imputation_shares(frame, arm)
     if max((v["share"] for v in shares.values()), default=0.0) > IMPUTE_CAP:
@@ -1050,6 +1072,9 @@ def reference_frame(ref, ctx, mods, files, nbm_new_rows, cfg):
 def frame_compare(a, b, keys, tol):
     """Key-aligned comparison of two frames, NaN-aware for numeric AND string columns; counts and maxima only.
 
+    Missing equals missing ONLY at the same key-aligned position; missing on one side and a value on the other
+    is a difference (``inf``) for numeric and string columns alike (master review 2026-11-03, deviation 5).
+
     v12's ``frame_diff`` compares non-numeric columns through ``astype(str)``; under pandas 3's string dtype a
     missing value stays missing, so an identical column with a missing ``nbm_cycle`` would read as different.
     """
@@ -1152,7 +1177,8 @@ def read_frozen_rows(path, sha):
     return list(reader)
 
 
-def equivalence(cfg, *, frozen_runner, frozen_runner_sha, mode="state_sha", frozen_rows=None, frozen_rows_sha=None,
+def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="state_sha", frozen_rows=None,
+                frozen_rows_sha=None,
                 now=None, fit=fit_hour):
     if mode not in ("state_sha", "per_row"):
         raise YearroundRefused(f"unknown equivalence mode {mode!r}")
@@ -1160,7 +1186,7 @@ def equivalence(cfg, *, frozen_runner, frozen_runner_sha, mode="state_sha", froz
         raise YearroundRefused("mode per_row needs --frozen-rows and --frozen-rows-sha")
     now = now or utc_now()
     out = _new_dir(state_root() / CANDIDATE_ID / "equivalence" / now.strftime("%Y%m%dT%H%M%SZ"))
-    records = guard_path(cfg["records_root"])
+    records = records_root_arg(records_root, cfg)
     if records.exists() and any(records.iterdir()):
         raise YearroundRefused("the equivalence run needs a NEW records root")
     mods = _modules()
@@ -1176,7 +1202,7 @@ def equivalence(cfg, *, frozen_runner, frozen_runner_sha, mode="state_sha", froz
     passes = []
 
     # (a) build
-    files, records_manifest = build_records(cfg, prm)
+    files, records_manifest = build_records(cfg, prm, records)
     ours = {n: e["payload_sha256"] for n, e in records_manifest["files"].items()}
     rec = compare_records(ours, frozen_records_list(cfg["frozen_records_list"], cfg["frozen_records_list_sha256"]))
     report["records"] = rec
@@ -1331,6 +1357,7 @@ def _parser():
     f.add_argument("--arm", choices=FIT_ARMS, required=True)
     f.add_argument("--config", required=True)
     f.add_argument("--config-sha", required=True)
+    f.add_argument("--records-root", required=True)
     e = sub.add_parser("emit", help="one weekly shadow batch on captured inputs (as_of_capture)")
     for name in ("--state", "--state-sha", "--fit-manifest", "--fit-manifest-sha", "--forward-receipt",
                  "--forward-receipt-sha", "--snapshots", "--replay-root", "--first", "--last"):
@@ -1339,6 +1366,7 @@ def _parser():
     q = sub.add_parser("equivalence", help="the module against the frozen v12 runner (design 2.3)")
     q.add_argument("--config", required=True)
     q.add_argument("--config-sha", required=True)
+    q.add_argument("--records-root", required=True)
     q.add_argument("--frozen-runner", required=True)
     q.add_argument("--frozen-runner-sha", default=FROZEN_RUNNER_SHA256)
     q.add_argument("--mode", choices=("state_sha", "per_row"), default="state_sha")
@@ -1359,7 +1387,7 @@ def main(argv=None):
         os.environ[var] = THREADS  # v12 H4: pinned before numpy or sklearn is imported (the imports are lazy)
     args = _parser().parse_args(argv)
     if args.command == "fit":
-        result = fit(_config(args.config, args.config_sha), arm=args.arm)
+        result = fit(_config(args.config, args.config_sha), arm=args.arm, records_root=args.records_root)
     elif args.command == "emit":
         result = emit(state_path=args.state, state_sha=args.state_sha, fit_manifest=args.fit_manifest,
                       fit_manifest_sha=args.fit_manifest_sha, forward_receipt=args.forward_receipt,
@@ -1368,7 +1396,8 @@ def main(argv=None):
     else:
         if args.frozen_runner_sha != FROZEN_RUNNER_SHA256:
             raise SystemExit("the frozen runner must be row28_run_v12.py 9e97c892...")
-        result = equivalence(_config(args.config, args.config_sha), frozen_runner=args.frozen_runner,
+        result = equivalence(_config(args.config, args.config_sha), records_root=args.records_root,
+                             frozen_runner=args.frozen_runner,
                              frozen_runner_sha=args.frozen_runner_sha, mode=args.mode, frozen_rows=args.frozen_rows,
                              frozen_rows_sha=args.frozen_rows_sha)
     print(json.dumps(result, indent=1, sort_keys=True))

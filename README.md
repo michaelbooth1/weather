@@ -663,7 +663,8 @@ artifact; its seasonal columns are not served features.
 
 Year-round refit, row 28 candidate B (research only; workstation, through
 `scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`).
-`weather.calibration.yearround_refit fit --arm B --config <cfg> --config-sha <sha>`
+`weather.calibration.yearround_refit fit --arm B --config <cfg> --config-sha <sha>
+--records-root <dir>`
 fits B's forward state once, write-once under `data\yearround_refit\`, and
 copies it to the archive; `emit ...` writes one weekly after-the-fact shadow batch
 on captured inputs; `equivalence ...` checks the module against the frozen v12

@@ -155,16 +155,17 @@ def world(tmp_path, monkeypatch):
     bound.write_bytes(pickle.dumps(_minimal_bound_state(), protocol=4))
     monkeypatch.setattr(yr, "BOUND_P3D_N_STATE_SHA256", _sha(bound))
 
-    def cfg(records="records"):
+    def cfg():
         return {"pit_corpora": str(tmp_path / "pit"), "fetch_dir": str(fetch), "l9_corpus": str(l9_corpus),
-                "records_root": str(tmp_path / records), "bound_state": str(bound)}
+                "bound_state": str(bound)}
 
+    cfg.root = lambda records="records": str(tmp_path / records)  # the required --records-root, never config
     return cfg
 
 
 def _frame(world, tmp_path):
     mods = yr._modules()
-    files, _ = yr.build_records(world(), mods.prm)
+    files, _ = yr.build_records(world(), mods.prm, world.root())
     n = len(list((tmp_path / "data").glob("yearround_refit/t/nbm*")))
     frame, payload_buckets, report = yr.training_frame(world(), mods, files, yr.state_root() / "t" / f"nbm{n}")
     return mods, frame, payload_buckets, report
@@ -309,7 +310,7 @@ def test_state_schema_and_family_pins():
 
 def test_fit_freezes_writes_once_and_archives_sha_equal(world, tmp_path):
     now = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
-    result = yr.fit(world(), arm="B", now=now)
+    result = yr.fit(world(), arm="B", now=now, records_root=world.root())
     fit_dir = Path(result["fit_dir"])
     manifest = json.loads((fit_dir / yr.FIT_MANIFEST).read_text(encoding="utf-8"))
     assert _sha(fit_dir / yr.FIT_MANIFEST) == result["fit_manifest_sha256"]
@@ -330,11 +331,11 @@ def test_fit_freezes_writes_once_and_archives_sha_equal(world, tmp_path):
     state = p3.load_state(fit_dir / p3.STATE_FILE, result["state_sha256"], forward=True)
     assert state["provenance"]["shadow_only"] is True and state["provenance"]["candidate"] == "row28_B"
     with pytest.raises(yr.YearroundRefused, match="write-once"):
-        yr.fit(world(), arm="B", now=now)
+        yr.fit(world(), arm="B", now=now, records_root=world.root())
     with pytest.raises(yr.YearroundRefused, match="frozen before"):
-        yr.fit(world(), arm="B", now=datetime(2026, 12, 17, tzinfo=timezone.utc))
+        yr.fit(world(), arm="B", now=datetime(2026, 12, 17, tzinfo=timezone.utc), records_root=world.root())
     with pytest.raises(yr.YearroundRefused, match="forward fit"):
-        yr.fit(world(), arm="A", now=now)
+        yr.fit(world(), arm="A", now=now, records_root=world.root())
 
 
 # ----------------------------------------------------------------------------- emit
@@ -568,7 +569,7 @@ def _runner(tmp_path, drop=False):
 def _frozen_list(tmp_path, world, alter=False):
     """The frozen side's path/sha list (built once from a separate records root of the same synthetic world)."""
     mods = yr._modules()
-    yr.build_records(world("records_frozen"), mods.prm)
+    yr.build_records(world(), mods.prm, world.root("records_frozen"))
     manifest = json.loads((tmp_path / "records_frozen" / yr.RECORDS_MANIFEST).read_text(encoding="utf-8"))
     lines = ["path,sha256,payload_sha256"]
     for i, (name, entry) in enumerate(sorted(manifest["files"].items())):
@@ -581,8 +582,8 @@ def _frozen_list(tmp_path, world, alter=False):
 
 
 def _run_equivalence(tmp_path, world, *, records, runner, walk, minute, **kw):
-    cfg = world(records) | {"frozen_records_list": str(walk[0]), "frozen_records_list_sha256": walk[1]}
-    result = yr.equivalence(cfg, frozen_runner=runner[0], frozen_runner_sha=runner[1],
+    cfg = world() | {"frozen_records_list": str(walk[0]), "frozen_records_list_sha256": walk[1]}
+    result = yr.equivalence(cfg, records_root=world.root(records), frozen_runner=runner[0], frozen_runner_sha=runner[1],
                             now=datetime(2026, 11, 3, 12, minute, tzinfo=timezone.utc), **kw)
     report = json.loads((Path(result["out_dir"]) / yr.EQUIVALENCE_REPORT).read_text(encoding="utf-8"))
     assert result["equivalence_report_sha256"] == _sha(Path(result["out_dir"]) / yr.EQUIVALENCE_REPORT)
@@ -641,6 +642,38 @@ def test_frame_compare_treats_missing_strings_as_equal_and_finds_a_change():
     assert not yr.frame_compare(a, b.assign(c=pd.array([None, "01"], dtype="string")), ["k"], 0.0)["pass"]
     assert not yr.frame_compare(a, b.assign(v=[1.0, 1.0]), ["k"], 0.0)["pass"]
     assert not yr.frame_compare(a, b.assign(k=[1, 3]), ["k"], 0.0)["identical_keys"]
+
+
+def test_frame_compare_missing_on_one_side_only_is_a_diff():
+    """Master review 2026-11-03 (deviation 5): missing equals missing only at the same position."""
+    a = pd.DataFrame({"k": [1, 2], "c": pd.array([None, "07"], dtype="string"), "v": [float("nan"), 1.0]})
+    for col, other in (("c", pd.array(["07", "07"], dtype="string")), ("c", pd.array(["07", None], dtype="string")),
+                       ("v", [1.0, 1.0]), ("v", [1.0, float("nan")])):
+        result = yr.frame_compare(a, a.assign(**{col: other}), ["k"], 1e9)
+        assert not result["pass"] and result["max_abs_diff"][col] == float("inf"), (col, other)
+    assert yr.frame_compare(a, a.copy(), ["k"], 0.0)["pass"]
+
+
+def test_records_root_is_a_required_cli_argument_never_a_config_key(world):
+    with pytest.raises(yr.YearroundRefused, match="--records-root"):
+        yr.fit(world() | {"records_root": world.root()}, arm="B", now=datetime(2026, 11, 3, tzinfo=timezone.utc),
+               records_root=world.root())
+    with pytest.raises(yr.YearroundRefused, match="--records-root is required"):
+        yr.records_root_arg("", world())
+    subparsers = next(a for a in yr._parser()._actions if a.dest == "command")
+    for command in ("fit", "equivalence"):
+        action = next(a for a in subparsers.choices[command]._actions if "--records-root" in a.option_strings)
+        assert action.required and action.default is None, command
+
+
+def test_the_private_replay_index_source_is_pinned(monkeypatch):
+    """Master review 2026-11-03 (deviation 2): any change to mg2_p3d_n._replay_index fails loudly."""
+    from weather.calibration import mg2_p3d_n as p3
+
+    assert yr.replay_index_source_sha256(p3) == yr.REPLAY_INDEX_SOURCE_SHA256
+    monkeypatch.setattr(yr, "REPLAY_INDEX_SOURCE_SHA256", "0" * 64)
+    with pytest.raises(yr.YearroundRefused, match="_replay_index"):
+        yr._modules()
 
 
 def test_per_row_mode_reads_only_a_label_free_extract(tmp_path):
