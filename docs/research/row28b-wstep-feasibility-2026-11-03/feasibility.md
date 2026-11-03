@@ -155,3 +155,11 @@ Lane L59, WS, 2026-11-03, from origin/master `621d67f0f`.
    through master if SoP:50's data scope requires one.
 5. A master ruling on whether a 07-12 w screen satisfies MIM rule 4 for B, whose forward comparison decides at 13-16;
    if not, the w step is INFEASIBLE on this season.
+
+## Master rulings, 2026-11-03 (source: master, relayed by the coordinator; on tip `69c67177f`)
+
+1. **Agreed: rule 4 needs w at the decision hours.** A 07-12 w screen is selection evidence only. It never satisfies
+   rule 4 for a 13-16 claim. Build 5 is answered: no.
+2. **B's 13-16 path to a market test is power-bound** on everything visible. The history season is infeasible, and a
+   forward test at 45 dates has power 0.06-0.13. A B-S PASS at 13-16 is model improvement only.
+3. **X93's "no successor" binds the 3a reliability lever only, not B's w.** Confirmed.
