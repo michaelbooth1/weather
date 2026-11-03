@@ -244,7 +244,7 @@ Rows are in rule-9 order (freeze time). Lines cite `origin/master` `621d67f0f` u
 | 5 | Row 72 (R-ODC P1) | FROZEN 2026-10-30, after 13:00 EDT (`rodc-forward-prereg-2026-10-29/prereg-draft.md`:1-8) | D0 2026-10-31; the first 45 countable dates; a non-countable date is skipped (prereg-draft:86-92) | after the 45th countable date and on or after the B look receipt (prereg-draft:93) | `docs/research/rodc-forward-prereg-2026-10-29/prereg-draft.md` |
 | 6 | F8-MH | frozen 2026-10-31 (`f8-mh-forward-2026-10-31/freeze.md`:3) | D0 2026-11-02; window 2026-11-02 .. 2027-01-25 (85 local dates) (freeze.md:84-86) | one look in the 01-26 window: on or after PT-1's look (on or after 2027-01-27) and after B/MG-2, MG-1, L6_G and row 72 (freeze.md:87-88) | `docs/research/f8-mh-forward-2026-10-31/freeze.md` |
 | 7 | T+1 (A1-A3) | NOT frozen: DRAFT rev 11 (`claude/t1-forward-prereg-20261030` @ `8f8158d1f`, README:3) | from the first target date after its freeze commit; A1/A3 dates inside MG-1's window are also MG-1's (README:374-379) | first readable look after B's 12-13 look, MG-1's look (A1/A3) and row 72's look; F8-MH and PT-1 dates are not read there. Final look at 82 or more countable dates and after the PT-1 and F8-MH looks (README:385-399) | `docs/research/t1-forward-prereg-2026-10-30/README.md` on that branch |
-| 8 | PT-1 | unbound: DRAFT, `PT_D0: UNSET` (`COOL_SEASON_PAPER_TEST_PREREG.md`:6-10) | **none** (R28b, rulings:736). If bound as drafted, it would claim 12-12..01-25 (DECISION_LOG:276); that claim starts only at its binding commit | — (its single read is set at binding) | `docs/operations/COOL_SEASON_PAPER_TEST_PREREG.md` §4 (line 160) |
+| 8 | PT-1 | **NOT RUNNABLE (R21, master 11-01), claims no date** (rulings:188, 196, 201) | **none** (R21, rulings:188, 201). The draft (`PT_D0: UNSET`, `COOL_SEASON_PAPER_TEST_PREREG.md`:6-10) is never bound | — (it has no look) | terminal record `docs/research/pt1-not-runnable-2026-11-03/receipt.md` (sha `<PLACEHOLDER until L59's docs head lands>`) |
 | 9 | Row-28b forward (candidate claimant) | NOT frozen: DRAFT (`claude/row28b-forward-prereg-draft-20261103` @ `1fed1b989`, `prereg_row28b_forward.md`:8-9); it freezes only after the owner OKs a 12-17 embargo line | D0 2026-12-17; N = 45 forward dates (12-17..01-30 if none drops) (prereg:52-53) | not before PT-1's and F8-MH's (01-26) looks and every earlier-frozen claimant; not before 2027-01-31 (prereg:54, 63-65) | `docs/research/row28b-forward-prereg-draft-2026-11-03/prereg_row28b_forward.md` on that branch |
 
 Notes:
@@ -257,6 +257,7 @@ Notes:
 - **MG-1's scope.** The evening-fix read does not cover MG-1's anchor path (DECISION_LOG:218, A6). Its stage-2
   price read still waits for MG-1's receipt (DECISION_LOG:295).
 - **MG-3** is not a claimant; it was dropped (DECISION_LOG 2026-10-30; T+1 README:403).
+- **T+2 sibling** is not a claimant now: NO-GO, DEFERRED (master, 2026-11-03), not killed (§6 "T+2 go/no-go").
 - **Rule-9 scope.** DECISION_LOG:309 (vi) put per-date vs per-(date, market) to the 11-03 sitting. R28b (3) says
   per date after B. I found no 11-03 text that changes this.
 
@@ -266,9 +267,22 @@ Notes:
 
 ### T+2 go/no-go
 
-`<MASTER SLOT: T+2 sibling go/no-go from the census lead-2 counts and the presence check. It waits for the 11-20
-presence check (R28b WS brief item 4). A go needs power of at least 0.5 at its own N (rule 6), a new emitter file
-(never `t1_forward_emitter.py`, pinned at `5d348b75`), and the owner's yes for any new daily task (rulings:477).>`
+**T+2 sibling: NO-GO, DEFERRED (master, 2026-11-03), not killed.**
+
+- **Packet:** `claude/r28b-t2-presence-check-20261103` @ `201e58151`,
+  `docs/research/r28b-t2-presence-check-2026-11-03/gonogo_packet.md`, sha256
+  `985a3e121743547e85c8708267388a952f1266e9a6a3c40f1543f2582eeb6c0c`. The branch's later commit `2fde4f245`
+  records this decision.
+- **Reasons:**
+  - Rule 6 fails at the N it can reach: 60-75 dates give power 0.25-0.30 at 1.5x.
+  - It is last in the rule-9 queue.
+  - The A2 ENS recorder gap.
+  - Zero census lead-2 evidence (FD:88).
+- **Reopen triggers** (any one):
+  1. T+1's final look PASSES.
+  2. A same-kind T+2 SD exists.
+  3. Master accepts a look date that allows about 170+ countable dates (around May 2027 or later).
+- **Claim table:** T+2 claims no date now (§6 notes).
 
 ## 7. Open items and blockers (not invented here)
 
@@ -286,7 +300,7 @@ presence check (R28b WS brief item 4). A go needs power of at least 0.5 at its o
 - **B4. Freeze `--through`: CLOSED** by master 2026-11-03 (step 0b, §3).
 - **Q1. Gap semantics: CLOSED** by master 2026-11-03. A date in `skipped_dates` is T2 (non-countable). A date in
   neither list, or any metadata inconsistency, holds.
-- **Master slots in §6:** the ranking of post-B uses and the T+2 go/no-go
-  (after the 11-20 presence check).
+- **Master slots in §6:** the ranking of post-B uses is open. The T+2 go/no-go is filled: NO-GO, DEFERRED
+  (master, 2026-11-03).
 - **Naming rule:** every B-1 clarification is named `b1-clarification-*.md` and lives outside the bound directory
   (rulings:541). This file complies.
