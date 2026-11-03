@@ -182,5 +182,15 @@ Lane L59, WS, 2026-11-03, from origin/master `621d67f0f`.
   - The parked note is in `EXHAUSTION_REGISTER.md` §6, using the register's existing PARKED status, as for X102/X103.
   - The archive is `C:\archive\ruled-out\e1-b0712-parked-20261103\`.
   - There is no DEV_WINDOW_LEDGER row, because nothing ran; draft row 119 stays uncommitted.
+- **L56's answer to the 07-12 question** (343b design and code at `a6001692795be789011c18b8e9a0749a2e60503d`;
+  relevant to reopen condition (a)):
+  - Yes: 07-12 per-hour fits come from the same Dec 17-May 31 rows without changing the 13-16 fits, and
+    `arm_state(hours=...)` is parameterised.
+  - The records hold hours 7-20, and the emit gate is `INTRADAY_CUTOFF_HOURS`.
+  - It needs a separate state file, because one file with hours 7..16 would change the 13-16 sha.
+  - The F pair is the same rule at every hour (`feature_model` 1111-1117 vs `mg2_p3d_n` `_observations`), with the
+    same disclosed asymmetry.
+  - The CLI is pinned to `SCORED_HOURS` 13-16, so 07-12 would need a ruling plus a small CLI change. The full
+    paragraph is in the register's E1 note.
 - **This note's conclusion stands:** B's route to a market test is the 13-16 forward test (draft `1fed1b989`). That
   test is power-bound against the market (ruling 2), so a PASS there claims model improvement only.
