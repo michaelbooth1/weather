@@ -13,6 +13,23 @@
 - **The decision is master's on 11-20, after the census lead-2 counts.** The slot is Clar 6 §6 "T+2 go/no-go",
   `:267-270`.
 
+## DECISION (master, 2026-11-03): NO-GO, DEFERRED, not killed
+
+- **Why now.** Master decided on 11-03 rather than 11-20, because the census lead-2 evidence is already zero
+  (`docs/operations/FINDINGS_DIGEST.md:88`) and nothing before 11-20 can change rule 6. This is fail-fast.
+- **Reasons (master):**
+  - rule 6 fails at the reachable N (60-75 dates; power 0.25-0.30 at 1.5×);
+  - it is last in the rule-9 queue;
+  - the A2 ENS recorder gap;
+  - zero census lead-2 evidence.
+- **Reopen triggers:** (1)-(3) of this packet's recommendation, verbatim.
+- **No owner question is raised,** because no task is proposed.
+- **Decision tip.** This packet was decided at sha256 `985a3e121743547e85c8708267388a952f1266e9a6a3c40f1543f2582eeb6c0c`
+  (branch tip `201e58151`).
+- **Clarification 6's T+2 slot** is filled by lane L16 on its own branch.
+- **New reason code, noted without investigation (master).** `gamma_guard` appeared on 2026-11-02 in one cycle per
+  market (10 in US10; run `fc1440af…`). It was absent on 10-30..11-01. No slot timing or row was read to explain it.
+
 ## Recommendation: NO-GO (defer), with named reopen triggers
 
 - **It fails rule 6 at the N it can reach.** At the stated conservative bound, a T+2 screen cannot reach power 0.5 at
