@@ -579,3 +579,13 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
 - **Difference from master.** `workstation_heavy.ps1` and `workload_admission.ps1` equal this branch's tip
   blobs, not master's. That difference is disclosed there for a ruling.
 - **Scope.** No stage of the row-28 runner uses `wrapper_root`. The stages run under launcher v6.
+
+## Twelfth addendum (2026-11-03T09:06:13-05:00): launcher v6's pinned admission helper (disclosure)
+
+- **The pin.** Launcher v6 (`8a2f8759…`) dot-sources `C:\wt\L59row28\scripts\ops\workload_admission.ps1`, pinned
+  by sha to `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441`. That is this branch's version, not
+  master `99fff6c48`'s (`4f794066…`). Its other helper, `windows_kill_on_close_job.ps1` `05f362cd…`, equals master.
+- **Where it applies.** Every launcher-v6 stage ran with this pin: a6, the rebuild, integrity, and now labels.
+- **Ruling.** Master ruled (A): run labels on launcher v6 unchanged.
+- **The wrapper.** `wrapper_root` now holds master's `workstation_heavy.ps1` and `workload_admission.ps1`. It is used
+  only for pytest runs. One no-op probe through it was admitted (slot 2 of 3) and exited 0.

@@ -1568,3 +1568,39 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   - So a probe "through launcher v6 with the refreshed wrapper" cannot happen without a new launcher. Running labels
     on launcher v6 as it stands would use the old admission helper.
   - This is raised to the coordinator for a ruling. The labels stage has not been launched.
+
+## Appended 2026-11-03T09:06:13-05:00: labels (stage 4) GO under ruling (A), the 48786bcb disclosure, config, pre-launch checks and exact command (append only)
+
+- **Master ruling (A), relayed.** Run labels on launcher v6 unchanged: `8a2f8759…`, admission helper pinned to the
+  branch's `48786bcb…`. That pin is disclosed in CLARIFICATION_3.md's twelfth addendum.
+  - The master-wrapper probe of the 09:03:56 append passed: slot 2 of 3, exit 0.
+  - Under C1 N7, consistency HALTs only. No score, no look.
+- **Config.** `C:\t\L59\row28\run_config\stage4_labels_v1.json`, sha256
+  `b038ed36375bd4235874fd2e9f7892292a6c668e6087959dde05bb96e5044044`. It is new. Compared with
+  `stage3_integrity_v1.json`, it has `stage: labels`, `prev = {integrity: s3_integrity walk.json d8404064…, build:
+  s2_build_a2 walk.json 80c70b2f…}` (`stage_labels` verifies both) and `integrity_commit`
+  `95762ae89da78b831ccf5b1a340aac124dcf8b6d`.
+- **Pre-launch checks** (read-only, `l59_prelaunch_s4_v1.py`):
+  - **Dated scan.** 0 hits in the config path, the OutDir `s4_labels`, the stage, the log dir `ctl_s4_logs` and the
+    launcher path. The walker path has 1, the masked doc dir name.
+    - The config contents have 1 raw match, again inside the `prev.build` sha hex, and 0 valid calendar dates. The
+      runner's `guard_text` and `guard_obj` on the config are clean.
+    - The forbidden roots are referenced 0 times.
+  - **The integrity binding.** The walk sha `d8404064…` equals the config's. The report is PASS, stage integrity.
+    The receipt `fa5b5243…` is COMPLETE, with guard 0 and no FLAG; its stage and walker sha are bound.
+  - **The gate commit.** `95762ae89` is on origin, and its `run/integrity_report.json` blob equals the run file.
+  - **The build binding.** It is as before (receipt `eb60509b…`); the 4 build outputs are sha-equal, and all 264
+    records equal the build's `records_sha256`.
+  - **Junctions.** The manifest after integrity is `9dff281c…`.
+  - Walker `9e97c892…`, launcher `8a2f8759…`. OutDir and log dir are absent.
+- **Launch block** `C:\t\L59\row28\launch_s4_labels_v1.ps1`. The data\ check (exactly the 4 named junctions) and
+  the 0-wrapper check run, then Start-Process immediately, with nothing in between. The 12.8 GB monitor runs.
+- **Exact command:**
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s4_labels -Stage labels -TimeboxSeconds 7200 `
+  -RootsPath C:\t\L59\row28\run_config\stage4_labels_v1.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
+  -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
+```
