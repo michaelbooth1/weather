@@ -672,3 +672,42 @@ from the centre in each name:
     - the non-records rows: `other_equal`, with an empty `differing` list;
     - the records: equal on the decompressed manifest (`compare_records_identity`).
     An `equal: False` from `compare_walk_csv` is NOT a STOP on its own; any other deviation STOPs.
+
+## Appended 2026-11-03T06:15:16-05:00: v10 review CLEAN, m-A / m-B, the a5 launch form and full targets (append only)
+
+- **The v10 / sentinel v8 review is CLEAN.**
+- **m-A.** The two in-place edits to the C3 seventh addendum were reverted.
+  - The file up to the eighth addendum now equals CLARIFICATION_3.md at `149393482` (`aa3844d7…`) byte for byte.
+  - Both corrections are carried append-only in the eighth addendum.
+  - CLARIFICATION_3.md is now `8826cd273fb07f811c23a4d6aca0ab810386ae40ac36c835a421cafeae93b610`. The 06:12 append
+    listed no C3 sha; the C3 at that tip was `5729eb81…`.
+- **Disclosure (reviewer item 5).** The reviewer's item-5 check ran one ast-parse one-off on TEMP copies of runner v6
+  and runner v10. It hashed definition segments only and did not import or execute either file.
+- **a5 launch form, exact.** Launcher v6's default `-ExpectSha` is stale, so it is passed explicitly:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s1_controls_a5 -Stage controls -TimeboxSeconds 14400 `
+  -RootsPath C:\t\L59\row28\run_config\stage1_controls_v2.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v10.py `
+  -ExpectSha dc58715ca4f8834746051e3aa8c5408f115e384a63cbf512ef1940cfea82abaa
+```
+
+- **a5 targets, the complete list** (this list together with the 06:12 append; any deviation STOPs):
+  - **Launcher:** receipt COMPLETE, walker exit 0; log guard 0; receipt guard 0; no FLAG; junction manifest
+    before = after `f93c2ad2…`.
+  - **Runner and controls:**
+    - status PASS;
+    - C-0 19,657 / 0.0; C-0b 2 of 2; C-0c 4,125 / 0; C-b 660 / 0.0.
+  - **Output guard:**
+    - `files_scanned` 68, `hits_total` 0, nothing withheld;
+    - `decision_allowance` `dated_tokens` 276 and `values` 144.
+  - **M1:** `m1_summary` remaining_total 0 (0 on each of the 66 records files), span_mismatch_total 0, cut_total
+    {centre 66, generated_at 66, decision 72}, protocols [5].
+  - **gz headers:**
+    - `gz_header_summary`: files 68, members 68, fname 66, fname_own_tmp 66, fcomment 0, fextra 0, hits 0;
+    - `gz_header_allowance`: fname_own_tmp 66, dated_tokens 66.
+  - **Records:** equal to a4 on the decompressed manifest, 66 of 66.
+  - **walk.csv:** `compare_walk_csv(a4, a5)` gives records_unverified exactly 66, records_equal_on_payload 0,
+    other_equal 2 (a4's non-records rows: its two junction manifests) and differing []. Its `equal: False` is by
+    design.

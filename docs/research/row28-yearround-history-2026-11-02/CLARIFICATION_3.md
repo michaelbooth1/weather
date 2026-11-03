@@ -393,8 +393,7 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
     (60 files × 1, 6 files × 2).
   - **Cost:** peak working set 32,468,992 bytes, 6.88 s wall in all (import, decompress and genops over 66 files).
 - **The headers before v9.** Runners v4-v8 never scanned raw gzip headers: the guard scanned decompressed payloads
-  only. The headers were by construction only prm:256's own tmp name, so there is no retroactive concern (code
-  reading; not measured on the a3/a4 evidence, which stays unopened; a5 measures it prospectively).
+  only. The headers were by construction only prm:256's own tmp name, so there is no retroactive concern.
 - **Runner v9** (`row28_run_v9.py`) is v8 plus the raw-header scan and nothing else (10 counted exact
   replacements; scratchpad `make_v9.py`).
   - `gz_header_members` (`:869`) parses the header of EVERY member, because `gzip.decompress` accepts
@@ -409,8 +408,8 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
     (`gz_header_allowance` `fname_own_tmp` and `dated_tokens`).
   - **Hits:**
     - any other FNAME on any `.gz` (`gz_fname`);
-    - any FCOMMENT or FEXTRA on any `.gz` (`gz_fcomment`, `gz_fextra`; v10, m-1: neither `gzip.compress` nor
-      prm:256's `gzip.open` writes either field. v9 itself hit only an FCOMMENT on a non-records `.gz`);
+    - any FCOMMENT on a non-records `.gz`, Writer outputs included, since `gzip.compress` writes neither field
+      (`gz_fcomment`);
     - every dated token in any other header text, by category.
   - walk.json adds `output_guard.gz_headers` (per `.gz` basename: members, MTIME values, field counts, hits),
     `gz_header_allowance` and `gz_header_summary`.
@@ -456,3 +455,16 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
   measured on the a3/a4 evidence, which stays unopened; a5 measures it prospectively)".
 - **m-3.** The a5 header targets and the `compare_walk_csv` expectation are in RUN_LOG ("Appended
   2026-11-03T06:12").
+- **Correction (2026-11-03T06:15-05:00, m-A of the v10 review; append-only).**
+  - **The revert.** The two in-place edits to the seventh addendum were reverted. The seventh addendum is now
+    byte-identical to its text at `149393482` (CLARIFICATION_3.md `aa3844d7…`), proven by a diff of that section.
+    Its sha256, from its heading through its last line, is `68c393f3211bc825…` both now and at `149393482`. The
+    whole file up to the eighth addendum's heading equals the `149393482` file byte for byte.
+  - **Superseded.** This addendum's two statements above, that the seventh addendum "now carries" the v10 wording
+    and "now ends with" the qualifier, are superseded by this note. Both corrections are carried here instead.
+  - **(1) m-1 wording.** Where the seventh addendum says "any FCOMMENT on a non-records `.gz`", read for v10:
+    "any FCOMMENT or FEXTRA on any `.gz`" (`gz_fcomment`, `gz_fextra`; the dated-token count on top). That text
+    remains true of v9 itself.
+  - **(2) m-2 qualifier.** The seventh addendum's sentence "The headers were by construction only prm:256's own
+    tmp name, so there is no retroactive concern" is qualified: (code reading; not measured on the a3/a4
+    evidence, which stays unopened; a5 measures it prospectively).
