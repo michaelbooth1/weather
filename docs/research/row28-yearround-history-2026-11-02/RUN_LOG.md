@@ -4,10 +4,11 @@ This log records how the frozen row-28 prereg is executed.
 
 - **Prereg:** `prereg_row28.md`, sha256 `cb6d4e8da0ab5a144a185cf8dbaf777881402ea8a95db99f2a0e98f20a5e132b`, governed
   by `FREEZE_RECORD.md`.
-- **Read with:** `CLARIFICATION_1.md` and `CLARIFICATION_2.md` (both 2026-11-03, committed before any control).
-- **Status:** nothing has run, not even the sentinel test. Gate order: the delta review of v3 is CLEAN (against the
-  prereg, the freeze record, C1 and C2), then the coordinator's go for the sentinel test, then the sentinel test
-  PASSES, then the coordinator's go for stage 1.
+- **Read with:** `CLARIFICATION_1.md`, `CLARIFICATION_2.md` and `CLARIFICATION_3.md` (all 2026-11-03, committed
+  before any control).
+- **Status:** nothing has run, not even the sentinel test. Gate order: the v4 delta review (runner v4, launcher v4,
+  sentinel test v2, C1–C3) is CLEAN, then the coordinator's go for the sentinel test, then the sentinel test PASSES,
+  then the coordinator's go for stage 1.
 
 ## Exception to workstation_heavy admission
 
@@ -35,27 +36,59 @@ runs through a guarded one-off launcher.
   - G1: after the child ends, `walker.stdout` / `walker.stderr` are scanned for dates on or after 2026-01-01 (no
     allowlist). A hit HALTs a pre-score stage (exit 6) and is a FLAG for look and score;
   - G2: receipt stamps are ISO 8601 basic format, and the receipt text is guarded before it is written.
+- **Launcher v4** is v3 plus, and nothing else (Clarification 3 §1):
+  - F3 (h): the log guard also masks the exact token `centre=<label>` for a label in the arm centre set (the same
+    rule as the runner's `GuardedStream`); the launcher's 24 labels must hash to `GUARD_CENTRE_SET_SHA256`
+    (`38a17ec2a04d764bac8ea43c8add0f89eb3fa542480eec73aaf0ab12febf6d83`) or it refuses before any child starts;
+  - F4: a withheld receipt's minimal replacement records `receipt_guard_hits`;
+  - F6: in look and score a withheld receipt keeps the stage status and adds `output_guard_flag` (a FLAG, not HALT);
+  - F7: the receipt's `exception` string is reverted to the v2 text (C2 §5); G2 masks exactly that one string,
+    because it contains a 2026 date. The v3 exception-string change is therefore undone.
 
 ## Pinned files
 
 | File | sha256 |
 | --- | --- |
-| Launcher v3, `C:\t\L59\row28\run_row28_guarded_v3.ps1` (= `scripts/run_row28_guarded_v3.ps1`) | `fb0397829c1fcbc19f124f8bbe76d8824ca406b34bfb1923cea97f11e6856a3c` |
-| Runner v3, `scripts/row28_run_v3.py` (run from `C:\wt\L59row28`) | `949464ab987a746f9077294a96ef7cac511b55914f69f336bcded6c5b370c438` |
-| Sentinel test, `scripts/test_row28_s7_sentinel_v1.py` (pins runner v3) | `e91cbb468aa9f9ed8dce9ad5754d79bdfe401a15505a6bb263bf32556b1020c0` |
+| Launcher v4, `C:\t\L59\row28\run_row28_guarded_v4.ps1` (= `scripts/run_row28_guarded_v4.ps1`) | `3f356f38676ac680281b71c3981fd3f6d557a86246e4fc48584d6b4d79aad4ca` |
+| Runner v4, `scripts/row28_run_v4.py` (run from `C:\wt\L59row28`) | `059cb05b72caf0736faa74019293ca89205c0fd7fcb5c70d8943b934bfa17552` |
+| Sentinel test v2, `scripts/test_row28_s7_sentinel_v2.py` (pins runner v4) | `2cc674246829701c733e25fa1694a7fce73d4ef94b5ad9f704e6db8a166eea30` |
 | `CLARIFICATION_1.md` | `d9e70a2f47e05d9046893d3b5f461b7ab3ce658b5166748c5eaedca5d8187495` |
 | `CLARIFICATION_2.md` | `a71ba0e87c2d887309be41a57f0aceeccd03039acb1d20532e0dfa61d7df6bdd` |
+| `CLARIFICATION_3.md` | `c4eff5a3f60a38ef1cf5d7a472160a27af84234c007e7e51fc6ca3a0eccac74c` |
 | R-P2 module copy, `C:\t\L59\row28\tools\station_pool_corpus_d4947cfe.py` | `d4947cfe1b02c537ec84fca994ef0c1c26572be0251810eb744b421aae09f0b7` |
 | Job helper, `C:\wt\L59row28\scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` |
 | Admission helper, `C:\wt\L59row28\scripts\ops\workload_admission.ps1` (memory reading only) | `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441` |
 | L47b 2026 NBP 07Z corpus, `C:\t\l47b\corpus_2026.jsonl` (§7 inputs only) | `d59718a746a68d4745895623bae7760d99d95da647228fa3f8b7e389c8810acf` |
-| Stage-1 config, `C:\t\L59\row28\run_config\stage1_controls_v2.json` (no runner-version key; reused for v3) | `66e4b46e9488d95ab32d7d65ab793ab1986de2204045402b1703d47096a439b9` |
+| Stage-1 config, `C:\t\L59\row28\run_config\stage1_controls_v2.json` (no runner-version key; reused for v3 and v4) | `66e4b46e9488d95ab32d7d65ab793ab1986de2204045402b1703d47096a439b9` |
 
 - **Superseded, never run:** runner v1 `e39ce884…`, launcher v1 `34235d44…`, config `stage1_controls_v1.json`,
-  runner v2 `0a74bb3d…` and launcher v2 `8bfea248…`. They stay in the branch as review history.
+  runner v2 `0a74bb3d…`, launcher v2 `8bfea248…`, runner v3 `949464ab…`, launcher v3 `fb039782…` and sentinel
+  test v1 `e91cbb46…`. They stay in the branch as review history.
+- **F2 pins (runner v4 `CALIBRATED_WEIGHTS_PINS`, checked at every stage before it starts).** The one allowlisted
+  key path is `["calibrated_weights"]["metadata"]["generated_at"]`, in `records_*.pkl.gz` only, with a pinned value.
+  It is copied by `src/weather/calibration/pooled_residual_model.py` 249 and loaded by
+  `src/weather/model/toronto_model.py` 145 and 227–238 from `artifacts/calibration/calibrated_weights*.json`, line
+  1147 of each file. The 12 values differ per file (all 2026-06-07, 22:05:46 to 22:15:56), so each file has its own
+  pinned value:
+
+| `artifacts/calibration/` file | sha256 | `metadata.generated_at` (line 1147) |
+| --- | --- | --- |
+| `calibrated_weights.json` | `433c20508af04f1685946dcfce23308ef9e6830595980a49a220a4177d8e675d` | `2026-06-07T22:05:46` |
+| `calibrated_weights_atlanta.json` | `bb0a01b702170cbde1f7c064aebce92657a11c603c2b7adbeaa71c2e935948c4` | `2026-06-07T22:08:48` |
+| `calibrated_weights_austin.json` | `98584b0ae3726c36c7f29b52b88204a6387a8d7b15ed9e48dc21c7184f69143a` | `2026-06-07T22:09:31` |
+| `calibrated_weights_chicago.json` | `88a210f6fcedcc016c9f08b4fdcc292b56dabde8412598c716051669c731a5be` | `2026-06-07T22:10:17` |
+| `calibrated_weights_dallas.json` | `e7826c63da806608f3016054ea855f17a67bf3b33ce6402355a1b3a59ad545fa` | `2026-06-07T22:11:16` |
+| `calibrated_weights_denver.json` | `a503c8887491614ea692fa67768476cbeac3cf4ebc6c1647f39b4d915d1eb9a4` | `2026-06-07T22:12:03` |
+| `calibrated_weights_houston.json` | `e27acdbfe14029eca9a200f7ead77c05705e1201b1c5e0fb98d751a1dad0c388` | `2026-06-07T22:13:18` |
+| `calibrated_weights_los-angeles.json` | `32fb8fac11ac64a08baeb2105467cc7d956e22362f3248aa1aa00f06a605dcb4` | `2026-06-07T22:13:55` |
+| `calibrated_weights_miami.json` | `a9f2b44974125a3a870c99b8dbc40c3796b8f8b3cd58d0140279fd71163eeec1` | `2026-06-07T22:14:35` |
+| `calibrated_weights_nyc.json` | `8435625628c2a3bf729c98bf0b5b27a94cdba769fa46fd6d296906a97392ffd9` | `2026-06-07T22:07:50` |
+| `calibrated_weights_san-francisco.json` | `063d0743aa3441e10c9e200c86ca23aba1f6f3f0691001da3642565218fe79ce` | `2026-06-07T22:15:04` |
+| `calibrated_weights_seattle.json` | `0fba075beea00a76074bed0b719e19e39f50af01b1e9011f05922218fbabee10` | `2026-06-07T22:15:56` |
+
 - **Pins inside the runner:** it pins every bound module, input and corpus sha256 it reads. It also pins the run root
   `C:\t\L59\row28\run` and the main data root.
-- **Later stages:** each gets a new config, `stageN_<name>_v3.json`. That config names the previous stages'
+- **Later stages:** each gets a new config, `stageN_<name>_v4.json`. That config names the previous stages'
   `walk.json` files with their sha256 values (from the table below) and, for stages labels and score, the gate commit.
   The config's own sha256 is logged here before its stage starts.
 
@@ -90,7 +123,7 @@ untouched.
 
 | # | Stage (`-Stage`) | Timebox (pre-stated) | Gate before it |
 | --- | --- | --- | --- |
-| 0 | sentinel test (`scripts/test_row28_s7_sentinel_v1.py`, synthetic only) via `workstation_heavy.ps1 -Kind pytest -Queue` | the wrapper's own | v3 delta review CLEAN + coordinator go |
+| 0 | sentinel test v2 (`scripts/test_row28_s7_sentinel_v2.py`, synthetic only) via `workstation_heavy.ps1 -Kind pytest -Queue` | the wrapper's own | v4 delta review CLEAN + coordinator go |
 | 1 | `controls`: C-0, C-0b, C-0c, C-b | 4 h = 14,400 s | sentinel PASS + coordinator go |
 | 2 | `build`: every record window, the y-free frame with label presence, NBM tables, pool feature rows with presence | 6 h = 21,600 s | stage 1 PASS |
 | 3 | `integrity`: outcome-blind integrity report; every HALT (R6); the C-pool control; empty pool; S; the §7 gate; restated n, MDE and §8.4 thresholds (N2) | 2 h = 7,200 s | stage 2 PASS |
@@ -106,18 +139,20 @@ untouched.
 - **Launch form.** One invocation per stage on the WS. OutDir is new each time, under `C:\t\L59\row28\run`:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v3.ps1 `
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v4.ps1 `
   -OutDir C:\t\L59\row28\run\s1_controls -Stage controls -TimeboxSeconds 14400 `
   -RootsPath C:\t\L59\row28\run_config\stage1_controls_v2.json `
-  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v3.py `
-  -ExpectSha 949464ab987a746f9077294a96ef7cac511b55914f69f336bcded6c5b370c438
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v4.py `
+  -ExpectSha 059cb05b72caf0736faa74019293ca89205c0fd7fcb5c70d8943b934bfa17552
 ```
 
 - **Sentinel test form (stage 0).** It goes through the WS's standard pytest route, so no new exception is needed. The
-  arguments are a JSON array passed as canonical base64; the basetemp is deleted afterwards. Arguments:
-  `-m pytest <abs path of scripts\test_row28_s7_sentinel_v1.py> -q -p no:cacheprovider --basetemp C:\t\L59\row28\sentinel_bt`.
+  arguments are a JSON array passed as canonical base64; the basetemp is deleted afterwards. The process environment
+  sets `PYTHONDONTWRITEBYTECODE=1` (F8; the test also sets `sys.dont_write_bytecode`). Arguments:
+  `-m pytest <abs path of scripts\test_row28_s7_sentinel_v2.py> -q -p no:cacheprovider --basetemp C:\t\L59\row28\sentinel_bt`.
 
 ```
+$env:PYTHONDONTWRITEBYTECODE = "1"
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\wt\L59row28\scripts\ops\workstation_heavy.ps1 -Kind pytest `
   -Queue -PythonPath C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe `
   -RepoRoot C:\wt\L59row28 -ArgumentsBase64 <canonical base64 of the JSON argument array>
@@ -126,8 +161,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\wt\L59row28\scripts\ops\w
 - **HALT handling.** A HALT means stop and report. A repair needs a written, reviewed amendment made before any arm
   score has been read. Once any arm score exists, no re-run is allowed. The runner itself refuses the look stage if any
   look or final rows already exist, and refuses the score stage if any final rows already exist.
+- **F9, a HALT inside `score_folds`.** Only the pre-listed structural checks `SCORE_FOLDS_HALT_CHECKS` (SF1, SF2;
+  Clarification 3 §3) may HALT there, and the HALT carries its code only; any other exception is an ERROR carrying
+  only its type name. In-memory partial results are discarded, never written or logged. Any repair after such a
+  HALT is a reviewed, committed amendment made before any re-run, recorded here with the HALT code.
+- **F4.** Each stage refuses a previous stage whose `receipt.json` is not `COMPLETE` with
+  `output_guard.hits_total == 0`, no `receipt_guard_hits` and no `output_guard_flag`.
 
-## Disclosures and resolved flags (details in CLARIFICATION_1.md and CLARIFICATION_2.md)
+## Disclosures and resolved flags (details in CLARIFICATION_1.md, CLARIFICATION_2.md and CLARIFICATION_3.md)
 
 | Flag | Resolution |
 | --- | --- |
@@ -148,7 +189,28 @@ Resolved by Clarification 2 (formerly open):
    raw line prefix (C2 §2).
 3. **§7 observation rule:** the last hourly observation at or before 07:00 local (C2 §3).
 
-Open for master: `RULING_GUARD_POST_SCORE = "withhold_and_flag"`, which covers a guard hit once a score exists (C2 §2).
+## v4 rulings (master, 2026-11-03; runner v4 constants)
+
+Master's rulings on the three v3 calls. C1 and C2 stay as committed; C2's global centre-label allowlist is
+superseded by ruling 2 (Clarification 3 §4).
+
+| # | Ruling | Runner v4 constant(s) |
+| --- | --- | --- |
+| 1 | ACCEPTED: a guard hit once a score exists withholds the output and FLAGs. A withheld file marks that arm's result INCOMPLETE until master rules; no verdict (and no futility decision) is recorded for it meanwhile. For look_rows / final_rows that is every arm. The score stage refuses a look that carries INCOMPLETE arms. | `RULING_GUARD_POST_SCORE = "withhold_and_flag"`, `RULING_V4_INCOMPLETE_ON_WITHHOLD = True`, `apply_incomplete` |
+| 2 | NOT ACCEPTED, the global centre-label allowlist; the allowlist is scoped by context. A centre label passes only as the whole value of a centre field in a structured output (or a whole key under a declared parent), and only if it is in the arm centre set; the same string anywhere else is a hit. In logs it passes only as the exact token `centre=<label>`. §7's constants pass only in §7's own field. | `RULING_V4_ALLOWLIST_SCOPE = "context"`, `CENTRE_FIELDS = ("centre", "payload_centre", "rule_l_2024_02_29")` + `*_centre`, `CENTRE_KEYED_PARENTS = ("by_centre",)`, `GUARD_CENTRE_SET_SHA256 = 38a17ec2…` (24 labels), `LOG_CENTRE_TOKEN`, `S7_SECTION_KEY = "v5_gate_section7"`, `S7_CONSTANT_FIELDS = ("cap",)` |
+| 3 | ACCEPTED, strict scanning of `records_*.pkl.gz`. The one non-data 2026 string the builder writes, found by reading the code, is allowlisted at its exact key path only, with pinned values (the F2 pins above). | `RULING_V4_RECORDS_GENERATED_AT = ("calibrated_weights", "metadata", "generated_at")`, `CALIBRATED_WEIGHTS_PINS` |
+
+- **Named output type (ruling 2).** Record file names, `records_<market>_<centre>.pkl.gz`
+  (`pooled_residual_model.py` 155–156), carry a centre label. They pass only under the configured `records_root`, as
+  the whole value of `file`, or as a key directly under `records_sha256` (`RECORD_FILE_FIELDS`,
+  `RECORD_KEYED_PARENTS`); anywhere else, and in logs, they are a hit (F3 a).
+- **The arm centre set.** It is arm A's 24 labels; B's 11 are a subset and C = D = A. Outputs are not arm-tagged, so
+  the per-field check uses this union.
+- **The v3 delta review F1–F9**, as accepted by master, are folded into runner v4, launcher v4 and sentinel test v2:
+  F1 (the walk keeps every visited object alive), F2 (pins above), F3 (a)–(i) (Clarification 3 §4; the report keeps
+  the centre set as `guard_arm_centre_set` = sha256 + count), F4, F5 (no stats or futility from rows whose file was
+  withheld), F6/F7 (launcher v4), F8 (sentinel test v2, `PYTHONDONTWRITEBYTECODE=1`), F9 (`post_score` stays where
+  it is; the conditions above).
 
 Kept from v1 (no ruling changed them):
 
