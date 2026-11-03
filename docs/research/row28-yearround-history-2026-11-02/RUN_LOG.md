@@ -829,3 +829,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   - `data\logs` is left in place pending a ruling.
   - `run\s1_controls_a5` exists with its HALT outputs, so launcher v6 will refuse it as an OutDir.
   - `run\records` is still absent; a5 wrote no records.
+
+## Appended 2026-11-03T06:31:03-05:00: data\logs moved, a6 (the a5-equivalent attempt) full PASS (append only)
+
+- **Master's ruling (relayed).** Master gave GO on three items:
+  - (1) move `data\logs` out of the worktree;
+  - (2) keep `s1_controls_a5` untouched as HALT evidence (receipt `9b418ad8…`) and relaunch with the same exact
+    command into `run\s1_controls_a6` against the a5 targets;
+  - (3) no sentinel re-run.
+- **a6 counts as the a5-equivalent attempt.** a5 halted at the run-scope precondition, before any stage computed
+  anything.
+- **Move.** First, the shas of the 2 wrapper-state files were recorded without opening them:
+  - `heavy_workload.slot2.lock`, 608 bytes, `7d5fa0121dd7fb006f6ee6c0d6b5d1556abf4b8efa86f8e88a8cba96df872d15`;
+  - `heavy_workload_queue.jsonl`, 1066 bytes, `23c2a228507f2d213812fbfe304df281a45095482d25c310c954b04e13093a67`.
+  - Then `data\logs` was moved to `C:\t\L59\row28\sentinel_wrapper_logs\a5\logs` at 2026-11-03T06:22:28.10-05:00.
+- **Pre-launch checks, in the same command block as the launch.** Nothing ran between the move and the launch.
+  - `data\` held 4 entries, all junctions: marine_water_contrast, reanalysis, training, wunderground.
+  - The dated scan of the OutDir, stage and log dir found 0 hits.
+  - No wrapper, runner or pytest process was running, and `s1_controls_a6` was absent.
+  - From now on, any wrapper run uses a `-RepoRoot` outside the worktree.
+- **a6 run.** Launched at 06:22:28 with the exact form, the OutDir being `s1_controls_a6` (logs in `ctl_a6_logs`).
+  - The walker ran from 20261103T062228.8103963-05:00 to 20261103T063000.9314598-05:00.
+  - Output shas: receipt `13f4d96a9b5354959448cbd887157ac6d1aecdb3a3f5c0fff6dd4f423bb67d3c`, walk.csv `42d8d0e0…`,
+    walk.json `46c621f7…`, walker.stdout `941b9c6c…`.
+
+| Target | a6 result |
+| --- | --- |
+| Launcher | COMPLETE, walker exit 0; log guard 0; receipt guard 0 (full receipt written); no FLAG |
+| Junction manifest | before = after `f93c2ad2…`; manifest_changed False |
+| Runner | PASS |
+| C-0 | 19,657 / 0.0 (Brier and log), identical keys |
+| C-0b | 2 of 2 |
+| C-0c | 4,125 / 0 mismatched |
+| C-b | 660 / 0.0 |
+| Output guard | files_scanned 68, hits_total 0, nothing withheld; decision_allowance dated_tokens 276, values 144 |
+| m1_summary | files 66; remaining_total 0 (0 on each of 66); span_mismatch_total 0; cut_total {centre 66, generated_at 66, decision 72}; protocols [5] |
+| gz_header_summary | files 68, members 68, fname 66, fname_own_tmp 66, fcomment 0, fextra 0, hits 0 |
+| gz_header_allowance | fname_own_tmp 66, dated_tokens 66 |
+| Records vs a4 | payload_equal 66 of 66 vs the 06:18 manifest; `compare_records_identity(a4_evidence, a6)`: payload_equal 66, raw_mtime_masked_equal 66, raw_equal 0, equal True, differing [] |
+| walk.csv | `compare_walk_csv(a4, a6)`: rows 68 / 68, records_unverified 66, records_equal_on_payload 0, other_equal 2, differing [] (equal False by design) |
+| Peak memory | job 2,212,745,216 bytes |
+
+- **Verdict: full PASS on every a5 target.** STOP; the build waits for master's go.
