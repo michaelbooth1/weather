@@ -245,6 +245,10 @@ def test_no_production_code_imports_the_challenger():
         # L3's frozen-state fitter imports the challenger only for its capture-host import guard; its bytes are
         # pinned by the C9 state provenance (module cf398143...), so it is pinned here rather than edited.
         "src/weather/calibration/l6_own_state.py": "L3's offline L6 own-state fitter, capture-host guard only",
+        # The L6_G forward look's bytes are pinned by its frozen prereg (2026-10-30), so it is pinned here, not edited.
+        "src/weather/calibration/l6g_forward_look.py": (
+            "frozen L6_G prereg blob 17539ca4 (de87c42ae) lazily imports _date_weights; cannot be edited"
+        ),
         "src/weather/calibration/mg2_composite.py": ws_only,
         "src/weather/calibration/mg2_p3d_n.py": ws_only,
         "src/weather/calibration/ols_floor_ladder.py": "lane L9's ladder, research-only, same capture-host guard",

@@ -221,7 +221,10 @@ def test_no_production_module_imports_the_binding():
     """Production never reaches MG-2: no module outside the research calibration lane names it."""
     hits = []
     for path in (ROOT / "src").rglob("*.py"):
-        if path.name in ("mg2_composite.py", "mg2_inputs.py", "mg2_p3d_n.py", "b_scorer.py"):  # binding, parts, B
+        if path.name in ("mg2_composite.py", "mg2_inputs.py", "mg2_p3d_n.py", "b_scorer.py",  # binding, parts, B
+                         # B-look post-look serial reads the binding by design (research calibration lane);
+                         # test_no_module_outside_calibration_imports_the_b_look_readers keeps them contained.
+                         "b_look_per_date.py", "b_look_wrapper.py"):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -232,6 +235,23 @@ def test_no_production_module_imports_the_binding():
     for path in (ROOT / "app").rglob("*.py"):
         if "mg2_composite" in path.read_text(encoding="utf-8"):
             hits.append(str(path.relative_to(ROOT)))
+    assert hits == []
+
+
+def test_no_module_outside_calibration_imports_the_b_look_readers():
+    """The two B-look readers exempted above stay in the research calibration lane: nothing else imports them."""
+    readers = ("b_look_per_date", "b_look_wrapper")
+    lane = ROOT / "src" / "weather" / "calibration"
+    hits = []
+    for path in [*(ROOT / "src").rglob("*.py"), *(ROOT / "app").rglob("*.py")]:
+        if lane in path.parents:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = [a.name for a in node.names] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
+            mod = node.module if isinstance(node, ast.ImportFrom) and node.module else ""
+            if any(r in mod or any(r in n for n in names) for r in readers):
+                hits.append(str(path.relative_to(ROOT)))
     assert hits == []
 
 

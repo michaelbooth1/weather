@@ -106,6 +106,9 @@ $results = foreach ($case in $cases) {
     [pscustomobject]@{ name = $case.name; exit_code = $LASTEXITCODE; output = $output }
 }
 ConvertTo-Json -InputObject @($results) -Depth 4 -Compress
+# The wrapper ends with $Host.SetShouldExit(<its code>), which sets this host's
+# code too; the harness itself succeeded, and each case's code is in the JSON.
+exit 0
 """
 
 
