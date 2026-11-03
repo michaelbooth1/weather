@@ -45,13 +45,18 @@ Every `<PIN: …>` is a sha256 from §2's closed list. Each command is typed as 
 `python -m weather.calibration.mg1_look check-receipt --receipt <mg1 look receipt.json>`. Log its sha256.
 
 0b. **R24 freeze** (rulings:289, about 07:20 on 12-13, lease free, before 09:00). This runs after the last
-date's finality: `python -m weather.backtesting.venue_label_audit freeze --look b --through <45th date>`.
+date's finality: `python -m weather.backtesting.venue_label_audit freeze --look b --through <latest date final in all 10 B markets>`.
 Log the sha256 of `freeze_receipt.json` and every per-market sha it lists, before the look starts.
 - The module is `venue_label_audit.py` `<PIN: venue_label_audit>`. It is on `claude/r24-freeze-keys-20261103`
   @ `a1676b09f5db89dda5f02a4da083d0b1352f36e4` and not yet on master.
 - Its receipt must carry `markets[m].label_dates` and `skipped_dates`, which §3 needs.
-- `--through` is a placeholder. The 45th date is fixed by step 0c's pre-read, which needs the freeze first. So
-  master sets `--through` to the last date the transfer could need. That is an open item (§6, blocker B4).
+- **`--through` (master ruling B4, 2026-11-03).** The 12-13 B freeze uses `--through` = the latest date with
+  finality in all 10 B markets on freeze morning. It freezes everything settled, not a guessed 45th date.
+  - The 45th date is then fixed pre-read in step 0c, from the ledger plus the frozen keys
+    (`b_transfer.select_dates` at `9217788ea41390acc370249da54cb3974664306c`).
+  - If the 45th date is after `through`, the transfer HOLDS. Nothing is read, and master re-freezes on a later
+    morning.
+  - The label read never parses a frozen label after the 45th date (§3).
 
 0c. **Label transfer, with its self-checks.** This step reads the input-window manifest produced earlier by
 `python -m weather.calibration.mg2_inputs concat --layout <per-date layout> … --out <window>` over the
@@ -123,7 +128,7 @@ SHA256` on the production checkout. Any mismatch stops the session before the tr
 | `src/weather/calibration/b_look_per_date.py` (the extractor) | step 3 | `a28d2e65e8ae0ca4239bec7b641ed4d0fcb3758d2e31c6970a2ed29b68762d66` | frozen at `818232cfd8b5b3b06bf6235ac450b2ac49413f38` |
 | `tests/calibration/test_b_look_per_date.py` | extractor test | `b54cd895ff731db3ededd1b9242cb2e86efae49358dcda100a40447f6f893fce` | corrects the DRAFT's `92f738ef…` (rulings:541; `master-ruling-b-post-look.md` revision 2026-10-31) |
 | `src/weather/calibration/b_scorer.py` | step 2 (inside the wrapper) | S1 `<PIN: b_scorer S1, from Clarification 7>`; S0 `f941628a4bfdb0002f9be1b5a2f11425a021a5389c651fb835c340f914883439` for `--s0` | S1 is set by the Clarification 7 commit |
-| `src/weather/calibration/b_look_wrapper.py` | step 2 | `<PIN: wrapper successor of a77617a4…, from Clarification 7>` | one-line successor of `a77617a4e0091ac0167c590a295afb457bcfdc8659518edc37cb45d0f4216f1c` |
+| `src/weather/calibration/b_look_wrapper.py` | step 2 | `<PIN: wrapper successor of a77617a4…, from Clarification 7>` | the same path, `src/weather/calibration/b_look_wrapper.py`, after the S1 commit changes only line 82 (`MG1_LOOK_ENTRY_PIN = PIN_UNSET`) from `a77617a4e0091ac0167c590a295afb457bcfdc8659518edc37cb45d0f4216f1c` (Clarification 3 lines 81-84; R14 `s1_edit`). No branch carries it yet. |
 | `src/weather/calibration/b_scorer_entry_edit.py` | step 2 | `a08c1eaa09d26d38e0481dfcd651d7dc46d11ce524ca29d913bb4a1a50a0005c` | pinned |
 | `src/weather/calibration/b_post_look_serial.py` | step 4 | `0c485d6e347dc11c95a7cf756e760e292db12536e663c61c1eda5d9650d80bed` | frozen at `fa380db09980692f6afe50eb48b949b6c21aa88a` |
 | `tests/calibration/test_b_post_look_serial.py` | step 4 test | `42976969d7e7c2518fafa4adc44abb0f2f8bbab4b2e8676d53da5eae73730a66` | re-pinned 2026-10-31 |
@@ -154,9 +159,16 @@ Host dry-run checklist additions, before step 0c:
   - A missing field refuses, naming the field.
   - A predicted skip makes that date non-countable for B (T2, 11-03:20). It is never a VOID, and it moves the
     45th date later, never earlier.
-  - A date in neither list is a gap. Because `UNEXPLAINED_ABSENCE_HOLDS = True`, a gap holds. So does any
-    inconsistency between the manifest and the receipt.
-  - Master's ruling on whether a gap should instead be T2 is open (§6, item Q1).
+  - A date in neither list, or any metadata inconsistency, HOLDS (`UNEXPLAINED_ABSENCE_HOLDS = True`). Master
+    closed this question on 2026-11-03 (Q1).
+- **Freeze bound (B4, master 2026-11-03).** The freeze covers every date settled in all 10 B markets on freeze
+  morning (step 0b).
+  - The 45th date is fixed pre-read from the ledger plus the frozen keys.
+  - If the 45th date is after the freeze's `through`, the transfer HOLDS: nothing is read, and master re-freezes
+    on a later morning.
+  - `read_venue_labels`' `read_through` is the 45th date, so frozen labels after it are never parsed.
+  - Code note for master's 11-20 review: at `9217788ea` the writer passes `read_through` = each read date, every
+    one of which is at or before the 45th date. That is the same bound or tighter.
 - **Post-read refusal.** Two cases refuse, publish nothing, and never move the 45th date:
   - a reader refusal that the metadata did not predict;
   - a B snapshot whose label no band maps to.
@@ -211,19 +223,16 @@ Host dry-run checklist additions, before step 0c:
 - **B1. SPECI-disclosure module not built.** No branch carries an implementation; only the docs draft exists
   (`claude/b-speci-disclosure-20261101` @ `468aa514…`, filed under `docs/research/b-floor-disclosure-2026-11-01/`).
   Step 5's pin is a placeholder. If nothing is pinned by the look, the disclosure is NOT COMPUTED.
-- **B2. Pins not yet fixed:**
-  - `b_transfer.py` (master review by 12-01);
-  - S1 `b_scorer.py`, the wrapper successor and `mg1_look.py` (Clarification 7);
-  - `venue_label_audit.py`;
-  - `b_drop_list.py`;
-  - the concat command (step 0d).
-- **B3. R14 not landed.** The release-record guard cited in step 6 is on `claude/r14-frozen-bindings-20261101`,
-  not on master.
-- **B4. Freeze `--through`.** The freeze must cover every date up to the transfer's 45th countable date, and that
-  date is only known from the freeze's own keys. Master's freeze rule for B (one `--through` on the last possible
-  date, or a re-freeze) is not written anywhere I could find.
-- **Q1. Gap semantics.** Whether a date in neither list is a gap (hold) or T2 is pending a master ruling. The
-  code holds today.
+- **B2. Pins not yet fixed (expected; master 2026-11-03).** Every pin is filled in the landing commit (the 11-25
+  docs head), and every pinned module must be on master by then:
+  - `venue_label_audit.py`: combo C, 11-04/05;
+  - `mg1_look.py`: 11-12/13;
+  - S1 `b_scorer.py` and the wrapper successor (Clarification 7): 11-22..25;
+  - `b_transfer.py`, `b_drop_list.py` and the concat command: by 11-20 (b_transfer's review moves to 11-20).
+- **B3. R14** lands in combo C, 11-04/05 (master 2026-11-03).
+- **B4. Freeze `--through`: CLOSED** by master 2026-11-03 (step 0b, §3).
+- **Q1. Gap semantics: CLOSED** by master 2026-11-03. A date in `skipped_dates` is T2 (non-countable). A date in
+  neither list, or any metadata inconsistency, holds.
 - **Other content the rulings assign to this clarification, not drafted here:**
   - R28b's per-date claim table for B, MG-1, L6_G, row 72, F8-MH, T+1, PT-1 and the evening-fix read, with PT-1
     claiming no date, and the ranking of post-B uses (rulings:435, 477, 736);
