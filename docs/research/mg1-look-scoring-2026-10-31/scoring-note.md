@@ -80,8 +80,58 @@ Each step runs only after the one before it passes.
 
 ## 4. Pins (not frozen)
 
-| File | sha256 |
-| --- | --- |
-| `src/weather/calibration/mg1_look.py` (registered) | `2e619d09628f6ffaf3c844f86a2a3419d32dc1f1876a580ff6faf2576bad3e62` |
+The registered `mg1_look.py` sha256 is the value in `MG1_CONFIRMATION_ENTRY_POINTS`
+(`src/weather/mg1_reserved_window.py`), which a test pins to the file's bytes. The value first recorded in this
+table was superseded by the 1179f990d re-registration and again by the Clarification 2 head (section 5).
 
 Any answer to A1-A14 that changes `mg1_look.py` changes this sha and needs a new re-registration.
+
+## 5. Clarification 2 head (lane L56, 2026-11-03; branch `claude/mg1-look-scoring-r11-20261103`)
+
+Master's rulings of 2026-11-03 (MG-1 Clarification 2, with R11) are built on top of this branch.
+Synthetic tests only.
+
+**Owner questions.** A1, A5 and A12 stay owner questions, open. Each is one constant: `A1_DENVER_SCORED`
+(True), `A5_BAR` ("as_written") and `A12_FALSIFIER_4` ("point"). Both branches of each are built and tested,
+the result records the values in force, and `owner_constants()` refuses any value outside the two branches.
+With A1 False, Denver leaves both the support and the scored markets, and `MIN_NEGATIVE_MARKETS` stays 8.
+
+**A3: countability and the hole check.**
+- `mg1_countable/1` rows carry `markets{m: bool}` over the support. `promotion_countable` must equal
+  "some support market-day counts".
+- `read_inputs` drops non-countable market-days before the join.
+- A countable market-day with no layout rows raises `MG1LookHeld` before `looked_at_utc`. Nothing is
+  consumed.
+- `write_countable` writes the list once (mode "x"). It derives the date flag and accepts null caveats with a
+  text reason in `caveat_reasons`.
+
+**A6: v2_status hold.** A used row whose `v2_status` is not "available" holds the look before the join. Only the
+count is reported.
+
+**A7: absence record.** The result records that the start marker and the receipt were absent when the look
+began.
+
+**A4: when the look may run.** `score` refuses until two conditions hold:
+- the 45th date has ended in every scored market;
+- the R24 freeze receipt exists and is valid:
+  - it is `venue_label_freeze_receipt_v1`, look `mg1`;
+  - its `through` is at or after the 45th date;
+  - it was frozen after the 45th date ended in every scored market;
+  - every scored market's frozen CSV, manifest and WU summary match their recorded sha256.
+
+The format is the one on `claude/r24-venue-label-audit-20261101`. Once that module lands, a test should pin
+the schema string to its schema family.
+
+**A2: labels.** `load_venue_labels` calls `read_venue_labels` on the frozen copy with:
+- `read_through` = the 45th date;
+- `allow_reserved_window=True`;
+- `model_scoring=False` for Denver only.
+
+`winner_band` maps `label_bucket` to the snapshot's band index (lte, range, gte). The look receipt gains
+`label_freeze_receipt_sha256`.
+
+**T2: refused labels.** A label the reader refuses masks its market-day after the join. It is disclosed in
+`label_masked` (count, reasons, market-day keys) and never voids or aborts the look. A bucket that falls in
+zero or several bands of its ladder still aborts.
+
+**CLI.** `--labels` is replaced by `--label-freeze`.

@@ -40,8 +40,9 @@ SCHEMAS = (
         "mg1_countable/1",
         "weather.calibration.mg1_look",
         "active",
-        "The MG-1 look's countable-date list, written by master before the look: one row per calendar date from "
-        "D0 through the 45th promotion-countable date, with the Clarification 1 reporting caveats. No label or "
-        "price.",
+        "The MG-1 look's countable-date list, written once by master (write_countable) before the look: one row "
+        "per calendar date from D0 through the 45th promotion-countable date, with per-market promotion_countable "
+        "flags over the support (markets; a date counts iff one does, MG-1 Clarification 2 A3) and the "
+        "Clarification 1 reporting caveats (null with a text reason allowed). No label or price.",
     ),
 )
