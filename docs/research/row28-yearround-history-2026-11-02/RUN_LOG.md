@@ -1476,3 +1476,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
   -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
 ```
+
+## Appended 2026-11-03T08:58:57-05:00: integrity (stage 3) PASS, outcome-blind counts; wrapper_root manifest; integrity report committed (append only)
+
+- **Run.** Launched at 08:56:52 with the exact form. Walker 08:56:52 → 08:57:24, about 32 s.
+  - Launcher: COMPLETE, exit 0, stderr 0 bytes. Walker exit 0, stderr 0 bytes.
+  - Receipt `fa5b5243494ac1bf0412ea279473b477c59767a1ebac3e7a7181a14db3189f1b`; walk.json (= the integrity report)
+    `d840406447dd9d70b8f2603e32363b06daa93d5532500e478fc84032acede71e`; walk.csv
+    `f78487ec93d51b1e4d1388fbfe86a56cfe5d8e540c0527b655b70c6ab9dbaabb`.
+  - Peak job memory 3,169,021,952 bytes, under 12.8 GB.
+  - **Guards:** output_guard CLEAN, hits 0, 4 files scanned, nothing withheld (`report_keys_withheld(_bytes)` absent),
+    post_score false. Receipt guard 0, no FLAG.
+  - **Junctions:** manifest `9dff281c…` before = after, manifest_changed false. Junction subdirectories read: declared
+    `wunderground`, observed `training` and `wunderground`, reported as their union.
+  - halted_arms none.
+- **Outcome-blind counts.** No label join, label value, settlement, score or look was read.
+  - **label_presence:** rows 250,245, without a label 0. This is presence only, the R6 check.
+  - **kept:** n_dates 657 (frozen 660). Look dates 388 (frozen 390). Folds: 2021 61, 2022 163, 2023 164, 2024 120,
+    2025 149. us10 rows 26,278; denver rows 2,612.
+  - **drops:** by reason, no_built_row 120 and missing_F_or_current_temp 2. us10 dropped 122 of 26,400 market-hours
+    (pooled share 0.00462); denver dropped 28.
+  - **duplicate_keys** 0. **pool_empty** none.
+  - **realised_population** per arm A–D, hours 13/14/15/16: 6,568 / 6,570 / 6,570 / 6,570.
+  - **fill_from_normal_by_calendar_month:** month 01, market rows 0, pool rows 1,116.
+  - **C-pool control:** PASS. Rows 528,503 = 528,503, identical keys, 15 columns compared, no one-sided columns.
+  - **S check:** PASS. 28,890 scored and 50 synthetic rows, max-abs-diff 0.0 for both.
+  - **wrap / Rule L:** deciding_differ 0 and training_differ 0 in every arm.
+  - **§7 gate:** n V4 630, V5 210, V43_ref 1,250. markets_over none. It governs section 9 only. Per-market input
+    statistics are in the committed report.
+  - **restated:** n 657 and n_look 388, against frozen 660 and 390. The table 6.3 values are in the committed report.
+- **The integrity report** is committed as `run/integrity_report.json`, a byte copy of the stage-3 walk.json. It was
+  screened: 0 control bytes, 0 `0x`+40-hex, 0 secret patterns. The commit is recorded in the next append.
+- **wrapper_root manifest** (master's condition (a)). Every file under `C:\t\L59\row28\wrapper_root`, with its
+  sha256 and bytes. The copies are compared with their blob at master `99fff6c480efc6131d00e887ca5e43ed1fff02c1`
+  (blob content hashed with sha256) and with their blob at this branch's tip `c2d98a8af33af80fa84b08d8c5b2ca29ca279837`:
+
+| File | sha256 (bytes) | = master 99fff6c48 blob | = branch tip blob |
+| --- | --- | --- | --- |
+| `scripts\ops\workstation_heavy.ps1` | `145ff7453ac44cfd563f24d9ab5852b6b3019b855c1fdeb65295f64de87b4c1e` (10,890) | **no**: master blob `2393162d`, sha `acaf87e1880e7c7aacfac36cc73149286ecdb1f1ae3e8b0cdbc8e793769e037f`; not a line-ending difference | yes, blob `f8ecc677` |
+| `scripts\ops\workload_admission.ps1` | `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441` (165,706) | **no**: master blob `2f8e5849`, sha `4f7940662726027ac4fcdd44e75b6ad5a666cb29d98972678573738ad370e636`; not a line-ending difference | yes, blob `e23b75f9` |
+| `scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` (31,571) | yes, blob `a55997db` | yes |
+| `config\international_live_execution_host.json` | `111367a167628fcd78753f341beac119f81d9b87380989a9299d165daad80a5b` (491) | yes, blob `133915f1` | yes |
+| `data\logs\heavy_workload.slot2.lock` (created by the wrapper) | `f45a51d1bfcda8675db04deb5efff3aeb7c2f6be00dd5cf045c20495cc39ce45` (608) | n/a | n/a |
+| `data\logs\heavy_workload_queue.jsonl` (created by the wrapper) | `a6b8c74399f6ef00ef75ca5fe4ff5a9d6d50581b87895639c0c53a30dd7b0893` (1,064) | n/a | n/a |
+
+  - Nothing else is present. The directories are `config`, `data\logs` and `scripts\ops`.
+  - **Discrepancy (raised to the coordinator, not resolved here).** 2 of the 4 copies are not equal to master
+    99fff6c48. Master has commits on those two files that this branch does not have, so the copies match the branch
+    tip blobs. The copies are byte copies of this worktree's checkout at its tip, and sentinel v10 ran with them.
+    They are left unchanged pending a ruling.

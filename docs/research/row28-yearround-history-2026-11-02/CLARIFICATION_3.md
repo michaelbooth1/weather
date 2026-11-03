@@ -567,3 +567,15 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
   - a list-wrapped line and a non-dict line are HITs, in the Writer and at stage end.
 - **m-4.** This addendum records the above. The ninth addendum's statement that a naive instant is a HIT is now
   tested.
+
+## Eleventh addendum (2026-11-03T08:58:57-05:00): the wrapper_root copies (disclosure)
+
+- **Disclosure.** Sentinel v10 ran through `workstation_heavy.ps1` with `-RepoRoot C:\t\L59\row28\wrapper_root`,
+  outside the worktree. That wrapper accepts only a `-RepoRoot` that holds its own copy, and it reads
+  `config\international_live_execution_host.json`. So `wrapper_root` holds byte copies of 4 tracked files from
+  this branch's checkout, plus the queue and lock files the wrapper creates under `data\logs`.
+- **Status.** Accepted by the coordinator and by master. The manifest, with shas and the comparison to master
+  `99fff6c48`, is in the RUN_LOG append of this time.
+- **Difference from master.** `workstation_heavy.ps1` and `workload_admission.ps1` equal this branch's tip
+  blobs, not master's. That difference is disclosed there for a ruling.
+- **Scope.** No stage of the row-28 runner uses `wrapper_root`. The stages run under launcher v6.

@@ -1,0 +1,3373 @@
+{
+ "C_pool_control": {
+  "columns_compared": [
+   "F",
+   "centre",
+   "doy_cos",
+   "doy_sin",
+   "elev",
+   "fh",
+   "hour",
+   "lat",
+   "lon",
+   "market",
+   "season",
+   "target_date",
+   "x_current_temp",
+   "x_high_so_far",
+   "year"
+  ],
+  "columns_only_left": [],
+  "columns_only_right": [],
+  "identical_keys": true,
+  "max_abs_diff": {
+   "F": 0.0,
+   "centre": 0.0,
+   "doy_cos": 0.0,
+   "doy_sin": 0.0,
+   "elev": 0.0,
+   "fh": 0.0,
+   "hour": 0.0,
+   "lat": 0.0,
+   "lon": 0.0,
+   "market": 0.0,
+   "season": 0.0,
+   "target_date": 0.0,
+   "x_current_temp": 0.0,
+   "x_high_so_far": 0.0,
+   "year": 0.0
+  },
+  "pass": true,
+  "rows": [
+   528503,
+   528503
+  ]
+ },
+ "S_check": {
+  "max_abs_diff_scored": 0.0,
+  "max_abs_diff_synthetic": 0.0,
+  "pass": true,
+  "scored_rows": 28890,
+  "synthetic_rows": 50
+ },
+ "calibrated_weights_pins": {
+  "files": 12,
+  "pins_sha256": "b1c8d98acdaaff6580945bd45b0d71cfc316dd3113de004cf80f3305dac3d6f9"
+ },
+ "config_sha256": "acf75737674239dfc00391760ad69c729fe9a3dfc73767911c52f4c9e6b89db5",
+ "decision_pins": {
+  "r0_scope_sha256": "e8bb0683ed7c252b4f07e18f83709c9e0a5fcfd4c835d803b80c5c531f18607b",
+  "values": 2
+ },
+ "drops": {
+  "by_reason": {
+   "missing_F_or_current_temp": 2,
+   "no_built_row": 120
+  },
+  "denver_dropped": 28,
+  "rows": [
+   {
+    "date": "2022-01-01",
+    "hour": 13,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-01-01",
+    "hour": 14,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-01-01",
+    "hour": 15,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-01-01",
+    "hour": 16,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-01-13",
+    "hour": 13,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-01-13",
+    "hour": 14,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-01-13",
+    "hour": 15,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-01-13",
+    "hour": 16,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 13,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 14,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 15,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-01",
+    "hour": 16,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2022-03-17",
+    "hour": 13,
+    "market": "san-francisco",
+    "reason": "missing_F_or_current_temp"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 13,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 14,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 15,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2023-03-01",
+    "hour": 16,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2024-03-13",
+    "hour": 13,
+    "market": "nyc",
+    "reason": "missing_F_or_current_temp"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "atlanta",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "austin",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "chicago",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "dallas",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "houston",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "los-angeles",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "miami",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "nyc",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "san-francisco",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "seattle",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 13,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 14,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 15,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-01",
+    "hour": 16,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-27",
+    "hour": 13,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-27",
+    "hour": 14,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-27",
+    "hour": 15,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-03-27",
+    "hour": 16,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-05-05",
+    "hour": 13,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-05-05",
+    "hour": 14,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-05-05",
+    "hour": 15,
+    "market": "denver",
+    "reason": "no_built_row"
+   },
+   {
+    "date": "2025-05-05",
+    "hour": 16,
+    "market": "denver",
+    "reason": "no_built_row"
+   }
+  ],
+  "share_fold": {
+   "2021": 0.0,
+   "2022": 0.00625,
+   "2023": 0.006060606060606061,
+   "2024": 0.00020833333333333335,
+   "2025": 0.006666666666666667
+  },
+  "share_market": {
+   "atlanta": 0.004545454545454545,
+   "austin": 0.004545454545454545,
+   "chicago": 0.004545454545454545,
+   "dallas": 0.004545454545454545,
+   "houston": 0.004545454545454545,
+   "los-angeles": 0.004545454545454545,
+   "miami": 0.004545454545454545,
+   "nyc": 0.004924242424242424,
+   "san-francisco": 0.004924242424242424,
+   "seattle": 0.004545454545454545
+  },
+  "share_pooled": 0.0046212121212121215,
+  "us10_dropped": 122,
+  "us10_total_market_hours": 26400
+ },
+ "duplicate_keys": 0,
+ "end": "20261103T085724.003251-0500",
+ "fill_from_normal_by_calendar_month": {
+  "01": {
+   "market_rows": 0,
+   "pool_rows": 1116
+  }
+ },
+ "guard_arm_centre_set": {
+  "count": 24,
+  "sha256": "38a17ec2a04d764bac8ea43c8add0f89eb3fa542480eec73aaf0ab12febf6d83"
+ },
+ "halted_arms": [],
+ "imputation": {
+  "by_calendar_month": {
+   "A": {
+    "01": {
+     "imputed": 44,
+     "rows": 4128,
+     "share": 0.01065891472868217
+    },
+    "02": {
+     "imputed": 0,
+     "rows": 4972,
+     "share": 0.0
+    },
+    "03": {
+     "imputed": 0,
+     "rows": 5100,
+     "share": 0.0
+    },
+    "04": {
+     "imputed": 0,
+     "rows": 6600,
+     "share": 0.0
+    },
+    "05": {
+     "imputed": 0,
+     "rows": 6816,
+     "share": 0.0
+    },
+    "06": {
+     "imputed": 0,
+     "rows": 6596,
+     "share": 0.0
+    },
+    "07": {
+     "imputed": 0,
+     "rows": 6364,
+     "share": 0.0
+    },
+    "08": {
+     "imputed": 0,
+     "rows": 6812,
+     "share": 0.0
+    },
+    "09": {
+     "imputed": 0,
+     "rows": 6296,
+     "share": 0.0
+    },
+    "10": {
+     "imputed": 0,
+     "rows": 6376,
+     "share": 0.0
+    },
+    "11": {
+     "imputed": 0,
+     "rows": 6600,
+     "share": 0.0
+    },
+    "12": {
+     "imputed": 0,
+     "rows": 4840,
+     "share": 0.0
+    }
+   },
+   "B": {
+    "01": {
+     "imputed": 44,
+     "rows": 4128,
+     "share": 0.01065891472868217
+    },
+    "02": {
+     "imputed": 0,
+     "rows": 4972,
+     "share": 0.0
+    },
+    "03": {
+     "imputed": 0,
+     "rows": 5100,
+     "share": 0.0
+    },
+    "04": {
+     "imputed": 0,
+     "rows": 6600,
+     "share": 0.0
+    },
+    "05": {
+     "imputed": 0,
+     "rows": 6816,
+     "share": 0.0
+    },
+    "12": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    }
+   },
+   "C": {
+    "01": {
+     "imputed": 1160,
+     "rows": 114412,
+     "share": 0.010138796629724155
+    },
+    "02": {
+     "imputed": 0,
+     "rows": 137452,
+     "share": 0.0
+    },
+    "03": {
+     "imputed": 0,
+     "rows": 141184,
+     "share": 0.0
+    },
+    "04": {
+     "imputed": 0,
+     "rows": 182624,
+     "share": 0.0
+    },
+    "05": {
+     "imputed": 0,
+     "rows": 188960,
+     "share": 0.0
+    },
+    "06": {
+     "imputed": 0,
+     "rows": 182180,
+     "share": 0.0
+    },
+    "07": {
+     "imputed": 0,
+     "rows": 174960,
+     "share": 0.0
+    },
+    "08": {
+     "imputed": 0,
+     "rows": 188772,
+     "share": 0.0
+    },
+    "09": {
+     "imputed": 0,
+     "rows": 176740,
+     "share": 0.0
+    },
+    "10": {
+     "imputed": 0,
+     "rows": 176456,
+     "share": 0.0
+    },
+    "11": {
+     "imputed": 0,
+     "rows": 182340,
+     "share": 0.0
+    },
+    "12": {
+     "imputed": 0,
+     "rows": 133856,
+     "share": 0.0
+    }
+   },
+   "D": {
+    "01": {
+     "imputed": 44,
+     "rows": 4128,
+     "share": 0.01065891472868217
+    },
+    "02": {
+     "imputed": 0,
+     "rows": 4972,
+     "share": 0.0
+    },
+    "03": {
+     "imputed": 0,
+     "rows": 5100,
+     "share": 0.0
+    },
+    "04": {
+     "imputed": 0,
+     "rows": 6600,
+     "share": 0.0
+    },
+    "05": {
+     "imputed": 0,
+     "rows": 6816,
+     "share": 0.0
+    },
+    "06": {
+     "imputed": 0,
+     "rows": 6596,
+     "share": 0.0
+    },
+    "07": {
+     "imputed": 0,
+     "rows": 6364,
+     "share": 0.0
+    },
+    "08": {
+     "imputed": 0,
+     "rows": 6812,
+     "share": 0.0
+    },
+    "09": {
+     "imputed": 0,
+     "rows": 6296,
+     "share": 0.0
+    },
+    "10": {
+     "imputed": 0,
+     "rows": 6376,
+     "share": 0.0
+    },
+    "11": {
+     "imputed": 0,
+     "rows": 6600,
+     "share": 0.0
+    },
+    "12": {
+     "imputed": 0,
+     "rows": 4840,
+     "share": 0.0
+    }
+   }
+  },
+  "by_year_month_descriptive": {
+   "A": {
+    "2021-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2021-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2021-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2021-07": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2021-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2021-09": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2021-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2021-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2021-12": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2022-01": {
+     "imputed": 44,
+     "rows": 1356,
+     "share": 0.032448377581120944
+    },
+    "2022-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2022-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2022-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2022-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2022-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2022-07": {
+     "imputed": 0,
+     "rows": 1268,
+     "share": 0.0
+    },
+    "2022-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2022-09": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2022-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2022-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2022-12": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-01": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2023-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2023-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2023-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-06": {
+     "imputed": 0,
+     "rows": 1316,
+     "share": 0.0
+    },
+    "2023-07": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2023-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-09": {
+     "imputed": 0,
+     "rows": 1204,
+     "share": 0.0
+    },
+    "2023-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2023-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2023-12": {
+     "imputed": 0,
+     "rows": 704,
+     "share": 0.0
+    },
+    "2024-01": {
+     "imputed": 0,
+     "rows": 44,
+     "share": 0.0
+    },
+    "2024-02": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2024-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2024-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2024-07": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2024-09": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2024-12": {
+     "imputed": 0,
+     "rows": 704,
+     "share": 0.0
+    },
+    "2025-01": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2025-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2025-03": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2025-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2025-05": {
+     "imputed": 0,
+     "rows": 1360,
+     "share": 0.0
+    },
+    "2025-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2025-07": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2025-08": {
+     "imputed": 0,
+     "rows": 1356,
+     "share": 0.0
+    },
+    "2025-09": {
+     "imputed": 0,
+     "rows": 1264,
+     "share": 0.0
+    },
+    "2025-10": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2025-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2025-12": {
+     "imputed": 0,
+     "rows": 704,
+     "share": 0.0
+    }
+   },
+   "B": {
+    "2021-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2021-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2021-12": {
+     "imputed": 0,
+     "rows": 660,
+     "share": 0.0
+    },
+    "2022-01": {
+     "imputed": 44,
+     "rows": 1356,
+     "share": 0.032448377581120944
+    },
+    "2022-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2022-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2022-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2022-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2022-12": {
+     "imputed": 0,
+     "rows": 660,
+     "share": 0.0
+    },
+    "2023-01": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2023-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2023-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2023-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2024-01": {
+     "imputed": 0,
+     "rows": 44,
+     "share": 0.0
+    },
+    "2024-02": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2024-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2025-01": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2025-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2025-03": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2025-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2025-05": {
+     "imputed": 0,
+     "rows": 1360,
+     "share": 0.0
+    }
+   },
+   "C": {
+    "2021-04": {
+     "imputed": 0,
+     "rows": 36668,
+     "share": 0.0
+    },
+    "2021-05": {
+     "imputed": 0,
+     "rows": 37880,
+     "share": 0.0
+    },
+    "2021-06": {
+     "imputed": 0,
+     "rows": 36464,
+     "share": 0.0
+    },
+    "2021-07": {
+     "imputed": 0,
+     "rows": 35324,
+     "share": 0.0
+    },
+    "2021-08": {
+     "imputed": 0,
+     "rows": 37944,
+     "share": 0.0
+    },
+    "2021-09": {
+     "imputed": 0,
+     "rows": 35428,
+     "share": 0.0
+    },
+    "2021-10": {
+     "imputed": 0,
+     "rows": 35488,
+     "share": 0.0
+    },
+    "2021-11": {
+     "imputed": 0,
+     "rows": 36828,
+     "share": 0.0
+    },
+    "2021-12": {
+     "imputed": 0,
+     "rows": 38132,
+     "share": 0.0
+    },
+    "2022-01": {
+     "imputed": 1160,
+     "rows": 37804,
+     "share": 0.030684583641942653
+    },
+    "2022-02": {
+     "imputed": 0,
+     "rows": 34128,
+     "share": 0.0
+    },
+    "2022-03": {
+     "imputed": 0,
+     "rows": 35636,
+     "share": 0.0
+    },
+    "2022-04": {
+     "imputed": 0,
+     "rows": 36728,
+     "share": 0.0
+    },
+    "2022-05": {
+     "imputed": 0,
+     "rows": 38032,
+     "share": 0.0
+    },
+    "2022-06": {
+     "imputed": 0,
+     "rows": 36536,
+     "share": 0.0
+    },
+    "2022-07": {
+     "imputed": 0,
+     "rows": 34216,
+     "share": 0.0
+    },
+    "2022-08": {
+     "imputed": 0,
+     "rows": 37712,
+     "share": 0.0
+    },
+    "2022-09": {
+     "imputed": 0,
+     "rows": 35516,
+     "share": 0.0
+    },
+    "2022-10": {
+     "imputed": 0,
+     "rows": 35440,
+     "share": 0.0
+    },
+    "2022-11": {
+     "imputed": 0,
+     "rows": 36724,
+     "share": 0.0
+    },
+    "2022-12": {
+     "imputed": 0,
+     "rows": 37544,
+     "share": 0.0
+    },
+    "2023-01": {
+     "imputed": 0,
+     "rows": 37764,
+     "share": 0.0
+    },
+    "2023-02": {
+     "imputed": 0,
+     "rows": 34028,
+     "share": 0.0
+    },
+    "2023-03": {
+     "imputed": 0,
+     "rows": 35544,
+     "share": 0.0
+    },
+    "2023-04": {
+     "imputed": 0,
+     "rows": 36828,
+     "share": 0.0
+    },
+    "2023-05": {
+     "imputed": 0,
+     "rows": 37872,
+     "share": 0.0
+    },
+    "2023-06": {
+     "imputed": 0,
+     "rows": 36580,
+     "share": 0.0
+    },
+    "2023-07": {
+     "imputed": 0,
+     "rows": 35196,
+     "share": 0.0
+    },
+    "2023-08": {
+     "imputed": 0,
+     "rows": 37756,
+     "share": 0.0
+    },
+    "2023-09": {
+     "imputed": 0,
+     "rows": 35420,
+     "share": 0.0
+    },
+    "2023-10": {
+     "imputed": 0,
+     "rows": 35332,
+     "share": 0.0
+    },
+    "2023-11": {
+     "imputed": 0,
+     "rows": 36468,
+     "share": 0.0
+    },
+    "2023-12": {
+     "imputed": 0,
+     "rows": 19580,
+     "share": 0.0
+    },
+    "2024-01": {
+     "imputed": 0,
+     "rows": 1188,
+     "share": 0.0
+    },
+    "2024-02": {
+     "imputed": 0,
+     "rows": 35224,
+     "share": 0.0
+    },
+    "2024-03": {
+     "imputed": 0,
+     "rows": 35076,
+     "share": 0.0
+    },
+    "2024-04": {
+     "imputed": 0,
+     "rows": 36416,
+     "share": 0.0
+    },
+    "2024-05": {
+     "imputed": 0,
+     "rows": 37568,
+     "share": 0.0
+    },
+    "2024-06": {
+     "imputed": 0,
+     "rows": 36352,
+     "share": 0.0
+    },
+    "2024-07": {
+     "imputed": 0,
+     "rows": 35252,
+     "share": 0.0
+    },
+    "2024-08": {
+     "imputed": 0,
+     "rows": 37676,
+     "share": 0.0
+    },
+    "2024-09": {
+     "imputed": 0,
+     "rows": 35556,
+     "share": 0.0
+    },
+    "2024-10": {
+     "imputed": 0,
+     "rows": 35200,
+     "share": 0.0
+    },
+    "2024-11": {
+     "imputed": 0,
+     "rows": 36404,
+     "share": 0.0
+    },
+    "2024-12": {
+     "imputed": 0,
+     "rows": 19364,
+     "share": 0.0
+    },
+    "2025-01": {
+     "imputed": 0,
+     "rows": 37656,
+     "share": 0.0
+    },
+    "2025-02": {
+     "imputed": 0,
+     "rows": 34072,
+     "share": 0.0
+    },
+    "2025-03": {
+     "imputed": 0,
+     "rows": 34928,
+     "share": 0.0
+    },
+    "2025-04": {
+     "imputed": 0,
+     "rows": 35984,
+     "share": 0.0
+    },
+    "2025-05": {
+     "imputed": 0,
+     "rows": 37608,
+     "share": 0.0
+    },
+    "2025-06": {
+     "imputed": 0,
+     "rows": 36248,
+     "share": 0.0
+    },
+    "2025-07": {
+     "imputed": 0,
+     "rows": 34972,
+     "share": 0.0
+    },
+    "2025-08": {
+     "imputed": 0,
+     "rows": 37684,
+     "share": 0.0
+    },
+    "2025-09": {
+     "imputed": 0,
+     "rows": 34820,
+     "share": 0.0
+    },
+    "2025-10": {
+     "imputed": 0,
+     "rows": 34996,
+     "share": 0.0
+    },
+    "2025-11": {
+     "imputed": 0,
+     "rows": 35916,
+     "share": 0.0
+    },
+    "2025-12": {
+     "imputed": 0,
+     "rows": 19236,
+     "share": 0.0
+    }
+   },
+   "D": {
+    "2021-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2021-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2021-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2021-07": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2021-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2021-09": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2021-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2021-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2021-12": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2022-01": {
+     "imputed": 44,
+     "rows": 1356,
+     "share": 0.032448377581120944
+    },
+    "2022-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2022-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2022-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2022-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2022-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2022-07": {
+     "imputed": 0,
+     "rows": 1268,
+     "share": 0.0
+    },
+    "2022-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2022-09": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2022-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2022-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2022-12": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-01": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2023-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2023-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2023-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-06": {
+     "imputed": 0,
+     "rows": 1316,
+     "share": 0.0
+    },
+    "2023-07": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2023-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2023-09": {
+     "imputed": 0,
+     "rows": 1204,
+     "share": 0.0
+    },
+    "2023-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2023-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2023-12": {
+     "imputed": 0,
+     "rows": 704,
+     "share": 0.0
+    },
+    "2024-01": {
+     "imputed": 0,
+     "rows": 44,
+     "share": 0.0
+    },
+    "2024-02": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-03": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2024-05": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2024-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2024-07": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-08": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2024-09": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-10": {
+     "imputed": 0,
+     "rows": 1276,
+     "share": 0.0
+    },
+    "2024-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2024-12": {
+     "imputed": 0,
+     "rows": 704,
+     "share": 0.0
+    },
+    "2025-01": {
+     "imputed": 0,
+     "rows": 1364,
+     "share": 0.0
+    },
+    "2025-02": {
+     "imputed": 0,
+     "rows": 1232,
+     "share": 0.0
+    },
+    "2025-03": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2025-04": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2025-05": {
+     "imputed": 0,
+     "rows": 1360,
+     "share": 0.0
+    },
+    "2025-06": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2025-07": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2025-08": {
+     "imputed": 0,
+     "rows": 1356,
+     "share": 0.0
+    },
+    "2025-09": {
+     "imputed": 0,
+     "rows": 1264,
+     "share": 0.0
+    },
+    "2025-10": {
+     "imputed": 0,
+     "rows": 1272,
+     "share": 0.0
+    },
+    "2025-11": {
+     "imputed": 0,
+     "rows": 1320,
+     "share": 0.0
+    },
+    "2025-12": {
+     "imputed": 0,
+     "rows": 704,
+     "share": 0.0
+    }
+   }
+  },
+  "cap_basis": "arm x calendar month (MM), pooled over years"
+ },
+ "junction_manifest_after_sha256": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+ "junction_manifest_before_sha256": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+ "junction_manifest_files": 83937,
+ "junction_subdirs_read": {
+  "declared": [
+   "wunderground"
+  ],
+  "observed_guard_read": [
+   "training",
+   "wunderground"
+  ],
+  "union": [
+   "training",
+   "wunderground"
+  ]
+ },
+ "junctions": {
+  "marine_water_contrast": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\marine_water_contrast",
+  "reanalysis": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\reanalysis",
+  "training": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\training",
+  "wunderground": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\wunderground"
+ },
+ "kept": {
+  "dates": [
+   "2021-04-01",
+   "2021-04-02",
+   "2021-04-03",
+   "2021-04-04",
+   "2021-04-05",
+   "2021-04-06",
+   "2021-04-07",
+   "2021-04-08",
+   "2021-04-09",
+   "2021-04-10",
+   "2021-04-11",
+   "2021-04-12",
+   "2021-04-13",
+   "2021-04-14",
+   "2021-04-15",
+   "2021-04-16",
+   "2021-04-17",
+   "2021-04-18",
+   "2021-04-19",
+   "2021-04-20",
+   "2021-04-21",
+   "2021-04-22",
+   "2021-04-23",
+   "2021-04-24",
+   "2021-04-25",
+   "2021-04-26",
+   "2021-04-27",
+   "2021-04-28",
+   "2021-04-29",
+   "2021-04-30",
+   "2021-05-01",
+   "2021-05-02",
+   "2021-05-03",
+   "2021-05-04",
+   "2021-05-05",
+   "2021-05-06",
+   "2021-05-07",
+   "2021-05-08",
+   "2021-05-09",
+   "2021-05-10",
+   "2021-05-11",
+   "2021-05-12",
+   "2021-05-13",
+   "2021-05-14",
+   "2021-05-15",
+   "2021-05-16",
+   "2021-05-17",
+   "2021-05-18",
+   "2021-05-19",
+   "2021-05-20",
+   "2021-05-21",
+   "2021-05-22",
+   "2021-05-23",
+   "2021-05-24",
+   "2021-05-25",
+   "2021-05-26",
+   "2021-05-27",
+   "2021-05-28",
+   "2021-05-29",
+   "2021-05-30",
+   "2021-05-31",
+   "2021-12-17",
+   "2021-12-18",
+   "2021-12-19",
+   "2021-12-20",
+   "2021-12-21",
+   "2021-12-22",
+   "2021-12-23",
+   "2021-12-24",
+   "2021-12-25",
+   "2021-12-26",
+   "2021-12-27",
+   "2021-12-28",
+   "2021-12-29",
+   "2021-12-30",
+   "2021-12-31",
+   "2022-01-01",
+   "2022-01-02",
+   "2022-01-03",
+   "2022-01-04",
+   "2022-01-05",
+   "2022-01-07",
+   "2022-01-08",
+   "2022-01-09",
+   "2022-01-10",
+   "2022-01-11",
+   "2022-01-12",
+   "2022-01-13",
+   "2022-01-14",
+   "2022-01-15",
+   "2022-01-16",
+   "2022-01-17",
+   "2022-01-18",
+   "2022-01-19",
+   "2022-01-20",
+   "2022-01-21",
+   "2022-01-22",
+   "2022-01-23",
+   "2022-01-24",
+   "2022-01-25",
+   "2022-01-26",
+   "2022-01-27",
+   "2022-01-28",
+   "2022-01-29",
+   "2022-01-30",
+   "2022-01-31",
+   "2022-02-01",
+   "2022-02-02",
+   "2022-02-03",
+   "2022-02-04",
+   "2022-02-05",
+   "2022-02-06",
+   "2022-02-07",
+   "2022-02-08",
+   "2022-02-09",
+   "2022-02-10",
+   "2022-02-11",
+   "2022-02-12",
+   "2022-02-13",
+   "2022-02-14",
+   "2022-02-15",
+   "2022-02-16",
+   "2022-02-17",
+   "2022-02-18",
+   "2022-02-19",
+   "2022-02-20",
+   "2022-02-21",
+   "2022-02-22",
+   "2022-02-23",
+   "2022-02-24",
+   "2022-02-25",
+   "2022-02-26",
+   "2022-02-27",
+   "2022-02-28",
+   "2022-03-02",
+   "2022-03-03",
+   "2022-03-04",
+   "2022-03-05",
+   "2022-03-06",
+   "2022-03-07",
+   "2022-03-08",
+   "2022-03-09",
+   "2022-03-10",
+   "2022-03-11",
+   "2022-03-12",
+   "2022-03-14",
+   "2022-03-15",
+   "2022-03-16",
+   "2022-03-17",
+   "2022-03-18",
+   "2022-03-19",
+   "2022-03-20",
+   "2022-03-21",
+   "2022-03-22",
+   "2022-03-23",
+   "2022-03-24",
+   "2022-03-25",
+   "2022-03-26",
+   "2022-03-27",
+   "2022-03-28",
+   "2022-03-29",
+   "2022-03-30",
+   "2022-03-31",
+   "2022-04-01",
+   "2022-04-02",
+   "2022-04-03",
+   "2022-04-04",
+   "2022-04-05",
+   "2022-04-06",
+   "2022-04-07",
+   "2022-04-08",
+   "2022-04-09",
+   "2022-04-10",
+   "2022-04-11",
+   "2022-04-12",
+   "2022-04-13",
+   "2022-04-14",
+   "2022-04-15",
+   "2022-04-16",
+   "2022-04-17",
+   "2022-04-18",
+   "2022-04-19",
+   "2022-04-20",
+   "2022-04-21",
+   "2022-04-22",
+   "2022-04-23",
+   "2022-04-24",
+   "2022-04-25",
+   "2022-04-26",
+   "2022-04-27",
+   "2022-04-28",
+   "2022-04-29",
+   "2022-04-30",
+   "2022-05-01",
+   "2022-05-02",
+   "2022-05-03",
+   "2022-05-04",
+   "2022-05-05",
+   "2022-05-06",
+   "2022-05-07",
+   "2022-05-08",
+   "2022-05-09",
+   "2022-05-10",
+   "2022-05-11",
+   "2022-05-12",
+   "2022-05-13",
+   "2022-05-14",
+   "2022-05-15",
+   "2022-05-16",
+   "2022-05-17",
+   "2022-05-18",
+   "2022-05-19",
+   "2022-05-20",
+   "2022-05-21",
+   "2022-05-22",
+   "2022-05-23",
+   "2022-05-24",
+   "2022-05-25",
+   "2022-05-26",
+   "2022-05-27",
+   "2022-05-28",
+   "2022-05-29",
+   "2022-05-30",
+   "2022-05-31",
+   "2022-12-17",
+   "2022-12-18",
+   "2022-12-19",
+   "2022-12-20",
+   "2022-12-21",
+   "2022-12-22",
+   "2022-12-23",
+   "2022-12-24",
+   "2022-12-25",
+   "2022-12-26",
+   "2022-12-27",
+   "2022-12-28",
+   "2022-12-29",
+   "2022-12-30",
+   "2022-12-31",
+   "2023-01-01",
+   "2023-01-02",
+   "2023-01-03",
+   "2023-01-04",
+   "2023-01-05",
+   "2023-01-06",
+   "2023-01-07",
+   "2023-01-08",
+   "2023-01-09",
+   "2023-01-10",
+   "2023-01-11",
+   "2023-01-12",
+   "2023-01-13",
+   "2023-01-14",
+   "2023-01-15",
+   "2023-01-16",
+   "2023-01-17",
+   "2023-01-18",
+   "2023-01-19",
+   "2023-01-20",
+   "2023-01-21",
+   "2023-01-22",
+   "2023-01-23",
+   "2023-01-24",
+   "2023-01-25",
+   "2023-01-26",
+   "2023-01-27",
+   "2023-01-28",
+   "2023-01-29",
+   "2023-01-30",
+   "2023-01-31",
+   "2023-02-01",
+   "2023-02-02",
+   "2023-02-03",
+   "2023-02-04",
+   "2023-02-05",
+   "2023-02-06",
+   "2023-02-07",
+   "2023-02-08",
+   "2023-02-09",
+   "2023-02-10",
+   "2023-02-11",
+   "2023-02-12",
+   "2023-02-13",
+   "2023-02-14",
+   "2023-02-15",
+   "2023-02-16",
+   "2023-02-17",
+   "2023-02-18",
+   "2023-02-19",
+   "2023-02-20",
+   "2023-02-21",
+   "2023-02-22",
+   "2023-02-23",
+   "2023-02-24",
+   "2023-02-25",
+   "2023-02-26",
+   "2023-02-27",
+   "2023-02-28",
+   "2023-03-02",
+   "2023-03-03",
+   "2023-03-04",
+   "2023-03-05",
+   "2023-03-06",
+   "2023-03-07",
+   "2023-03-08",
+   "2023-03-09",
+   "2023-03-10",
+   "2023-03-11",
+   "2023-03-13",
+   "2023-03-14",
+   "2023-03-15",
+   "2023-03-16",
+   "2023-03-17",
+   "2023-03-18",
+   "2023-03-19",
+   "2023-03-20",
+   "2023-03-21",
+   "2023-03-22",
+   "2023-03-23",
+   "2023-03-24",
+   "2023-03-25",
+   "2023-03-26",
+   "2023-03-27",
+   "2023-03-28",
+   "2023-03-29",
+   "2023-03-30",
+   "2023-03-31",
+   "2023-04-01",
+   "2023-04-02",
+   "2023-04-03",
+   "2023-04-04",
+   "2023-04-05",
+   "2023-04-06",
+   "2023-04-07",
+   "2023-04-08",
+   "2023-04-09",
+   "2023-04-10",
+   "2023-04-11",
+   "2023-04-12",
+   "2023-04-13",
+   "2023-04-14",
+   "2023-04-15",
+   "2023-04-16",
+   "2023-04-17",
+   "2023-04-18",
+   "2023-04-19",
+   "2023-04-20",
+   "2023-04-21",
+   "2023-04-22",
+   "2023-04-23",
+   "2023-04-24",
+   "2023-04-25",
+   "2023-04-26",
+   "2023-04-27",
+   "2023-04-28",
+   "2023-04-29",
+   "2023-04-30",
+   "2023-05-01",
+   "2023-05-02",
+   "2023-05-03",
+   "2023-05-04",
+   "2023-05-05",
+   "2023-05-06",
+   "2023-05-07",
+   "2023-05-08",
+   "2023-05-09",
+   "2023-05-10",
+   "2023-05-11",
+   "2023-05-12",
+   "2023-05-13",
+   "2023-05-14",
+   "2023-05-15",
+   "2023-05-16",
+   "2023-05-17",
+   "2023-05-18",
+   "2023-05-19",
+   "2023-05-20",
+   "2023-05-21",
+   "2023-05-22",
+   "2023-05-23",
+   "2023-05-24",
+   "2023-05-25",
+   "2023-05-26",
+   "2023-05-27",
+   "2023-05-28",
+   "2023-05-29",
+   "2023-05-30",
+   "2023-05-31",
+   "2024-01-31",
+   "2024-02-01",
+   "2024-02-02",
+   "2024-02-03",
+   "2024-02-04",
+   "2024-02-05",
+   "2024-02-06",
+   "2024-02-07",
+   "2024-02-08",
+   "2024-02-09",
+   "2024-02-10",
+   "2024-02-11",
+   "2024-02-12",
+   "2024-02-13",
+   "2024-02-14",
+   "2024-02-15",
+   "2024-02-16",
+   "2024-02-17",
+   "2024-02-18",
+   "2024-02-19",
+   "2024-02-20",
+   "2024-02-21",
+   "2024-02-22",
+   "2024-02-23",
+   "2024-02-24",
+   "2024-02-25",
+   "2024-02-26",
+   "2024-02-27",
+   "2024-02-28",
+   "2024-02-29",
+   "2024-03-02",
+   "2024-03-03",
+   "2024-03-04",
+   "2024-03-05",
+   "2024-03-06",
+   "2024-03-07",
+   "2024-03-08",
+   "2024-03-09",
+   "2024-03-11",
+   "2024-03-12",
+   "2024-03-13",
+   "2024-03-14",
+   "2024-03-15",
+   "2024-03-16",
+   "2024-03-17",
+   "2024-03-18",
+   "2024-03-19",
+   "2024-03-20",
+   "2024-03-21",
+   "2024-03-22",
+   "2024-03-23",
+   "2024-03-24",
+   "2024-03-25",
+   "2024-03-26",
+   "2024-03-27",
+   "2024-03-28",
+   "2024-03-29",
+   "2024-03-30",
+   "2024-03-31",
+   "2024-04-01",
+   "2024-04-02",
+   "2024-04-03",
+   "2024-04-04",
+   "2024-04-05",
+   "2024-04-06",
+   "2024-04-07",
+   "2024-04-08",
+   "2024-04-09",
+   "2024-04-10",
+   "2024-04-11",
+   "2024-04-12",
+   "2024-04-13",
+   "2024-04-14",
+   "2024-04-15",
+   "2024-04-16",
+   "2024-04-17",
+   "2024-04-18",
+   "2024-04-19",
+   "2024-04-20",
+   "2024-04-21",
+   "2024-04-22",
+   "2024-04-23",
+   "2024-04-24",
+   "2024-04-25",
+   "2024-04-26",
+   "2024-04-27",
+   "2024-04-28",
+   "2024-04-29",
+   "2024-04-30",
+   "2024-05-01",
+   "2024-05-02",
+   "2024-05-03",
+   "2024-05-04",
+   "2024-05-05",
+   "2024-05-06",
+   "2024-05-07",
+   "2024-05-08",
+   "2024-05-09",
+   "2024-05-10",
+   "2024-05-11",
+   "2024-05-12",
+   "2024-05-13",
+   "2024-05-14",
+   "2024-05-15",
+   "2024-05-16",
+   "2024-05-17",
+   "2024-05-18",
+   "2024-05-19",
+   "2024-05-20",
+   "2024-05-21",
+   "2024-05-22",
+   "2024-05-23",
+   "2024-05-24",
+   "2024-05-25",
+   "2024-05-26",
+   "2024-05-27",
+   "2024-05-28",
+   "2024-05-29",
+   "2024-05-30",
+   "2024-05-31",
+   "2025-01-01",
+   "2025-01-02",
+   "2025-01-03",
+   "2025-01-04",
+   "2025-01-05",
+   "2025-01-06",
+   "2025-01-07",
+   "2025-01-08",
+   "2025-01-09",
+   "2025-01-10",
+   "2025-01-11",
+   "2025-01-12",
+   "2025-01-13",
+   "2025-01-14",
+   "2025-01-15",
+   "2025-01-16",
+   "2025-01-17",
+   "2025-01-18",
+   "2025-01-19",
+   "2025-01-20",
+   "2025-01-21",
+   "2025-01-22",
+   "2025-01-23",
+   "2025-01-24",
+   "2025-01-25",
+   "2025-01-26",
+   "2025-01-27",
+   "2025-01-28",
+   "2025-01-29",
+   "2025-01-30",
+   "2025-01-31",
+   "2025-02-01",
+   "2025-02-02",
+   "2025-02-03",
+   "2025-02-04",
+   "2025-02-05",
+   "2025-02-06",
+   "2025-02-07",
+   "2025-02-08",
+   "2025-02-09",
+   "2025-02-10",
+   "2025-02-11",
+   "2025-02-12",
+   "2025-02-13",
+   "2025-02-14",
+   "2025-02-15",
+   "2025-02-16",
+   "2025-02-17",
+   "2025-02-18",
+   "2025-02-19",
+   "2025-02-20",
+   "2025-02-21",
+   "2025-02-22",
+   "2025-02-23",
+   "2025-02-24",
+   "2025-02-25",
+   "2025-02-26",
+   "2025-02-27",
+   "2025-02-28",
+   "2025-03-02",
+   "2025-03-03",
+   "2025-03-04",
+   "2025-03-05",
+   "2025-03-06",
+   "2025-03-07",
+   "2025-03-08",
+   "2025-03-10",
+   "2025-03-11",
+   "2025-03-12",
+   "2025-03-13",
+   "2025-03-14",
+   "2025-03-15",
+   "2025-03-16",
+   "2025-03-17",
+   "2025-03-18",
+   "2025-03-19",
+   "2025-03-20",
+   "2025-03-21",
+   "2025-03-22",
+   "2025-03-23",
+   "2025-03-24",
+   "2025-03-25",
+   "2025-03-26",
+   "2025-03-27",
+   "2025-03-28",
+   "2025-03-29",
+   "2025-03-30",
+   "2025-03-31",
+   "2025-04-01",
+   "2025-04-02",
+   "2025-04-03",
+   "2025-04-04",
+   "2025-04-05",
+   "2025-04-06",
+   "2025-04-07",
+   "2025-04-08",
+   "2025-04-09",
+   "2025-04-10",
+   "2025-04-11",
+   "2025-04-12",
+   "2025-04-13",
+   "2025-04-14",
+   "2025-04-15",
+   "2025-04-16",
+   "2025-04-17",
+   "2025-04-18",
+   "2025-04-19",
+   "2025-04-20",
+   "2025-04-21",
+   "2025-04-22",
+   "2025-04-23",
+   "2025-04-24",
+   "2025-04-25",
+   "2025-04-26",
+   "2025-04-27",
+   "2025-04-28",
+   "2025-04-29",
+   "2025-04-30",
+   "2025-05-01",
+   "2025-05-02",
+   "2025-05-03",
+   "2025-05-04",
+   "2025-05-05",
+   "2025-05-06",
+   "2025-05-07",
+   "2025-05-08",
+   "2025-05-09",
+   "2025-05-10",
+   "2025-05-11",
+   "2025-05-12",
+   "2025-05-13",
+   "2025-05-14",
+   "2025-05-15",
+   "2025-05-16",
+   "2025-05-17",
+   "2025-05-18",
+   "2025-05-19",
+   "2025-05-20",
+   "2025-05-21",
+   "2025-05-22",
+   "2025-05-23",
+   "2025-05-24",
+   "2025-05-25",
+   "2025-05-26",
+   "2025-05-27",
+   "2025-05-28",
+   "2025-05-29",
+   "2025-05-30",
+   "2025-05-31"
+  ],
+  "denver_rows": 2612,
+  "folds": {
+   "2021": 61,
+   "2022": 163,
+   "2023": 164,
+   "2024": 120,
+   "2025": 149
+  },
+  "look_dates": 388,
+  "n_dates": 657,
+  "us10_rows": 26278
+ },
+ "kept_rows_sha256": "73a5a374d6dbba632abcf295418f1fa045c39d9611683df48afec1decc0c6ffc",
+ "label_presence": {
+  "rows": 250245,
+  "rows_without_label": 0
+ },
+ "m1_pins": {
+  "gap_centres": 4
+ },
+ "manifest_changed": false,
+ "manifest_diff": {
+  "by_subdir": {
+   "marine_water_contrast": {},
+   "reanalysis": {},
+   "training": {},
+   "wunderground": {}
+  },
+  "changed": false,
+  "count": 0,
+  "hashed_keys": {}
+ },
+ "output_guard": {
+  "decision_allowance": {
+   "dated_tokens": 0,
+   "values": 0
+  },
+  "files_scanned": 4,
+  "files_with_hits": {},
+  "from": "20260101",
+  "gz_header_allowance": {
+   "dated_tokens": 0,
+   "fname_own_tmp": 0
+  },
+  "gz_header_summary": {
+   "fcomment": 0,
+   "fextra": 0,
+   "files": 3,
+   "fname": 0,
+   "fname_own_tmp": 0,
+   "hits": 0,
+   "members": 3
+  },
+  "gz_headers": {
+   "junction_manifest_after.json.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   },
+   "junction_manifest_before.json.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   },
+   "s_dist.pkl.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   }
+  },
+  "hits_total": 0,
+  "log_writes_withheld": {
+   "stderr": 0,
+   "stdout": 0
+  },
+  "m1_records": {},
+  "m1_summary": {
+   "cut_total": {
+    "centre": 0,
+    "decision": 0,
+    "generated_at": 0
+   },
+   "files": 0,
+   "protocols": [],
+   "remaining_total": 0,
+   "span_mismatch_total": 0
+  },
+  "pattern": "(?<![0-9])(20[0-9]{2}-[01][0-9]-[0-3][0-9])(?![0-9])",
+  "post_score": false,
+  "result": "CLEAN",
+  "v11_nbm_allowance": {},
+  "v11_nbm_bytes": {},
+  "writes_withheld": []
+ },
+ "outputs_payload_sha256": {
+  "C:\\t\\L59\\row28\\run\\s3_integrity\\junction_manifest_after.json.gz": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+  "C:\\t\\L59\\row28\\run\\s3_integrity\\junction_manifest_before.json.gz": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+  "C:\\t\\L59\\row28\\run\\s3_integrity\\s_dist.pkl.gz": "5570c34e2be7854c41644936dcf045db9f1a97eb662cf90dffe23a30dee50377"
+ },
+ "outputs_sha256": {
+  "C:\\t\\L59\\row28\\run\\s3_integrity\\junction_manifest_after.json.gz": "f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7",
+  "C:\\t\\L59\\row28\\run\\s3_integrity\\junction_manifest_before.json.gz": "f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7",
+  "C:\\t\\L59\\row28\\run\\s3_integrity\\kept_rows.json": "73a5a374d6dbba632abcf295418f1fa045c39d9611683df48afec1decc0c6ffc",
+  "C:\\t\\L59\\row28\\run\\s3_integrity\\s_dist.pkl.gz": "3b94d1b573c9200b685300739521cde82606cf71ba98d85ddcd61515197394d9"
+ },
+ "pool_empty": [],
+ "pool_rows_by_class_hour_fold": {
+  "continental|13|2021": 341968,
+  "continental|13|2022": 316417,
+  "continental|13|2023": 316516,
+  "continental|13|2024": 327752,
+  "continental|13|2025": 320859,
+  "continental|14|2021": 341968,
+  "continental|14|2022": 316417,
+  "continental|14|2023": 316516,
+  "continental|14|2024": 327752,
+  "continental|14|2025": 320859,
+  "continental|15|2021": 341968,
+  "continental|15|2022": 316417,
+  "continental|15|2023": 316516,
+  "continental|15|2024": 327752,
+  "continental|15|2025": 320859,
+  "continental|16|2021": 341968,
+  "continental|16|2022": 316417,
+  "continental|16|2023": 316516,
+  "continental|16|2024": 327752,
+  "continental|16|2025": 320859,
+  "marine|13|2021": 60041,
+  "marine|13|2022": 55508,
+  "marine|13|2023": 55399,
+  "marine|13|2024": 57492,
+  "marine|13|2025": 56484,
+  "marine|14|2021": 60041,
+  "marine|14|2022": 55508,
+  "marine|14|2023": 55399,
+  "marine|14|2024": 57492,
+  "marine|14|2025": 56484,
+  "marine|15|2021": 60041,
+  "marine|15|2022": 55508,
+  "marine|15|2023": 55399,
+  "marine|15|2024": 57492,
+  "marine|15|2025": 56484,
+  "marine|16|2021": 60041,
+  "marine|16|2022": 55508,
+  "marine|16|2023": 55399,
+  "marine|16|2024": 57492,
+  "marine|16|2025": 56484
+ },
+ "prereg_sha256": "cb6d4e8da0ab5a144a185cf8dbaf777881402ea8a95db99f2a0e98f20a5e132b",
+ "realised_population": {
+  "A": {
+   "13": 6568,
+   "14": 6570,
+   "15": 6570,
+   "16": 6570
+  },
+  "B": {
+   "13": 6568,
+   "14": 6570,
+   "15": 6570,
+   "16": 6570
+  },
+  "C": {
+   "13": 6568,
+   "14": 6570,
+   "15": 6570,
+   "16": 6570
+  },
+  "D": {
+   "13": 6568,
+   "14": 6570,
+   "15": 6570,
+   "16": 6570
+  }
+ },
+ "restated": {
+  "formulas": "SE = 1.07*sigma/sqrt(n); MDE80 = 3.340*SE; power = Phi(0.0057/SE - 2.498); futility false-stop = 1 - Phi(0.00285/(sigma/sqrt(n_look))); sigma_hat thresholds = SE_thr*sqrt(n)/1.07",
+  "frozen_n": 660,
+  "frozen_n_look": 390,
+  "n": 657,
+  "n_look": 388,
+  "table_6_3": {
+   "2x_sigma_eff": {
+    "futility_false_stop_look": 0.06685749184161882,
+    "mde80_x1.07": 0.005219506312646536,
+    "power_at_edge_x1.07": 0.8748191734615414,
+    "sigma": 0.03743534737586924
+   },
+   "3x_sigma_eff": {
+    "futility_false_stop_look": 0.158717880574344,
+    "mde80_x1.07": 0.007829259468969806,
+    "power_at_edge_x1.07": 0.4735486330957824,
+    "sigma": 0.05615302106380386
+   },
+   "4x_sigma_eff": {
+    "futility_false_stop_look": 0.22668580415529727,
+    "mde80_x1.07": 0.010439012625293072,
+    "power_at_edge_x1.07": 0.25007164831361484,
+    "sigma": 0.07487069475173848
+   },
+   "sigma_dec": {
+    "futility_false_stop_look": 0.009665032898956039,
+    "mde80_x1.07": 0.003346253214796251,
+    "power_at_edge_x1.07": 0.9992919477013618,
+    "sigma": 0.024
+   },
+   "sigma_eff": {
+    "futility_false_stop_look": 0.0013533427369343265,
+    "mde80_x1.07": 0.002609753156323268,
+    "power_at_edge_x1.07": 0.9999991944720932,
+    "sigma": 0.01871767368793462
+   }
+  },
+  "thresholds_8_4": {
+   "se_wide_rule16": 0.0022818254603682946,
+   "se_wide_xa_adequate": 0.0020342612419700216,
+   "se_wide_xs_adequate": 0.0017065868263473052,
+   "sigma_hat_rule16": {
+    "sigma_hat": 0.054661472746395164,
+    "x_sigma_eff": 2.9203133710803955
+   },
+   "sigma_hat_xa_adequate": {
+    "sigma_hat": 0.04873103458975558,
+    "x_sigma_eff": 2.6034770881366267
+   },
+   "sigma_hat_xs_adequate": {
+    "sigma_hat": 0.040881544586974586,
+    "x_sigma_eff": 2.184114611065517
+   }
+  }
+ },
+ "rulings": {
+  "RULING_C2_DAILY_PREFIX": "raw_line_prefix_filter",
+  "RULING_C2_OUTPUT_GUARD": "halt_pre_score",
+  "RULING_C2_S7_RAW_PREFIX": "rb_prefix_before_decode",
+  "RULING_F14_PER_MARKET_CI": "ci95_wide",
+  "RULING_F9_SECTION7_GATE": "compute",
+  "RULING_GUARD_POST_SCORE": "withhold_and_flag",
+  "RULING_N1_NO_HALT_AFTER_SCORE": true,
+  "RULING_N1_STAGE_END_MANIFEST": "flag_classified",
+  "RULING_N2_N": "integrity_restated",
+  "RULING_R10_IMPUTE_GROUP": "calendar_month",
+  "RULING_R11_POOL_NO_NBM": "fill_from_normal",
+  "RULING_R6_ALL_HALTS_BEFORE_LABEL_JOIN": true,
+  "RULING_R9_TOP_BUCKET_GTE": true,
+  "RULING_S7_SEALED_LINES": "skip_undecoded",
+  "RULING_V10_GZ_FCOMMENT_FEXTRA": "any FCOMMENT or FEXTRA on any .gz is a hit (m-1), dated tokens counted on top",
+  "RULING_V11_NBM_ROLLOVER": "build only: valid_time_utc at a row's top level in nbm_market_new/nbm_pit_corpus_rows.jsonl or pool_nbm_rows.jsonl; literal Y26_PRE0527, local date <= 2025-12-31 in the pinned row tz, instant <= V11_INSTANT_LAST (noon UTC of the first day of that year); counted; byte side cuts the exact spans",
+  "RULING_V12_V11_REVIEW": "ruling texts hold no guard-range date; v11 tz must equal the bound parser's station tz where it has one (counted, pinned); the allowance fires only for a dict row at the JSONL line root, rows are walked one by one in the Writer and at stage end, a non-dict line is a hit",
+  "RULING_V4_ALLOWLIST_SCOPE": "context",
+  "RULING_V4_INCOMPLETE_ON_WITHHOLD": true,
+  "RULING_V4_RECORDS_GENERATED_AT": [
+   "calibrated_weights",
+   "metadata",
+   "generated_at"
+  ],
+  "RULING_V5_B_CENTRE_FIELDS": "B_*centre*",
+  "RULING_V5_GENERATED_AT_OWN_MARKET": true,
+  "RULING_V5_WRITER_BYTE_CHECK": true,
+  "RULING_V6_REPORT_BYTE_CHECK": true,
+  "RULING_V6_THREADS": 10,
+  "RULING_V7_DECISION_ALLOWANCE": "whole value equals a pinned r0_scope constant; counted",
+  "RULING_V7_DECISION_PATH": [
+   "plan",
+   "column_differences_from_served",
+   "decision"
+  ],
+  "RULING_V7_PERIOD": "str",
+  "RULING_V7_TZ_AWARE": "isoformat",
+  "RULING_V8_M1_RECORDS_BYTES": "whole-span cuts: own centre label(s), own generated_at, decision constants; then 0",
+  "RULING_V8_M2_PANDAS_SURFACES": "index, columns, name, names, attrs, every MultiIndex level, every category",
+  "RULING_V8_RECORDS_IDENTITY": "sha256 of the decompressed payload; raw sha256 cross-checked with gzip MTIME masked",
+  "RULING_V9_GZ_HEADERS": "every member's FNAME/FCOMMENT/FEXTRA scanned raw; only a records file's own tmp FNAME passes"
+ },
+ "runner": "row28_run_v12",
+ "runner_sha256": "9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b",
+ "s_dist_sha256": "3b94d1b573c9200b685300739521cde82606cf71ba98d85ddcd61515197394d9",
+ "stage": "integrity",
+ "start": "20261103T085653.063169-0500",
+ "started": "20261103T085659.251285-0500",
+ "status": "PASS",
+ "v5_gate_section7": {
+  "cap": "2026-05-26",
+  "governs": "section 9 only, never the verdict",
+  "l47b_corpus_sha256": "d59718a746a68d4745895623bae7760d99d95da647228fa3f8b7e389c8810acf",
+  "markets_over": [],
+  "n": {
+   "V4": 630,
+   "V43_ref": 1250,
+   "V5": 210
+  },
+  "n_txnsd": {
+   "V4": 630,
+   "V43_ref": 1250,
+   "V5": 210
+  },
+  "obs_rule": "last WU observation at or before 07:00 local on the date",
+  "per_market": {
+   "atlanta": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": 0.1028885209872553,
+    "txnsd_median_ratio": 0.6666666666666666
+   },
+   "austin": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": 0.023121112329909137,
+    "txnsd_median_ratio": 0.6666666666666666
+   },
+   "chicago": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": 0.0,
+    "txnsd_median_ratio": 1.0
+   },
+   "dallas": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": 0.09685857826040738,
+    "txnsd_median_ratio": 1.0
+   },
+   "houston": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": -0.023964228469863635,
+    "txnsd_median_ratio": 1.0
+   },
+   "los-angeles": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": 0.13150752118736395,
+    "txnsd_median_ratio": 1.0
+   },
+   "miami": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": 0.03995413947415413,
+    "txnsd_median_ratio": 1.0
+   },
+   "nyc": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": -0.16316294094660727,
+    "txnsd_median_ratio": 0.6666666666666666
+   },
+   "san-francisco": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": 0.11698197608958777,
+    "txnsd_median_ratio": 1.5
+   },
+   "seattle": {
+    "n_v4": 63,
+    "n_v5": 21,
+    "smd": -0.2356852439174767,
+    "txnsd_median_ratio": 1.0
+   }
+  },
+  "reasons": [],
+  "reference_v43_descriptive": {
+   "smd_v5_vs_v43": -0.03256147372762165,
+   "txnsd_median_ratio_v5_vs_v43": 1.0
+  },
+  "result": "PASS",
+  "sealed_lines_skipped_undecoded": 1290,
+  "smd_pooled": -0.0008683129122862986,
+  "txnsd_median_ratio_pooled": 1.0
+ },
+ "wrap_rule_l": {
+  "A": {
+   "deciding_differ": 0,
+   "rule_l_2024_02_29": "2026-02-22",
+   "training_differ": 0
+  },
+  "B": {
+   "deciding_differ": 0,
+   "rule_l_2024_02_29": "2026-02-22",
+   "training_differ": 0
+  },
+  "C": {
+   "deciding_differ": 0,
+   "rule_l_2024_02_29": "2026-02-22",
+   "training_differ": 0
+  },
+  "D": {
+   "deciding_differ": 0,
+   "rule_l_2024_02_29": "2026-02-22",
+   "training_differ": 0
+  }
+ },
+ "wu_daily_kept_lines": {
+  "atlanta": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4866,
+   "kept_lines_sha256": "3eb85b2137f6cc22e899c81b1ba04ed1d974436f5e4f21d75d4490dc86783e51",
+   "skipped_after_2025": 214
+  },
+  "austin": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4781,
+   "kept_lines_sha256": "c054e7bdc790cc1acfe39d253b3604a37777bbcd653e45c0344f7d1f204228a6",
+   "skipped_after_2025": 214
+  },
+  "chicago": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4866,
+   "kept_lines_sha256": "21d948d7dc891af66a3f02dc9293d9b06efa2507f9c286a90c654724504f8efc",
+   "skipped_after_2025": 215
+  },
+  "dallas": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4866,
+   "kept_lines_sha256": "1363aa6fd29ef7685659dc8e1e0269bd740668189f91e522f6114bc72d6a9f65",
+   "skipped_after_2025": 214
+  },
+  "denver": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4858,
+   "kept_lines_sha256": "72aada1b75cb46a60f12a144ee552ec98f4cf9da4c5dbb1447c4261772f34fbb",
+   "skipped_after_2025": 214
+  },
+  "houston": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4866,
+   "kept_lines_sha256": "bde0d4d9e1ddd8a44071f3d39bb60a556cc41619ec536cf4d5076a51204a8d1f",
+   "skipped_after_2025": 214
+  },
+  "los-angeles": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4865,
+   "kept_lines_sha256": "ef45ab353ba4b43108dabef2a60df29ab90c66769a4c84c446a222f9a452a53f",
+   "skipped_after_2025": 214
+  },
+  "miami": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4866,
+   "kept_lines_sha256": "6e601a989be0626e4c78aa72584dd13b6b6749cb312fef2def91bb938db13c55",
+   "skipped_after_2025": 214
+  },
+  "nyc": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4866,
+   "kept_lines_sha256": "a0737b1e0b9f137886b0f9f1ea93662b9e7e4fd717c7c510e99a4f0c0e7c3a9a",
+   "skipped_after_2025": 214
+  },
+  "san-francisco": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4865,
+   "kept_lines_sha256": "0d52a63a85b6d82460f2f5913af90a067e5d3fed73e726c159e246f7640e938a",
+   "skipped_after_2025": 214
+  },
+  "seattle": {
+   "basis": "sha256 over the header line and the kept (<= 2025-12-31) raw lines, as read",
+   "kept_lines": 4865,
+   "kept_lines_sha256": "34e319e0c43b47e97e1f7ef8bdfa02510971eff482da05b00c7863eae92eed45",
+   "skipped_after_2025": 214
+  }
+ }
+}
