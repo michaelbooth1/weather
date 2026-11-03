@@ -1736,3 +1736,56 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
   -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
 ```
+
+## Appended 2026-11-03T11:19:02-05:00: look (stage 5, folds 2021–23) PASS; look gate commit; decision CONTINUE (append only)
+
+- **Launch.**
+  - **First block refused.** `launch_s5_look_v1.ps1` ran at about 09:23. Its 0-wrapper check found 1 wrapper: another
+    lane's `workstation_heavy.ps1 -Kind pytest` from `C:\wt\L56i343s`, started 09:23:07, not this lane's. The block
+    threw before Start-Process. Nothing was launched, and that process was not touched.
+    - The only trace is the empty log dir `ctl_s5_logs`, created before the check.
+  - **Wait, then v2.** The lane waited until no wrapper was running (09:36:07). Then `launch_s5_look_v2.ps1` ran: the
+    same block, with log dir `ctl_s5_logs2`. Checks: 4 junctions, 0 wrappers. Launched at 09:36:12.
+- **Run.** Walker 09:36:13 → 11:17:35, about 1h41m22s.
+  - Launcher: COMPLETE, exit 0, stderr 0 bytes. Walker exit 0, stderr 0 bytes.
+  - Receipt `4ded26dcc6444d932f9d9f1ada92c0b9f2fadb3baa0ae7c5fe2dd4e6315955cc`; walk.csv
+    `92eb1035152b29a2fdc96e8e49d110518581771543a79425994bcdb77db079f1`.
+  - Peak job memory 6,778,474,496 bytes, under 12.8 GB.
+  - **Guards:** output_guard CLEAN, hits 0, nothing withheld. Receipt guard 0, no FLAG. post_score_flags none; no
+    INPUT-CHANGED.
+- **Look gate commit.** `774abff81770dcf5601ac05b78b3d64b17b4b25d` holds `run/look_result.json`, a byte copy of the
+  stage-5 walk.json, sha `9611df778250d2fa98001617c965eb9597014a02dd8122fd8b20dd450e677996`.
+  - It was committed and pushed before anything else was computed. It was screened BEFORE the push: 0 control
+    bytes, 0 `0x`+40-hex, 0 secret patterns.
+  - `look_rows.jsonl` (`449d392a…`) stays under the run root and is not committed.
+- **Pre-checks inside the runner.** The look set equals the integrity-committed 2021–23 kept dates, 388 = restated
+  n_look 388. `precheck_folds` ran before any fit. Neither HALTed.
+- **The frozen look statistic.** The X−S point per arm, the §8.1 rule's input:
+
+| Arm | point | SE (wide) | ci95_wide | n | futile |
+| --- | --- | --- | --- | --- | --- |
+| A | -0.12424491518960121 | 0.004685544035247309 | [-0.13342858149868594, -0.11506124888051648] | 388 | false |
+| B | -0.12410610367189523 | 0.004799869723069305 | [-0.13351384832911106, -0.1146983590146794] | 388 | false |
+| C | -0.12882419382294194 | 0.004342112803524636 | [-0.13733473491785023, -0.12031365272803365] | 388 | false |
+| D | -0.046682886068521355 | 0.01410210525250969 | [-0.07432301236344035, -0.019042759773602362] | 388 | false |
+
+  - The other per-arm fields (κ, κ_block3, blocks 131, pairs 380, power information) are in the committed file.
+- **Decision, as the frozen rule computes it.** Prereg §8.1 rule: "Each arm whose point is > **−0.00285** ... is
+  stopped as FUTILE." No arm's point is > −0.00285, so no arm is stopped as FUTILE.
+  - §8.1, "After the look": "There is no efficacy stopping, and survivors continue to all folds."
+  - **Decision: CONTINUE** for arms A, B, C and D.
+- **Realised n per arm.** 388 dates each (A, B, C, D). No arm HALTED or INCOMPLETE.
+- **Descriptive fields.**
+  - `first_390_equal_look_folds_descriptive` false: the restated look set is 388, not the frozen 390 (C2 N2).
+  - The top-bucket counts are all 0.
+- **Junction manifest.** At stage end, `9dff281c…` before = after, changed false, count 0, empty in all 4
+  subdirectories, 83,937 files. Subdirectories read: declared `wunderground`, observed `training` and `wunderground`.
+- **Archive.** The 5 receipts were COPIED, not moved, to `C:\archive\ruled-out\row28-yearround-history-2026-11-02`, each
+  sha-equal to its source:
+  - controls a6 `13f4d96a…`;
+  - build a2 `eb60509b…`;
+  - integrity `fa5b5243…`;
+  - labels `d38235a3…`;
+  - look `4ded26dc…`.
+  - The result is not a stop, so no INDEX.md line was written.
+- **STOP.** No 2024–25 score was computed. The score needs master's separate go.
