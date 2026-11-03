@@ -1,0 +1,57 @@
+{
+  "ci95": [
+    -0.05626628723832358,
+    -0.042404036076902
+  ],
+  "clarification": "docs/research/evening-lockin-fix-scoring-clarification-2-2026-11-03.md (634823a7261c00abbf9a90c1863641a278ce59423fc38c600a785ee8bb5bbe79)",
+  "conditions_1_2": true,
+  "decides_nothing": true,
+  "estimate": -0.04922197331687072,
+  "excluded_cells": {
+    "denver|2026-10-22": {
+      "countable": true,
+      "in_window": true
+    },
+    "denver|2026-10-25": {
+      "countable": true,
+      "in_window": true
+    },
+    "denver|2026-10-28": {
+      "countable": false,
+      "in_window": false
+    }
+  },
+  "market_days": 126,
+  "markets_n": 11,
+  "markets_negative": 11,
+  "per_market": {
+    "atlanta": -0.05462577223735265,
+    "austin": -0.06078910063753245,
+    "chicago": -0.043866245493703264,
+    "dallas": -0.06673771375503687,
+    "denver": -0.04049898658011415,
+    "houston": -0.05181609308274784,
+    "los-angeles": -0.04328013698808486,
+    "miami": -0.038350144438561336,
+    "nyc": -0.07674322574367412,
+    "san-francisco": -0.02585873789345986,
+    "seattle": -0.033574640452510164
+  },
+  "rebuilt_primary_matches_frozen": true,
+  "schema": "evening_fix_clar2_three_cell_sensitivity_v1",
+  "sign_disagrees_with_primary": false,
+  "window_dates": [
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27"
+  ]
+}

@@ -1,0 +1,507 @@
+{
+  "beside": {
+    "00-12": {
+      "ci95": [
+        -0.001108830570240454,
+        -0.00012776686010784196
+      ],
+      "estimate": -0.0005724536513405353,
+      "market_days": 128
+    },
+    "13-16": {
+      "ci95": [
+        -0.015203063349273528,
+        -0.00762470355374606
+      ],
+      "estimate": -0.011108644974361929,
+      "market_days": 128
+    },
+    "all": {
+      "ci95": [
+        -0.018801155591888347,
+        -0.013972500362936766
+      ],
+      "estimate": -0.016360148526160564,
+      "market_days": 128
+    },
+    "toronto_17_23": {
+      "estimate": -0.031711108057882145,
+      "market_days": 12
+    }
+  },
+  "conditions_1_2": true,
+  "countable_us_market_days": 128,
+  "crossed": {
+    "ci95": [
+      -0.06189515725756555,
+      -0.03606510554542191
+    ],
+    "estimate": -0.04853544751972519
+  },
+  "crossed_disagrees": false,
+  "denver_excluded_sensitivity": {
+    "ci95": [
+      -0.0571097178426353,
+      -0.042480024785456545
+    ],
+    "conditions_1_2": true,
+    "decides_nothing": true,
+    "estimate": -0.04981336224817624,
+    "market_days": 118,
+    "markets_n": 10,
+    "markets_negative": 10,
+    "per_market": {
+      "atlanta": -0.05462577223735265,
+      "austin": -0.06078910063753245,
+      "chicago": -0.043866245493703264,
+      "dallas": -0.06673771375503687,
+      "houston": -0.05181609308274784,
+      "los-angeles": -0.04328013698808486,
+      "miami": -0.038350144438561336,
+      "nyc": -0.07674322574367412,
+      "san-francisco": -0.02585873789345986,
+      "seattle": -0.033574640452510164
+    }
+  },
+  "draws": 2000,
+  "final": false,
+  "gate": {
+    "early_read": false,
+    "prereg_sha256": "16ed20df6035fbc512b085757dae1d98d6ca5b3b1326fcdf44b0b33708e577ac",
+    "read_token": null,
+    "today": "2026-11-03"
+  },
+  "h2_pre_lockin_floor_non_inferiority_00_16": {
+    "tested": false
+  },
+  "ledger_records_verified": {
+    "highest-temperature-in-atlanta-on-october-16-2026": 8,
+    "highest-temperature-in-atlanta-on-october-17-2026": 7,
+    "highest-temperature-in-atlanta-on-october-18-2026": 6,
+    "highest-temperature-in-atlanta-on-october-19-2026": 5,
+    "highest-temperature-in-atlanta-on-october-20-2026": 4,
+    "highest-temperature-in-atlanta-on-october-21-2026": 3,
+    "highest-temperature-in-atlanta-on-october-22-2026": 2,
+    "highest-temperature-in-atlanta-on-october-23-2026": 3,
+    "highest-temperature-in-atlanta-on-october-24-2026": 3,
+    "highest-temperature-in-atlanta-on-october-25-2026": 3,
+    "highest-temperature-in-atlanta-on-october-26-2026": 3,
+    "highest-temperature-in-atlanta-on-october-27-2026": 3,
+    "highest-temperature-in-atlanta-on-october-28-2026": 3,
+    "highest-temperature-in-austin-on-october-16-2026": 8,
+    "highest-temperature-in-austin-on-october-17-2026": 7,
+    "highest-temperature-in-austin-on-october-18-2026": 6,
+    "highest-temperature-in-austin-on-october-19-2026": 5,
+    "highest-temperature-in-austin-on-october-20-2026": 4,
+    "highest-temperature-in-austin-on-october-21-2026": 3,
+    "highest-temperature-in-austin-on-october-22-2026": 2,
+    "highest-temperature-in-austin-on-october-23-2026": 3,
+    "highest-temperature-in-austin-on-october-24-2026": 3,
+    "highest-temperature-in-austin-on-october-25-2026": 3,
+    "highest-temperature-in-austin-on-october-26-2026": 3,
+    "highest-temperature-in-austin-on-october-27-2026": 3,
+    "highest-temperature-in-austin-on-october-28-2026": 3,
+    "highest-temperature-in-chicago-on-october-16-2026": 16,
+    "highest-temperature-in-chicago-on-october-17-2026": 7,
+    "highest-temperature-in-chicago-on-october-18-2026": 6,
+    "highest-temperature-in-chicago-on-october-19-2026": 5,
+    "highest-temperature-in-chicago-on-october-20-2026": 4,
+    "highest-temperature-in-chicago-on-october-21-2026": 3,
+    "highest-temperature-in-chicago-on-october-22-2026": 2,
+    "highest-temperature-in-chicago-on-october-23-2026": 3,
+    "highest-temperature-in-chicago-on-october-24-2026": 3,
+    "highest-temperature-in-chicago-on-october-25-2026": 3,
+    "highest-temperature-in-chicago-on-october-26-2026": 3,
+    "highest-temperature-in-chicago-on-october-27-2026": 3,
+    "highest-temperature-in-chicago-on-october-28-2026": 3,
+    "highest-temperature-in-dallas-on-october-16-2026": 8,
+    "highest-temperature-in-dallas-on-october-17-2026": 7,
+    "highest-temperature-in-dallas-on-october-18-2026": 6,
+    "highest-temperature-in-dallas-on-october-19-2026": 5,
+    "highest-temperature-in-dallas-on-october-20-2026": 4,
+    "highest-temperature-in-dallas-on-october-21-2026": 3,
+    "highest-temperature-in-dallas-on-october-22-2026": 2,
+    "highest-temperature-in-dallas-on-october-23-2026": 3,
+    "highest-temperature-in-dallas-on-october-24-2026": 3,
+    "highest-temperature-in-dallas-on-october-25-2026": 3,
+    "highest-temperature-in-dallas-on-october-26-2026": 3,
+    "highest-temperature-in-dallas-on-october-27-2026": 3,
+    "highest-temperature-in-dallas-on-october-28-2026": 3,
+    "highest-temperature-in-denver-on-october-16-2026": 8,
+    "highest-temperature-in-denver-on-october-17-2026": 7,
+    "highest-temperature-in-denver-on-october-18-2026": 6,
+    "highest-temperature-in-denver-on-october-19-2026": 5,
+    "highest-temperature-in-denver-on-october-20-2026": 4,
+    "highest-temperature-in-denver-on-october-21-2026": 3,
+    "highest-temperature-in-denver-on-october-22-2026": 2,
+    "highest-temperature-in-denver-on-october-23-2026": 3,
+    "highest-temperature-in-denver-on-october-24-2026": 3,
+    "highest-temperature-in-denver-on-october-25-2026": 3,
+    "highest-temperature-in-denver-on-october-26-2026": 7,
+    "highest-temperature-in-denver-on-october-27-2026": 6,
+    "highest-temperature-in-denver-on-october-28-2026": 5,
+    "highest-temperature-in-houston-on-october-16-2026": 8,
+    "highest-temperature-in-houston-on-october-17-2026": 7,
+    "highest-temperature-in-houston-on-october-18-2026": 6,
+    "highest-temperature-in-houston-on-october-19-2026": 5,
+    "highest-temperature-in-houston-on-october-20-2026": 4,
+    "highest-temperature-in-houston-on-october-21-2026": 3,
+    "highest-temperature-in-houston-on-october-22-2026": 2,
+    "highest-temperature-in-houston-on-october-23-2026": 3,
+    "highest-temperature-in-houston-on-october-24-2026": 3,
+    "highest-temperature-in-houston-on-october-25-2026": 3,
+    "highest-temperature-in-houston-on-october-26-2026": 3,
+    "highest-temperature-in-houston-on-october-27-2026": 3,
+    "highest-temperature-in-houston-on-october-28-2026": 3,
+    "highest-temperature-in-los-angeles-on-october-16-2026": 8,
+    "highest-temperature-in-los-angeles-on-october-17-2026": 7,
+    "highest-temperature-in-los-angeles-on-october-18-2026": 6,
+    "highest-temperature-in-los-angeles-on-october-19-2026": 5,
+    "highest-temperature-in-los-angeles-on-october-20-2026": 4,
+    "highest-temperature-in-los-angeles-on-october-21-2026": 3,
+    "highest-temperature-in-los-angeles-on-october-22-2026": 2,
+    "highest-temperature-in-los-angeles-on-october-23-2026": 3,
+    "highest-temperature-in-los-angeles-on-october-24-2026": 3,
+    "highest-temperature-in-los-angeles-on-october-25-2026": 3,
+    "highest-temperature-in-los-angeles-on-october-26-2026": 3,
+    "highest-temperature-in-los-angeles-on-october-27-2026": 3,
+    "highest-temperature-in-los-angeles-on-october-28-2026": 3,
+    "highest-temperature-in-miami-on-october-16-2026": 8,
+    "highest-temperature-in-miami-on-october-17-2026": 7,
+    "highest-temperature-in-miami-on-october-18-2026": 6,
+    "highest-temperature-in-miami-on-october-19-2026": 5,
+    "highest-temperature-in-miami-on-october-20-2026": 4,
+    "highest-temperature-in-miami-on-october-21-2026": 3,
+    "highest-temperature-in-miami-on-october-22-2026": 2,
+    "highest-temperature-in-miami-on-october-23-2026": 3,
+    "highest-temperature-in-miami-on-october-24-2026": 3,
+    "highest-temperature-in-miami-on-october-25-2026": 3,
+    "highest-temperature-in-miami-on-october-26-2026": 3,
+    "highest-temperature-in-miami-on-october-27-2026": 3,
+    "highest-temperature-in-miami-on-october-28-2026": 3,
+    "highest-temperature-in-nyc-on-october-16-2026": 8,
+    "highest-temperature-in-nyc-on-october-17-2026": 7,
+    "highest-temperature-in-nyc-on-october-18-2026": 6,
+    "highest-temperature-in-nyc-on-october-19-2026": 5,
+    "highest-temperature-in-nyc-on-october-20-2026": 4,
+    "highest-temperature-in-nyc-on-october-21-2026": 3,
+    "highest-temperature-in-nyc-on-october-22-2026": 2,
+    "highest-temperature-in-nyc-on-october-23-2026": 3,
+    "highest-temperature-in-nyc-on-october-24-2026": 3,
+    "highest-temperature-in-nyc-on-october-25-2026": 3,
+    "highest-temperature-in-nyc-on-october-26-2026": 3,
+    "highest-temperature-in-nyc-on-october-27-2026": 3,
+    "highest-temperature-in-nyc-on-october-28-2026": 3,
+    "highest-temperature-in-san-francisco-on-october-16-2026": 8,
+    "highest-temperature-in-san-francisco-on-october-17-2026": 7,
+    "highest-temperature-in-san-francisco-on-october-18-2026": 6,
+    "highest-temperature-in-san-francisco-on-october-19-2026": 5,
+    "highest-temperature-in-san-francisco-on-october-20-2026": 4,
+    "highest-temperature-in-san-francisco-on-october-21-2026": 3,
+    "highest-temperature-in-san-francisco-on-october-22-2026": 2,
+    "highest-temperature-in-san-francisco-on-october-23-2026": 3,
+    "highest-temperature-in-san-francisco-on-october-24-2026": 3,
+    "highest-temperature-in-san-francisco-on-october-25-2026": 8,
+    "highest-temperature-in-san-francisco-on-october-26-2026": 3,
+    "highest-temperature-in-san-francisco-on-october-27-2026": 3,
+    "highest-temperature-in-san-francisco-on-october-28-2026": 3,
+    "highest-temperature-in-seattle-on-october-16-2026": 8,
+    "highest-temperature-in-seattle-on-october-17-2026": 7,
+    "highest-temperature-in-seattle-on-october-18-2026": 6,
+    "highest-temperature-in-seattle-on-october-19-2026": 5,
+    "highest-temperature-in-seattle-on-october-20-2026": 4,
+    "highest-temperature-in-seattle-on-october-21-2026": 3,
+    "highest-temperature-in-seattle-on-october-22-2026": 2,
+    "highest-temperature-in-seattle-on-october-23-2026": 3,
+    "highest-temperature-in-seattle-on-october-24-2026": 3,
+    "highest-temperature-in-seattle-on-october-25-2026": 3,
+    "highest-temperature-in-seattle-on-october-26-2026": 3,
+    "highest-temperature-in-seattle-on-october-27-2026": 3,
+    "highest-temperature-in-seattle-on-october-28-2026": 3,
+    "highest-temperature-in-toronto-on-october-16-2026": 8,
+    "highest-temperature-in-toronto-on-october-17-2026": 7,
+    "highest-temperature-in-toronto-on-october-18-2026": 6,
+    "highest-temperature-in-toronto-on-october-19-2026": 5,
+    "highest-temperature-in-toronto-on-october-20-2026": 4,
+    "highest-temperature-in-toronto-on-october-21-2026": 3,
+    "highest-temperature-in-toronto-on-october-22-2026": 2,
+    "highest-temperature-in-toronto-on-october-23-2026": 3,
+    "highest-temperature-in-toronto-on-october-24-2026": 3,
+    "highest-temperature-in-toronto-on-october-25-2026": 3,
+    "highest-temperature-in-toronto-on-october-26-2026": 3,
+    "highest-temperature-in-toronto-on-october-27-2026": 3,
+    "highest-temperature-in-toronto-on-october-28-2026": 3
+  },
+  "mode": "no_market_stage1",
+  "outcome": "CONDITIONS 1-2 MET, condition 3 pending",
+  "prereg_id": "evening-lockin-fix-scoring",
+  "primary": {
+    "ci95": [
+      -0.05532091217224056,
+      -0.04211448120207121
+    ],
+    "estimate": -0.04853544751972519,
+    "market_days": 128,
+    "markets_n": 11,
+    "markets_negative": 11,
+    "material": null,
+    "old_minus_market_gap": null,
+    "per_market": {
+      "atlanta": -0.05462577223735265,
+      "austin": -0.06078910063753245,
+      "chicago": -0.043866245493703264,
+      "dallas": -0.06673771375503687,
+      "denver": -0.0334560537240027,
+      "houston": -0.05181609308274784,
+      "los-angeles": -0.04328013698808486,
+      "miami": -0.038350144438561336,
+      "nyc": -0.07674322574367412,
+      "san-francisco": -0.02585873789345986,
+      "seattle": -0.033574640452510164
+    }
+  },
+  "qualifying_dates": [
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27"
+  ],
+  "replay_commit": "c32629156f0408a735923b1886b3fc31c59e6f44",
+  "replay_rows": 28108,
+  "reproduction": {
+    "pass": true,
+    "rows": 28108,
+    "share_within": 0.9961932545894407
+  },
+  "reproduction_table": {
+    "commits": {
+      "c32629156f0408a735923b1886b3fc31c59e6f44": {
+        "all_rows": 28108,
+        "pass": true,
+        "per_date": {
+          "2026-10-16": {
+            "all_rows": 2158,
+            "rows": 2158,
+            "rows_with_vector": 2158,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2158
+          },
+          "2026-10-17": {
+            "all_rows": 2140,
+            "rows": 2140,
+            "rows_with_vector": 2140,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2140
+          },
+          "2026-10-18": {
+            "all_rows": 2107,
+            "rows": 2107,
+            "rows_with_vector": 2107,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2107
+          },
+          "2026-10-19": {
+            "all_rows": 2157,
+            "rows": 2157,
+            "rows_with_vector": 2157,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2157
+          },
+          "2026-10-20": {
+            "all_rows": 2138,
+            "rows": 2138,
+            "rows_with_vector": 2138,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2138
+          },
+          "2026-10-21": {
+            "all_rows": 2225,
+            "rows": 2225,
+            "rows_with_vector": 2225,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2225
+          },
+          "2026-10-22": {
+            "all_rows": 2167,
+            "rows": 2167,
+            "rows_with_vector": 2167,
+            "share": 0.9773880941393632,
+            "vector_coverage": 1.0,
+            "within": 2118
+          },
+          "2026-10-23": {
+            "all_rows": 2138,
+            "rows": 2138,
+            "rows_with_vector": 2138,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2138
+          },
+          "2026-10-24": {
+            "all_rows": 2171,
+            "rows": 2171,
+            "rows_with_vector": 2171,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2171
+          },
+          "2026-10-25": {
+            "all_rows": 2170,
+            "rows": 2170,
+            "rows_with_vector": 2170,
+            "share": 0.9880184331797235,
+            "vector_coverage": 1.0,
+            "within": 2144
+          },
+          "2026-10-26": {
+            "all_rows": 2191,
+            "rows": 2191,
+            "rows_with_vector": 2191,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2191
+          },
+          "2026-10-27": {
+            "all_rows": 2161,
+            "rows": 2161,
+            "rows_with_vector": 2161,
+            "share": 0.997686256362795,
+            "vector_coverage": 1.0,
+            "within": 2156
+          },
+          "2026-10-28": {
+            "all_rows": 2185,
+            "rows": 2185,
+            "rows_with_vector": 2185,
+            "share": 0.9876430205949657,
+            "vector_coverage": 1.0,
+            "within": 2158
+          }
+        },
+        "rows": 28108,
+        "rows_with_vector": 28108,
+        "share": 0.9961932545894407,
+        "vector_coverage": 1.0,
+        "within": 28001
+      }
+    },
+    "dates": {
+      "2026-10-16": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2158
+        }
+      },
+      "2026-10-17": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2140
+        }
+      },
+      "2026-10-18": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2107
+        }
+      },
+      "2026-10-19": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2157
+        }
+      },
+      "2026-10-20": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2138
+        }
+      },
+      "2026-10-21": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2225
+        }
+      },
+      "2026-10-22": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2167
+        }
+      },
+      "2026-10-23": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2138
+        }
+      },
+      "2026-10-24": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2171
+        }
+      },
+      "2026-10-25": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2170
+        }
+      },
+      "2026-10-26": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2191
+        }
+      },
+      "2026-10-27": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2161
+        }
+      },
+      "2026-10-28": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2185
+        }
+      }
+    },
+    "threshold_l1": 1e-09,
+    "threshold_share": 0.99
+  },
+  "rows_outside_window": 0,
+  "safety": {
+    "no_observed_anchor": [],
+    "observed_anchor": []
+  },
+  "safety_fail": false,
+  "seed": 20261016,
+  "void_reasons": [],
+  "window_dates": [
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27"
+  ]
+}

@@ -1,0 +1,140 @@
+﻿{
+    "schema":  "evening_fix_stage1_score_prerun_receipt_v1",
+    "written_at":  "2026-11-03T05:48:06.6054239-05:00",
+    "authority":  "Ran outside workstation_heavy under master one-off 2026-11-03 (scorer not on the offline list; 4 s, ~1.36 GB)",
+    "script_sha256":  "ce70e3e8979b323e06c218da1eeef3b76561f3c4ea05ed096c57a6f79c52146d",
+    "code_commit":  "c32629156f0408a735923b1886b3fc31c59e6f44",
+    "c32629156_src_archive":  {
+                                  "git_archive_tar_sha256":  "cc9e14de49b399521c9c5353d1b6476919cfcf53d11ca515eacadd83d30fce2e",
+                                  "src_tree":  "bac859f02a7d90f6be8d1bb1b7a773288155e5bb",
+                                  "extracted_dir":  "C:\\t\\evening-fix-stage1\\src_c32629156\\src",
+                                  "diff_vs_archive":  "IDENTICAL"
+                              },
+    "command_line":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" \"-I\" \"-B\" \"C:\\wt\\l16-efx-s1\\scratch-transport\\stage1_score_v1.py\" \"--src\" \"C:\\t\\evening-fix-stage1\\src_c32629156\\src\" \"--commit\" \"c32629156f0408a735923b1886b3fc31c59e6f44\" \"--replay\" \"C:\\t\\evening-fix-stage1\\evening-fix-20261102-replay\\replay_c32629156_all.jsonl\" \"--ledger-rows\" \"C:\\t\\evening-fix-stage1\\evening-fix-20261102\\ledger_rows.jsonl\" \"--prereg\" \"C:\\t\\evening-fix-stage1\\gate\\evening-lockin-fix-scoring-preregistration-DRAFT-2026-10-13.md\" \"--decision-log\" \"C:\\t\\evening-fix-stage1\\gate\\DECISION_LOG.md\" \"--out-dir\" \"C:\\t\\evening-fix-stage1\\score-20261103\\run\"",
+    "inputs":  {
+                   "script":  "ce70e3e8979b323e06c218da1eeef3b76561f3c4ea05ed096c57a6f79c52146d",
+                   "replay":  "ff4478c3bf5493c82047bd6d0b539b9fbdd4ebb07eb004dba42d2a94c90db3ab",
+                   "ledger":  "69546a69190169d0b815b59034a2650ac5d9612f528a4b1d71028bd8fd529505",
+                   "clar2":  "634823a7261c00abbf9a90c1863641a278ce59423fc38c600a785ee8bb5bbe79",
+                   "prereg":  "16ed20df6035fbc512b085757dae1d98d6ca5b3b1326fcdf44b0b33708e577ac",
+                   "decision_log":  "8b21407ecae2ff4c669d0151a95038d004d17347eb867ff063657d7cad4ad8a8"
+               },
+    "pre_check":  {
+                      "checked_at":  "2026-11-03T05:48:05.7463924-05:00",
+                      "available_memory_gb":  11.84,
+                      "commit_percent":  59.3,
+                      "memory_ok":  true,
+                      "other_processes":  [
+                                              {
+                                                  "pid":  2060,
+                                                  "name":  "python.exe",
+                                                  "cmd":  ""
+                                              },
+                                              {
+                                                  "pid":  7416,
+                                                  "name":  "python.exe",
+                                                  "cmd":  ""
+                                              },
+                                              {
+                                                  "pid":  22772,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13\\tools\\research\\hrrr_forward_recorder.py --out C:\\t\\l13\\hrrr_forward --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  2840,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13\\tools\\research\\hrrr_forward_recorder.py --out C:\\t\\l13\\hrrr_forward --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  8856,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13g\\tools\\research\\gefs_forward_recorder.py --out C:\\t\\l6g\\forward\\gefs --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  14728,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13g\\tools\\research\\gefs_forward_recorder.py --out C:\\t\\l6g\\forward\\gefs --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  26340,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13ens\\tools\\research\\ecmwf_ens_forward_recorder.py --out C:\\t\\ecmwf_ens\\forward --cycles 0,12 --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  9272,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13ens\\tools\\research\\ecmwf_ens_forward_recorder.py --out C:\\t\\ecmwf_ens\\forward --cycles 0,12 --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  23412,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13mx\\tools\\research\\mosmix_forward_recorder.py --out C:\\t\\mosmix\\forward --products L,S --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  3188,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13mx\\tools\\research\\mosmix_forward_recorder.py --out C:\\t\\mosmix\\forward --products L,S --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  15660,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13gem\\tools\\research\\eccc_gem_forward_recorder.py --out C:\\t\\eccc_gem\\forward --models hrdps,rdps,gdps,geps --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  15520,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13gem\\tools\\research\\eccc_gem_forward_recorder.py --out C:\\t\\eccc_gem\\forward --models hrdps,rdps,gdps,geps --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  5164,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" -I C:\\wt\\omprevrec\\tools\\research\\om_prev_runs_forward_recorder.py --out C:\\t\\om_prev_runs\\forward --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  4884,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" -I C:\\wt\\omprevrec\\tools\\research\\om_prev_runs_forward_recorder.py --out C:\\t\\om_prev_runs\\forward --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  26308,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l3t1rec\\tools\\research\\t1_price_forward_recorder.py --out C:\\t\\t1_prices\\forward --horizons 1,2 --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  8796,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l3t1rec\\tools\\research\\t1_price_forward_recorder.py --out C:\\t\\t1_prices\\forward --horizons 1,2 --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  11184,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13nbm\\tools\\research\\nbm_text_forward_recorder.py --out C:\\t\\nbm_text\\forward --products nbh,nbs,nbe,nbp --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  14388,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13nbm\\tools\\research\\nbm_text_forward_recorder.py --out C:\\t\\nbm_text\\forward --products nbh,nbs,nbe,nbp --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  18332,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13gc\\tools\\research\\gefs_cycles_forward_recorder.py --out C:\\t\\gefs_cycles\\forward --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  22476,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13gc\\tools\\research\\gefs_cycles_forward_recorder.py --out C:\\t\\gefs_cycles\\forward --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  20888,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\Documents\\github\\weather\\venv\\Scripts\\python.exe\" C:\\wt\\l13iem\\tools\\research\\iem_mos_forward_recorder.py --out C:\\t\\iem_mos\\forward --models NBS,NBE,GFS,MEX,NAM,LAV --wait-lock-seconds 120 "
+                                              },
+                                              {
+                                                  "pid":  9236,
+                                                  "name":  "python.exe",
+                                                  "cmd":  "\"C:\\Users\\Michael\\AppData\\Local\\Programs\\Python\\Python311\\python.exe\" C:\\wt\\l13iem\\tools\\research\\iem_mos_forward_recorder.py --out C:\\t\\iem_mos\\forward --models NBS,NBE,GFS,MEX,NAM,LAV --wait-lock-seconds 120 "
+                                              }
+                                          ]
+                  }
+}

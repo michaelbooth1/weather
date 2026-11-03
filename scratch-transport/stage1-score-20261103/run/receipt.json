@@ -1,0 +1,32 @@
+{
+  "code_commit": "c32629156f0408a735923b1886b3fc31c59e6f44",
+  "created_at_utc": "2026-11-03T10:48:13.712152+00:00",
+  "inputs": {
+    "decision_log": {
+      "path": "C:\\t\\evening-fix-stage1\\gate\\DECISION_LOG.md",
+      "sha256": "8b21407ecae2ff4c669d0151a95038d004d17347eb867ff063657d7cad4ad8a8"
+    },
+    "ledger_rows": {
+      "path": "C:\\t\\evening-fix-stage1\\evening-fix-20261102\\ledger_rows.jsonl",
+      "sha256": "69546a69190169d0b815b59034a2650ac5d9612f528a4b1d71028bd8fd529505"
+    },
+    "prereg": {
+      "path": "C:\\t\\evening-fix-stage1\\gate\\evening-lockin-fix-scoring-preregistration-DRAFT-2026-10-13.md",
+      "sha256": "16ed20df6035fbc512b085757dae1d98d6ca5b3b1326fcdf44b0b33708e577ac"
+    },
+    "replay": {
+      "path": "C:\\t\\evening-fix-stage1\\evening-fix-20261102-replay\\replay_c32629156_all.jsonl",
+      "sha256": "ff4478c3bf5493c82047bd6d0b539b9fbdd4ebb07eb004dba42d2a94c90db3ab"
+    }
+  },
+  "outputs": {
+    "clar2_three_cell_sensitivity.json": "635742cd8a43616a182030759d9f3355321344cdf094e9597eac6500cfccb8a1",
+    "scorer_out.json": "0d4a8152df8fa97844a217deb3464f3dcd314386c983a23b759de7e791d6a026"
+  },
+  "peak_memory_bytes": {
+    "peak_private_commit": 1421553664,
+    "peak_working_set": 667574272
+  },
+  "schema": "evening_fix_stage1_score_receipt_v1",
+  "script_sha256": "ce70e3e8979b323e06c218da1eeef3b76561f3c4ea05ed096c57a6f79c52146d"
+}
