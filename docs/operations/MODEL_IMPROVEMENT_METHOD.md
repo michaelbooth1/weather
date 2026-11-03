@@ -228,6 +228,12 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
       runner's own rulings report would withhold under the guard, so the run would HALT on its own ruling; fixed in
       v12 by rewording plus a sentinel over the rulings dict. Lesson: guard-scanned outputs must not quote
       guard-matching literals, including in rulings/docstrings."
+19. **A projection's SD input matches the tested contrast** (master, 2026-11-03, after ledger rows 114-117, verbatim):
+    "A power projection's SD input must come from a contrast of the same kind and distance as the one tested, never a
+    near-twin, or from a stated conservative bound. After the look, report the realised/projected SD ratio."
+    Instances: row 28 (lever-inventory row 28, ledger rows 114-117; EF §10aw): the projection took per-date SD
+    0.016304 from the row-109 Aug-Sep near-twin receipt; realised X−S SD 0.0799 / 0.0803 / 0.0787 / 0.1300 (arms
+    A-D), a realised/projected SD ratio of 4.90 / 4.93 / 4.83 / 7.97 (POST-HOC D2, `2a9cfcdf6`).
 
 ## Update this file when
 
