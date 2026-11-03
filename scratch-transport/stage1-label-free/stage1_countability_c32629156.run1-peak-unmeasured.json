@@ -1,0 +1,823 @@
+{
+  "cells": {
+    "atlanta|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "atlanta|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "austin|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-16": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "chicago|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "dallas|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-26": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-27": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "denver|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "houston|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "los-angeles|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "miami|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "nyc|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-25": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "san-francisco|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "seattle|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-16": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-17": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-18": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-19": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-20": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-21": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-22": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-23": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-24": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-25": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-26": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-27": {
+      "countable": true,
+      "promotion_countable": true,
+      "replay_half_countable": true
+    },
+    "toronto|2026-10-28": {
+      "countable": false,
+      "promotion_countable": false,
+      "replay_half_countable": true
+    }
+  },
+  "code_commit": "c32629156f0408a735923b1886b3fc31c59e6f44",
+  "created_at_utc": "2026-11-03T10:34:47.362368+00:00",
+  "emitted_fields": [
+    "replay_half_countable",
+    "promotion_countable",
+    "countable"
+  ],
+  "labels_called": false,
+  "ledger_rows_sha256": "69546a69190169d0b815b59034a2650ac5d9612f528a4b1d71028bd8fd529505",
+  "peak_memory_bytes": {
+    "peak_pagefile": 0,
+    "peak_working_set": 0
+  },
+  "replay_sha256": "ff4478c3bf5493c82047bd6d0b539b9fbdd4ebb07eb004dba42d2a94c90db3ab",
+  "schema": "evening_fix_stage1_countability_v1",
+  "script_sha256": "c960b62f8aef228544a425cbc7af34b362096f545fccf13e0b5cf920cb5e65e4",
+  "slugs_promotion_countable_false": 16,
+  "verify_ledger_history": {
+    "slugs_verified": 156,
+    "status": "PASS"
+  },
+  "window_from_metadata": [
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27"
+  ],
+  "window_stop": false,
+  "zero_countable_us11_dates": [
+    "2026-10-28"
+  ]
+}
