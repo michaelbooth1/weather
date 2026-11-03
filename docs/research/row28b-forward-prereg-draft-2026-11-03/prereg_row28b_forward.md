@@ -88,8 +88,8 @@ with verdict pending. No ledger row is added while this file is a draft.
   the forward test re-tests B from zero.
 - **Labels (master ruling on Q5).** Forward dates fall after 2026-10-23, so labels are the venue-rule labels
   (routine METAR, WU fallback), read only through `read_venue_labels` inside the registered entry point from the
-  look-morning R24 frozen copy. **Disclosed mismatch:** row 28's history used WU labels. Denver is excluded, as in
-  row 28 §5.3.
+  look-morning R24 frozen copy. **Disclosed mismatch:** row 28's history used WU labels. Denver is excluded from
+  scoring and emission, as in row 28 §5.3; it stays in B's training, as in v12 (master ruling 11-03).
 
 ## 3. Statistic
 
@@ -247,7 +247,7 @@ Its data scope follows STATE_OF_PLAY line 50 as recorded; if that needs an owner
 - emit_receipt_sha256: PLACEHOLDER
 - equivalence_report_sha256: PLACEHOLDER
 - frozen_before_utc: PLACEHOLDER (before 2026-12-17)
-- markets: US10 (atlanta, austin, chicago, dallas, houston, los-angeles, miami, nyc, san-francisco, seattle); Denver out
+- markets: training: 11 R0 markets incl. Denver (as v12); scored/emitted: US10
 - scored_window: 2026-12-17..2027-01-30 (the N = 45 deciding dates)
 - emission_window: 2026-12-17..2027-05-31 (emission only; named separately from the scored window)
 - fit_kind: forward
