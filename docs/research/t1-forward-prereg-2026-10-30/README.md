@@ -1,6 +1,6 @@
 # T+1 forward test: day-ahead NBM NBP, ECMWF ENS and their blend vs the T+1 market (lane L3)
 
-**Status: DRAFT, not frozen (rev 11).** It freezes only when P1, P2 and P3 all hold (section 8). P1 (the WS T+1
+**Status: DRAFT, not frozen (rev 12).** It freezes only when P1, P2 and P3 all hold (section 8). P1 (the WS T+1
 price recorder's horizon +1 coverage on 3 consecutive closed UTC days) is expected once UTC day 2026-11-02 closes
 (2026-11-03 00:00Z). P2 is expected about 2026-11-02 19:47Z. P3 (the emitter) is not built. So the freeze is no
 earlier than 2026-11-03. The freeze commit pins this file's sha256 in a new ledger row, which is
@@ -62,6 +62,7 @@ after the coordinator has been told; the lane never freezes on its own.
 - Rev 11 (2026-11-01, pre-freeze, master approval) adds section 10, the checklist sections (a)-(e) that
   `prereg_check` requires, as mapping text only: each points to where this file already answers it. No rule,
   arm, N, δ_s, gate, look or simulation changes. Still NOT frozen.
+- Rev 12 (2026-11-03, pre-freeze, written by WS lane L59 on master's order; the T+1 lanes L3/L23 are inactive) adds one dated clause to section 8 only: master ruling R21 found PT-1 with C-PT NOT RUNNABLE, so PT-1 claims no date and its R21 receipt satisfies "after PT-1's look". No arm, N, Î´_s, gate, date, simulation or other look changes. Still NOT frozen.
 
 This is a dated research draft, not canonical guidance.
 
@@ -401,6 +402,7 @@ with `mr_gate.gate_candidate` and `market_blend.pool()`.
   - F8-MH (frozen, D0 11-02, look 01-26);
   - any other test in the look chain (L6_G, PT-1) whose claimed dates intersect ours.
   MG-3 is not a claimant: DECISION_LOG 2026-10-30 dropped it.
+- **PT-1 claims no date (dated clause, 2026-11-03, rev 12; master ruling R21, 2026-11-01).** PT-1 with candidate C-PT is NOT RUNNABLE under method rules 4 and 6 and will not be bound. Receipt `docs/research/pt1-not-runnable-2026-11-03/receipt.md` (raw sha256 `8c45c8d99dabf1e38b21ad3ebd6e1b015a723b54054dd73d72e2373686cf7c35`, on `claude/mg1-b-rulings-docs-20261103` @ `10ceddc4afa341199abbed99096c6611d64082b4`; register X106). Wherever this file says "after PT-1's look", "after the looks of PT-1 and F8-MH", "if PT-1 binds as drafted" or names PT-1 as a claimant, that condition is satisfied by this receipt. PT-1 holds none of T+1's dates and orders no look. The final look is then no earlier than 82 countable dates AND after F8-MH's look (on or after 2027-01-27) and every other claimant's look. A successor PT-1 under a new prereg would be a claimant only by its own freeze, ranked by freeze time (rule 9 as applied above). This clause changes no arm, N, Î´_s, gate or simulation.
 
   The freeze row lists those tests by name and fixes the final look as the later of two dates: the day after the
   last of their recorded looks, and the date by which 82 countable dates have accrued. If a claiming test's look moves later,
