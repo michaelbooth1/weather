@@ -163,3 +163,24 @@ Lane L59, WS, 2026-11-03, from origin/master `621d67f0f`.
 2. **B's 13-16 path to a market test is power-bound** on everything visible. The history season is infeasible, and a
    forward test at 45 dates has power 0.06-0.13. A B-S PASS at 13-16 is model improvement only.
 3. **X93's "no successor" binds the 3a reliability lever only, not B's w.** Confirmed.
+
+## Closing (2026-11-03): E1 / B-07-12 PARKED (master)
+
+- **The 07-12 extension** (`extension_0712_feasibility.md`) was ACCEPTED by master as DON'T ADD as drafted. If a
+  07-12 arm is ever added, its multiplicity design is the fixed sequence of its (c).
+- **The E1 spec** (`spec_e1_0712_descriptive.md`, sha256 `0496eaa9…`, tip `70a81de10`) named a blocking gap: the
+  prereg:286 comparator needs history nowcasts N that do not exist.
+- **Master's ruling:** option (iii), **DON'T RUN E1, PARKED, not killed** (11-03). Reasons:
+  - The MG-1-only comparator is not the forward 07-12 S (C-PT), so it biases toward ADD.
+  - A new N extract for a selection-only number is not worth it, and S would be in-sample on Dec 17-31 anyway.
+  - PT-1 already owns 07-12 forward with the fair stack.
+  - The smart path is the powered 13-16 forward test.
+- **Reopen conditions, verbatim:** "(a) the 13-16 forward test PASSES and a 07-12 market path through B is wanted;
+  (b) an outcome-blind 2021-25 N history extract exists for another reason; (c) PT-1's look shows C-PT fails at
+  07-12, which makes B the remaining 07-12 candidate."
+- **Records.**
+  - The parked note is in `EXHAUSTION_REGISTER.md` §6, using the register's existing PARKED status, as for X102/X103.
+  - The archive is `C:\archive\ruled-out\e1-b0712-parked-20261103\`.
+  - There is no DEV_WINDOW_LEDGER row, because nothing ran; draft row 119 stays uncommitted.
+- **This note's conclusion stands:** B's route to a market test is the 13-16 forward test (draft `1fed1b989`). That
+  test is power-bound against the market (ruling 2), so a PASS there claims model improvement only.
