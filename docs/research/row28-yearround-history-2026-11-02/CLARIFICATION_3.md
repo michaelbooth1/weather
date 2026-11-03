@@ -219,3 +219,90 @@ The coordinator's go covered the repair and the a3 relaunch, as the same attempt
   `config/`.
 - **a3.** Controls a3 went into `run\s1_controls_a3`, with the same launcher, runner and config. Its result is in
   `RUN_LOG.md`. The a2 folder stays in place as evidence.
+
+## Fifth addendum (2026-11-03T05:25-05:00): the a3 guard HALT, its root cause, runner v7
+
+The coordinator called this "C3 addendum 4"; the fourth addendum (LFS repair, a3) already exists, so this one is the
+fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 values are in `RUN_LOG.md`.
+
+- **The a3 diagnostic (d1).** `scripts/row28_guard_diag_v1.py` (`adad5ce6…`) ran under launcher v6 into
+  `run\d1_guard_diag`. Receipt `3bc30bd0…`, COMPLETE.
+  - It reconciled exactly: the runner's own stage-end scan gave 276, the traced rows gave 276, walk.json 158 of 158
+    and walk.csv 66 of 66.
+  - All 276 hits had the class EMBARGO, so I stopped under pre-ruling (c). The coordinator then read the table
+    under master's ruling: all 276 hits sit at records, `plan/column_differences_from_served/decision`.
+- **Root cause.** The hits are code constants, not data:
+  - `r0_scope.py:51` `DECISION_PRESSURE` and `:52` `DECISION_CONSENSUS`, owner-decision strings that contain the
+    dates of those owner decisions;
+  - written by `column_differences` (`r0_scope.py:117`, `:119`) into the plan key `column_differences_from_served`
+    (`feature_column_allowlist.py:288`; the coordinator cited 287/288);
+  - which every records payload carries as `plan` (`pooled_residual_model.py:247`).
+- **Review error, v3 F2.** The v3 review's F2 residual treated the dated text in `feature_column_allowlist` and
+  `r0_scope` as "docstrings only". `r0_scope.py:51-54` are string constants, and two of them reach every records
+  file. That reading was wrong.
+- **d2 not run.** Master's d2 brief had no category for a code constant (`DECISION_CONST` was missing). After the
+  BENIGN verdict, master decided d2 is not needed, and it was not run.
+- **v7 allowance (K1).** In a records file, at exactly `plan/column_differences_from_served/[i]/decision`, a value
+  is allowed only if the WHOLE string equals `DECISION_PRESSURE` or `DECISION_CONSENSUS`.
+  - The two strings are pinned verbatim in the runner, and `r0_scope.py` by sha256
+    `E8BB0683ED7C252B4F07E18F83709C9E0A5FCFD4C835D803B80C5C531F18607B`. `check_decision_pins` HALTs if the sha or
+    either string differs, and the allowance is off until it passes.
+  - Every firing is counted. walk.json `output_guard.decision_allowance` reports `values` and `dated_tokens`, and
+    a4 must show `dated_tokens` = 276.
+  - The same strings anywhere else, or any other value at that path, are still hits.
+  - `DECISION_BASE_ONLY` and `DECISION_LEAF_SWEEP` are not allowed.
+- **v7 K2 and K3** (see the temporal-type note below).
+- **Non-string temporal values in v6's walk (code reading of `_walk`, runner v6 L532-614).**
+  - **Classed in v6:**
+    - `datetime`, `date` and `pd.Timestamp` (a `datetime` subclass) go through `isoformat`.
+    - numpy `datetime64` scalars and arrays, `DatetimeIndex` and datetime Series (dtype kind `M`) are cast to
+      `datetime64[D]` strings.
+    - categorical values, and every category (G1).
+  - **Not dates, so no hit:** `timedelta`, `timedelta64`, `TimedeltaIndex` and `time`.
+  - **Two gaps, fixed in v7:**
+    - **K2: tz-aware datetime arrays.** v6 cast them through `np.asarray(...).astype("datetime64[D]")`, which is
+      not assured for tz-aware values. Any exception there fails closed (unscannable or ERROR), but the class is
+      the UTC date at best. v7 walks them as `isoformat` strings, keeping the wall-clock date and offset.
+    - **K3: pandas `Period`.** A `Period` is not a `date`, has no `dtype`, and has a `__dict__`, so v6 walked its
+      empty `vars()` and saw nothing. A pickled `Period` holds no date text, so the byte cross-check cannot catch
+      it either. This was a silent coverage hole. v7 walks a `Period` (and so a `PeriodIndex` or a Period Series,
+      whose values are `Period` objects) as `str(o)`.
+  - Sentinel v5 has a case for every type above.
+- **Code sweep (static: an AST pass over the weather.* import closure of the runner's bound modules, 168
+  modules, plus the R-P2 copy).** It lists every 2026 ISO date inside a string constant (docstrings and comments
+  excluded) and whether that constant can reach a pickled or written output.
+  - **Reaches records: `r0_scope.py:51` `DECISION_PRESSURE` and `:52` `DECISION_CONSENSUS`.** Path:
+    `column_differences` (`:117`, `:119`), then the plan key `column_differences_from_served`
+    (`feature_column_allowlist.py:288`), then the records payload `plan` (`pooled_residual_model.py:247`). These
+    are the 276. v7 K1 allows them only there.
+  - **Not reached by the runner: `r0_scope.py:53` `DECISION_BASE_ONLY` and `:54` `DECISION_LEAF_SWEEP`.** Both
+    occur only in `served_model_differences` (`r0_scope.py:145`, `:164`). That function is called only from
+    `feature_model._train_main` (`feature_model.py:1619`) and `r0_candidate_manifest.py:319`. The runner calls
+    neither: its `fm.*` calls are `brier_score`, `log_loss` and `smoothed_dist`; its `prm.*` calls are
+    `extract_market`, `covered_years`, `load_records`, `pooled_frame`, `fit_pooled`, `predictive_distribution`,
+    `attach_training_nbm`, `nearest_centre`, `season_of`, `station_coordinates`, `records_path` and `R0_MARKETS`.
+    Neither constant is pre-allowed; if either ever reaches an output, it is a hit.
+  - **Error text only (it reaches a report only as a HALT or ERROR reason, which the guard counts):**
+    `r0_scope.py:48` `R0_OUT_OF_SCOPE_MARKETS` (toronto, in `require_r0_market`'s error at `:85`; toronto is not
+    in R0).
+  - **Centre labels, written only in centre fields (context-allowed):** `pooled_residual_model.py:90`
+    `VALIDATION_CENTRE`, `:91` `OCT_DEC_CENTRES`, `:93-94` `JAN_JUL_CENTRES`, `:96` `AUG_SEP_CENTRES` and `:1258`
+    `FORWARD_CENTRES`.
+  - **In functions the runner never calls:**
+    - `pooled_residual_model.py:874` (`headline_markdown`), `:949` (`dev_training_frame`), `:993`
+      (`dev_emit_distributions`) and `:1170` (`dev_emit_n_distributions`);
+    - `r0_ols_floor_challenger.py:680`, `:907`, `:1019` and `:1310` (the dev functions; `prm` reaches them only
+      via `score_l3_comparators`, `dev_emit_*` and `receipt_grace_check`, none of which the runner calls).
+  - **In the closure but off the runner's call path (no payload use):**
+    - `upstream_obs_screen.py:58` `DEV_LAST` and `:335`;
+    - `operations/storage_classes.py:83`, `:138`, `:350` and `:681` `ARTIFACT_FAMILIES`;
+    - `reporting/scorecards/dev_scorecard.py` (`:319`, `:406`, `:433`, `:476`, `:489`, `:503`);
+    - `dev_scorecard_data.py:89` and `:190`;
+    - `free_source_candidates/remaining_rise.py:30` `HIST_END` and `:31` `OBS_LAST`;
+    - `loss_atlas.py` (`:89` `RANGE`, `:695`, `:732`, `:967`, `:979`, `:1009`, `:1026`, `:1053`);
+    - `schema_registry_data.py:708` `REGISTERED_SCHEMAS` and `schema_registry_recent_data.py:272`
+      `RECENT_REGISTERED_SCHEMAS`;
+    - `sources/free_screens/captured_openmeteo.py:102`.
+  - **No dated string constant at all** in `feature_column_allowlist.py`, `feature_model.py`,
+    `feature_model_training_inputs.py`, `model/feature_store.py`, `model/toronto_model.py` or
+    `market/market_registry.py` (their dates are in docstrings or comments only).

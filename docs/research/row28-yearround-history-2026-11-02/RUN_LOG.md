@@ -411,3 +411,66 @@ Stage 1, attempt 1 (a3 OutDir) detail.
   a2 and a3 folders stay in place as evidence.
 
 Gate commits: integrity — (pending); look — (pending).
+
+## Appended 2026-11-03T05:25-05:00: d1 diagnostic, root cause, runner v7 (append only)
+
+- **d1 guard diagnostic.**
+  - Script `scripts/row28_guard_diag_v1.py`, sha256 `adad5ce6903cc629d077dbcd6bad6524602fb3f77463ddfdf55af926c3bda08e`, committed in `9b663b95e` before it ran.
+  - It ran under launcher v6 (pid 25656, from 05:13:40, `-Stage controls` as the launcher's label) into
+    `run\d1_guard_diag`, after the dated-name scan found 0.
+  - Receipt `3bc30bd065fc20fabba6f21c85e0dc8a0fde81b2222fda1f82c792c9435c01c9`: COMPLETE, exit 0, log guard 0,
+    receipt guard 0, peak 800,739,328 bytes.
+  - walk.json `a2c8c56f63e9ebd1866fcead0eb5d1517c3b1c5bdc8cf5c14def005a8cb40f36`; walk.csv
+    `ab8f8a316c827132760d1678df9b9aaf2121f4c749f5662a81f32737dab71d35`.
+  - RECONCILED: 276 / 276 / 276, walk.json 158 / 158, walk.csv 66 / 66, 0 trace mismatches.
+  - Rule (c) count 276, so it STOPPED.
+- **Verdict.** BENIGN, per master: the 276 are the `r0_scope.py:51-52` decision constants at
+  `plan/column_differences_from_served/decision` (C3 fifth addendum). d2 was not run.
+- **Quarantine.** `run\records`, `run\s1_controls_a3` and `run\d1_guard_diag` are in place. None has been moved,
+  opened or copied since. The records folder moves to `run\records_a3_evidence` only on the coordinator's go after
+  the v7 review.
+
+### A(i): the "33 of 68" (code only)
+
+The d1 diagnostic keys `per_file` by the class-tagged file name (`row28_guard_diag_v1.py`, `templ(relpath)`).
+"33" is therefore a count of distinct tagged names, not of files.
+- **The scope.** The runner's own `output_guard_scan` scanned 68 real files: the 66 records files plus a3's
+  `junction_manifest_before.json.gz` and `junction_manifest_after.json.gz`. walk.json, walk.csv, the logs and
+  receipt.json are excluded.
+- **The 33 tagged names.** Each market has 6 records files: the four `AUG_SEP_CENTRES` (08-08, 08-23, 09-07, 09-22)
+  are all GAP, 12-09 is EMBARGO and 01-08 is Y26_PRE0527. That is 3 tagged names per market, 11 × 3 = 33, plus 2
+  manifest names, so 35 in all.
+- **Every records file has hits.** The manifests are clean: their sha `f93c2ad2…` is identical to a2's, which
+  scanned CLEAN. So the 33 names with hits are all 33 records names. A market's plan is
+  `resolve_column_allowlist(f"r0:{market}")` (`pooled_residual_model.py:224`), which depends on the market only,
+  so all 6 files of a market carry the same `column_differences_from_served`. Every market therefore has at least
+  one decision row in all 6 of its files: 66 of 66 real files have hits.
+- **Consistency.** 276 = 6 × 46, i.e. 46 dated decision tokens per market set, summed over the 11 markets.
+- **No coverage hole.** All 66 records files were scanned (68 = 66 + 2).
+
+### v7 (runner v7, sentinel v5; not run)
+
+| File | sha256 |
+| --- | --- |
+| Runner v7, `scripts/row28_run_v7.py` (from v6 by `make_v7.py`, 12 exact replacements) | `85f50b9ca10063d7b8e05370d6cbd9c4cf5b2c5825708fdc6ba7d1ebc8c688a3` |
+| Sentinel test v5, `scripts/test_row28_s7_sentinel_v5.py` (pins runner v7) | `f596c8537a4de7ac370b6e4bd858df02f7ae9518ec8e5262405ac1be79366532` |
+| `CLARIFICATION_3.md` (five addenda) | `e57a2d6d6a1537ffd53c2bf6468ac499f364ea9c8df3d81f692e8a06f032f998` |
+| `src/weather/calibration/r0_scope.py` (pinned by runner v7 K1) | `e8bb0683ed7c252b4f07e18f83709c9e0a5fcfd4c835d803b80c5c531f18607b` |
+
+- **K1.** The records decision allowance described above: pinned, whole value, exact path, counted in walk.json
+  `output_guard.decision_allowance`.
+- **K2.** tz-aware datetime arrays are walked as `isoformat` strings.
+- **K3.** pandas `Period` values are walked as `str(o)`.
+- **Sentinel v5** is v4 plus four tests:
+  - K1 at exact path and whole value: altered strings, wrong paths, non-records files and non-constant dates are
+    all hits, and the firings are counted;
+  - K1 pins fail closed on a sha or string change;
+  - K1 firings are reported by `output_guard_scan`;
+  - every temporal type.
+- **Static checks.** ast parse, symtable undefined names (only `__file__`, as in v6) and control bytes: clean.
+  Nothing was run.
+- **a4 targets** (after the v7 review is CLEAN and on the coordinator's go):
+  - C-0 19,657 / 0.0; C-0b 2 of 2; C-0c 4,125 / 0; C-b 660 / 0.0;
+  - the records sha manifest equal to a3's;
+  - output guard 0, with the allowance firing `dated_tokens` = 276.
+  Any deviation STOPs.
