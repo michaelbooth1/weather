@@ -871,3 +871,38 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
 | Peak memory | job 2,212,745,216 bytes |
 
 - **Verdict: full PASS on every a5 target.** STOP; the build waits for master's go.
+
+## Appended 2026-11-03T06:33:11-05:00: build (stage 2) GO, config, pre-launch checks and exact command (append only)
+
+- **GO (relayed).** a6 is accepted as a full PASS. GO for the build stage on runner v10 with launcher v6, under the
+  40% rule: peak memory at most 12.8 GB, i.e. 40% of 32 GB; above that the run STOPs. STOP after the build either
+  way. Integrity, labels, look and score each wait for a separate go.
+- **Config.** `C:\t\L59\row28\run_config\stage2_build_v1.json`, sha256
+  `31a751a468d0c8a333369acb6ab7046cd662988c9bf5f81716607bb239125197`. It is new; no existing config was edited.
+  It differs from `stage1_controls_v2.json` (`66e4b46e…`) only in `stage: build` and in `prev`:
+  `prev.controls = {path: C:\t\L59\row28\run\s1_controls_a6\walk.json, sha256: 46c621f7…}`.
+- **Pre-launch dated scan (ISO >= 2026-01-01).** 0 hits in each of the following:
+  - the config's contents, name and path;
+  - the OutDir name and path (`s2_build`);
+  - the stage (`build`);
+  - the log dir (`ctl_s2_logs`).
+  - Neither `cap_counts_v2.json` nor `r4_deciding_dates_receipt.json` is referenced or passed as a root.
+- **verify_prev binding to a6, checked read-only before launch:**
+  - a6's walk.json sha equals the config value; report status PASS;
+  - receipt `13f4d96a…` COMPLETE, output-guard hits 0, no receipt guard hits, no FLAG;
+  - receipt stage `controls`, `walker_sha256` = report `runner_sha256` = `dc58715c…`.
+- **Records.** `run\records` holds 66 files, and their raw shas equal a6's `records_sha256` (66 of 66), as
+  `stage_build` requires.
+- **Pinned input shas:** launcher v6 `8a2f8759…` and runner v10 `dc58715c…`. OutDir `s2_build` is absent.
+- **Launch-block checks.** The data\ junction check (exactly the 4 junctions, nothing else) and the process check run
+  in the same command block, immediately before the launch. Nothing runs between that check and the launch. Logs go
+  to `C:\t\L59\row28\ctl_s2_logs`.
+- **Exact command:**
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s2_build -Stage build -TimeboxSeconds 21600 `
+  -RootsPath C:\t\L59\row28\run_config\stage2_build_v1.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v10.py `
+  -ExpectSha dc58715ca4f8834746051e3aa8c5408f115e384a63cbf512ef1940cfea82abaa
+```
