@@ -7,8 +7,10 @@ This log records how the frozen row-28 prereg is executed.
 - **Read with:** `CLARIFICATION_1.md`, `CLARIFICATION_2.md` and `CLARIFICATION_3.md` (all 2026-11-03, committed
   before any control).
 - **Status:** the v6 final delta review was CLEAN on every file. Sentinel test v4 (stage 0) PASSED on
-  2026-11-03 (see the per-stage log). Stage 1 (`controls`) attempt 1 HALTed at the R4 junction check and
-  produced no controls result; it is waiting on a ruling (see the stage 1 detail below). Build has not started.
+  2026-11-03 (see the per-stage log). Stage 1 (`controls`) attempt 1 HALTed (R4 junction check plus the launcher
+  v5 G2 self-hit); no control was computed. Master accepted launcher v6 and OutDir `run\s1_controls_a2` (same
+  attempt). The launcher v6 smoke (stage 0b) PASSED. Gate for the a2 relaunch: the v6 delta review CLEAN, the smoke
+  PASS, then the coordinator's go. Build has not started.
 
 ## Exception to workstation_heavy admission
 
@@ -48,17 +50,22 @@ runs through a guarded one-off launcher.
     "one-off exception to workstation_heavy admission, master ruling 2026-11-02, read-only metadata walk".
 - **Launcher v5** is v4 plus one change (G4, C3 addendum): the minimal receipt that replaces a guarded receipt also
   carries `job_memory` (guarded first), so every stage's receipt records `job_memory.peak_job_memory_bytes`.
+- **Launcher v6** is v5 plus one change (K1, C3 third addendum): the receipt writes `output_guard.from` in basic
+  format (`$GuardFrom.Replace("-", "")` = `20260101`). `$GuardFrom` stays ISO, because it is the guard's
+  comparison bound.
 
 ## Pinned files
 
 | File | sha256 |
 | --- | --- |
-| Launcher v5, `C:\t\L59\row28\run_row28_guarded_v5.ps1` (= `scripts/run_row28_guarded_v5.ps1`) | `0b0d0f977ecba384a8ae4257a7d7f49af2fb92ca7d23f43916696ac9890ade5d` |
+| Launcher v6, `C:\t\L59\row28\run_row28_guarded_v6.ps1` (= `scripts/run_row28_guarded_v6.ps1`) | `8a2f8759047845a3c67f373faf43b86db459aeda15f243ef8d8e996298374405` |
+| Smoke child v1, `scripts/row28_smoke_noop_v1.py` (reads nothing) | `a8a53010dbecf3bb4a2199a043f3ac86ef67629aa3898e067137eae8d23d0864` |
+| Smoke verifier v1, `scripts/row28_smoke_verify_v1.py` (runner v6 `verify_prev` source, unchanged) | `7370c58de6999a2a1cc495b5fc45c6d9835d692e0893627d0c26d349c3c28493` |
 | Runner v6, `scripts/row28_run_v6.py` (run from `C:\wt\L59row28`) | `fd4464744e729cb8ed27eb68aa998d528ac4d2bfe5075d9837b9b02b7e2cae1b` |
 | Sentinel test v4, `scripts/test_row28_s7_sentinel_v4.py` (pins runner v6) | `331692850750b3016aaac8d51630523cffbae57e68beacc754169c08c3611fca` |
 | `CLARIFICATION_1.md` | `d9e70a2f47e05d9046893d3b5f461b7ab3ce658b5166748c5eaedca5d8187495` |
 | `CLARIFICATION_2.md` | `a71ba0e87c2d887309be41a57f0aceeccd03039acb1d20532e0dfa61d7df6bdd` |
-| `CLARIFICATION_3.md` (with its two 2026-11-03 addenda) | `1d8e6406b74593810ed8d0480cc473d6f15d8c6087d0666c0c4d0b79f8436cfc` |
+| `CLARIFICATION_3.md` (with its three 2026-11-03 addenda) | `55aa89511b880d40a5ac3fdcb5eb6da6e8712439575be5939ca9488867b0e8af` |
 | R-P2 module copy, `C:\t\L59\row28\tools\station_pool_corpus_d4947cfe.py` | `d4947cfe1b02c537ec84fca994ef0c1c26572be0251810eb744b421aae09f0b7` |
 | Job helper, `C:\wt\L59row28\scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` |
 | Admission helper, `C:\wt\L59row28\scripts\ops\workload_admission.ps1` (memory reading only) | `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441` |
@@ -69,6 +76,7 @@ runs through a guarded one-off launcher.
   runner v2 `0a74bb3d…`, launcher v2 `8bfea248…`, runner v3 `949464ab…`, launcher v3 `fb039782…`, sentinel
   test v1 `e91cbb46…`, runner v4 `059cb05b…`, launcher v4 `3f356f38…`, sentinel test v2 `2cc67424…`, runner v5
   `e138d9af…` and sentinel test v3 `1f5be86c…`. They stay in the branch as review history.
+- **Superseded after one run:** launcher v5 `0b0d0f97…` ran controls attempt 1 only (HALT; see the per-stage log).
 - **F2 pins (runner v4 `CALIBRATED_WEIGHTS_PINS`, checked at every stage before it starts).** The one allowlisted
   key path is `["calibrated_weights"]["metadata"]["generated_at"]`, in `records_*.pkl.gz` only, with a pinned value.
   It is copied by `src/weather/calibration/pooled_residual_model.py` 249 and loaded by
@@ -130,7 +138,8 @@ untouched.
 | # | Stage (`-Stage`) | Timebox (pre-stated) | Gate before it |
 | --- | --- | --- | --- |
 | 0 | sentinel test v4 (`scripts/test_row28_s7_sentinel_v4.py`, synthetic only) via `workstation_heavy.ps1 -Kind pytest -Queue` | the wrapper's own | coordinator go (v5 GO given) |
-| 1 | `controls`: C-0, C-0b, C-0c, C-b | 4 h = 14,400 s | sentinel PASS + coordinator go |
+| 0b | launcher v6 smoke: `row28_smoke_noop_v1.py` into `run\s0_smoke`, `-Stage controls`; PASS = receipt COMPLETE, no receipt guard hit, `output_guard.hits_total` 0, and `verify_prev` accepts it | the controls timebox (14,400 s) | master's order (reads no data) |
+| 1 | `controls`: C-0, C-0b, C-0c, C-b (attempt 1 HALT in `run\s1_controls`; relaunch into `run\s1_controls_a2`) | 4 h = 14,400 s | sentinel PASS, smoke PASS, v6 review CLEAN + coordinator go |
 | 2 | `build`: every record window, the y-free frame with label presence, NBM tables, pool feature rows with presence | 6 h = 21,600 s | stage 1 PASS |
 | 3 | `integrity`: outcome-blind integrity report; every HALT (R6); the C-pool control; empty pool; S; the §7 gate; restated n, MDE and §8.4 thresholds (N2) | 2 h = 7,200 s | stage 2 PASS |
 | — | commit and push `run/integrity_report.json` (= the stage-3 walk.json) and record its commit here | — | — |
@@ -145,8 +154,8 @@ untouched.
 - **Launch form.** One invocation per stage on the WS. OutDir is new each time, under `C:\t\L59\row28\run`:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v5.ps1 `
-  -OutDir C:\t\L59\row28\run\s1_controls -Stage controls -TimeboxSeconds 14400 `
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s1_controls_a2 -Stage controls -TimeboxSeconds 14400 `
   -RootsPath C:\t\L59\row28\run_config\stage1_controls_v2.json `
   -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v6.py `
   -ExpectSha fd4464744e729cb8ed27eb68aa998d528ac4d2bfe5075d9837b9b02b7e2cae1b
@@ -256,7 +265,8 @@ stage's Job, from `receipt.json` `job_memory.peak_job_memory_bytes`.
 | # | Stage | Start | Stop | Exit | Status | PeakJobMemoryUsed (peak committed private bytes) | walk.json sha256 | Other output shas |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | sentinel test v4 | 2026-11-03T04:40:49.2872160-05:00 | 2026-11-03T04:40:51.8190510-05:00 | 0 | PASS: 20 passed, 0 failed (0.98 s) | n/a (wrapper route) | n/a | wrapper stdout `2fd2e2b9666ee7b32d8254c7021785bc078d2eb6c872e633d0b77e0c3c4dd384`; queue events `3b0c25b5621cb16465f50042ef8f94660418ea66cec75f6bbdd883553bcf24a0` |
-| 1 | controls, attempt 1 | 2026-11-03T04:44:06.8117678-05:00 (launch); walker 20261103T044407.510313-0500 | walker 20261103T044419.855352-0500 | 6 | HALT: R4 junction check (no control computed); receipt withheld by its own guard (1 hit) | 131,993,600 | `131c02110c447019085168213e77c1c69aa676177a115880701bb14b3f8f1a4f` | receipt `aa525676f5008b7e020d3524b0fc030831e838d6f43923c7016c4431832f6073`; walk.csv `c0813fac922f17b9c9ee86e8b2a09982b8afd87979e87f69f12dbcb77e66ef5d`; junction manifest before = after `f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7`; walker.stdout `eb9978c8ed451dc3c517d04d6deba01bd2049cd98129118ae966e23ca23224c3` |
+| 0b | launcher v6 smoke | 2026-11-03T04:49:42.0447358-05:00 | 2026-11-03T04:49:42.8680856-05:00 | 0 | PASS: COMPLETE, receipt guard 0, log guard 0, `verify_prev` accepts | 8,200,192 | `c2cd0e8f457f61a60b01efbe9d7a68b9e6e0feb67fd1a169cd720adaebcd7c52` | receipt `113fed54a73390d235e143c4d769dbd927ed0dd6306289e807c3143ccef04c1d`; walk.csv `d0eed41164ce99563bcd9c877001a3051c873bcffb944b60f5208951ec192816`; walker.stdout and walker.stderr empty |
+| 1 | controls, attempt 1 | 2026-11-03T04:44:06.8117678-05:00 (launch); walker 20261103T044407.510313-0500 | walker 20261103T044419.855352-0500 | 6 | HALT (R4 + G2 self-hit): no control computed; receipt withheld by its own guard (1 hit), peak 0.13 GB | 131,993,600 | `131c02110c447019085168213e77c1c69aa676177a115880701bb14b3f8f1a4f` | receipt `aa525676f5008b7e020d3524b0fc030831e838d6f43923c7016c4431832f6073`; walk.csv `c0813fac922f17b9c9ee86e8b2a09982b8afd87979e87f69f12dbcb77e66ef5d`; junction manifest before = after `f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7`; walker.stdout `eb9978c8ed451dc3c517d04d6deba01bd2049cd98129118ae966e23ca23224c3` |
 | 2 | build | | | | | | | |
 | 3 | integrity | | | | | | | |
 | 4 | labels | | | | | | | |
@@ -284,7 +294,9 @@ unchanged, and walk.json and walk.csv hold no dated string (count-only check fir
   - `heavy_workload_queue.jsonl`: 1,066 bytes, `3b0c25b5621cb16465f50042ef8f94660418ea66cec75f6bbdd883553bcf24a0`
 
   `data\` now holds exactly the four junctions.
-- **Step 3 (relaunch) not done; it is held for a ruling.** There are two blockers.
+- **Attempt 1's folder** `C:\t\L59\row28\run\s1_controls` stays in place, untouched, as evidence.
+- **Step 3 (relaunch) was held; master has now ruled** (C3 third addendum): launcher v6 fixes (a), and the new
+  OutDir `run\s1_controls_a2` resolves (b). There were two blockers.
   - **(a) The launcher always fails its own receipt guard.** Launcher v5's G2 receipt guard scans the receipt
     JSON. That JSON embeds `output_guard.from = "2026-01-01"` (`$GuardFrom`), and that string matches the guard
     pattern. Every receipt therefore has at least 1 receipt-guard hit and is replaced by the minimal HALT receipt
@@ -292,5 +304,17 @@ unchanged, and walk.json and walk.csv hold no dated string (count-only check fir
     This attempt's `receipt_guard_hits` is 1, consistent with that constant alone.
   - **(b) The OutDir already exists.** The launcher refuses an OutDir that already exists, so an unchanged
     relaunch into `run\s1_controls` would be refused.
+
+Stage 0b (launcher v6 smoke) detail.
+- **Run.** The child was `scripts/row28_smoke_noop_v1.py` (`a8a53010…`, committed in `c5121ebb4` before the run),
+  started by launcher v6 with `-Stage controls`, the stage-1 config and `-TimeboxSeconds 14400`.
+- **Receipt.** Status COMPLETE, exit 0. `output_guard` was `from` `20260101` with `hits_total` 0. There is no
+  `receipt_guard_hits` field, because the full receipt is written only when G2 counts 0. The receipt does hold 2 raw
+  dated strings; both are masked (the exception text and the folder token in `walker`).
+- **Peak.** `peak_job_memory_bytes` was 8,200,192.
+- **verify_prev.** `scripts/row28_smoke_verify_v1.py` runs runner v6's `verify_prev` source, extracted by ast and
+  unchanged; it does not import the runner. Its output: `PASS verify_prev accepted controls`. Every check in
+  `verify_prev` was exercised, including the stage and `walker_sha256` = `runner_sha256` binding. Negative control:
+  on `run\s1_controls` (attempt 1) the same call refuses, with "status HALT is not ('PASS',)".
 
 Gate commits: integrity — (pending); look — (pending).

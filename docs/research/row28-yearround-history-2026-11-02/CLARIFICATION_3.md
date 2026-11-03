@@ -139,3 +139,61 @@ Runner v6 and sentinel test v4 implement this addendum. Launcher v5 is unchanged
     string of its own.
 - **H1 (sentinel).** B's centre set holds one sealed label, `2026-12-24`. The other ten labels lie before 2026-05-27.
   Sentinel v4 tests both kinds of label.
+
+## Third addendum (2026-11-03T04:50-05:00, before any control): controls attempt 1, launcher v6 and the smoke
+
+Master accepted launcher v6 and the OutDir `run\s1_controls_a2`, as relayed by the coordinator. The relaunch counts
+as the same attempt. The sha256 values are in `RUN_LOG.md`.
+
+- **Attempt 1.** Controls attempt 1 (launcher v5, runner v6) HALTed with exit 6. No control was computed. Two
+  causes:
+  - **R4.** The runner refused in run scope because `C:\wt\L59row28\data` held `logs`. The stage-0 wrapper had
+    created it.
+  - **G2 self-hit.** Launcher v5's receipt carried `output_guard.from = "2026-01-01"`, which matches the guard
+    pattern. Every v5 receipt therefore counted at least 1 hit and was replaced by the minimal HALT receipt.
+
+  The folder `run\s1_controls` stays in place, untouched, as evidence. `data\logs` was moved (not deleted) to
+  `C:\t\L59\row28\sentinel_wrapper_logs\` under master's pre-approval.
+- **Launcher v6 delta (K1).** v6 is v5 plus one change, and nothing else. The receipt writes `output_guard.from` as
+  `$GuardFrom.Replace("-", "")`, which is `20260101`, the same basic format runner v6 writes in walk.json. There is
+  no field mask.
+  - `$GuardFrom` itself stays `2026-01-01`. It is the bound of the guard's ordinal comparison (`CompareOrdinal(match,
+    $GuardFrom) -ge 0`).
+  - Setting `$GuardFrom = "20260101"` would have disabled the guard for every 2026 date: `-` sorts before `0`, so
+    `"2026-01-08" < "20260101"`.
+  - The other v6 changes are header comment lines only.
+- **Sweep: guard-matching constants that land in a receipt, report or log.** v6 line numbers below.
+  - **Hits on a clean path: none.** The only one was launcher v5 L96/L179 (`$GuardFrom` into `output_guard.from`);
+    v6 L185 fixes it.
+  - **Present but masked, or never emitted:**
+    - launcher L103 `$GuardMaskToken`: the folder token, in `walker` and in log paths; masked at L139 and L156.
+    - launcher L134 `$ReceiptExceptionText`: `receipt.exception`; masked exactly at L475.
+    - launcher L106-130 centre labels: used only for the set sha and the log `centre=` token; never written.
+    - runner L240 `GUARD_FROM`: written only in basic format, at L2882.
+    - runner L241 `GUARD_SEALED_FROM`: compared only; the counter keys use underscores, L463.
+    - runner L86/L403 the folder token in `DOC_DIR` paths: masked at L472 and L497.
+    - runner L193-216 F2 pins: emitted only as `pins_sha256` and a count, L818-819; the L817 Halt names the file
+      only.
+    - runner L265/L266/L269 via L404 `S7_CONSTANTS`: written only at `v5_gate_section7.cap`, L2032 (context-allowed).
+    - runner L1016-1017 and L1634/L1639 centre labels: written only in centre fields and `centre=` log tokens
+      (context-allowed).
+  - **Fail-closed halt paths only.** The Halt texts at runner L1889 and L1908 interpolate a 2026 date. They can only
+    occur on a path that already HALTs, so the guard withholds that reason text and counts it.
+  - **Below 2026, not hits:** runner L143, L1384, L2128-2129 and L2314-2315.
+- **Smoke (stage 0b, required by master).** Launcher v6 ran the no-op child `scripts/row28_smoke_noop_v1.py` into
+  `run\s0_smoke`, in the RUN_LOG form, with `-Stage controls`. The child reads nothing. It writes only the two files
+  the launcher names: walk.json `{runner_sha256: <its --expect-sha>, stage, status: PASS}` and a header-only
+  walk.csv.
+
+  `scripts/row28_smoke_verify_v1.py` does not import the runner. It checks runner v6's sha256, extracts by ast the
+  exact source of `verify_prev` and its dependencies (`Halt`, `sha256_file`, `FORBIDDEN_ROOTS`, `MAIN_DATA_PIN`,
+  `_OBSERVED_READS`, `guard_read`), executes only that code and calls `verify_prev` on the smoke folder. Every check
+  in `verify_prev` was exercised:
+  - the report sha;
+  - report status PASS;
+  - the receipt exists and is COMPLETE;
+  - `output_guard.hits_total == 0`, `receipt_guard_hits` (absent, so 0) and no `output_guard_flag`;
+  - receipt stage equals the stage name;
+  - receipt `walker_sha256` equals report `runner_sha256`.
+
+  As a negative control, the same call refuses attempt 1's folder (at its first check: report status HALT).
