@@ -224,7 +224,49 @@ Host dry-run checklist additions, before step 0c:
   - It is set in one commit with the wrapper's `MG1_LOOK_ENTRY_PIN`, which is Clarification 7 (C1).
   - Until then, every look is VOID 5 by design (`b_scorer.py` lines 127-133), and the wrapper refuses every look.
 
-## 6. Open items and blockers (not invented here)
+## 6. Per-date claim table (R28b (3), rulings:435, 477, 736) — DRAFT
+
+**Rule 9.** "No outcome, label or price on a date is read until every test that claims that date has taken its
+look." Claims rank by freeze time, and a later-frozen test never reads a date before every earlier-frozen
+claimant of it has looked. A claim binds only over its own scope (markets, dates, inputs): MG-1's covers
+NBM-derived reads only (`docs/operations/MODEL_IMPROVEMENT_METHOD.md` lines 171-176). After B, rule 9 is per
+date, and dates from 11-02 on stay claimed until 01-26 or later (R28b (3), rulings:435).
+
+Rows are in rule-9 order (freeze time). Lines cite `origin/master` `621d67f0f` unless a branch is named.
+
+| # | Claimant | Frozen (rule-9 rank) | Dates claimed | Look | Source |
+| --- | --- | --- | --- | --- | --- |
+| 1 | MG-1 (scope: NBM-derived reads only) | prereg signed 2026-10-04 (DECISION_LOG:107); window bound 2026-10-16 (DECISION_LOG:227) | 2026-10-15 .. `MG1_LAST` 2026-11-28, provisional; it only moves later (DECISION_LOG:227; `weather.mg1_reserved_window`) | one look on the look morning after the last date's finality and the R24 freeze (11-29 or later; A4, 11-03:13; rulings:287, 738) | `mg1_reserved_window.py`; MG-1 Clarification 2 |
+| 2 | Evening-fix read (evening lock-in fix scoring) | signed 2026-10-13 (DECISION_LOG:183) | local targets 2026-10-16 .. 10-27; the outcome-blind extension may add 10-28 only, never 10-29 (DECISION_LOG:295) | Stage 1 (`--no-market`) ran 11-02 (DECISION_LOG:300). Stage 2 (condition 3, prices) only after MG-1's look receipt exists (DECISION_LOG:295) | Clarification 1 `docs/research/evening-lockin-fix-scoring-clarification-1-2026-10-31.md`; R24 (4), rulings:242 |
+| 3 | B (and MG-2, one look) | BOUND 2026-10-28 (`B_FORWARD_TEST_DESIGN.md`:28) | D0 2026-10-29; the first 45 countable dates with no skipping; the 45th is 2026-12-12 if all count, moving later per non-countable date (`B_FORWARD_TEST_DESIGN.md`:106-114) | 12-13: freeze about 07:20, then this file's §1 chain (rulings:289) | `B_FORWARD_TEST_DESIGN.md` §3; this file |
+| 4 | L6_G (screen on B's dates) | FROZEN 2026-10-30 (DECISION_LOG:288; prereg line 1) | D0 2026-10-31; N = 45 countable dates with no skipping (`l6g_forward_prereg_FROZEN_2026-10-30.md`:9, 106) | a single look after B (on or after 12-13), after every test that claims its dates (prereg:40; method:170) | `docs/research/gefs-members-l11-2026-10-26/l6g_forward_prereg_FROZEN_2026-10-30.md` |
+| 5 | Row 72 (R-ODC P1) | FROZEN 2026-10-30, after 13:00 EDT (`rodc-forward-prereg-2026-10-29/prereg-draft.md`:1-8) | D0 2026-10-31; the first 45 countable dates; a non-countable date is skipped (prereg-draft:86-92) | after the 45th countable date and on or after the B look receipt (prereg-draft:93) | `docs/research/rodc-forward-prereg-2026-10-29/prereg-draft.md` |
+| 6 | F8-MH | frozen 2026-10-31 (`f8-mh-forward-2026-10-31/freeze.md`:3) | D0 2026-11-02; window 2026-11-02 .. 2027-01-25 (85 local dates) (freeze.md:84-86) | one look in the 01-26 window: on or after PT-1's look (on or after 2027-01-27) and after B/MG-2, MG-1, L6_G and row 72 (freeze.md:87-88) | `docs/research/f8-mh-forward-2026-10-31/freeze.md` |
+| 7 | T+1 (A1-A3) | NOT frozen: DRAFT rev 11 (`claude/t1-forward-prereg-20261030` @ `8f8158d1f`, README:3) | from the first target date after its freeze commit; A1/A3 dates inside MG-1's window are also MG-1's (README:374-379) | first readable look after B's 12-13 look, MG-1's look (A1/A3) and row 72's look; F8-MH and PT-1 dates are not read there. Final look at 82 or more countable dates and after the PT-1 and F8-MH looks (README:385-399) | `docs/research/t1-forward-prereg-2026-10-30/README.md` on that branch |
+| 8 | PT-1 | unbound: DRAFT, `PT_D0: UNSET` (`COOL_SEASON_PAPER_TEST_PREREG.md`:6-10) | **none** (R28b, rulings:736). If bound as drafted, it would claim 12-12..01-25 (DECISION_LOG:276); that claim starts only at its binding commit | — (its single read is set at binding) | `docs/operations/COOL_SEASON_PAPER_TEST_PREREG.md` §4 (line 160) |
+| 9 | Row-28b forward (candidate claimant) | NOT frozen: DRAFT (`claude/row28b-forward-prereg-draft-20261103` @ `1fed1b989`, `prereg_row28b_forward.md`:8-9); it freezes only after the owner OKs a 12-17 embargo line | D0 2026-12-17; N = 45 forward dates (12-17..01-30 if none drops) (prereg:52-53) | not before PT-1's and F8-MH's (01-26) looks and every earlier-frozen claimant; not before 2027-01-31 (prereg:54, 63-65) | `docs/research/row28b-forward-prereg-draft-2026-11-03/prereg_row28b_forward.md` on that branch |
+
+Notes:
+- **Rows 4 and 5 froze the same day.** Their rule-9 rank is their freeze commit times. Row 72's reached origin
+  after 13:00 EDT; L6_G's time is not stated in the files I read. `<MASTER SLOT: record the L6_G vs row 72 freeze
+  commit order>`. Neither reads the other's dates before B's look, so the order only matters after 12-13.
+- **MG-1's scope.** The evening-fix read does not cover MG-1's anchor path (DECISION_LOG:218, A6). Its stage-2
+  price read still waits for MG-1's receipt (DECISION_LOG:295).
+- **MG-3** is not a claimant; it was dropped (DECISION_LOG 2026-10-30; T+1 README:403).
+- **Rule-9 scope.** DECISION_LOG:309 (vi) put per-date vs per-(date, market) to the 11-03 sitting. R28b (3) says
+  per date after B. I found no 11-03 text that changes this.
+
+### Ranking of post-B uses
+
+`<MASTER SLOT: rank the post-B uses of the B dates (R28b, rulings:477)>`
+
+### T+2 go/no-go
+
+`<MASTER SLOT: T+2 sibling go/no-go from the census lead-2 counts and the presence check. It waits for the 11-20
+presence check (R28b WS brief item 4). A go needs power of at least 0.5 at its own N (rule 6), a new emitter file
+(never `t1_forward_emitter.py`, pinned at `5d348b75`), and the owner's yes for any new daily task (rulings:477).>`
+
+## 7. Open items and blockers (not invented here)
 
 - **B1. SPECI-disclosure module: built, not landed.** `b_floor_disclosure.py` is on
   `claude/b-speci-disclosure-20261103` @ `1a0a04f9d…`, from L51's accepted draft (`468aa514…`). It lands in a
@@ -240,10 +282,7 @@ Host dry-run checklist additions, before step 0c:
 - **B4. Freeze `--through`: CLOSED** by master 2026-11-03 (step 0b, §3).
 - **Q1. Gap semantics: CLOSED** by master 2026-11-03. A date in `skipped_dates` is T2 (non-countable). A date in
   neither list, or any metadata inconsistency, holds.
-- **Other content the rulings assign to this clarification, not drafted here:**
-  - R28b's per-date claim table for B, MG-1, L6_G, row 72, F8-MH, T+1, PT-1 and the evening-fix read, with PT-1
-    claiming no date, and the ranking of post-B uses (rulings:435, 477, 736);
-  - the T+2 go/no-go (rulings:477, 736);
-  - the rule that every B-1 clarification is named `b1-clarification-*.md` and lives outside the bound directory
-    (rulings:541; this file complies).
-  These are master's to write. No ruling text for their content was found.
+- **Master slots in §6:** the L6_G vs row 72 freeze order, the ranking of post-B uses, and the T+2 go/no-go
+  (after the 11-20 presence check).
+- **Naming rule:** every B-1 clarification is named `b1-clarification-*.md` and lives outside the bound directory
+  (rulings:541). This file complies.
