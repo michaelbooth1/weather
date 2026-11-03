@@ -74,7 +74,8 @@ transfer manifest's dates: `<PIN: concat command and window>`.
 `python -m weather.calibration.b_drop_list materialize --window <step 0d window> --out <drop list>` before the
 MG-2 score.
 - The module is `b_drop_list.py` `<PIN: b_drop_list>`. It is on `claude/r19-b-coverage-20261101` @
-  `55e5147e1158b1e547b038727bf898adc665a3fe` and not yet on master.
+  `55e5147e1158b1e547b038727bf898adc665a3fe`, an ancestor of combo A' `a026af7f6`, which the night sequencer lands
+  from 00:35 on 11-04 (master 2026-11-03).
 - Log the drop-list sha256. `look_guard` writes it into the consumed marker.
 
 ### Look session
@@ -141,7 +142,7 @@ SHA256` on the production checkout. Any mismatch stops the session before the tr
 | `tests/calibration/test_b_floor_disclosure.py` | step 5 test | `<PIN: test_b_floor_disclosure>` | candidate `d2ba535ffc2f64c6344d925f5adc0bf8ef84e8374fe5fb4c6bf0f2a59f839d5a` at the same commit |
 | `src/weather/calibration/mg1_look.py` | step 0a, VOID 5 | `<PIN: mg1_look re-registered>` = `MG1_LOOK_ENTRY_SHA256` | candidate on `claude/mg1-look-scoring-r11-20261103`; set by Clarification 7 |
 | `src/weather/backtesting/venue_label_audit.py` | step 0b | `<PIN: venue_label_audit>` | on master by 11-20 (rulings:265) |
-| `src/weather/calibration/b_drop_list.py` | step 0e | `<PIN: b_drop_list>` | R19 head |
+| `src/weather/calibration/b_drop_list.py` | step 0e | `<PIN: b_drop_list>` | R19 head `55e5147e1`, in combo A' `a026af7f6` (lands from 00:35 11-04) |
 
 Host dry-run checklist additions, before step 0c:
 - [ ] Hash every file in the table and compare it to the expected sha256. Stop on any mismatch or placeholder.
@@ -247,9 +248,12 @@ Rows are in rule-9 order (freeze time). Lines cite `origin/master` `621d67f0f` u
 | 9 | Row-28b forward (candidate claimant) | NOT frozen: DRAFT (`claude/row28b-forward-prereg-draft-20261103` @ `1fed1b989`, `prereg_row28b_forward.md`:8-9); it freezes only after the owner OKs a 12-17 embargo line | D0 2026-12-17; N = 45 forward dates (12-17..01-30 if none drops) (prereg:52-53) | not before PT-1's and F8-MH's (01-26) looks and every earlier-frozen claimant; not before 2027-01-31 (prereg:54, 63-65) | `docs/research/row28b-forward-prereg-draft-2026-11-03/prereg_row28b_forward.md` on that branch |
 
 Notes:
-- **Rows 4 and 5 froze the same day.** Their rule-9 rank is their freeze commit times. Row 72's reached origin
-  after 13:00 EDT; L6_G's time is not stated in the files I read. `<MASTER SLOT: record the L6_G vs row 72 freeze
-  commit order>`. Neither reads the other's dates before B's look, so the order only matters after 12-13.
+- **Rows 4 and 5: L6_G ranks before row 72 (master ruling 2026-11-03).** The freeze commit's committer time is
+  the only recorded freeze time:
+  - L6_G: `475ddf81e15ab520ea861bd3ba9dc8af00ac9a56`, 2026-10-30T13:58:00-04:00;
+  - row 72: `b6b855b4c14cc58ad98d3ebc797f6a5f3ee550d2`, 2026-10-30T13:59:20-04:00 (on
+    `claude/rodc-forward-prereg-draft-20261029`; DEV_WINDOW_LEDGER:117).
+  - Master's copy `f60b9d1aa` (14:43:22-04:00) is a byte copy and does not move row 72.
 - **MG-1's scope.** The evening-fix read does not cover MG-1's anchor path (DECISION_LOG:218, A6). Its stage-2
   price read still waits for MG-1's receipt (DECISION_LOG:295).
 - **MG-3** is not a claimant; it was dropped (DECISION_LOG 2026-10-30; T+1 README:403).
@@ -282,7 +286,7 @@ presence check (R28b WS brief item 4). A go needs power of at least 0.5 at its o
 - **B4. Freeze `--through`: CLOSED** by master 2026-11-03 (step 0b, §3).
 - **Q1. Gap semantics: CLOSED** by master 2026-11-03. A date in `skipped_dates` is T2 (non-countable). A date in
   neither list, or any metadata inconsistency, holds.
-- **Master slots in §6:** the L6_G vs row 72 freeze order, the ranking of post-B uses, and the T+2 go/no-go
+- **Master slots in §6:** the ranking of post-B uses and the T+2 go/no-go
   (after the 11-20 presence check).
 - **Naming rule:** every B-1 clarification is named `b1-clarification-*.md` and lives outside the bound directory
   (rulings:541). This file complies.
