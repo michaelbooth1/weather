@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-02 America/Toronto (rows 106/107/109/113 closed, R28b untestable, R-CS/R-P2/K112 PARKED, CONTINUE/STOP ruled; night 11-02/03 combo pending).**
+**Last updated: 2026-11-03 America/Toronto (rows 106/107/109/113 closed, R28b untestable, R-CS/R-P2/K112 PARKED, CONTINUE/STOP ruled; night 11-02/03 combo landed).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -36,7 +36,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 ## Current truth
 
 - **Production source:** read `origin/master` with git.
-  **Night 11-02/03 combo `claude/night-combo-20261102`: PLACEHOLDER, outcome pending master's 07:00 relay (not written yet).**
+  **Night 11-02/03 combo `claude/night-combo-20261102` @ `8d10666ed` LANDED 11-03 (merge `cb890e6b3`, quiet-window merge; master):** blook-r3, B-look S0/S1 `d5a254b6c`, #5, items 23/33, CI shard, tests-only fix (DL). First new training_window.ps1 run 04:15, rc checked by master.
 - **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev.
   **09-30..10-14 released once for weather kill-only/atlas reads** (owner 10-30, DL): local target date; Austin 10-03 out; MG-2/B
   outputs out; **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17).
