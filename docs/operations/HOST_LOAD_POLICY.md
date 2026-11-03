@@ -42,8 +42,9 @@ streams), any component from `C:\t` down that is absent or a reparse point or ju
 duplicated entry, and any sha mismatch. The wrapper opens the script deny-write before admission, hashes
 that handle, and keeps it open until the child exits, so the bytes Python runs are the pinned bytes. The
 live/execute/place/cancel/promote switch refusal and the b_scorer look refusal apply to its arguments.
-After admission it re-checks the path, then refuses the start when the script's or the checkout's volume
-has less than `-MinFreeDiskGB` free (default 50 GiB, at least 20). It prints and, with `-Queue`, adds to
+After admission it re-checks the path; a residual check-then-open window remains, open only to a local actor
+under the same user (accepted as narrowed, L16 2026-11-03). It then refuses the start when the script's or the
+checkout's volume has less than `-MinFreeDiskGB` free (default 50 GiB, at least 20). It prints and, with `-Queue`, adds to
 the `finish` event the exit code, `script_sha256` and `peak_job_memory_bytes`: the Job's
 `PeakJobMemoryUsed`, the peak committed memory of the whole tree (the venv `python.exe` is a redirector, so
 its own working set is not the job's peak). Mutexes, slots, state files and the lease are those of every

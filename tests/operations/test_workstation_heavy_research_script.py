@@ -5,7 +5,8 @@ as ``python -I <script>`` from an exact (path, sha256) allowlist entry under C:\
 mismatch, missing entry, path outside one lane segment, "..", or reparse point/junction is refused
 before a lease; the script is held deny-write from the hash until the child exits; a disk floor
 refuses the start; the exit code and the Job's whole-tree peak committed memory are reported; and
-the kind adds no mutex, slot or state name. The shipped allowlist is empty.
+the kind adds no mutex, slot or state name. The shipped allowlist holds exactly the reviewed entries in
+SHIPPED_ENTRIES (each an exact path and sha256).
 
 Every wrapper run here uses the slot tests' fixture-local mutex and state path, never the host's real
 lease, and an overridden allowlist root under tmp_path.
