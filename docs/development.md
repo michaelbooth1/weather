@@ -96,11 +96,27 @@ plus later sightings.
 | `tests/operations/test_storage_recovery_inventory_wrapper.py::test_real_wrapper_completion_binding_failure_and_child_tree_teardown[success-True]` | Windows | 1 | run 37078892774 attempt 1 failed, attempt 2 passed |
 | `tests/operations/test_live_wrapper_credential_launcher.py::test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse` | Windows | 1 | inferred, not same-SHA proven (P0-3) |
 | `tests/operations/test_production_baseline_reconciler_execution.py::test_post_start_hung_read_cannot_consume_the_containment_stop_reserve` | Windows (`reconciler-5`) | 1 | run 37246104447 (PR #209, 3767c21f): attempt 1 asserted `[] == ['WeatherOneShotPush']` after 48 s; same-SHA rerun passed. Timing-sensitive hang test on a slow hosted runner |
+| `tests/operations/test_replay_cache_compression_wrapper.py::test_abrupt_wrapper_exit_kills_entire_owned_tree` | Windows | intermittent (2026-11-02; not counted) | Intermittent on slow Windows runners: the fixture's 4 s hang deadline also covered child-tree launch, so a slow launch tripped it before the tree existed (teardown itself proved). Fix: arm the deadline once the tree exists (tests-only branch `claude/ci-fixture-robustness-20261102`). Remove this row when the fix lands |
 
 A deterministic timing race is fixed, not tabled. `test_workload_admission_script.py` held the heavy-workload
 mutex for a fixed 2 s while a contender started; on a slow hosted runner the contender started after the
 release, so `windows-lane-a` was red on master (runs 37743128778, 37793211993). The holders now keep the
 mutex until the test creates a release file.
+
+### Known-failing Windows Qualification groups
+
+These groups fail on hosted Windows Qualification for a known, environment-bound cause; they are not flakes and not
+regressions of the head under test (master, 2026-11-02). A backlog lane fixes both (low priority). Remove a group when
+its fix lands.
+
+- `tests/market/test_maker_counterfactual_tape.py`: the fixture's `compress_closed_segments` returns False off the
+  capture host.
+- `tests/operations/test_international_live_session_runner.py` and
+  `tests/operations/test_international_live_session_launcher_sealer.py`: they fail with `live-session artifact is absent`
+  (raised in `weather.operations.live_path_security`). Root cause (master, 2026-11-02): `canonical_git_executable()`
+  (`src/weather/operations/live_path_security.py:566/572`) builds `<GitForWindows InstallPath>\mingw64\bin\git.exe` from
+  the registry, and the runner's Git 2.56 has no `mingw64` there, so it fails closed. This is also a
+  before-any-live-attempt prerequisite: [live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) prerequisite 10.
 
 ### Proposal: shrink the host suite once the Windows lane is green (not in force)
 
