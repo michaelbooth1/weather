@@ -225,11 +225,13 @@ centres. Calendar arithmetic only.
 | --- | --- | --- | --- |
 | `AUG_SEP` (prm:96, core:55) = `GOLDEN` (mg2_p3d_n:658) | 59 | 01-01..02-28 | 01-01: 08-08 vs 09-22 |
 | `OCT_DEC` (prm:91; arm P2) | 137 | 01-01..05-17 | 01-01: 10-10 vs 12-24 |
-| `JAN_JUL` (prm:92-95) | 78 | 10-15..12-31 | 12-31: 07-22 vs 01-08 |
+| `JAN_JUL` (prm:92-95) | 78 (note a) | 10-15..12-31 | 12-31: 07-22 vs 01-08 |
 | P3 = `OCT_DEC + AUG_SEP` (prm:108) | 106 | 01-01..04-16 | 01-01: 08-08 vs 12-24 |
 | P3F = `JAN_JUL + AUG_SEP + OCT_DEC` (prm:115) | 0 | — | — |
 | `FORWARD_CENTRES` (prm:1258; forward state prm:1573) | 98 | 01-01..04-08 | 01-01: 08-08 vs 12-09 |
 | `VALIDATION_CENTRE` (prm:90; P0/P1/U0) | 0 | — | — |
+
+Note a (master accepted):78 counts the 10-15 circular tie (01-08 and 07-22 are both 85 days away); an independent count that does not treat a tie as a difference when the linear pick is one of the tied centres gives 77.
 
 **Reachability today.** None of these month-days reaches a bound call:
 - Dev scoring uses `AUG_SEP` on Aug-Sep rows only (prm:1035, :1226).
