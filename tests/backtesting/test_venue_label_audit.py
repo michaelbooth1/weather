@@ -318,8 +318,11 @@ def test_module_never_imports_the_reader_or_opens_the_reserved_window():
             imported |= {alias.name for alias in node.names}
     assert not any("venue_label_reader" in name for name in imported)
     assert {name for name in imported if name.startswith("weather")} <= {
-        "weather.backtesting.settlement_ledger", "weather.backtesting.venue_rule_labels",
+        "weather.backtesting", "weather.backtesting.settlement_ledger", "weather.backtesting.venue_rule_labels",
         "weather.market.market_registry", "weather.paths", "weather.schema_families", "weather.sources.daily_summary"}
+    # the only name taken from the package is the split-out freeze module (master 2026-11-03)
+    assert {alias.name for node in ast.walk(ast.parse(source)) if isinstance(node, ast.ImportFrom)
+            and node.module == "weather.backtesting" for alias in node.names} == {"venue_label_freeze"}
 
 
 def test_module_size_schema_and_docs():
