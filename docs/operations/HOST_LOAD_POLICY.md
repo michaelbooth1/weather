@@ -24,6 +24,14 @@ Its `weather_heavy` kind admits only exact module names from
 `Get-WeatherWorkstationOfflineModule` (module, not subcommand: a module that also
 fetches can never be listed; network fetchers such as `forecast_training_corpus_fetch`,
 `metar_history` or `venue_rule_labels` run directly, outside the wrapper, master ruling 2026-10-23).
+One subcommand is refused although its module is listed: `weather.calibration.b_scorer look`
+(and, fail-closed, any command text naming b_scorer together with a look-like token, except the exact
+`-m weather.calibration.b_look_wrapper` form and allowlisted inspection tooling, both void on a newline,
+`#` or escaped quote) is denied by both the wrapper
+(`Get-WeatherWorkstationOfflineArgumentRefusal`) and the Codex hook; B's one look runs only as
+`python -m weather.calibration.b_look_wrapper look` (master ruling 2026-11-01, B-1 Clarification 3).
+This is a guard on those two paths only: Claude Code sessions have no hook layer. The binding control stays the
+fixed consumed marker plus the look-day checklist naming only the wrapper command.
 The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the
@@ -212,7 +220,12 @@ below applies: no exemption, no queue state, the same windows and the same bound
   `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
   value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`
   queue event records `thread_cap` (cap, logical processors, the values set). The exclusive pre-gate is not capped.
-- *Lock record.* Every slot's lock file keeps the schema tag `weather_heavy_workload_lease_v3`. A
+- *Lock record.* A lease written by the admission wrapper carries the schema tag
+  `weather_heavy_workload_lease_v3`, but a slot's lock file does not always hold one (corrected 2026-11-02,
+  master; this line said "every slot's lock file keeps the v3 tag"): the integration control mutex
+  (`scripts/ops/integration_attempt_contract.ps1:84`) writes `weather_integration_control_mutex_v1` into
+  `data\logs\heavy_workload.lock` and leaves it there after release (`:109`), and
+  `scripts/ops/workload_admission.ps1:2229` truncates the file before it proves identity. A
   `workstation_offline_v1` record, slot 1 included, adds `workstation_slot_id` under that unchanged tag, and
   `host_global_mutex` names the slot's own mutex; readers ignore unknown fields. Capture-colocated and
   portable records carry no new field.

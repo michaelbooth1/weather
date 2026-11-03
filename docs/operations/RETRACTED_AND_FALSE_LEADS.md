@@ -470,6 +470,13 @@ barrier `BLOCK`, or a blocker on another step. Which markets failed, and why, is
 `[RESTORE]` lines follow the `[STOP]` lines in `data\logs\training_window.log` — that is the only
 part that can cost a streak day. If capture was restored, exit 2 is a healthy run.
 
+**Correction (master ruling R18, 2026-11-01): Stage-A rc 2 has four cause classes; read the manifest's
+`first_blocker` code, not the exit code.** (1) Barrier `DIAGNOSTIC_ONLY` = by design (above). (2)
+`exchange_economics_rule_drift` = a real fault, failing since about 2026-10-20, not 10-08 (10-08 was a separate
+episode, closed by the 10-10 matcher merge). (3) `settlement_source_audit` `BLOCK` = a real fault; the cause is
+ruled per case. (4) A transient pre-step deferral = a real fault, fixed by the pre-step retry (`cd93c4e7`). The
+`WeatherTrainingWindow` "2 every night" row above is stale: the task has been Disabled since its 2026-08-13 run.
+
 ### "A live PID proves it still owns an old lock" — FALSE UNDER PID REUSE
 
 On 2026-08-19 a killed daily-refresh process left locks naming PID `3212`. Hours later Windows

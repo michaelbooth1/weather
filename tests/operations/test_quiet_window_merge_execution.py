@@ -328,8 +328,19 @@ $verdict = switch ($exitCode) {
     default { "UNDECIDABLE" }
 }
 $payload = [ordered]@{ verdict = $verdict; branch = $Branch; files = @() }
-[IO.File]::WriteAllText($JsonOut, ($payload | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+# QWM_TWIN_ROLL_JSON scripts a defective JSON beside the exit code:
+# missing, garbage, verdict=<name> or branch=<ref>.
+$jsonMode = [string]$env:QWM_TWIN_ROLL_JSON
+if ($jsonMode -like "verdict=*") { $payload.verdict = $jsonMode.Substring(8) }
+if ($jsonMode -like "branch=*") { $payload.branch = $jsonMode.Substring(7) }
+if ($jsonMode -eq "garbage") {
+    [IO.File]::WriteAllText($JsonOut, "{ not json", [Text.UTF8Encoding]::new($false))
+}
+elseif ($jsonMode -ne "missing") {
+    [IO.File]::WriteAllText($JsonOut, ($payload | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+}
 Write-Output "twin roll_verdict exit=$exitCode"
+if ($jsonMode -eq "noexit") { return }  # leaves $LASTEXITCODE as the caller set it
 exit $exitCode
 '''
 
@@ -560,6 +571,7 @@ def _invoke(
     launch: str = "file",
     script: Path | None = None,
     push_mode: str = "push",
+    roll_json: str = "",
 ) -> Outcome:
     assert WINDOWS_POWERSHELL is not None and REAL_GIT is not None
     target = script or fx.script
@@ -589,6 +601,7 @@ def _invoke(
         "QWM_TWIN_PUSH_ARGUMENTS": PUSH_ARGUMENTS,
         "QWM_TWIN_PUSH_MODE": push_mode,
         "QWM_TWIN_ROLL_EXIT": str(roll_exit),
+        "QWM_TWIN_ROLL_JSON": roll_json,
         "QWM_TWIN_CAPTURE_PLAN": capture_plan,
         "GIT_LFS_SKIP_SMUDGE": "1",
         "GIT_TERMINAL_PROMPT": "0",
@@ -743,6 +756,32 @@ def test_exec_roll_free_branch_publishes_outside_the_quiet_window(fx: Fixture) -
 
     _assert_published(fx, outcome, first_parent=fx.baseline)
     assert "roll-free branch: 01:00-04:00 not required" in outcome.stdout
+    assert _lines(fx, "roll.log") == [fx.reviewed_tip]
+
+
+@pytest.mark.parametrize(
+    "roll_json",
+    ("missing", "garbage", "verdict=ROLL-SENSITIVE", "branch=" + "0" * 40, "branch=" + BRANCH, "noexit"),
+    ids=("json-missing", "json-unparseable", "json-verdict-mismatch", "json-other-tip", "json-movable-ref",
+         "no-exit-code"),
+)
+@pytest.mark.spawns
+def test_exec_exit_zero_without_a_matching_roll_free_json_is_roll_sensitive(
+    fx: Fixture, roll_json: str
+) -> None:
+    # Exit 0 alone is not ROLL-FREE: the JSON must name ROLL-FREE for the exact
+    # reviewed tip, so each defect keeps the branch inside 01:00-04:00.
+    outcome = _invoke(fx, now="2026-10-04T05:30:00", roll_exit=0, roll_json=roll_json)
+
+    assert outcome.returncode == 1, outcome.stdout + outcome.stderr
+    assert outcome.report is not None
+    assert outcome.report["stage"] == "abort" and outcome.report["ok"] is False
+    assert "roll-sensitive branch outside the 01:00-04:00 quiet window" in outcome.report["detail"]
+    # A verdict script that returns without `exit` reads as the 9009 sentinel,
+    # never as the stale 0 an earlier Git call left in $LASTEXITCODE.
+    observed_exit = 9009 if roll_json == "noexit" else 0
+    assert f"roll verdict exit {observed_exit} -> treated as ROLL-SENSITIVE" in outcome.stdout
+    _assert_untouched(fx, outcome)
     assert _lines(fx, "roll.log") == [fx.reviewed_tip]
 
 
