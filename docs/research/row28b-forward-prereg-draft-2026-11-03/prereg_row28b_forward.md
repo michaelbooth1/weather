@@ -9,6 +9,11 @@ opened. The only numbers used are row 28's frozen history results (branch
 `32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b` @ `741174e5f`) and the post-hoc D2 diagnostic
 (`claude/row28-posthoc-diag-20261103` @ `2a9cfcdf6`), used for sizing only.
 
+**Master rulings on the first draft (2026-11-03), applied here.** Q2 ACCEPTED (the 1.5× planning bound, rule 19).
+Q3: the futility looks are dropped for one single look (§6). Q4 ACCEPTED (forward = NBM v5.0, disclosed). Q5
+ACCEPTED (venue-rule labels through the R24 frozen copy, mismatch with WU history disclosed). Q1, Q6, Q7 and Q8
+stay open. Still DRAFT, NOT FROZEN.
+
 **Re-test from zero.** Row 28 prereg §8.3: "The forward test re-tests the candidate from zero, and the history point
 is not carried as evidence." The history point (B − S −0.1368) sizes this test; it never enters its verdict.
 
@@ -36,8 +41,12 @@ is not carried as evidence." The history point (B − S −0.1368) sizes this te
   DEV_WINDOW_LEDGER and the reserved window at freeze):** PT-1 (12-12..01-25), F8-MH (D0 11-02, look 01-26), row 72
   R-ODC P1 (D0 10-31), MG-1 forward shadow (NBM-derived reads only), MG-2 / Rule B-1 (45th date 12-12), T+1 (not yet
   frozen), L6_G. A claim whose scope cannot be shown not to intersect is treated as intersecting.
-- The 45th date is about 01-30, so all N dates have accrued before the first allowed read; the §6 looks are applied
-  in order at that single read (open question Q3).
+- **One look (master ruling on Q3).** The test has a single look, taken after the 45th deciding date (01-30 if
+  none drops) is final, that is after its venue-rule label is in the R24 frozen copy. **Earliest read date:
+  2027-01-31**, and only once PT-1 and F8-MH (01-26) and every other earlier-frozen claimant have looked; the
+  actual read date is recorded in the look receipt.
+- **No fail-fast in calendar time.** Every forward read waits for the earlier-frozen claimants' 01-26 looks, so an
+  interim look could not be read earlier than the final one; futility looks would save no calendar time.
 
 ## 2. Candidate and comparator
 
@@ -51,11 +60,14 @@ is not carried as evidence." The history point (B − S −0.1368) sizes this te
   `weather.model.mg_serve_core.mg1_band_probs` to 1e-12 on every scored row (row 28 §2). S reads only the 07Z
   v2_mean, as serving does.
 - **Inputs.** Both arms read the same rows, built by the row-28 build function from the free official NBM archive
-  with the history's point-in-time availability rule, inputs only and blind. Every forward date is NBM v5.0; row 28
-  was V4-scoped and its §7 gate (PASS on 21 V5.0 dates) means "no gross shift seen", not equivalence (Q4).
-- **Labels.** Forward dates fall after 2026-10-23, so labels are the venue-rule labels (routine METAR, WU fallback),
-  read only through `read_venue_labels` from the look-morning frozen copy (R24 ruling). Row 28 used WU history
-  labels (Q5). Denver is excluded, as in row 28 §5.3.
+  with the history's point-in-time availability rule, inputs only and blind.
+- **NBM v5.0 (disclosed; master ruling on Q4).** Every forward date is NBM v5.0. Row 28's history survival was
+  V4-scoped, and its §7 gate (PASS on 21 V5.0 dates) means "no gross shift seen", not equivalence; this is why
+  the forward test re-tests B from zero.
+- **Labels (master ruling on Q5).** Forward dates fall after 2026-10-23, so labels are the venue-rule labels
+  (routine METAR, WU fallback), read only through `read_venue_labels` inside the registered entry point from the
+  look-morning R24 frozen copy. **Disclosed mismatch:** row 28's history used WU labels. Denver is excluded, as in
+  row 28 §5.3.
 
 ## 3. Statistic
 
@@ -74,29 +86,32 @@ interval (blocks of 3 consecutive dates) is reported beside the date-clustered o
 
 ## 5. Decision
 
-- **PASS** iff all N = 45 dates are scored, no §6 look stopped the test, the point is ≤ −0.0057 (row 28's G floor),
+- **PASS** iff all N = 45 dates are scored, the point is ≤ −0.0057 (row 28's G floor),
   and the 95% upper bound is < 0 on **both** the date-clustered and the block-3 interval (the more conservative verdict
   holds).
-- **FAIL** otherwise (including a §6 HARM or FUTILE stop). **HALTED** if §4 fires.
+- **FAIL** otherwise. **HALTED** if §4 fires.
 - A PASS ends this prereg. It earns a market-facing test request only (method §5 rule 4), never adoption.
 
-## 6. Power and futility (method §5 rules 6-7, rule 16, rule 19)
+## 6. Power, single look (method §5 rule 6, rule 16, rule 19)
 
 - **SD source (rule 19).** Same contrast, same hours, same season: the row-28 history B − S per-date SD 0.0803 over
   657 dates (ρ 0.222, κ_AR 1.570, κ_block3 1.419). Rule 19 also asks for the realised/projected SD ratio after the
   look; it is reported.
-- **Planning bound.** The forward season is one NBM v5.0 season with venue-rule labels, so the gate below uses a
-  stated conservative bound of **1.5 × 0.0803 = 0.1205**.
+- **Planning bound (master ruling on Q2, accepted).** The forward season is one NBM v5.0 season with venue-rule
+  labels, so the gate below uses a stated conservative bound of **1.5 × 0.0803 = 0.1205**.
+- **Single look, no inflation.** With no interim look, the futility-look SE inflation (method §5 rule 7, ×1.07) is
+  not applied. Alpha: one final test, two-sided 95% (one-sided 2.5%) on each of the date-clustered and block-3
+  intervals, and a PASS needs both, so the false-PASS rate is at most 2.5%.
 - **Effect.** delta = half the history point (0.1368 / 2 = 0.0684), method §5 rule 6. Power at the edge size 0.0057 is
   about 0.04-0.10 at any N ≤ 166 and is stated, not claimed: this test can only confirm a large B − S effect.
 
-| SD basis | N | MDE80 (×1.07) | Power at delta | Power at the history point |
+| SD basis | N | MDE80 | Power at delta | Power at the history point |
 | --- | --- | --- | --- | --- |
-| realised 0.0803 | 45 | 0.0450 | 0.99 | 1.00 |
-| bound 1.5× (gate) | 45 | 0.0675 | 0.81 | 1.00 |
-| 2× | 45 | 0.0900 | 0.57 | 0.99 |
-| bound 1.5× | 20 | 0.1012 | 0.47 | 0.97 |
-| bound 1.5× | 166 | 0.0351 | 1.00 | 1.00 |
+| realised 0.0803 | 45 | 0.0420 | 0.995 | 1.00 |
+| bound 1.5× (gate) | 45 | 0.0630 | 0.86 | 1.00 |
+| 2× | 45 | 0.0841 | 0.63 | 0.995 |
+| bound 1.5× | 20 | 0.0946 | 0.53 | 0.98 |
+| bound 1.5× | 166 | 0.0328 | 1.00 | 1.00 |
 
 ## (a) Positive control
 
@@ -117,7 +132,7 @@ No loss atlas exists for this season; the history score result stands in for it 
 
 ## (d) MDE and clusters
 
-MDE80 0.0675 at the planning bound (0.0450 at the realised SD), at 45 date clusters and 10 market clusters.
+MDE80 0.0630 at the planning bound (0.0420 at the realised SD), at 45 date clusters and 10 market clusters.
 
 ## (e) Dev-window reuse
 
@@ -130,21 +145,17 @@ DEV_WINDOW_LEDGER.md: reuse count 212 (2026-11-03) plus one for this row; this t
 - VIF: 1.570
 - delta: 0.0684 (half the history point; power at the history point 1.00)
 - N: 45
-- MDE80: 0.0675 (2.802 x sigma_d x sqrt(VIF) / sqrt(N), inflated 7%)
-- power: 0.81
+- MDE80: 0.0630 (2.802 x sigma_d x sqrt(VIF) / sqrt(N); single look, no futility inflation)
+- power: 0.86
 - class: POWERED
 - intervals: date-clustered (verdict) and block-3 (reported beside it; the more conservative verdict holds)
 
 ## (g) Futility
-- look 7: HARM if t > 3.143
-- look 14: FUTILE if z > +0.5
-- look 21: FUTILE if z > 0
-- look 31: FUTILE if z > -0.5
 - final N: 45
 - interim PASS: never
 
-z_k = mean_k / (s_k × √VIF / √k) on the first k deciding dates, positive meaning harm. A stop is final for this
-prereg. No look produces a PASS, changes N or the estimand, or starts a refit.
+No futility look (master ruling on Q3): one single look after the 45th date is final; see §1 for the
+earliest read date and why fail-fast in calendar time is unavailable.
 
 ## 7. Descriptive only (decides nothing)
 
@@ -155,16 +166,64 @@ prereg. No look produces a PASS, changes N or the estimand, or starts a refit.
 ## 8. Open questions for master (draft only)
 
 1. Q1 — Estimand: keep B − S primary (row 28's question), or make the market w read primary under rule 4?
-2. Q2 — The planning bound 1.5× is the drafter's choice; master may set it.
-3. Q3 — With a single read after 01-26, the looks are applied retroactively; keep N = 45, or lengthen N so that
-   later looks read sequentially?
-4. Q4 — V5.0 throughout the forward window versus a V4-scoped history: is an extra outcome-blind input check needed?
-5. Q5 — Venue-rule labels forward vs WU labels in history: acceptable, or score both?
+2. Q2 — CLOSED: the 1.5× planning bound is accepted (master 2026-11-03).
+3. Q3 — CLOSED: a single look, no futility looks (master 2026-11-03).
+4. Q4 — CLOSED: forward = NBM v5.0, disclosed (master 2026-11-03).
+5. Q5 — CLOSED: venue-rule labels via the R24 frozen copy, mismatch disclosed (master 2026-11-03).
 6. Q6 — Which captured MG-2 fallback rows exist from 12-17 for the §4 parity control (a host read, counts only)?
 7. Q7 — Does the checker's (c) accept the history score result in place of an atlas?
 8. Q8 — Ledger: one K row for B on forward dates, written before D0.
+9. Q9 — CHECKER CONFLICT (new, for master): `prereg_check --forward` REFUSES this single-look design, because
+   `check_futility` requires every Rule B look before final N (`src/weather/reporting/scorecards/prereg_check.py`
+   lines 76 and 171-182; MIM §5 rule 7). Options: a ruling that restores the four looks (applied in order at the
+   single read), a reviewed checker change that admits a declared single-look design, or a recorded exemption.
+   This draft must pass the checker before it can freeze.
+
+## 8a. Freeze record fields (L56's accepted prereg field names; PLACEHOLDER = unknown until freeze)
+
+- candidate_id: PLACEHOLDER
+- module: PLACEHOLDER
+- module_source_sha256: PLACEHOLDER
+- fit_manifest_sha256: PLACEHOLDER
+- state_sha256: PLACEHOLDER
+- state_sidecar_sha256: PLACEHOLDER
+- state_schema: mg2_p3d_n_state/1
+- arm: B (season-matched, Dec 17 - May 31 rows of 2021-2025)
+- centres: PLACEHOLDER
+- season_of: PLACEHOLDER
+- hours: 13, 14, 15, 16
+- training_window: Dec 17 - May 31 of season-years 2021-2025
+- training_rows_sha256: PLACEHOLDER
+- bucket_space_sha256: PLACEHOLDER
+- upstream_sha256: {pooled_residual_model: PLACEHOLDER, mg2_p3d_n: PLACEHOLDER, mg_serve_core: PLACEHOLDER, feature_model: PLACEHOLDER, ols_floor_ladder: PLACEHOLDER, r0_ols_floor_devfit: PLACEHOLDER}
+- sklearn_version: PLACEHOLDER
+- conversion: PLACEHOLDER
+- late_report: PLACEHOLDER
+- train_F_source: PLACEHOLDER
+- serve_F_source: PLACEHOLDER
+- shadow_first: 2026-12-17
+- shadow_last: PLACEHOLDER
+- coverage_window: PLACEHOLDER
+- input_modes: as_of_capture
+- forward_receipt_sha256: PLACEHOLDER
+- shadow_rows_sha256: PLACEHOLDER
+- emit_receipt_sha256: PLACEHOLDER
+- equivalence_report_sha256: PLACEHOLDER
+- frozen_before_utc: PLACEHOLDER (before 2026-12-17)
+- markets: US10 (atlanta, austin, chicago, dallas, houston, los-angeles, miami, nyc, san-francisco, seattle); Denver out
+- scored_window: 2026-12-17..2027-01-30 (the N = 45 deciding dates)
+- emission_window: 2026-12-17..2027-05-31 (emission only; named separately from the scored window)
+- fit_kind: forward
+- state_archive_path: `C:\archive\row28b-forward-state\<fit_id>\`
+
+**Master's Q-W commitment trail.**
+
+- The B state is frozen before 2026-12-17.
+- Emission runs in WEEKLY batches from 2026-12-21, from as_of_capture inputs only.
+- Each batch's shadow_rows_sha256 and emit receipt go to master the same day and are logged with a host timestamp.
+- Emission reads no outcomes.
 
 ## 9. Related
 
-Row 28 prereg §8.3, §9 (`claude/row28-yearround-history-20261102`); EF §10aw; method §5 rules 4, 6, 7, 9, 16, 19;
+Row 28 prereg §8.3, §9 (`claude/row28-yearround-history-20261102`); EF §10aw; method §5 rules 4, 6, 9, 16, 19;
 [pre-registration checklist](../../operations/PREREGISTRATION_CHECKLIST.md).
