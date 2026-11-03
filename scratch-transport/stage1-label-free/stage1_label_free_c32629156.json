@@ -1,0 +1,321 @@
+{
+  "a_countability_replay_half": {
+    "dates_with_zero_replay_countable_us11_market_days": [],
+    "rule": "both arms on >=90% of 17-23 snapshots (metadata_cells); ledger promotion_countable NOT read"
+  },
+  "b_miss_diagnostics": {
+    "2026-10-22": {
+      "by_hour": {
+        "17": 4,
+        "18": 7,
+        "19": 8,
+        "20": 7,
+        "21": 8,
+        "22": 7,
+        "23": 8
+      },
+      "by_market": {
+        "denver": 49
+      },
+      "by_model_version": {
+        "v0.5.12 HGBC feature-based ML model": 49
+      },
+      "by_reconstructed": {
+        "False": 49
+      },
+      "l1_gt_1e-3": 49,
+      "l1_gt_1e-6": 49,
+      "l1_max": 1.329813847330889,
+      "l1_median": 0.005636741054637689,
+      "l1_min": 0.005616128064504667,
+      "misses": 49
+    },
+    "2026-10-25": {
+      "by_hour": {
+        "17": 6,
+        "18": 8,
+        "19": 7,
+        "20": 5
+      },
+      "by_market": {
+        "denver": 26
+      },
+      "by_model_version": {
+        "v0.5.12 HGBC feature-based ML model": 26
+      },
+      "by_reconstructed": {
+        "False": 26
+      },
+      "l1_gt_1e-3": 26,
+      "l1_gt_1e-6": 26,
+      "l1_max": 1.9677231620270839,
+      "l1_median": 0.27652552181026674,
+      "l1_min": 0.08882129848969071,
+      "misses": 26
+    },
+    "2026-10-27": {
+      "by_hour": {
+        "16": 5
+      },
+      "by_market": {
+        "denver": 5
+      },
+      "by_model_version": {
+        "v0.5.12 HGBC feature-based ML model": 5
+      },
+      "by_reconstructed": {
+        "False": 5
+      },
+      "l1_gt_1e-3": 5,
+      "l1_gt_1e-6": 5,
+      "l1_max": 0.009424975438402955,
+      "l1_median": 0.009424975438402955,
+      "l1_min": 0.005845685971705591,
+      "misses": 5
+    },
+    "2026-10-28": {
+      "by_hour": {
+        "11": 1,
+        "13": 5,
+        "14": 1,
+        "21": 6,
+        "22": 7,
+        "23": 7
+      },
+      "by_market": {
+        "denver": 27
+      },
+      "by_model_version": {
+        "v0.5.12 HGBC feature-based ML model": 27
+      },
+      "by_reconstructed": {
+        "False": 27
+      },
+      "l1_gt_1e-3": 21,
+      "l1_gt_1e-6": 21,
+      "l1_max": 1.218717050143227,
+      "l1_median": 1.215757884633456,
+      "l1_min": 3.994699984920459e-08,
+      "misses": 27
+    }
+  },
+  "b_reproduction_table": {
+    "commits": {
+      "c32629156f0408a735923b1886b3fc31c59e6f44": {
+        "all_rows": 28108,
+        "pass": true,
+        "per_date": {
+          "2026-10-16": {
+            "all_rows": 2158,
+            "rows": 2158,
+            "rows_with_vector": 2158,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2158
+          },
+          "2026-10-17": {
+            "all_rows": 2140,
+            "rows": 2140,
+            "rows_with_vector": 2140,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2140
+          },
+          "2026-10-18": {
+            "all_rows": 2107,
+            "rows": 2107,
+            "rows_with_vector": 2107,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2107
+          },
+          "2026-10-19": {
+            "all_rows": 2157,
+            "rows": 2157,
+            "rows_with_vector": 2157,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2157
+          },
+          "2026-10-20": {
+            "all_rows": 2138,
+            "rows": 2138,
+            "rows_with_vector": 2138,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2138
+          },
+          "2026-10-21": {
+            "all_rows": 2225,
+            "rows": 2225,
+            "rows_with_vector": 2225,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2225
+          },
+          "2026-10-22": {
+            "all_rows": 2167,
+            "rows": 2167,
+            "rows_with_vector": 2167,
+            "share": 0.9773880941393632,
+            "vector_coverage": 1.0,
+            "within": 2118
+          },
+          "2026-10-23": {
+            "all_rows": 2138,
+            "rows": 2138,
+            "rows_with_vector": 2138,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2138
+          },
+          "2026-10-24": {
+            "all_rows": 2171,
+            "rows": 2171,
+            "rows_with_vector": 2171,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2171
+          },
+          "2026-10-25": {
+            "all_rows": 2170,
+            "rows": 2170,
+            "rows_with_vector": 2170,
+            "share": 0.9880184331797235,
+            "vector_coverage": 1.0,
+            "within": 2144
+          },
+          "2026-10-26": {
+            "all_rows": 2191,
+            "rows": 2191,
+            "rows_with_vector": 2191,
+            "share": 1.0,
+            "vector_coverage": 1.0,
+            "within": 2191
+          },
+          "2026-10-27": {
+            "all_rows": 2161,
+            "rows": 2161,
+            "rows_with_vector": 2161,
+            "share": 0.997686256362795,
+            "vector_coverage": 1.0,
+            "within": 2156
+          },
+          "2026-10-28": {
+            "all_rows": 2185,
+            "rows": 2185,
+            "rows_with_vector": 2185,
+            "share": 0.9876430205949657,
+            "vector_coverage": 1.0,
+            "within": 2158
+          }
+        },
+        "rows": 28108,
+        "rows_with_vector": 28108,
+        "share": 0.9961932545894407,
+        "vector_coverage": 1.0,
+        "within": 28001
+      }
+    },
+    "dates": {
+      "2026-10-16": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2158
+        }
+      },
+      "2026-10-17": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2140
+        }
+      },
+      "2026-10-18": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2107
+        }
+      },
+      "2026-10-19": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2157
+        }
+      },
+      "2026-10-20": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2138
+        }
+      },
+      "2026-10-21": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2225
+        }
+      },
+      "2026-10-22": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2167
+        }
+      },
+      "2026-10-23": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2138
+        }
+      },
+      "2026-10-24": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2171
+        }
+      },
+      "2026-10-25": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2170
+        }
+      },
+      "2026-10-26": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2191
+        }
+      },
+      "2026-10-27": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2161
+        }
+      },
+      "2026-10-28": {
+        "served_commits": [],
+        "served_model_versions": {
+          "v0.5.12 HGBC feature-based ML model": 2185
+        }
+      }
+    },
+    "threshold_l1": 1e-09,
+    "threshold_share": 0.99
+  },
+  "c_b2_overall": {
+    "commit": "c32629156f0408a735923b1886b3fc31c59e6f44",
+    "pass": true
+  },
+  "code_commit": "c32629156f0408a735923b1886b3fc31c59e6f44",
+  "created_at_utc": "2026-11-03T10:28:33.434716+00:00",
+  "inputs_not_opened": [
+    "ledger_rows.jsonl",
+    "any label/outcome/settlement/price"
+  ],
+  "replay": {
+    "path": "C:\\t\\evening-fix-stage1\\evening-fix-20261102-replay\\replay_c32629156_all.jsonl",
+    "rows": 28108,
+    "sha256": "ff4478c3bf5493c82047bd6d0b539b9fbdd4ebb07eb004dba42d2a94c90db3ab"
+  },
+  "schema": "evening_fix_stage1_label_free_v1",
+  "script_sha256": "de614e29a1b65765acc73fda63d1d1b3f50f95ba939e6ab17de49b0a95ed0d07",
+  "weather_file": "C:\\t\\evening-fix-stage1\\src_c32629156\\src\\weather\\__init__.py"
+}
