@@ -1525,3 +1525,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
     99fff6c48. Master has commits on those two files that this branch does not have, so the copies match the branch
     tip blobs. The copies are byte copies of this worktree's checkout at its tip, and sentinel v10 ran with them.
     They are left unchanged pending a ruling.
+
+## Appended 2026-11-03T08:59:15-05:00: integrity gate commit (append only)
+
+- **Integrity gate commit:** `95762ae89da78b831ccf5b1a340aac124dcf8b6d`, on `origin/claude/row28-yearround-history-20261102`
+  (plain push).
+  - Its `run/integrity_report.json` blob sha256 is `d840406447dd9d70b8f2603e32363b06daa93d5532500e478fc84032acede71e`.
+    This equals the run file `run\s3_integrity\walk.json` byte for byte.
+  - It is the `integrity_commit` for the labels stage.
+- **STOP.** Labels, the 390 look and the score each need master's go.
