@@ -1789,3 +1789,47 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   - look `4ded26dc…`.
   - The result is not a stop, so no INDEX.md line was written.
 - **STOP.** No 2024–25 score was computed. The score needs master's separate go.
+
+## Appended 2026-11-03T11:21:15-05:00: look accepted; score (stage 6) GO, config, pre-launch checks and exact command (append only)
+
+- **Look accepted (relayed).** Master accepted CONTINUE for all 4 arms. The refused first launch block is accepted as
+  disclosed.
+- **Score GO (relayed).** All folds, the deciding analysis, exactly as frozen with C1/C2/C3, on launcher v6
+  unchanged.
+  - **Manifest rule.** Master's stage-end manifest rule: an mtime-only change is noted and the result stands. A size
+    change, or a file added or removed, in a subdirectory the stage read makes the arms INPUT-CHANGED, and the run
+    STOPs to the coordinator before any verdict is recorded.
+  - **Wrapper wait.** L56's chunked suite holds the wrapper. This lane re-runs its launch block as a new vN, no more
+    often than every 2 minutes, once that suite has exited.
+- **Config.** `C:\t\L59\row28\run_config\stage6_score_v1.json`, sha256
+  `8285bd50db328641b6cd640fa2c8b24b1e73fa23c06edcf26d97e8c73a33a431`. It is new. Compared with
+  `stage5_look_v1.json`, it has `stage: score`, adds `prev.look` = s5_look walk.json `9611df77…`, and adds
+  `look_commit` `774abff81770dcf5601ac05b78b3d64b17b4b25d`.
+- **Pre-launch checks** (read-only, `l59_prelaunch_s6_v1.py`):
+  - **Dated scan.** Clean, as before: the config's single raw match is inside a sha hex (0 valid dates), and the
+    runner's guard on the config is clean. The walker path's 1 hit is the masked doc dir name.
+  - **The four prev bindings.** Each walk sha equals the config's, and each report is PASS. Each receipt is
+    COMPLETE, with guard 0 and no FLAG, and its stage and walker sha are bound:
+    - integrity `fa5b5243…`;
+    - labels `d38235a3…`;
+    - build `eb60509b…`;
+    - look `4ded26dc…`.
+    - Junction manifest after each: `9dff281c…`.
+  - **The two gate commits.** `95762ae89` and `774abff81` are both on origin, and each blob equals its run file.
+  - **Rows under the run root.** The look rows equal `look_rows_sha256`. They are the only `look_rows.jsonl`, and
+    there are 0 `final_rows.jsonl`.
+  - **Look result.** futile is false for A, B, C and D.
+  - **The n inputs.** Restated n 657 = kept n_dates 657 = the kept list's 657. The runner re-checks n and runs
+    `precheck_folds` before any fit.
+- **Launch block** `C:\t\L59\row28\launch_s6_score_v1.ps1` (and any later vN). The data\ check (exactly the 4 named
+  junctions) and the 0-wrapper check run, then Start-Process immediately. Timebox 21,600 s, as in the stage plan.
+  The 12.8 GB monitor runs.
+- **Exact command:**
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s6_score -Stage score -TimeboxSeconds 21600 `
+  -RootsPath C:\t\L59\row28\run_config\stage6_score_v1.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
+  -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
+```
