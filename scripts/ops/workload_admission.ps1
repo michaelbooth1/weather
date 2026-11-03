@@ -675,7 +675,13 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     [CmdletBinding()]
     param()
 
-    @()
+    @(
+        # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
+        @{
+            path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
+            sha256 = 'd23980b5123761ef0cfe46afa60274063aee66c84eb58169a55cb283a847f61d'
+        }
+    )
 }
 
 

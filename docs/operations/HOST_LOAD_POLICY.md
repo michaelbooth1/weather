@@ -35,8 +35,8 @@ fixed consumed marker plus the look-day checklist naming only the wrapper comman
 Its `research_script` kind (master 2026-11-03, item b) admits one named research script outside the
 package: the arguments must be exactly `-I <script> <args>`, and the script must have one entry, an exact
 absolute path and lowercase sha256, in `Get-WeatherWorkstationResearchScriptAllowlist`
-(`scripts/ops/workload_admission.ps1`, shipped empty; each entry is a reviewed commit, never a wildcard
-or directory). `Get-WeatherWorkstationResearchScriptRefusal` refuses a path that is not
+(`scripts/ops/workload_admission.ps1`; each entry is a reviewed commit, never a wildcard or directory,
+and a script whose bytes change needs a new entry). `Get-WeatherWorkstationResearchScriptRefusal` refuses a path that is not
 `C:\t\<lane>\...\<name>.py` with one lane segment and plain segments (no `..`, wildcards, short names or
 streams), any component from `C:\t` down that is absent or a reparse point or junction, a missing or
 duplicated entry, and any sha mismatch. The wrapper opens the script deny-write before admission, hashes

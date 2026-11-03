@@ -97,7 +97,13 @@ def _refusals(root: Path, entries: list[tuple[str, str]], cases: dict[str, tuple
     return json.loads(result.stdout)
 
 
-def test_shipped_allowlist_is_empty_and_rooted_at_c_t() -> None:
+SHIPPED_ENTRIES = [
+    {"path": "C:\\t\\L59\\b0712\\scripts\\row28_run_v13.py",
+     "sha256": "d23980b5123761ef0cfe46afa60274063aee66c84eb58169a55cb283a847f61d"},
+]
+
+
+def test_shipped_allowlist_is_exactly_the_reviewed_entries_and_rooted_at_c_t() -> None:
     script = (
         f". '{OPS / 'workload_admission.ps1'}'\n"
         "ConvertTo-Json -Compress -InputObject @{ entries = @(Get-WeatherWorkstationResearchScriptAllowlist); "
@@ -105,7 +111,13 @@ def test_shipped_allowlist_is_empty_and_rooted_at_c_t() -> None:
     )
     result = subprocess.run([*POWERSHELL, "-Command", script], capture_output=True, text=True, check=False, timeout=120)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"entries": [], "root": "C:\\t"}
+    got = json.loads(result.stdout)
+    assert got["root"] == "C:\\t"
+    entries = got["entries"] if isinstance(got["entries"], list) else [got["entries"]]
+    assert [{"path": e["path"], "sha256": e["sha256"]} for e in entries] == SHIPPED_ENTRIES
+    for entry in entries:
+        assert set(entry) == {"path", "sha256"}
+        assert "*" not in entry["path"] and "?" not in entry["path"] and entry["path"].endswith(".py")
 
 
 def test_refusal_admits_only_the_exact_pinned_path_and_sha(tmp_path: Path) -> None:
