@@ -1,4 +1,4 @@
-# Row 28 — year-round P3d_N refit, HISTORY-ONLY kill-only prereg (DRAFT r3)
+# Row 28 — year-round P3d_N refit, HISTORY-ONLY kill-only prereg (DRAFT r4)
 
 Status: **DRAFT, NOT FROZEN.** Nothing in this file binds until master reviews
 it and a freeze commit records its sha256. Drafted by lane L59 on the WS
@@ -6,7 +6,9 @@ it and a freeze commit records its sha256. Drafted by lane L59 on the WS
 row-28 label, outcome, settlement value or model score was read to write it.
 Only metadata was read: row counts, dates, S3 listings, manifests, rule text and
 code (one exception disclosed in §11). r2 folds the MAJORs of one fresh review
-(§14). r3 applies master's 11-02 rulings (1)–(3) on r2 (§14).
+(§14). r3 applies master's 11-02 rulings (1)–(3) on r2 (§14). r4 folds the second
+independent review of r3 (3 MAJOR, 9 MINOR) and master's rulings on paired
+evaluation, arm C's training gap and uniform market NBM (§14).
 
 This is a **history-only, kill-only** step. It can kill arms or let them survive
 history. It cannot adopt, serve, promote or bind anything. A surviving arm only
@@ -45,9 +47,32 @@ or PT-1. The pre-13 half (L6 stack over MG-1) is not a candidate here (§4.4).
     05-06..05-26 is descriptive V5.0 and decides nothing.
 - Deciding calendar size: **816 dates**
   (`scripts/cap_counts_v3.py`), folds 151 / 166 / 166 / 167 / 166 (2021..2025),
-  and **811** after the 5 spring-DST dates (§5.1). Fold 2026 (descriptive) holds
-  140 dates. 2021 starts on 2021-01-01 because 2020-12 is not in the corpus.
-  r2's 977/956 counts are superseded.
+  and 811 after the 5 spring-DST dates (§5.1). 2021 starts on 2021-01-01 because
+  2020-12 is not in the corpus. (r2's 977/956 and r3's "≈ 950" are superseded.)
+- **r4: the final deciding set is n = 660 dates**, fixed outcome-blind and
+  listed in `deciding_dates_r4.txt` (held locally at `C:\t\L59\row28\r4_deciding_dates.txt`; it is exactly the 811-date set minus the drops tabled in §1.1). Every arm and S are scored on exactly
+  this set (paired, master ruling (a)1).
+
+1.1 **Outcome-blind drops from 811 to 660 (r4).** All three causes are
+structural, decided from metadata only, and apply to every arm:
+
+| Cause | Dates | Count |
+| --- | --- | --- |
+| No PIT-corpus record window. The single builder (§3.3) only builds a (centre, year) window that `covered_years` finds complete for all 11 markets at hours 7–20 in the PIT forecast corpora (status rows of `coverage.jsonl` only) | 2021-01-01..03-13, 2021-03-15..03-31, 2023-12-17..2024-01-30, 2024-03-01 (leap day: no centre window reaches it), 2024-12-17..12-31 | 150 (includes 2021-01-22) |
+| No 07Z bulletin posted by any 13–16 cutoff (§3.3, review m7) | 2022-01-06 (07Z posted 2022-01-07 02:47Z) | 1 |
+| 07Z object absent (also in the row above) | 2021-01-22 | (0 extra) |
+
+- Folds after the drops: 2021: 61, 2022: 164, 2023: 165, 2024: 120,
+  2025: 150 (season-years).
+- Of the 150 uncovered dates, 44 are complete for US10 at hours 13–16 alone; they
+  are still dropped, because the bound builder's coverage rule is all markets ×
+  hours 7–20 per window and is not relaxed here.
+- `deciding_dates_r4.txt` sha256
+  `6913484a6abb1c7f0f2083eef919699cb2f05670c52306b2ab96998e0d84bcfb`.
+- **Descriptive fold 2026 and the V5.0 sliver cannot be built** by the single
+  builder: the PIT corpora end in 2025 and the 12-24 window is covered only for
+  2021 and 2022. They are reported as "not built", not scored. The §7 gate is
+  unaffected (inputs only).
 - Jun–Jul 2021–25 may be training rows. They are never a deciding tier.
 - Date rule (method §5 rule 9): one date rule for every arm. A date enters the
   deciding tier only through §5's integrity rules, which are applied before any
@@ -69,8 +94,9 @@ The comparator was established outcome-blind from four sources:
 - **S (deciding comparator): MG-1 at hours 13–16, Dec 17–May 31.**
   - MG-1 is the zero-parameter NBM read: mu = v2_mean, sigma = max(v2_stddev, 1), with the rule-4 floor.
   - It is the C5 post-coverage fallback. MG-2 serves it on every deciding date, because every deciding date lies outside 08-01..12-16.
-  - The reference implementation is `weather.reporting.scorecards.free_source_candidates.mg1`, the module that `mg2_composite` imports. Its file sha256 is recorded at freeze.
-  - The scorer must assert that S equals that function's output on (a) 50 fixed synthetic rows and (b) every scored row. A mismatch triggers HALT.
+  - The reference implementation is `weather.reporting.scorecards.free_source_candidates.mg1.predict`, the module that `mg2_composite` imports. Its file sha256 is recorded at freeze.
+  - **Independent check (r4, review m8).** S is computed twice: once by `free_source_candidates.mg1.predict` and once, independently, by `weather.model.mg_serve_core.mg1_band_probs` on the same (mu, sigma, band) inputs. The two must agree to 1e-12 on 50 fixed synthetic rows and on every scored row. A mismatch triggers HALT.
+  - S reads only the 07Z v2_mean, as serving does (`mg2_composite.py` 87–90); rows with no 07Z by the cutoff are not scored (§3.3).
 - **S_bound (descriptive only): the bound P3d_N state `c6cc39f7`, applied out of season** to the same rows.
   - It loads only with the sha in `release-binding.json`.
   - Out of season it inherits the bound centre set and the non-wrapping `nearest_centre`: Jan–May dates map to the 08-08 centre ("aug_sep") and Dec 17–31 maps to 12-09. That artefact is part of what S_bound measures, and is stated as such.
@@ -97,21 +123,41 @@ Only the training rows differ by arm.
   - Jan–May rows get a "jan_jul" centre.
 - `nearest_centre` is used unchanged, without wrap. With 12-24 and 01-08 both present, wrapping cannot change any pick: the furthest dates, Dec 31 and Jan 1, are each 7 days from their own centre and at least 8 days from the other one.
 - The scorer asserts the wrap-free and wrap-aware picks are identical for every deciding date. A mismatch triggers HALT.
+- **Centre per row (r4, review M1).** Each row's `centre` (and so `season`) is recomputed as `nearest_centre(target_date, <that arm's centre set>)`. The payload centre of the record file that carried the row is ignored. Example: a May 31 row arrives in the 06-07 record file; arms A, C, D keep centre 06-07, arm B maps it to 05-23.
 
-3.3 **Rows: one built row per (market, date, hour) feeds S and every arm.**
+3.3 **Rows (r4, review M1): one build function, one row per (market, date, hour), feeding S and every arm.**
+
+- **The one build function** for every market row, scored or training, is the B-bound `pooled_residual_model.extract_market(market, centre, manifests, out_root, training_years=covered_years(centre, manifests))`, imported read-only, then `pooled_frame` and `attach_training_nbm`. It writes to a new row-28 records root, never to `C:\t\l2\records`. The 12-24 centre is built by the same call; there is no second, "direct" builder. No held cache is rebuilt (the SoP hold on the forecast_history, open_meteo_archives and reanalysis caches until a399941e lands is respected); the builder only reads the existing PIT corpora.
+- **Inputs, from that one path:**
 
 | Input | Source |
 | --- | --- |
-| Label | WU daily high |
-| `F` (high so far) and `current_temp` | METAR-only running max and latest obs at the cutoff (rule C1, `rule.md` 393–402), as in the bound builder |
-| `fh` | NBP TXN mean |
-| `v2_stddev` (S's sigma and rule-4 floor input) | NBP TXNSD |
+| Label `y` | `rec["final_bucket"]` (WU daily high), as the bound trainer |
+| `F` (high so far) | `rec["high_so_far"]`: the max over WU hourly rows up to the cutoff (`feature_model.py` 1111–1117), exactly as the bound training builder (`pooled_residual_model.py` 430). r3's "METAR-only running max" was wrong for history and is withdrawn. No METAR history source is used. |
+| `current_temp` | `rec["current_temp"]`, same WU-hourly path |
+| `fh` (anchor) | NBP TXN mean from the NBM tables of §3.3b |
+| `v2_stddev` (S only) | NBP TXNSD of the 07Z bulletin |
 
-- The NBM cycle is chosen by the bound `ols_floor_ladder.nbm_at_cutoff`: the newest of 07Z, 01Z, 00Z whose LastModified is at or before that row's own local cutoff instant.
-- **Scored rows:** a row with no NBM value at its cutoff is dropped for S and every arm alike, with no imputation.
-- **Training rows** keep the bound builder's behaviour (`attach_training_nbm`, L9 IMPUTE "fc", which reads the existing forecast_history cache; nothing is rebuilt) so that training parity with `c6cc39f7` holds. The imputed count is reported.
-- Scoring uses only rows where S and the arm are both defined.
-- The 12-24 centre records are absent from `C:\t\l2\records`, so Dec rows are built directly by the same builder. No held cache is rebuilt: the SoP hold on the forecast_history, open_meteo_archives and reanalysis caches until a399941e lands is respected.
+- Disclosure: serving (rule C1, `rule.md` 393–402) reads F from captured METAR. History uses the trainer's WU-hourly F for every arm and for S alike, so the comparison stays paired; the forward test is where METAR-F parity is confirmed.
+- **Exactly one row per (market, target_date, hour).** Rows are keyed by target_date. A duplicate key across record windows triggers HALT (with the 15-day centre spacing and ±7-day windows none is expected).
+- **NBM for scored rows (r4, review m7, narrowing master ruling (2)):** a scored row needs the 07Z bulletin posted (LastModified) at or before its own cutoff instant, because served MG-1 reads only 07Z. The 01Z/00Z fallback of `nbm_at_cutoff` is used for training rows only. Under this rule the only structural drop is 2022-01-06 (§1.1). Flagged for master: ruling (2) said "newest of 07/01/00" for scored rows; S cannot be the served comparator on a 01Z row, so r4 applies the stricter rule identically to every arm and S.
+- **Training rows** use `attach_training_nbm` with `nbm_at_cutoff` (07Z, then 01Z, then 00Z, by LastModified ≤ the row's cutoff), and fill-from-forecast (L9 IMPUTE "fc") only where no cycle was posted by the cutoff (§3.3b).
+- **All filters act on each row's `target_date`** (r4, review m5): fold hold-outs, arm B's Dec 17–May 31 selection, the hard exclusions and §1.1's drops. Record windows and payload centres never decide membership (the 05-23 window reaches June and the 01-08 window reaches December).
+
+3.3b **Market-station NBM source per training month (r4, master FLAG 2: identical for arms A, B, C and D).**
+
+| Training dates (2021–2025, inside covered windows) | Market-row NBM source | Fill-from-forecast? |
+| --- | --- | --- |
+| Jan 1 – May 31 | This fetch, 07Z (`nbp_station_blocks_c07.jsonl`) + the 01Z/00Z add-on | Only rows with no cycle posted by the cutoff |
+| Jun 1 – Jul 29 | Gap fetch, 07Z (`nbp_station_blocks_gap_c07.jsonl`) | Only rows with no 07Z posted by the cutoff |
+| Jul 30 – Jul 31, Sep 30 – Oct 2 | No centre window reaches these dates, so no rows exist | n/a |
+| Aug 1 – Sep 29, Oct 3 – Dec 16 | L9 corpus `1ae4bf52` (07Z), as bound | As bound |
+| Dec 17 – Dec 31 (2021, 2022 only: the only covered 12-24 windows) | This fetch, 07Z | Only rows with no cycle posted by the cutoff |
+
+- One NBM table is built with `ols_floor_ladder nbm-corpus` from the L9 blocks plus the new blocks, with the gap blocks restricted to Jun 1 – Jul 31 so that no (market, date, cycle) appears twice.
+- **Control C-0c:** on the overlapping dates Oct 3 – Dec 16, the gap fetch's market blocks must equal L9's blocks byte for byte (`block_sha256`). Mismatch → HALT.
+- **Imputation cap (r4, review M2):** if more than 5% of any arm's training rows in any calendar month are fill-from-forecast, the whole run HALTs (the base inputs are shared, so the breach is not arm-specific). No month is planned to be on fill-from-forecast; any imputed rows are counted per month and reported before any score.
+- The comparator stays MG-1 at hours 13–16 as served, untouched by this ruling (S never uses training rows).
 
 3.4 **Folds: LOYO by season-year, five deciding folds (2021..2025) plus one
 descriptive fold (2026).**
@@ -127,6 +173,10 @@ descriptive fold (2026).**
 - the R-A training rows (19,657);
 - the R-A per-row predictions.
 
+**Control C-0b (r4, review M1; HALT if it fails).** The 12-24 window is new. Before any Dec 17–31 row is used, the same build call, run for the 12-09 and 01-08 centres into the new records root, must reproduce the existing `C:\t\l2\records` rows for those centres (`y`, `F`, `current_temp`, `fh`, every `x_*`) to 1e-9.
+
+3.6 **Bucket space per arm (r4, review m6).** `buckets[market]` for an arm and fold is frozen as the union of `bucket_space` over the record payloads that contribute training rows to that arm and fold, plus every integer in [min, max] of that fold's training labels for the market. It feeds `p_clim` (the 2% mix). It never uses held-out labels.
+
 ## 4. Arms (pre-registered; each arm is one K ledger row)
 
 | Arm | Training rows (outside the held-out season-year) | Notes |
@@ -141,7 +191,12 @@ descriptive fold (2026).**
 - Frozen R-P2 rule `prereg_rp2.md`, sha256 `2a438306214ece68e6e58d6f288765dc8addace7d21b89a02a22141e9c2d3e70`, on `origin/claude/station-pooled-corpus-s0-20261101` under `docs/research/climate-similar-pooling-rp2-2026-11-02/`.
 - Classes file sha256 `35d0090dddf7b082c5ce0d777cf488c09bbcf6baead14c786e68c39fbafe1689`, held locally at `C:\t\rp2\out\rp2_classes.json`. Its git blob differs only by line endings.
 - Class rule: marine if coast_km ≤ 25 to the Natural Earth 10m coastline, else continental.
-- Pool stations come from the frozen classes file. Their rows are extended to all months (§10), and pool rows inside the held-out season-year are excluded (§3.4).
+- Pool stations come from the frozen classes file. Their rows are extended to all months (§10), and pool rows inside the held-out season-year are excluded (§3.4), by target_date.
+- **Pool rows use exactly arm A's training dates** (the covered windows of §1.1/§3.3, by target_date), so C's training dates equal A's and only the station set differs.
+- **Serve-time inputs (master ruling (a)1).** At scoring, arm C needs the same market inputs as arm A (the class is a fixed property of each market station); pool rows are training-only. No deciding date lacks an input C needs, so C is scored on the same 660 dates as every arm and S, and no extra drop applies.
+- **Training gap (master ruling (a)2/(a)3) — option: [FINALISED AT GAP-MANIFEST TIME, see §4.1a].**
+
+4.1a **Arm C training-gap option.** [placeholder: finalised when the IEM gap manifest lands, deadline 11-03 06:00]
 - R-P2's controls run first: C-0 (reproduce R-A to 1e-9) and C-b (empty-pool check).
 - C must also pass R-P2's screen against A (C−A). KILL if any of:
   - the point is ≥ −0.0005;
@@ -158,6 +213,8 @@ descriptive fold (2026).**
   - Pre-declared "nearest frozen hour" rule: hours 13–16 all use the h12 pick, **W = 14, λ = 0.25**.
 - b_recent is the mean d over the W most recent *available* dates strictly earlier than the target, drawn from the previous 2W calendar days. If fewer than W such dates exist (for example early January 2021, which has no Dec 2020 data), no correction is applied (mu' = mu).
 - b_train keeps the frozen K112 definition: the per-market mean d over Aug 1..Sep 29, recomputed inside each fold from that fold's training years only.
+- **Sources for d (r4, review m4).** d uses the **07Z** NBP mean only (K112's frozen definition), not `nbm_at_cutoff`. 07Z market values: Dec 1–16 from the L9 corpus `1ae4bf52` (covers Oct 3 – Dec 16), Dec 17 – May 31 from this fetch. WU high: the WU daily summary high of each prior date. A prior date with no 07Z or no complete WU day is simply not "available" for b_recent.
+- Prior-day WU highs and 07Z values from dates inside the held-out season are allowed in b_recent: they are real-time information at the target date's cutoff (the trailing window looks only strictly earlier). They are never training rows.
 - Disclosures:
   1. K112's only measured gain is in season, Aug 15–Sep 29: G1 pooled −0.00226 [−0.00378, −0.00079], and the h12 interval spans 0.
   2. On 2026 Jan–May only 24 of 60 market-months improved in G0, and May over-corrected. K112's (W, λ) were selected on 2026-01-15..05-26. Under master ruling (3) every arm, D included, decides on folds 2021–2025 only, so no D-specific exclusion remains.
@@ -170,6 +227,7 @@ descriptive fold (2026).**
 - The family is fixed at 4: a FUTILE or HALTED arm keeps its slot with p := 1.
 - C−A and D−A are gatekeeping conditions inside C and D, not extra family members. C or D survives only if its X−S passes Holm *and* its X−A passes the kill screen.
 - **Arm A is always scored on all folds**, even when A is itself FUTILE, because it is the reference for C−A and D−A.
+- **If A is HALTED, C and D are HALTED too (r4, review M3)**: they have no valid reference, so they get no verdict and keep their slots with p := 1.
 - S_bound contrasts are descriptive and uncounted.
 
 4.4 **Hours.** The deciding hours are 13, 14, 15 and 16: the post-13 half within `b_scorer.HOURS` 07–16. Hours 07–12 are scored descriptively against the served pre-13 comparator and never decide. That comparator is the L6 stack over MG-1, with bound coefficients `07a67425…ee17e9` and state `800072c7…2ee2db`. Replacing the pre-13 half is a different question and would need its own prereg.
@@ -193,20 +251,22 @@ Its output, `cap_counts_v3.json` (sha256 `0b53932a8054a10c8f8ee102726e374d6da2a2
 
 5.2 **Pooled integrity cap.**
 
-- **Baseline (pre-freeze):** after 5.1, US10 partial+missing is 7 of 8,110 market-dates, **0.086%** (non-DST partials: austin 2, houston 2, dallas 1, seattle 1, san-francisco 1; 0 missing). Partial and missing market-dates are dropped from the deciding tier and never imputed.
-- **What counts toward the cap at run time.** Every deciding US10 market-hour dropped for any reason other than 5.1:
+- **Baseline (pre-freeze):** after 5.1, US10 partial+missing is 7 of 8,110 market-dates, **0.086%** (non-DST partials: austin 2, houston 2, dallas 1, seattle 1, san-francisco 1; 0 missing). **On the r4 set of 660 dates it is 0 of 6,600** (all seven fall in dates §1.1 already drops; Denver, descriptive, has 4). Partial and missing market-dates are dropped from the deciding tier for every arm and S (paired) and never imputed.
+- **What counts toward the cap at run time.** Every deciding US10 market-hour of the 660-date set that cannot be scored, for any reason:
   - WU partial or missing;
-  - no NBM at cutoff (§3.3);
-  - a missing METAR input;
+  - no 07Z at the cutoff (§3.3);
+  - a missing `F` or `current_temp` in the built row;
   - for arm C, an empty pool.
+- Any such row is dropped from every arm's and S's comparison (paired, master ruling (a)1); the date list and n are restated in the pre-score integrity report.
 - **HALT before any arm score is computed** if any of these holds:
   - the pooled dropped share exceeds **1.0%**;
   - any single market exceeds **3.0%**;
   - any single fold loses more than **2.0%**.
+- **HALT scope (r4, review M3, consistent with §8.2):** an empty-pool breach HALTs arm C only (so D and A proceed). Every other cap breach, the §3.3b imputation cap, and C-0 / C-0b / C-0c / §2 / §3.2 / duplicate-key assertion failures HALT the whole run (all four arms).
 - **NBP availability** is per row (§3.3), not a fixed clock. The listing (`nbp07_listing_decmay.tsv`, sha256 `a39073ad0793dd7d8f0a3010ebd3cb1213bf70a799e37f68faa681af31443e17`) shows:
   - 2021-01-22 has no 07Z object;
   - 7 objects were posted at or after 12Z (2021-02-11, 2022-01-06 [posted the next day], 2023-01-20, 2023-05-24, 2024-04-16, 2024-04-21, 2024-05-15).
-- For those 8 dates the 01Z and 00Z text is fetched (an input only). Which rows are then dropped is decided mechanically by `nbm_at_cutoff`, and the list is fixed before any score.
+- For those 8 dates the 01Z and 00Z text was fetched (used for training rows only, §3.3). For scored rows only 07Z counts; applied to the 13–16 cutoffs, the only date dropped is 2022-01-06 (2021-01-22 has no bulletin at any cycle). Both are in §1.1.
 - **2026 (descriptive):** NBP is present on 146/146 dates in every market (L47b counts).
 
 5.3 **Denver.** Denver is excluded from the deciding tier and may contribute training rows. Both reasons are outcome-blind:
@@ -231,7 +291,7 @@ The SE uses SD(d_X) × √κ / √n:
 
 The two-sided p-value comes from z. Two CIs are used:
 
-- **Wide CI.** Uses κ_wide = max(κ, κ_block3), where κ_block3 is the variance ratio of block-3 date-means to the date-clustered SE (method rule 7). Both CIs are reported.
+- **Wide CI.** Uses κ_wide = max(κ, κ_block3). **κ_block3 = SE²(block-3) / SE²(iid)** (r4, review m9): the kept dates of each season-year, in date order, are cut into consecutive blocks of 3 that never cross a season-year (fold) boundary; a trailing block of 1–2 dates is kept as a shorter block. SE²(block-3) is the variance of the block means of d, weighted by block size, divided by the number of blocks; SE²(iid) = SD²(d)/n. Both CIs are reported.
 - **Per-market CI.** The same construction on that market's per-date series (hours 13–16), unadjusted for multiplicity.
 
 6.2 **Variance basis (stated, outcome-blind).** The row-109 receipt is `C:\t\l48\rp2_power_v1.json`, sha256 `2380229d6f430a4dcddcc7ff64745fcd1df8fee0383b68f7c523dae477f46306`. It gives:
@@ -245,21 +305,21 @@ From this, σ_eff = 0.016304·√1.318 = **0.01872**.
 - **Row-count inflation for this design.** Hours 13–16 × 10 markets is about 40 rows/date against 65.5, so σ is scaled by √(65.5/40) = 1.28 to give **σ_dec = 0.0240**. This is an upper bound for that factor, because it assumes independent rows.
 - **Larger caveat.** Row-109 is a near-twin contrast. X−S against the zero-parameter MG-1 out of season is likely wider, so the table below runs to 4×σ_eff.
 
-6.3 **MDE80 per arm (r3, all arms on the same n).** n = 816 − 5 DST = **811** deciding dates (√n = 28.48; ≈ 810 if 2021-01-22 also drops). The Holm worst step is z = 2.498, so MDE80 = 3.340·σ/√n. Method rule 7's 4–7% futility-look inflation is applied as ×1.07. Power is P(z > 2.498) at a true −0.0057 with SE = σ/√811. The futility column uses the §8.1 look at n ≈ 479.
+6.3 **MDE80 per arm (r4, all arms and S paired on the same n = 660, √n = 25.69).** The Holm worst step is z = 2.498, so MDE80 = 3.340·SE. **Basis (r4, review m10):** both the MDE and the power columns use the inflated SE = 1.07·σ/√660 (method rule 7's 4–7% futility-look inflation at its upper end). Power is P(z > 2.498) at a true −0.0057. The futility column uses the §8.1 look at n = 390 with the uninflated SE σ/√390 (that look is the source of the inflation).
 
-| σ basis | MDE80 (×1.07) | Power at −0.0057 | Futility false-stop at −0.0057 |
+| σ basis | MDE80 (×1.07) | Power at −0.0057 (×1.07) | Futility false-stop at −0.0057 |
 | --- | --- | --- | --- |
-| σ_eff 0.0187 | 0.0023 | ≈ 1.00 | < 0.001 |
-| σ_dec 0.0240 | 0.0030 | ≈ 1.00 | ≈ 0.005 |
-| 2×σ_eff 0.0374 | 0.0047 | ≈ 0.97 | ≈ 0.05 |
-| 3×σ_eff 0.0562 | 0.0070 | ≈ 0.65 | ≈ 0.13 |
-| 4×σ_eff 0.0749 | 0.0094 | ≈ 0.37 | ≈ 0.20 |
+| σ_eff 0.0187 | 0.0026 | ≈ 1.00 | ≈ 0.001 |
+| σ_dec 0.0240 | 0.0033 | ≈ 1.00 | ≈ 0.010 |
+| 2×σ_eff 0.0374 | 0.0052 | ≈ 0.88 | ≈ 0.07 |
+| 3×σ_eff 0.0562 | 0.0078 | ≈ 0.48 | ≈ 0.16 |
+| 4×σ_eff 0.0749 | 0.0104 | ≈ 0.25 | ≈ 0.23 |
 
-- r2 (n ≈ 950) gave 0.0022 / 0.0028 / 0.0043 / 0.0065 / 0.0087. Dropping the 2026 season raises every MDE by √(950/811) − 1 ≈ 8%, the cost master accepted.
-- Per-fold MDE80 (about 160 dates, σ_dec, unadjusted) is about 0.0053, so per-fold signs are reported but not tested.
-- Method rule 16 (power ≥ 0.5 at edge size) is met up to 3×σ_eff (0.65) and fails at 4×σ_eff (0.37); the break-even is about 3.5×σ_eff.
+- History of this table: r2 (n ≈ 950, no ×1.07 on power), r3 (n = 811; the second review's inflated power was 0.94 / 0.58 / 0.32 at 2× / 3× / 4×). r4's drop from 811 to 660 (§1.1) raises every MDE by √(811/660) − 1 ≈ 11%.
+- Per-fold MDE80 (≈ 130 dates, σ_dec, unadjusted) is ≈ 0.0059, so per-fold signs are reported but not tested.
+- Method rule 16 (power ≥ 0.5 at edge size) is met up to 2×σ_eff and fails from ≈ 2.9×σ_eff (3×: 0.48). **This is a material loss versus r3 and is flagged to master**: if the realised σ̂ is ≥ 2.9×σ_eff, a non-significant arm is "KILL (underpowered)" (below).
 - **Pre-declared:** the realised power (power at −0.0057 using that arm's own σ̂) is reported with every result. A KILL through a Holm failure with realised power below 0.5 is labelled "KILL (underpowered)". It is still a kill for this row, but it does not count as evidence against the lever family.
-- The realised population counts, i.e. scored rows per hour and arm after §5 drops including C's non-empty pools, are computed before freeze from inputs only and appended to the freeze commit.
+- The realised population counts, i.e. scored rows per hour and arm after §5 drops including C's non-empty pools, are computed before any score from inputs only and committed with the pre-score integrity report.
 
 ## 7. V4→V5 outcome-blind gate
 
@@ -299,7 +359,8 @@ They are compared between the V5.0 dates 2026-05-06..05-26 and the same calendar
 
 8.1 **50% futility look (method rule 7).**
 
-- **When.** After folds 2021, 2022 and 2023 are scored: 480 of the 811 deciding dates after 5.1, about 59%, for every arm. A fold-aligned look cannot land closer to 50% (two folds would be 39%); the 59% placement is declared as is.
+- **When.** After folds 2021, 2022 and 2023 are scored: **390 of the 660** deciding dates (61 + 164 + 165), 59.1%, for every arm. A fold-aligned look cannot land closer to 50% (two folds would be 34%); the 59% placement is declared as is. (r3's "≈ 479"/"480" were the 811-date counts with and without 2021-01-22; both are superseded.)
+- **No peeking past the look (r4, review m11).** Held-out rows of folds 2024 and 2025 are not joined to their labels until the look's result file (per-arm point, SE, FUTILE flags) is written and committed to the branch with its sha256. The commit sha is cited in the final report. (Fold-2024/2025 labels used as *training* rows of folds 2021–2023 are not held-out rows and are not affected.)
 - **Rule.** Each arm whose point is > **−0.00285** (a fixed number, half of −0.0057, not half of the data-dependent G) is stopped as FUTILE.
 - **Failure rates.** See the table in §6.3.
 - **After the look.** There is no efficacy stopping, and survivors continue to all folds. A FUTILE arm keeps its Holm slot with p := 1 (§4.3). Arm A is scored to completion regardless.
@@ -307,7 +368,11 @@ They are compared between the V5.0 dates 2026-05-06..05-26 and the same calendar
 
 8.2 **Final outcome per arm** (exactly one, checked in this order):
 
-1. **HALTED.** Any HALT condition fired: C-0, C-b, §2's assertions, §3.2's assertion, or §5.2's cap.
+1. **HALTED.** A HALT condition fired, with the scope of §5.2 (r4, review M3):
+   - **whole run (all four arms):** C-0, C-0b, C-0c, §2's S assertions, §3.2's wrap assertion, the duplicate-key check, the §3.3b imputation cap, or any §5.2 cap breach other than an empty pool;
+   - **arm C only:** C-b (empty-pool check) or an empty-pool cap breach;
+   - **arms C and D:** whenever arm A is HALTED (§4.3).
+   - **Order (r4, review m8):** every HALT assertion runs on predictions and inputs **before any label is joined**, so a HALT can never fire after a score exists.
    - The arm has no verdict.
    - A repair needs a written, reviewed amendment made before any arm score has been read.
    - Once any arm score exists, no re-run is allowed: the arm stays HALTED and the row reports it.
@@ -339,6 +404,7 @@ Forward dates are used only if **all** of the following hold:
    - G is never looser than −0.0057.
    - r3 recompute: the √n inside G is the *forward* count (√166 = 12.88) and does not change with the history tier. What r3 changes is σ̂, now estimated on the 811 deciding dates (2021–25 folds only), and the history-side check: at −0.0057 with σ_eff the history z is 0.0057/(0.01872/√811) = 8.7 (σ_dec 6.8; 2× 4.3), so a true gate-sized effect clears Holm with ample room on the new count.
    - The 2026 descriptive fold never enters σ̂ or the history point.
+   - r4: σ̂ is estimated on the 660 paired deciding dates. The history z at −0.0057 becomes 0.0057/(0.01872/√660) = 7.8 (σ_dec 6.1; 2× 3.9). G itself is unchanged.
 2. **V5 gate.** The §7 gate did not FLAG, or master ruled the FLAG through.
 3. **Embargo.** The owner OKs a named forward embargo line starting 12-17.
    - No forward date is read before both the PT-1 look and the F8-MH look (01-26) have been taken.
@@ -352,17 +418,23 @@ PT-1's §5.4 retrain-window date drop does not apply here, because P3d_N is not 
 
 | Input | Volume | Source | Notes |
 | --- | --- | --- | --- |
-| NBM 07Z NBP text, Dec 17–May 31 2021–25 | 830 dates, ≈ 1.2 GB | NOAA AWS open data | 2021-01-22 has no 07Z (disclosed) |
-| NBM 01Z/00Z NBP text, 8 absent/late dates | ≈ 0.02 GB | NOAA AWS | §5.2 |
-| NBM 07Z NBP text, Jun–Jul 2021–25 | ≈ 305 dates, ≈ 0.43 GB | NOAA AWS | Training rows for arms A, C, D. **Not in master's 11-02 fetch GO**; unless master adds it, Jun–Jul training rows use the training fill rule (§3.3) and the imputed count is reported |
-| R-P2 IEM pool extension, all non-Aug–Sep months | ≈ 50 GB streamed | IEM ASOS, serial with 5 s spacing as in L48 | Stream-and-discard to station blocks |
-| 2026 Jan–May 26 NBP 07Z | Already local (L47b, 146 dates) | — | V4.3 / V5.0 |
+| Input (fetched 11-02/03, done) | Requests | Downloaded / kept | Manifest |
+| --- | --- | --- | --- |
+| NBM 07Z NBP whole bulletins, 2021-01-01..2025-12-31 Dec 17–May 31 | 831 | 26.06 GB streamed and discarded; 0.92 GB of blocks (11 markets + 300 pool) | `manifest_nbp.json` `2948b718…259b6f5f` |
+| NBM 01Z/00Z add-on, 8 dates | 16 | 0.32 GB; 0.01 GB blocks (2021-01-22 absent at every cycle) | same |
+| R-P2 IEM extension, Dec 16 – Jun 1 windows 2021–25 | 3,110 | 0.87 GB kept | `manifest_iem.json` `17aca6d1…699ad61f` |
+| Gap NBM 07Z (master ruling (a)3), Jun 1 – Jul 31 and Oct 1 – Dec 16, 2021–25 | 690 | [finalised at gap-manifest time] | [§4.1a] |
+| Gap IEM, May 31 – Dec 17 windows 2021–25 | 3,110 | [finalised at gap-manifest time] | [§4.1a] |
+| 2026 Jan–May 26 NBP 07Z | already local (L47b, 146 dates) | — | V4.3 / V5.0 (§7 gate only) |
+
+- **IEM estimate miss (master ruling (a)4):** the IEM extension was estimated at ≈ 50 GB but came to 0.87 GB, because L48's Aug–Sep IEM for the 300 pool stations had been 0.29 GB; the ≈ 50 GB figure conflated it with the whole-bulletin NBM stream (≈ 26 GB).
+- Fetcher: `scripts/row28_fetch_v1.py` (Dec–May, add-on, IEM) and `scripts/row28_fetch_v2.py` (gap mode), reusing the sha-pinned L48 helpers `station_pool_fetch_v2.py` `98ddd33e…`.
 
 - Heavy steps run only through `scripts\ops\workstation_heavy.ps1 -Queue`. Fetches run as network-bound light work (master 11-01 ruling) or via `-Queue`.
 - The request list is generated so that 2026-05-27..07-30 and every date ≥ 2026-09-30 are excluded at generation time, and the fetcher asserts it before the first request; nothing in those ranges is requested, even into a discard stream.
 - Before freeze, only integrity counts are inspected (dates, row counts, posted times); no temperature or obs value. Each fetch writes a run receipt with URLs, byte totals and shas.
-- C: free space stays ≥ 40 GiB at all times. Fetches check free bytes before each batch and stop below 45 GiB. Raw IEM pages are discarded after block extraction.
-- Fetches may start once this draft has been sent to the coordinator. They are inputs only: no label is read, and nothing is fitted or scored before freeze.
+- C: free space stays ≥ 40 GiB at all times. Fetches check free bytes before each request and stop below 45 GiB. NBM bulletins are discarded after block extraction; IEM CSVs are small and kept.
+- All fetches are inputs only: no label, settlement or observation value was opened, and nothing is fitted or scored before freeze.
 
 ## 11. Data reuse disclosure
 
@@ -434,4 +506,27 @@ NITs folded:
 3. 2026 is descriptive for every arm; deciding = 2021–25 folds; 2025-12-17..12-31 is in fold 2026 and descriptive (§1, §3.4, §4.1, §4.2, §8.2, §11). Cap counts recomputed with `cap_counts_v3.py` (§5); MDE80 recomputed on n = 811 for all variance multiples (§6.3); the forward-gate √n note added (§9.1); futility look re-placed at 59% (§8.1). r2's "5 DST partials per market in 2021–2025" is corrected to 4 (§5.1).
 4. Noted; no change.
 
-A second independent review is running; r3 stays open for one more fold before the freeze candidate.
+**r4 (second independent review of r3 `3fe952fa…`, verdict READY-AFTER-MAJORS, 0 BLOCKER / 3 MAJOR / 9 MINOR; plus master's rulings (a)1–4 and FLAG 1–2):**
+
+| Finding | Resolution in r4 |
+| --- | --- |
+| M1 scored-row build path | One builder `extract_market` for every row (§3.3); F/current_temp from the trainer's WU-hourly path, r3's METAR claim withdrawn; one row per key, centre = `nearest_centre` per arm (§3.2); control C-0b (§3.5) |
+| M2 Jun–Jul anchor | Market NBM frozen per month, identical A–D (§3.3b, FLAG 2); 5%-per-arm-month imputation cap → whole-run HALT; no month planned on fill-from-forecast |
+| M3 A HALTED | A HALTED ⇒ C, D HALTED (§4.3); empty-pool breach HALTs C only, all else the whole run (§5.2 = §8.2) |
+| m4 D window | 07Z only; Dec 1–16 from L9 `1ae4bf52`; held-out prior-day highs allowed as real-time info (§4.2) |
+| m5 target_date filters | All filters by target_date (§3.3, §4.1) |
+| m6 bucket space | Frozen per arm and fold (§3.6) |
+| m7 S on late 07Z | Scored rows need 07Z by the cutoff; 2022-01-06 dropped for all (§1.1, §3.3); narrows ruling (2) for scored rows — flagged |
+| m8 S check | Independent `mg_serve_core.mg1_band_probs` vs `mg1.predict` (§2); all HALT checks before labels are joined (§8.2) |
+| m9 κ_block3 | Defined as SE²(block-3)/SE²(iid), fold-bounded blocks (§6.1) |
+| m10 ×1.07 basis | Applied to MDE and power; recomputed at n = 660 (§6.3) |
+| m11 peek guard | Look result committed with sha before held-out 2024–25 labels are joined (§8.1) |
+| m12 counts | 977/956/≈950/479/480 superseded and explained (§1, §6.3, §8.1); this review cited here |
+| Ruling (a)1 paired | Every arm and S on the same 660 dates; C needs no extra serve-time input (§1, §4.1) |
+| Ruling (a)2/3 arm C gap | §4.1a |
+| Ruling (a)4 IEM miss | One line in §10 |
+| FLAG 2 market NBM | §3.3b |
+
+**New outcome-blind finding in r4 (flagged to master):** the B-bound builder's PIT-corpus coverage rule leaves 150 of the 811 dates without a record window (Jan–Mar 2021, Dec 17 2023 – Jan 30 2024, Dec 17–31 2024, and the 2024 leap day), so the paired deciding set is 660 and rule-16 power falls below 0.5 from ≈ 2.9×σ_eff (§1.1, §6.3). The descriptive 2026 fold and V5.0 sliver cannot be built (§1.1).
+
+r4 is held for master; the §4.1a line is finalised when the gap manifest lands.
