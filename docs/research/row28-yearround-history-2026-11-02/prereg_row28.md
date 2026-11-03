@@ -1,4 +1,4 @@
-# Row 28 — year-round P3d_N refit, HISTORY-ONLY kill-only prereg (DRAFT r4)
+# Row 28 — year-round P3d_N refit, HISTORY-ONLY kill-only prereg (DRAFT r4-final, freeze candidate)
 
 Status: **DRAFT, NOT FROZEN.** Nothing in this file binds until master reviews
 it and a freeze commit records its sha256. Drafted by lane L59 on the WS
@@ -143,9 +143,18 @@ Only the training rows differ by arm.
   - Jan–May rows get a "jan_jul" centre.
 - `nearest_centre` is used unchanged, without wrap. With 12-24 and 01-08 both present, wrapping cannot change any pick: the furthest dates, Dec 31 and Jan 1, are each 7 days from their own centre and at least 8 days from the other one.
 - The scorer asserts the wrap-free and wrap-aware picks are identical for every deciding date. A mismatch triggers HALT.
+- **Linear vs circular centre choice (r4-final, check C3; master ask after L56's item 342).** The bound `nearest_centre` measures linear day distance in 2001 with no year-end wrap. Item 342 found that this differs from a circular choice in 5 of 7 bound centre sets. Row 28's own sets were checked by a new script, `scripts/row28_centre_wrap_check.py`. It uses calendar arithmetic plus PIT-corpus coverage metadata only (to list training dates) and applies Rule L.
+  - **(a) Centre set per arm.** Arms A, C and D use `FORWARD_CENTRES + JAN_JUL_CENTRES + ("2026-12-24",)` (24 centres). Arm B uses `JAN_JUL_CENTRES[:10] + ("2026-12-24",)` (11 centres). Every arm goes through the same `nearest_centre` plus Rule L. **S uses no centre** (§2, Rule L below); only the descriptive S_bound inherits the bound centre set, as stated in §2.
+  - **(b) Result.** For both sets the linear choice equals the circular choice on **all 365 month-days**.
+    - The scored set: **0 of 660 dates differ (0 of 26,400 scored rows)** in every arm.
+    - Training dates: **0 of 1,635 differ** for A, C and D (every covered window day of 2021-01-01..2025-12-16), and **0 of 665** for B (the Dec 17–May 31 subset). C's pool rows use A's dates (§4.1), so 0 for them as well.
+    - The only circular tie in A/C/D is 10-01 (9 days from both 09-22 and 10-10). The linear pick there is one of the tied centres, and no row exists on 10-01 (§3.3b).
+  - **Consistency.** This agrees with the second review's wrap claim above (12-24 and 01-08 both present, so no deciding date changes centre), and extends it to every month-day and to training rows. The bound linear behaviour is kept unchanged and identically across arms. With 0 affected rows, nothing further needs disclosing.
+  - **Cross-check of method.** The same arithmetic on the bound sets reproduces item 342's counts for AUG_SEP 59, OCT_DEC 137, P3 106, FORWARD_CENTRES 98 and P3F 0. For JAN_JUL it gives 77 against item 342's 78. The one-day difference is 10-15, which is a circular tie (01-08 and 07-22 are both 85 days away). This script does not count a tie where the linear pick is one of the tied centres; item 342 evidently does.
 - **Centre per row (r4, review M1).** Each row's `centre` (and so `season`) is recomputed as `nearest_centre(target_date, <that arm's centre set>)`. The payload centre of the record file that carried the row is ignored. Example: a May 31 row arrives in the 06-07 record file; arms A, C, D keep centre 06-07, arm B maps it to 05-23.
 - **Leap-day rule (fixed, pre-stated; r4-final, outcome-blind code finding).** 2024-02-29 is a deciding date (inside the covered 2024 02-22 window). The bound `nearest_centre` (`pooled_residual_model` and its `mg_serve_core` copy) builds `date(2001, month, day)` and raises `ValueError` on Feb 29.
-  - **Rule L (binding for every arm, every row, training and scored):** wherever row-28 code needs a centre for a target_date of Feb 29, it calls `nearest_centre` with the same year's Feb 28 instead. Only the centre lookup is substituted; every other field (target_date, doy, fold, cutoffs, inputs, labels) keeps the real date. In every arm's centre set Feb 28 and Feb 29 both map to 02-22 (6 and 7 days from 02-22; ≥ 9 days from 03-09), so Rule L cannot change any pick. The §3.2 wrap assertion applies Rule L the same way. The scorer asserts that Rule L's pick for 2024-02-29 is 02-22 in each arm; a mismatch → HALT.
+  - **Rule L (binding for every arm, every row, training and scored):** wherever row-28 code needs a centre for a target_date of Feb 29, it calls `nearest_centre` with the same year's Feb 28 instead. **Exactly: for target_date 2024-02-29, `nearest_centre` is called with 2024-02-28, which returns centre 02-22 (`2026-02-22`).**
+  - **Scope.** Rule L applies identically in arms A, B, C and D (market rows and arm C's pool rows alike). **The comparator S does not use the centre**: MG-1 C5 has no centre, season or day-of-year input, so Rule L has nothing to act on in S. In the deciding set Rule L touches **one date only, 2024-02-29** (n stays 660). On the training side it touches **2024-02-29 only**: the training years are 2021–2025, and 2024 is their only leap year (2026 is not built, §1.1). As a training row, 2024-02-29 is used in every fold except fold 2024, which holds it out. Only the centre lookup is substituted; every other field (target_date, doy, fold, cutoffs, inputs, labels) keeps the real date. In every arm's centre set Feb 28 and Feb 29 both map to 02-22 (6 and 7 days from 02-22; ≥ 9 days from 03-09), so Rule L cannot change any pick. The §3.2 wrap assertion applies Rule L the same way. The scorer asserts that Rule L's pick for 2024-02-29 is 02-22 in each arm; a mismatch → HALT.
   - **The deciding comparator S is computable on 2024-02-29.** S is MG-1 C5 (§2): mu = v2_mean, sigma = max(v2_stddev, 1), the rule-4 floor and the bucket space. `mg_serve_core.mg1_band_probs` and `mg1.predict` take no date, centre or day-of-year input. The 07Z bulletin for 2024-02-29 was posted at 08:26Z, before every 13–16 cutoff. So S needs no substitution.
   - **Every arm's serve-time inputs are computable on 2024-02-29.** The market NBM, F, current_temp and the bucket space are date-free, and doy uses `tm_yday`, which is valid on Feb 29. The only Feb 29 failure in the arm path is the centre lookup, which Rule L fixes in advance. The paired rule therefore drops nothing, and n stays 660.
   - **Only the descriptive S_bound is not computable on 2024-02-29.** It runs the bound state through the bound `state_features`, which has the same Feb 29 failure and is not substituted. It is reported "not computable" on that date and never decides. Bound code is not edited.
@@ -219,9 +228,28 @@ descriptive fold (2026).**
 - Pool stations come from the frozen classes file. Their rows are extended to all months (§10), and pool rows inside the held-out season-year are excluded (§3.4), by target_date.
 - **Pool rows use exactly arm A's training dates** (the covered windows of §1.1/§3.3, by target_date), so C's training dates equal A's and only the station set differs.
 - **Serve-time inputs (master ruling (a)1).** At scoring, arm C needs the same market inputs as arm A (the class is a fixed property of each market station); pool rows are training-only. No deciding date lacks an input C needs, so C is scored on the same 660 dates as every arm and S, and no extra drop applies.
-- **Training gap (master ruling (a)2/(a)3) — option: [FINALISED AT GAP-MANIFEST TIME, see §4.1a].**
+- **Training gap (master ruling (a)2/(a)3) — option 3 (gap fetched; manifests complete 2026-11-03 02:21 local, before the 06:00 cutoff), see §4.1a.**
 
-4.1a **Arm C training-gap option.** [placeholder: finalised when the IEM gap manifest lands, deadline 11-03 06:00]
+4.1a **Arm C training-gap option: OPTION 3 (master ruling (a)3, FLAG 1).** Both gap manifests were complete before the 11-03 06:00 cutoff:
+- NBM gap: `manifest_nbp_gap.json` sha256 `02e5e8cbe67839ff3d8c68de4ea3633d28f97e9f24439078a6dd9010ba501c7b`, written 2026-11-03T02:46:30Z (2026-11-02 21:46 local).
+- IEM gap: `manifest_iem_gap.json` sha256 `bdf84209d1ef99c2cff74caf0b81201b63e873944fd2cb8607dc9277fa9fb402`, written 2026-11-03T07:21:09Z (02:21 local).
+
+So arm C's pool rows cover **the same training dates as arm A in every month**, and C's effective training n per season equals A's apart from the station set. There are no partial or unused gap files: options 1+2 do not apply, and nothing is archived unused.
+
+Pool-row sources per training month (2021–2025, inside covered windows; same dates as §3.3b):
+
+| Training dates | Pool NBM (07Z) | Pool IEM obs |
+| --- | --- | --- |
+| Jan 1 – May 31, Dec 17 – Dec 31 | This fetch (`nbp_station_blocks_c07.jsonl`, plus the 01Z/00Z add-on) | R-P2 extension (`manifest_iem.json`) |
+| Jun 1 – Jul 29, Oct 3 – Dec 16 | Gap fetch (`nbp_station_blocks_gap_c07.jsonl`) | Gap fetch (`manifest_iem_gap.json`) |
+| Aug 1 – Sep 29 | R-P2 pool corpus `a57e10a6…` (as frozen) | same |
+| Jul 30 – Jul 31, Sep 30 – Oct 2 | No centre window: no rows for any arm | — |
+
+- Pool rows follow §3.3b's availability rule (07Z by the cutoff, else fill-from-forecast). They are counted in arm C's §3.3b imputation cap, and the count is reported per month before any score.
+- Residual gaps: none beyond the two no-window spans, which apply to every arm alike.
+- Integrity counts (metadata only; no observation value opened):
+  - NBM gap: 690/690 requests, 0 absent objects, 0 size mismatches, 0 record-sha mismatches, all 311 stations found in every bulletin.
+  - IEM gap: 3,110/3,110 receipts with HTTP 200 (14 transient failures were retried inside the run), 3,110 files over 311 stations, 0 part files, 0 receipt-sha mismatches, 0 files without a receipt, and 1 header-only body (report type 4, special reports: a station-season with none). Every request window was checked to be Y-05-31T00Z..Y-12-17T12Z with Y in 2021..2025.
 - R-P2's controls run first: C-0 (reproduce R-A to 1e-9) and C-b (empty-pool check).
 - C must also pass R-P2's screen against A (C−A). KILL if any of:
   - the point is ≥ −0.0005;
@@ -469,15 +497,13 @@ PT-1's §5.4 retrain-window date drop does not apply here, because P3d_N is not 
 
 ## 10. Data (approved free official; inputs only before freeze)
 
-| Input | Volume | Source | Notes |
-| --- | --- | --- | --- |
 | Input (fetched 11-02/03, done) | Requests | Downloaded / kept | Manifest |
 | --- | --- | --- | --- |
 | NBM 07Z NBP whole bulletins, 2021-01-01..2025-12-31 Dec 17–May 31 | 831 | 26.06 GB streamed and discarded; 0.92 GB of blocks (11 markets + 300 pool) | `manifest_nbp.json` `2948b718…259b6f5f` |
 | NBM 01Z/00Z add-on, 8 dates | 16 | 0.32 GB; 0.01 GB blocks (2021-01-22 absent at every cycle) | same |
 | R-P2 IEM extension, Dec 16 – Jun 1 windows 2021–25 | 3,110 | 0.87 GB kept | `manifest_iem.json` `17aca6d1…699ad61f` |
-| Gap NBM 07Z (master ruling (a)3), Jun 1 – Jul 31 and Oct 1 – Dec 16, 2021–25 | 690 | [finalised at gap-manifest time] | [§4.1a] |
-| Gap IEM, May 31 – Dec 17 windows 2021–25 | 3,110 | [finalised at gap-manifest time] | [§4.1a] |
+| Gap NBM 07Z (master ruling (a)3), Jun 1 – Jul 31 and Oct 1 – Dec 16, 2021–25 | 690 | 21.77 GB streamed and discarded; 0.77 GB of blocks | `manifest_nbp_gap.json` `02e5e8cb…a501c7b` |
+| Gap IEM, May 31 – Dec 17 windows 2021–25 | 3,110 | 0.99 GB kept | `manifest_iem_gap.json` `bdf84209…9fb402` |
 | 2026 Jan–May 26 NBP 07Z | already local (L47b, 146 dates) | — | V4.3 / V5.0 (§7 gate only) |
 
 - **IEM estimate miss (master ruling (a)4):** the IEM extension was estimated at ≈ 50 GB but came to 0.87 GB, because L48's Aug–Sep IEM for the 300 pool stations had been 0.29 GB; the ≈ 50 GB figure conflated it with the whole-bulletin NBM stream (≈ 26 GB).
@@ -576,7 +602,7 @@ NITs folded:
 | m11 peek guard | Look result committed with sha before held-out 2024–25 labels are joined (§8.1) |
 | m12 counts | 977/956/≈950/479/480 superseded and explained (§1, §6.3, §8.1); this review cited here |
 | Ruling (a)1 paired | Every arm and S on the same 660 dates; C needs no extra serve-time input (§1, §4.1) |
-| Ruling (a)2/3 arm C gap | §4.1a |
+| Ruling (a)2/3 arm C gap | §4.1a: option 3 (both gap manifests complete before 06:00) |
 | Ruling (a)4 IEM miss | One line in §10 |
 | FLAG 2 market NBM | §3.3b |
 
@@ -590,4 +616,5 @@ NITs folded:
 | B. m7 accepted as a dated narrowing of ruling (2) for scored rows | Recorded as "master ruling 2026-11-02 (WS relay 21:36 report)" (§3.3) |
 | C. Descriptive 2026 fold and V5.0 sliver unbuildable | Already stated (§1.1); §7 gate unaffected |
 | Rule 16: underpowered labelling; adequate power defined | §8.4 (new); §8.2 KILL split into crossing vs failure-to-show conditions; INCONCLUSIVE-UNDERPOWERED added; §6.3's "KILL (underpowered)" withdrawn |
+| Master ask: linear vs circular centre (item 342) | Check C3 (§3.2): 0 of 660 scored dates, 0 training dates differ in every arm's set; S uses no centre; consistent with the second review's wrap claim |
 | New code finding: leap day | The bound `nearest_centre` raises on Feb 29. Fixed Rule L (§3.2): Feb 28's centre is used for a Feb 29 target_date, which gives the same pick (02-22) in every arm. The deciding S (MG-1 C5) and all arm serve-time inputs are computable on 2024-02-29, so there is no paired drop and n stays 660 (§1.1). Only the descriptive S_bound is "not computable" there. The bound `state_features` failure is outside row 28's scope; the coordinator is raising it separately |
