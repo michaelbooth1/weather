@@ -53,7 +53,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 - **L47 step 0:** the 07-12 market gap is mostly centre (P3d +0.0049..+0.0077 of +0.0101); width ≤ +0.0038, day-specific scale ≤ +0.0007, skew ~0; 2a and lever 2 PARKED (EF §10ag correction, X27).
 - **L50:** captured NBM v2 exists only from target 06-24 (US only), so NBM-dependent arms get at most 06-24..07-30 of the sealed panel (WS bytes 07-14..07-30); power is too low for parity-sized 07-12 steps (L50, `5a805dda7`).
 - **Maker-evidence capture gap 11-02 03:36-09:38 EST** (~6 h, host power loss, Kernel-Power 41, no UPS): 5 torn reward journals in segment 2026-11-02/08-b7021b84b0cf quarantined byte-exact (`QUARANTINE_RECEIPT.json`); remaining journals sealed by the store; no data rewritten; capture 10/10 since 09:39 ([runbook](passive-maker-evidence-capture.md) "Torn journal after power loss").
-- **F8-MH forward screen FROZEN** (row 104; Clarification 1 `d138f1d92`): D0 11-02, blind, one look 01-26 after PT-1's. MOSMIX-8 HOLD. **Row 72 R-ODC P1** from D0 10-31; Clarification 1 `9f112f3fa` fixes the rounding refusal pre-look; the < 30°F filter is in the candidate.
+- **F8-MH forward screen FROZEN** (row 104; Clarification 1 `d138f1d92`): D0 11-02, blind, one look >= 01-27 after the claiming looks (PT1 slot = R21 receipt). MOSMIX-8 HOLD. **Row 72 R-ODC P1** from D0 10-31; Clarification 1 `9f112f3fa` fixes the rounding refusal pre-look; the < 30°F filter is in the candidate.
 - **MG-1** forward shadow, single look after 11-28 ([reserved window](reserved-confirmation-window.md)). **MG-2 / Rule B-1 BOUND 10-28**
   ([design](B_FORWARD_TEST_DESIGN.md)): D0 10-29, N = 45, 45th date 12-12, NI margin +0.0027, look 12-13; daily WS pull runs.
 - **B's serial correlation** (dev ρ about 0.22): B's verdict stands; a frozen post-look module may only label a PASS "fragile" (master).
@@ -72,13 +72,13 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
 2. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72 and F8-MH accrue blind; L6_G emitting (first emission vectors d1e09134, runs.jsonl 6842d139).
-3. **MG-1 look after 11-28**, then B 12-13; **PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); 12-12..01-25) bound before D0; F8-MH 01-26.
+3. **MG-1 look after 11-28**, then B 12-13; **PT-1 NOT RUNNABLE** (R21, rules 4/6; claims no date; [receipt](../research/pt1-not-runnable-2026-11-03/receipt.md)); F8-MH >= 01-27.
 
 ## Open commitments (every row: owner, due, verify)
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| PT-1 bound: PT_D0, G = 15 s, rule sha; fixes 10/11 candidate-side; Miami floor | master | before PT_D0 | binding commit; DL row |
+| PT-1 NOT RUNNABLE (R21; rules 4/6): receipt + register row X106; F8-MH Cl. 2; T+1 dated clause | master (rule-11 receipt audit) + WS L59 | 11-04 docs head | receipt sha; DL row |
 | MG-1/B rulings DONE 11-03 (MG-1 Cl. 2, B-1 Cl. 5); owner A1/A5/A12 open; mg1_look scoring head; b_transfer T1/T3/T4 + B label loader; scorer and writer reviews | master (owner A1/A5/A12); WS heads | owner answers before the look; head 11-12/13; 11-20; 12-01 | DL 11-03 row; head tips |
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
 | Evening-fix Stage 2: gap read after the MG-1 look receipt (Clarification 1 s5); H2 then needs a market-arm replay (owner question) | master + WS | after 11-28 | MG-1 look receipt; Stage 2 receipt |
