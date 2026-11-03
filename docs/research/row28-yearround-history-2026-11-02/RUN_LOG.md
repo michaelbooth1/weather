@@ -616,3 +616,32 @@ from the centre in each name:
   - output guard 0;
   - `m1_summary.remaining_total` 0, with 0 remaining on each of the 66 records files.
   Any deviation STOPs.
+
+## Appended 2026-11-03T06:07:23-05:00: count-only M1 pre-check of a4, runner v9 (not run) (append only)
+
+- **The v8 delta review is CLEAN** (no B or M findings, 4 minors, disclosed in the C3 seventh addendum).
+- **M1 pre-check (master GO), count only.**
+  - **Callers** (scratch, outside the repo, run directly; light):
+    - `l59_m1_precheck_v1.py` `000a30df6554793502cc5fdfba89e117e1d653d78dbe50385f9e94b732f43ff2`: its peak-memory
+      read returned 0 (a ctypes signature fault), so it was rerun as v2;
+    - `l59_m1_precheck_v2.py` `bde132a49a61d055fc75f96503c579e7c25d0593ff6e64c2fe1ffdbb5dfbd4a8`.
+    Both import `m1_records_bytes` unchanged from `row28_run_v8.py` (`7bb10f05…`), verify that sha256 first, and
+    print counts only, with each file named by market, class tag and index. Nothing was written.
+  - **Result over the 66 a4 records in `run\records`:**
+    - remaining 0 on 66 of 66, span_mismatch 0, pickle protocol 5, 28,716 str opcodes;
+    - cuts: centre 66, generated_at 66, decision 72 (60 files at 1, 6 at 2).
+  - **Cost (m-d):** peak working set 32,468,992 bytes, peak pagefile 24,129,536 bytes, 6.88 s wall in all
+    (import, decompress and genops over 66 files). Well under 1 GB and 1 min.
+  - `run\records` was not moved.
+- **Runner v9** `row28_run_v9.py` = `bac1d678a60760071476379e42052855680e645816c769bb206e43a328f81b68`: v8 plus the
+  raw gzip header scan (C3 seventh addendum).
+- **Sentinel test v7** `test_row28_s7_sentinel_v7.py` =
+  `dbde6bcda4180a8670f2835fecf4821da98583bb1535c4d7063dbeae2cd31335`.
+- v8 and sentinel v6 are unchanged. Not run.
+- **a5 runs on v9** after its review is CLEAN and the coordinator's go:
+  1. Move `run\records` to `run\records_a4_evidence`, with the raw and decompressed manifests.
+  2. Run the pre-scans.
+  3. Launch `run\s1_controls_a5`.
+- **The a5 targets** are those of the 05:59 append, plus:
+  - `gz_header_allowance` `fname_own_tmp` 66 and `dated_tokens` 66;
+  - `gz_header_summary.hits` 0.

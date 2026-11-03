@@ -382,3 +382,54 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
   - the stage-end M1 report;
   - the gzip-payload case and the identity and comparison helpers;
   - an autouse check that no test's `tmp_path`, and so no basetemp, holds a date.
+
+## Seventh addendum (2026-11-03T06:07-05:00): the M1 pre-check of a4, runner v9 (raw gzip headers), v8 review minors
+
+- **The M1 pre-check of a4** (master GO; count only; RUN_LOG "Appended 2026-11-03T06:07"). Runner v8's
+  `m1_records_bytes`, imported unchanged from `row28_run_v8.py` (`7bb10f05…`, as committed at `f074ba7ab`), was
+  run over the 66 a4 records in `run\records`.
+  - **Result:** remaining 0 on 66 of 66, span_mismatch 0, protocol 5 throughout, 28,716 str opcodes.
+  - **Cuts:** centre 66 (1 per file; the GAP files hold only their own label), generated_at 66, decision 72
+    (60 files × 1, 6 files × 2).
+  - **Cost:** peak working set 32,468,992 bytes, 6.88 s wall in all (import, decompress and genops over 66 files).
+- **The headers before v9.** Runners v4-v8 never scanned raw gzip headers: the guard scanned decompressed payloads
+  only. The headers were by construction only prm:256's own tmp name, so there is no retroactive concern.
+- **Runner v9** (`row28_run_v9.py`) is v8 plus the raw-header scan and nothing else (10 counted exact
+  replacements; scratchpad `make_v9.py`).
+  - `gz_header_members` (`:869`) parses the header of EVERY member, because `gzip.decompress` accepts
+    multi-member streams. Each member's end is found by inflating it, and its 8-byte trailer is skipped. Trailing
+    zero padding ends the file. Bad magic, reserved flag bits or truncation make the file unscannable.
+  - `gz_header_scan` (`:911`, applied in `guard_file` at `:959`) decodes FNAME and FCOMMENT as latin-1 (RFC 1952)
+    and reads FEXTRA bytes as latin-1 text for the count. MTIME is a binary int: it is reported per member as a
+    value and never counted as a date.
+  - **The one allowance:** a records file's FNAME equal to the exact string derived from its own final name,
+    `records_<market>_<centre>.pkl.gz` → `records_<market>_<centre>.pkl.tmp`. The final name must pass the
+    record-name rule (market in R0, centre in the arm union). Each firing is counted in walk.json
+    (`gz_header_allowance` `fname_own_tmp` and `dated_tokens`).
+  - **Hits:**
+    - any other FNAME on any `.gz` (`gz_fname`);
+    - any FCOMMENT on a non-records `.gz`, Writer outputs included, since `gzip.compress` writes neither field
+      (`gz_fcomment`);
+    - every dated token in any other header text, by category.
+  - walk.json adds `output_guard.gz_headers` (per `.gz` basename: members, MTIME values, field counts, hits),
+    `gz_header_allowance` and `gz_header_summary`.
+- **Sentinel v7** pins v9 and adds the header cases:
+  - FNAMEs that pass: the own tmp name written exactly as prm:256 writes it (0 hits, counted, MTIME a value), and
+    the own name in a hand-built header;
+  - FNAME hits: a wrong-centre FNAME, a wrong-market FNAME, a non-tmp FNAME, an undated foreign FNAME, an FNAME on
+    a records file whose own name fails the rule, and any FNAME on a non-records `.gz`;
+  - FCOMMENT hits: a dated FCOMMENT, the own name as FCOMMENT, and any FCOMMENT on a non-records `.gz`;
+  - a dated FEXTRA, a dated header in a second member, and a reserved flag bit (unscannable);
+  - the stage-end report.
+- **The v8 review minors.** Disclosed here; the walk counting is NOT changed, so a5 = a4 compares cleanly.
+  - **m-a.** `compare_walk_csv` compares records rows on the payload sha256 only; the MTIME-masked raw check lives
+    only in `records_identity` and `compare_records_identity`. `records_identity` and `read_walk_csv` return
+    dated basenames, so only the `compare_*` results (templates and counts) may be printed or logged.
+  - **m-b.** The walk counts some names twice. A frame's `columns.name` is pushed at `:662` and again inside
+    `names` at `:663` (v8 lines; v9 `:673`/`:674`). A MultiIndex's used labels are counted in its tuples and
+    again in its levels. This only inflates counts and is fail-closed. It is not fixed before a5; the fix is
+    backlog.
+  - **m-c.** M1 counts the remainder (`m1_records_bytes`, v8 `:767`) with NO folder-name mask and NO records-root
+    mask, while the walk applies both. This is intended: M1 is stricter, and fail-closed.
+  - **m-d.** genops runs over every records file at stage end, which adds time: the pre-check measured 6.88 s for
+    all 66 files, import included.

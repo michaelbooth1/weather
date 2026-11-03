@@ -1,0 +1,1121 @@
+"""Row 28 sentinel test v7 (lane L59): master's sealed-window ruling 1, ruling 2's guard as scoped by the v4 rulings,
+the v3 delta review F1-F9, the v4 delta review G1-G3 / item 9, the v5 review H1 / H2 / H4 and master's ruling on
+the controls-a3 guard HALT, v7 K1-K3, v8 M1 / M2 / records identity, v9 raw gzip headers (RUN_LOG.md,
+CLARIFICATION_2.md, CLARIFICATION_3.md).
+
+Calendar / synthetic only. It reads no real data: every input is built under pytest's tmp_path (the runner's
+module constants and pooled_residual_model's centre constants are imported; nothing else is read). It runs BEFORE
+the controls stage and tests runner v9 (sha-pinned below); v1-v6 (runners v3-v8) are kept unchanged as history.
+
+1. A fake WU hourly month file for 2026-05 is written exactly as the WU writer writes it (wu_history.py 442:
+   json.dumps(row, sort_keys=True) over normalize_observation's dict, 780-812). Lines dated 05-27..05-31 carry the
+   sentinel 999.9 in every temperature, dewpoint, heat-index, wind-chill and humidity field, including the fields
+   that sit BEFORE local_date in the raw line. The section 7 reader must skip exactly those lines (count correct),
+   and the sentinel must appear in no output, no log and no exception message.
+2. A line without the writer's prefix shape HALTs, and the HALT message carries no line content.
+3. The runner's own daily_summary read filters on the raw line prefix: rows after 2025-12-31 (sentinel values) are
+   skipped and counted, and the kept-lines sha256 covers the header and kept lines only.
+   F8: "undecoded" is tested for real: the reader's open and json.loads are wrapped, and no decode or parse call ever
+   sees a sealed line.
+4. The output guard (v4, context-scoped, F3): dates on or after 2026-01-01 are counted, never echoed. A sealed centre
+   label passes only as the whole value of a centre field and only if it is an arm centre; the same label in a
+   free-text or non-centre field, as an undeclared dict key, or in a log other than an exact centre=<label> token is
+   a HIT. Section 7's constants pass only in section 7's declared fields; the records generated_at path passes only
+   in records files with a pinned value; record names pass only as declared fields/keys or under records_root.
+   F1: a pickle of many DataFrames whose last holds a 2026 datetime64 column is a HIT. F3 f: the byte cross-check
+   catches a dated string the walk cannot see. After a score exists a hit withholds the file and the arms become
+   INCOMPLETE (ruling 1, F5). F4: verify_prev needs a COMPLETE, guard-clean receipt. F9: score_folds failures carry
+   a code only. v5: G1 the Writer serialises first and byte-checks before writing (an unused 2026 category or a
+   dated dtype field name is withheld after a score and never reaches disk); G2 verify_prev binds the receipt to
+   its report; G3 generated_at must be its own market's pin; item 9 B within A and B_*centre* fields use B's set.
+   v6: H2 the stage report (walk.json) is guarded like a Writer output before it is written; H4 the thread
+   variables are pinned at import.
+   v7: K1 the records plan's two owner-decision strings pass only as the whole value at exactly
+   plan/column_differences_from_served/[i]/decision, pinned by r0_scope.py's sha256, and every firing is counted;
+   K2 tz-aware datetime arrays and K3 pandas Period values are walked; every temporal type is a HIT when dated.
+   v8: M2 every pandas surface is walked (a standalone Series' DatetimeIndex, a dated .name, a dated .attrs value,
+   an unused MultiIndex level, an unused category, a plain datetime64 Series); M1 in a records file a dated token
+   outside the pinned whole spans (own centre label(s), own generated_at, decision constants) is a HIT and the pinned
+   spans alone leave 0; a dated token inside any gzip payload is a HIT; records identity is the decompressed sha256
+   and the comparison helpers mask the gzip MTIME. No test's tmp_path (so no basetemp) holds a date.
+   v9: every gzip member's raw header is scanned. A records file's FNAME equal to its exact own tmp name passes
+   (0 hits, counted); a wrong-centre or wrong-market FNAME, any FNAME or FCOMMENT on a non-records .gz, a dated
+   FCOMMENT or FEXTRA, and a dated header in a second member are HITs; MTIME is reported as a value; a malformed
+   header is unscannable.
+
+Route: scripts/ops/workstation_heavy.ps1 -Kind pytest -Queue, with an explicit --basetemp deleted afterwards; the
+basetemp path holds no date (asserted for every test's tmp_path).
+"""
+from __future__ import annotations
+
+import sys
+
+sys.dont_write_bytecode = True
+
+import gzip  # noqa: E402
+import hashlib  # noqa: E402
+import importlib.util  # noqa: E402
+import io  # noqa: E402
+import json  # noqa: E402
+import logging  # noqa: E402
+import os  # noqa: E402
+import pickle  # noqa: E402
+import re  # noqa: E402
+from datetime import datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+import pytest  # noqa: E402
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[3]
+RUNNER = HERE / "row28_run_v9.py"
+RUNNER_SHA256 = "bac1d678a60760071476379e42052855680e645816c769bb206e43a328f81b68"
+SENTINEL = 999.9
+SENTINEL_TEXT = "999.9"
+TZ = ZoneInfo("America/Chicago")
+TIMES = ((0, 52), (3, 52), (6, 52), (7, 0), (7, 52), (12, 52))  # six lines per day; 07:00 is the last <= 07:00
+SEALED_DAYS = range(27, 32)
+FORBIDDEN_DAY_TEXT = tuple(f"2026-05-{d:02d}" for d in SEALED_DAYS)
+SEALED_LABEL = "2026-06-07"   # a JAN_JUL centre label inside the sealed window 05-27..07-30 (master, v4 ruling 2)
+FORWARD_LABEL = "2026-12-24"  # an OCT_DEC centre label on or after 09-30
+RECORDS_ROOT = r"C:\t\L59\row28\run\records"  # the configured records_root (a string only; nothing is opened)
+PINNED_AT = "2026-06-07T22:08:48"  # calibrated_weights_atlanta.json metadata.generated_at (F2 pin)
+SEALED = {"on_or_after_2026_05_27": 1}
+
+
+def _sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+@pytest.fixture(scope="module")
+def rt():
+    assert _sha256(RUNNER) == RUNNER_SHA256, "runner v9 differs from the pinned sha256"
+    if str(REPO / "src") not in sys.path:
+        sys.path.insert(0, str(REPO / "src"))
+    spec = importlib.util.spec_from_file_location("row28_run_v9_under_test", RUNNER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    centres = _centres()
+    assert mod.set_guard_centres(centres, RECORDS_ROOT) == {"sha256": mod.GUARD_CENTRE_SET_SHA256, "count": 24}
+    assert SEALED_LABEL in centres["A"] and FORWARD_LABEL in centres["A"]
+    assert mod.check_decision_pins(REPO) == {"r0_scope_sha256": mod.R0_SCOPE_SHA256, "values": 2}  # v7 K1
+    from weather.calibration import pooled_residual_model as prm  # constants only; no data is read
+
+    assert mod.set_m1_pins(prm) == {"gap_centres": 4}  # v8 M1
+    return mod
+
+
+@pytest.fixture(autouse=True)
+def _basetemp_holds_no_date(tmp_path):
+    """v8 (reviewer note): no test's tmp_path, so no basetemp, holds an ISO date."""
+    assert not re.search(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", str(tmp_path))
+    yield
+
+
+def _centres():
+    from weather.calibration import pooled_residual_model as prm  # constants only; no data is read
+
+    centres = {"A": tuple(prm.FORWARD_CENTRES) + tuple(prm.JAN_JUL_CENTRES) + ("2026-12-24",),
+               "B": tuple(prm.JAN_JUL_CENTRES[:10]) + ("2026-12-24",)}
+    centres["C"] = centres["D"] = centres["A"]
+    return centres
+
+
+def _temp(day, hh, mm):
+    return 50.0 + day + hh / 100.0 + mm / 10000.0
+
+
+def _row(day, hh, mm):
+    """One hourly row as the WU writer builds it; sealed days get the sentinel in every value field."""
+    from weather.sources import wu_history
+
+    local = datetime(2026, 5, day, hh, mm, tzinfo=TZ)
+    t = _temp(day, hh, mm)
+    obs = {"valid_time_gmt": int(local.timestamp()), "temp": t, "dewPt": t - 10.0, "heat_index": t, "wc": t,
+           "rh": 50, "pressure": 29.92, "vis": 10, "wdir": 180, "wdir_cardinal": "S", "wspd": 5, "gust": None,
+           "precip_hrly": 0.0, "precip_total": 0.0, "clds": "CLR", "wx_phrase": "Fair", "wx_icon": 31,
+           "qualifier": None, "key": "KXXX", "obs_id": "KXXX", "obs_name": "Synthetic"}
+    row = wu_history.normalize_observation(obs, TZ, unit="F")
+    assert row is not None and row["local_date"] == f"2026-05-{day:02d}"
+    if day in SEALED_DAYS:
+        for key in ("temp_native", "temp_c", "dewpoint_native", "dewpoint_c", "heat_index_native", "heat_index_c",
+                    "wind_chill_native", "wind_chill_c", "humidity"):
+            row[key] = SENTINEL
+    return row
+
+
+def _write_month(root, rows_text):
+    path = root / "data" / "wunderground" / "kxxx" / "hourly" / "year=2026" / "month=05" / "observations.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes("".join(line + "\n" for line in rows_text).encode("utf-8"))
+    return path
+
+
+def _assert_clean(text):
+    assert SENTINEL_TEXT not in text
+    for day in FORBIDDEN_DAY_TEXT:
+        assert day not in text
+
+
+def test_s7_reader_skips_sealed_lines_and_leaks_no_sentinel(rt, tmp_path, capsys, caplog):
+    caplog.set_level(logging.DEBUG)
+    lines = [json.dumps(_row(day, hh, mm), sort_keys=True) for day in range(1, 32) for hh, mm in TIMES]
+    path = _write_month(tmp_path, lines)
+    raw = path.read_bytes()
+    assert raw.count(SENTINEL_TEXT.encode()) > 0  # the fixture really carries the sentinel, before local_date too
+    first_sealed = next(line for line in lines if '"local_date": "2026-05-27"' in line)
+    assert first_sealed.index(SENTINEL_TEXT) < first_sealed.index('"local_date"')
+
+    cfg = {"main_data": str(tmp_path / "data")}
+    out, skipped = rt.s7_wu_obs07(cfg, "kxxx", 2026, 5, "2026-05-06", "2026-05-26")
+
+    assert skipped == len(SEALED_DAYS) * len(TIMES)  # 5 days x 6 lines = 30, and only those
+    assert sorted(out) == [f"2026-05-{d:02d}" for d in range(6, 27)]
+    assert out == {f"2026-05-{d:02d}": _temp(d, 7, 0) for d in range(6, 27)}  # last obs at or before 07:00
+    assert all(abs(v - SENTINEL) > 1.0 for v in out.values())
+
+    # What a stage writes from this reader (section7_gate writes aggregates and the count, never per-date rows):
+    # through the guarded Writer, then the stage-end file guard.
+    writer = rt.Writer(tmp_path / "run", tmp_path / "run" / "s7")
+    (tmp_path / "run" / "s7").mkdir(parents=True)
+    written = writer.json("s7_obs.json", {"obs07_values": sorted(out.values()), "n": len(out),
+                                          "sealed_lines_skipped_undecoded": skipped})
+    text = written.read_text(encoding="utf-8")
+    _assert_clean(text)
+    assert not rt.guard_file(written)
+
+    captured = capsys.readouterr()
+    _assert_clean(captured.out + captured.err)
+    _assert_clean("\n".join(r.getMessage() for r in caplog.records))
+
+
+def test_s7_reader_halts_without_the_writer_prefix_shape(rt, tmp_path):
+    good = json.dumps(_row(10, 6, 52), sort_keys=True)
+    unsorted = json.dumps(_row(28, 6, 52))  # not the writer's key order: the shape is absent
+    _write_month(tmp_path, [good, unsorted])
+    cfg = {"main_data": str(tmp_path / "data")}
+    with pytest.raises(rt.Halt) as info:
+        rt.s7_wu_obs07(cfg, "kxxx", 2026, 5, "2026-05-06", "2026-05-26")
+    _assert_clean(str(info.value))
+
+
+def test_daily_summary_prefix_filter(rt, tmp_path):
+    header = ("schema_version,local_date,temperature_unit,row_count,first_time,last_time,max_temp,max_temp_native,"
+              "max_temp_bucket,max_temp_bucket_native\r\n")
+    kept = ["wu_daily_native_v1,2025-12-30,F,24,00:52,23:52,61.0,61.0,61,61\r\n",
+            "wu_daily_native_v1,2025-12-31,F,23,00:52,23:52,62.0,62.0,62,62\r\n"]
+    sealed = ["wu_daily_native_v1,2026-01-01,F,24,00:52,23:52,999.9,999.9,999.9,999.9\r\n",
+              "wu_daily_native_v1,2026-05-28,F,24,00:52,23:52,999.9,999.9,999.9,999.9\r\n"]
+    path = tmp_path / "daily_summary.csv"
+    path.write_bytes((header + "".join(kept + sealed)).encode("utf-8"))
+    out, info = rt.wu_daily_file(path, with_high=True)
+    assert out == {"2025-12-30": (24, 61.0), "2025-12-31": (23, 62.0)}
+    assert info["skipped_after_2025"] == 2 and info["kept_lines"] == 2
+    assert info["kept_lines_sha256"] == hashlib.sha256((header + "".join(kept)).encode("utf-8")).hexdigest()
+    _assert_clean(json.dumps([out, info]))
+    bad = tmp_path / "bad.csv"
+    bad.write_bytes((header + '"quoted,first",2025-12-30,F,24,a,b,1,1,1,1\r\n').encode("utf-8"))
+    with pytest.raises(rt.Halt):
+        rt.wu_daily_file(bad, with_high=False)
+
+
+def test_s7_reader_never_decodes_a_sealed_line(rt, tmp_path, monkeypatch):
+    """F8: wrap the reader's open (each raw line becomes a bytes subclass that records decode calls) and json.loads;
+    no decode and no parse ever sees a sealed line, and only in-window lines at or before 07:00 are decoded."""
+    lines = [json.dumps(_row(day, hh, mm), sort_keys=True) for day in range(1, 32) for hh, mm in TIMES]
+    _write_month(tmp_path, lines)
+    decoded, parsed = [], []
+
+    class SpyBytes(bytes):
+        def decode(self, *args, **kwargs):
+            decoded.append(bytes(self))
+            return bytes.decode(self, *args, **kwargs)
+
+    class SpyHandle:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.handle.close()
+
+        def __iter__(self):
+            return (SpyBytes(line) for line in self.handle)
+
+    real_open, real_json = open, rt.json
+
+    def spy_open(path, mode="r", *args, **kwargs):
+        handle = real_open(path, mode, *args, **kwargs)
+        return SpyHandle(handle) if "b" in mode else handle
+
+    def spy_loads(text, *args, **kwargs):
+        parsed.append(text)
+        return real_json.loads(text, *args, **kwargs)
+
+    monkeypatch.setattr(rt, "open", spy_open, raising=False)
+    monkeypatch.setattr(rt, "json", SimpleNamespace(loads=spy_loads, dumps=real_json.dumps))
+    out, skipped = rt.s7_wu_obs07({"main_data": str(tmp_path / "data")}, "kxxx", 2026, 5, "2026-05-06", "2026-05-26")
+    assert skipped == len(SEALED_DAYS) * len(TIMES)
+    assert len(out) == 21
+    assert len(decoded) == len(parsed) == 21 * 4  # days 06..26, the four lines at or before 07:00
+    for line in decoded:
+        assert SENTINEL_TEXT.encode() not in line and not any(d.encode() in line for d in FORBIDDEN_DAY_TEXT)
+    for text in parsed:
+        assert SENTINEL_TEXT not in text and not any(d in text for d in FORBIDDEN_DAY_TEXT)
+
+
+def test_output_guard_counts_and_never_echoes(rt, tmp_path):
+    import numpy as np
+    import pandas as pd
+
+    assert rt.guard_text("x 2026-05-27 y") == {"on_or_after_2026_05_27": 1}
+    assert rt.guard_text("2026-03-01") == {"in_2026_before_05_27": 1}
+    assert not rt.guard_text("2025-12-31 20261103T041500.000000-0500 12026-06-011")
+    assert not rt.guard_text("C:\\x\\" + rt.GUARD_MASK_TOKEN + "\\scripts")
+    frame = pd.DataFrame({"d": pd.to_datetime(["2025-01-01", "2026-06-01"]), "s": ["2025-01-02", "2025-01-03"],
+                          "v": [1.0, 2.0]})
+    assert rt.guard_obj(frame) == SEALED
+    assert rt.guard_obj({"a": [np.datetime64("2026-07-01")]}) == SEALED
+    p = tmp_path / "f.pkl.gz"
+    p.write_bytes(gzip.compress(pickle.dumps(frame), mtime=0))
+    assert rt.guard_file(p)["on_or_after_2026_05_27"] >= 1
+
+
+def test_f1_many_frames_in_one_pickle(rt, tmp_path):
+    """F1: walk temporaries are kept alive, so a later DataFrame column is never skipped by a reused id."""
+    import pandas as pd
+
+    frames = [pd.DataFrame({"market": ["atlanta"] * 3, "target_date": ["2024-01-0%d" % (i % 9 + 1)] * 3,
+                            "y": [float(i)] * 3}) for i in range(60)]
+    frames.append(pd.DataFrame({"market": ["austin"], "when": pd.to_datetime(["2026-07-01"]), "y": [1.0]}))
+    assert rt.guard_obj(frames) == SEALED
+    assert rt.guard_obj({"a": frames[0], "b": frames[-1]}) == SEALED
+    p = tmp_path / "two.pkl.gz"
+    p.write_bytes(gzip.compress(pickle.dumps([frames[0], frames[-1]]), mtime=0))
+    assert rt.guard_file(p) == SEALED
+
+
+def test_f3f_byte_crosscheck(rt, tmp_path):
+    """F3 f: a dated string inside a pickle that the structural walk cannot see (a structured dtype's field name, a
+    float Series' name) is caught by the raw-byte count. v5 G1: unused categorical categories ARE walked now."""
+    import numpy as np
+    import pandas as pd
+
+    frame = pd.DataFrame({"note": pd.Categorical(["a", "a"], categories=["a", SEALED_LABEL])})
+    assert rt.guard_obj(frame) == SEALED  # G1: the unused category is walked
+    assert rt.guard_obj(pd.CategoricalIndex(["a"], categories=["a", SEALED_LABEL])) == SEALED
+    assert rt.guard_obj(pd.DataFrame([[1.0]], columns=pd.CategoricalIndex(["a"], categories=["a", SEALED_LABEL])))
+    assert not rt.guard_obj(pd.DataFrame({"centre": pd.Categorical(["2026-01-08"], categories=["2026-01-08",
+                                                                                                SEALED_LABEL])}))
+    p = tmp_path / "cat.pkl.gz"
+    p.write_bytes(gzip.compress(pickle.dumps(frame), mtime=0))
+    assert rt.guard_file(p) == SEALED
+    assert rt.guard_obj(pd.Series([1.0], name=SEALED_LABEL)) == SEALED  # v8 M2: a Series' name is walked now
+    for hidden in (np.zeros(2, dtype=[(SEALED_LABEL, "f8")]),):
+        assert not rt.guard_obj(hidden)
+        q = tmp_path / "hidden.pkl.gz"
+        q.write_bytes(gzip.compress(pickle.dumps(hidden), mtime=0))
+        assert rt.guard_file(q) == {"byte_crosscheck": 1}
+    ok = tmp_path / "ok.pkl.gz"
+    ok.write_bytes(gzip.compress(pickle.dumps(pd.DataFrame({"centre": [SEALED_LABEL] * 3})), mtime=0))
+    assert not rt.guard_file(ok)
+
+
+def test_g1_writer_checks_serialised_bytes_before_writing(rt, tmp_path):
+    """G1: post-score, an unused 2026 category (walk) and a dated dtype field name (bytes only) are withheld and NOT
+    on disk; pre-score the same outputs HALT before anything is written."""
+    import numpy as np
+    import pandas as pd
+
+    stage = tmp_path / "run" / "g1"
+    stage.mkdir(parents=True)
+    frame = pd.DataFrame({"note": pd.Categorical(["a"], categories=["a", "2026-06-01"])})
+    hidden = {"arr": np.zeros(1, dtype=[("2026-06-02", "f8")])}
+    pre = rt.Writer(tmp_path / "run", stage)
+    for name, obj in (("cat.pkl.gz", frame), ("hid.pkl.gz", hidden)):
+        with pytest.raises(rt.Halt) as info:
+            pre.pickle_gz(name, obj)
+        assert "2026-06-0" not in str(info.value) and not (stage / name).exists()
+    w = rt.Writer(tmp_path / "run", stage)
+    w.post_score = True
+    assert w.pickle_gz("cat.pkl.gz", frame) is None and not (stage / "cat.pkl.gz").exists()
+    assert w.pickle_gz("hid.pkl.gz", hidden) is None and not (stage / "hid.pkl.gz").exists()
+    assert [e["hits"] for e in w.withheld] == [SEALED, {"byte_crosscheck": 1}]
+    assert "2026-06-0" not in json.dumps(w.withheld) and not w.written
+    assert w.json("fine.json", {"centre": SEALED_LABEL, "n": 3}) is not None and (stage / "fine.json").exists()
+    assert w.gz_json("fine.json.gz", {"x": "2025-12-31"}) is not None
+    assert w.jsonl("fine.jsonl", [{"centre": FORWARD_LABEL}]) is not None
+
+
+
+def test_centre_label_passes_only_as_a_centre_field_value(rt):
+    # The same sealed label: a centre field value passes; anywhere else it is a HIT.
+    assert not rt.guard_obj({"centre": SEALED_LABEL})
+    assert not rt.guard_obj({"payload_centre": SEALED_LABEL, "rule_l_2024_02_29": SEALED_LABEL,
+                             "x_centre": FORWARD_LABEL})
+    assert not rt.guard_obj([{"centre": SEALED_LABEL, "years": [2021, 2022]}])
+    assert rt.guard_obj({"note": SEALED_LABEL}) == SEALED
+    assert rt.guard_obj({"reason": "centre " + SEALED_LABEL + ": failed"}) == SEALED  # free text
+    assert rt.guard_obj({"reason": "centre=" + SEALED_LABEL}) == SEALED  # the log token rule is for logs only
+    assert rt.guard_obj({"centre": "centre " + SEALED_LABEL}) == SEALED  # not the WHOLE value
+    assert rt.guard_obj({"centre": SEALED_LABEL + " "}) == SEALED
+    assert rt.guard_obj({SEALED_LABEL: [2021]}) == SEALED  # an undeclared dict key
+    assert rt.guard_obj({"covered_years": {SEALED_LABEL: [2021]}}) == SEALED
+    assert not rt.guard_obj({"by_centre": {SEALED_LABEL: [2021]}})  # F3 c: a declared parent
+    assert rt.guard_obj({"by_centre": {"2026-06-08": [2021]}}) == SEALED
+    assert rt.guard_obj({"season": SEALED_LABEL}) == SEALED  # season values are names, never dates
+    assert rt.guard_obj([SEALED_LABEL]) == SEALED  # no field at all
+    assert rt.guard_obj({"error": ["atlanta", SEALED_LABEL, "x"]}) == SEALED
+    assert rt.guard_text(SEALED_LABEL) == SEALED and not rt.guard_text(SEALED_LABEL, field="centre")
+    # A label outside the arm centre set is a HIT even in a centre field.
+    assert rt.guard_obj({"centre": "2026-06-08"}) == SEALED
+    assert rt.guard_obj({"centre": "2026-03-01"}) == {"in_2026_before_05_27": 1}
+    assert rt.guard_obj({"centre": FORWARD_LABEL, "note": FORWARD_LABEL}) == SEALED
+    # Nested: the nearest string key decides; a list under a centre key inherits it.
+    assert not rt.guard_obj({"x": {"centre": [SEALED_LABEL, FORWARD_LABEL]}})
+    assert rt.guard_obj({"centre": {"note": SEALED_LABEL}}) == SEALED
+    assert rt.centre_tag(SimpleNamespace(centres={"A": (SEALED_LABEL,)}), SEALED_LABEL) == "centre#0"
+    # The report keeps the centre set as a sha256 and a count only (F3 b).
+    assert not hasattr(rt, "set_guard_allowlist")
+
+
+def test_log_centre_token_rule(rt):
+    """F3 h: logs mask only the folder-name token and an exact centre=<arm label> token (the launcher is identical)."""
+    assert not rt.guard_log_text("extracted atlanta centre=" + SEALED_LABEL)
+    assert not rt.guard_log_text("centre=" + SEALED_LABEL + ", centre=" + FORWARD_LABEL + "\n")
+    assert rt.guard_log_text("centre=2026-06-08") == SEALED  # not an arm centre
+    assert rt.guard_log_text("centre " + SEALED_LABEL) == SEALED
+    assert rt.guard_log_text("centre: " + SEALED_LABEL) == SEALED
+    assert rt.guard_log_text("xcentre=" + SEALED_LABEL) == SEALED
+    assert rt.guard_log_text("centre=" + SEALED_LABEL + "x") == SEALED
+    assert rt.guard_log_text("centre=" + SEALED_LABEL + "-01") == SEALED
+    assert rt.guard_log_text("payload_centre=" + SEALED_LABEL) == SEALED
+    assert rt.guard_log_text("date=" + SEALED_LABEL) == SEALED
+    assert rt.guard_log_text("records_atlanta_" + SEALED_LABEL + ".pkl.gz") == SEALED  # logs: no record-name mask
+    assert rt.LOG_CENTRE_TOKEN == "(?<![A-Za-z0-9_])centre=(20[0-9]{2}-[01][0-9]-[0-3][0-9])(?![0-9A-Za-z_-])"
+    stream = rt.GuardedStream(io.StringIO())
+    stream.write("obs 2026-05-28 " + SENTINEL_TEXT + "\n")
+    stream.write("centre " + SEALED_LABEL + "\n")
+    stream.write("built centre=" + SEALED_LABEL + "\n")
+    stream.write("ok 2025-12-31\n")
+    assert stream.withheld == 2
+    logged = stream.inner.getvalue()
+    _assert_clean(logged)
+    assert "ok 2025-12-31" in logged and "built centre=" + SEALED_LABEL in logged
+    assert ("centre " + SEALED_LABEL) not in logged
+
+
+def test_centre_label_in_frames_and_files(rt, tmp_path):
+    import pandas as pd
+
+    ok = pd.DataFrame({"market": ["atlanta", "austin"], "centre": [SEALED_LABEL, FORWARD_LABEL],
+                       "target_date": ["2023-06-07", "2024-12-24"], "y": [1.0, 2.0]})
+    assert not rt.guard_obj(ok)
+    assert not rt.guard_obj(ok.assign(centre=pd.to_datetime(ok["centre"])))  # datetime centre column
+    assert rt.guard_obj(ok.assign(label=[SEALED_LABEL, "2025-01-01"])) == SEALED  # non-centre column
+    assert rt.guard_obj(ok.assign(target_date=[SEALED_LABEL, "2024-12-24"])) == SEALED
+    assert not rt.guard_obj(ok.set_index("centre"))  # an index named centre
+    assert rt.guard_obj(ok.set_index("market").T)  # transposed: the labels sit under market-named columns
+
+    d = tmp_path / "files"
+    d.mkdir()
+    (d / "a.json").write_text(json.dumps({"covered_years": [{"centre": SEALED_LABEL, "years": [2021]}]}))
+    (d / "b.json").write_text(json.dumps({"covered_years": {SEALED_LABEL: [2021]}}))
+    (d / "c.jsonl").write_text(json.dumps({"centre": SEALED_LABEL}) + "\n" + json.dumps({"d": SEALED_LABEL}) + "\n")
+    (d / "d.csv").write_text("market,centre,note\natlanta," + SEALED_LABEL + ",x\naustin," + FORWARD_LABEL + ","
+                             + SEALED_LABEL + "\n")
+    (d / "d2.csv").write_text("market,centre\natlanta," + SEALED_LABEL + "\n")
+    (d / "e.txt").write_text("centre " + SEALED_LABEL + "\n")
+    (d / "f.json.gz").write_bytes(b"not gzip")
+    assert not rt.guard_file(d / "a.json")
+    assert rt.guard_file(d / "b.json") == SEALED
+    assert rt.guard_file(d / "c.jsonl") == SEALED
+    assert rt.guard_file(d / "d.csv") == SEALED
+    assert not rt.guard_file(d / "d2.csv")
+    assert rt.guard_file(d / "e.txt") == SEALED  # unstructured text: no exception
+    assert rt.guard_file(d / "f.json.gz") == {"unscannable": 1}
+
+
+def test_section7_constants_pass_only_in_section7_fields(rt):
+    """F3 i: only S7_CONSTANT_FIELDS ("cap") inside the v5_gate_section7 subtree may hold a section 7 constant."""
+    assert rt.S7_CONSTANT_FIELDS == ("cap",)
+    assert not rt.guard_obj({"v5_gate_section7": {"cap": "2026-05-26", "n": {"V5": 3}}})
+    assert rt.guard_obj({"cap": "2026-05-26"}) == {"in_2026_before_05_27": 1}  # outside section 7
+    assert rt.guard_obj({"v5_gate_section7": {"window": ["2026-01-01"]}}) == {"in_2026_before_05_27": 1}
+    assert rt.guard_obj({"v5_gate_section7": {"cap": "read cap 2026-05-26"}}) == {"in_2026_before_05_27": 1}
+    assert rt.guard_obj({"v5_gate_section7": {"cap": "2026-05-27"}}) == SEALED
+    assert rt.guard_obj({"v5_gate_section7": {"cap": "2026-02-01"}}) == {"in_2026_before_05_27": 1}
+    assert not rt.guard_text("2026-05-05", field="cap", in_s7=True) and rt.guard_text("2026-05-05", in_s7=True)
+
+
+def test_records_generated_at_and_names(rt, tmp_path):
+    """F2 and F3 a."""
+    payload = {"market": "atlanta", "centre": SEALED_LABEL,
+               "calibrated_weights": {"metadata": {"generated_at": PINNED_AT}, "w": [0.1]}}
+    assert PINNED_AT in rt.RECORDS_GENERATED_AT_VALUES and len(rt.CALIBRATED_WEIGHTS_PINS) == 12
+    assert not rt.guard_obj(payload, records_file=True)
+    assert rt.guard_obj(payload) == SEALED  # only in records files
+    unpinned = {"calibrated_weights": {"metadata": {"generated_at": "2026-06-07T22:08:49"}}}
+    assert rt.guard_obj(unpinned, records_file=True) == SEALED  # the value is pinned too
+    moved = {"calibrated_weights": {"generated_at": PINNED_AT}, "meta": {"generated_at": PINNED_AT}}
+    assert rt.guard_obj(moved, records_file=True) == {"on_or_after_2026_05_27": 2}  # the exact path only
+    assert rt.guard_obj({"x": payload}, records_file=True) == SEALED  # top-level path only
+    name = "records_atlanta_" + SEALED_LABEL + ".pkl.gz"
+    p = tmp_path / name
+    p.write_bytes(gzip.compress(pickle.dumps(payload), mtime=0))
+    assert not rt.guard_file(p)
+    q = tmp_path / ("other_" + SEALED_LABEL + ".pkl.gz")
+    q.write_bytes(gzip.compress(pickle.dumps(payload), mtime=0))
+    assert rt.guard_file(q) == SEALED  # not a records file: generated_at is a hit
+    # Record names: under records_root, as the whole value of "file", or as a key under "records_sha256" only.
+    assert not rt.guard_text(RECORDS_ROOT + "\\" + name)
+    assert not rt.guard_text(RECORDS_ROOT.replace("\\", "/") + "/" + name)
+    assert not rt.guard_text(RECORDS_ROOT.lower() + "\\" + name)
+    assert not rt.guard_obj({"outputs_sha256": {RECORDS_ROOT + "\\" + name: "ab"}})
+    assert not rt.guard_obj({"payload_meta": [{"file": name, "centre": SEALED_LABEL}]})
+    assert not rt.guard_obj({"records_sha256": {name: "ab"}})
+    assert rt.guard_obj({"other_sha256": {name: "ab"}}) == SEALED
+    assert rt.guard_obj({"note": name}) == SEALED
+    assert rt.guard_text(name) == SEALED  # a bare name in free text
+    assert rt.guard_text("C:\\t\\L59\\row28\\run\\build\\" + name) == SEALED  # not under records_root
+    assert rt.guard_text(RECORDS_ROOT + "\\records_atlantis_" + SEALED_LABEL + ".pkl.gz") == SEALED
+    assert rt.guard_text(RECORDS_ROOT + "\\records_atlanta_2026-06-08.pkl.gz") == SEALED  # not an arm centre
+    assert rt.guard_text(RECORDS_ROOT + "\\" + name + ".bak") == SEALED
+    assert rt.guard_obj({"file": "x" + name}) == SEALED
+    assert rt.name_tag(name).startswith("name#") and SEALED_LABEL not in rt.name_tag(name)
+
+
+def test_writer_halt_withhold_and_incomplete(rt, tmp_path):
+    writer = rt.Writer(tmp_path / "run", tmp_path / "run" / "g")
+    (tmp_path / "run" / "g").mkdir(parents=True)
+    with pytest.raises(rt.Halt) as info:
+        writer.json("x.json", {"note": SEALED_LABEL})
+    assert SEALED_LABEL not in str(info.value) and not (tmp_path / "run" / "g" / "x.json").exists()
+    assert writer.json("ok.json", {"centre": SEALED_LABEL}) is not None
+    assert writer.jsonl("ok.jsonl", [{"centre": SEALED_LABEL}, {"centre": FORWARD_LABEL}]) is not None
+    writer.post_score = True
+    assert writer.jsonl("rows.jsonl", [{"d": "2026-05-30"}]) is None and writer.withheld
+    assert not (tmp_path / "run" / "g" / "rows.jsonl").exists()
+    assert "2026-05-30" not in json.dumps(writer.withheld)
+
+    look = {"look": {"A": {"point": 0.1, "futile": False}, "B": {"status": "HALTED"},
+                     "C": {"point": 0.2, "futile": True}, "D": {"point": 0.0}}}
+    rt.apply_incomplete(look, "r")
+    assert look["look"]["B"] == {"status": "HALTED"}
+    assert {a for a, v in look["look"].items() if v.get("status") == "INCOMPLETE"} == {"A", "C", "D"}
+    assert look["incomplete_arms"] == ["A", "C", "D"]
+    assert not any("futile" in v or "point" in v for v in look["look"].values())
+    score = {"outcomes": {"A": {"outcome": "KILL"}, "B": {"outcome": "HALTED"}, "C": {"outcome": "FUTILE"},
+                          "D": {"outcome": "SURVIVES-history"}}, "selection_section_8_3": {"candidate": "D"}}
+    rt.apply_incomplete(score, "r")
+    assert score["outcomes"]["B"]["outcome"] == "HALTED" and score["outcomes"]["C"]["outcome"] == "FUTILE"
+    assert score["outcomes"]["A"]["outcome"] == score["outcomes"]["D"]["outcome"] == "INCOMPLETE"
+    assert score["selection_section_8_3"]["status"].startswith("INCOMPLETE")
+    gone = {"outcomes": "[withheld by output guard]"}
+    rt.apply_incomplete(gone, "r")
+    assert gone["incomplete_arms"] == ["A", "B", "C", "D"]
+
+
+def test_f4_verify_prev_needs_a_clean_bound_receipt(rt, tmp_path):
+    """F4 and G2: the receipt must be COMPLETE, guard-clean, of the same stage and of the same runner sha256."""
+    stage = tmp_path / "prev"
+    stage.mkdir()
+    report = stage / "walk.json"
+    runner_sha = "ab" * 32
+    report.write_text(json.dumps({"status": "PASS", "runner_sha256": runner_sha}), encoding="utf-8")
+    cfg = {"prev": {"controls": {"path": str(report), "sha256": _sha256(report)}}}
+    receipt = stage / "receipt.json"
+    with pytest.raises(rt.Halt):
+        rt.verify_prev(cfg, "controls")  # no receipt
+    bound = {"stage": "controls", "walker_sha256": runner_sha}
+    upper = {"stage": "controls", "walker_sha256": runner_sha.upper()}
+    cases = [(dict(bound, status="COMPLETE", output_guard={"hits_total": 0}), True),
+             (dict(upper, status="COMPLETE", output_guard={"hits_total": 0}), True),
+             (dict(bound, status="PARTIAL", output_guard={"hits_total": 0}), False),
+             (dict(bound, status="HALT", output_guard={"hits_total": 0}), False),
+             (dict(bound, status="COMPLETE", output_guard={"hits_total": 1}), False),
+             (dict(bound, status="COMPLETE"), False),
+             (dict(bound, status="COMPLETE", output_guard={"hits_total": 0}, receipt_guard_hits=2), False),
+             (dict(bound, status="COMPLETE", output_guard={"hits_total": 0}, output_guard_flag="x"), False),
+             ({"status": "COMPLETE", "output_guard": {"hits_total": 0}}, False),  # unbound (G2)
+             (dict(bound, stage="build", status="COMPLETE", output_guard={"hits_total": 0}), False),
+             (dict(bound, walker_sha256="cd" * 32, status="COMPLETE", output_guard={"hits_total": 0}), False)]
+    for body, ok in cases:
+        receipt.write_bytes(b"\xef\xbb\xbf" + json.dumps(body).encode("utf-8"))  # PowerShell 5.1 writes a BOM
+        if ok:
+            got, where = rt.verify_prev(cfg, "controls")
+            assert got["status"] == "PASS" and Path(where) == stage
+        else:
+            with pytest.raises(rt.Halt):
+                rt.verify_prev(cfg, "controls")
+
+
+
+def test_f9_score_folds_failures_carry_a_code_only(rt, monkeypatch):
+    assert set(rt.SCORE_FOLDS_HALT_CHECKS) == {"SF1", "SF2"}
+
+    def boom_value(*args):
+        raise ValueError("brier 0.123456 at " + SEALED_LABEL)
+
+    def boom_halt(*args):
+        raise rt.ScoreFoldsHalt("SF2")
+
+    def boom_unlisted(*args):
+        raise rt.Halt("label 7 brier 0.5")
+
+    monkeypatch.setattr(rt, "score_folds", boom_value)
+    with pytest.raises(rt.ScoreFoldsError) as info:
+        rt.run_score_folds(1, 2)
+    assert "0.123456" not in str(info.value) and SEALED_LABEL not in str(info.value)
+    assert info.value.__cause__ is None and info.value.__suppress_context__
+    monkeypatch.setattr(rt, "score_folds", boom_halt)
+    with pytest.raises(rt.ScoreFoldsHalt) as info:
+        rt.run_score_folds()
+    assert info.value.code == "SF2" and isinstance(info.value, rt.Halt)
+    monkeypatch.setattr(rt, "score_folds", boom_unlisted)
+    with pytest.raises(rt.ScoreFoldsError) as info:
+        rt.run_score_folds()
+    assert "0.5" not in str(info.value)
+    assert rt.ScoreFoldsHalt("SF7").code == "SF?"
+
+
+
+def test_g3_generated_at_is_its_own_markets_pin(rt):
+    at = {m: rt.CALIBRATED_WEIGHTS_PINS[f"calibrated_weights_{m}.json"][1] for m in ("atlanta", "austin")}
+    assert at["atlanta"] != at["austin"]
+
+    def payload(market, value):
+        return {"market": market, "centre": SEALED_LABEL,
+                "calibrated_weights": {"metadata": {"generated_at": value}}}
+
+    assert not rt.guard_obj(payload("atlanta", at["atlanta"]), records_file=True)
+    assert not rt.guard_obj(payload("austin", at["austin"]), records_file=True)
+    assert rt.guard_obj(payload("atlanta", at["austin"]), records_file=True) == SEALED  # another market's pin
+    assert rt.guard_obj(payload("toronto", at["atlanta"]), records_file=True) == SEALED  # no mapping
+    assert rt.guard_obj(payload(None, at["atlanta"]), records_file=True) == SEALED
+    assert rt.guard_obj({"calibrated_weights": {"metadata": {"generated_at": at["atlanta"]}}},
+                        records_file=True) == SEALED  # no market at all
+    assert rt.records_generated_at_for("seattle") == "2026-06-07T22:15:56"
+    assert rt.records_generated_at_for("toronto") is None
+
+
+def test_item9_b_within_a_and_b_centre_fields(rt):
+    centres = _centres()
+    b_label, a_only = centres["B"][0], SEALED_LABEL
+    assert b_label in centres["A"] and a_only not in centres["B"]
+    assert not rt.guard_obj({"B_centre": b_label, "B_train_centre_x": FORWARD_LABEL})
+    assert rt.guard_obj({"B_centre": a_only}) == SEALED  # an A-only label in a B field
+    assert rt.guard_obj({"B_centres": [b_label, a_only]}) == SEALED
+    assert not rt.guard_obj({"A_centre": a_only, "centre": a_only})
+    # H1: b_label (B's first label, 2026-01-08) is a 2026 date before the sealed window.
+    assert rt.guard_obj({"B_note": b_label}) == {"in_2026_before_05_27": 1}  # B_ without "centre": not a centre field
+    # B's only sealed label is 2026-12-24 (B = JAN_JUL[:10], all before 05-27, plus 2026-12-24).
+    b_sealed = [x for x in centres["B"] if x >= "2026-05-27"]
+    assert b_sealed == ["2026-12-24"]
+    assert rt.guard_obj({"B_note": b_sealed[0]}) == SEALED
+    assert not rt.guard_obj({"B_centre": b_sealed[0]})
+    bad = dict(centres, B=centres["B"] + ("2026-06-08",))
+    try:
+        with pytest.raises(rt.Halt):
+            rt.set_guard_centres(bad, RECORDS_ROOT)  # B not within A (and the pinned set differs)
+        with pytest.raises(rt.Halt):
+            rt.set_guard_centres(dict(centres, B=()), RECORDS_ROOT)
+    finally:
+        assert rt.set_guard_centres(centres, RECORDS_ROOT)["count"] == 24
+    assert rt.guard_obj({"B_centre": a_only}) == SEALED
+
+
+
+def test_h2_stage_report_is_guarded_before_it_is_written(rt, monkeypatch):
+    """H2: walk.json gets the walk and the byte cross-check; nothing dated reaches disk, pre- or post-score."""
+    from collections import Counter
+
+    header = {"runner": "row28_run_v6", "runner_sha256": "ab" * 32, "stage": "look"}
+
+    def dated(obj):
+        return rt._n_dated(rt.json_bytes(obj).decode("latin-1"))
+
+    clean = {"status": "PASS", "centre_list": [{"centre": SEALED_LABEL}], "n": 3}
+    got, halted = rt.guard_report(dict(clean), False, header)
+    assert got == clean and not halted
+    # Pre-score: the offending key is withheld and the stage HALTs.
+    got, halted = rt.guard_report({"status": "PASS", "note": SEALED_LABEL, "n": 3}, False, header)
+    assert halted and got["status"] == "HALT" and got["note"] == "[withheld by output guard]" and got["n"] == 3
+    assert got["report_keys_withheld_bytes"] == ["note"] and dated(got) == 0
+    # Post-score: withheld, the arms INCOMPLETE, no HALT.
+    look = {"status": "PASS", "look": {"A": {"point": 0.1}, "B": {"status": "HALTED"}}, "note": SEALED_LABEL}
+    got, halted = rt.guard_report(look, True, header)
+    assert not halted and got["status"] == "PASS" and got["look"]["A"]["status"] == "INCOMPLETE"
+    assert got["look"]["B"] == {"status": "HALTED"} and got["incomplete_arms"] == ["A"] and dated(got) == 0
+    # A dated KEY cannot be withheld in place: only the minimal report is written.
+    got, halted = rt.guard_report({"status": "PASS", SEALED_LABEL: 1}, True, header)
+    assert got["report_withheld_by_output_guard"] and got["status"] == "FLAG" and dated(got) == 0
+    assert got["incomplete_arms"] == list(rt.ARMS) and all(got[k] == v for k, v in header.items())
+    got, halted = rt.guard_report({"status": "PASS", SEALED_LABEL: 1}, False, header)
+    assert halted and got["status"] == "HALT" and dated(got) == 0
+    # The byte cross-check alone (a walk blind spot, simulated) also withholds before the write.
+    monkeypatch.setattr(rt, "_walk", lambda obj, records_file=False: (Counter(), 0))
+    got, halted = rt.guard_report({"status": "PASS", "note": SEALED_LABEL}, False, header)
+    assert halted and got["note"] == "[withheld by output guard]" and dated(got) == 0
+    # The output_guard block's own start date is written in basic format, so a clean report stays clean.
+    assert rt.GUARD_FROM.replace("-", "") == "20260101"
+
+
+def test_h4_thread_pins_at_import(rt):
+    import os
+
+    assert rt.RULING_V6_THREADS == 10
+    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        assert os.environ[var] == "10"
+    text = RUNNER.read_text(encoding="utf-8")
+    pin = text.index('_os_threads.environ[_threads_var] = "10"')
+    assert all(pin < text.index(mod) for mod in ("import numpy", "pooled_residual_model as prm", "feature_model as fm"))
+
+
+
+def _decision_strings():
+    from weather.calibration import r0_scope  # constants only; no data is read
+
+    return r0_scope.DECISION_PRESSURE, r0_scope.DECISION_CONSENSUS
+
+
+def _plan_payload(rows, market="atlanta"):
+    return {"market": market, "plan": {"column_differences_from_served": rows}}
+
+
+def _fired(rt, before):
+    return {k: rt._DECISION_ALLOWANCE[k] - before.get(k, 0) for k in ("values", "dated_tokens")}
+
+
+def test_v7_k1_decision_allowance_exact_path_whole_value(rt):
+    p, c = _decision_strings()
+    assert (p, c) == rt.DECISION_ALLOWED_VALUES and rt._DECISION_PINS_OK
+
+    def hit(s):
+        return {"on_or_after_2026_05_27": rt._n_dated(s)}
+
+    # The right strings at the right path, in a records file: allowed, and every firing counted.
+    rows = [{"column": "pressure", "reason": "training_policy_exclusion", "decision": p},
+            {"column": "pressure_trend_3h", "reason": "training_policy_exclusion", "decision": p},
+            {"column": "forecast_source_count", "reason": "single_provider", "decision": c}]
+    before = dict(rt._DECISION_ALLOWANCE)
+    assert not rt.guard_obj(_plan_payload(rows), records_file=True)
+    assert _fired(rt, before) == {"values": 3, "dated_tokens": 2 * rt._n_dated(p) + rt._n_dated(c)}
+    # An altered string at that path: a HIT, nothing fired.
+    for altered in (p.replace("Drop", "drop"), p + " ", " " + c, c[:-1], p.upper()):
+        before = dict(rt._DECISION_ALLOWANCE)
+        assert rt.guard_obj(_plan_payload([{"decision": altered}]), records_file=True) == hit(altered)
+        assert _fired(rt, before) == {"values": 0, "dated_tokens": 0}
+    # The right string at a wrong path, or outside a records file: a HIT.
+    for obj in ({"market": "atlanta", "plan": {"other": [{"decision": p}]}},
+                {"market": "atlanta", "decision": p},
+                {"market": "atlanta", "plan": {"column_differences_from_served": [{"reason": p}]}},
+                {"market": "atlanta", "plan": {"column_differences_from_served": [{"note": {"decision": p}}]}},
+                {"x": _plan_payload([{"decision": p}])},
+                {"market": "atlanta", "plan": {"column_differences_from_served": [{"decision": [p]}]}}):
+        before = dict(rt._DECISION_ALLOWANCE)
+        assert rt.guard_obj(obj, records_file=True) == hit(p)
+        assert _fired(rt, before) == {"values": 0, "dated_tokens": 0}
+    assert rt.guard_obj(_plan_payload([{"decision": p}])) == hit(p)  # not a records file
+    # A dated string that is not one of the two constants, at that path: a HIT.
+    assert rt.guard_obj(_plan_payload([{"decision": SEALED_LABEL}]), records_file=True) == SEALED
+
+
+def test_v7_k1_pins_fail_closed(rt, monkeypatch):
+    p, _ = _decision_strings()
+    monkeypatch.setattr(rt, "_DECISION_PINS_OK", rt._DECISION_PINS_OK)  # restored after the test
+    monkeypatch.setattr(rt, "R0_SCOPE_SHA256", "0" * 64)
+    with pytest.raises(rt.Halt):
+        rt.check_decision_pins(REPO)
+    assert not rt._DECISION_PINS_OK
+    assert rt.guard_obj(_plan_payload([{"decision": p}]), records_file=True) == {"on_or_after_2026_05_27":
+                                                                                 rt._n_dated(p)}
+    monkeypatch.undo()
+    monkeypatch.setattr(rt, "_DECISION_PINS_OK", rt._DECISION_PINS_OK)
+    monkeypatch.setattr(rt, "DECISION_ALLOWED_VALUES", (p + "x", rt.DECISION_ALLOWED_VALUES[1]))
+    with pytest.raises(rt.Halt):
+        rt.check_decision_pins(REPO)
+    assert not rt._DECISION_PINS_OK
+
+
+def test_v7_k1_firings_reported_by_the_stage_end_scan(rt, tmp_path, monkeypatch):
+    p, c = _decision_strings()
+    monkeypatch.setattr(rt, "OUT_ROOT_PIN", tmp_path)
+    rec = tmp_path / "records"
+    rec.mkdir()
+    payload = _plan_payload([{"decision": p}, {"decision": c}])
+    (rec / "records_atlanta_x.pkl.gz").write_bytes(gzip.compress(pickle.dumps(payload), mtime=0))
+    og = rt.output_guard_scan({}, [])
+    assert og["hits_total"] == 0 and og["files_scanned"] == 1
+    assert og["decision_allowance"] == {"values": 2, "dated_tokens": rt._n_dated(p) + rt._n_dated(c)}
+    # The same strings in a file that is not a records file: hits, no firing.
+    (tmp_path / "other.pkl.gz").write_bytes(gzip.compress(pickle.dumps(payload), mtime=0))
+    st = os.stat(rec / "records_atlanta_x.pkl.gz")
+    og = rt.output_guard_scan({os.path.normcase(str(rec / "records_atlanta_x.pkl.gz")): (st.st_size, st.st_mtime_ns)},
+                              [])
+    assert og["decision_allowance"] == {"values": 0, "dated_tokens": 0}
+    assert og["hits_total"] == rt._n_dated(p) + rt._n_dated(c)
+
+
+def test_v7_temporal_types_are_walked_and_classed(rt, tmp_path):
+    """A(ii): every temporal type holding a sealed date is a HIT in an unscoped field; durations are not dates."""
+    import datetime as dt
+
+    import numpy as np
+    import pandas as pd
+
+    day = dt.date(2026, 6, 7)
+    cases = {
+        "datetime": dt.datetime(2026, 6, 7, 12, 0),
+        "date": day,
+        "tz_datetime": dt.datetime(2026, 6, 7, 12, 0, tzinfo=ZoneInfo("America/Chicago")),
+        "pd_timestamp": pd.Timestamp("2026-06-07 12:00"),
+        "pd_timestamp_tz": pd.Timestamp("2026-06-07 12:00", tz="America/Chicago"),
+        "np_datetime64_scalar": np.datetime64("2026-06-07"),
+        "np_datetime64_ns_scalar": np.datetime64("2026-06-07T12:00:00", "ns"),
+        "np_datetime64_array": np.array(["2026-06-07"], dtype="datetime64[D]"),
+        "datetime_index": pd.DatetimeIndex(["2026-06-07"]),
+        "datetime_index_tz": pd.DatetimeIndex(["2026-06-07 12:00"]).tz_localize("America/Chicago"),
+        "series_tz": pd.Series(pd.DatetimeIndex(["2026-06-07 12:00"]).tz_localize("UTC")),
+        "period": pd.Period("2026-06-07", freq="D"),
+        "period_index": pd.PeriodIndex(["2026-06-07"], freq="D"),
+        "period_series": pd.Series(pd.PeriodIndex(["2026-06-07"], freq="D")),
+    }
+    for name, value in cases.items():
+        assert rt.guard_obj({"note": value}) == SEALED, name
+    frame = pd.DataFrame({"t": pd.DatetimeIndex(["2026-06-07 12:00"]).tz_localize("America/Chicago"),
+                          "p": pd.PeriodIndex(["2025-06-07"], freq="D")})
+    assert rt.guard_obj({"f": frame}) == SEALED
+    # Categoricals: a dated value and an unused dated category are both seen.
+    cat_used = pd.Series(pd.Categorical([pd.Timestamp("2026-06-07")]))
+    assert rt.guard_obj({"c": cat_used})["on_or_after_2026_05_27"] >= 1
+    cat_unused = pd.Series(pd.Categorical(["2025-01-01"], categories=["2025-01-01", "2026-06-07"]))
+    assert rt.guard_obj({"c": cat_unused}) == SEALED
+    cat_period = pd.Series(pd.Categorical(pd.PeriodIndex(["2026-06-07"], freq="D")))
+    assert rt.guard_obj({"c": cat_period})["on_or_after_2026_05_27"] >= 1
+    # Durations carry no date: no hit.
+    for value in (dt.timedelta(days=3), np.timedelta64(3, "D"), pd.Timedelta(days=3),
+                  pd.TimedeltaIndex(["3 days"]), dt.time(12, 0)):
+        assert not rt.guard_obj({"note": value}), repr(type(value))
+    # Pickled, so the byte cross-check cannot help: a Period's pickle holds no date text, so the walk must see it.
+    for name in ("period", "period_index", "datetime_index_tz"):
+        q = tmp_path / f"{name}.pkl.gz"
+        q.write_bytes(gzip.compress(pickle.dumps({"note": cases[name]}), mtime=0))
+        assert rt.guard_file(q) == SEALED, name
+
+
+# ----------------------------------------------------------------------------- v8: M2, M1, records identity
+def test_v8_m2_every_pandas_surface_is_walked(rt, tmp_path):
+    """M2: one case per surface, standalone and nested; each pickled one is a HIT through guard_file too."""
+    import numpy as np
+    import pandas as pd
+
+    s_attrs = pd.Series([1.0])
+    s_attrs.attrs["note"] = SEALED_LABEL
+    mi = pd.MultiIndex.from_tuples([("a", "2025-01-01"), ("b", SEALED_LABEL)])[:1]
+    assert SEALED_LABEL in list(mi.levels[1]) and all(SEALED_LABEL not in t for t in mi.tolist())  # unused level
+    cases = {
+        "series_datetime_index": pd.Series([1.0], index=pd.DatetimeIndex(["2026-06-07"])),
+        "series_name": pd.Series([1.0], name=SEALED_LABEL),
+        "index_name": pd.Index([1, 2], name=SEALED_LABEL),
+        "series_attrs": s_attrs,
+        "series_unused_multiindex_level": pd.Series([1.0], index=mi),
+        "frame_unused_multiindex_column_level": pd.DataFrame([[1.0]], columns=mi),
+        "frame_unused_multiindex_row_level": pd.DataFrame({"v": [1.0]}, index=mi),
+        "series_unused_category": pd.Series(pd.Categorical(["a"], categories=["a", SEALED_LABEL])),
+        "series_unused_category_index": pd.Series([1.0], index=pd.CategoricalIndex(["a"],
+                                                                                   categories=["a", SEALED_LABEL])),
+        "series_datetime64_plain": pd.Series(pd.to_datetime(["2026-06-07"])),
+        "series_datetime64_plain_d": pd.Series(np.array(["2026-06-07"], dtype="datetime64[s]")),
+    }
+    for name, value in cases.items():
+        assert rt.guard_obj(value).get("on_or_after_2026_05_27", 0) >= 1, name  # standalone
+        assert rt.guard_obj({"note": [value]}).get("on_or_after_2026_05_27", 0) >= 1, name  # nested
+        q = tmp_path / f"{name}.pkl.gz"
+        q.write_bytes(gzip.compress(pickle.dumps(value), mtime=0))
+        assert rt.guard_file(q).get("on_or_after_2026_05_27", 0) >= 1, name
+    assert rt.guard_obj(pd.Series([1.0], name=SEALED_LABEL)) == SEALED  # counted once
+    assert rt.guard_obj(s_attrs) == SEALED
+    frame = pd.DataFrame({"a": [1.0], "b": [2.0], "c": [3.0]})
+    frame.attrs["note"] = SEALED_LABEL
+    assert rt.guard_obj(frame) == SEALED  # a frame's attrs are walked once, not once per column
+    # Undated surfaces stay clean, and a centre-named index keeps its centre context.
+    clean = pd.Series([1.0, 2.0], index=pd.Index(["x", "y"], name="k"), name="v")
+    clean.attrs["note"] = "2025-01-01"
+    assert not rt.guard_obj(clean)
+    assert not rt.guard_obj(pd.Series([1.0], index=pd.Index([SEALED_LABEL], name="centre")))
+    assert not rt.guard_obj(pd.Series([1.0], index=pd.MultiIndex.from_tuples([("atlanta", "2025-01-01")],
+                                                                             names=["market", "d"])))
+
+
+def _records_payload(centre, extra=None):
+    p, c = _decision_strings()
+    payload = {"market": "atlanta", "centre": centre,
+               "plan": {"column_differences_from_served": [{"decision": p}, {"decision": c}, {"decision": p}]},
+               "calibrated_weights": {"metadata": {"generated_at": PINNED_AT}}}
+    payload.update(extra or {})
+    return payload
+
+
+def _write_records(root, centre, payload, protocol=pickle.HIGHEST_PROTOCOL):
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"records_atlanta_{centre}.pkl.gz"
+    path.write_bytes(gzip.compress(pickle.dumps(payload, protocol=protocol), mtime=0))
+    return path
+
+
+def test_v8_m1_pinned_spans_alone_leave_zero(rt, tmp_path):
+    """M1: the pinned whole spans are cut and nothing dated remains; the str opcodes hold raw UTF-8 spans."""
+    for protocol in (4, pickle.HIGHEST_PROTOCOL):
+        path = _write_records(tmp_path / f"p{protocol}", SEALED_LABEL, _records_payload(SEALED_LABEL), protocol)
+        assert not rt.guard_file(path)
+        m1 = rt._M1_FILES[path.name]
+        assert m1["remaining"] == 0 and m1["span_mismatch"] == 0 and m1["str_ops"] > 0
+        assert m1["protocol"] == protocol
+        # the decision string used twice is one memoised span; centre and generated_at once each
+        assert m1["cut"] == {"centre": 1, "generated_at": 1, "decision": 2}
+    # A GAP file: its 4 GAP labels are its own centre set.
+    gap = sorted(rt._GAP_CENTRES)
+    assert len(gap) == 4
+    extra = {"corpus_union": {"corpora": [{"centre": x} for x in gap if x != gap[0]]}}
+    path = _write_records(tmp_path / "gap", gap[0], _records_payload(gap[0], extra))
+    assert not rt.guard_file(path)
+    assert rt._M1_FILES[path.name]["cut"]["centre"] == 4 and rt._M1_FILES[path.name]["remaining"] == 0
+
+
+def test_v8_m1_dated_token_outside_the_pinned_spans_is_a_hit(rt, tmp_path):
+    import numpy as np
+
+    p, c = _decision_strings()
+    root = tmp_path / "hit"
+    # Invisible to the walk (a structured dtype's field name), visible in the bytes: the walk is clean, M1 hits.
+    # (Not the file's own label, which would be a whole span and cut.)
+    extra = {"x": np.zeros(1, dtype=[("2026-06-08", "f8")])}
+    assert not rt.guard_obj(_records_payload(SEALED_LABEL, extra), records_file=True)
+    c_ = rt.guard_file(_write_records(root, SEALED_LABEL, _records_payload(SEALED_LABEL, extra)))
+    assert set(c_) == {"m1_remaining"} and c_["m1_remaining"] >= 1
+    # Another arm centre in a centre field: the walk allows it (arm union), M1 does not (not this file's own).
+    other = "2026-06-22"
+    assert other in rt._GUARD_CENTRES and other not in rt._GAP_CENTRES
+    extra = {"payload_meta": [{"centre": other}]}
+    assert not rt.guard_obj(_records_payload(SEALED_LABEL, extra), records_file=True)
+    assert rt.guard_file(_write_records(root, SEALED_LABEL, _records_payload(SEALED_LABEL, extra))) == \
+        {"m1_remaining": 1}
+    # A non-GAP label in a GAP file: a HIT.
+    gap = sorted(rt._GAP_CENTRES)
+    assert rt.guard_file(_write_records(tmp_path / "gap", gap[0], _records_payload(
+        gap[0], {"payload_meta": [{"centre": FORWARD_LABEL}]}))) == {"m1_remaining": 1}
+    # Another market's generated_at: the walk hits (G3) and so does M1.
+    at_austin = rt.records_generated_at_for("austin")
+    c_ = rt.guard_file(_write_records(tmp_path / "g3", SEALED_LABEL, _records_payload(
+        SEALED_LABEL, {"calibrated_weights": {"metadata": {"generated_at": at_austin}}})))
+    assert c_["m1_remaining"] == 1 and c_["on_or_after_2026_05_27"] == 1
+    # A pinned value inside a longer string is not a whole span: it stays, and is a HIT on both sides.
+    longer = _records_payload(SEALED_LABEL, {"note": "x " + p})
+    c_ = rt.guard_file(_write_records(tmp_path / "longer", SEALED_LABEL, longer))
+    assert c_["m1_remaining"] == rt._n_dated(p)
+    # The decision pins off: the decision spans are not cut.
+    saved = rt._DECISION_PINS_OK
+    try:
+        rt._DECISION_PINS_OK = False
+        c_ = rt.guard_file(_write_records(tmp_path / "nopins", SEALED_LABEL, _records_payload(SEALED_LABEL)))
+        assert c_["m1_remaining"] == rt._n_dated(p) + rt._n_dated(c)
+    finally:
+        rt._DECISION_PINS_OK = saved
+    # A file that is not a records file keeps the v7 byte cross-check (no M1).
+    q = tmp_path / "other.pkl.gz"
+    q.write_bytes(gzip.compress(pickle.dumps({"x": np.zeros(1, dtype=[(SEALED_LABEL, "f8")])}), mtime=0))
+    assert rt.guard_file(q) == {"byte_crosscheck": 1}
+
+
+def test_v8_m1_reported_by_the_stage_end_scan(rt, tmp_path, monkeypatch):
+    monkeypatch.setattr(rt, "OUT_ROOT_PIN", tmp_path)
+    try:
+        rt.set_guard_centres(_centres(), tmp_path / "records")  # the record-path mask for this tmp records root
+        path = _write_records(tmp_path / "records", SEALED_LABEL, _records_payload(SEALED_LABEL))
+        og = rt.output_guard_scan({}, [])
+    finally:
+        rt.set_guard_centres(_centres(), RECORDS_ROOT)
+    assert og["hits_total"] == 0 and og["files_scanned"] == 1
+    assert og["m1_records"] == {path.name: rt._M1_FILES[path.name]}
+    assert og["m1_summary"]["files"] == 1 and og["m1_summary"]["remaining_total"] == 0
+    assert og["m1_summary"]["cut_total"] == {"centre": 1, "generated_at": 1, "decision": 2}
+    assert not rt.guard_obj({"output_guard": og})  # the per-file key is a records name under m1_records
+
+
+def test_v8_dated_token_inside_a_gzip_payload_is_a_hit(rt, tmp_path):
+    """The stage-end guard decompresses every .gz before it scans (guard_file); the raw .gz bytes are not enough."""
+    for name, data in (("a.txt.gz", ("note " + SEALED_LABEL + "\n").encode()),
+                       ("b.json.gz", json.dumps({"note": SEALED_LABEL}).encode()),
+                       ("c.csv.gz", ("k,note\n1," + SEALED_LABEL + "\n").encode()),
+                       ("d.pkl.gz", pickle.dumps({"note": SEALED_LABEL})),
+                       ("e.jsonl.gz", (json.dumps({"note": SEALED_LABEL}) + "\n").encode())):
+        q = tmp_path / name
+        q.write_bytes(gzip.compress(data, mtime=0))
+        assert rt.guard_file(q) == SEALED, name
+
+
+def test_v8_records_identity_and_comparison_helpers(rt, tmp_path):
+    payload = pickle.dumps(_records_payload(SEALED_LABEL), protocol=pickle.HIGHEST_PROTOCOL)
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    name = f"records_atlanta_{SEALED_LABEL}.pkl.gz"
+    (a / name).write_bytes(gzip.compress(payload, mtime=1))
+    (b / name).write_bytes(gzip.compress(payload, mtime=2))  # only the header MTIME differs
+    assert _sha256(a / name) != _sha256(b / name)
+    assert rt.gz_payload_sha256(a / name) == rt.gz_payload_sha256(b / name) == hashlib.sha256(payload).hexdigest()
+    assert rt.gz_raw_sha256_mtime_masked(a / name) == rt.gz_raw_sha256_mtime_masked(b / name)
+    ia, ib = rt.records_identity(a), rt.records_identity(b)
+    res = rt.compare_records_identity(ia, ib)
+    assert res["equal"] and res["payload_equal"] == 1 and res["raw_mtime_masked_equal"] == 1 and res["raw_equal"] == 0
+    (b / name).write_bytes(gzip.compress(payload + b".", mtime=2))  # a payload change
+    res = rt.compare_records_identity(ia, rt.records_identity(b))
+    assert not res["equal"] and res["differing"] == ["records_atlanta_[date].pkl.gz"]
+    assert SEALED_LABEL not in json.dumps(res)
+    with pytest.raises(rt.Halt):
+        (tmp_path / "x.pkl.gz").write_bytes(b"not gzip at all, long enough")
+        rt.gz_raw_sha256_mtime_masked(tmp_path / "x.pkl.gz")
+    # walk.csv: records rows on payload_sha256, other rows on sha256; a v7 csv (no payload column) is unverified.
+    rec = "C:\\r\\records\\" + name
+
+    def csv_(path, rows, header="path,sha256,payload_sha256"):
+        path.write_text(header + "\n" + "".join(",".join(r) + "\n" for r in rows), encoding="utf-8")
+        return path
+
+    x = csv_(tmp_path / "x.csv", [(rec, "r1", "p1"), ("C:\\s\\a4\\m.json.gz", "m1", "q1")])
+    y = csv_(tmp_path / "y.csv", [(rec, "r2", "p1"), ("C:\\s\\a5\\m.json.gz", "m1", "q1")])
+    res = rt.compare_walk_csv(x, y)
+    assert res["equal"] and res["records_equal_on_payload"] == 1 and res["other_equal"] == 1
+    z = csv_(tmp_path / "z.csv", [(rec, "r2", "p2"), ("C:\\s\\a5\\m.json.gz", "m2", "q1")])
+    res = rt.compare_walk_csv(x, z)
+    assert not res["equal"] and sorted(res["differing"]) == ["m.json.gz", "records_atlanta_[date].pkl.gz"]
+    old = csv_(tmp_path / "old.csv", [(rec, "r1"), ("C:\\s\\a4\\m.json.gz", "m1")], header="path,sha256")
+    res = rt.compare_walk_csv(old, y)
+    assert not res["equal"] and res["records_unverified"] == 1 and res["other_equal"] == 1
+
+
+# ----------------------------------------------------------------------------- v9: raw gzip headers
+def _gz(payload, fname=None, comment=None, extra=None, mtime=0):
+    """One gzip member with the given raw header fields (RFC 1952), built by hand."""
+    import zlib
+
+    flg = (4 if extra is not None else 0) | (8 if fname is not None else 0) | (16 if comment is not None else 0)
+    head = b"\x1f\x8b\x08" + bytes([flg]) + int(mtime).to_bytes(4, "little") + b"\x00\xff"
+    if extra is not None:
+        head += len(extra).to_bytes(2, "little") + extra
+    if fname is not None:
+        head += fname.encode("latin-1") + b"\x00"
+    if comment is not None:
+        head += comment.encode("latin-1") + b"\x00"
+    co = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
+    body = co.compress(payload) + co.flush()
+    return head + body + (zlib.crc32(payload) & 0xFFFFFFFF).to_bytes(4, "little") + \
+        (len(payload) & 0xFFFFFFFF).to_bytes(4, "little")
+
+
+def test_v9_own_tmp_fname_passes_exactly_as_prm_writes_it(rt, tmp_path):
+    """The one allowance, written exactly as pooled_residual_model.py:256 writes (gzip.open on the .tmp path)."""
+    name = f"records_atlanta_{SEALED_LABEL}.pkl.gz"
+    tmp = tmp_path / name.replace(".pkl.gz", ".pkl.tmp")
+    with gzip.open(tmp, "wb") as handle:
+        pickle.dump(_records_payload(SEALED_LABEL), handle, protocol=pickle.HIGHEST_PROTOCOL)
+    target = tmp_path / name
+    tmp.replace(target)
+    raw = target.read_bytes()
+    assert raw[3] & 8 and tmp.name.encode() in raw[:100]  # FNAME is the tmp basename
+    before = dict(rt._GZ_HEADER_ALLOWANCE)
+    assert not rt.guard_file(target)
+    hdr = rt._GZ_HEADERS[name]
+    assert hdr["fname"] == 1 and hdr["fname_own_tmp"] == 1 and hdr["hits"] == 0 and hdr["members"] == 1
+    assert isinstance(hdr["mtime"][0], int) and hdr["mtime"][0] > 0  # a value only
+    assert rt._GZ_HEADER_ALLOWANCE["fname_own_tmp"] - before.get("fname_own_tmp", 0) == 1
+    assert rt._GZ_HEADER_ALLOWANCE["dated_tokens"] - before.get("dated_tokens", 0) == 1
+
+
+def test_v9_header_hits(rt, tmp_path):
+    payload = pickle.dumps(_records_payload(SEALED_LABEL), protocol=pickle.HIGHEST_PROTOCOL)
+    name = f"records_atlanta_{SEALED_LABEL}.pkl.gz"
+    own = name.replace(".pkl.gz", ".pkl.tmp")
+
+    def scan(sub, data, fname=name):
+        d = tmp_path / sub
+        d.mkdir()
+        (d / fname).write_bytes(data)
+        return rt.guard_file(d / fname), rt._GZ_HEADERS.get(fname)
+
+    c, hdr = scan("own", _gz(payload, fname=own, mtime=12345))
+    assert not c and hdr["mtime"] == [12345] and hdr["fname_own_tmp"] == 1  # the own name: 0
+    c, _ = scan("wrong_centre", _gz(payload, fname="records_atlanta_2026-06-22.pkl.tmp"))
+    assert c == {"gz_fname": 1, "on_or_after_2026_05_27": 1}  # a wrong-centre FNAME: a HIT
+    c, _ = scan("wrong_market", _gz(payload, fname=f"records_austin_{SEALED_LABEL}.pkl.tmp"))
+    assert c == {"gz_fname": 1, "on_or_after_2026_05_27": 1}
+    c, _ = scan("not_tmp", _gz(payload, fname=f"records_atlanta_{SEALED_LABEL}.pkl"))
+    assert c == {"gz_fname": 1, "on_or_after_2026_05_27": 1}
+    c, _ = scan("undated_fname", _gz(payload, fname="x.pkl"))
+    assert c == {"gz_fname": 1}  # any FNAME other than the own tmp name
+    c, hdr = scan("comment", _gz(payload, comment="note " + SEALED_LABEL))
+    assert c == SEALED and hdr["fcomment"] == 1  # a dated FCOMMENT: a HIT
+    c, _ = scan("comment_own", _gz(payload, fname=own, comment=own))
+    assert c == SEALED  # the own name is allowed only as FNAME
+    c, hdr = scan("extra", _gz(payload, extra=b"XY\x0a\x00" + SEALED_LABEL.encode()))
+    assert c == SEALED and hdr["fextra"] == 1  # dated FEXTRA bytes: a HIT
+    c, _ = scan("undated_comment", _gz(payload, comment="build 7"))
+    assert not c
+    c, hdr = scan("second_member", _gz(payload[:20], fname=own) + _gz(payload[20:], comment=FORWARD_LABEL))
+    assert c == {"on_or_after_2026_05_27": 1} and hdr["members"] == 2  # a later member is scanned too
+    bad = bytearray(_gz(payload))
+    bad[3] |= 0x20  # a reserved flag bit
+    c, _ = scan("reserved", bytes(bad))
+    assert c == {"unscannable": 1}
+    # A records file whose own name does not pass the record-name rule gets no allowance.
+    odd = "records_atlanta_2026-06-08.pkl.gz"  # not an arm centre
+    c, _ = scan("odd", _gz(pickle.dumps({"market": "atlanta"}), fname=odd.replace(".pkl.gz", ".pkl.tmp")), fname=odd)
+    assert c == {"gz_fname": 1, "on_or_after_2026_05_27": 1}
+
+
+def test_v9_non_records_gz_fname_is_a_hit(rt, tmp_path):
+    data = json.dumps({"n": 1}).encode()
+    for sub, fname, expect in (("a", "m.json", {"gz_fname": 1}),
+                               ("b", "m_" + SEALED_LABEL + ".json", {"gz_fname": 1, "on_or_after_2026_05_27": 1}),
+                               ("c", f"records_atlanta_{SEALED_LABEL}.pkl.tmp",
+                                {"gz_fname": 1, "on_or_after_2026_05_27": 1})):
+        d = tmp_path / sub
+        d.mkdir()
+        (d / "m.json.gz").write_bytes(_gz(data, fname=fname))
+        assert rt.guard_file(d / "m.json.gz") == expect, sub
+    for sub, comment, expect in (("d", "build 7", {"gz_fcomment": 1}),
+                                 ("e", "at " + SEALED_LABEL, {"gz_fcomment": 1, "on_or_after_2026_05_27": 1})):
+        d = tmp_path / sub
+        d.mkdir()
+        (d / "m.json.gz").write_bytes(_gz(data, comment=comment))
+        assert rt.guard_file(d / "m.json.gz") == expect, sub  # any FCOMMENT on a non-records .gz: a HIT
+    plain = tmp_path / "plain.json.gz"
+    plain.write_bytes(gzip.compress(data, mtime=0))  # the Writer's own form: no FNAME
+    assert not rt.guard_file(plain) and rt._GZ_HEADERS["plain.json.gz"] == {
+        "members": 1, "mtime": [0], "hits": 0, "fname": 0, "fname_own_tmp": 0, "fcomment": 0, "fextra": 0}
+
+
+def test_v9_header_allowance_reported_by_the_stage_end_scan(rt, tmp_path, monkeypatch):
+    monkeypatch.setattr(rt, "OUT_ROOT_PIN", tmp_path)
+    name = f"records_atlanta_{SEALED_LABEL}.pkl.gz"
+    rec = tmp_path / "records"
+    rec.mkdir()
+    payload = pickle.dumps(_records_payload(SEALED_LABEL), protocol=pickle.HIGHEST_PROTOCOL)
+    (rec / name).write_bytes(_gz(payload, fname=name.replace(".pkl.gz", ".pkl.tmp"), mtime=7))
+    (tmp_path / "m.json.gz").write_bytes(gzip.compress(b"{}", mtime=0))
+    try:
+        rt.set_guard_centres(_centres(), rec)
+        og = rt.output_guard_scan({}, [])
+    finally:
+        rt.set_guard_centres(_centres(), RECORDS_ROOT)
+    assert og["hits_total"] == 0 and og["files_scanned"] == 2
+    assert og["gz_header_allowance"] == {"fname_own_tmp": 1, "dated_tokens": 1}
+    assert og["gz_header_summary"] == {"files": 2, "members": 2, "hits": 0, "fname": 1, "fname_own_tmp": 1,
+                                       "fcomment": 0, "fextra": 0}
+    assert og["gz_headers"][name]["mtime"] == [7]
+    assert not rt.guard_obj({"output_guard": og})  # the records key sits under gz_headers
