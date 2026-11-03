@@ -114,3 +114,28 @@ addendum; their sha256 values are in `RUN_LOG.md`.
   - A field whose name starts with `B_` and contains `centre` is checked against B's centre set.
   - No written output carries an arm-specific centre today. Every centre field holds a label of A's set, and B's
     labels are a subset of A's by code (`B = JAN_JUL[:10] + 2026-12-24`, `A = FORWARD + JAN_JUL + 2026-12-24`).
+
+## Second addendum (2026-11-03, before any control): the v5 review
+
+Runner v6 and sentinel test v4 implement this addendum. Launcher v5 is unchanged. Their sha256 values are in
+`RUN_LOG.md`.
+
+- **G5, corrected (H4).** The first addendum said the pools are "capped at 10" by `pooled_residual_model.py` 48-50.
+  That was not assured. Those lines use `os.environ.setdefault`, so an inherited value wins, and `feature_model` and
+  sklearn can be imported before `pooled_residual_model`.
+  - Runner v6 therefore sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` to 10. It does so as the
+    first statements after the module docstring, before numpy, sklearn or any bound module is imported, and it
+    overrides any inherited value (`RULING_V6_THREADS = 10`).
+  - The rest of G5 stands. The fits inside `score_folds` run in-process threads only. No child process is spawned
+    there.
+- **H2 (ruling 1).** The stage report (`walk.json`) is now checked the same way as every Writer output before it is
+  written: the structural walk plus the byte cross-check of its exact serialisation (`guard_report`).
+  - On a hit, the offending top-level keys are withheld.
+  - Before a score exists, the stage HALTs.
+  - After a score exists, the arms become INCOMPLETE.
+  - If the report still hits (for example, a dated key), only a minimal report is written: the runner, its sha256,
+    the stage, the status and counts.
+  - The output-guard block records its start date in basic format (`20260101`), so the report carries no dated
+    string of its own.
+- **H1 (sentinel).** B's centre set holds one sealed label, `2026-12-24`. The other ten labels lie before 2026-05-27.
+  Sentinel v4 tests both kinds of label.

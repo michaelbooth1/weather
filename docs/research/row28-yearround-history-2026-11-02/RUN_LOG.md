@@ -6,9 +6,9 @@ This log records how the frozen row-28 prereg is executed.
   by `FREEZE_RECORD.md`.
 - **Read with:** `CLARIFICATION_1.md`, `CLARIFICATION_2.md` and `CLARIFICATION_3.md` (all 2026-11-03, committed
   before any control).
-- **Status:** nothing has run, not even the sentinel test. The v4 delta review found no MAJOR; master gave v5 a GO
-  (runner v5, launcher v5, sentinel test v3, the C3 addendum). Gate order: the coordinator's go for the sentinel
-  test, then the sentinel test PASSES, then the coordinator's go for stage 1.
+- **Status:** nothing has run, not even the sentinel test. The v5 review: launcher v5 and C1–C3 CLEAN; a final
+  round gives runner v6 and sentinel test v4 (C3 second addendum); launcher v5 is unchanged. Gate order: the
+  coordinator's go for the sentinel test, then the sentinel test PASSES, then the coordinator's go for stage 1.
 
 ## Exception to workstation_heavy admission
 
@@ -54,11 +54,11 @@ runs through a guarded one-off launcher.
 | File | sha256 |
 | --- | --- |
 | Launcher v5, `C:\t\L59\row28\run_row28_guarded_v5.ps1` (= `scripts/run_row28_guarded_v5.ps1`) | `0b0d0f977ecba384a8ae4257a7d7f49af2fb92ca7d23f43916696ac9890ade5d` |
-| Runner v5, `scripts/row28_run_v5.py` (run from `C:\wt\L59row28`) | `e138d9af14476ef918cc1768b1589c2ac5e95d8faf18ac32eeff308d149d7d32` |
-| Sentinel test v3, `scripts/test_row28_s7_sentinel_v3.py` (pins runner v5) | `1f5be86cd6737cbc6692ad480960310839071e4afe2b35cfddd6d28e164bb0b6` |
+| Runner v6, `scripts/row28_run_v6.py` (run from `C:\wt\L59row28`) | `fd4464744e729cb8ed27eb68aa998d528ac4d2bfe5075d9837b9b02b7e2cae1b` |
+| Sentinel test v4, `scripts/test_row28_s7_sentinel_v4.py` (pins runner v6) | `331692850750b3016aaac8d51630523cffbae57e68beacc754169c08c3611fca` |
 | `CLARIFICATION_1.md` | `d9e70a2f47e05d9046893d3b5f461b7ab3ce658b5166748c5eaedca5d8187495` |
 | `CLARIFICATION_2.md` | `a71ba0e87c2d887309be41a57f0aceeccd03039acb1d20532e0dfa61d7df6bdd` |
-| `CLARIFICATION_3.md` (with its 2026-11-03 addendum) | `ab6168a20c12082bdc1f4e3141acfa3136231a348cb2d63ac5769bbfe45786c1` |
+| `CLARIFICATION_3.md` (with its two 2026-11-03 addenda) | `1d8e6406b74593810ed8d0480cc473d6f15d8c6087d0666c0c4d0b79f8436cfc` |
 | R-P2 module copy, `C:\t\L59\row28\tools\station_pool_corpus_d4947cfe.py` | `d4947cfe1b02c537ec84fca994ef0c1c26572be0251810eb744b421aae09f0b7` |
 | Job helper, `C:\wt\L59row28\scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` |
 | Admission helper, `C:\wt\L59row28\scripts\ops\workload_admission.ps1` (memory reading only) | `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441` |
@@ -67,8 +67,8 @@ runs through a guarded one-off launcher.
 
 - **Superseded, never run:** runner v1 `e39ce884…`, launcher v1 `34235d44…`, config `stage1_controls_v1.json`,
   runner v2 `0a74bb3d…`, launcher v2 `8bfea248…`, runner v3 `949464ab…`, launcher v3 `fb039782…`, sentinel
-  test v1 `e91cbb46…`, runner v4 `059cb05b…`, launcher v4 `3f356f38…` and sentinel test v2 `2cc67424…`. They stay
-  in the branch as review history.
+  test v1 `e91cbb46…`, runner v4 `059cb05b…`, launcher v4 `3f356f38…`, sentinel test v2 `2cc67424…`, runner v5
+  `e138d9af…` and sentinel test v3 `1f5be86c…`. They stay in the branch as review history.
 - **F2 pins (runner v4 `CALIBRATED_WEIGHTS_PINS`, checked at every stage before it starts).** The one allowlisted
   key path is `["calibrated_weights"]["metadata"]["generated_at"]`, in `records_*.pkl.gz` only, with a pinned value.
   It is copied by `src/weather/calibration/pooled_residual_model.py` 249 and loaded by
@@ -94,7 +94,7 @@ runs through a guarded one-off launcher.
 
 - **Pins inside the runner:** it pins every bound module, input and corpus sha256 it reads. It also pins the run root
   `C:\t\L59\row28\run` and the main data root.
-- **Later stages:** each gets a new config, `stageN_<name>_v5.json`. That config names the previous stages'
+- **Later stages:** each gets a new config, `stageN_<name>_v6.json`. That config names the previous stages'
   `walk.json` files with their sha256 values (from the table below) and, for stages labels and score, the gate commit.
   The config's own sha256 is logged here before its stage starts.
 
@@ -129,7 +129,7 @@ untouched.
 
 | # | Stage (`-Stage`) | Timebox (pre-stated) | Gate before it |
 | --- | --- | --- | --- |
-| 0 | sentinel test v3 (`scripts/test_row28_s7_sentinel_v3.py`, synthetic only) via `workstation_heavy.ps1 -Kind pytest -Queue` | the wrapper's own | coordinator go (v5 GO given) |
+| 0 | sentinel test v4 (`scripts/test_row28_s7_sentinel_v4.py`, synthetic only) via `workstation_heavy.ps1 -Kind pytest -Queue` | the wrapper's own | coordinator go (v5 GO given) |
 | 1 | `controls`: C-0, C-0b, C-0c, C-b | 4 h = 14,400 s | sentinel PASS + coordinator go |
 | 2 | `build`: every record window, the y-free frame with label presence, NBM tables, pool feature rows with presence | 6 h = 21,600 s | stage 1 PASS |
 | 3 | `integrity`: outcome-blind integrity report; every HALT (R6); the C-pool control; empty pool; S; the §7 gate; restated n, MDE and §8.4 thresholds (N2) | 2 h = 7,200 s | stage 2 PASS |
@@ -148,14 +148,14 @@ untouched.
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v5.ps1 `
   -OutDir C:\t\L59\row28\run\s1_controls -Stage controls -TimeboxSeconds 14400 `
   -RootsPath C:\t\L59\row28\run_config\stage1_controls_v2.json `
-  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v5.py `
-  -ExpectSha e138d9af14476ef918cc1768b1589c2ac5e95d8faf18ac32eeff308d149d7d32
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v6.py `
+  -ExpectSha fd4464744e729cb8ed27eb68aa998d528ac4d2bfe5075d9837b9b02b7e2cae1b
 ```
 
 - **Sentinel test form (stage 0).** It goes through the WS's standard pytest route, so no new exception is needed. The
   arguments are a JSON array passed as canonical base64; the basetemp is deleted afterwards. The process environment
   sets `PYTHONDONTWRITEBYTECODE=1` (F8; the test also sets `sys.dont_write_bytecode`). Arguments:
-  `-m pytest <abs path of scripts\test_row28_s7_sentinel_v3.py> -q -p no:cacheprovider --basetemp C:\t\L59\row28\sentinel_bt`.
+  `-m pytest <abs path of scripts\test_row28_s7_sentinel_v4.py> -q -p no:cacheprovider --basetemp C:\t\L59\row28\sentinel_bt`.
 
 ```
 $env:PYTHONDONTWRITEBYTECODE = "1"
@@ -227,9 +227,18 @@ superseded by ruling 2 (Clarification 3 §4).
 | G2 | `verify_prev` binds the receipt to its report: `receipt.stage == name`, `receipt.walker_sha256 == report.runner_sha256`. | `verify_prev` |
 | G3 | A records file's `generated_at` must be the pin of its own market's `calibrated_weights_<market>.json`; no mapping is a hit. | `RULING_V5_GENERATED_AT_OWN_MARKET = True`, `records_generated_at_for` |
 | G4 | Every receipt records `job_memory.peak_job_memory_bytes` (launcher v5 keeps it in a minimal receipt too). | launcher v5 |
-| G5 | Confirmed by code: no child process inside `score_folds` (sklearn HGB OpenMP threads in-process, capped at 10 by `pooled_residual_model.py` 48-50; no n_jobs / joblib / multiprocessing; the runner's only subprocess is `git` in `verify_committed_gate`, at stage start). | — |
+| G5 | Confirmed by code: no child process inside `score_folds` (sklearn HGB OpenMP threads in-process; no n_jobs / joblib / multiprocessing; the runner's only subprocess is `git` in `verify_committed_gate`, at stage start). The "capped at 10" wording is corrected by v6 H4 below. | — |
 | G6 | The masked launcher string, verbatim, is in the C3 addendum and above. | — |
 | Item 9 | `set_guard_centres` asserts B ⊆ A (non-empty) and union = A; a `B_*centre*` field is checked against B's set. No written output carries an arm-specific centre today. | `RULING_V5_B_CENTRE_FIELDS = "B_*centre*"`, `centre_set_for` |
+
+## v6 (the v5 review, final round 2026-11-03; runner v6 constants; C3 second addendum)
+
+| Item | Change | Runner v6 constant / function |
+| --- | --- | --- |
+| H1 | Sentinel only: `{"B_note": "2026-01-08"}` gives `{"in_2026_before_05_27": 1}`; B's one sealed label, `2026-12-24`, is a HIT in `B_note` and passes in `B_centre`. | — |
+| H2 | Ruling 1: `walk.json` gets the walk and the byte cross-check of its exact serialisation before it is written; on a hit the offending keys are withheld (HALT pre-score; arms INCOMPLETE post-score); if it still hits, only a minimal report is written. `output_guard.from` is now basic format (`20260101`). | `RULING_V6_REPORT_BYTE_CHECK = True`, `guard_report`, `report_guard_hits` |
+| H4 | `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` are set (overriding) to 10 as the first statements of the runner, before numpy / sklearn / any bound module is imported. | `RULING_V6_THREADS = 10` |
+| H3, H5 | Notes only; no change. | — |
 
 Kept from v1 (no ruling changed them):
 
