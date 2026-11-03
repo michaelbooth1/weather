@@ -1426,3 +1426,53 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   - `pool_nbm_rows.jsonl`, Y26_PRE0527, Y26-M01: 300 (writer) and 300 (stage_end).
   - The pool count, 300, is within the 900 bound; no FLAG.
 - **STOP.** Integrity waits for the coordinator's go.
+
+## Appended 2026-11-03T08:56:49-05:00: integrity (stage 3) GO, wrapper_root copies, config, pre-launch checks and exact command (append only)
+
+- **GO (relayed, 08:54:43).** The rebuild `s2_build_a2` PASS is accepted: receipt `eb60509b…`, tip `6aa9c6c0`. The
+  `wrapper_root` copies are accepted.
+  - GO for integrity, outcome-blind: no label join, no label or settlement read, no score, no 390 look. STOP after
+    it. Labels, look and score each need master's go.
+- **`C:\t\L59\row28\wrapper_root`.** These are byte copies of tracked files at this worktree's tip. Each sha equals
+  the worktree file. It is used only as the `-RepoRoot` of `workstation_heavy.ps1`, outside the worktree:
+
+| Path under wrapper_root | sha256 |
+| --- | --- |
+| `scripts\ops\workstation_heavy.ps1` | `145ff7453ac44cfd563f24d9ab5852b6b3019b855c1fdeb65295f64de87b4c1e` |
+| `scripts\ops\workload_admission.ps1` | `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441` |
+| `scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` |
+| `config\international_live_execution_host.json` | `111367a167628fcd78753f341beac119f81d9b87380989a9299d165daad80a5b` |
+
+  - The wrapper's own state is under `wrapper_root\data\logs`: 2 entries, names only.
+  - The integrity stage itself runs under launcher v6, not this wrapper.
+- **Config.** `C:\t\L59\row28\run_config\stage3_integrity_v1.json`, sha256
+  `acf75737674239dfc00391760ad69c729fe9a3dfc73767911c52f4c9e6b89db5`. It is new, and no existing config was edited.
+  It differs from `stage2_build_v1.json` only in `stage: integrity` and
+  `prev = {build: {path: run\s2_build_a2\walk.json, sha256: 80c70b2f…}}`.
+- **Pre-launch checks** (read-only, `l59_prelaunch_s3_v1.py`):
+  - **Dated scan** (ISO >= 2026-01-01). It finds 0 in the config path, the OutDir `s3_integrity`, the stage, the
+    log dir `ctl_s3_logs` and the launcher path. The walker path has 1, the doc dir name; the runner masks it, as at
+    every launch.
+    - The config contents had 1 raw match of the crude pattern. It lies inside the `prev.build.sha256` hex, and it
+      is not a valid calendar date (0 valid). The runner's own `guard_text` and `guard_obj` on the config are
+      clean.
+    - The forbidden roots are referenced 0 times.
+  - **verify_prev binding to s2_build_a2.**
+    - The walk.json sha equals the config's. The report is PASS, stage build.
+    - The receipt `eb60509b…` is COMPLETE, with output-guard hits 0, no receipt guard hits and no FLAG.
+    - The receipt's stage is build, and its walker sha equals the report's `runner_sha256`.
+    - `frame_inputs`, `pool_noy`, `pool_ctrl_noy` and `payload_meta` each equal their sha in the build report.
+    - The junction manifest after the build is `9dff281c…` (json-bytes form).
+  - Walker `9e97c892…`, launcher `8a2f8759…`. OutDir and log dir are absent.
+- **Launch block** `C:\t\L59\row28\launch_s3_integrity_v1.ps1`. The data\ check (exactly the 4 named junctions)
+  and the no-wrapper process check run, then Start-Process immediately, with nothing in between. Peak memory is
+  monitored by `mon_s2_v1.ps1` (STOP above 12.8 GB). Timebox 7,200 s, as in the stage plan.
+- **Exact command:**
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s3_integrity -Stage integrity -TimeboxSeconds 7200 `
+  -RootsPath C:\t\L59\row28\run_config\stage3_integrity_v1.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v12.py `
+  -ExpectSha 9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b
+```
