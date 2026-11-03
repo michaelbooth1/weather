@@ -250,7 +250,19 @@ def _freeze(root, labels, drop=(), thin=(), skipped=(), keys=True):
     return receipt
 
 
-def _synthetic(tmp_path, *, bad_markets=(), mutate=None, drop_labels=(), thin_labels=(), skipped_labels=(),
+def _market_manifest(market, layout_root, /, **edits):
+    """The host producer's ``mg1_market/1`` manifest beside a synthetic --market file (shas and booleans only)."""
+    body = {"schema": m.MARKET_MANIFEST_SCHEMA, "look_id": "mg1", "market_sha256": m.sha256_file(market),
+            "layout": {"snapshots_sha256": m.sha256_file(layout_root / "inputs_snapshots.parquet"),
+                       "bands_sha256": m.sha256_file(layout_root / "inputs_bands.parquet")},
+            "range_ok": True, "duplicate_free": True}
+    body.update(edits)
+    path = Path(market).parent / m.MARKET_MANIFEST
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def _synthetic(tmp_path, *, bad_markets=(),mutate=None, drop_labels=(), thin_labels=(), skipped_labels=(),
                keys=True, seed=7):
     """45 dates x the support markets x 5 hours; MG-1 centred near the truth (``bad_markets``: 6 F too warm), served
     uniform, market sharp. Returns the paths ``score`` takes."""
@@ -287,6 +299,7 @@ def _synthetic(tmp_path, *, bad_markets=(), mutate=None, drop_labels=(), thin_la
     outcomes = tmp_path / "outcomes"
     outcomes.mkdir()
     market.to_parquet(outcomes / "market.parquet", index=False)
+    _market_manifest(outcomes / "market.parquet", layout)
     freeze = _freeze(tmp_path / "frozen" / "mg1", labels, drop_labels, thin_labels, skipped_labels, keys)
     return {"rule": RULE, "layout_root": layout, "countable": _countable(tmp_path / "countable.json"),
             "label_freeze": freeze, "market": outcomes / "market.parquet", "out": tmp_path / "out"}

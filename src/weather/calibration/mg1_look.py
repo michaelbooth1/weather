@@ -38,7 +38,14 @@ Non-countable market-days are dropped from the layout (A3). Then come the holds,
 - a countable market-day with no label key in the frozen label metadata (``label_key_check``, Q2). It reads only
   the freeze receipt's ``label_dates`` key list and the frozen manifest's ``skipped_dates`` and
   ``label_source_counts``. It parses no CSV and calls no reader. A missing key list is refused by name;
-- a used row whose ``v2_status`` is not "available" (A6).
+- a used row whose ``v2_status`` is not "available" (A6);
+- the ``--market`` check (``market_check``, master 2026-11-03 ruling 3). The file must exist, its parquet schema
+  must name exactly ``row_key, band_index, p_market_yes``, and its sha must equal the host producer's
+  ``mg1_market/1`` manifest beside it, which must also be MG-1's and name this layout. A missing or mismatched
+  file refuses; a manifest ``range_ok`` or ``duplicate_free`` that is not true holds. It reads no price value.
+
+Prices gate the verdict only through the signed materiality condition (the 00-16 served-minus-market gap, then
+the bar; master 2026-11-03 ruling 1). The primary reads no price (A9).
 
 It then builds the MG-1 vector (``free_source_candidates.mg1.predict``, whose sha the receipt records) and runs
 every outcome-blind VOID check. Only then does ``join_outcomes`` read the labels (``read_venue_labels`` on the
@@ -54,7 +61,8 @@ verdict, a VOID, or ABORTED).
 - the window and finality;
 - the freeze (audit status, FREEZE_THROUGH, hashes);
 - the label keys and their consistency;
-- with ``--layout``, the A3 hole check.
+- with ``--layout``, the A3 hole check;
+- with ``--market``, the ``--market`` check.
 
 It never stamps, joins or reads a label or price, and writes a counts-only ``mg1_check_keys/1`` record (mode
 "x"). Exit codes, for ``run`` and ``check-keys`` alike: 0 pass, 2 refused (``EXIT_REFUSED``), 4 held
@@ -281,6 +289,13 @@ UNEXPLAINED_ABSENCE_HOLDS = True
 FREEZE_AUDIT_OK = "OK"
 CHECK_SCHEMA = "mg1_check_keys/1"
 EXIT_REFUSED, EXIT_HELD = 2, 4
+# The --market price file and the manifest beside it, written on the host on the look morning by
+# ``weather.calibration.mg1_market`` (master 2026-11-03, --market rulings 2 and 3). Copied here; a test pins them
+# equal once both modules share a tree. The pre-stamp check reads the manifest's shas and booleans and the
+# parquet schema's column names only, never a price value.
+MARKET_MANIFEST = "mg1_market_manifest.json"
+MARKET_MANIFEST_SCHEMA = "mg1_market/1"
+MARKET_COLUMNS = ("row_key", "band_index", "p_market_yes")
 MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": "America/New_York",
              "austin": "America/Chicago", "chicago": "America/Chicago", "dallas": "America/Chicago",
              "houston": "America/Chicago", "denver": "America/Denver", "los-angeles": "America/Los_Angeles",
@@ -601,6 +616,55 @@ def read_inputs(layout_root, rows):
             "masked_market_days": sum(1 for f in flags.values() if not f)}
     return snaps, bands, {"snapshots_sha256": sha256_file(root / data.SNAPSHOTS_FILE),
                           "bands_sha256": sha256_file(root / data.BANDS_FILE), "market_day_mask": mask}
+
+
+def market_check(market, layout_root=None):
+    """The pre-stamp check of the --market file (master 2026-11-03, ruling 3). It reads no price value.
+
+    It needs:
+
+    - the file to exist;
+    - its parquet schema metadata to name exactly ``MARKET_COLUMNS``;
+    - the ``mg1_market/1`` manifest beside it to be the MG-1 look's, with ``market_sha256`` equal to the file's
+      sha256 and, when ``layout_root`` is given, the layout shas equal to the layout's files;
+    - the manifest's ``range_ok`` and ``duplicate_free`` to be true.
+
+    A missing or mismatched file refuses. A false boolean holds (B's T4: an out-of-range price holds the look).
+    Returns the counts-only record that goes into the result's inputs.
+    """
+    import pyarrow.parquet as pq
+
+    from weather.reporting.scorecards import dev_scorecard_data as data
+
+    path = Path(market) if market else None
+    if path is None or not path.is_file():
+        raise MG1LookRefused(f"the --market file {path} does not exist: the look waits for the host producer")
+    names = list(pq.read_schema(path).names)
+    if names != list(MARKET_COLUMNS):
+        raise MG1LookRefused(f"the --market file's columns are {names}, not exactly {list(MARKET_COLUMNS)}")
+    manifest_path = path.parent / MARKET_MANIFEST
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise MG1LookRefused(f"the --market manifest {manifest_path} is missing or unreadable: {exc}") from exc
+    if not isinstance(manifest, dict) or manifest.get("schema") != MARKET_MANIFEST_SCHEMA:
+        raise MG1LookRefused(f"the --market manifest is not {MARKET_MANIFEST_SCHEMA}")
+    if manifest.get("look_id") != FREEZE_LOOK_ID:
+        raise MG1LookRefused(f"the --market manifest is for look {manifest.get('look_id')!r}, not 'mg1'")
+    sha = sha256_file(path)
+    if manifest.get("market_sha256") != sha:
+        raise MG1LookRefused("the --market file's sha256 differs from its manifest's market_sha256")
+    layout = manifest.get("layout") if isinstance(manifest.get("layout"), dict) else {}
+    if layout_root is not None:
+        for key, name in (("snapshots_sha256", data.SNAPSHOTS_FILE), ("bands_sha256", data.BANDS_FILE)):
+            if layout.get(key) != sha256_file(Path(layout_root) / name):
+                raise MG1LookRefused(f"the --market manifest was built on another layout ({name} sha differs)")
+    for flag in ("range_ok", "duplicate_free"):
+        if manifest.get(flag) is not True:
+            raise MG1LookHeld(f"held: the --market manifest's {flag} is {manifest.get(flag)!r}, not true; "
+                              "nothing was consumed")
+    return {"market_sha256": sha, "manifest_sha256": sha256_file(manifest_path), "columns": names,
+            "range_ok": True, "duplicate_free": True}
 
 
 def _table(snaps, bands, labels, market):
@@ -995,7 +1059,7 @@ def finality_and_freeze(counted, label_freeze, now):
     return read_freeze_receipt(label_freeze, counted[-1], settled)
 
 
-def check_keys(*, rule, countable, label_freeze, out, layout_root=None, now=None):
+def check_keys(*, rule, countable, label_freeze, out, layout_root=None, market=None, now=None):
     """The dry run of the pre-stamp checks (master, 2026-11-03). It never stamps, never joins, and reads no label
     or price.
 
@@ -1008,7 +1072,7 @@ def check_keys(*, rule, countable, label_freeze, out, layout_root=None, now=None
         raise MG1LookRefused(f"{out} already exists: a check record is written once")
     now = now or _now_utc()
     record = {"schema": CHECK_SCHEMA, "checked_at_utc": now.isoformat(), "entry_sha256": module_sha256(),
-              "stamped": False, "layout_checked": layout_root is not None}
+              "stamped": False, "layout_checked": layout_root is not None, "market_checked": market is not None}
     try:
         record["owner_constants"] = owner_constants()
         Look(rule)  # the rule sha and the marker absence; constructing a Look never stamps
@@ -1022,6 +1086,8 @@ def check_keys(*, rule, countable, label_freeze, out, layout_root=None, now=None
         if layout_root is not None:
             read_inputs(layout_root, rows)
         record["label_key_check"] = label_key_check(freeze, rows)
+        if market is not None:
+            record["market_check"] = market_check(market, layout_root)
         record["verdict"] = "pass"
     except MG1LookHeld as exc:
         record.update(verdict="held", reason=str(exc))
@@ -1051,6 +1117,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
     changes = sorted({date.fromisoformat(str(d)) for d in serving_changes})
     snaps, bands, input_shas = read_inputs(layout_root, rows)  # A3 mask and hole check (a hole holds)
     label_keys = label_key_check(freeze, rows)  # Q2: metadata-only; a countable day without a label key holds
+    market_inputs = market_check(market, layout_root)  # ruling 3: schema, shas and booleans; no price is read
     frame = mg1_vector(snaps, bands)
     checks, reasons, reason_of = outcome_blind_checks(snaps, bands, frame, shadow, look.absence)
     bad_status = checks["pit"]["used_status_not_available"]
@@ -1069,7 +1136,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
                                         for r in rows if r["countable"]},
             "inputs": {**input_shas, "countable_sha256": sha256_file(countable),
                        "label_freeze": {k: freeze[k] for k in ("path", "sha256", "through", "frozen_at_utc")},
-                       "label_key_check": label_keys,
+                       "label_key_check": label_keys, "market_check": market_inputs,
                        "mg1_frame_rows": int(len(frame))},
             "markets": list(support_markets()), "outcome_blind_checks": checks, "coverage_reasons": reasons,
             "served_releases": served_releases(snaps), "serving_changes": [d.isoformat() for d in changes],
@@ -1126,7 +1193,8 @@ def build_parser():
     run.add_argument("--countable", required=True, help=f"the {COUNTABLE_SCHEMA} countable-date list")
     run.add_argument("--label-freeze", required=True,
                      help="the R24 freeze receipt (frozen/mg1/freeze_receipt.json); labels are read only at the join")
-    run.add_argument("--market", required=True, help="capture-time prices; read only at the join")
+    run.add_argument("--market", required=True,
+                     help=f"capture-time prices with {MARKET_MANIFEST} beside it; prices are read only at the join")
     run.add_argument("--out", required=True)
     run.add_argument("--shadow", help="the captured nbm_v2_guidance_read_v1 shadow vector, when it exists")
     run.add_argument("--serving-change", action="append", default=[], help="a serving-change date (section 2)")
@@ -1136,6 +1204,7 @@ def build_parser():
     keys.add_argument("--label-freeze", required=True, help="the R24 freeze receipt; keys and hashes only")
     keys.add_argument("--out", required=True, help=f"the {CHECK_SCHEMA} check record (written once)")
     keys.add_argument("--layout", help="also run the A3 layout hole check on the label-free layout")
+    keys.add_argument("--market", help="also run the --market pre-stamp check (schema, shas, booleans; no price)")
     return parser
 
 
@@ -1148,7 +1217,7 @@ def main(argv=None):
     try:
         if args.command == "check-keys":
             path, record = check_keys(rule=args.rule, countable=args.countable, label_freeze=args.label_freeze,
-                                      out=args.out, layout_root=args.layout)
+                                      out=args.out, layout_root=args.layout, market=args.market)
             print(json.dumps({"check_record": str(path), "verdict": record["verdict"],
                               "reason": record.get("reason")}, indent=1))
             return {"pass": 0, "held": EXIT_HELD}.get(record["verdict"], EXIT_REFUSED)

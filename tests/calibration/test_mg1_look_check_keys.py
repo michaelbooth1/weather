@@ -23,6 +23,7 @@ from tests.calibration.test_mg1_look import (  # noqa: F401  (_root is an autous
     RULE,
     _as_main,
     _edit_freeze,
+    _market_manifest,
     _nothing_spent,
     _root,
     _score,
@@ -106,12 +107,13 @@ def test_check_keys_passes_without_stamping_or_reading_an_outcome(tmp_path, monk
     record = json.loads(out.read_text(encoding="utf-8"))
     assert record["schema"] == m.CHECK_SCHEMA == schema_version("mg1_check_keys")
     assert record["stamped"] is False and record["layout_checked"] is True and "reason" not in record
+    assert record["market_checked"] is False
     assert record["label_key_check"]["countable_market_days"] == 45 * 11
     assert record["label_freeze"]["audit_status"] == "OK" and record["label_freeze"]["through"] == "2026-11-29"
     assert record["counted_dates"] == {"count": 45, "first": "2026-10-15", "last": "2026-11-28"}
     assert record["entry_sha256"] == m.module_sha256()
     assert set(record) == {"schema", "checked_at_utc", "entry_sha256", "stamped", "layout_checked",
-                           "owner_constants", "countable_sha256", "counted_dates", "label_freeze",
+                           "market_checked", "owner_constants", "countable_sha256", "counted_dates", "label_freeze",
                            "label_key_check", "verdict"}
     assert _nothing_spent(tmp_path) and not m.receipt_path(m.MG1_RULE_SHA256).exists()
     # written once; a second dry run with the same record path refuses (exit 2), and the look is still available
@@ -173,4 +175,110 @@ def test_the_run_command_exits_4_on_a_hold_and_2_on_a_refusal(tmp_path, monkeypa
     _as_main(monkeypatch)
     assert m.main(_run_argv(inputs)) == code
     assert capsys.readouterr().err.startswith(stream)
+    assert _nothing_spent(tmp_path)
+
+
+# ----------------------------------------------------------------------------- the --market pre-stamp check
+# Master 2026-11-03, --market ruling 3: the file exists, its parquet schema names exactly the three columns, its
+# sha equals the host producer's manifest, and the manifest's range_ok and duplicate_free are true. No price value
+# is read before the stamp.
+
+
+def _no_price_value_reads(monkeypatch):
+    import pyarrow.parquet as pq
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a price value was read by the pre-stamp --market check")
+
+    monkeypatch.setattr(pd, "read_parquet", forbidden)
+    monkeypatch.setattr(pq, "read_table", forbidden)
+    monkeypatch.setattr(pq, "ParquetFile", forbidden)
+
+
+def test_the_market_check_reads_only_schema_shas_and_booleans(tmp_path, monkeypatch):
+    inputs = _synthetic(tmp_path)
+    _no_price_value_reads(monkeypatch)
+    record = m.market_check(inputs["market"], inputs["layout_root"])
+    assert record["columns"] == list(m.MARKET_COLUMNS) and record["range_ok"] and record["duplicate_free"]
+    assert record["market_sha256"] == m.sha256_file(inputs["market"])
+    assert set(record) == {"market_sha256", "manifest_sha256", "columns", "range_ok", "duplicate_free"}
+    assert (m.MARKET_MANIFEST, m.MARKET_MANIFEST_SCHEMA) == ("mg1_market_manifest.json", "mg1_market/1")
+
+
+def _break_market(inputs, edit):
+    market, layout = inputs["market"], inputs["layout_root"]
+    if edit == "absent":
+        market.unlink()
+    elif edit == "no_manifest":
+        (market.parent / m.MARKET_MANIFEST).unlink()
+    elif edit == "extra_column":
+        frame = pd.read_parquet(market)
+        frame["best_bid"] = 0.0
+        frame.to_parquet(market, index=False)
+        _market_manifest(market, layout)
+    elif edit == "index_column":
+        pd.read_parquet(market).set_index("row_key").to_parquet(market)
+        _market_manifest(market, layout)
+    elif edit == "sha":
+        _market_manifest(market, layout, market_sha256="0" * 64)
+    elif edit == "look_b":
+        _market_manifest(market, layout, look_id="b")
+    elif edit == "schema":
+        _market_manifest(market, layout, schema="mg1_market/0")
+    elif edit == "other_layout":
+        _market_manifest(market, layout, layout={"snapshots_sha256": "1" * 64, "bands_sha256": "2" * 64})
+    elif edit == "range":
+        _market_manifest(market, layout, range_ok=False)
+    elif edit == "duplicates":
+        _market_manifest(market, layout)
+        manifest = market.parent / m.MARKET_MANIFEST
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data.pop("duplicate_free")
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+
+
+MARKET_EDITS = [
+    ("absent", 2, "does not exist: the look waits for the host producer"),
+    ("no_manifest", 2, "manifest .* is missing or unreadable"),
+    ("extra_column", 2, "not exactly \\['row_key', 'band_index', 'p_market_yes'\\]"),
+    ("index_column", 2, "not exactly"),
+    ("sha", 2, "differs from its manifest's market_sha256"),
+    ("look_b", 2, "is for look 'b', not 'mg1'"),
+    ("schema", 2, "is not mg1_market/1"),
+    ("other_layout", 2, "built on another layout"),
+    ("range", 4, "held: the --market manifest's range_ok is False, not true"),
+    ("duplicates", 4, "held: the --market manifest's duplicate_free is None, not true"),
+]
+
+
+@pytest.mark.parametrize("edit,code,match", MARKET_EDITS)
+def test_a_bad_market_file_refuses_or_holds_before_the_stamp(tmp_path, monkeypatch, capsys, edit, code, match):
+    inputs = _synthetic(tmp_path)
+    _break_market(inputs, edit)
+    monkeypatch.setattr(m, "_now_utc", lambda: NOW)
+    monkeypatch.setattr(m, "load_outcomes", lambda *a, **k: (_ for _ in ()).throw(AssertionError("joined")))
+    expected = m.MG1LookHeld if code == m.EXIT_HELD else m.MG1LookRefused
+    with pytest.raises(expected, match=match):
+        _score(monkeypatch, inputs)
+    assert _nothing_spent(tmp_path)
+    _as_main(monkeypatch)
+    assert m.main(_run_argv(inputs)) == code
+    assert _nothing_spent(tmp_path)
+    m.Look(RULE)  # the look is still available
+
+
+@pytest.mark.parametrize("edit,code,match", [MARKET_EDITS[4], MARKET_EDITS[8]])
+def test_check_keys_runs_the_market_check_when_given(tmp_path, monkeypatch, capsys, edit, code, match):
+    inputs = _synthetic(tmp_path)
+    monkeypatch.setattr(m, "_now_utc", lambda: NOW)
+    _no_outcome_reads(monkeypatch)
+    ok = tmp_path / "ok.json"
+    assert m.main(_argv(inputs, ok, layout=True) + ["--market", str(inputs["market"])]) == 0
+    record = json.loads(ok.read_text(encoding="utf-8"))
+    assert record["market_checked"] is True and record["market_check"]["range_ok"] is True
+    _break_market(inputs, edit)
+    bad = tmp_path / "bad.json"
+    assert m.main(_argv(inputs, bad, layout=True) + ["--market", str(inputs["market"])]) == code
+    record = json.loads(bad.read_text(encoding="utf-8"))
+    assert "market_check" not in record and record["verdict"] == ("held" if code == 4 else "refused")
     assert _nothing_spent(tmp_path)
