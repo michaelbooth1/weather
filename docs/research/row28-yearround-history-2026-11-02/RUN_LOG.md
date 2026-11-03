@@ -1363,3 +1363,38 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   - The L48 run log (`nbp_run.log`) header gives dates 300. This matches 300 receipts.
   - So, by the receipt names, the L48 blocks carry cycle 07 only, which lies within {07,01,00}. The 900 bound is
     therefore supported by the receipts, not by code. It remains a FLAG threshold, not a target.
+
+## Appended 2026-11-03T07:50:51-05:00: v12 CLEAN, sentinel v10 run, rebuild pre-launch checks (append only)
+
+- **GO (relayed).** The review found runner v12, sentinel v10 and C3 CLEAN. GO for sentinel v10, then GO for the
+  rebuild using the 07:38 launch form into `run\s2_build_a2`. STOP after the build either way. Integrity waits for
+  a separate go.
+- **Sentinel v10.** Run through `workstation_heavy.ps1 -Kind pytest -Queue` with `-RepoRoot C:\t\L59\row28\wrapper_root`,
+  `PYTHONDONTWRITEBYTECODE=1` and `--basetemp C:\t\L59\row28\sentinel_bt10`, from 07:48:14 to 07:48:16:
+  **48 passed**, exit 0, stderr 0 bytes. Run scripts: `C:\t\L59\row28\sentinel_v10_run_v2.ps1`; logs in
+  `sentinel_v10_logs2`.
+  - **Wrapper root.** The wrapper requires that `-RepoRoot` own its exact copy. It also reads
+    `config\international_live_execution_host.json`. So `wrapper_root` holds sha-equal copies of
+    `scripts\ops\workstation_heavy.ps1` (`145ff745…`), `workload_admission.ps1` (`48786bcb…`),
+    `windows_kill_on_close_job.ps1` (`05f362cd…`) and that tracked config (`111367a1…`).
+  - **First attempt.** `sentinel_v10_run_v1.ps1` lacked the config. The wrapper refused before admission
+    ("execution-host assignment is not readable exact JSON"). Nothing ran, and no basetemp was created.
+  - The slot mutexes are global named mutexes, so admission still coordinates with other roots. The queue ticket
+    files live under `wrapper_root\data\logs`.
+  - The basetemp was deleted. The worktree's `data` still holds the same 4 entries. No new bytecode was written:
+    the scripts' `__pycache__` is the earlier one.
+- **Pre-launch checks** (read-only, `l59_prelaunch_a2_v1.py`):
+  - **Config and dated scan.** The config sha equals `31a751a4…`. The dated scan (ISO >= 2026-01-01) finds 0 hits in
+    the config's contents and path, the OutDir `s2_build_a2`, the stage, the log dir `ctl_s2a2_logs` and the
+    launcher path.
+    - The walker path has 1, the doc directory name, the same as in every earlier launch. The runner masks it
+      (`DOC_DIR` → `GUARD_MASK_TOKEN`).
+    - The forbidden roots are referenced 0 times.
+  - **Pinned shas.** The walker equals `9e97c892…` and the launcher `8a2f8759…`. OutDir and log dir are absent.
+  - **verify_prev binding.** `prev.controls` is a6's `walk.json`, and its sha is equal. The report is PASS (stage
+    controls). The receipt `13f4d96a…` is COMPLETE, with output-guard hits 0 and no FLAG. The receipt's stage is
+    controls, and its walker sha equals the report's `runner_sha256`.
+  - **Records.** `run\records` holds 66 files, raw-equal to a6's `records_sha256` 66 of 66, with no other entries.
+- **Launch block.** `C:\t\L59\row28\launch_s2_build_a2_v1.ps1`. It runs the data\ check (exactly the 4 named
+  junctions) and the no-wrapper process check, then Start-Process with the exact 07:38 form. Nothing runs in
+  between. Logs go to `ctl_s2a2_logs`, and memory is monitored by `mon_s2_v1.ps1` (STOP above 12.8 GB).
