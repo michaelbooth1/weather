@@ -7,8 +7,8 @@ This log records how the frozen row-28 prereg is executed.
 - **Read with:** `CLARIFICATION_1.md`, `CLARIFICATION_2.md` and `CLARIFICATION_3.md` (all 2026-11-03, committed
   before any control).
 - **Status:** the v6 final delta review was CLEAN on every file. Sentinel test v4 (stage 0) PASSED on
-  2026-11-03 (see the per-stage log). Next: stage 1 (`controls`) on the coordinator's go; build waits for a
-  separate go after the controls report.
+  2026-11-03 (see the per-stage log). Stage 1 (`controls`) attempt 1 HALTed at the R4 junction check and
+  produced no controls result; it is waiting on a ruling (see the stage 1 detail below). Build has not started.
 
 ## Exception to workstation_heavy admission
 
@@ -256,7 +256,7 @@ stage's Job, from `receipt.json` `job_memory.peak_job_memory_bytes`.
 | # | Stage | Start | Stop | Exit | Status | PeakJobMemoryUsed (peak committed private bytes) | walk.json sha256 | Other output shas |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | sentinel test v4 | 2026-11-03T04:40:49.2872160-05:00 | 2026-11-03T04:40:51.8190510-05:00 | 0 | PASS: 20 passed, 0 failed (0.98 s) | n/a (wrapper route) | n/a | wrapper stdout `2fd2e2b9666ee7b32d8254c7021785bc078d2eb6c872e633d0b77e0c3c4dd384`; queue events `3b0c25b5621cb16465f50042ef8f94660418ea66cec75f6bbdd883553bcf24a0` |
-| 1 | controls | | | | | | | |
+| 1 | controls, attempt 1 | 2026-11-03T04:44:06.8117678-05:00 (launch); walker 20261103T044407.510313-0500 | walker 20261103T044419.855352-0500 | 6 | HALT: R4 junction check (no control computed); receipt withheld by its own guard (1 hit) | 131,993,600 | `131c02110c447019085168213e77c1c69aa676177a115880701bb14b3f8f1a4f` | receipt `aa525676f5008b7e020d3524b0fc030831e838d6f43923c7016c4431832f6073`; walk.csv `c0813fac922f17b9c9ee86e8b2a09982b8afd87979e87f69f12dbcb77e66ef5d`; junction manifest before = after `f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7`; walker.stdout `eb9978c8ed451dc3c517d04d6deba01bd2049cd98129118ae966e23ca23224c3` |
 | 2 | build | | | | | | | |
 | 3 | integrity | | | | | | | |
 | 4 | labels | | | | | | | |
@@ -269,5 +269,28 @@ wrapper's stderr was empty. The queue events are the wrapper's own `data\logs\he
 worktree (git-ignored; the wrapper created it). The basetemp `C:\t\L59\row28\sentinel_bt` was deleted and
 `git status` was clean afterwards; the only ignored bytecode is a pre-existing `scripts/__pycache__/` from
 2026-11-02 (fetch scripts), older than the run.
+
+Stage 1 attempt 1 detail. The launcher form was exactly the RUN_LOG form above (launcher v5, runner v6, config
+`66e4b46e…`); the launcher was pid 48060, and no process from it remains. The walker HALTed in run scope because
+`C:\wt\L59row28\data` held `logs` beside the four approved junctions. The wrapper had created `logs` during the
+stage-0 sentinel run. The walker computed no control. Its log guard was CLEAN (0 hits), the junction manifest was
+unchanged, and walk.json and walk.csv hold no dated string (count-only check first).
+
+- **Pre-approved remediation, steps 1–2 done.** The slot2.lock holder, pid 29232, is not alive, and no
+  workstation_heavy process runs. On 2026-11-03T04:45:40-05:00 I *moved* (did not delete)
+  `C:\wt\L59row28\data\logs\` to `C:\t\L59\row28\sentinel_wrapper_logs\`. The files and their sha256 were
+  identical before and after the move:
+  - `heavy_workload.slot2.lock`: 608 bytes, `b8c1e2cfd0fbb82ed02ed766f5344bd0fc11b71f8afcbae46cd9fb2527a50286`
+  - `heavy_workload_queue.jsonl`: 1,066 bytes, `3b0c25b5621cb16465f50042ef8f94660418ea66cec75f6bbdd883553bcf24a0`
+
+  `data\` now holds exactly the four junctions.
+- **Step 3 (relaunch) not done; it is held for a ruling.** There are two blockers.
+  - **(a) The launcher always fails its own receipt guard.** Launcher v5's G2 receipt guard scans the receipt
+    JSON. That JSON embeds `output_guard.from = "2026-01-01"` (`$GuardFrom`), and that string matches the guard
+    pattern. Every receipt therefore has at least 1 receipt-guard hit and is replaced by the minimal HALT receipt
+    (exit 6). In a pre-score stage this HALTs even a clean walk, and verify_prev (F4/G2) can never accept it.
+    This attempt's `receipt_guard_hits` is 1, consistent with that constant alone.
+  - **(b) The OutDir already exists.** The launcher refuses an OutDir that already exists, so an unchanged
+    relaunch into `run\s1_controls` would be refused.
 
 Gate commits: integrity — (pending); look — (pending).
