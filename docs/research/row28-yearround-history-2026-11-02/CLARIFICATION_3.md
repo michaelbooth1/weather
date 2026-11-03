@@ -306,3 +306,79 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
   - **No dated string constant at all** in `feature_column_allowlist.py`, `feature_model.py`,
     `feature_model_training_inputs.py`, `model/feature_store.py`, `model/toronto_model.py` or
     `market/market_registry.py` (their dates are in docstrings or comments only).
+
+## Sixth addendum (2026-11-03T05:59-05:00): controls a4, the records identity rule, runner v8 (M1, M2)
+
+- **a4 result** (RUN_LOG "Appended 2026-11-03T05:46:52"). Runner v7, launcher v6 and the config `66e4b46e…` were
+  unchanged, and the run went into `run\s1_controls_a4`.
+  - Receipt COMPLETE (`9c288c9f…`), runner PASS, output guard 0 over 68 files.
+  - `decision_allowance` `dated_tokens` 276, the target exactly (`values` 144).
+  - The controls equal a3: C-0 19,657 / 0.0, C-0b 2 of 2, C-0c 4,125 / 0, C-b 660 / 0.0.
+  - The raw records sha256 differed from a3 on 66 of 66 files, and the lane STOPPED.
+  - **Master: BENIGN.** The cause is the gzip header MTIME: `pooled_residual_model.py:256` writes with
+    `gzip.open(tmp, "wb")`. That module is B-bound and stays as it is.
+  - **Established:** a4 = a3 on the decompressed payload, 66 of 66. The lane's decompress-and-hash of the a3
+    evidence is accepted as disclosed.
+- **Records identity (v8).** A records file is identified by the sha256 of its decompressed payload.
+  - The raw sha256 is kept, and `records_sha256` still chains build and labels.
+  - The raw sha256 is cross-checked with the MTIME bytes 4-8 zeroed (`gz_raw_sha256_mtime_masked`).
+  - The controls and build reports add `records_payload_sha256` (`row28_run_v8.py:1954`, `:1998`).
+  - walk.json adds `outputs_payload_sha256` (`:3177`), and walk.csv gains a third column, `payload_sha256`, for
+    every `.gz` output.
+  - Helpers:
+    - `records_identity` (`:790`) and `compare_records_identity` (`:800`): equal iff the payload sha256 and the
+      masked raw sha256 are equal for every file;
+    - `compare_walk_csv` (`:825`): rows keyed by basename. A records row is compared on `payload_sha256`; a records
+      row without one (a v7 walk.csv) counts as unverified, never as equal. Any other row is compared on `sha256`.
+  - Differing names are reported only as templates, with each date replaced.
+- **The stage-end guard already decompresses (v7, by line).** `guard_file` decompresses every `.gz` before any scan:
+  `row28_run_v7.py:666` checks `if name.endswith(".gz"):` and `:669` does `data = gzip.decompress(data)`.
+  - The structured walks, the text fallback (`:688`) and the byte cross-check (`:690`) all run on the decompressed
+    bytes.
+  - `output_guard_scan` calls `guard_file` for every new or changed file (`:813`).
+  - No fix was needed. Sentinel v6 adds the case anyway: a dated token inside a `.txt.gz`, `.json.gz`,
+    `.csv.gz`, `.pkl.gz` or `.jsonl.gz` payload is a HIT.
+- **M1 (`m1_cut_set` `:718`, `m1_records_bytes` `:737`, applied at `:884`).** This applies only to a records file
+  (`records_*.pkl.gz`) and replaces the per-object byte count there. Other files keep the v7 cross-check.
+  1. The DECOMPRESSED pickle is read with `pickletools.genops`.
+  2. Every str opcode (`SHORT_BINUNICODE`, `BINUNICODE`, `BINUNICODE8`) is verified to hold its value as a raw
+     UTF-8 span at its own offset, with its length field. A mismatch is a hit (`m1_span_mismatch`).
+  3. A span is cut only if its WHOLE value is one of:
+     - (a) the file's own centre label from the file name, which must be in the pinned arm union. For a GAP file
+       this is the 4 GAP labels instead: `pooled_residual_model.AUG_SEP_CENTRES`, a sha256-pinned module, checked
+       by `set_m1_pins` (`:1067`) to be 4 labels inside the union;
+     - (b) the market's pinned generated_at;
+     - (c) a pinned decision constant, only while the K1 pins hold.
+  4. The remaining bytes must hold ZERO dated tokens. Each one remaining is a hit (`m1_remaining`).
+  - A pinned value inside a longer string is not a whole span, so it stays and is a hit.
+  - Memoised strings occupy one span, which is why per-object counting was replaced (review minor 2).
+  - walk.json reports `output_guard.m1_records`, keyed by the records basename (an allowed key parent) and holding
+    the cut counts per kind plus `remaining`, `str_ops`, `span_mismatch` and `protocol`. `m1_summary` holds the
+    totals.
+- **M2 (`FrameColumn` `:559`, `_push_index_surfaces`, `_push_pandas_surfaces` `:578`).** The walk now visits every
+  pandas surface, standalone or nested:
+  - a Series' `.index` (in its name's context), `.name` and `.attrs`;
+  - every Index's `.names`;
+  - every MultiIndex level, used or not;
+  - a DataFrame's column-axis names and levels;
+  - every category (G1, kept).
+  A DataFrame column is walked through `FrameColumn`, so the frame's index, labels and attrs are walked once and
+  not once per column (review minor 5).
+- **Disclosures.**
+  - **Raw gzip header not scanned.** The raw header of every records file carries FNAME =
+    `records_<market>_<centre>.pkl.tmp`, the file's own label: `gzip.open` on the `.tmp` path at
+    `pooled_residual_model.py:256` writes the basename. The guard scans payloads, not raw gzip headers, so this
+    was never scanned in v4-v8. It is the record's own name, but it is disclosed for a ruling.
+  - **M1 is not yet tested on real records.** "Remaining 0 on 66" is the target, but it has not been checked on
+    the a4 records: the lane ran nothing. If the real payloads hold any other dated string, for example inside a
+    longer string or under the folder-name mask that the walk allows, a5 will HIT and STOP.
+- **The v8 delta from v7** is 21 counted exact replacements (scratchpad `make_v8.py`). The runner name is
+  `row28_run_v8`. Nothing else changes: the stages, gates, pins and K1-K3 are the same.
+- **Sentinel v6** pins v8 (`7bb10f05…`). It changes v5 in one place, and only as M2 requires: a Series' dated
+  `.name` is now a walk HIT, not byte-only. It adds one case per M2 surface, including a plain non-tz datetime64
+  Series. It also adds:
+  - the M1 cases: the pinned spans alone leave 0, under protocols 4 and 5 and for a GAP file; each kind of
+    dated token outside them is a HIT;
+  - the stage-end M1 report;
+  - the gzip-payload case and the identity and comparison helpers;
+  - an autouse check that no test's `tmp_path`, and so no basetemp, holds a date.

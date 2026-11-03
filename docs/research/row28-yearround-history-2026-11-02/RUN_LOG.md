@@ -589,3 +589,30 @@ from the centre in each name:
 | `seattle` `09-07` | 220539 | `7550681604d2b01e838533057edb3607cc96fb3820b0f355948114393e3998a9` | `2b572f636848016ca0ae0dddbeb38e6595b385116d04dbf5b6cf35f6ff526b0d` |
 | `seattle` `09-22` | 226880 | `3c3bd80a72b4b01e35fae6206aa6d275634ec7895d1885941d5207e114e3c1f6` | `d8ecf3d34ce3f1653da8e81d31861203ab28f1323a41d38aa46f0461a1f0c1b1` |
 | `seattle` `12-09` | 223491 | `2f9785a8c888067fd693456eb424d75d6fbb35f349ddba1b07561139e5eb7e20` | `2859d1c7d040b2529723ce04ff83ad0ff530a8813c5fe7e70ce0f8b1196bae50` |
+
+## Appended 2026-11-03T05:59:14-05:00: a4 records identity established, runner v8 (not run), a5 targets (append only)
+
+- **Master ruling on a4: BENIGN.** The cause is the gzip MTIME at `pooled_residual_model.py:256`, which is B-bound
+  and unchanged.
+  - **ESTABLISHED:** a4 = a3 on the decompressed payload sha256, 66 of 66.
+  - The lane's decompress-and-hash of `records_a3_evidence` is accepted as disclosed.
+  - Receipt `9c288c9f…` is accepted.
+- **Records identity, from v8 on:** the sha256 of the decompressed payload. The raw sha256 is cross-checked with
+  gzip MTIME bytes 4-8 masked. walk.csv rows: records rows compare on `payload_sha256`, other rows on `sha256`.
+- **Runner v8** `row28_run_v8.py` = `7bb10f0559d48b1cfd64eba19b2bbbdf6f679e82eca9a4bb2c507985ffe9ef46`, and **sentinel
+  test v6** `test_row28_s7_sentinel_v6.py` = `06aed91fa7260dc90e83efde8d84299377655293a71642e0be57b655541953e3`. Both
+  are new files; v7 and v5 are unchanged. The detail is in the C3 sixth addendum: M1 byte cuts, M2 pandas
+  surfaces, the identity helpers, and the confirmation (by line) that the v7 stage-end guard decompresses every
+  `.gz`. Not run.
+- **a5** goes into `run\s1_controls_a5` on v8, after the v8 delta review is CLEAN and the coordinator's go.
+  1. Move `run\records` to `run\records_a4_evidence`. The raw and decompressed manifests go here.
+  2. Run the pre-scans.
+  3. Launch.
+- **a5 targets, all equal to a4:**
+  - C-0 19,657 / 0.0; C-0b 2 of 2; C-0c 4,125 / 0; C-b 660 / 0.0;
+  - the decompressed records manifest;
+  - the non-records walk.csv rows;
+  - `decision_allowance` `dated_tokens` 276;
+  - output guard 0;
+  - `m1_summary.remaining_total` 0, with 0 remaining on each of the 66 records files.
+  Any deviation STOPs.
