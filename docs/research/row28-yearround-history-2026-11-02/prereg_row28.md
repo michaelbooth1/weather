@@ -8,7 +8,9 @@ Only metadata was read: row counts, dates, S3 listings, manifests, rule text and
 code (one exception disclosed in §11). r2 folds the MAJORs of one fresh review
 (§14). r3 applies master's 11-02 rulings (1)–(3) on r2 (§14). r4 folds the second
 independent review of r3 (3 MAJOR, 9 MINOR) and master's rulings on paired
-evaluation, arm C's training gap and uniform market NBM (§14).
+evaluation, arm C's training gap and uniform market NBM (§14). r4-final applies
+master's 2026-11-02 rulings on r4 (A–C and the rule-16 labelling, §8.4) and records the
+arm C gap option (§4.1a).
 
 This is a **history-only, kill-only** step. It can kill arms or let them survive
 history. It cannot adopt, serve, promote or bind anything. A surviving arm only
@@ -68,7 +70,20 @@ structural, decided from metadata only, and apply to every arm:
   are still dropped, because the bound builder's coverage rule is all markets ×
   hours 7–20 per window and is not relaxed here.
 - `deciding_dates_r4.txt` sha256
-  `6913484a6abb1c7f0f2083eef919699cb2f05670c52306b2ab96998e0d84bcfb`.
+  `6913484a6abb1c7f0f2083eef919699cb2f05670c52306b2ab96998e0d84bcfb` (CRLF line ends).
+- **Computed by code, outcome-blind (r4-final, master ruling A).** The list is produced by
+  `scripts/row28_deciding_dates_r4.py`, which reads only PIT-corpus manifests and
+  `coverage.jsonl` status rows (through the bound `covered_years` and `window_days`, imported
+  read-only), the 07Z NBP listing `nbp07_listing_decmay.tsv` (sha256 `a39073ad…`) and market
+  timezones from `config/locations.json`. It asserts that no candidate falls in the hard
+  exclusions, that record windows never overlap, and that its output hashes to `6913484a…`
+  (`--expect-sha`); the r4-final run passed. The same 660 dates are committed with LF line
+  ends as `deciding_dates_r4.txt` next to this file (sha256
+  `a2f601baef06dc662bedb710f53392f29da826c0eaede83182311768b3105b29`; the repository's
+  `eol=lf` rule normalises line ends). Both commits precede any label join. The late-07Z
+  drop is computed, not listed: a date is dropped if its 07Z object is absent or its
+  LastModified is after any US10 13–16 local cutoff instant. This yields 2021-01-22 (absent,
+  already uncovered) and 2022-01-06 only.
 - **Descriptive fold 2026 and the V5.0 sliver cannot be built** by the single
   builder: the PIT corpora end in 2025 and the 12-24 window is covered only for
   2021 and 2022. They are reported as "not built", not scored. The §7 gate is
@@ -124,6 +139,7 @@ Only the training rows differ by arm.
 - `nearest_centre` is used unchanged, without wrap. With 12-24 and 01-08 both present, wrapping cannot change any pick: the furthest dates, Dec 31 and Jan 1, are each 7 days from their own centre and at least 8 days from the other one.
 - The scorer asserts the wrap-free and wrap-aware picks are identical for every deciding date. A mismatch triggers HALT.
 - **Centre per row (r4, review M1).** Each row's `centre` (and so `season`) is recomputed as `nearest_centre(target_date, <that arm's centre set>)`. The payload centre of the record file that carried the row is ignored. Example: a May 31 row arrives in the 06-07 record file; arms A, C, D keep centre 06-07, arm B maps it to 05-23.
+- **Leap day (r4-final, outcome-blind code finding).** 2024-02-29 is a deciding date (inside the covered 2024 02-22 window). The bound `nearest_centre` builds `date(2001, month, day)` and raises `ValueError` on Feb 29; the bound serve-math reference `state_features` does the same. Row-28 code therefore calls `nearest_centre` with Feb 28 for a Feb 29 target_date (centre lookup only; every other field keeps the real date). In every arm's centre set Feb 28 and Feb 29 both map to 02-22, so this changes no pick. The wrap assertion above uses the same substitution. S (MG-1 C5) does not use a centre. S_bound on 2024-02-29 is reported "not computable" (descriptive only). The bound code is not edited.
 
 3.3 **Rows (r4, review M1): one build function, one row per (market, date, hour), feeding S and every arm.**
 
@@ -140,7 +156,7 @@ Only the training rows differ by arm.
 
 - Disclosure: serving (rule C1, `rule.md` 393–402) reads F from captured METAR. History uses the trainer's WU-hourly F for every arm and for S alike, so the comparison stays paired; the forward test is where METAR-F parity is confirmed.
 - **Exactly one row per (market, target_date, hour).** Rows are keyed by target_date. A duplicate key across record windows triggers HALT (with the 15-day centre spacing and ±7-day windows none is expected).
-- **NBM for scored rows (r4, review m7, narrowing master ruling (2)):** a scored row needs the 07Z bulletin posted (LastModified) at or before its own cutoff instant, because served MG-1 reads only 07Z. The 01Z/00Z fallback of `nbm_at_cutoff` is used for training rows only. Under this rule the only structural drop is 2022-01-06 (§1.1). Flagged for master: ruling (2) said "newest of 07/01/00" for scored rows; S cannot be the served comparator on a 01Z row, so r4 applies the stricter rule identically to every arm and S.
+- **NBM for scored rows (r4, review m7; dated narrowing of master's availability ruling (2): master ruling 2026-11-02 (WS relay 21:36 report)):** a scored row needs the 07Z bulletin posted (LastModified) at or before its own cutoff instant, because served MG-1 reads only 07Z. The 01Z/00Z fallback of `nbm_at_cutoff` is used for training rows only. Under this rule the only structural drop is 2022-01-06 (§1.1). Ruling (2) as first given said "newest of 07/01/00" for scored rows. Master accepted the narrowing for scored rows on 2026-11-02, applied identically to every arm and S. Training rows keep ruling (2) unchanged.
 - **Training rows** use `attach_training_nbm` with `nbm_at_cutoff` (07Z, then 01Z, then 00Z, by LastModified ≤ the row's cutoff), and fill-from-forecast (L9 IMPUTE "fc") only where no cycle was posted by the cutoff (§3.3b).
 - **All filters act on each row's `target_date`** (r4, review m5): fold hold-outs, arm B's Dec 17–May 31 selection, the hard exclusions and §1.1's drops. Record windows and payload centres never decide membership (the 05-23 window reaches June and the 01-08 window reaches December).
 
@@ -317,8 +333,8 @@ From this, σ_eff = 0.016304·√1.318 = **0.01872**.
 
 - History of this table: r2 (n ≈ 950, no ×1.07 on power), r3 (n = 811; the second review's inflated power was 0.94 / 0.58 / 0.32 at 2× / 3× / 4×). r4's drop from 811 to 660 (§1.1) raises every MDE by √(811/660) − 1 ≈ 11%.
 - Per-fold MDE80 (≈ 130 dates, σ_dec, unadjusted) is ≈ 0.0059, so per-fold signs are reported but not tested.
-- Method rule 16 (power ≥ 0.5 at edge size) is met up to 2×σ_eff and fails from ≈ 2.9×σ_eff (3×: 0.48). **This is a material loss versus r3 and is flagged to master**: if the realised σ̂ is ≥ 2.9×σ_eff, a non-significant arm is "KILL (underpowered)" (below).
-- **Pre-declared:** the realised power (power at −0.0057 using that arm's own σ̂) is reported with every result. A KILL through a Holm failure with realised power below 0.5 is labelled "KILL (underpowered)". It is still a kill for this row, but it does not count as evidence against the lever family.
+- Method rule 16 (power ≥ 0.5 at edge size) is met up to 2×σ_eff and fails from ≈ 2.9×σ_eff (3×: 0.48). Master accepted n = 660 with this loss (2026-11-02). The labelling of a non-passing arm on an underpowered run is pre-stated in §8.4 (r4-final): it is INCONCLUSIVE-UNDERPOWERED, not KILL. r4's "KILL (underpowered)" label is withdrawn.
+- **Pre-declared:** the realised power of §8.4 is reported with every result.
 - The realised population counts, i.e. scored rows per hour and arm after §5 drops including C's non-empty pools, are computed before any score from inputs only and committed with the pre-score integrity report.
 
 ## 7. V4→V5 outcome-blind gate
@@ -377,14 +393,17 @@ They are compared between the V5.0 dates 2026-05-06..05-26 and the same calendar
    - A repair needs a written, reviewed amendment made before any arm score has been read.
    - Once any arm score exists, no re-run is allowed: the arm stays HALTED and the row reports it.
 2. **FUTILE.** Stopped at §8.1.
-3. **KILL.** Any one of:
+3. **KILL** (a true kill). Any one of the *crossing* conditions, at any power:
+   - the X−S point is > −0.00285 (it crosses the §8.1 futility line; this includes a point ≥ 0);
+   - any single market's per-market 95% CI for X−S lies entirely above 0;
+   - (C, D only) the X−A point is ≥ −0.0005, or any market's X−A 95% lower bound is > 0 (§4.1).
+
+   Or any one of the *failure-to-show* conditions, **only when the contrast that failed is adequately powered (§8.4)**:
    - X−S fails Holm;
-   - the point is ≥ 0;
-   - (C, D only) X−A fails its kill screen;
-   - any single market's per-market 95% CI lies entirely above 0;
-   - more than 2 of the 5 deciding folds have d > 0.
-   - Tagged "(underpowered)" as defined in §6.3.
-4. **SURVIVES-history.** Everything else. Survival is V4-scoped and is not an adoption.
+   - more than 2 of the 5 deciding folds have X−S d > 0;
+   - (C, D only) X−A's wide 95% upper bound is ≥ 0, or more than 1 of the 5 deciding folds has X−A d > 0.
+4. **INCONCLUSIVE-UNDERPOWERED** (r4-final, master ruling 2026-11-02). No crossing condition holds, at least one failure-to-show condition holds, and the contrast that failed is not adequately powered (§8.4). §8.4 states the consequences.
+5. **SURVIVES-history.** Everything else. Survival is V4-scoped and is not an adoption.
 
 8.3 **Selection.** For each survivor, compute its own G (§9.1). The forward candidate is chosen as follows:
 
@@ -392,6 +411,31 @@ They are compared between the V5.0 dates 2026-05-06..05-26 and the same calendar
 - If the best survivor fails its G but another survivor passes, the one that passes is the candidate.
 - If none passes, there is no forward test.
 - The selection is disclosed. The forward test re-tests the candidate from zero, and the history point is not carried as evidence.
+
+8.4 **Underpowered labelling and "adequate power" (r4-final, master ruling 2026-11-02; method rule 16).**
+
+- **Master's rule.** A non-passing result on an underpowered run is INCONCLUSIVE-UNDERPOWERED, not KILL. A true KILL needs adequate power at the observed κ, or a point estimate crossing the futility line (point > −0.00285, §8.1). This section is the pre-stated labelling that §6.3 refers to.
+- **Adequate power, defined numerically.** For a contrast with per-date differences d over the n scored dates, let κ_wide = max(κ, κ_block3) (§6.1, with κ ≥ 1.318) and SE_wide = 1.07 · SD(d) · √κ_wide / √n (the ×1.07 basis of §6.3). The realised power is:
+  - X−S (Holm worst step): P = Φ(0.0057 / SE_wide − 2.498);
+  - X−A gate (C, D; unadjusted two-sided 95%): P = Φ(0.0057 / SE_wide − 1.960).
+
+  The contrast is **adequately powered iff P ≥ 0.80**. For X−S this is SE_wide ≤ 0.0057 / 3.340 = **0.001707**; at n = 660 that is a realised σ̂ = SD(d)·√κ_wide ≤ **0.0410 ≈ 2.19×σ_eff**. For X−A it is SE_wide ≤ 0.0057 / 2.802 = 0.002034 (σ̂ ≤ 0.0489 ≈ 2.61×σ_eff at n = 660).
+- **Bands of the realised σ̂ (X−S, n = 660), pre-stated:**
+
+  | Realised σ̂ = SD(d)·√κ_wide | Power at −0.0057 (×1.07) | Rule 16 | A failure-to-show condition gives |
+  | --- | --- | --- | --- |
+  | ≤ 2.19×σ_eff (≤ 0.0410) | ≥ 0.80 | met | KILL |
+  | 2.19–2.93×σ_eff | 0.50–0.80 | met | INCONCLUSIVE-UNDERPOWERED |
+  | ≥ 2.93×σ_eff (≥ 0.0548; the "≈ 2.9" of §6.3) | < 0.50 | fails | INCONCLUSIVE-UNDERPOWERED, rule-16 failure flagged |
+
+  A crossing condition gives KILL in every band.
+- **When it is computed.** κ_block3, κ and SD(d) need scored differences, so the realised power cannot exist before the label join. It is computed mechanically from (SD(d), κ_wide, n) alone by the formula above, with no other input or judgement, and is written into the same result file as the point and SE before the verdict is assigned. Everything else is fixed before any label join: the formula, the 0.80 threshold, the edge −0.0057, the ×1.07 factor, the z values, n = 660 and the thresholds 0.001707 and 0.002034. At the §8.1 look the same quantity is reported (n = 390, uninflated SE) for information only; FUTILE is decided by the point alone.
+- **Consequences of INCONCLUSIVE-UNDERPOWERED.**
+  - The arm is not a survivor. It does not enter §8.3 and cannot ask for a forward test from this row.
+  - It does not count as evidence against the lever. The K ledger row is recorded **open**, not killed, with its realised power and point.
+  - It keeps its Holm p as computed (only FUTILE sets p := 1).
+  - **Reopen trigger.** The lever may be reopened under a new prereg by either (a) more deciding seasons becoming buildable (for example PIT corpora extended past 2025, or the 150 uncovered dates of §1.1 gaining record windows) such that this section's formula, at this run's observed SD(d) and κ_wide and the new n, gives power ≥ 0.80; or (b) an owner-opened forward lane for the arm. Neither changes this row's history verdict.
+- **Reporting.** Every arm reports: outcome (§8.2), point, SE_wide, κ, κ_block3, κ_wide, realised power and band.
 
 ## 9. Forward gate (binding)
 
@@ -529,4 +573,12 @@ NITs folded:
 
 **New outcome-blind finding in r4 (flagged to master):** the B-bound builder's PIT-corpus coverage rule leaves 150 of the 811 dates without a record window (Jan–Mar 2021, Dec 17 2023 – Jan 30 2024, Dec 17–31 2024, and the 2024 leap day), so the paired deciding set is 660 and rule-16 power falls below 0.5 from ≈ 2.9×σ_eff (§1.1, §6.3). The descriptive 2026 fold and V5.0 sliver cannot be built (§1.1).
 
-r4 is held for master; the §4.1a line is finalised when the gap manifest lands.
+**r4-final (master's rulings on r4 `09bd09b9…` @ `ead57fe7c`, 2026-11-02):**
+
+| Ruling | Resolution in r4-final |
+| --- | --- |
+| A. n = 660 under the strict bound coverage rule; drop list by code, outcome-blind, committed before any label join | `scripts/row28_deciding_dates_r4.py` reproduces `6913484a…`; the list is committed (§1.1). Folds 61/164/165/120/150 and the look at 390/660 are unchanged |
+| B. m7 accepted as a dated narrowing of ruling (2) for scored rows | Recorded as "master ruling 2026-11-02 (WS relay 21:36 report)" (§3.3) |
+| C. Descriptive 2026 fold and V5.0 sliver unbuildable | Already stated (§1.1); §7 gate unaffected |
+| Rule 16: underpowered labelling; adequate power defined | §8.4 (new); §8.2 KILL split into crossing vs failure-to-show conditions; INCONCLUSIVE-UNDERPOWERED added; §6.3's "KILL (underpowered)" withdrawn |
+| New code finding: leap day | The bound `nearest_centre` raises on Feb 29; row-28 code looks up Feb 28's centre for 2024-02-29 (same pick in every arm); S_bound "not computable" on that date (§3.2). Flagged to master. The bound serve-math reference `state_features` has the same Feb 29 failure (outside row 28's scope) |
