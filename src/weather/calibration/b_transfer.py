@@ -132,7 +132,7 @@ def _utc(value):
 
 def _registered(name):
     """The active version of a registered schema; refuses when its owning head has not landed."""
-    from weather.schema_registry import schema_version
+    from weather.schema_families import schema_version
 
     try:
         return schema_version(name)

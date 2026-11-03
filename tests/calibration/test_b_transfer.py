@@ -324,7 +324,7 @@ def test_t4_prices_go_through_capture_price_and_unpriced_rows_become_nan(env):
     tmp, kw = env
     market = pd.read_parquet(kw["market"])
     bad = market.row_key == _row_key("nyc", D0 + timedelta(days=1), 0)
-    market.loc[bad, "p_market_yes"] = [float("nan"), float("inf"), None, 0.4]
+    market.loc[bad, "p_market_yes"] = pd.Series([float("nan"), float("inf"), float("nan"), 0.4], dtype=float).to_numpy()
     market.to_parquet(kw["market"], index=False)
     import shutil
     shutil.rmtree(kw["coverage_root"])
@@ -339,16 +339,22 @@ def test_t4_prices_go_through_capture_price_and_unpriced_rows_become_nan(env):
 
 
 def test_capture_price_matches_the_r19_predicate():
-    cases = {None: None, True: None, "x": None, float("nan"): None, float("inf"): None, -0.1: None, 1.2: None,
-             0: 0.0, 1: 1.0, "0.25": 0.25, 0.5: 0.5}
-    for value, expected in cases.items():
-        assert t.capture_price(value) == expected
+    cases = [(None, None), (True, None), ("x", None), (float("nan"), None), (float("inf"), None), (-0.1, None),
+             (1.2, None), (0, 0.0), (1, 1.0), ("0.25", 0.25), (0.5, 0.5)]
+    for value, expected in cases:
+        assert t.capture_price(value) == expected, value
     try:
         from tools.research import b_price_coverage as counts_tool
     except ImportError:
         return  # the R19 head is not on this branch; the value table above pins the predicate
-    for value in list(cases) + [" 0.3 ", -0.0, 1.0000001]:
+    for value in [v for v, _ in cases] + [" 0.3 ", -0.0, 1.0000001]:
         assert t.capture_price(value) == counts_tool.capture_price(value)
+
+
+def test_registered_looks_up_family_schemas_and_refuses_unknown_ones():
+    assert t._registered("venue_label_record")  # a family schema on master
+    with pytest.raises(t.TransferRefused, match="not registered"):
+        t._registered("no_such_schema_name")
 
 
 def test_nothing_under_src_names_the_counts_tool():
