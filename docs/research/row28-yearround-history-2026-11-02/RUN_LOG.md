@@ -1398,3 +1398,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
 - **Launch block.** `C:\t\L59\row28\launch_s2_build_a2_v1.ps1`. It runs the data\ check (exactly the 4 named
   junctions) and the no-wrapper process check, then Start-Process with the exact 07:38 form. Nothing runs in
   between. Logs go to `ctl_s2a2_logs`, and memory is monitored by `mon_s2_v1.ps1` (STOP above 12.8 GB).
+
+## Appended 2026-11-03T08:54:11-05:00: rebuild s2_build_a2 PASS, every target met (append only, counts and classes only)
+
+- **Run.** Launched at 07:50:55 with the exact 07:38 form. Walker 07:50:56 → 08:53:21, about 62m25s.
+  - Launcher: COMPLETE, exit 0, stderr 0 bytes. Walker exit 0, stderr 0 bytes.
+  - Receipt `eb60509b0ae59398a28ba7ccedc5df2c6f9b73ddafb737fd29858554a0e5ed85`; walk.json `80c70b2f4260be0405f875f8cc01a049224fe420971936621e17ad8824070ec5`; walk.csv `26ddb688dbb076f0856bf44d56006a12757d9527818b0d2a11dfe02fae00520a`.
+  - Peak job memory 5,060,091,904 bytes, under 12.8 GB. The monitor never fired.
+  - No process of the run remains. The worktree `data` still holds the same 4 junctions.
+
+| Target | Observed | Met |
+| --- | --- | --- |
+| Runner status / stage / runner sha | PASS / build / `9e97c892…`; launcher `8a2f8759…` | yes |
+| Receipt guard, output guard, FLAG | receipt output-guard hits 0, no receipt guard hits, no FLAG; output_guard CLEAN, hits_total 0, files_with_hits 0, 3,209 files scanned, writes_withheld none, log writes withheld 0/0, post_score false | yes |
+| `report_keys_withheld(_bytes)` | absent (both) | yes |
+| M1 | 198 files, remaining 0, span_mismatch 0, cuts {centre 198, generated_at 198, decision 216}, protocols [5] | yes |
+| Decision allowance | dated_tokens 828, values 432 | yes |
+| gz headers | files 204, members 204, fname 198, fname_own_tmp 198, fcomment 0, fextra 0, hits 0; allowance 198 / 198 | yes |
+| Records vs `records_build1_evidence` | 198 of 198 payload-equal, and raw-equal with the gzip mtime masked; raw bytes differ only by gzip mtime. `run\records` holds 264 = those 198 + a6's 66 controls files (66 of 66 raw-equal to a6's `records_sha256`) | yes |
+| Junction manifest | the before and after files' sha `f93c2ad2…`, as before; the report's json-bytes sha is `9dff281c…` before and after, as in a6 and build 1; manifest_changed false | yes |
+| `v11_pins` | markets 11, market_tz `5ea728ab…`, stations 300, pool_tz `4bf76e7a…`, registry {`market_registry.py` `b738b286…`, `config/markets.json` `25a3db6d…`}, files = the 2 allowed names, parser `c469229b…`, agreements {market 11, pool 0} | yes |
+| `v11_nbm_bytes` | exactly 3 keys; each has remaining 0 and span_mismatch 0; spans_cut 11 / 300 / 300 equal to the allowance counts | yes |
+| `v11_nbm_allowance` | market stage_end 11; pool writer 300 = pool stage_end 300; no other key | yes (pool reported) |
+
+- **The allowance counts, per file × class × month bucket:**
+  - `nbm_market_new/nbm_pit_corpus_rows.jsonl`, Y26_PRE0527, Y26-M01: 11 (stage_end).
+  - `pool_nbm_rows.jsonl`, Y26_PRE0527, Y26-M01: 300 (writer) and 300 (stage_end).
+  - The pool count, 300, is within the 900 bound; no FLAG.
+- **STOP.** Integrity waits for the coordinator's go.
