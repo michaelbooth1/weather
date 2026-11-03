@@ -282,7 +282,7 @@ Notes:
   1. T+1's final look PASSES.
   2. A same-kind T+2 SD exists.
   3. Master accepts a look date that allows about 170+ countable dates (around May 2027 or later).
-- **Claim table:** T+2 claims no date now (§6 notes).
+- **Claim table:** T+2 claims no date now (see the notes under the claim table).
 
 ## 7. Open items and blockers (not invented here)
 
