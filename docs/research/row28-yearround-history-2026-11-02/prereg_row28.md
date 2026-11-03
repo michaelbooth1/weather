@@ -84,6 +84,11 @@ structural, decided from metadata only, and apply to every arm:
   drop is computed, not listed: a date is dropped if its 07Z object is absent or its
   LastModified is after any US10 13–16 local cutoff instant. This yields 2021-01-22 (absent,
   already uncovered) and 2022-01-06 only.
+- **2024-02-29 stays in the deciding set.** The deciding comparator S and every arm are
+  computable on it: S is date-free, and the arms' only Feb 29 failure (the bound
+  `nearest_centre`) is handled by the fixed Rule L of §3.2. Only the descriptive S_bound is not
+  computable there (§3.2). No paired drop applies, and n = 660, the folds, the look and the
+  §6.3/§8.4 thresholds are unchanged.
 - **Descriptive fold 2026 and the V5.0 sliver cannot be built** by the single
   builder: the PIT corpora end in 2025 and the 12-24 window is covered only for
   2021 and 2022. They are reported as "not built", not scored. The §7 gate is
@@ -139,7 +144,11 @@ Only the training rows differ by arm.
 - `nearest_centre` is used unchanged, without wrap. With 12-24 and 01-08 both present, wrapping cannot change any pick: the furthest dates, Dec 31 and Jan 1, are each 7 days from their own centre and at least 8 days from the other one.
 - The scorer asserts the wrap-free and wrap-aware picks are identical for every deciding date. A mismatch triggers HALT.
 - **Centre per row (r4, review M1).** Each row's `centre` (and so `season`) is recomputed as `nearest_centre(target_date, <that arm's centre set>)`. The payload centre of the record file that carried the row is ignored. Example: a May 31 row arrives in the 06-07 record file; arms A, C, D keep centre 06-07, arm B maps it to 05-23.
-- **Leap day (r4-final, outcome-blind code finding).** 2024-02-29 is a deciding date (inside the covered 2024 02-22 window). The bound `nearest_centre` builds `date(2001, month, day)` and raises `ValueError` on Feb 29; the bound serve-math reference `state_features` does the same. Row-28 code therefore calls `nearest_centre` with Feb 28 for a Feb 29 target_date (centre lookup only; every other field keeps the real date). In every arm's centre set Feb 28 and Feb 29 both map to 02-22, so this changes no pick. The wrap assertion above uses the same substitution. S (MG-1 C5) does not use a centre. S_bound on 2024-02-29 is reported "not computable" (descriptive only). The bound code is not edited.
+- **Leap-day rule (fixed, pre-stated; r4-final, outcome-blind code finding).** 2024-02-29 is a deciding date (inside the covered 2024 02-22 window). The bound `nearest_centre` (`pooled_residual_model` and its `mg_serve_core` copy) builds `date(2001, month, day)` and raises `ValueError` on Feb 29.
+  - **Rule L (binding for every arm, every row, training and scored):** wherever row-28 code needs a centre for a target_date of Feb 29, it calls `nearest_centre` with the same year's Feb 28 instead. Only the centre lookup is substituted; every other field (target_date, doy, fold, cutoffs, inputs, labels) keeps the real date. In every arm's centre set Feb 28 and Feb 29 both map to 02-22 (6 and 7 days from 02-22; ≥ 9 days from 03-09), so Rule L cannot change any pick. The §3.2 wrap assertion applies Rule L the same way. The scorer asserts that Rule L's pick for 2024-02-29 is 02-22 in each arm; a mismatch → HALT.
+  - **The deciding comparator S is computable on 2024-02-29.** S is MG-1 C5 (§2): mu = v2_mean, sigma = max(v2_stddev, 1), the rule-4 floor and the bucket space. `mg_serve_core.mg1_band_probs` and `mg1.predict` take no date, centre or day-of-year input. The 07Z bulletin for 2024-02-29 was posted at 08:26Z, before every 13–16 cutoff. So S needs no substitution.
+  - **Every arm's serve-time inputs are computable on 2024-02-29.** The market NBM, F, current_temp and the bucket space are date-free, and doy uses `tm_yday`, which is valid on Feb 29. The only Feb 29 failure in the arm path is the centre lookup, which Rule L fixes in advance. The paired rule therefore drops nothing, and n stays 660.
+  - **Only the descriptive S_bound is not computable on 2024-02-29.** It runs the bound state through the bound `state_features`, which has the same Feb 29 failure and is not substituted. It is reported "not computable" on that date and never decides. Bound code is not edited.
 
 3.3 **Rows (r4, review M1): one build function, one row per (market, date, hour), feeding S and every arm.**
 
@@ -581,4 +590,4 @@ NITs folded:
 | B. m7 accepted as a dated narrowing of ruling (2) for scored rows | Recorded as "master ruling 2026-11-02 (WS relay 21:36 report)" (§3.3) |
 | C. Descriptive 2026 fold and V5.0 sliver unbuildable | Already stated (§1.1); §7 gate unaffected |
 | Rule 16: underpowered labelling; adequate power defined | §8.4 (new); §8.2 KILL split into crossing vs failure-to-show conditions; INCONCLUSIVE-UNDERPOWERED added; §6.3's "KILL (underpowered)" withdrawn |
-| New code finding: leap day | The bound `nearest_centre` raises on Feb 29; row-28 code looks up Feb 28's centre for 2024-02-29 (same pick in every arm); S_bound "not computable" on that date (§3.2). Flagged to master. The bound serve-math reference `state_features` has the same Feb 29 failure (outside row 28's scope) |
+| New code finding: leap day | The bound `nearest_centre` raises on Feb 29. Fixed Rule L (§3.2): Feb 28's centre is used for a Feb 29 target_date, which gives the same pick (02-22) in every arm. The deciding S (MG-1 C5) and all arm serve-time inputs are computable on 2024-02-29, so there is no paired drop and n stays 660 (§1.1). Only the descriptive S_bound is "not computable" there. The bound `state_features` failure is outside row 28's scope; the coordinator is raising it separately |
