@@ -1,0 +1,319 @@
+{
+ "calibrated_weights_pins": {
+  "files": 12,
+  "pins_sha256": "b1c8d98acdaaff6580945bd45b0d71cfc316dd3113de004cf80f3305dac3d6f9"
+ },
+ "config_sha256": "4940bb150bd754d85a1731b659d75a0e5d120770f2558f98f4747bfbee554335",
+ "decision_pins": {
+  "r0_scope_sha256": "e8bb0683ed7c252b4f07e18f83709c9e0a5fcfd4c835d803b80c5c531f18607b",
+  "values": 2
+ },
+ "end": "20261103T111734.785804-0500",
+ "first_390_equal_look_folds_descriptive": false,
+ "guard_arm_centre_set": {
+  "count": 24,
+  "sha256": "38a17ec2a04d764bac8ea43c8add0f89eb3fa542480eec73aaf0ab12febf6d83"
+ },
+ "junction_manifest_after_sha256": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+ "junction_manifest_before_sha256": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+ "junction_manifest_files": 83937,
+ "junction_subdirs_read": {
+  "declared": [
+   "wunderground"
+  ],
+  "observed_guard_read": [
+   "training",
+   "wunderground"
+  ],
+  "union": [
+   "training",
+   "wunderground"
+  ]
+ },
+ "junctions": {
+  "marine_water_contrast": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\marine_water_contrast",
+  "reanalysis": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\reanalysis",
+  "training": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\training",
+  "wunderground": "C:\\Users\\Michael\\Documents\\github\\weather\\data\\wunderground"
+ },
+ "look": {
+  "A": {
+   "blocks": 131,
+   "ci95": [
+    -0.13342858149868594,
+    -0.11506124888051648
+   ],
+   "ci95_wide": [
+    -0.13342858149868594,
+    -0.11506124888051648
+   ],
+   "futile": false,
+   "kappa": 1.5582728214474804,
+   "kappa_ar": 1.5582728214474804,
+   "kappa_block3": 1.3530699719687385,
+   "kappa_wide": 1.5582728214474804,
+   "n": 388,
+   "p": 0.0,
+   "pairs": 380,
+   "point": -0.12424491518960121,
+   "power_info_look_n_uninflated": 0.10001038650708344,
+   "power_xa": 0.20523210499924271,
+   "power_xs": 0.08674467938039426,
+   "rho": 0.21822255107710037,
+   "sd": 0.0739356914166481,
+   "se": 0.004685544035247309,
+   "se_wide": 0.004685544035247309,
+   "se_wide_x1.07": 0.005013532117714621,
+   "sigma_hat": 0.09229451385440933,
+   "sigma_hat_wide": 0.09229451385440933,
+   "z": -26.516646574007364
+  },
+  "B": {
+   "blocks": 131,
+   "ci95": [
+    -0.13351384832911106,
+    -0.1146983590146794
+   ],
+   "ci95_wide": [
+    -0.13351384832911106,
+    -0.1146983590146794
+   ],
+   "futile": false,
+   "kappa": 1.5635804040960593,
+   "kappa_ar": 1.5635804040960593,
+   "kappa_block3": 1.3685786821132555,
+   "kappa_wide": 1.5635804040960593,
+   "n": 388,
+   "p": 0.0,
+   "pairs": 380,
+   "point": -0.12410610367189523,
+   "power_info_look_n_uninflated": 0.0950188203976719,
+   "power_xa": 0.19761895977528898,
+   "power_xs": 0.0825446528307171,
+   "rho": 0.21984112657265475,
+   "sd": 0.07561103855649035,
+   "se": 0.004799869723069305,
+   "se_wide": 0.004799869723069305,
+   "se_wide_x1.07": 0.005135860603684156,
+   "sigma_hat": 0.09454646873931208,
+   "sigma_hat_wide": 0.09454646873931208,
+   "z": -25.856140027178665
+  },
+  "C": {
+   "blocks": 131,
+   "ci95": [
+    -0.13733473491785023,
+    -0.12031365272803365
+   ],
+   "ci95_wide": [
+    -0.13733473491785023,
+    -0.12031365272803365
+   ],
+   "futile": false,
+   "kappa": 1.3898068527020317,
+   "kappa_ar": 1.3898068527020317,
+   "kappa_block3": 1.3341717045120844,
+   "kappa_wide": 1.3898068527020317,
+   "n": 388,
+   "p": 0.0,
+   "pairs": 380,
+   "point": -0.12882419382294194,
+   "power_info_look_n_uninflated": 0.11795436597303122,
+   "power_xa": 0.23173218923764777,
+   "power_xs": 0.10183689611378482,
+   "rho": 0.1631122834304778,
+   "sd": 0.07255038813809786,
+   "se": 0.004342112803524636,
+   "se_wide": 0.004342112803524636,
+   "se_wide_x1.07": 0.004646060699771361,
+   "sigma_hat": 0.08552970312254474,
+   "sigma_hat_wide": 0.08552970312254474,
+   "z": -29.66855069227384
+  },
+  "D": {
+   "blocks": 131,
+   "ci95": [
+    -0.07432301236344035,
+    -0.019042759773602362
+   ],
+   "ci95_wide": [
+    -0.07432301236344035,
+    -0.019042759773602362
+   ],
+   "futile": false,
+   "kappa": 4.19494364983799,
+   "kappa_ar": 4.19494364983799,
+   "kappa_block3": 2.148836713368015,
+   "kappa_wide": 4.19494364983799,
+   "n": 388,
+   "p": 0.0009317980520462399,
+   "pairs": 380,
+   "point": -0.046682886068521355,
+   "power_info_look_n_uninflated": 0.018138675928084047,
+   "power_xa": 0.05679651837375094,
+   "power_xs": 0.016992581172924293,
+   "rho": 0.6150102609751364,
+   "sd": 0.13562406241107378,
+   "se": 0.01410210525250969,
+   "se_wide": 0.01410210525250969,
+   "se_wide_x1.07": 0.01508925262018537,
+   "sigma_hat": 0.2777792586758598,
+   "sigma_hat_wide": 0.2777792586758598,
+   "z": -3.310348719756818
+  }
+ },
+ "look_n_dates": 388,
+ "look_rows_sha256": "449d392a0025b77ab44d86f6adca2729e1996569f920db1a3264b07a67df24f2",
+ "m1_pins": {
+  "gap_centres": 4
+ },
+ "manifest_changed": false,
+ "manifest_diff": {
+  "by_subdir": {
+   "marine_water_contrast": {},
+   "reanalysis": {},
+   "training": {},
+   "wunderground": {}
+  },
+  "changed": false,
+  "count": 0,
+  "hashed_keys": {}
+ },
+ "output_guard": {
+  "decision_allowance": {
+   "dated_tokens": 0,
+   "values": 0
+  },
+  "files_scanned": 3,
+  "files_with_hits": {},
+  "from": "20260101",
+  "gz_header_allowance": {
+   "dated_tokens": 0,
+   "fname_own_tmp": 0
+  },
+  "gz_header_summary": {
+   "fcomment": 0,
+   "fextra": 0,
+   "files": 2,
+   "fname": 0,
+   "fname_own_tmp": 0,
+   "hits": 0,
+   "members": 2
+  },
+  "gz_headers": {
+   "junction_manifest_after.json.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   },
+   "junction_manifest_before.json.gz": {
+    "fcomment": 0,
+    "fextra": 0,
+    "fname": 0,
+    "fname_own_tmp": 0,
+    "hits": 0,
+    "members": 1,
+    "mtime": [
+     0
+    ]
+   }
+  },
+  "hits_total": 0,
+  "log_writes_withheld": {
+   "stderr": 0,
+   "stdout": 0
+  },
+  "m1_records": {},
+  "m1_summary": {
+   "cut_total": {
+    "centre": 0,
+    "decision": 0,
+    "generated_at": 0
+   },
+   "files": 0,
+   "protocols": [],
+   "remaining_total": 0,
+   "span_mismatch_total": 0
+  },
+  "pattern": "(?<![0-9])(20[0-9]{2}-[01][0-9]-[0-3][0-9])(?![0-9])",
+  "post_score": true,
+  "result": "CLEAN",
+  "v11_nbm_allowance": {},
+  "v11_nbm_bytes": {},
+  "writes_withheld": []
+ },
+ "outputs_payload_sha256": {
+  "C:\\t\\L59\\row28\\run\\s5_look\\junction_manifest_after.json.gz": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7",
+  "C:\\t\\L59\\row28\\run\\s5_look\\junction_manifest_before.json.gz": "9dff281c2d6dc9133499e006a4aa1e1ebed4b7723db3adc62f395fd6119ee4b7"
+ },
+ "outputs_sha256": {
+  "C:\\t\\L59\\row28\\run\\s5_look\\junction_manifest_after.json.gz": "f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7",
+  "C:\\t\\L59\\row28\\run\\s5_look\\junction_manifest_before.json.gz": "f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7",
+  "C:\\t\\L59\\row28\\run\\s5_look\\look_rows.jsonl": "449d392a0025b77ab44d86f6adca2729e1996569f920db1a3264b07a67df24f2"
+ },
+ "post_score_flags": [],
+ "prereg_sha256": "cb6d4e8da0ab5a144a185cf8dbaf777881402ea8a95db99f2a0e98f20a5e132b",
+ "restated_look_n": 388,
+ "rulings": {
+  "RULING_C2_DAILY_PREFIX": "raw_line_prefix_filter",
+  "RULING_C2_OUTPUT_GUARD": "halt_pre_score",
+  "RULING_C2_S7_RAW_PREFIX": "rb_prefix_before_decode",
+  "RULING_F14_PER_MARKET_CI": "ci95_wide",
+  "RULING_F9_SECTION7_GATE": "compute",
+  "RULING_GUARD_POST_SCORE": "withhold_and_flag",
+  "RULING_N1_NO_HALT_AFTER_SCORE": true,
+  "RULING_N1_STAGE_END_MANIFEST": "flag_classified",
+  "RULING_N2_N": "integrity_restated",
+  "RULING_R10_IMPUTE_GROUP": "calendar_month",
+  "RULING_R11_POOL_NO_NBM": "fill_from_normal",
+  "RULING_R6_ALL_HALTS_BEFORE_LABEL_JOIN": true,
+  "RULING_R9_TOP_BUCKET_GTE": true,
+  "RULING_S7_SEALED_LINES": "skip_undecoded",
+  "RULING_V10_GZ_FCOMMENT_FEXTRA": "any FCOMMENT or FEXTRA on any .gz is a hit (m-1), dated tokens counted on top",
+  "RULING_V11_NBM_ROLLOVER": "build only: valid_time_utc at a row's top level in nbm_market_new/nbm_pit_corpus_rows.jsonl or pool_nbm_rows.jsonl; literal Y26_PRE0527, local date <= 2025-12-31 in the pinned row tz, instant <= V11_INSTANT_LAST (noon UTC of the first day of that year); counted; byte side cuts the exact spans",
+  "RULING_V12_V11_REVIEW": "ruling texts hold no guard-range date; v11 tz must equal the bound parser's station tz where it has one (counted, pinned); the allowance fires only for a dict row at the JSONL line root, rows are walked one by one in the Writer and at stage end, a non-dict line is a hit",
+  "RULING_V4_ALLOWLIST_SCOPE": "context",
+  "RULING_V4_INCOMPLETE_ON_WITHHOLD": true,
+  "RULING_V4_RECORDS_GENERATED_AT": [
+   "calibrated_weights",
+   "metadata",
+   "generated_at"
+  ],
+  "RULING_V5_B_CENTRE_FIELDS": "B_*centre*",
+  "RULING_V5_GENERATED_AT_OWN_MARKET": true,
+  "RULING_V5_WRITER_BYTE_CHECK": true,
+  "RULING_V6_REPORT_BYTE_CHECK": true,
+  "RULING_V6_THREADS": 10,
+  "RULING_V7_DECISION_ALLOWANCE": "whole value equals a pinned r0_scope constant; counted",
+  "RULING_V7_DECISION_PATH": [
+   "plan",
+   "column_differences_from_served",
+   "decision"
+  ],
+  "RULING_V7_PERIOD": "str",
+  "RULING_V7_TZ_AWARE": "isoformat",
+  "RULING_V8_M1_RECORDS_BYTES": "whole-span cuts: own centre label(s), own generated_at, decision constants; then 0",
+  "RULING_V8_M2_PANDAS_SURFACES": "index, columns, name, names, attrs, every MultiIndex level, every category",
+  "RULING_V8_RECORDS_IDENTITY": "sha256 of the decompressed payload; raw sha256 cross-checked with gzip MTIME masked",
+  "RULING_V9_GZ_HEADERS": "every member's FNAME/FCOMMENT/FEXTRA scanned raw; only a records file's own tmp FNAME passes"
+ },
+ "runner": "row28_run_v12",
+ "runner_sha256": "9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b",
+ "stage": "look",
+ "start": "20261103T093613.843544-0500",
+ "started": "20261103T093623.081762-0500",
+ "status": "PASS",
+ "top_bucket_y_gt_top_descriptive": {
+  "A": 0,
+  "B": 0,
+  "C": 0,
+  "S": 0,
+  "S_y_below_B": 0
+ }
+}
