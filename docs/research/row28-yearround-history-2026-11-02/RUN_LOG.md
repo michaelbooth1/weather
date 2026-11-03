@@ -1534,3 +1534,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
     This equals the run file `run\s3_integrity\walk.json` byte for byte.
   - It is the `integrity_commit` for the labels stage.
 - **STOP.** Labels, the 390 look and the score each need master's go.
+
+## Appended 2026-11-03T09:03:56-05:00: labels GO, step 1 (wrapper_root refreshed to master) and step 2 (admission probe); HOLD before labels (append only)
+
+- **GO (relayed).** Master accepted integrity (report `d8404064…`, gate commit `95762ae89`). n = 657 and look n = 388
+  are restated values within the §5.2 caps (C2 N2), not a deviation. The earlier wrapper copies are accepted as
+  disclosed for a6, the rebuild and integrity.
+- **Step 1.** Two files were refreshed to master `99fff6c480efc6131d00e887ca5e43ed1fff02c1`. Each was written with
+  `git cat-file -p <full blob id>` (from `git rev-parse 99fff6c48:<path>`) as raw bytes, with no EOL conversion.
+  The old copies were saved in the session scratchpad first.
+  - `git hash-object --no-filters` of each written file equals its master blob id.
+  - **Re-pinned manifest:** every file under `C:\t\L59\row28\wrapper_root`. All 4 copies equal master `99fff6c48`.
+
+| File | sha256 (bytes) | git blob id | Source |
+| --- | --- | --- | --- |
+| `scripts\ops\workstation_heavy.ps1` | `acaf87e1880e7c7aacfac36cc73149286ecdb1f1ae3e8b0cdbc8e793769e037f` (11784) | `2393162d641254998ce22525902b688445a3d606` | master blob, refreshed |
+| `scripts\ops\workload_admission.ps1` | `4f7940662726027ac4fcdd44e75b6ad5a666cb29d98972678573738ad370e636` (169982) | `2f8e5849fd8d178f7f3e1f31c3760ce8b9100beb` | master blob, refreshed |
+| `scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` (31571) | `a55997db12a362bc5b408ea3e13fc898f642fe0c` | equal to master blob, unchanged |
+| `config\international_live_execution_host.json` | `111367a167628fcd78753f341beac119f81d9b87380989a9299d165daad80a5b` (491) | `133915f13ad2e4eb12e9eccca70a91283b92bcbd` | equal to master blob, unchanged |
+
+  - The wrapper's own files, by name: `data\logs\heavy_workload.slot2.lock` and `data\logs\heavy_workload_queue.jsonl`.
+    Nothing else is present.
+- **Step 2, the admission probe.** `C:\t\L59\row28\wrapper_probe_v1.ps1` ran master's `workstation_heavy.ps1` from
+  `wrapper_root`: `-Kind pytest -Queue`, arguments `-m pytest --version -p no:cacheprovider` (no collection),
+  `PYTHONDONTWRITEBYTECODE=1`.
+  - Result: queued, admitted to slot 2 of 3, thread cap 10, `pytest 9.0.3`, exit 0, stderr 0 bytes.
+  - Master's wrapper admits the row-28 pytest route. Logs are in `wrapper_probe_logs`.
+- **HOLD before labels, with the reason.** Launcher v6 does not use `wrapper_root`.
+  - It dot-sources `windows_kill_on_close_job.ps1` and `workload_admission.ps1` from `C:\wt\L59row28\scripts\ops`,
+    with a sha pin on each: `05f362cd…` and `48786bcb…`.
+  - `48786bcb…` is the branch version of `workload_admission.ps1`. That is the pre-refresh copy, not master's
+    `4f794066…`. a6, the rebuild and integrity all ran with it.
+  - So a probe "through launcher v6 with the refreshed wrapper" cannot happen without a new launcher. Running labels
+    on launcher v6 as it stands would use the old admission helper.
+  - This is raised to the coordinator for a ruling. The labels stage has not been launched.
