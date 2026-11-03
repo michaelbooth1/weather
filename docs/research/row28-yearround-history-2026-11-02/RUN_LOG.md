@@ -1907,3 +1907,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
   The first correction fixed the line endings only and did not re-check the whole tail for control bytes.
 - **Standing rule (master, 2026-11-03).** INDEX appends write bytes from a file, verify the tail bytes, and contain no
   control bytes.
+
+## Appended 2026-11-03T13:49:48-05:00: correction of lines 718-719 (append only; master ruling A)
+
+- **Correction.** In the append "Quiesce before the move" / "Move" (lines 718-719 of this file, commit `af51f9ffd`),
+  each path written as `run` + CR + `ecords` is a defect of the same escape-interpreting write as the INDEX lines
+  (the 13:41:48 append above). The correct text is: "`run\records` was moved to `run\records_a4_evidence` at
+  2026-11-03T06:16:35-05:00. 66 files moved; `run\records` is now absent." The earlier lines are not rewritten.
+- Written under the standing rule: bytes from a file, tail bytes verified, no control bytes in this append.
