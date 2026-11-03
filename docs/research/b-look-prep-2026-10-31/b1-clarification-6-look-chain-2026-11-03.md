@@ -17,6 +17,9 @@
     `28c4f298c9d128189468ab62562ebb79e055a6c42328315c8182178642b01906`. It is quoted from the WS coordinator's
     verbatim condensed copy (`C:\t\mg1-b-rulings-20261103\rulings_condensed.md`, sha256
     `f1ded718b1fc8e7fc5598b59b12f6557276abfd2b341accaa7d51ff44cbad016`) and cited below as "11-03:<line>".
+  - Master's 2026-11-03 `--market` rulings, cited as "M1" to "M5". M2 is the price embargo below. M4: B takes
+    `--market` from the same producer as MG-1, with its own layout, on B's look morning; b_transfer's
+    pinned-equal copy of `capture_price` stays.
   - Master's 10-31 rulings (i) to (iii) on the per-date extractor and the sentinel, as recorded in
     `look-chain-clarification-DRAFT.md` and `look-day-dry-run-checklist.md` (this directory).
   - B-1 Clarification 3 (`docs/research/b-look-s0-s1-2026-11-01/b1-clarification-3-s0-s1-look-wrapper.md`) and
@@ -58,11 +61,31 @@ Log the sha256 of `freeze_receipt.json` and every per-market sha it lists, befor
     morning.
   - The label read never parses a frozen label after the 45th date (§3).
 
+0b2. **Capture-time prices for `--market`** (M2, M4). The producer is built on `claude/mg1-capture-price-export-20261103` @ `d3926b85c740f4c51072cdec0ce05da5f5c2f116`
+(on combo A' `a026af7f6`), not yet on master. It runs in this session, after 0b, on the host:
+`python -P -B -m tools.research.capture_price_export --look b --data-root <repo>\data --out <PRICES_DIR> --from <D0> --through <the input window's last date>`
+then
+`python -m weather.calibration.mg1_market build --look b --layout <the input window's folder> --prices <PRICES_DIR> --out <MARKET_DIR>`.
+- **Embargo (M2).** Both are **registered steps of the look path**:
+  - they run ONLY on B's look morning, after the 45th date's finality, under master's lease, in the same session
+    as the look, ON THE HOST;
+  - neither the concat nor the look ever exports a price CSV or parquet to the WS before the look receipt.
+    Both refuse an `--out` under `data\exports`, the capture tree or a share;
+  - logs and manifests carry counts, shas and booleans only. No agent or human views a price value;
+  - the same rule as T4: a finite price outside [0, 1] refuses (the concat exits 4), and the look is HELD.
+- **The tool's checks.** Each date's per-snapshot `[n_rows, n_priced]` must equal its R19 sidecar, or the date
+  refuses. B's dates all start on or after 10-29, so every one has a sidecar.
+- **The concat's checks.** It refuses an unmatched or duplicate layout band. It writes `market.parquet` and
+  `mg1_market_manifest.json` (`range_ok`, `duplicate_free`, shas).
+- **Logged:** both stdouts (counts only), and the sha256 of the market file and its manifest. b_transfer does
+  not read the manifest; master checks it is `look_id` `b` and both booleans are true before 0c.
+
 0c. **Label transfer, with its self-checks.** This step reads the input-window manifest produced earlier by
 `python -m weather.calibration.mg2_inputs concat --layout <per-date layout> … --out <window>` over the
 input-countable dates. That module is B-bound and is used read-only.
-`python -m weather.calibration.b_transfer write --market <export market.parquet> --input-window <window manifest.json> --ledger-root <settlements root> --frozen-labels <data\venue_rule_labels\frozen\b> --coverage-root <data\exports\mg2-inputs\_b_coverage> --d0 <D0> --mg1-look-receipt <mg1 look receipt.json> --out <new transfer directory> [--sidecar-override <master override.json>]`
+`python -m weather.calibration.b_transfer write --market <MARKET_DIR>\market.parquet --input-window <window manifest.json> --ledger-root <settlements root> --frozen-labels <data\venue_rule_labels\frozen\b> --coverage-root <data\exports\mg2-inputs\_b_coverage> --d0 <D0> --mg1-look-receipt <mg1 look receipt.json> --out <new transfer directory> [--sidecar-override <master override.json>]`
 - The module is `b_transfer.py` `<PIN: b_transfer>`.
+- `--market` is step 0b2's file (M4). Before 11-03 this placeholder named no producer.
 - It must run as its own `__main__`, or it refuses the label read.
 - Log the sha256 of `b_transfer_manifest.json`.
 - A refusal or hold here means the look is held, not consumed (§3).
@@ -142,6 +165,8 @@ SHA256` on the production checkout. Any mismatch stops the session before the tr
 | `tests/calibration/test_b_floor_disclosure.py` | step 5 test | `<PIN: test_b_floor_disclosure>` | candidate `d2ba535ffc2f64c6344d925f5adc0bf8ef84e8374fe5fb4c6bf0f2a59f839d5a` at the same commit |
 | `src/weather/calibration/mg1_look.py` | step 0a, VOID 5 | `<PIN: mg1_look re-registered>` = `MG1_LOOK_ENTRY_SHA256` | candidate on `claude/mg1-look-scoring-r11-20261103`; set by Clarification 7 |
 | `src/weather/backtesting/venue_label_audit.py` | step 0b | `<PIN: venue_label_audit>` | on master by 11-20 (rulings:265) |
+| `tools/research/capture_price_export.py` | step 0b2 | `<PIN: capture_price_export>` | on `claude/mg1-capture-price-export-20261103` @ `d3926b85c740f4c51072cdec0ce05da5f5c2f116`; not landed |
+| `src/weather/calibration/mg1_market.py` | step 0b2 | `<PIN: mg1_market>` | on the same commit; not landed |
 | `src/weather/calibration/b_drop_list.py` | step 0e | `<PIN: b_drop_list>` | R19 head `55e5147e1`, in combo A' `a026af7f6` (lands from 00:35 11-04) |
 
 Host dry-run checklist additions, before step 0c:
@@ -188,6 +213,8 @@ Host dry-run checklist additions, before step 0c:
   - A finite price outside [0, 1] refuses (`REFUSE_FINITE_OUT_OF_RANGE = True`).
   - If any snapshot's `[n_rows, n_priced]` differs from its date's `b_price_coverage/1` sidecar, the transfer
     refuses.
+  - The `--market` file now comes from step 0b2 (M4), which applies the same range rule first: its concat
+    holds on a finite price outside [0, 1], so the look is HELD before 0c runs.
 - **False sidecar flags hold.** A false `match`, `bundle.ready_marker_matches` or `sources.<m>.match` flag
   holds the transfer. Only master's override file passed as `--sidecar-override` releases one:
   `{"schema": "b_transfer_sidecar_override/1", "dated": "YYYY-MM-DD", "outcome_blind": true, "releases": [{"date": "YYYY-MM-DD", "flag": "<flag name>", "reason": "..."}]}`.
@@ -297,6 +324,8 @@ Notes:
   - S1 `b_scorer.py` and the wrapper successor (Clarification 7): 11-22..25;
   - `b_transfer.py`, `b_drop_list.py` and the concat command: by 11-20 (b_transfer's review moves to 11-20).
 - **B3. R14** lands in combo C, 11-04/05 (master 2026-11-03).
+- **B5. The `--market` producer (M1-M5): built, not landed.** Step 0b2's price tool and concat are on
+  `claude/mg1-capture-price-export-20261103` @ `d3926b85c740f4c51072cdec0ce05da5f5c2f116`. Master lands that branch; its two shas fill the step 0b2 pins.
 - **B4. Freeze `--through`: CLOSED** by master 2026-11-03 (step 0b, §3).
 - **Q1. Gap semantics: CLOSED** by master 2026-11-03. A date in `skipped_dates` is T2 (non-countable). A date in
   neither list, or any metadata inconsistency, holds.
