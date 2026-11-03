@@ -27,7 +27,9 @@ order:
 
 1. the rule and the countable-date list (``mg1_countable/1``, per-market flags);
 2. the R24 label freeze receipt (A4: refused until it exists, after the 45th date has ended in every scored market;
-   only file hashes are read);
+   only file hashes are read). It holds unless its ``audit_status`` is ``OK``, and unless its ``through`` is
+   FREEZE_THROUGH: the latest date that had ended in every scored market at ``frozen_at_utc`` (master,
+   2026-11-03). A ``through`` before the 45th date also holds;
 3. the label-free layout (snapshots and bands; ``screen_inputs`` refuses any label or price column).
 
 Non-countable market-days are dropped from the layout (A3). Then come the holds, which consume nothing:
@@ -44,6 +46,19 @@ frozen copy, A2) and the capture-time prices. A label the reader refuses that th
 that market-day (T2). It is disclosed in ``label_masked`` and raises the receipt flag
 ``label_refusal_unpredicted_by_metadata``. Every exit after that first join writes the result and the receipt (a
 verdict, a VOID, or ABORTED).
+
+``main check-keys`` is the dry run (master, 2026-11-03). It runs every pre-stamp check except the A6 status count:
+
+- the owner constants, the rule and the marker absence;
+- the countable list;
+- the window and finality;
+- the freeze (audit status, FREEZE_THROUGH, hashes);
+- the label keys and their consistency;
+- with ``--layout``, the A3 hole check.
+
+It never stamps, joins or reads a label or price, and writes a counts-only ``mg1_check_keys/1`` record (mode
+"x"). Exit codes, for ``run`` and ``check-keys`` alike: 0 pass, 2 refused (``EXIT_REFUSED``), 4 held
+(``EXIT_HELD``).
 
 The owner's open questions are one constant each: ``A1_DENVER_SCORED`` and ``A1_MIN_NEGATIVE_MARKETS`` (A1, Q3),
 ``A5_BAR`` and ``A12_FALSIFIER_4``. Every branch is built, and the result records the values in force.
@@ -260,6 +275,12 @@ UNPREDICTED_REFUSAL_FLAG = "label_refusal_unpredicted_by_metadata"
 # Master 2026-11-03, the same name as b_transfer: a countable market-day in neither label_dates nor skipped_dates
 # holds (never masks). It is a ruling, not an owner branch, so any other value is refused.
 UNEXPLAINED_ABSENCE_HOLDS = True
+# Master 2026-11-03: the look holds unless the freeze's counts-only audit status is OK (venue_label_audit emits
+# "OK" or "STATION_DRIFT"), and FREEZE_THROUGH is the latest date that has ended in every scored market at the
+# freeze; any other ``through`` holds. A through before the 45th date holds first.
+FREEZE_AUDIT_OK = "OK"
+CHECK_SCHEMA = "mg1_check_keys/1"
+EXIT_REFUSED, EXIT_HELD = 2, 4
 MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": "America/New_York",
              "austin": "America/Chicago", "chicago": "America/Chicago", "dallas": "America/Chicago",
              "houston": "America/Chicago", "denver": "America/Denver", "los-angeles": "America/Los_Angeles",
@@ -410,14 +431,24 @@ def settled_at(last_date, markets=None):
                for m in (markets or support_markets()))
 
 
+def latest_final_date(at, markets=None):
+    """FREEZE_THROUGH: the latest local date that has ended in every scored market at instant ``at``."""
+    day = at.astimezone(timezone.utc).date() + timedelta(days=1)
+    while settled_at(day, markets) > at:
+        day -= timedelta(days=1)
+    return day
+
+
 def read_freeze_receipt(path, last_date, settled):
     """A4's second half and A2's source: the R24 look-morning label freeze, checked by file hashes only.
 
     The receipt (``venue_label_freeze_receipt_v1``, ``freeze --look mg1``) must:
 
     - exist and be for this look;
-    - run through the 45th date;
+    - carry the audit status OK (else a hold);
+    - run through the 45th date (else a hold);
     - have been frozen after that date ended in every scored market;
+    - run through exactly FREEZE_THROUGH, the latest date final in every scored market at the freeze (else a hold);
     - give, for every scored market, the frozen label CSV, manifest and WU daily summary at their recorded sha256
       (both copies matching their manifest).
 
@@ -437,11 +468,18 @@ def read_freeze_receipt(path, last_date, settled):
     if receipt.get("schema_version") != FREEZE_RECEIPT_SCHEMA or receipt.get("look_id") != FREEZE_LOOK_ID:
         raise MG1LookRefused(f"the label freeze receipt is not a {FREEZE_RECEIPT_SCHEMA} freeze for look "
                              f"{FREEZE_LOOK_ID!r}")
+    if receipt.get("audit_status") != FREEZE_AUDIT_OK:
+        raise MG1LookHeld(f"held: the label freeze's audit status is {receipt.get('audit_status')!r}, not "
+                          f"{FREEZE_AUDIT_OK!r}; nothing was consumed (master rules it outcome-blind)")
     if through < last_date:
         _inconsistent(f"the label freeze runs through {through}, before the countable date {last_date}")
     if frozen.tzinfo is None or frozen < settled:
         raise MG1LookRefused(f"the labels were frozen at {frozen.isoformat()}, before the 45th date ended in every "
                              f"scored market ({settled.isoformat()})")
+    final = latest_final_date(frozen)
+    if through != final:
+        _inconsistent(f"the label freeze runs through {through}, not FREEZE_THROUGH {final} (the latest date final "
+                      f"in every scored market at {frozen.isoformat()})")
     root = p.parent
     files, keys = {}, {}
     for market in support_markets():
@@ -461,7 +499,8 @@ def read_freeze_receipt(path, last_date, settled):
         files[market] = local
         keys[market] = {name: entry.get(name) for name in (FREEZE_LABEL_KEYS, "skipped_dates")}
     return {"path": str(p), "sha256": sha256_file(p), "through": through.isoformat(),
-            "frozen_at_utc": frozen.isoformat(), "files": files, "keys": keys}
+            "frozen_at_utc": frozen.isoformat(), "audit_status": receipt["audit_status"], "files": files,
+            "keys": keys}
 
 
 def _inconsistent(message):
@@ -944,6 +983,56 @@ def _verdict(checks, decision):
     return decision
 
 
+def finality_and_freeze(counted, label_freeze, now):
+    """A4: the recorded window has closed, the 45th date has ended in every scored market, and the R24 freeze."""
+    _, last = window.window()
+    if now.date() <= last:
+        raise MG1LookRefused(f"the recorded MG-1 window (last {last}) has not closed")
+    settled = settled_at(counted[-1])
+    if now < settled:
+        raise MG1LookRefused(f"the 45th countable date {counted[-1]} has not ended in every scored market "
+                             f"(until {settled.isoformat()})")
+    return read_freeze_receipt(label_freeze, counted[-1], settled)
+
+
+def check_keys(*, rule, countable, label_freeze, out, layout_root=None, now=None):
+    """The dry run of the pre-stamp checks (master, 2026-11-03). It never stamps, never joins, and reads no label
+    or price.
+
+    It writes ``out`` once (mode "x"), for every outcome, as a counts-only ``mg1_check_keys/1`` record:
+    ``verdict`` pass / held / refused, the reason text, input shas and the label-key counts. Returns
+    ``(out, record)``. The A6 status count needs the MG-1 vector, so it runs only in ``run``.
+    """
+    out = Path(out)
+    if out.exists():
+        raise MG1LookRefused(f"{out} already exists: a check record is written once")
+    now = now or _now_utc()
+    record = {"schema": CHECK_SCHEMA, "checked_at_utc": now.isoformat(), "entry_sha256": module_sha256(),
+              "stamped": False, "layout_checked": layout_root is not None}
+    try:
+        record["owner_constants"] = owner_constants()
+        Look(rule)  # the rule sha and the marker absence; constructing a Look never stamps
+        counted, rows = read_countable(countable)
+        record["countable_sha256"] = sha256_file(countable)
+        record["counted_dates"] = {"count": len(counted), "first": counted[0].isoformat(),
+                                   "last": counted[-1].isoformat()}
+        freeze = finality_and_freeze(counted, label_freeze, now)
+        record["label_freeze"] = {k: freeze[k] for k in ("path", "sha256", "through", "frozen_at_utc",
+                                                         "audit_status")}
+        if layout_root is not None:
+            read_inputs(layout_root, rows)
+        record["label_key_check"] = label_key_check(freeze, rows)
+        record["verdict"] = "pass"
+    except MG1LookHeld as exc:
+        record.update(verdict="held", reason=str(exc))
+    except MG1LookRefused as exc:
+        record.update(verdict="refused", reason=str(exc))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "x", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(record, indent=1, sort_keys=True) + "\n")
+    return out, record
+
+
 def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=None, serving_changes=(), now=None,
           root=None):
     """The single MG-1 look. Refusals and holds before the first outcome join read no label or price and spend
@@ -954,14 +1043,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
     look = Look(rule)
     counted, rows = read_countable(countable)
     now = now or _now_utc()
-    _, last = window.window()
-    if now.date() <= last:
-        raise MG1LookRefused(f"the recorded MG-1 window (last {last}) has not closed")
-    settled = settled_at(counted[-1])
-    if now < settled:
-        raise MG1LookRefused(f"the 45th countable date {counted[-1]} has not ended in every scored market "
-                             f"(until {settled.isoformat()})")
-    freeze = read_freeze_receipt(label_freeze, counted[-1], settled)  # A4: finality and the R24 freeze
+    freeze = finality_and_freeze(counted, label_freeze, now)  # A4: finality and the R24 freeze
     out = Path(out)
     result = out / RESULT
     if result.exists():
@@ -1048,6 +1130,12 @@ def build_parser():
     run.add_argument("--out", required=True)
     run.add_argument("--shadow", help="the captured nbm_v2_guidance_read_v1 shadow vector, when it exists")
     run.add_argument("--serving-change", action="append", default=[], help="a serving-change date (section 2)")
+    keys = sub.add_parser("check-keys", help="dry run of every pre-stamp metadata check; never stamps (exit 0/2/4)")
+    keys.add_argument("--rule", required=True, help="the signed MG-1 pre-registration")
+    keys.add_argument("--countable", required=True, help=f"the {COUNTABLE_SCHEMA} countable-date list")
+    keys.add_argument("--label-freeze", required=True, help="the R24 freeze receipt; keys and hashes only")
+    keys.add_argument("--out", required=True, help=f"the {CHECK_SCHEMA} check record (written once)")
+    keys.add_argument("--layout", help="also run the A3 layout hole check on the label-free layout")
     return parser
 
 
@@ -1058,12 +1146,21 @@ def main(argv=None):
         print(json.dumps({"receipt": args.receipt, "problems": problems}, indent=1))
         return 1 if problems else 0
     try:
+        if args.command == "check-keys":
+            path, record = check_keys(rule=args.rule, countable=args.countable, label_freeze=args.label_freeze,
+                                      out=args.out, layout_root=args.layout)
+            print(json.dumps({"check_record": str(path), "verdict": record["verdict"],
+                              "reason": record.get("reason")}, indent=1))
+            return {"pass": 0, "held": EXIT_HELD}.get(record["verdict"], EXIT_REFUSED)
         path, payload = score(rule=args.rule, layout_root=args.layout, countable=args.countable,
                               label_freeze=args.label_freeze, market=args.market, out=args.out, shadow=args.shadow,
                               serving_changes=args.serving_change)
+    except MG1LookHeld as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_HELD
     except MG1LookRefused as exc:
         print(f"refused: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_REFUSED
     print(json.dumps({"receipt": str(path), "decision": payload["decision"]}, indent=1, default=str))
     return 0
 

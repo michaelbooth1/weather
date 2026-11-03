@@ -46,4 +46,14 @@ SCHEMAS = (
         "flags over the support (markets; a date counts iff one does, MG-1 Clarification 2 A3) and the "
         "Clarification 1 reporting caveats (null with a text reason allowed). No label or price.",
     ),
+    SchemaSpec(
+        "mg1_check_keys",
+        "mg1_check_keys/1",
+        "weather.calibration.mg1_look",
+        "active",
+        "The MG-1 look's dry pre-stamp check record (main check-keys, master ruling 2026-11-03), written once "
+        "(mode x) at its --out for every outcome: verdict pass/held/refused with the reason text, owner constants, "
+        "countable and freeze shas, the freeze's through, frozen_at_utc and audit_status, and the label-key "
+        "counts. It never stamps, never joins and carries no label, price or outcome.",
+    ),
 )

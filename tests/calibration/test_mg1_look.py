@@ -168,6 +168,7 @@ D0 = date(2026, 10, 15)
 LAST = date(2026, 11, 28)
 NOW = datetime(2026, 12, 1, 12, tzinfo=timezone.utc)
 FROZEN_AT = "2026-11-30T12:00:00+00:00"
+THROUGH = date(2026, 11, 29)  # FREEZE_THROUGH at FROZEN_AT: 11-29 has ended in every market (Pacific last)
 HOURS = (3, 8, 14, 15, 19)
 BANDS = (("lte", np.nan, 59.0), ("range", 60.0, 61.0), ("range", 62.0, 63.0), ("gte", 64.0, np.nan))
 WU_COLUMNS = ["local_date", "temperature_unit", "row_count", "max_temp_native", "max_temp_bucket_native"]
@@ -244,7 +245,7 @@ def _freeze(root, labels, drop=(), thin=(), skipped=(), keys=True):
             markets[name].update(label_dates=body["label_dates"], skipped_dates=body["skipped_dates"])
     receipt = root / "freeze_receipt.json"
     receipt.write_text(json.dumps({"schema_version": m.FREEZE_RECEIPT_SCHEMA, "look_id": m.FREEZE_LOOK_ID,
-                                   "through": LAST.isoformat(), "frozen_at_utc": FROZEN_AT, "audit_status": "ok",
+                                   "through": THROUGH.isoformat(), "frozen_at_utc": FROZEN_AT, "audit_status": "OK",
                                    "label_root": str(root), "markets": markets}), encoding="utf-8")
     return receipt
 
