@@ -22,12 +22,22 @@ refused. No environment variable and no committed machine path names it. It must
 because the bound `extract_market` refuses an in-repo output root.
 The module reuses a records root only through its `records_manifest.json` when the manifest was written by the same
 module source sha, lists no fail-closed or skipped centre, holds exactly the expected records with matching payload
-shas, and equals the frozen lists; it refuses a partial root. A records root under any junction or symlink, or under
-any checkout's `data` folder, is refused.
+shas, and equals the frozen lists; it refuses a partial root. A records root under any junction or symlink, or
+inside any checkout (any ancestor holding `.git`, the checkout root included), is refused. `fit` requires
+`frozen_records_lists`; the retired keys `frozen_records_list` and `frozen_records_list_sha256` refuse by name.
 
-`fit` refuses by name a (market, date) with no WU hourly value and a date with no NBM mean for any market (a
-per-market NBM gap stays the capped section 3.3b imputation). `emit` refuses by name a batch (market, date) with no
-captured snapshot, no usable NBM or no METAR replay observation.
+`fit` refuses by name, and never filters or alters the bound training set:
+- a (market, date) on which any of F, x_high_so_far and x_current_temp has no finite value (WU hourly);
+- a date with no NBM mean for any market (a per-market NBM gap stays the section 3.3b imputation; the pooled
+  per-month cap refuses, and per-(market, month) counts are reported in the manifest only);
+- a hole in the calendar grid: an expected (market, date) of the record windows with no scored-hour row.
+If one trips on the bound inputs, stop and report the counts; master rules whether it is a disclosure or a defect.
+The equivalence report carries the same checks as `training_source_checks` (reported, not a pass check).
+
+`emit` refuses by name a batch (market, date) with no captured snapshot, no usable NBM or no METAR replay
+observation. A batch (market, date) that still emits 0 rows is a named hole record in `holes.jsonl` with a reason
+code (`no_snapshot_at_a_scored_cutoff` or `no_row_served`); the receipt carries the hole count and records; the
+forward prereg's countability rules decide its effect.
 
 Disclosure (inherited from bound MG-2, not changed here): training anchors NBM with `nbm_at_cutoff` at h:00, while
 serving uses `usable_v2_mean` at capture time.
@@ -45,6 +55,9 @@ serving uses `usable_v2_mean` at capture time.
   existing directory is refused.
 - Copies the three files to `C:\archive\row28b-forward-state\<fit_id>\` and verifies them sha-equal. Record that
   path and the state and fit-manifest shas in the forward prereg.
+- Freeze the forward 13-16 state only at the FINAL module sha, after `--hours` lands: `emit` refuses when this
+  module's sha, `mg2_p3d_n.py` or `r0_ols_floor_devfit.py` differs from the fit manifest, so any module change after
+  the freeze refuses emission by design. K2 then proves the 13-16 state unchanged.
 
 ## 2. Forward receipt
 
@@ -65,7 +78,9 @@ The module does not write it.
 - Inputs are `as_of_capture` only. The snapshots parquet needs `target_date` row-group statistics; a row group
   outside the batch refuses before any read, then the read is filtered to the batch. It passes a schema screen
   that takes the snapshot columns only.
-- `emit` refuses when any serve helper's source sha (`SERVE_HELPERS`) differs from the one recorded at fit.
+- `emit` refuses when any serve helper's source sha (`SERVE_HELPERS`) differs from the one recorded at fit, and
+  when a whole-file pin (`EMIT_PINNED_MODULES` and this module) differs. A `target_date` that is not `date32` or a
+  string refuses by name.
 - Writes `shadow/<first>_<last>/shadow_rows.jsonl` and `emit_receipt.json` under the fit directory and prints
   `shadow_rows_sha256` and the emit receipt sha. Record both per batch.
 - The scored window is 2026-12-17..2027-01-30 and is named separately from the emission window.

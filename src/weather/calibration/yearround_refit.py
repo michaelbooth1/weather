@@ -55,6 +55,20 @@ Master's review rulings (2026-11-03, L16 review), each a hard refusal BY NAME:
   ``state_sha`` needs the state sha AND full serve and trainer coverage). Nothing compared never passes.
 * ``emit`` reads the snapshots with a ``target_date`` filter after a row-group-statistics refusal, and refuses
   when a serve helper's source sha (:data:`SERVE_HELPERS`) differs from the one the fit recorded.
+
+Second fix (L16 re-review and master rulings, 2026-11-03):
+
+* F1, whole-file pins: ``emit`` refuses by name when this module's source sha, or the sha of a file in
+  :data:`EMIT_PINNED_MODULES`, differs from the fit manifest. The forward state is therefore frozen only at the
+  FINAL module sha (after ``--hours`` lands); any later module change refuses emission by design.
+* F2: ``fit`` requires ``frozen_records_lists`` and refuses the retired single-list keys by name.
+* F3: the fit's hard checks never filter or alter the bound training set: (a) each WU-hourly column needs a finite
+  value on every (market, date); (b) every (market, date) of the record windows' calendar grid needs a scored-hour
+  row; (c) the pooled per-month cap stays the refusing rule and per-(market, month) counts are reported only;
+  (d) ``emit`` writes a named hole record (with a reason) for each batch (market, date) that emitted 0 rows.
+* F6: a snapshot ``target_date`` outside :data:`SNAPSHOT_TARGET_DATE_TYPES` refuses by name. F7: a records root
+  inside any checkout (an ancestor holding ``.git``) refuses. F8: ``source_presence`` goes into the fit manifest
+  and the emit receipt.
 * Disclosure, inherited unchanged from bound MG-2: the NBM anchor is asymmetric. Training reads ``nbm_at_cutoff``
   at h:00; serving reads ``usable_v2_mean`` at capture time. The module reproduces both sides as bound.
 
@@ -133,6 +147,13 @@ SERVE_HELPERS = (("weather.calibration.mg2_p3d_n", "serve_distribution"),
                  ("weather.calibration.mg2_p3d_n", "nearest_centre"),
                  ("weather.calibration.yearround_refit", "_replay_dirs"))
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+# master second-fix ruling F1 (2026-11-03): whole-file pins at emit. Emit refuses by name when this module's
+# source sha or either of these files' sha differs from the fit manifest's record, so the forward state is frozen
+# only at the FINAL module sha and any later module change refuses emission by design.
+EMIT_PINNED_MODULES = ("src/weather/calibration/mg2_p3d_n.py", "src/weather/calibration/r0_ols_floor_devfit.py")
+LEGACY_CONFIG_KEYS = ("frozen_records_list", "frozen_records_list_sha256")
+SNAPSHOT_TARGET_DATE_TYPES = ("date32[day]", "string", "large_string")
+HOLES = "holes.jsonl"
 SERVE_F_SOURCE = "captured_metar"
 TOLERANCE = 1e-12
 FRAME_TOLERANCE = 1e-9
@@ -378,6 +399,25 @@ def refuse_changed_helpers(recorded):
         raise YearroundRefused(f"serve helper source differs from the frozen state's record: {changed}")
 
 
+def refuse_changed_sources(manifest):
+    """F1: this module's source and the EMIT_PINNED_MODULES must equal the fit manifest's record (by name)."""
+    changed = []
+    if manifest.get("module_source_sha256") != module_source_sha256():
+        changed.append(MODULE)
+    recorded = manifest.get("upstream_sha256") or {}
+    now = upstream_shas()
+    changed += [rel for rel in EMIT_PINNED_MODULES if recorded.get(rel) != now[rel]]
+    if changed:
+        raise YearroundRefused(f"source differs from the fit manifest's record (whole-file pin): {changed}")
+
+
+def refuse_legacy_config(cfg):
+    """F2: the single-list keys are retired; they are refused by name, never silently ignored."""
+    legacy = [k for k in LEGACY_CONFIG_KEYS if k in cfg]
+    if legacy:
+        raise YearroundRefused(f"retired config key(s) {legacy}: use frozen_records_lists ([path, sha256] pairs)")
+
+
 def replay_index_source_sha256(p3):
     """sha256 of ``inspect.getsource(mg2_p3d_n._replay_index)`` (the one private function the emit loop uses)."""
     import inspect
@@ -564,12 +604,12 @@ def _is_reparse_point(path):
 
 
 def check_records_root(records_root):
-    """Refuse a records root under any reparse point (junction or symlink) or under any checkout's ``data``.
+    """Refuse a records root under any reparse point (junction or symlink) or inside any checkout.
 
     Master review 2026-11-03 (ruling 2): a root reached through a junction can write into another tree (a
     worktree's ``data\\training`` junction writes the main checkout). Every component of the absolute, unresolved
     path is checked for a reparse point; then every ancestor of the resolved path named ``data`` whose parent
-    holds ``.git`` (a checkout or worktree) refuses.
+    holds ``.git``, and (F7) every ancestor that itself holds ``.git`` (a checkout or worktree root), refuses.
     """
     raw = Path(os.path.abspath(records_root))
     for part in (raw, *raw.parents):
@@ -579,6 +619,8 @@ def check_records_root(records_root):
     for part in (resolved, *resolved.parents):
         if part.name.lower() == "data" and (part.parent / ".git").exists():
             raise YearroundRefused(f"the records root lies under a checkout's data folder: {part}")
+        if (part / ".git").exists():  # F7: inside any checkout or worktree at all, its root included
+            raise YearroundRefused(f"the records root lies inside a checkout (it holds .git): {part}")
     return guard_path(resolved)
 
 
@@ -786,7 +828,8 @@ def refuse_absent_training_sources(frame, arm):
     """Refuse by name a (market, date) of the fit's training rows whose source is entirely missing.
 
     The fit's rows are ``arm_rows`` for the scored hours (any fold). ``wu_hourly`` is absent for a (market, date)
-    when every one of its rows lacks F, x_high_so_far and x_current_temp. ``nbm`` is absent for a DATE when no
+    when any one of F, x_high_so_far and x_current_temp has no finite value on it (F3(a)). ``nbm`` is absent for
+    a DATE when no
     market has an NBM mean on it: per-(market, date) NBM gaps stay the pre-registered section 3.3b imputation,
     counted and capped by ``imputation_shares`` / IMPUTE_CAP. A pure precondition: it raises or returns counts.
     """
@@ -804,8 +847,9 @@ def refuse_absent_training_sources(frame, arm):
     if len(cols) != len(TRAIN_SOURCE_COLUMNS["wu_hourly"]):
         raise SourceAbsent(f"input source 'wu_hourly' columns are absent from the frame: "
                            f"{sorted(set(TRAIN_SOURCE_COLUMNS['wu_hourly']) - set(cols))}")
-    present = rows[cols].apply(lambda c: np.isfinite(c.to_numpy(float))).any(axis=1)
-    wu = present.groupby([rows["market"], rows["_d"]]).any()
+    finite = rows[cols].apply(lambda c: np.isfinite(c.to_numpy(float)))
+    # F3(a): EACH named column needs a finite value on the (market, date); one finite column is not enough
+    wu = finite.groupby([rows["market"], rows["_d"]]).any().all(axis=1)
     missing = [k for k, ok in wu.items() if not ok]
     if missing:
         _refuse_absent("wu_hourly", missing, groups.ngroups)
@@ -817,6 +861,38 @@ def refuse_absent_training_sources(frame, arm):
     return {"wu_hourly_market_dates": int(groups.ngroups), "nbm_dates": int(len(by_date)),
             "rows_missing_any_wu_hourly_value": int((~rows[cols].apply(
                 lambda c: np.isfinite(c.to_numpy(float))).all(axis=1)).sum())}
+
+
+def expected_training_grid(prm, covered_years, arm, markets=None):
+    """F3(b): every (market, date) the fit's rows must cover: the record windows of each centre's covered years.
+
+    The windows are ``prm.window_days(centre, year)`` for the centres and years the records manifest lists, cut to
+    the training window and (arm B) to Dec 17 - May 31, for every required fit market.
+    """
+    days = set()
+    for centre, years in (covered_years or {}).items():
+        for year in years:
+            for day in prm.window_days(centre, int(year)):
+                iso = day.isoformat()
+                if TRAINING_WINDOW[0] <= iso <= LAST_TRAIN.isoformat() and (arm != "B" or in_dec_may(iso)):
+                    days.add(iso)
+    return {(m, d) for m in (REQUIRED_FIT_MARKETS if markets is None else markets) for d in days}
+
+
+def training_grid_holes(frame, expected):
+    """The expected (market, date) with no scored-hour row in the frame (sorted)."""
+    days = frame["target_date"].astype(str).str[:10]
+    have = set(zip(frame.loc[frame["hour"].isin(SCORED_HOURS), "market"].astype(str),
+                   days[frame["hour"].isin(SCORED_HOURS)]))
+    return sorted(expected - have)
+
+
+def refuse_training_grid_holes(frame, expected):
+    """F3(b), a HARD check: a hole in the calendar grid refuses by name (never filtered or filled)."""
+    holes = training_grid_holes(frame, expected)
+    if holes:
+        _refuse_absent("training_calendar_grid", holes, len(expected))
+    return {"expected_market_dates": len(expected), "holes": 0}
 
 
 def pd_series(values, index):
@@ -837,6 +913,40 @@ def imputation_shares(frame, arm):
     imputed = month[train["nbm_cycle"].isna()].value_counts().to_dict()
     return {k: {"rows": int(total[k]), "imputed": int(imputed.get(k, 0)),
                 "share": float(imputed.get(k, 0) / total[k])} for k in sorted(total)}
+
+
+def imputation_by_market_month(frame, arm):
+    """F3(c): the section 3.3b fill-from-forecast counts per (market, calendar month), REPORTED ONLY.
+
+    The refusing rule stays the pooled per-month cap of ``imputation_shares`` (the frozen spec); no per-market
+    refusal exists, so the bound training set cannot change through this.
+    """
+    train = frame[frame["hour"].isin(SCORED_HOURS)]
+    days = train["target_date"].astype(str)
+    if arm == "B":
+        keep = days.map(in_dec_may)
+        train, days = train[keep], days[keep]
+    key = train["market"].astype(str) + "|" + days.str[5:7]
+    total = key.value_counts().to_dict()
+    imputed = key[train["nbm_cycle"].isna()].value_counts().to_dict()
+    out = {k: {"rows": int(total[k]), "imputed": int(imputed.get(k, 0)),
+               "share": float(imputed.get(k, 0) / total[k])} for k in sorted(total)}
+    return {"cap_rule": "pooled per calendar month (reported only per market)", "by_market_month": out,
+            "max_share": max((v["share"] for v in out.values()), default=0.0),
+            "over_cap": sorted(k for k, v in out.items() if v["share"] > IMPUTE_CAP)}
+
+
+def training_source_checks(frame, arm, covered_years, prm):
+    """Equivalence-side report of the fit's hard checks (F3(a), F3(b)) and F3(c) counts: names and counts only."""
+    out = {}
+    try:
+        out["source_presence"] = refuse_absent_training_sources(frame, arm)
+    except SourceAbsent as exc:
+        out["source_presence"] = {"refused": str(exc)}
+    holes = training_grid_holes(frame, expected_training_grid(prm, covered_years, arm))
+    out["calendar_grid"] = {"holes": len(holes), "first_holes": [f"{m} {d}" for m, d in holes[:5]]}
+    out["imputation_by_market_month"] = imputation_by_market_month(frame, arm)
+    return out
 
 
 def fit_hour(prm, train):
@@ -949,6 +1059,9 @@ def freeze_state(p3, state, out_dir):
 def fit(cfg, arm="B", now=None, *, records_root):
     if arm not in FIT_ARMS:
         raise YearroundRefused(f"only arm(s) {FIT_ARMS} have a forward fit")
+    refuse_legacy_config(cfg)
+    if not cfg.get("frozen_records_lists"):  # F2: a fresh fit needs the frozen lists too, never only on reuse
+        raise YearroundRefused("fit requires frozen_records_lists ([path, sha256] pairs) in the config")
     now = now or utc_now()
     if now >= datetime.fromisoformat(FROZEN_BEFORE_UTC):
         raise YearroundRefused(f"the forward state must be frozen before {FROZEN_BEFORE_UTC}")
@@ -958,11 +1071,13 @@ def fit(cfg, arm="B", now=None, *, records_root):
     upstream = upstream_shas()
     conversion, late_report = bound_hooks(mods, cfg)
     files, records_manifest = build_records(cfg, mods.prm, records_root_arg(records_root, cfg))
-    if cfg.get("frozen_records_lists"):
-        refuse_records_not_frozen({n: e["payload_sha256"] for n, e in records_manifest["files"].items()},
-                                  frozen_records_union(cfg, mods.prm))
+    refuse_records_not_frozen({n: e["payload_sha256"] for n, e in records_manifest["files"].items()},
+                              frozen_records_union(cfg, mods.prm))
     frame, payload_buckets, build_report = training_frame(cfg, mods, files, out / "work_nbm")
     source_presence = refuse_absent_training_sources(frame, arm)
+    source_presence["calendar_grid"] = refuse_training_grid_holes(
+        frame, expected_training_grid(mods.prm, records_manifest.get("covered_years"), arm))
+    by_market_month = imputation_by_market_month(frame, arm)
     shares = imputation_shares(frame, arm)
     if max((v["share"] for v in shares.values()), default=0.0) > IMPUTE_CAP:
         raise YearroundRefused("section 3.3b imputation cap breached")
@@ -993,7 +1108,8 @@ def fit(cfg, arm="B", now=None, *, records_root):
         "emission_window": list(EMISSION_WINDOW), "coverage_window": list(COVERAGE_WINDOW),
         "input_modes": list(INPUT_MODES), "train_F_source": TRAIN_F_SOURCE, "serve_F_source": SERVE_F_SOURCE,
         "conversion": conversion, "late_report": late_report, "hooks_from_state_sha256": BOUND_P3D_N_STATE_SHA256,
-        "imputation_by_calendar_month": shares, "build": build_report,
+        "imputation_by_calendar_month": shares, "imputation_by_market_month": by_market_month,
+        "source_presence": source_presence, "build": build_report,
         "records_payload_sha256": {n: e["payload_sha256"] for n, e in records_manifest["files"].items()},
         "extract_failed_closed": records_manifest["extract_failed_closed"],
         "archive_dir": str(ARCHIVE_ROOT / fit_id),
@@ -1140,6 +1256,26 @@ def refuse_absent_emit_sources(snaps, presence, first, last, markets, in_coverag
     return {"market_dates": len(want), "gated_market_dates": len(gated)}
 
 
+def emit_holes(rows, presence, first, last, markets, in_coverage=in_dec_may):
+    """F3(d): a NAMED hole record for each batch (market, date) in coverage that emitted 0 rows, with a reason.
+
+    The batch is not refused for a hole (master ruling, 2026-11-03); the forward prereg's countability rules
+    decide its effect. Reasons: ``no_snapshot_at_a_scored_cutoff`` (no row passed the cutoff-hour gates) or
+    ``no_row_served`` (gated rows existed but none reached a served distribution).
+    """
+    emitted = Counter((m, t) for m, _, t, _, _ in rows)
+    holes = []
+    for market in markets:
+        for i in range((last - first).days + 1):
+            day = (first + timedelta(days=i)).isoformat()
+            if not in_coverage(day) or emitted[(market, day)]:
+                continue
+            tally = presence.get((market, day))
+            reason = "no_row_served" if tally and tally["gated"] else "no_snapshot_at_a_scored_cutoff"
+            holes.append({"market": market, "target_date": day, "rows": 0, "reason": reason})
+    return holes
+
+
 def _stat_day(value):
     return value.isoformat()[:10] if hasattr(value, "isoformat") else str(value)[:10]
 
@@ -1165,6 +1301,9 @@ def read_snapshots(path, first=None, last=None):
         raise YearroundRefused(f"the snapshot input lacks {missing}")
     if first is None and last is None:
         return pq.read_table(path, columns=list(SNAPSHOT_COLUMNS)).to_pandas()
+    kind = pq.read_schema(path).field("target_date").type
+    if str(kind) not in SNAPSHOT_TARGET_DATE_TYPES:  # F6: a named refusal, never an ArrowNotImplementedError
+        raise YearroundRefused(f"snapshot target_date has type {kind}; only {SNAPSHOT_TARGET_DATE_TYPES} are read")
     first, last = as_date(first).isoformat(), as_date(last).isoformat()
     meta = pq.ParquetFile(path).metadata
     col = names.index("target_date")
@@ -1175,7 +1314,6 @@ def read_snapshots(path, first=None, last=None):
         if _stat_day(st.min) < first or _stat_day(st.max) > last:
             raise YearroundRefused(f"snapshot row group {i} lies outside the batch window {first}..{last}; "
                                    "slice the layout to the batch")
-    kind = pq.read_schema(path).field("target_date").type
     lo, hi = (as_date(first), as_date(last)) if "date" in str(kind) else (first, last + "\uffff")
     table = pq.read_table(path, columns=list(SNAPSHOT_COLUMNS),
                           filters=[("target_date", ">=", lo), ("target_date", "<=", hi)])
@@ -1243,19 +1381,25 @@ def emit(*, state_path, state_sha, fit_manifest, fit_manifest_sha, forward_recei
     if _versions()["sklearn"] != manifest.get("sklearn_version"):
         raise YearroundRefused("the sklearn version differs from the fit's (the HGB pickle pin)")
     refuse_changed_helpers(prov.get("helper_source_sha256"))
+    refuse_changed_sources(manifest)
     snaps = read_snapshots(snapshots, first, last)
     days = snaps["target_date"].astype(str).str[:10]
     if len(days) and (days.min() < first.isoformat() or days.max() > last.isoformat()):
         raise YearroundRefused("a snapshot row lies outside the batch window; slice the layout to the batch")
-    out = _new_dir(state_root() / CANDIDATE_ID / manifest["fit_id"] / "shadow" /
-                   f"{first:%Y%m%d}_{last:%Y%m%d}")
+    shadow_dir = state_root() / CANDIDATE_ID / manifest["fit_id"] / "shadow" / f"{first:%Y%m%d}_{last:%Y%m%d}"
+    if shadow_dir.exists():
+        raise YearroundRefused(f"{shadow_dir} already exists (write-once)")
     presence = {}
     rows, stats, used = shadow_rows(state, snaps, guard_path(replay_root), first, last, EMIT_MARKETS,
                                     presence=presence)
     source_presence = refuse_absent_emit_sources(snaps, presence, first, last, EMIT_MARKETS)
+    holes = emit_holes(rows, presence, first, last, EMIT_MARKETS)
+    out = _new_dir(shadow_dir)
     body = "".join(mods.p3.jsonl_line(m, sid, t, d) for m, sid, t, _, d in rows).encode("utf-8")
     (out / SHADOW_ROWS).write_bytes(body)
     shadow_sha = sha256_bytes(body)
+    holes_body = "".join(json.dumps(h, sort_keys=True) + "\n" for h in holes).encode("utf-8")
+    (out / HOLES).write_bytes(holes_body)
     receipt_out = {
         "schema": SHADOW_RECEIPT_SCHEMA, "candidate_id": CANDIDATE_ID, "fit_id": manifest["fit_id"],
         "state_sha256": state_sha, "fit_manifest_sha256": fit_manifest_sha,
@@ -1264,9 +1408,12 @@ def emit(*, state_path, state_sha, fit_manifest, fit_manifest_sha, forward_recei
         "first": first.isoformat(), "last": last.isoformat(), "inputs": inputs, "markets": list(EMIT_MARKETS),
         "module_source_sha256": module_source_sha256(), "upstream_sha256": upstream_shas(),
         "serve_F_source": SERVE_F_SOURCE, "rows": len(rows), "stats": stats, "shadow_rows_sha256": shadow_sha,
+        "holes": len(holes), "hole_records": holes, "holes_sha256": sha256_bytes(holes_body),
+        "source_presence": source_presence,
+        "imputation_by_market_month": manifest.get("imputation_by_market_month"),
     }
     receipt_sha = _write_json(out / EMIT_RECEIPT, receipt_out)
-    return {"out_dir": str(out), "rows": len(rows), "shadow_rows_sha256": shadow_sha,
+    return {"out_dir": str(out), "rows": len(rows), "holes": len(holes), "shadow_rows_sha256": shadow_sha,
             "emit_receipt_sha256": receipt_sha}
 
 
@@ -1433,14 +1580,25 @@ def _serve_compare(p3, state_a, state_b, rows):
     return worst, mismatch, compared
 
 
+def _serve_vs(served, dist):
+    """(max abs difference, mismatch) of a served distribution against a reference; None is a mismatch (F5)."""
+    if served is None or dist is None:
+        return 0.0, True
+    d, m = _dist_diff(served, dist)
+    return d, bool(m)
+
+
 def _forward_trainer_compare(mods, state, fits_ref, buckets_ref, rows):
     """Serve on the round-tripped state against the in-process trainer fit on the converted inputs."""
     import pandas as pd
 
     p3, prm = mods.p3, mods.prm
-    worst, compared = 0.0, 0
+    worst, compared, mismatch = 0.0, 0, 0
     for r in rows:
         served = p3.serve_distribution(state, **r)
+        if served is None:  # F5: a None served distribution is a mismatch, never a TypeError
+            mismatch += 1
+            continue
         hs = p3.convert_observation(r["high_so_far"], state)
         ct = p3.convert_observation(r["current_temp"], state)
         tdate = as_date(r["target_date"])
@@ -1455,9 +1613,9 @@ def _forward_trainer_compare(mods, state, fits_ref, buckets_ref, rows):
                               "x_current_temp": float(ct), "market_code": float(prm.R0_MARKETS.index(r["market"]))}])
         entry = fits_ref[(r["hour"], None)]
         ((_, _, _), _, _, dist), = trainer_predict(mods, entry["fit"], entry["train_y"], buckets_ref, part)
-        worst = max(worst, _dist_diff(served, dist)[0])
-        compared += 1
-    return worst, compared
+        d, m = _serve_vs(served, dist)
+        worst, mismatch, compared = max(worst, d), mismatch + int(m), compared + 1
+    return worst, compared, mismatch
 
 
 def read_frozen_rows(path, sha):
@@ -1478,6 +1636,7 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
         raise YearroundRefused(f"unknown equivalence mode {mode!r}")
     if mode == "per_row" and not (frozen_rows and frozen_rows_sha):
         raise YearroundRefused("mode per_row needs --frozen-rows and --frozen-rows-sha")
+    refuse_legacy_config(cfg)
     now = now or utc_now()
     out = _new_dir(state_root() / CANDIDATE_ID / "equivalence" / now.strftime("%Y%m%dT%H%M%SZ"))
     records = records_root_arg(records_root, cfg)
@@ -1515,6 +1674,8 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
     report["input_frame"] = frame_compare(frame.drop(columns=["y"]), ref_frame.drop(columns=["y"]),
                                           keys, FRAME_TOLERANCE)  # labels are not compared (design 2.3)
     passes += [("y_free_frame", report["y_free_frame"]["pass"]), ("input_frame", report["input_frame"]["pass"])]
+    # the fit's hard checks F3(a)/(b) and the F3(c) counts on the bound inputs, REPORTED (not a pass check)
+    report["training_source_checks"] = training_source_checks(frame, "B", records_manifest.get("covered_years"), prm)
 
     # (b) row sets and (c) fits
     per_row = {}
@@ -1561,8 +1722,8 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
                      "expected_rows": int(len(val)), "rows_reference": len(theirs), "trainer_compared": 0,
                      "expected_serve": int(len(val)) - feb29, "serve_compared": 0, "max_abs_yhat": 0.0,
                      "max_abs_s": 0.0, "max_abs_dist": 0.0, "max_abs_serve": 0.0, "bucket_set_mismatch": 0,
-                     "feb29_serve_skipped": 0, "per_row_compared": 0, "max_abs_per_row_yhat": 0.0,
-                     "max_abs_per_row_s": 0.0}
+                     "feb29_serve_skipped": 0, "serve_mismatch": 0, "per_row_compared": 0,
+                     "per_row_s_compared": 0, "max_abs_per_row_yhat": 0.0, "max_abs_per_row_s": 0.0}
                 if [k for k, *_ in mine] != [k for k, *_ in theirs]:
                     c["row_keys_differ"] = True
                 for (key, yh, s, dist), (_, yh_r, s_r, dist_r) in zip(mine, theirs):
@@ -1579,25 +1740,32 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
                         served = p3.serve_distribution(state_h, market=market, target_date=day, hour=h,
                                                        nbm_mean=float(row["fh"]), high_so_far=float(row["F"]),
                                                        current_temp=float(row["x_current_temp"]))
-                        c["max_abs_serve"] = max(c["max_abs_serve"], _dist_diff(served, dist_r)[0])
-                        c["serve_compared"] += 1
+                        d, m = _serve_vs(served, dist_r)
+                        if served is None:
+                            c["serve_mismatch"] += 1
+                        else:
+                            c["max_abs_serve"] = max(c["max_abs_serve"], d)
+                            c["serve_mismatch"] += int(m)
+                            c["serve_compared"] += 1
                     frozen = per_row.get((fold, h, market, day))
                     if frozen and frozen.get(f"{arm}_yhat") not in (None, ""):
                         c["per_row_compared"] += 1
                         c["max_abs_per_row_yhat"] = max(c["max_abs_per_row_yhat"],
                                                         abs(yh - float(frozen[f"{arm}_yhat"])))
-                        if frozen.get(f"{arm}_s") not in (None, ""):
-                            c["max_abs_per_row_s"] = max(c["max_abs_per_row_s"], abs(s - float(frozen[f"{arm}_s"])))
+                    if frozen and frozen.get(f"{arm}_s") not in (None, ""):
+                        c["per_row_s_compared"] += 1
+                        c["max_abs_per_row_s"] = max(c["max_abs_per_row_s"], abs(s - float(frozen[f"{arm}_s"])))
                 # every compare covers ALL rows against counts fixed before comparing; none passes with 0
                 c["coverage_complete"] = (c["expected_rows"] > 0 and c["rows"] == c["rows_reference"]
                                           == c["trainer_compared"] == c["expected_rows"]
                                           and c["feb29_serve_skipped"] == feb29
                                           and c["serve_compared"] == c["expected_serve"] > 0)
                 c["pass"] = (c["coverage_complete"] and not c.get("row_keys_differ") and c["bucket_set_mismatch"] == 0
+                             and c["serve_mismatch"] == 0
                              and max(c["max_abs_yhat"], c["max_abs_s"], c["max_abs_dist"], c["max_abs_serve"])
                              <= TOLERANCE)
                 if mode == "per_row":
-                    c["pass"] = (c["pass"] and c["per_row_compared"] == c["rows"]
+                    c["pass"] = (c["pass"] and c["per_row_compared"] == c["rows"] == c["per_row_s_compared"]
                                  and max(c["max_abs_per_row_yhat"], c["max_abs_per_row_s"]) <= TOLERANCE)
                 for k in ("max_abs_yhat", "max_abs_s", "max_abs_dist", "max_abs_serve"):
                     worst_ref[k] = max(worst_ref[k], c[k])
@@ -1642,16 +1810,16 @@ def _forward_equivalence(mods, cfg, out, arm, centres, frame, hour_fits, hour_bu
     loaded = p3.load_state(out / "forward_state" / p3.STATE_FILE, sha_written, forward=True)
     rt_max, rt_mismatch, rt_n = _serve_compare(p3, state_m, loaded, rows)
     trainer_fits = {(h, None): hour_fits[h][1] for h in SCORED_HOURS}
-    trainer_max, trainer_n = _forward_trainer_compare(mods, loaded, trainer_fits, b[1], rows)
+    trainer_max, trainer_n, trainer_mismatch = _forward_trainer_compare(mods, loaded, trainer_fits, b[1], rows)
     result = {"state_sha256_module": sha_m, "state_sha256_reference": sha_r, "state_sha_equal": sha_m == sha_r,
               "serve_rows": len(rows), "max_abs_serve": serve_max, "serve_bucket_mismatch": serve_mismatch,
               "round_trip_sha_equal": sha_written == sha_m, "max_abs_round_trip": rt_max,
               "round_trip_bucket_mismatch": rt_mismatch, "max_abs_trainer": trainer_max,
               "expected_rows": expected, "serve_compared": serve_n, "round_trip_compared": rt_n,
-              "trainer_compared": trainer_n}
+              "trainer_compared": trainer_n, "trainer_mismatch": trainer_mismatch}
     result["coverage_complete"] = expected > 0 and serve_n == rt_n == trainer_n == expected
     result["pass"] = (result["coverage_complete"] and result["state_sha_equal"] and result["round_trip_sha_equal"]
-                      and serve_mismatch == 0 and rt_mismatch == 0
+                      and serve_mismatch == 0 and rt_mismatch == 0 and trainer_mismatch == 0
                       and max(serve_max, rt_max, trainer_max) <= TOLERANCE)
     return result
 
