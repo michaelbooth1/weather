@@ -21,9 +21,14 @@ every B layout snapshot on a countable date and the capture-time market prices o
   this module is the running ``__main__`` (its registered entry point). Every frozen file is checked against
   ``freeze_receipt.json`` and every record's source sha256 against the frozen file. ``label_bucket`` maps to
   each snapshot's band index through the layout's bands (``lte`` / ``eq`` / ``gte``).
-* **T2.** A reader refusal or a missing label row makes the date non-countable for B. Never a VOID.
-* **T3.** Before publish, a key-only check: every B layout snapshot on a countable date has a label row with a
-  winner. On a mismatch the transfer refuses, writes nothing, and the look is held.
+* **T2 / T3, pre-read (master 2026-11-03).** The 45th date is fixed before any label is read, from the
+  frozen manifest's ``label_dates`` and the freeze receipt's ``markets[m].label_dates`` / ``skipped_dates``
+  (keys only, no CSV parse; a missing field refuses by name). A predicted skip makes the date non-countable for
+  B (never a VOID); a gap (a date in neither list, ``UNEXPLAINED_ABSENCE_HOLDS``) holds: nothing read, nothing
+  published.
+* **Post-read.** A reader refusal the metadata did not predict, or a B snapshot no band maps to its label,
+  refuses with nothing published and writes ``<out>.refusal.json`` (date, market, reason; no value) for master
+  to rule on. It never masks a market-day and never moves the 45th date.
 * **T4 (R19 addendum).** ``p_market_yes`` is written only through :func:`capture_price` (a finite price in
   [0, 1], else NaN). A finite price outside [0, 1] refuses (``REFUSE_FINITE_OUT_OF_RANGE``). Every transferred
   snapshot's ``[n_rows, n_priced]`` must equal its date's published R19 counts sidecar, else it refuses. Any
@@ -110,6 +115,13 @@ REFUSE_FINITE_OUT_OF_RANGE = True
 # T2 reasons (per date, never per market).
 NON_COUNTABLE_LEDGER = "ledger"
 NON_COUNTABLE_LABEL = "label"
+REFUSAL_NAME = "b_transfer_refusal"  # the post-read refusal record (date, market, reason; no value)
+REFUSAL_SUFFIX = ".refusal.json"
+# Pre-read metadata (R24 freeze keys): a date in a market's skipped_dates is a predicted skip (T2: the date is not
+# countable for B). A date in neither label_dates nor skipped_dates is unexplained: True holds the transfer as a
+# gap; False would treat it as a predicted missing label (T2). Master's question; one-line change.
+UNEXPLAINED_ABSENCE_HOLDS = True
+PREDICTED_LABEL, PREDICTED_SKIP, PREDICTED_GAP = "label", "skip", "gap"
 
 
 class TransferRefused(RuntimeError):
@@ -357,34 +369,82 @@ def read_freeze(frozen):
             raise TransferRefused(f"frozen label CSV for {market} did not match its manifest at freeze")
         if wu_sha and (not wu_path.is_file() or sha256_file(wu_path) != wu_sha):
             raise TransferRefused(f"frozen WU daily summary for {market} differs from the freeze receipt")
+        label_dates, skipped = _frozen_keys(frozen, market, entry)
         paths[market] = {"venue_label_csv": csv_path, "wu_daily_summary": wu_path,
-                         "shas": {csv_sha} | ({wu_sha} if wu_sha else set())}
+                         "shas": {csv_sha} | ({wu_sha} if wu_sha else set()),
+                         "label_dates": label_dates, "skipped_dates": skipped}
     return {"receipt_sha256": sha256_file(path), "look_id": receipt.get("look_id"), "through": through,
             "frozen_at": frozen_at, "audit_status": receipt.get("audit_status"), "root": str(frozen)}, paths
 
 
+def _frozen_keys(frozen, market, entry):
+    """Key-only pre-read metadata: the frozen manifest's ``label_dates`` (equal to the receipt's) and the
+    receipt's ``skipped_dates``. Refuses by name when a field is absent; never parses a CSV."""
+    from weather.backtesting.venue_rule_labels import default_manifest_path
+    from weather.market.market_registry import spec_for_id
+
+    manifest_path = default_manifest_path(spec_for_id(market), frozen)
+    manifest_sha = (entry.get("manifest") or {}).get("sha256")
+    if not manifest_sha or not manifest_path.is_file() or sha256_file(manifest_path) != manifest_sha:
+        raise TransferRefused(f"frozen manifest for {market} is missing or differs from the freeze receipt")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for where, body, name in ((f"frozen manifest for {market}", manifest, "label_dates"),
+                              (f"freeze receipt markets[{market}]", entry, "label_dates"),
+                              (f"freeze receipt markets[{market}]", entry, "skipped_dates")):
+        if name not in body:
+            raise TransferRefused(f"{where} has no {name!r}: the pre-read coverage check cannot run")
+    try:
+        label_dates = {date.fromisoformat(str(d)).isoformat() for d in manifest["label_dates"]}
+        receipt_dates = {date.fromisoformat(str(d)).isoformat() for d in entry["label_dates"]}
+        skipped = {date.fromisoformat(str(d)).isoformat(): str(r) for d, r in dict(entry["skipped_dates"]).items()}
+    except (TypeError, ValueError) as exc:
+        raise TransferRefused(f"frozen label keys for {market} are malformed: {exc}") from exc
+    if label_dates != receipt_dates:
+        raise TransferRefused(f"label_dates for {market} differ between the frozen manifest and the freeze receipt")
+    if label_dates & set(skipped):
+        raise TransferRefused(f"a {market} date is in both label_dates and skipped_dates")
+    return label_dates, skipped
+
+
+def predict(paths, day):
+    """Pre-read, key-only: ``label`` when every B market has a label key for ``day``; ``skip`` when a market
+    skipped it (T2); ``gap`` when a market has neither (held, per ``UNEXPLAINED_ABSENCE_HOLDS``)."""
+    key, outcome = day.isoformat(), PREDICTED_LABEL
+    for market in B_MARKETS:
+        if key in paths[market]["label_dates"]:
+            continue
+        if key in paths[market]["skipped_dates"] or not UNEXPLAINED_ABSENCE_HOLDS:
+            outcome = PREDICTED_SKIP
+        else:
+            return PREDICTED_GAP
+    return outcome
+
+
 def read_b_labels(frozen, paths, day):
-    """``{market: (label_bucket, label_source)}`` for ``day`` from the frozen copy, or None (T2) on any refusal or missing row.
+    """``({market: (label_bucket, label_source)}, [(date, market, reason)])`` for ``day`` from the frozen copy.
 
     Runs only inside the registered entry point (R24 (3)); ``read_through`` is ``day`` itself, so no row
-    after it is parsed.
+    after it is parsed. A refusal here was not predicted by the pre-read metadata: it is returned for the
+    refusal record (never a value) and the transfer refuses; the date does not become non-countable.
     """
     from weather.backtesting.venue_label_reader import read_venue_labels
 
     if not _entry_running():
         raise TransferRefused(f"labels are read only inside the registered entry point (python -m {ENTRY_MODULE})")
-    buckets = {}
+    buckets, refused = {}, []
+    key = day.isoformat()
     for market in B_MARKETS:
         records, refusals = read_venue_labels(
             market, [day], read_through=day, allow_reserved_window=True, model_scoring=True, label_root=frozen,
             wu_daily_summary=paths[market]["wu_daily_summary"], venue_label_csv=paths[market]["venue_label_csv"])
-        record = records.get(day.isoformat())
+        record = records.get(key)
         if refusals or record is None:
-            return None
-        if record.get("source_sha256") not in paths[market]["shas"]:
-            raise TransferRefused(f"a {market} label was read from bytes that are not the frozen copy")
-        buckets[market] = (int(record["label_bucket"]), record.get("label_source"))
-    return buckets
+            refused.append((key, market, str(refusals.get(key) or "no_record")))
+        elif record.get("source_sha256") not in paths[market]["shas"]:
+            refused.append((key, market, "not_frozen_bytes"))
+        else:
+            buckets[market] = (int(record["label_bucket"]), record.get("label_source"))
+    return buckets, refused
 
 
 def _contains(kind, low, high, bucket):
@@ -402,13 +462,13 @@ def winners_for(bands, bucket):
     return out
 
 
-def select_dates(input_dates, ledger_dates, label_of, through):
-    """Input-countable dates in order through B's 45th countable date (T1, T2); non-countable ones listed.
+def select_dates(input_dates, ledger_dates, predicted, through):
+    """Pre-read: input-countable dates in order through B's 45th countable date (T1, T2); nothing is read.
 
-    ``label_of(day)`` returns the day's labels or None (T2: non-countable). Labels are read only for
-    ledger-countable dates up to the 45th.
+    ``predicted(day)`` is the key-only metadata prediction. A predicted skip makes the date non-countable (T2);
+    a gap, or a countable date past the frozen copy, holds the transfer (T3, pre-read).
     """
-    rows, labels, non_countable, countable = [], {}, {}, 0
+    rows, non_countable, countable = [], {}, 0
     for d in input_dates:
         key = d.isoformat()
         ok = ledger_dates.get(key, False)
@@ -416,19 +476,32 @@ def select_dates(input_dates, ledger_dates, label_of, through):
             non_countable[key] = NON_COUNTABLE_LEDGER
         else:
             if d > through:
-                raise TransferRefused(f"the frozen label copy ends {through}, before countable date {key}")
-            got = label_of(d)
-            if got is None:
+                raise TransferRefused(f"HOLD: the frozen label copy ends {through}, before countable date {key}")
+            outcome = predicted(d)
+            if outcome == PREDICTED_GAP:
+                raise TransferRefused(f"HOLD: pre-read coverage gap on {key}: a B market has neither a label key "
+                                      "nor a skipped-date entry; nothing was read")
+            if outcome == PREDICTED_SKIP:
                 ok = False
                 non_countable[key] = NON_COUNTABLE_LABEL
-            else:
-                labels[key] = got
         rows.append((key, ok))
         countable += int(ok)
         if countable == N_DATES:
-            return rows, labels, non_countable
+            return rows, non_countable
     raise TransferRefused(f"only {countable} B-countable dates among {len(rows)} input-countable dates; "
                           f"the transfer needs {N_DATES}")
+
+
+def write_refusal_record(out, refused, now):
+    """The post-read refusal record beside ``out`` (mode x): date, market and reason only, never a value."""
+    path = Path(out).parent / f"{Path(out).name}{REFUSAL_SUFFIX}"
+    body = {"schema": _registered(REFUSAL_NAME), "written_at_utc": now.isoformat(),
+            "refusals": [{"date": d, "market": m, "reason": r} for d, m, r in sorted(set(refused))],
+            "writer": {"module": ENTRY_MODULE, "source_sha256": module_sha256(), "host": socket.gethostname()}}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "x", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(body, indent=1, sort_keys=True) + "\n")
+    return path
 
 
 # --- frames, T3 coverage and T4 prices --------------------------------------------------------------------------
@@ -442,13 +515,15 @@ def build_labels(snaps, bands, rows, labels):
     missing = sorted(set(flag) - set(s.date))
     if missing:
         raise TransferRefused(f"the window layout has no B snapshot on {missing[:3]}")
-    winner, bucket, source = {}, {}, {}
+    winner, bucket, source, unmapped = {}, {}, {}, []
     for key, per_market in labels.items():
         day_keys = s[s.date == key]
         for market, (b, src) in per_market.items():
             keys = set(day_keys.row_key[day_keys.market == market])
-            for row_key, w in winners_for(bands[bands.row_key.isin(keys)], b).items():
-                winner[row_key] = w
+            mapped = winners_for(bands[bands.row_key.isin(keys)], b)
+            if set(mapped) != keys:
+                unmapped.append((key, market, "no_unique_band"))
+            winner.update(mapped)
             for row_key in keys:
                 bucket[row_key], source[row_key] = b, src
     s["winner"] = s.row_key.map(winner)
@@ -460,7 +535,7 @@ def build_labels(snaps, bands, rows, labels):
     for d, group in lab.groupby("date"):  # constancy: B's collapsed flag, B's 10 markets only
         if group.promotion_countable.nunique() != 1 or not set(group.market) <= set(B_MARKETS):
             raise TransferRefused(f"promotion_countable varies within {d} over B's markets")
-    return pd.DataFrame(lab)
+    return pd.DataFrame(lab), unmapped
 
 
 def coverage_problems(snaps, lab, rows):
@@ -607,19 +682,29 @@ def write(*, market, input_window, ledger_root, frozen_labels, coverage_root, d0
     flags, ledger_shas = read_ledger_flags(ledger_root, input_dates)
     ledger_dates = collapse_flags(flags, input_dates)
 
-    def label_of(day):
-        if now < embargo_end(day):
-            raise TransferRefused(f"embargo: {day} has not ended in every market")
-        return read_b_labels(frozen_labels, frozen_paths, day)
-
-    rows, labels, non_countable = select_dates(input_dates, ledger_dates, label_of, freeze["through"])
+    rows, non_countable = select_dates(input_dates, ledger_dates, lambda d: predict(frozen_paths, d),
+                                       freeze["through"])
     settled = embargo_end(rows[-1][0])
     if now < settled:
         raise TransferRefused(f"embargo: the 45th countable date {rows[-1][0]} has not ended in every market "
                               f"(until {settled.isoformat()})")
     if freeze["frozen_at"] < settled:
         raise TransferRefused("the label copy was frozen before the 45th countable date's finality (R24 (3))")
-    lab = build_labels(snaps, bands, rows, labels)
+    # The 45th date is fixed above, before any label is read; from here a refusal never moves it.
+    labels, refused = {}, []
+    for key, ok in rows:
+        if ok:
+            labels[key], day_refused = read_b_labels(frozen_labels, frozen_paths, date.fromisoformat(key))
+            refused += day_refused
+    if refused:
+        record = write_refusal_record(out, refused, now)
+        raise TransferRefused(f"{len(refused)} label reads refused that the pre-read metadata did not predict; "
+                              f"nothing published; refusal record {record}")
+    lab, unmapped = build_labels(snaps, bands, rows, labels)
+    if unmapped:
+        record = write_refusal_record(out, unmapped, now)
+        raise TransferRefused(f"T3: {len(unmapped)} B market-days have snapshots no band maps to their label; "
+                              f"nothing published; refusal record {record}")
     problems = coverage_problems(snaps, lab, rows)
     if problems:
         raise TransferRefused("T3 layout coverage: " + "; ".join(problems))

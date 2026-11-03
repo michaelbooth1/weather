@@ -17,4 +17,13 @@ SCHEMAS = (
         "reason}]. Each named (date, flag) pair is released; any other false flag holds the transfer. Its sha256 "
         "is pinned in the transfer manifest. No label, price or outcome.",
     ),
+    SchemaSpec(
+        "b_transfer_refusal",
+        "b_transfer_refusal/1",
+        "weather.calibration.b_transfer",
+        "active",
+        "The transfer's post-read refusal record (<out>.refusal.json, mode x): a label read the pre-read R24 "
+        "metadata did not predict, or a snapshot no band maps to its label. Per entry date, market and reason "
+        "only, never a value; nothing is published and master rules on it.",
+    ),
 )

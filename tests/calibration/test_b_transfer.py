@@ -39,7 +39,7 @@ INPUT_DATES = [D0 - timedelta(days=2), D0 - timedelta(days=1)] + [
 BANDS = [("lte", 60, 60), ("eq", 61, 62), ("eq", 63, 64), ("gte", 65, 65)]
 BUCKET, WINNER = 63, 2
 SCHEMAS = {t.FREEZE_RECEIPT_NAME: "venue_label_freeze_receipt_v1", t.SIDECAR_NAME: "synthetic_sidecar/1",
-           t.OVERRIDE_NAME: "b_transfer_sidecar_override/1"}
+           t.OVERRIDE_NAME: "b_transfer_sidecar_override/1", t.REFUSAL_NAME: "b_transfer_refusal/1"}
 
 
 def _sha(path):
@@ -97,14 +97,29 @@ def _write_csv(path, rows):
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
-def _write_frozen(root, *, skip=(), rows_for=None, frozen_at=FROZEN_AT, through=INPUT_DATES[-1]):
+def _write_frozen(root, *, skip=(), rows_for=None, frozen_at=FROZEN_AT, through=INPUT_DATES[-1], skipped=None,
+                  drop_field=None):
+    """The R24 frozen copy: per market CSV, manifest (label_dates) and receipt keys (label_dates, skipped_dates).
+
+    ``skipped`` maps (market, date) -> reason for the receipt's skipped_dates; ``drop_field`` is
+    ("manifest" | "receipt", field) to omit.
+    """
     markets = {}
     for m in ALL11:
         rows = rows_for(m) if rows_for else [_label_row(d) for d in INPUT_DATES if (m, d) not in skip]
         csv = root / m / "daily" / "daily_summary.csv"
         _write_csv(csv, rows)
+        label_dates = sorted(r["local_date"] for r in rows)
+        manifest = {"label_dates": label_dates, "output_sha256": _sha(csv)}
+        if drop_field and drop_field[0] == "manifest":
+            manifest.pop(drop_field[1])
+        (root / m / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         markets[m] = {"label_csv": {"path": str(csv), "sha256": _sha(csv)}, "wu_daily_summary": {"sha256": None},
-                      "label_csv_matches_manifest": True}
+                      "manifest": {"sha256": _sha(root / m / "manifest.json")},
+                      "label_csv_matches_manifest": True, "label_dates": label_dates,
+                      "skipped_dates": {d.isoformat(): r for (mm, d), r in (skipped or {}).items() if mm == m}}
+        if drop_field and drop_field[0] == "receipt":
+            markets[m].pop(drop_field[1])
     receipt = {"schema_version": SCHEMAS[t.FREEZE_RECEIPT_NAME], "look_id": "b-look-synthetic",
                "through": through.isoformat(), "frozen_at_utc": frozen_at.isoformat(), "audit_status": "ok",
                "markets": markets}
@@ -263,16 +278,25 @@ def test_t1_a_market_day_with_no_ledger_row_or_two_events_is_not_countable(env):
     assert sum(flags.values()) == t.N_DATES
 
 
-@pytest.mark.parametrize("kind", ["missing row", "thin row"])
-def test_t2_a_reader_refusal_or_missing_label_makes_the_date_non_countable_and_moves_the_45th_later(
-        env, kind):
+HOLE = D0 + timedelta(days=9)
+
+
+def _spy_reads(monkeypatch):
+    calls = []
+    real = vr.read_venue_labels
+
+    def spy(market_id, target_dates, **kwargs):
+        calls.append((market_id, list(target_dates)))
+        return real(market_id, target_dates, **kwargs)
+
+    monkeypatch.setattr(vr, "read_venue_labels", spy)
+    return calls
+
+
+def test_t2_a_predicted_skip_makes_the_date_non_countable_and_moves_the_45th_later(env):
     tmp, kw = env
-    hole = D0 + timedelta(days=9)
-    rows_for = (lambda m: [_label_row(d, row_count=5 if (m == "austin" and d == hole) else 24)
-                           for d in INPUT_DATES if not (kind == "missing row" and m == "austin" and d == hole)])
-    import shutil
-    shutil.rmtree(kw["frozen_labels"])
-    _write_frozen(kw["frozen_labels"], rows_for=rows_for)
+    _refreeze(tmp, kw, skip={("austin", HOLE)}, skipped={("austin", HOLE): "no_routine_metar"})
+    hole = HOLE
     t.write(**kw)
     manifest = _manifest(kw)
     flags = {r["date"]: r["promotion_countable"] for r in manifest["dates"]}
@@ -282,6 +306,55 @@ def test_t2_a_reader_refusal_or_missing_label_makes_the_date_non_countable_and_m
     assert manifest["dates"][-1]["date"] > (D0 + timedelta(days=50)).isoformat()  # later, never earlier
     labels = pd.read_parquet(kw["out"] / "labels.parquet")
     assert labels[labels.date == hole.isoformat()].winner.isna().all()
+
+
+def test_a_pre_read_gap_holds_with_nothing_read_and_nothing_published(env, monkeypatch):
+    tmp, kw = env
+    _refreeze(tmp, kw, skip={("austin", HOLE)})  # in neither label_dates nor skipped_dates
+    calls = _spy_reads(monkeypatch)
+    with pytest.raises(t.TransferRefused, match="HOLD: pre-read coverage gap"):
+        t.write(**kw)
+    assert calls == [] and not Path(kw["out"]).exists()
+    assert not (tmp / f"transfer{t.REFUSAL_SUFFIX}").exists()
+
+
+@pytest.mark.parametrize("where, field", [("manifest", "label_dates"), ("receipt", "label_dates"),
+                                          ("receipt", "skipped_dates")])
+def test_a_missing_metadata_field_refuses_by_name(env, monkeypatch, where, field):
+    tmp, kw = env
+    _refreeze(tmp, kw, drop_field=(where, field))
+    calls = _spy_reads(monkeypatch)
+    with pytest.raises(t.TransferRefused, match=f"has no '{field}'"):
+        t.write(**kw)
+    assert calls == [] and not Path(kw["out"]).exists()
+
+
+def test_a_post_read_unpredicted_refusal_refuses_with_a_record_and_nothing_published(env):
+    tmp, kw = env
+    # The metadata lists the date as labelled, but the frozen row is thin: the reader refuses it.
+    _refreeze(tmp, kw, rows_for=lambda m: [_label_row(d, row_count=5 if (m == "austin" and d == HOLE) else 24)
+                                           for d in INPUT_DATES])
+    with pytest.raises(t.TransferRefused, match="did not predict") as err:
+        t.write(**kw)
+    assert not Path(kw["out"]).exists()
+    record_path = tmp / f"transfer{t.REFUSAL_SUFFIX}"
+    assert str(record_path) in str(err.value)
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["schema"] == SCHEMAS[t.REFUSAL_NAME]
+    assert record["refusals"] == [{"date": HOLE.isoformat(), "market": "austin",
+                                   "reason": vr.REFUSED_THIN_VENUE_ROW}]
+    assert all(set(r) == {"date", "market", "reason"} for r in record["refusals"])  # no value travels
+    assert "label_bucket" not in record_path.read_text(encoding="utf-8")
+
+
+def test_t3_an_unmapped_snapshot_writes_a_refusal_record(env):
+    tmp, kw = env
+    _break_bands(tmp, kw)
+    with pytest.raises(t.TransferRefused, match="T3"):
+        t.write(**kw)
+    record = json.loads((tmp / f"transfer{t.REFUSAL_SUFFIX}").read_text(encoding="utf-8"))
+    assert record["refusals"] == [{"date": (D0 + timedelta(days=3)).isoformat(), "market": "nyc",
+                                   "reason": "no_unique_band"}]
 
 
 def test_r24_labels_are_read_from_the_frozen_copy_through_each_date_only(env, monkeypatch):
@@ -360,6 +433,7 @@ def test_capture_price_matches_the_r19_predicate():
 def test_registered_looks_up_family_schemas_and_refuses_unknown_ones():
     assert t._registered("venue_label_record")  # a family schema on master
     assert t._registered(t.OVERRIDE_NAME) == "b_transfer_sidecar_override/1"
+    assert t._registered(t.REFUSAL_NAME) == "b_transfer_refusal/1"
     with pytest.raises(t.TransferRefused, match="not registered"):
         t._registered("no_such_schema_name")
 
@@ -416,7 +490,7 @@ REFUSALS = {
         {**json.loads(kw["input_window"].read_text(encoding="utf-8")),
          "dates": [d.isoformat() for d in INPUT_DATES[:30]]})), "only"),
     "ledger missing": (lambda tmp, kw: (kw["ledger_root"] / "dallas" / "ledger.jsonl").unlink(), "ledger missing"),
-    "T3 no winner": (_break_bands, "T3 layout coverage"),
+    "T3 no winner": (_break_bands, "T3"),
     "T4 out of range": (lambda tmp, kw: _edit_market(kw, lambda f: f.assign(p_market_yes=[
         (1.2 if i == 333 else v) for i, v in enumerate(f.p_market_yes)])), "outside"),
     "T4 counts differ": (lambda tmp, kw: _sidecar_edit(kw, D0 + timedelta(days=7), lambda s: s["counts"]["miami"].update(
