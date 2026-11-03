@@ -1224,3 +1224,66 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_gua
 | `walk.json` | 566046 | `f3cb9124db5d515e393e6e3419190a64329bcd54827ba88621a4a970ecefa560` |
 | `walker.stderr` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 | `walker.stdout` | 5929 | `0ed0b87e69326507ce08808a0e06b381e1eb69def7e1b2d287815ccc1a2a5ccd` |
+
+## Appended 2026-11-03T07:27:29-05:00: runner v11 and sentinel v9 (option (i), both files), rebuild launch form and targets (append only)
+
+- **Master's ruling (relayed).** Option (i), both files, with the tighter value rule. The allowance applies only to
+  `valid_time_utc` in exactly `nbm_market_new/nbm_pit_corpus_rows.jsonl` and `pool_nbm_rows.jsonl`. It passes a
+  value only when all three hold:
+  - the literal class is Y26_PRE0527;
+  - the local date is ≤ 2025-12-31, in the pinned registry tz (market rows) or the pinned pool station list tz
+    (pool rows); an unknown or unresolvable tz is a HIT;
+  - the instant is ≤ 2026-01-01T12:00Z.
+  - Everything else is still a HIT. The byte side cuts the same exact spans, with remaining 0. CLARIFICATION_3.md
+    ninth addendum (append-only) records the rule and the pins.
+
+| File | sha256 |
+| --- | --- |
+| Runner v11, `scripts/row28_run_v11.py` (from v10 by `make_v11.py`, 15 exact replacements) | `84976be4fc7239ff90de7a3118b64f28d6336964e93a64fe7808bc819b01f0c5` |
+| Sentinel v9, `scripts/test_row28_s7_sentinel_v9.py` (from v8 by `make_test_v9.py`; 44 tests, v8's 34 plus 10 for v11; pins v11) | `618ddeef32dd19341665983d44ec3fd4ff503405f701f78ab0581ed13f946d7c` |
+
+- **Static checks.** Both files: symtable undefined names [`__file__`] only, the same as the v10 baseline; no control
+  bytes; no CR. v10 and v8 are unchanged.
+- **Before the rebuild (each step waits for the delta review CLEAN plus the coordinator's go):**
+  1. Sentinel v9 via `workstation_heavy.ps1 -Kind pytest -Queue` with `PYTHONDONTWRITEBYTECODE=1` and
+     `--basetemp C:\t\L59\row28\sentinel_bt9`. `-RepoRoot` must be OUTSIDE the worktree:
+     `C:\t\L59\row28\wrapper_root`. The basetemp is deleted afterwards. The target is 44 passed.
+  2. The dated pre-scan, the verify_prev binding to a6, and `run\records` = a6's 66, raw-equal 66 of 66.
+  3. In the same block, immediately before the launch: `data\` holds exactly the 4 junctions, and no wrapper is
+     running.
+- **Rebuild launch form.** The config `stage2_build_v1.json` (`31a751a4…`) is unchanged. The OutDir is new:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\t\L59\row28\run_row28_guarded_v6.ps1 `
+  -OutDir C:\t\L59\row28\run\s2_build_a2 -Stage build -TimeboxSeconds 21600 `
+  -RootsPath C:\t\L59\row28\run_config\stage2_build_v1.json `
+  -WalkerPath C:\wt\L59row28\docs\research\row28-yearround-history-2026-11-02\scripts\row28_run_v11.py `
+  -ExpectSha 84976be4fc7239ff90de7a3118b64f28d6336964e93a64fe7808bc819b01f0c5
+```
+
+- **Rebuild targets.** These are the 07:19 targets plus the following; any difference is a FLAG and a STOP.
+  - **Pins:** `v11_pins` = {markets 11, market_tz_sha256 `5ea728ab…`, stations 300, pool_tz_sha256 `4bf76e7a…`}.
+  - **Allowance:** `v11_nbm_allowance`:
+    - `stage_end|nbm_market_new/nbm_pit_corpus_rows.jsonl|Y26_PRE0527|Y26-M01` = 11;
+    - `writer|pool_nbm_rows.jsonl|Y26_PRE0527|Y26-M01` = about 300, measured prospectively (expected 300);
+    - `stage_end|pool_nbm_rows.jsonl|Y26_PRE0527|Y26-M01` = the same count as the writer phase;
+    - no other key.
+  - **If the pool count is not 300, it is reported.** A HIT halts the run anyway.
+  - **Bytes:** `v11_nbm_bytes`: remaining 0 and span_mismatch 0 for each phase × file, with spans_cut equal to its
+    allowance count.
+  - **Guard:** hits_total 0.
+  - **gz header files and members: 204, not 202.** This corrects the 07:19 target "202 / 202". Build 1 HALTed at
+    the `pool_nbm_rows.jsonl` write, before `stage_build`'s last two Writer outputs, `pool_noy.pkl.gz` and
+    `pool_ctrl_noy.pkl.gz` (`row28_run_v11.py`, `w.pickle_gz`; gzip.compress with mtime 0, no FNAME). A full build
+    therefore has 198 records + 2 junction manifests + `frame_noy_raw.pkl.gz` + `frame_inputs.pkl.gz` + those 2 =
+    204 `.gz`, each with 1 member.
+  - **files_scanned** is larger than build 1's 3,206: it adds `pool_nbm_rows.jsonl` and the 2 pool pickles, so it
+    is reported, not targeted.
+  - **Unchanged from 07:19:**
+    - M1: 198 files, remaining 0, cuts {198, 198, 216}, protocols [5];
+    - gz headers: fname 198, fname_own_tmp 198, fcomment 0, fextra 0, hits 0, allowance 198 / 198;
+    - decision allowance 828 / 432;
+    - the 198 records payload-equal to `records_build1_evidence`;
+    - launcher COMPLETE, both guards 0, no FLAG;
+    - junction manifest `f93c2ad2…`;
+    - peak memory ≤ 12.8 GB.

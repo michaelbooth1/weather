@@ -468,3 +468,63 @@ fifth. Master accepted the BENIGN verdict and gave runner v7 a go. The sha256 va
   - **(2) m-2 qualifier.** The seventh addendum's sentence "The headers were by construction only prm:256's own
     tmp name, so there is no retroactive concern" is qualified: (code reading; not measured on the a3/a4
     evidence, which stays unopened; a5 measures it prospectively).
+
+## Ninth addendum (2026-11-03T07:27:29-05:00): the build-1 HALT, the NBM rollover allowance, runner v11
+
+- **The HALT.** Build 1 HALTed on the runner's output guard. Every hit is class Y26_PRE0527:
+  - 11 hits at stage end in `nbm_market_new/nbm_pit_corpus_rows.jsonl`;
+  - 300 tokens in the refused `pool_nbm_rows.jsonl` write, which was never written.
+- **d3 finding** (`row28_guard_diag_v3.py`, `5606a287…`; RUN_LOG 07:19:11 append). All 11 are `valid_time_utc`, a
+  row-date field, ISO with an offset, literal Y26-M01 and market-local PRE2026. The count at or after 2026-05-27 is
+  0, literal and market-local.
+- **The pool tokens.** The 300 are attributed by code to the same schema and field. They are not measured; the
+  rebuild measures them prospectively.
+- **Master's ruling.** These are UTC rollovers of the local 2025-12-31 corpus year end. 2026-01-01..05-26 rows are
+  descriptive for all arms; deciding stays 2021-25; sealed starts at 05-27. The build config is unchanged.
+- **Runner v11** (`row28_run_v11.py`, built from v10 by `make_v11.py`, 15 exact replacements; v10 is not edited)
+  adds one allowance, armed only by the build stage (`set_v11_allowance`). It applies to:
+  - **paths:** exactly `nbm_market_new/nbm_pit_corpus_rows.jsonl` and `pool_nbm_rows.jsonl`, relative to the build
+    stage directory;
+  - **key:** `valid_time_utc` at a row's top level only.
+- **Value rule.** The value must be one full ISO instant holding one dated token, and all three conditions must hold:
+  1. the literal class is Y26_PRE0527;
+  2. the local date is ≤ 2025-12-31 in the row's tz;
+  3. the instant is ≤ 2026-01-01T12:00Z.
+- **The row's tz.**
+  - **Market rows:** `market_id` is the market id, and the tz comes from the pinned market registry.
+  - **Pool rows:** `market_id` is the station ICAO (`station_pool_corpus.nbm_pool_rows` sets
+    `market_id = station_id = icao`). The tz comes from the pinned pool station list:
+    `s0_candidate_stations.json` `tz` for each `station_set.json` survivor, the same `tz_pool` the producer uses.
+  - An unknown market id, a missing `market_id`, an unresolvable tz or a naive instant is a HIT.
+- **Pins** (`set_v11_allowance` HALTs on any difference):
+  - `WEATHER_MARKET_REGISTRY` must be unset.
+  - `src/weather/market/market_registry.py` `b738b28616ee3a69b9f8c8e46e976345caebc39524be290bd18fe74e576050a0`.
+  - `config/markets.json` `25a3db6dd2e4f90d0b67eca4c92a033204aa6289ef75cb195d6a214bcda4852d`.
+  - Market tz map, 11 NBM markets (canonical JSON):
+    `5ea728abebfec7150535c8b247b7da16364fb61e767b041ac200407266548341`.
+  - `station_set.json` `f757acb7…` (`STATION_SET_SHA256`) and `s0_candidate_stations.json` `60351c58…`
+    (`STATIONS_META_SHA256`).
+  - Pool tz map, 300 survivors: `4bf76e7a6363af8eeb55ba92c3ea2c56957ceee5d20a168b8a2ee5f441edcd32`.
+- **Byte side.**
+  - The exact spans `"valid_time_utc": <json value>`, one per passed row, are cut from the raw text, and each must
+    occur exactly as often as it passed (otherwise `v11_span_mismatch`).
+  - The remainder may hold no more dated tokens than the walk's hits plus other allowances; it must be 0 when the
+    file is clean (otherwise `byte_crosscheck`).
+  - The same holds in the Writer (`pool_nbm_rows.jsonl`, phase `writer`) and at stage end (both files, phase
+    `stage_end`).
+- **Counting.** walk.json `output_guard.v11_nbm_allowance` holds `phase|file|class|month` → count, and
+  `v11_nbm_bytes` holds `phase|file` → {spans_cut, remaining, span_mismatch}. walk.json `v11_pins` holds the pins.
+- **Still a HIT:** a local 2026 date, a value after 12:00Z, another key or depth, another file (including the right
+  name in another directory), another class, and any value when the stage is not build.
+- **Sentinel v9** (`test_row28_s7_sentinel_v9.py`, built from v8 by `make_test_v9.py`; v8 is not edited) has 44
+  tests: v8's 34 plus 10 for v11.
+  - **The 0 case:** the rollover case passes at 0 and is counted, in both files and both phases.
+  - **HITs:**
+    - a local-2026 value, and a 05-27 value;
+    - a 13:00Z value (the instant rule binds on its own);
+    - unknown and unresolvable pool tz, a missing `market_id`, and a market id in the pool file;
+    - the allowed value at `target_date`, at `issued_at` and nested;
+    - a third file, the right names in the wrong directories, and outside the stage dir;
+    - a non-exact span;
+    - an unarmed stage.
+  - **Other tests:** the counts are reported by the stage-end scan, and unpinned sources are refused.
