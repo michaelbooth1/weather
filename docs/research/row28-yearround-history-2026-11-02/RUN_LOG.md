@@ -10,8 +10,10 @@ This log records how the frozen row-28 prereg is executed.
   2026-11-03 (see the per-stage log). Stage 1 (`controls`) attempt 1 HALTed (R4 junction check plus the launcher
   v5 G2 self-hit); no control was computed. Master accepted launcher v6 and OutDir `run\s1_controls_a2` (same
   attempt). The launcher v6 smoke (stage 0b) PASSED, and the v6 delta review was CLEAN (04:55:30). The a2 relaunch
-  then ended PARTIAL (walker ERROR): the worktree's 26 `artifacts/models/hgb` files are Git LFS pointers. No control
-  was computed. It is waiting on a ruling. Build has not started.
+  then ended PARTIAL (walker ERROR): the worktree's 26 `artifacts/models/hgb` files were Git LFS pointers. After a
+  local-only LFS checkout (the oids were verified), a3 computed C-0, C-0b, C-0c and C-b, and all PASS. The stage
+  still HALTed (run scope) on the runner's output guard (276 hits), and the guard detail was withheld. It is waiting
+  on a ruling. Build has not started.
 
 ## Exception to workstation_heavy admission
 
@@ -66,7 +68,7 @@ runs through a guarded one-off launcher.
 | Sentinel test v4, `scripts/test_row28_s7_sentinel_v4.py` (pins runner v6) | `331692850750b3016aaac8d51630523cffbae57e68beacc754169c08c3611fca` |
 | `CLARIFICATION_1.md` | `d9e70a2f47e05d9046893d3b5f461b7ab3ce658b5166748c5eaedca5d8187495` |
 | `CLARIFICATION_2.md` | `a71ba0e87c2d887309be41a57f0aceeccd03039acb1d20532e0dfa61d7df6bdd` |
-| `CLARIFICATION_3.md` (with its three 2026-11-03 addenda) | `55aa89511b880d40a5ac3fdcb5eb6da6e8712439575be5939ca9488867b0e8af` |
+| `CLARIFICATION_3.md` (with its four 2026-11-03 addenda) | `9c8822a2300952d2143cbc1e358b4959ae2c34ff6e9738038f3f6d0909a326c1` |
 | R-P2 module copy, `C:\t\L59\row28\tools\station_pool_corpus_d4947cfe.py` | `d4947cfe1b02c537ec84fca994ef0c1c26572be0251810eb744b421aae09f0b7` |
 | Job helper, `C:\wt\L59row28\scripts\ops\windows_kill_on_close_job.ps1` | `05f362cdb04142b30c436b91175555e5c66ebaff2594fde6e8578cb5db7e2669` |
 | Admission helper, `C:\wt\L59row28\scripts\ops\workload_admission.ps1` (memory reading only) | `48786bcb1946ad9b02934da53d5887d8ab49f69a72750c36809bc6d7f160b441` |
@@ -267,6 +269,7 @@ stage's Job, from `receipt.json` `job_memory.peak_job_memory_bytes`.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | sentinel test v4 | 2026-11-03T04:40:49.2872160-05:00 | 2026-11-03T04:40:51.8190510-05:00 | 0 | PASS: 20 passed, 0 failed (0.98 s) | n/a (wrapper route) | n/a | wrapper stdout `2fd2e2b9666ee7b32d8254c7021785bc078d2eb6c872e633d0b77e0c3c4dd384`; queue events `3b0c25b5621cb16465f50042ef8f94660418ea66cec75f6bbdd883553bcf24a0` |
 | 0b | launcher v6 smoke | 2026-11-03T04:49:42.0447358-05:00 | 2026-11-03T04:49:42.8680856-05:00 | 0 | PASS: COMPLETE, receipt guard 0, log guard 0, `verify_prev` accepts | 8,200,192 | `c2cd0e8f457f61a60b01efbe9d7a68b9e6e0feb67fd1a169cd720adaebcd7c52` | receipt `113fed54a73390d235e143c4d769dbd927ed0dd6306289e807c3143ccef04c1d`; walk.csv `d0eed41164ce99563bcd9c877001a3051c873bcffb944b60f5208951ec192816`; walker.stdout and walker.stderr empty |
+| 1 | controls, attempt 1 (a3 OutDir) | 2026-11-03T04:59:32.4937137-05:00 (launch); walker 20261103T045933.185998-0500 | walker 20261103T050659.661172-0500 | 5 (walker 10) | HALT (run scope): runner output guard, 276 hits (detail withheld); C-0, C-0b (2 of 2), C-0c and C-b all PASS; launcher log guard 0, receipt guard 0, no FLAG | 2,213,126,144 | `f273414055f66542584b9c24422451c90a214fb0244c1c5bc4a86c6ee8a0236d` | receipt `a59473affb9663db96cfafac0b21101b29d62e136fe138930bbe51314d31b784`; walk.csv `c6f206e741f7fc4f9190a579e18f91c31c9d677fbb29ade85073615ed40f86c7`; walker.stdout `80194b7406dae5607849c03373eb08794b1923d037423d006183bfe02f30e5f7`; junction manifest before = after `f93c2ad2…`; 66 records files written to `run\records` |
 | 1 | controls, attempt 1 (a2 OutDir) | 2026-11-03T04:56:15.7003831-05:00 (launch); walker 20261103T045616.401716-0500 | walker 20261103T045703.174957-0500 | 5 (walker 11) | PARTIAL: walker ERROR, `ColumnAllowlistError` (served artifact is an LFS pointer); no control computed; guard 0, receipt guard 0, no FLAG | 860,798,976 | `153d2af424271cd905d895536e09c72fdb5e12034fc717fe01839be9381d5d53` | receipt `2037644ebcdbf18f48c6440207d376fc1c008e8161116b3f594ff80ffc39ecc1`; walk.csv `7d48e52450407c4d661e2c6f0d83287f6c54c81b7a23fe960b2e3789297c4019`; junction manifest before = after `f93c2ad2…`; walker.stdout `9dfcd16a3dadb2e3668ba3b4d1fe08d05b290e953c63d729dcb9e48a2ba667fe` |
 | 1 | controls, attempt 1 | 2026-11-03T04:44:06.8117678-05:00 (launch); walker 20261103T044407.510313-0500 | walker 20261103T044419.855352-0500 | 6 | HALT (R4 + G2 self-hit): no control computed; receipt withheld by its own guard (1 hit), peak 0.13 GB | 131,993,600 | `131c02110c447019085168213e77c1c69aa676177a115880701bb14b3f8f1a4f` | receipt `aa525676f5008b7e020d3524b0fc030831e838d6f43923c7016c4431832f6073`; walk.csv `c0813fac922f17b9c9ee86e8b2a09982b8afd87979e87f69f12dbcb77e66ef5d`; junction manifest before = after `f93c2ad20efdd85f90278cf4cfa7dae6bbbfa4201c30b649a01b30cf2b5318a7`; walker.stdout `eb9978c8ed451dc3c517d04d6deba01bd2049cd98129118ae966e23ca23224c3` |
 | 2 | build | | | | | | | |
@@ -344,5 +347,67 @@ Stage 1, attempt 1 (a2 OutDir) detail.
   - The main checkout has them materialised.
 - **Results.** No control check (C-0, C-0b, C-0c, C-b) ran, so there are no counts and no pass/fail.
 - **Folder.** `run\s1_controls_a2` stays in place as evidence. Nothing was repaired.
+
+LFS repair before a3. The checkout was local only: `git -C C:\wt\L59row28 lfs checkout artifacts/models/hgb`, with
+`lfs.url` and `remote.origin.lfsurl` set to an unroutable address. 26 of 26 objects came from the shared local store
+(0 B/s); the main checkout was not touched, and `git status` stayed clean. Every file's sha256 and size equal the oid
+and size of its pointer committed at HEAD. The second `.gitattributes` LFS pattern (`docs/roadmap/...*.zip`) matches
+no file in this tree, and no pointer remains under `artifacts/`, `src/` or `config/`. Table sha256 (the 26 rows
+below, joined by LF): `f39da351331bbec8c8e9051ef937fa7fcdb6153f7405abda28a02dcf29abd1cf`.
+
+| Path | LFS oid (sha256) | Size (bytes) |
+| --- | --- | --- |
+| `artifacts/models/hgb/feature_model_hgb.pkl` | `bf53fd60db1a8b28cbfc2ae7844370246884e90dab7d63a558fd477a262d732a` | 29230281 |
+| `artifacts/models/hgb/feature_model_hgb_atlanta.pkl` | `9f045926126ab37bbc71b2c7db97b79cda8061c36c0fae93f2e12495493c9b9f` | 15149102 |
+| `artifacts/models/hgb/feature_model_hgb_austin.pkl` | `98f5b72b23814f8886acee79d029de475b834322ad7d89631d7423a443586765` | 13495031 |
+| `artifacts/models/hgb/feature_model_hgb_chicago.pkl` | `be24eab615a9c6375a369537a9ed1dd8e650d49cdca35e941184f524cf1401a2` | 19713433 |
+| `artifacts/models/hgb/feature_model_hgb_dallas.pkl` | `5ee8722d86105067af92838fe4660e757ee26366d06acfe500532691f2152862` | 14798766 |
+| `artifacts/models/hgb/feature_model_hgb_denver.pkl` | `2047b667fce7654e4879553c237d8561721f12f56eb746874fc0a241347ea7e8` | 22704111 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled.pkl` | `47687e207a8e3ffd22e994d460cc37bdd83d6284776540dd4c00ad5525d087c1` | 103734643 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl` | `24cd6b19115aa55f48885d1d7cda241e69900941a53291dafd02a208ce57746a` | 191225 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl` | `c4eaa40df23a43702cbf3fdecd5be0d190235b0e832653e690b3e8196aabe3bc` | 211935 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_smoke.pkl` | `0a53dc001930d616759eebf3d301216e99c31afe9094b00e392a776d9d0daf10` | 4958646 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl` | `ee7b65d078961bf21c3f89ff6e359d0acca5f3fedc90e456bf0192e4656867e9` | 5460537 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_smoke.pkl` | `6fbbe100c3df3533fbc9033b4c13d1eaf811479996a77013526c0a5aa7643992` | 5021537 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl` | `cf1a385b2f92810ba31c7974ce0511cb42653dbab4325599bb29e199a17e7d4d` | 5432706 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha005.pkl` | `6783d8fc4b066fdf22fcd71e5dbd9c57f8f021655f525c3fc513cc1877e56959` | 5432466 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha01.pkl` | `a7670f04e2b66d0e535e3bf4b5fe19de8b7708060d1ea6f2e2fd5b39e1bab96e` | 5432466 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha02.pkl` | `da75d415104644c1c88811cf0cec8d3580f00ff28385cef117db4b34fc1f8956` | 5432466 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_v0_2.pkl` | `b7933690c80ec9c34e220992de615361e6904518e7792ccf0c705983276b6e89` | 5028078 |
+| `artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl` | `3b472bd32667256c6605a6f48c2c9c4ba7e58f140a89c504c4b4fbfcac6a497c` | 6310781 |
+| `artifacts/models/hgb/feature_model_hgb_houston.pkl` | `19999a254056ae009fd65089747e158a0b722cbead541d20b3d39cee295c49ba` | 10575344 |
+| `artifacts/models/hgb/feature_model_hgb_los-angeles.pkl` | `8d9aba849cf95f676be1ec0183431dfe5b04db0e55f8cfca9adadb08ad167b5c` | 11152210 |
+| `artifacts/models/hgb/feature_model_hgb_miami.pkl` | `7b59bc1175108d08eb3163cac9b31cedd6ac174ec9ffe4cd296c4c4bea15fd9f` | 20742776 |
+| `artifacts/models/hgb/feature_model_hgb_nyc.pkl` | `a8efd8067b2ff19249fdf125fb56dd4bd25f7b1db9454e81f70cf21dd82201d4` | 18735619 |
+| `artifacts/models/hgb/feature_model_hgb_san-francisco.pkl` | `c9b77d8326bff055466631e413e810c61f428416c5b9f1aad549c5e0bc17972f` | 18096992 |
+| `artifacts/models/hgb/feature_model_hgb_seattle.pkl` | `ad6229d851484f30c4caaf5f77fd16a018ed5af11bccb67351311f6f3872bfa1` | 19800416 |
+| `artifacts/models/hgb/item35_density_full_candidate.pkl` | `56b03f8d5769d76d28aaad78752d78869c0dc816f906e091f10e2ca98c6c88ab` | 7594227 |
+| `artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl` | `befe90ef947396b26c24a5f30bc8886624b4bbef23af7270fd84a43a6649f4f5` | 5978191 |
+
+Pre-launch scan before controls a3 (2026-11-03T04:59:26-05:00):
+- The OutDir name `run\s1_controls_a3`, the stage `controls`, and the config's name and contents (`66e4b46e…`) each
+  hold 0 dated strings on or after 2026-01-01.
+- `data\` held exactly the four junctions, and no wrapper or launcher process was running.
+
+Stage 1, attempt 1 (a3 OutDir) detail.
+- **Launch.** Launcher v6 started as pid 34908 in the RUN_LOG form, with OutDir
+  `run\s1_controls_a3`. Its stdout sha is `b331b84b…` and its stderr was empty; no process remains.
+- **Receipt.** The full receipt shows status PARTIAL, launcher exit 5 and walker exit code 10 (runner status HALT,
+  scope run). It records `output_guard.hits_total` 0 for the logs, no receipt guard hit and no `output_guard_flag`.
+- **Runner HALT.** walk.json gives the reason "output guard: 276 hit(s)". The runner withheld its own `output_guard`
+  block (`report_keys_withheld_bytes: ["output_guard"]`), so where the hits fell is not in the report.
+  `halted_arms` is empty.
+- **Controls, at the permitted level (pass/fail and counts only):**
+  - C-0: PASS, 19,657 rows, identical keys, max abs diff 0.0 for brier and log.
+  - C-0b: 2 of 2 centres PASS, identical keys.
+  - C-0c: PASS, 4,125 compared, 0 mismatched, 0 L9-only.
+  - C-b: PASS, 660 rows, max abs diff 0.0.
+- **Dated strings in the outputs (count only; values not read).**
+  - walk.json holds 158, all under context-scoped keys: `records_sha256` (66 keys), `outputs_sha256` (66 records
+    paths), `covered_years` (24 centre fields) and `C_0b` (2 centre fields).
+  - walk.csv holds 66, the records paths.
+- **Other state.** The junction manifest was unchanged, and the only junction read was `training`. The 66 records
+  files stay in `run\records`, so the controls stage's empty-records-root check would refuse a rerun into it. The
+  a2 and a3 folders stay in place as evidence.
 
 Gate commits: integrity — (pending); look — (pending).

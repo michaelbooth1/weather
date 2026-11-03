@@ -197,3 +197,25 @@ as the same attempt. The sha256 values are in `RUN_LOG.md`.
   - receipt `walker_sha256` equals report `runner_sha256`.
 
   As a negative control, the same call refuses attempt 1's folder (at its first check: report status HALT).
+
+## Fourth addendum (2026-11-03T05:08-05:00): controls a2 ERROR, the local LFS checkout, a3
+
+The coordinator's go covered the repair and the a3 relaunch, as the same attempt. The sha256 values are in
+`RUN_LOG.md`.
+
+- **a2 ERROR.** Controls a2 (launcher v6, runner v6) ended PARTIAL: launcher exit 5, walker exit 11. It failed at
+  the first `extract`, with `ColumnAllowlistError`: the served artifact
+  `artifacts/models/hgb/feature_model_hgb_atlanta.pkl` was a Git LFS pointer. In the worktree, all 26 LFS-tracked
+  files had never been checked out. No control ran.
+- **Local checkout.** `git -C C:\wt\L59row28 lfs checkout artifacts/models/hgb` was run with `lfs.url` and
+  `remote.origin.lfsurl` set to an unroutable address, so it could make no network access. All 26 objects came from
+  the shared local LFS store (0 B/s, 380 MB). The main checkout was not touched. `git status` stayed clean.
+- **oid verification.** For each of the 26 files, the sha256 and the size equal the oid and size in the pointer
+  committed at HEAD (`git show HEAD:<path>`). The oid is the pin. The path, oid and size table is in `RUN_LOG.md`;
+  sha256 of the table text: `f39da351331bbec8c8e9051ef937fa7fcdb6153f7405abda28a02dcf29abd1cf`.
+- **Other LFS paths.** `.gitattributes` has two LFS patterns: `artifacts/models/hgb/*.pkl` (the 26 files) and
+  `docs/roadmap/repair-ceiling-single-environment-runtime-bundle-*.zip`. No file in this tree matches the second
+  pattern, and the runner does not read any such path. No pointer file remains under `artifacts/`, `src/` or
+  `config/`.
+- **a3.** Controls a3 went into `run\s1_controls_a3`, with the same launcher, runner and config. Its result is in
+  `RUN_LOG.md`. The a2 folder stays in place as evidence.
