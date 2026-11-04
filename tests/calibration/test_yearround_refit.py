@@ -100,6 +100,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(yr, "REQUIRED_FIT_MARKETS", MARKETS)
     monkeypatch.setattr(yr, "state_root", lambda: tmp_path / "data" / "yearround_refit")
     monkeypatch.setattr(yr, "ARCHIVE_ROOT", tmp_path / "archive")
+    monkeypatch.setattr(yr, "_wu_market_root", lambda market: tmp_path / "wu_store" / market)  # never the real store
     from weather.sources.forecast_training_corpus import CorpusVerificationError
 
     def covered_years(centre, manifests):
@@ -1440,3 +1441,91 @@ def test_declared_absent_never_reaches_the_state():
     src = inspect.getsource(yr._fit_in)
     head, tail = src.split("provenance = {", 1)
     assert "declared" in head and "declared" not in tail.split("}", 1)[0]  # not in the state's provenance
+
+
+HEADER = "schema_version,local_date,temperature_unit,row_count,first_time,max_temp,max_temp_bucket\n"
+
+
+def _daily(tmp_path, lines, header=HEADER):
+    path = tmp_path / "daily_summary.csv"
+    path.write_text(header + "".join(line + "\n" for line in lines), encoding="utf-8")
+    return path
+
+
+def test_wu_daily_presence_refuses_a_header_without_local_date_second(tmp_path):
+    path = _daily(tmp_path, ["2022-03-13,2,F,24,00:53,61,61"], header="local_date,schema_version,unit\n")
+    with pytest.raises(yr.YearroundRefused, match="header"):
+        yr.wu_daily_presence(path, ["2022-03-13"])
+
+
+def test_wu_daily_presence_stops_at_the_cutoff_and_never_parses_past_it(tmp_path):
+    path = _daily(tmp_path, ["2,2022-03-12,F,24,00:53,61,61", "2,2022-03-13,F,19,00:53,62,62",
+                             "2,2026-09-30,F,24,00:53,70,70", "not a csv line at all", "2,2020-01-01,F,1,x,1,1"])
+    out = yr.wu_daily_presence(path, ["2022-03-13", "2022-03-14"])
+    assert out == {"2022-03-13": {"daily_row_present": True, "row_count": 19, "row_count_ge_20": False},
+                   "2022-03-14": {"daily_row_present": False, "row_count": None, "row_count_ge_20": False}}
+    with pytest.raises(yr.YearroundRefused, match="on or after 2026-09-30"):
+        yr.wu_daily_presence(path, ["2026-09-30"])
+
+
+def test_wu_daily_presence_refuses_descending_date_tokens(tmp_path):
+    path = _daily(tmp_path, ["2,2022-03-13,F,24,00:53,61,61", "2,2022-03-12,F,24,00:53,61,61"])
+    with pytest.raises(yr.YearroundRefused, match="descend"):
+        yr.wu_daily_presence(path, ["2022-03-13"])
+    quoted = _daily(tmp_path, ['"2",2022-03-13,F,24,00:53,61,61'])
+    with pytest.raises(yr.YearroundRefused, match="schema_version field"):
+        yr.wu_daily_presence(quoted, ["2022-03-13"])
+
+
+def test_wu_daily_presence_never_converts_the_high_or_its_bucket(tmp_path, monkeypatch):
+    import inspect
+
+    from weather.sources import daily_summary
+
+    def boom(*_a, **_k):
+        raise AssertionError("a high or bucket was converted")
+
+    monkeypatch.setattr(daily_summary, "native_bucket", boom)
+    monkeypatch.setattr(daily_summary, "native_high", boom)
+    path = _daily(tmp_path, ["2,2023-03-12,F,22,00:53,not-a-number,also-not"])
+    out = yr.wu_daily_presence(path, ["2023-03-12"])
+    assert out == {"2023-03-12": {"daily_row_present": True, "row_count": 22, "row_count_ge_20": True}}
+    src = inspect.getsource(yr.wu_daily_presence) + inspect.getsource(yr._daily_date_token)
+    assert "native_bucket(" not in src and "float(" not in src and "max_temp" not in src
+
+
+def test_wu_hourly_presence_is_a_raw_substring_with_no_parse(tmp_path, monkeypatch):
+    month = tmp_path / "hourly" / "year=2023" / "month=03"
+    month.mkdir(parents=True)
+    (month / "observations.jsonl").write_text(json.dumps({"local_date": "2023-03-11", "temp": 50}, sort_keys=True)
+                                              + "\n", encoding="utf-8")
+
+    def no_parse(*_a, **_k):
+        raise AssertionError("an hourly line was parsed")
+
+    monkeypatch.setattr(yr.json, "loads", no_parse)
+    assert yr.wu_hourly_presence(tmp_path, ["2023-03-11", "2023-03-12", "2024-03-10"]) == {
+        "2023-03-11": True, "2023-03-12": False, "2024-03-10": False}
+    with pytest.raises(yr.YearroundRefused, match="never opened"):
+        yr.wu_hourly_presence(tmp_path, ["2026-01-04"])
+
+
+def test_wu_store_checks_report_fall_back_sundays_and_never_refuse_on_them(tmp_path, monkeypatch):
+    assert [yr.us_fall_back_sunday(y).isoformat() for y in yr.FALL_BACK_YEARS] == [
+        "2020-11-01", "2021-11-07", "2022-11-06", "2023-11-05", "2024-11-03", "2025-11-02"]
+    roots = {"atlanta": tmp_path / "a", "denver": tmp_path / "d"}
+    monkeypatch.setattr(yr, "_wu_market_root", lambda m: roots[m])
+    (roots["atlanta"] / "daily").mkdir(parents=True)
+    _daily(roots["atlanta"] / "daily", ["2,2022-03-13,F,23,00:53,61,61", "2,2022-11-06,F,25,00:53,61,61"])
+    (roots["denver"] / "daily").mkdir(parents=True)
+    _daily(roots["denver"] / "daily", ["2,2022-03-13,F,23,x,1,1"], header="bad header\n")
+    out = yr.wu_store_checks([("atlanta", "2022-03-13")], ["atlanta", "denver"])
+    assert "read time" in out["caveat"]
+    assert out["spring_forward_holes"] == [{"market": "atlanta", "target_date": "2022-03-13",
+                                            "daily_row_present": True, "row_count": 23, "row_count_ge_20": True,
+                                            "hourly_row_present": False}]
+    fall = {(e["market"], e["target_date"]): e for e in out["fall_back_sundays_report_only"]}
+    assert fall[("atlanta", "2022-11-06")]["row_count"] == 25 and len(fall) == 12
+    assert "header" in fall[("denver", "2022-11-06")]["refused"]  # report-only: a refused read never refuses
+    with pytest.raises(yr.YearroundRefused, match="header"):
+        yr.wu_store_checks([("denver", "2022-03-13")], ["atlanta", "denver"])  # a hole's read refusal refuses

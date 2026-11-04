@@ -175,6 +175,17 @@ GRID_HOLES_SCHEMA = "yearround_refit_grid_holes/1"
 DECLARED_ABSENT_SCHEMA = "yearround_refit_declared_absent/1"
 DECLARED_ABSENT_REASON = "source_absent_final"
 GRID_HOLE_CLASSES = ("march_1", "us_spring_forward_sunday", "other")
+# WU-store booleans in grid-holes (master Option A, 2026-11-04): the store's writer puts local_date second
+# (wu_history.write_daily_summary); nothing dated on or after the cutoff is ever handed to a parser
+WU_DAILY_HEADER_PREFIX = "schema_version,local_date,temperature_unit,row_count,"
+WU_READ_CUTOFF = "2026-09-30"
+WU_HOURLY_LAST_MONTH = "2025-12"
+WU_HISTORY_MIN_ROW_COUNT = 20  # model_constants.HISTORY_MIN_ROW_COUNT, the field model_climatology tests
+FALL_BACK_YEARS = (2020, 2021, 2022, 2023, 2024, 2025)  # the history seasons' US fall-back Sundays
+WU_STORE_CAVEAT = ("the WU store is live main data: these booleans describe the store at read time, not the "
+                   "store when the frozen corpus was built")
+_DATE_TOKEN = re.compile(r"\d{4}-\d{2}-\d{2}")
+_PLAIN_FIRST_FIELD = re.compile(r"[0-9A-Za-z._-]*")
 GRID_HOLES_FILE = "grid_holes.json"
 TRAINING_GRID_HOLES_FILE = "training_grid_holes.json"  # the equivalence run's uncapped names-only hole list
 GRID_HOLES_EXPECTED = {"expected_market_dates": 7315, "holes": 81}  # the accepted 11-04 report 64eed04b
@@ -2026,6 +2037,8 @@ def grid_holes(cfg, *, records_root, out, expected=None):
             "module_source_sha256": module_source_sha256(),
             "records_manifest_module_sha256": manifest.get("module_source_sha256"),
             "records_root": str(records), "frame_rows": int(len(frame)), **grid_hole_names(holes, len(grid))}
+    spring_forward = [(m, d) for m, d in holes if _us_spring_forward(as_date(d))]
+    body["wu_store_checks"] = wu_store_checks(spring_forward, REQUIRED_FIT_MARKETS)
     out.mkdir(parents=True)
     path = out / GRID_HOLES_FILE
     sha = _write_json(path, body)
@@ -2033,6 +2046,112 @@ def grid_holes(cfg, *, records_root, out, expected=None):
             "expected_market_dates": body["expected_market_dates"], "in_forward_window": body["in_forward_window"],
             "has_2024_02_29": body["has_2024_02_29"], "has_2024_03_01": body["has_2024_03_01"],
             "by_class_counts": {k: v["count"] for k, v in body["by_class"].items()}}
+
+
+# ----------------------------------------------------------------------------- WU-store booleans (grid-holes)
+
+def us_fall_back_sunday(year):
+    """The first Sunday of November: the US end of daylight saving time."""
+    day = date(int(year), 11, 1)
+    return day + timedelta(days=(6 - day.weekday()) % 7)
+
+
+def _wu_market_root(market):
+    from weather.market.market_registry import spec_for_id
+
+    return guard_path(spec_for_id(market).data_root)
+
+
+def _daily_date_token(line):
+    """The local_date token of one daily_summary line: the text between the first and second comma, nothing else.
+
+    The first field (schema_version) must be plain text; the line is never split past the date token.
+    """
+    first, sep, rest = line.partition(",")
+    if not sep or not _PLAIN_FIRST_FIELD.fullmatch(first) or not _DATE_TOKEN.fullmatch(rest[:10]) or rest[10:11] != ",":
+        raise YearroundRefused("a daily_summary line has no plain schema_version field and local_date token")
+    return rest[:10]
+
+
+def wu_daily_presence(path, dates):
+    """Per date: ``daily_row_present``, ``row_count`` and ``row_count_ge_20``, by date token (master Option A).
+
+    The header must begin with ``WU_DAILY_HEADER_PREFIX``. Each line is compared by its date token only; the scan
+    STOPS at the first token on or after ``WU_READ_CUTOFF`` (that line and every later one are never parsed) and
+    REFUSES on a descending token. Only a target date's line is csv-parsed, and only its ``row_count`` is converted
+    (``int(row_count or 0)``, as model_climatology does); every other field stays an uninterpreted string.
+    """
+    want = {str(d) for d in dates}
+    if any(d >= WU_READ_CUTOFF for d in want):
+        raise YearroundRefused(f"a WU-store date is on or after {WU_READ_CUTOFF}")
+    out = {d: {"daily_row_present": False, "row_count": None, "row_count_ge_20": False} for d in sorted(want)}
+    if not Path(path).is_file():
+        return out
+    with Path(path).open("r", encoding="utf-8", newline="") as handle:
+        header = handle.readline()
+        if not header.startswith(WU_DAILY_HEADER_PREFIX):
+            raise YearroundRefused(f"{path}: the header does not begin {WU_DAILY_HEADER_PREFIX!r}")
+        row_count_at = WU_DAILY_HEADER_PREFIX.split(",").index("row_count")
+        previous = ""
+        for line in handle:
+            token = _daily_date_token(line)
+            if token >= WU_READ_CUTOFF:
+                break
+            if token < previous:
+                raise YearroundRefused(f"{path}: the date tokens descend (the file is not date-sorted)")
+            previous = token
+            if token in want:
+                field = next(csv.reader([line]))[row_count_at]
+                count = int(field or 0)
+                out[token] = {"daily_row_present": True, "row_count": count,
+                              "row_count_ge_20": count >= WU_HISTORY_MIN_ROW_COUNT}
+    return out
+
+
+def wu_hourly_presence(root, dates):
+    """Per date: whether the month's hourly file holds a line with the raw text ``"local_date": "<date>"``.
+
+    Only each target date's own month file is opened (never after ``WU_HOURLY_LAST_MONTH``); no line is parsed.
+    """
+    out = {}
+    for d in sorted({str(x) for x in dates}):
+        if d[:7] > WU_HOURLY_LAST_MONTH:
+            raise YearroundRefused(f"an hourly WU month after {WU_HOURLY_LAST_MONTH} is never opened")
+        path = Path(root) / "hourly" / f"year={d[:4]}" / f"month={d[5:7]}" / "observations.jsonl"
+        needle = f'"local_date": "{d}"'
+        present = False
+        if path.is_file():
+            with path.open("r", encoding="utf-8") as handle:
+                present = any(needle in line for line in handle)
+        out[d] = present
+    return out
+
+
+def wu_store_checks(spring_forward_holes, markets):
+    """Spring-forward grid holes (a refusal refuses) and every market's fall-back Sundays (report-only)."""
+    fall_back = [us_fall_back_sunday(y).isoformat() for y in FALL_BACK_YEARS]
+    holes_by_market = defaultdict(list)
+    for m, d in spring_forward_holes:
+        holes_by_market[m].append(d)
+    spring, fall = [], []
+    for market in sorted(set(markets) | set(holes_by_market)):
+        root = _wu_market_root(market)
+        dates = sorted(set(holes_by_market[market]) | set(fall_back))
+        try:
+            daily = wu_daily_presence(root / "daily" / "daily_summary.csv", dates)
+            hourly = wu_hourly_presence(root, dates)
+        except YearroundRefused as exc:
+            if holes_by_market[market]:
+                raise
+            fall += [{"market": market, "target_date": d, "refused": str(exc)} for d in fall_back]
+            continue
+        for d in dates:
+            entry = {"market": market, "target_date": d, **daily[d], "hourly_row_present": hourly[d]}
+            if d in holes_by_market[market]:
+                spring.append(entry)
+            if d in fall_back:
+                fall.append(dict(entry))
+    return {"caveat": WU_STORE_CAVEAT, "spring_forward_holes": spring, "fall_back_sundays_report_only": fall}
 
 
 # ----------------------------------------------------------------------------- CLI
