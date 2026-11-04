@@ -43,7 +43,9 @@ mode = json.loads(Path(a.request).read_text())['mode']
 if mode in ('hang', 'residual_success'):
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'],
                              creationflags=subprocess.CREATE_NO_WINDOW)
-    (out / 'descendant.json').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
+    # Atomic publish: a reader never sees a partially written descendant record.
+    (out / 'descendant.tmp').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
+    os.replace(out / 'descendant.tmp', out / 'descendant.json')
 if mode == 'hang': time.sleep(300)
 if mode == 'failure': raise SystemExit(7)
 if mode == 'request_drift': Path(a.request).write_text('{}')
@@ -86,6 +88,11 @@ def wrapper_fixture(tmp_path, tmp_path_factory):
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
         "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_DEADLINE_SECONDS)\n"
         "    # Identity, time and live lease")
+    # The fixture clock counts only once the hanging child has published its descendants, so a
+    # slow runner (cold venv start, Defender scan) cannot hard-stop before the tree exists.
+    wrapper = replace_once(wrapper, "if ([DateTime]::UtcNow -ge $deadline -or",
+        "if (([DateTime]::UtcNow -ge $deadline -and "
+        "(Test-Path -LiteralPath (Join-Path $OutputRoot 'descendant.json'))) -or")
     wrapper_path = scripts / "replay_cache_compression_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
@@ -107,7 +114,7 @@ def wrapper_fixture(tmp_path, tmp_path_factory):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
+def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None, deadline_seconds=None):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -122,7 +129,9 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
     # Hang modes prove the hard stop at the fixture's 4 s deadline; every other mode only needs a
     # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
-    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if mode == "hang" else "30"}
+    if deadline_seconds is None:
+        deadline_seconds = 4 if mode == "hang" else 30
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": str(deadline_seconds)}
     process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
     return process, output
@@ -220,15 +229,20 @@ def test_wrapper_does_not_reuse_or_rewrite_a_spent_attempt(wrapper_fixture):
 
 
 def test_abrupt_wrapper_exit_kills_entire_owned_tree(wrapper_fixture):
-    process, output = launch(wrapper_fixture, "hang")
+    # The wrapper's own hard stop must not race the abrupt kill: give it a deadline far beyond
+    # this test's wait, so the only way the wrapper can exit is the kill below. (A 4 s deadline
+    # let slow runners hard-stop the wrapper before the child had published its descendants.)
+    process, output = launch(wrapper_fixture, "hang", deadline_seconds=300)
     try:
-        deadline = time.monotonic() + 20
+        started = time.monotonic()
         while not (output / "descendant.json").exists():
-            if process.poll() is not None or time.monotonic() >= deadline:
+            if process.poll() is not None or time.monotonic() >= started + 60:
                 code, log = finish(process)
-                pytest.fail(f"fixture did not launch owned descendants: {code} {log}")
+                pytest.fail(f"fixture did not launch owned descendants after "
+                            f"{time.monotonic() - started:.1f}s: {code} {log}")
             time.sleep(0.05)
         pids = json.loads((output / "descendant.json").read_text())
+        assert process.poll() is None, "wrapper exited before the abrupt kill"
         process.kill()  # Only the test-owned launcher; its Job must own the rest.
         finish(process)
         deadline = time.monotonic() + 5
