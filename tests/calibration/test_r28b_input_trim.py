@@ -29,9 +29,13 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from weather.calibration import mg2_input_allowlist as allow
-from weather.calibration import mg2_inputs
 from weather.calibration import r28b_input_trim as rt
-from weather.calibration import r28b_inputs as ri
+
+from tests.host_guard import import_or_skip_on_capture_host
+
+# mg2_inputs (and r28b_inputs through it) refuse to import on the capture host; skip there, as test_b_drop_list does.
+mg2_inputs = import_or_skip_on_capture_host("weather.calibration.mg2_inputs")
+ri = import_or_skip_on_capture_host("weather.calibration.r28b_inputs")
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "src/weather/calibration/r28b_input_trim.py"
