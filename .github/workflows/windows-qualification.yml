@@ -78,6 +78,7 @@ jobs:
               tests/calibration/test_r28b_input_trim.py
               tests/model/test_high_so_far_variant_none_byte_identity.py
               tests/calibration/test_mg1_look_record.py
+              tests/calibration/test_mg1_market.py
             mark: ''
           - shard: launch
             split_file: ''

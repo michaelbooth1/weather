@@ -78,6 +78,7 @@ EXPECTED_SHARDS = {
             # Hosted byte-identity coverage: lfs: false gives the win32 lfs_pointers golden tier.
             "tests/model/test_high_so_far_variant_none_byte_identity.py",
             "tests/calibration/test_mg1_look_record.py",
+            "tests/calibration/test_mg1_market.py",
         ],
     ),
     "launch": (
