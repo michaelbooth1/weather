@@ -1,5 +1,10 @@
 # B at 07-12: costed program plan (DESIGN NOTE, outcome-blind; waits for master's GO / NO-GO)
 
+**CLOSED (master ruling 2026-11-04, not a kill: nothing was frozen).** E1 is DON'T ADD: on five seasons the served
+S beats B at 07-12. 4a is OFF and the 4b B-arm is CLOSED; there is no K3 for B and no embargo ask (register X107;
+[EF §10ax](../../operations/ESTABLISHED_FINDINGS.md)). This file stays unedited below as the record of the staged GO
+and its kill points.
+
 - **Status:** DRAFT design note by WS lane L59, written 2026-11-03 15:12 -05:00 (Get-Date). It freezes, runs and
   fetches nothing. No price, label, outcome or loss value was read for it, and no data dated 2026-09-30 or later.
   Bound inputs are named by manifest sha only; no data file was opened.
