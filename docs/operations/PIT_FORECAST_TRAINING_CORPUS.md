@@ -178,12 +178,26 @@ exist in the zone is rejected. Every local date must then hold exactly one
 on-the-hour row per real hour (23, 24 or 25; `hours_in_local_date`), with
 distinct UTC instants. Cutoffs and issue checks use the same UTC instants.
 
-**Consequence:** an unpadded fixed-offset response whose window crosses a DST
-change is always one real hour short at one edge date (the window's last date
-if retrieved under daylight time, its first date if under standard time), so
-the unit fails closed with `incomplete_hourly_envelope`. Before 2026-10-21 that
-case passed and every row on the far side of the change was silently one hour
-off.
+**Consequence:** an unpadded fixed-offset response is one real hour short at
+an edge date whenever the retrieval-time offset differs from the zone's offset
+on that edge date, so the unit fails closed. A window that crosses a DST change
+always has such an edge (its last date if retrieved under daylight time, its
+first if under standard time). A window wholly inside daylight time retrieved
+under standard time (for example a May window fetched in November) loses the
+first date's 00:00 hour and gains the hour after the last date, so it fails
+with `row_outside_request_window:<day after window_end>`; that is this check
+working, not a shifted label. Before 2026-10-21 the DST-crossing case passed
+and every row on the far side of the change was silently one hour off.
+
+The request already sends an explicit `timezone=<IANA zone>`, and the mapped
+instants do not depend on when a unit was retrieved: the same padded request
+retrieved under EDT and under EST gives identical hourly instants, local dates
+and hours, values and daily rows, and the serve-path reader
+(`weather.time.provider_hourly_local_times`) maps the same labels to the same
+instants (`tests/sources/test_forecast_training_corpus_dst.py`,
+`test_same_instants_under_either_retrieval_offset`). Only the unpadded edge
+hour depends on retrieval time, so **every plan needs `--pad-request-days 1`**,
+whatever its season.
 
 **Request padding (`plan --pad-request-days N`, opt-in, 1-3).** Each request's
 provider window becomes `window_start - N` to `window_end + N`; the planned
@@ -197,8 +211,8 @@ its UTC instant first, then keep a row only if that instant's market-local
 date is a planned target date; pad rows (and nulls inside them) never count
 toward any planned date and never reach the published files. The per-date
 check (23/24/25 distinct UTC instants) runs on planned dates only. Without the
-flag the plan is byte-identical to before. **Every October-December plan needs
-`--pad-request-days 1`.**
+flag the plan is byte-identical to before. **Every plan needs
+`--pad-request-days 1`** (above).
 
 Because the pad must not reach the target year, a padded plan whose window
 ends on Dec 31 is refused when its years include `target_year - 1` (for
