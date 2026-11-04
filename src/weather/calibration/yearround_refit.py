@@ -184,6 +184,13 @@ WU_HISTORY_MIN_ROW_COUNT = 20  # model_constants.HISTORY_MIN_ROW_COUNT, the fiel
 FALL_BACK_YEARS = (2020, 2021, 2022, 2023, 2024, 2025)  # the history seasons' US fall-back Sundays
 WU_STORE_CAVEAT = ("the WU store is live main data: these booleans describe the store at read time, not the "
                    "store when the frozen corpus was built")
+K2_SCHEMA = "yearround_refit_k2_compare/1"
+K2_FILE = "k2_compare.json"
+# K2 (B), master 2026-11-04: the fit state against the accepted 6ae5b6ec equivalence state, provenance excluded
+K2_FIT_ONLY_PROVENANCE = ("arm", "bound_hooks_state_sha256", "fit_id", "fold", "helper_source_sha256", "module",
+                          "module_source_sha256", "sklearn_version", "upstream_sha256")
+K2_REFERENCE_ONLY_PROVENANCE = ("equivalence",)
+K2_SHARED_PROVENANCE = ("candidate", "shadow_only")  # present on both sides and equal
 _DATE_TOKEN = re.compile(r"\d{4}-\d{2}-\d{2}")
 _PLAIN_FIRST_FIELD = re.compile(r"[0-9A-Za-z._-]*")
 GRID_HOLES_FILE = "grid_holes.json"
@@ -2164,6 +2171,59 @@ def wu_store_checks(spring_forward_holes, markets, other_holes=()):
             "fall_back_sundays_report_only": fall}
 
 
+# ----------------------------------------------------------------------------- k2-compare (check-only)
+
+def k2_compare(*, state, state_sha, reference, reference_sha, out):
+    """K2 (B): the fit state against the accepted equivalence state, with ONLY the provenance key excluded.
+
+    Both files are sha-verified BEFORE either is unpickled. Each state drops only ``provenance`` and is re-pickled
+    with protocol 4; the two shas must be equal. The provenance diff must be exactly ``K2_FIT_ONLY_PROVENANCE`` on
+    the fit side and ``K2_REFERENCE_ONLY_PROVENANCE`` on the reference side, with ``K2_SHARED_PROVENANCE`` present
+    on both and equal. Anything else fails; nothing is worked around (a pickle-byte difference fails too). Writes
+    one file of key names and shas only under ``out``, a NEW directory outside every checkout. Touches no fit,
+    state-writing or emit path.
+    """
+    out = check_records_root(out)
+    if out.exists():
+        raise YearroundRefused(f"refusing to reuse {out} (write-once)")
+    blobs = {"state": _read_verified(state, state_sha, "fit state"),
+             "reference": _read_verified(reference, reference_sha, "reference state")}
+    loaded = {k: pickle.loads(v) for k, v in blobs.items()}  # both sha-pinned: this repo's own state files
+    for side, obj in loaded.items():
+        if not isinstance(obj, dict) or not isinstance(obj.get("provenance"), dict):
+            raise YearroundRefused(f"the {side} is not a state with a provenance dict")
+    payload = {side: sha256_bytes(pickle.dumps({k: v for k, v in obj.items() if k != "provenance"}, protocol=4))
+               for side, obj in loaded.items()}
+    ps, pr = loaded["state"]["provenance"], loaded["reference"]["provenance"]
+    only_state, only_ref = sorted(set(ps) - set(pr)), sorted(set(pr) - set(ps))
+    shared = sorted(set(ps) & set(pr))
+    differing = sorted(k for k in shared if ps[k] != pr[k])
+    failed = []
+    if payload["state"] != payload["reference"]:
+        failed.append("payload_sha256")
+    if only_state != sorted(K2_FIT_ONLY_PROVENANCE):
+        failed.append("provenance_only_in_state")
+    if only_ref != sorted(K2_REFERENCE_ONLY_PROVENANCE):
+        failed.append("provenance_only_in_reference")
+    if shared != sorted(K2_SHARED_PROVENANCE):
+        failed.append("provenance_shared")
+    if differing:
+        failed.append("provenance_shared_differing")
+    body = {"schema": K2_SCHEMA, "candidate_id": CANDIDATE_ID, "module_source_sha256": module_source_sha256(),
+            "state_sha256": state_sha, "reference_sha256": reference_sha,
+            "payload_sha256_state": payload["state"], "payload_sha256_reference": payload["reference"],
+            "payload_equal": payload["state"] == payload["reference"],
+            "provenance_only_in_state": only_state, "provenance_only_in_reference": only_ref,
+            "provenance_shared": shared, "provenance_shared_differing": differing,
+            "failed_checks": failed, "pass": not failed}
+    out.mkdir(parents=True)
+    path = out / K2_FILE
+    sha = _write_json(path, body)
+    return {"out_file": str(path), "sha256": sha, "pass": body["pass"], "failed_checks": failed,
+            "payload_sha256_state": payload["state"], "payload_sha256_reference": payload["reference"],
+            "module_source_sha256": body["module_source_sha256"]}
+
+
 # ----------------------------------------------------------------------------- CLI
 
 _REFUSED_FLAGS = ("--live", "--execute", "--place", "--cancel", "--promote")
@@ -2198,6 +2258,9 @@ def _parser():
     g.add_argument("--config-sha", required=True)
     g.add_argument("--records-root", required=True)
     g.add_argument("--out", required=True)
+    k = sub.add_parser("k2-compare", help="check-only: the fit state against the 6ae5b6ec state, provenance excluded")
+    for name in ("--state", "--state-sha", "--reference", "--reference-sha", "--out"):
+        k.add_argument(name, required=True)
     return parser
 
 
@@ -2220,6 +2283,11 @@ def main(argv=None):
                       fit_manifest_sha=args.fit_manifest_sha, forward_receipt=args.forward_receipt,
                       forward_receipt_sha=args.forward_receipt_sha, snapshots=args.snapshots,
                       replay_root=args.replay_root, first=args.first, last=args.last, inputs=args.inputs)
+    elif args.command == "k2-compare":
+        result = k2_compare(state=args.state, state_sha=args.state_sha, reference=args.reference,
+                            reference_sha=args.reference_sha, out=args.out)
+        print(json.dumps(result, indent=1, sort_keys=True))
+        return 0 if result["pass"] else 5  # any K2 (B) mismatch is a STOP
     elif args.command == "grid-holes":
         result = grid_holes(_config(args.config, args.config_sha), records_root=args.records_root, out=args.out)
         print(json.dumps(result, indent=1, sort_keys=True))

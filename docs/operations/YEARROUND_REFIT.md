@@ -156,6 +156,23 @@ The module does not write it.
   and a matched daily line holds that day's high as an uninterpreted string. Caveat: the store is live, so the
   booleans describe it at read time, not at corpus build.
 
+## 6. K2 compare (check-only)
+
+```powershell
+-m weather.calibration.yearround_refit k2-compare --state <fit p3d_n_state.pkl> --state-sha <sha> `
+  --reference <the accepted 6ae5b6ec p3d_n_state.pkl> --reference-sha <sha> --out <new dir outside every checkout>
+```
+
+- K2 (B) of master's 2026-11-04 ruling. Both files are sha-verified before either is unpickled. Each state drops
+  only its `provenance` key and is re-pickled with protocol 4; the two shas must be equal.
+- The provenance diff must be exactly: only in the fit `arm`, `bound_hooks_state_sha256`, `fit_id`, `fold`,
+  `helper_source_sha256`, `module`, `module_source_sha256`, `sklearn_version`, `upstream_sha256`; only in the
+  reference `equivalence`; on both and equal `candidate`, `shadow_only`. Anything else fails, a pickle-byte
+  difference included (never worked around).
+- Writes `<out>/k2_compare.json` (key names and shas only) and prints its sha. Exit 5 on any failure (a STOP).
+- Order on ONE final tip: (A) equivalence `state_sha` re-proving 6ae5b6ec, the fit, then this compare. No commit
+  after the fit: a later code change voids the fit.
+
 ## Update this file when
 
 The CLI, the config keys, the windows, the archive root, the emission cadence or the grid-hole self-check

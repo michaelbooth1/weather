@@ -1548,3 +1548,114 @@ def test_wu_store_checks_report_every_other_hole_class_and_never_refuse_on_them(
     assert other[("atlanta", "2022-03-02")]["daily_row_present"] is False
     assert "header" in other[("denver", "2022-01-01")]["refused"]  # report-only: a refused read never refuses
     assert [e["target_date"] for e in out["spring_forward_holes"]] == ["2022-03-13"]
+
+
+FIT_PROV = {"candidate": "row28_B", "shadow_only": True, "module": "m", "module_source_sha256": "a" * 64,
+            "fit_id": "20261105T000000Z", "arm": "B", "fold": 2026, "upstream_sha256": {"x": "b" * 64},
+            "bound_hooks_state_sha256": "c" * 64, "sklearn_version": "1.8.0", "helper_source_sha256": {"h": "d" * 64}}
+REF_PROV = {"candidate": "row28_B", "shadow_only": True, "equivalence": True}
+
+
+def _state_file(tmp_path, name, provenance, payload=None):
+    obj = {"schema": "mg2_p3d_n_state/1", "fits": {"13": [1.5, 2.5]}, "markets": ["atlanta"],
+           "hours": [13], "provenance": provenance}
+    if payload:
+        obj.update(payload)
+    path = tmp_path / name
+    path.write_bytes(pickle.dumps(obj, protocol=4))
+    return path, _sha(path)
+
+
+def _k2(tmp_path, state, ref, out="k2"):
+    return yr.k2_compare(state=state[0], state_sha=state[1], reference=ref[0], reference_sha=ref[1],
+                         out=tmp_path / out)
+
+
+def test_k2_compare_passes_on_equal_payloads_with_the_allowed_provenance_diff(tmp_path):
+    fit = _state_file(tmp_path, "fit.pkl", dict(FIT_PROV, sklearn_version="VALUE-NEVER-WRITTEN"))
+    ref = _state_file(tmp_path, "ref.pkl", REF_PROV)
+    result = _k2(tmp_path, fit, ref)
+    assert result["pass"] and result["failed_checks"] == []
+    assert result["payload_sha256_state"] == result["payload_sha256_reference"]
+    path = Path(result["out_file"])
+    assert _sha(path) == result["sha256"] and path.parent == tmp_path / "k2"
+    body = json.loads(path.read_text(encoding="utf-8"))
+    assert body["provenance_only_in_state"] == sorted(yr.K2_FIT_ONLY_PROVENANCE)
+    assert body["provenance_only_in_reference"] == ["equivalence"]
+    assert body["provenance_shared"] == ["candidate", "shadow_only"] and body["provenance_shared_differing"] == []
+    assert body["module_source_sha256"] == yr.module_source_sha256()
+    assert "VALUE-NEVER-WRITTEN" not in path.read_text(encoding="utf-8")  # names and shas only
+    with pytest.raises(yr.YearroundRefused, match="write-once"):
+        _k2(tmp_path, fit, ref)
+
+
+@pytest.mark.parametrize("case, failed", [
+    ("payload", "payload_sha256"),
+    ("extra_fit_key", "provenance_only_in_state"),
+    ("missing_fit_key", "provenance_only_in_state"),
+    ("no_equivalence", "provenance_only_in_reference"),
+    ("candidate_differs", "provenance_shared_differing"),
+    ("shadow_differs", "provenance_shared_differing"),
+    ("extra_shared", "provenance_shared"),
+])
+def test_k2_compare_fails_on_any_other_difference(tmp_path, case, failed):
+    fit_prov, ref_prov, payload = dict(FIT_PROV), dict(REF_PROV), None
+    if case == "payload":
+        payload = {"fits": {"13": [1.5, 2.5000000001]}}
+    elif case == "extra_fit_key":
+        fit_prov["note"] = "x"
+    elif case == "missing_fit_key":
+        del fit_prov["fit_id"]
+    elif case == "no_equivalence":
+        del ref_prov["equivalence"]
+    elif case == "candidate_differs":
+        fit_prov["candidate"] = "row28_A"
+    elif case == "shadow_differs":
+        ref_prov["shadow_only"] = False
+    elif case == "extra_shared":
+        fit_prov["extra"] = ref_prov["extra"] = 1
+    fit = _state_file(tmp_path, "fit.pkl", fit_prov, payload)
+    ref = _state_file(tmp_path, "ref.pkl", ref_prov)
+    result = _k2(tmp_path, fit, ref)
+    assert result["pass"] is False and failed in result["failed_checks"]
+
+
+def test_k2_compare_verifies_both_shas_before_unpickling_and_refuses_a_checkout_out(tmp_path, monkeypatch):
+    fit = _state_file(tmp_path, "fit.pkl", FIT_PROV)
+    ref = _state_file(tmp_path, "ref.pkl", REF_PROV)
+
+    def never(*_a, **_k):
+        raise AssertionError("unpickled before both shas were verified")
+
+    monkeypatch.setattr(yr.pickle, "loads", never)
+    with pytest.raises(yr.YearroundRefused, match="reference state sha256 differs"):
+        _k2(tmp_path, fit, (ref[0], "0" * 64))
+    with pytest.raises(yr.YearroundRefused, match="fit state sha256 differs"):
+        _k2(tmp_path, (fit[0], "0" * 64), ref)
+    monkeypatch.undo()
+    (tmp_path / "repo" / ".git").mkdir(parents=True)
+    with pytest.raises(yr.YearroundRefused, match="inside a checkout"):
+        _k2(tmp_path, fit, ref, out="repo/k2")
+    assert not (tmp_path / "k2").exists()
+
+
+def test_k2_compare_cli_exits_5_on_a_mismatch(tmp_path, capsys):
+    fit = _state_file(tmp_path, "fit.pkl", FIT_PROV)
+    ref = _state_file(tmp_path, "ref.pkl", REF_PROV)
+    bad = _state_file(tmp_path, "bad.pkl", FIT_PROV, {"hours": [14]})
+
+    def argv(state, out):
+        return ["k2-compare", "--state", str(state[0]), "--state-sha", state[1], "--reference", str(ref[0]),
+                "--reference-sha", ref[1], "--out", str(tmp_path / out)]
+
+    assert yr.main(argv(fit, "ok")) == 0
+    assert yr.main(argv(bad, "bad")) == 5
+
+
+def test_k2_compare_touches_no_fit_state_writing_or_emit_path():
+    import inspect
+
+    src = inspect.getsource(yr.k2_compare)
+    for name in ("fit(", "_fit_in(", "freeze_state(", "write_state", "arm_state(", "emit(", "shadow_rows(",
+                 "training_frame(", "build_records(", "_new_dir(", "state_root(", "archive_copy("):
+        assert name not in src, name
