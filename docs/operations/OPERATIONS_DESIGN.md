@@ -1243,14 +1243,15 @@ means the task still has a zoned boundary.
   twice that night.
 - 05-F3: do not run the integration sequencer on the night of 2026-10-31 to 2026-11-01.
 
-## MG-2 Input Export (`WeatherMg2InputExport`; registrar only)
+## MG-2 Input Export (`WeatherMg2InputExport`)
 
 The MG-2 binding plan (`docs/research/mg2-composite-binding-2026-10-25/binding-plan.md` §9) moves one
 outcome-free input bundle per target date D from the capture host to the workstation. The host side is
-`scripts/ops/mg2_input_export.ps1`, which wraps `python -m weather.calibration.mg2_input_export`. The task is
-**not registered**: `scripts/ops/register_mg2_input_export.ps1` registers it only after the owner says yes, on the
-dedicated capture host, from a clean checkout at `-ExpectedSourceTip`. `-WhatIf` prints the task definition and
-touches nothing.
+`scripts/ops/mg2_input_export.ps1`, which wraps `python -m weather.calibration.mg2_input_export`.
+`scripts/ops/register_mg2_input_export.ps1` registers it on the dedicated capture host, from a clean checkout at
+`-ExpectedSourceTip`; `-WhatIf` prints the task definition and touches nothing. **The task is registered** (master's
+host read, 2026-11-03 16:2x): Ready, daily triggers 04:15 and 07:00, no end boundary, last run rc 0 on 2026-11-03.
+This resolves audit D1-13.
 
 - **When.** 04:15 local on D+1 (after the export cut, LA midnight ending D, and the 01:00-04:00 quiet window),
   with one retry at 07:00 that is a no-op once `<D>\manifest.json.sha256` exists. No `StartWhenAvailable`; a
@@ -1281,6 +1282,12 @@ touches nothing.
   `\\192.168.1.247\mg2-inputs`, read-only for the workstation account; the workstation's stored credential is
   keyed to that IP form, so use it rather than the host name. `pull` only reads under `--share-root`: it creates,
   renames, locks and writes nothing there; its staging, `incoming\` and the receipt ledger are workstation-local.
+- **Workstation task (drift note, 2026-11-03).** The binding plan §9.7 (`binding-plan.md:434`) says no Scheduler
+  task is registered on the workstation. That statement is SUPERSEDED: with the owner's 2026-10-30 yes, the
+  workstation task `\L2 MG-2 forward input pull+receive` was registered about 18:10 ET that day (launcher
+  `34f83043`, pinned worktree `C:/wt/mg2-forward-pinned` @ `9be9eedcc`, 18 triggers 06:30-23:00, Build off), after
+  the 10-29 bundle was hand-verified (manifest `46003a30`, 8/8 checks); see DECISION_LOG. The bound file stays
+  untouched. `9be9eedcc` is not yet on master and lands in a later RF combo.
 
 ## Forward input arrival check (`WeatherForwardArrivalCheck`; registrar only)
 

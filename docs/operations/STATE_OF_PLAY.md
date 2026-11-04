@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-03 America/Toronto (evening-fix Stage 1 accepted, R24 first host label run, Denver 107-miss open, rows 106/107/109/113 closed, R-CS/R-P2/K112 PARKED; night 11-02/03 combo landed).**
+**Last updated: 2026-11-03 America/Toronto (evening-fix Stage 1 accepted, R24 first host label run, Denver 107-miss open, rows 106/107/109/113 closed, row 28 A/B SURVIVE-history and C/D KILL, R-CS/R-P2/K112 PARKED; night 11-02/03 combo landed).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -42,20 +42,20 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
   outputs out; **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17).
 - **WS `data\` is a paused mirror** (master 11-02): mirror paused 2026-08-12; last complete WU day in it = 2026-08-10 (manifest `last_date`, all 12 markets); a WS lane needing Aug+ WU uses labels or a host bounded extract and checks store coverage (max date >= need) before use.
 - **Market price reliability by bin CLOSED (row 106, X92, EF §10aq):** KILL at edge size on US11 dev (08-01..09-29; ECE 0.0067,
-  slope 1.030 [1.014, 1.045]; all three arms below 0.2236). It is not an exploitable lever, and it is silent on the overround.
+  slope 1.030 [1.014, 1.045]; all three arms below 0.2236): not an exploitable lever, silent on the overround. **Row 113** (3a history tier) UNTESTABLE at its 2% label cap (2.82%), frozen 11-02, no successor (X93).
 - **R28a NWS P0 (row 107, X96-X101, EF §10as):** FADE and GAP KILL at edge, W1-0712 UNTESTABLE at edge; NWS adds a little, not a tradable amount. **R28b:** C3 closed untestable (R28b census 0/0/0; design gap, not a kill; A1 unchanged). X86, EF §10at.
 - **R-CS coastal specialist PARKED** (master 11-01; no ledger row; register note, two reopen conditions). **L47 2a and lever 2 PARKED** (X102, X103). 11-01 closures (master): #21 GEFS true mean (X91); direction A (register §0.2, EF §1k); B PARKED; B2 UNTESTABLE (row 105, X90). **X36-v5 (row 111 C, EF §10au):** 2026 raw NBM warm +0.74°F equally under v4.3 and v5.0; not a v5.0 artefact; X36 reopen not met.
 - **Evening-fix Stage 1 ACCEPTED (master 11-03): CONDITIONS 1-2 MET, condition 3 pending.** Primary -0.04854 [-0.05532, -0.04211], 11/11 markets, 128 market-days; both sensitivities share sign; SAFETY 0 and 0; "Stage 2 after MG-1 look receipt (after 11-28)"; H2 NOT TESTED; 10-28 outside frozen window, extension not triggered; shas and the one-off direct-run disclosure in [item 337](../roadmap/items/item-337-no-metar-observed-floor-gap.md).
-- **Row 113** (L52, 3a history-tier market reliability, B12 2025-12..2026-05): UNTESTABLE at the step 2 label-integrity cap (2.82% > 2%), accepted as frozen 11-02; no successor; the lever is covered by row 106's KILL (X93).
+- **Row 28 year-round P3d_N refit (L59, ledger rows 114-118, history only; master verdict 11-03, EF §10aw):** A SURVIVES-history, B SURVIVES-history, C KILL, D KILL (X104, X105); §8.3 candidate B; survival is V4-scoped and is not an adoption. Flags: X−S power < 0.50 in all 4 arms (rule-16 failure); archive INDEX rewrite accepted. Result `32932ebc…` @ `741174e5f`.
 - **L52 price history** (owner GO 11-01, DL): International PM public closed-event `/prices-history` at fidelity 1, sealed 11-02 (22 markets, events 2025-01-22..2026-09-29, no guarded dates); the series is the book mid, not last trade. HISTORY-TIER selection evidence only, never an edge claim.
 - **R-P (L48 station-pooled corpus) KILLED** at LOYO gate 1 (row 109, X94; Los Angeles CI-worse). **R-P2** (class-matched pooling): screen PASS, confirmation infeasible at size (3-5 seasons); **PARKED** as the default corpus-expansion ingredient (X95, three reopen triggers). L48 GO N=300 (rule 33d5c67a…, rows 108 C / 109 K); R-I scope ruled not covering a rows-only retrain.
 - **K112:** dev CONSISTENT (C1.6). History-tier test NOT RUN: Dec-May NBM 07Z and P3d_N_fix inputs absent on WS; power ~0.14 at dev point (MDE80 ~0.009 vs -0.0027); seasonal transfer of b_train unresolved. PARKED, not killed.
 - **L47 step 0:** the 07-12 market gap is mostly centre (P3d +0.0049..+0.0077 of +0.0101); width ≤ +0.0038, day-specific scale ≤ +0.0007, skew ~0; 2a and lever 2 PARKED (EF §10ag correction, X27).
 - **L50:** captured NBM v2 exists only from target 06-24 (US only), so NBM-dependent arms get at most 06-24..07-30 of the sealed panel (WS bytes 07-14..07-30); power is too low for parity-sized 07-12 steps (L50, `5a805dda7`).
 - **Maker-evidence capture gap 11-02 03:36-09:38 EST** (~6 h, host power loss, Kernel-Power 41, no UPS): 5 torn reward journals in segment 2026-11-02/08-b7021b84b0cf quarantined byte-exact (`QUARANTINE_RECEIPT.json`); remaining journals sealed by the store; no data rewritten; capture 10/10 since 09:39 ([runbook](passive-maker-evidence-capture.md) "Torn journal after power loss").
-- **F8-MH forward screen FROZEN** (row 104; Clarification 1 `d138f1d92`): D0 11-02, blind, one look 01-26 after PT-1's. MOSMIX-8 HOLD. **Row 72 R-ODC P1** from D0 10-31; Clarification 1 `9f112f3fa` fixes the rounding refusal pre-look; the < 30°F filter is in the candidate.
+- **F8-MH forward screen FROZEN** (row 104; Clarification 1 `d138f1d92`): D0 11-02, blind, one look >= 01-27 after the claiming looks (PT1 slot = R21 receipt). MOSMIX-8 HOLD. **Row 72 R-ODC P1** from D0 10-31; Clarification 1 `9f112f3fa` fixes the rounding refusal pre-look; the < 30°F filter is in the candidate.
 - **MG-1** forward shadow, single look after 11-28 ([reserved window](reserved-confirmation-window.md)). **MG-2 / Rule B-1 BOUND 10-28**
-  ([design](B_FORWARD_TEST_DESIGN.md)): D0 10-29, N = 45, 45th date 12-12, NI margin +0.0027, look 12-13; daily WS pull runs.
+  ([design](B_FORWARD_TEST_DESIGN.md)): D0 10-29, N = 45, 45th date 12-12, NI margin +0.0027, look 12-13; daily WS pull runs; WS pull+receive task registered 10-30 (owner yes; pin 9be9eedcc, not yet on master; DL 2026-10-30).
 - **B's serial correlation** (dev ρ about 0.22): B's verdict stands; a frozen post-look module may only label a PASS "fragile" (master).
 - **Kill scopes (master):** R-I maps only; R-G/R-J Aug-Sep only; kill-only reads need power >= 0.5 at edge size on the wider of date-clustered and block-3 bounds, projected on the full population rule (method rule 16).
 - **Labels (master 10-25):** WU before 10-23, venue rule (routine METAR, WU fallback) from it. **Denver >= 10-23: KDEN, out of MG-2 and B.** **R24 first host run 11-03 (master; DL):** venue-rule labels are built for 10-23..11-02 on all 12; under the R24 ruling's paragraphs (3) and (5), a look reads only its look-morning frozen copy, through `read_venue_labels` inside its registered entry point, and Stage A stays `wu` (runbook step 4 waits until after B). Fetch 13/13, build 12/12, 0 skipped; shas in the [runbook](venue-rule-labels.md) receipt; no label value read.
@@ -72,14 +72,14 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
 2. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72 and F8-MH accrue blind; L6_G emitting (first emission vectors d1e09134, runs.jsonl 6842d139).
-3. **MG-1 look after 11-28**, then B 12-13; **PT-1** ([draft](COOL_SEASON_PAPER_TEST_PREREG.md); 12-12..01-25) bound before D0; F8-MH 01-26.
+3. **MG-1 look after 11-28**, then B 12-13; **PT-1 NOT RUNNABLE** (R21, rules 4/6; claims no date; [receipt](../research/pt1-not-runnable-2026-11-03/receipt.md)); F8-MH >= 01-27.
 
 ## Open commitments (every row: owner, due, verify)
 
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
-| PT-1 bound: PT_D0, G = 15 s, rule sha; fixes 10/11 candidate-side; Miami floor | master | before PT_D0 | binding commit; DL row |
-| MG-1 look rulings A1-A14, b_transfer T1-T5; scorer and writer reviews | master | 11-03; 11-20; 12-01 | notes |
+| PT-1 NOT RUNNABLE (R21; rules 4/6): receipt + register row X106; F8-MH Cl. 2; T+1 dated clause | master (rule-11 receipt audit) + WS L59 | 11-04 docs head | receipt sha; DL row |
+| MG-1/B rulings DONE 11-03 (MG-1 Cl. 2, B-1 Cl. 5); owner A1/A5/A12 open; mg1_look scoring head; b_transfer T1/T3/T4 + B label loader; scorer and writer reviews | master (owner A1/A5/A12); WS heads | owner answers before the look; head 11-12/13; 11-20; 12-01 | DL 11-03 row; head tips |
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
 | Evening-fix Stage 2: gap read after the MG-1 look receipt (Clarification 1 s5); H2 then needs a market-arm replay (owner question) | master + WS | after 11-28 | MG-1 look receipt; Stage 2 receipt |
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
@@ -87,7 +87,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | Host hardening: Ethernet (host on Wi-Fi; owner 11-02 "Ethernet cord is coming"); Wi-Fi stays connected with it (DL 11-02) | owner | OPEN until the cable is in | Get-NetAdapter Up |
 | Torn-journal Stage 1 lands RF on a CLEAN review; then master registers Stage 2 on the host | master | open | registration receipt |
 | Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run DONE 11-03 (rc 0, runbook receipt); Mondays; module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
-| R1+R2 24 h S2+S9 receipts (88a RSS, REST rate, partitions, built-ins unchanged) | master | 11-03 | receipt doc |
+| R1+R2 24 h S2+S9 receipts (88a RSS, REST rate, partitions, built-ins unchanged) | master | 11-05 (slipped from 11-03) | receipt doc |
 
 ## Update this file when
 
