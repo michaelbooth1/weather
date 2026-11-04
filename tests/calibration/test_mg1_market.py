@@ -1,6 +1,6 @@
 """A look's --market file: the host price tool and the host concat (master rulings 2026-11-03 on --market).
 
-Guards:
+Guards: master rulings 2026-11-03 on --market (host price tool and host concat):
 
 - the tool (tools/research/capture_price_export.py) reads only in-cut snapshots_long rows through the unchanged
   exporter's reader, passes every price through R19's ``capture_price``, flags a finite price outside [0, 1]

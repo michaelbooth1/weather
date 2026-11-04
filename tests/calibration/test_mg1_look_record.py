@@ -2,6 +2,8 @@
 
 Mirrors tests/calibration/test_b_look_record.py (claude/b-look-record-writer-20261103 @ 24a4e70fc): commit MG-1's
 receipt byte-exact with a '<receipt_path> -text' line, and the record keyed to it. Not R14-bound.
+
+Guards: MG-1 release-record writer contract (mirrors test_b_look_record.py @ 24a4e70fc; not R14-bound).
 """
 import ast
 import hashlib
