@@ -193,6 +193,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "R11 MG-1 input backfill 10-15..10-27 via the unchanged MG-2 exporter; host via mg1_input_backfill.ps1.",
     },
+    "wu_vs_venue_measure.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R24 WU history vs venue routine-METAR rule per US market; read-only measurement, dates <= 2026-09-29.",
+    },
 }
 
 
