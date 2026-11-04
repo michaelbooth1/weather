@@ -1,5 +1,9 @@
 # Stage 4b — separate 07-12 forward test of row-28 candidate B, SKELETON prereg
 
+**CLOSED (master ruling 2026-11-04, not a kill: nothing was frozen).** E1 is DON'T ADD: on five seasons the served
+S beats B at 07-12 (EF §10ax; register X107). There is no further skeleton work, no K3 for B and no embargo ask.
+This file stays as a record only.
+
 Status: **SKELETON, NOT A DRAFT FOR FREEZE.** Nothing in this file binds. Drafting is approved in principle by master
 (2026-11-03); every number that depends on E1 (stage 1) or K3 (stage 3) is a `<PLACEHOLDER: …>` until those report.
 `prereg_check --forward` is expected to fail on the placeholders. It freezes only after master fills them, the owner
