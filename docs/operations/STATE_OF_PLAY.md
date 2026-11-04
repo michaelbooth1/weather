@@ -87,7 +87,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | Host hardening: Ethernet (host on Wi-Fi; owner 11-02 "Ethernet cord is coming"); Wi-Fi stays connected with it (DL 11-02) | owner | OPEN until the cable is in | Get-NetAdapter Up |
 | Torn-journal Stage 1 lands RF on a CLEAN review; then master registers Stage 2 on the host | master | open | registration receipt |
 | Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run DONE 11-03 (rc 0, runbook receipt); Mondays; module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
-| R1+R2 24 h S2+S9 receipts (88a RSS, REST rate, partitions, built-ins unchanged) | master | 11-03 | receipt doc |
+| R1+R2 24 h S2+S9 receipts (88a RSS, REST rate, partitions, built-ins unchanged) | master | 11-05 (slipped from 11-03) | receipt doc |
 
 ## Update this file when
 
