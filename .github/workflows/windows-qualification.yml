@@ -75,6 +75,7 @@ jobs:
               tests/operations/test_maker_evidence_torn_quarantine_script.py
               tests/operations/test_register_maker_evidence_torn_quarantine.py
               tests/calibration/test_mg2_input_export.py
+              tests/operations/test_frozen_binding_guard_script.py
               tests/model/test_high_so_far_variant_none_byte_identity.py
             mark: ''
           - shard: launch
