@@ -31,7 +31,7 @@ date the SUMS, prices and receipt shas with the receipt's R19 cross-check (``non
 pre-stamp check requires to be true. A refused run writes nothing, so a written manifest has both true.
 
 Host-only guard (master asked for one "of the right kind"). This module must run where the prices are, so it
-is the inverse of ``mg2_inputs``' capture-host refusal: ``build`` refuses unless ``weather.execution_host``'s
+is the inverse of the MG-2 receiver's capture-host refusal: ``build`` refuses unless ``weather.execution_host``'s
 current id equals the tracked assignment's ``dedicated_capture_execution_host_id``. That is the same identity
 check the R19 counts tool's host wrapper (``scripts/ops``) makes before it admits that tool. It is a run-time
 check, not an import-time one, so the workstation's tests can import the module and fake the identity. The
