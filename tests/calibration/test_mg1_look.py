@@ -45,6 +45,16 @@ def _root(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "head_commit", lambda root=None: "c" * 40)
 
 
+@pytest.fixture
+def pre_answer_branches(monkeypatch):
+    """The other built branch of each owner constant (Denver in, ``as_written``, ``point``), the behaviour of
+    1179f990d. The mechanics tests written against it keep covering that branch after the owner's 2026-11-04
+    answers moved the defaults (Denver out, 8 of 10, ``magnitude``, ``interval``)."""
+    monkeypatch.setattr(m, "A1_DENVER_SCORED", True)
+    monkeypatch.setattr(m, "A5_BAR", "as_written")
+    monkeypatch.setattr(m, "A12_FALSIFIER_4", "point")
+
+
 def _as_main(monkeypatch, name=m.MODULE, origin=None):
     main = types.ModuleType("__main__")
     main.__spec__ = types.SimpleNamespace(name=name, origin=str(origin or m.__file__))
@@ -326,11 +336,16 @@ def test_the_registered_rule_constants_are_the_preregistrations():
     assert sorted(m.VOID_CONDITIONS) == ["coverage", "parser", "pit", "replay", "window_leakage"]
 
 
-def test_the_owner_constants_keep_the_reviewed_behaviour_until_answered():
-    """A1 (with its Q3 count), A5 and A12 are owner questions, open (MG-1 Clarification 2 section 3)."""
-    assert m.owner_constants() == {"A1_DENVER_SCORED": True, "A1_MIN_NEGATIVE_MARKETS": 8, "A5_BAR": "as_written",
-                                   "A12_FALSIFIER_4": "point"}
-    assert m.support_markets() == m.MARKETS
+def test_the_owner_constants_are_the_owners_2026_11_04_answers():
+    """A1 (with its Q3 count), A5 and A12 (MG-1 Clarification 2 section 3), answered by the owner 2026-11-04:
+    DECISION_LOG 2026-11-04 "approve all recommendations" (A1 Denver OUT, 8 of 10; A5 -0.05 * |gap|; A12 crossed
+    interval). The DL row lands on the docs head claude/owner-1104-docs-20261104."""
+    assert m.owner_constants() == {"A1_DENVER_SCORED": False, "A1_MIN_NEGATIVE_MARKETS": 8, "A5_BAR": "magnitude",
+                                   "A12_FALSIFIER_4": "interval"}
+    assert m.OWNER_DECISION_REF.startswith("DECISION_LOG 2026-11-04: owner \"approve all recommendations\"")
+    for answer in ("A1 Denver OUT", "8 of 10", "-0.05 * |gap|", "A12 falsifier 4 on the crossed interval"):
+        assert answer in m.OWNER_DECISION_REF
+    assert m.support_markets() == tuple(x for x in m.MARKETS if x != "denver") and len(m.support_markets()) == 10
 
 
 @pytest.mark.parametrize("name,value", [("A1_DENVER_SCORED", "yes"), ("A5_BAR", "abs"),
@@ -343,6 +358,7 @@ def test_an_unbuilt_owner_branch_is_refused(monkeypatch, name, value):
         m.owner_constants()
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_a_clean_synthetic_window_passes_and_writes_one_receipt(tmp_path, monkeypatch):
     inputs = _synthetic(tmp_path)
     path, payload = _score(monkeypatch, inputs)
@@ -374,6 +390,7 @@ def test_a_clean_synthetic_window_passes_and_writes_one_receipt(tmp_path, monkey
         m.score(**inputs, now=NOW)
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_labels_come_from_the_frozen_copy_through_the_venue_label_reader(tmp_path, monkeypatch):
     """A2 (b): read_through is the 45th date, the reserved window is allowed, Denver reads KDEN rows."""
     from weather.backtesting import venue_label_reader as vlr
@@ -402,6 +419,7 @@ def test_winner_band_maps_a_label_bucket_to_exactly_one_band():
         m.winner_band(ladder[1:3], 70)
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_an_unpredicted_reader_refusal_masks_its_market_day_and_flags_the_receipt(tmp_path, monkeypatch):
     """Q2 after the stamp (T2): a refusal the metadata did not predict (a thin day still listed) masks that
     market-day, is disclosed in label_masked, raises the receipt flag and never voids."""
@@ -421,6 +439,7 @@ def test_an_unpredicted_reader_refusal_masks_its_market_day_and_flags_the_receip
                                                            r"'unexplained_absence': 1.*2026-10-27:nyc"),
     ({"skipped_labels": {("denver", D0 + timedelta(days=30))}}, r"held: 1 countable .*'skipped': 1"),
 ])
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_a_countable_market_day_without_a_label_key_holds_before_the_stamp(tmp_path, monkeypatch, kw, match):
     """Q2 before the stamp: metadata only (no CSV parse, no reader call); a hole holds and consumes nothing."""
     from weather.backtesting import venue_label_reader as vlr
@@ -536,6 +555,7 @@ def test_mg1_worse_than_served_closes_the_route(tmp_path, monkeypatch):
     assert d["verdict"] == "NOT_PASS" and "1 route closed" in d["falsifiers"] and d["estimate"] > 0
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_fewer_than_8_negative_markets_is_not_fleet_wide(tmp_path, monkeypatch):
     _, payload = _score(monkeypatch, _synthetic(tmp_path, bad_markets=m.MARKETS[:4]))
     d = payload["decision"]
@@ -544,6 +564,7 @@ def test_fewer_than_8_negative_markets_is_not_fleet_wide(tmp_path, monkeypatch):
     assert sorted(set(m.MARKETS) - set(d["markets_negative"])) == sorted(m.MARKETS[:4])
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_decide_materiality_and_crossed_disagreement():
     per = {k: {"mean_delta": -0.01} for k in m.MARKETS}
     primary = {"estimate": -0.001, "ci95": [-0.002, -0.0005]}
@@ -558,6 +579,7 @@ def test_decide_materiality_and_crossed_disagreement():
     assert m.decide({"estimate": -0.01, "ci95": [-0.02, -0.001]}, tie, 0.1, -0.01)["n_markets_negative"] == 7
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_a5_bar_branches(monkeypatch):
     """A5 (owner question, open): as written a negative served - market gap makes the bar positive."""
     assert m.materiality_bar(-0.1) == pytest.approx(0.005) and m.materiality_bar(0.1) == pytest.approx(-0.005)
@@ -569,6 +591,7 @@ def test_a5_bar_branches(monkeypatch):
     assert d["materiality_bar"] == pytest.approx(-0.005) and "2 immaterial" in d["falsifiers"]
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_a12_falsifier_4_branches(monkeypatch):
     """A12 (owner question, open): the point reading compares signs; the interval reading needs the crossed 95%
     interval wholly on the other side of 0."""
@@ -581,6 +604,22 @@ def test_a12_falsifier_4_branches(monkeypatch):
     assert m.decide(primary, per, 0.1, straddles)["verdict"] == "PASS"
     assert m.decide(primary, per, 0.1, above)["falsifiers"] == ["4 crossed disagreement"]
     assert m.decide(primary, per, 0.1, -0.01)["verdict"] == "PASS"  # a bare point estimate has no interval
+
+
+def test_the_answered_branches_decide_8_of_10_on_magnitude_and_the_crossed_interval():
+    """The owner's 2026-11-04 answers in force: Denver is not scored, 8 of the 10 must be negative, the bar is
+    -0.05 * |gap| whatever the gap's sign, and falsifier 4 needs the whole crossed interval across 0."""
+    ten = m.support_markets()
+    assert len(ten) == 10 and "denver" not in ten
+    primary = {"estimate": -0.01, "ci95": [-0.02, -0.001]}
+    straddles = {"estimate": 0.002, "ci95": [-0.001, 0.004]}
+    eight = {k: {"mean_delta": -0.01 if i < 8 else 0.01} for i, k in enumerate(ten)}
+    d = m.decide(primary, eight, -0.1, straddles)
+    assert d["verdict"] == "PASS" and d["n_markets_negative"] == 8 and d["materiality_bar"] == pytest.approx(-0.005)
+    seven = {k: {"mean_delta": -0.01 if i < 7 else 0.01} for i, k in enumerate(ten)}
+    assert m.decide(primary, seven, -0.1, straddles)["falsifiers"] == ["3 not fleet-wide"]
+    above = {"estimate": 0.004, "ci95": [0.001, 0.006]}
+    assert m.decide(primary, eight, -0.1, above)["falsifiers"] == ["4 crossed disagreement"]
 
 
 def test_a1_min_negative_markets_is_the_fleet_wide_count(monkeypatch):
@@ -649,6 +688,7 @@ def test_a_used_row_whose_status_is_not_available_holds_the_look(tmp_path, monke
     m.Look(RULE)  # the look is still available
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_coverage_at_90_percent_does_not_void(tmp_path, monkeypatch):
     _, payload = _score(monkeypatch, _synthetic(tmp_path, mutate=_drop_v2(0.10)))
     assert payload["outcome_blind_checks"]["coverage"]["share_00_16"] == pytest.approx(0.9)
@@ -705,6 +745,7 @@ def _edit_freeze(path, **changes):
     ("tamper", "nyc label_csv is missing or differs"),
     ("mismatch", "do not match their manifest"),
 ])
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_a4_the_look_waits_for_finality_and_the_r24_freeze(tmp_path, monkeypatch, change, match):
     inputs = _synthetic(tmp_path)
     freeze = inputs["label_freeze"]
@@ -760,6 +801,7 @@ def test_an_extended_window_counts_past_a_non_countable_date(tmp_path, monkeypat
     assert len(counted) == 45 and counted[-1] == LAST + timedelta(days=1) and not rows[5]["countable"]
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_non_countable_market_days_are_dropped_before_the_join(tmp_path, monkeypatch):
     """A3 mask: a counted date's non-countable market-days are not scored."""
     inputs = _synthetic(tmp_path)
@@ -830,6 +872,7 @@ def test_a_failure_after_the_join_is_aborted_and_still_receipted(tmp_path, monke
     assert m.receipt_problems(m.receipt_path(m.MG1_RULE_SHA256)) == []
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_serving_change_segments_and_tail_lens_are_reported(tmp_path, monkeypatch):
     _, payload = _score(monkeypatch, _synthetic(tmp_path), serving_changes=["2026-11-01"])
     seg = payload["serving_change_segments"]["2026-11-01"]

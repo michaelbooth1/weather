@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from tests.calibration.test_mg1_look import (  # noqa: F401  (_root is an autouse fixture)
+from tests.calibration.test_mg1_look import (  # noqa: F401  (_root autouse; pre_answer_branches fixture)
     D0,
     NOW,
     RULE,
@@ -28,6 +28,7 @@ from tests.calibration.test_mg1_look import (  # noqa: F401  (_root is an autous
     _root,
     _score,
     _synthetic,
+    pre_answer_branches,
 )
 from weather.calibration import mg1_look as m
 from weather.schema_families import schema_version
@@ -97,6 +98,7 @@ def test_a_freeze_through_other_than_freeze_through_holds(tmp_path, monkeypatch,
     assert _nothing_spent(tmp_path)
 
 
+@pytest.mark.usefixtures("pre_answer_branches")
 def test_check_keys_passes_without_stamping_or_reading_an_outcome(tmp_path, monkeypatch, capsys):
     inputs = _synthetic(tmp_path)
     _no_outcome_reads(monkeypatch)

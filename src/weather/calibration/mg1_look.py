@@ -68,8 +68,9 @@ It never stamps, joins or reads a label or price, and writes a counts-only ``mg1
 "x"). Exit codes, for ``run`` and ``check-keys`` alike: 0 pass, 2 refused (``EXIT_REFUSED``), 4 held
 (``EXIT_HELD``).
 
-The owner's open questions are one constant each: ``A1_DENVER_SCORED`` and ``A1_MIN_NEGATIVE_MARKETS`` (A1, Q3),
-``A5_BAR`` and ``A12_FALSIFIER_4``. Every branch is built, and the result records the values in force.
+The owner's questions are one constant each: ``A1_DENVER_SCORED`` and ``A1_MIN_NEGATIVE_MARKETS`` (A1, Q3),
+``A5_BAR`` and ``A12_FALSIFIER_4``. The owner answered them 2026-11-04 (``OWNER_DECISION_REF``: Denver out, 8 of 10,
+``magnitude``, ``interval``). Every branch stays built, and the result records the values in force.
 """
 from __future__ import annotations
 
@@ -257,16 +258,18 @@ COUNTABLE_SCHEMA = "mg1_countable/1"
 # 2026-10-23 while MG-1 reads KBKF guidance. Whether Denver stays in is A1 (``A1_DENVER_SCORED``).
 MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-angeles", "miami", "nyc",
            "san-francisco", "seattle")
-# Owner questions, open (MG-1 Clarification 2 section 3). Each has exactly one constant here, and both branches
-# are built and tested. The owner's answer is a one-line change, recorded in a dated note before the look. Until
-# then each keeps the behaviour of 1179f990d.
-A1_DENVER_SCORED = True        # A1: True keeps Denver in the support and the scored markets (KDEN labels from
-#                                the cutover, read with model_scoring=False); False drops Denver from both
-A5_BAR = "as_written"          # A5: "as_written" bar = -0.05 * gap; "magnitude" bar = -0.05 * |gap|
-A1_MIN_NEGATIVE_MARKETS = 8    # A1 (Q3): section 4's fleet-wide count (">= 8/11"); 8 with Denver in and out until
-#                                the owner records a value with the A1 answer, before the look
-A12_FALSIFIER_4 = "point"      # A12: "point" = the crossed point estimate has the opposite sign; "interval" = the
-#                                crossed 95% interval lies entirely on the opposite side of 0
+# Owner questions (MG-1 Clarification 2 section 3), ANSWERED by the owner 2026-11-04 ("approve all
+# recommendations", relayed by master; OWNER_DECISION_REF). Each has exactly one constant here; both branches stay
+# built and tested, and the values below are the owner's answers, in force before the look.
+OWNER_DECISION_REF = ("DECISION_LOG 2026-11-04: owner \"approve all recommendations\" (master chat, about 10:55 ET): "
+                      "A1 Denver OUT of MG-1, falsifier negative-market count 8 of 10; A5 bar -0.05 * |gap|; "
+                      "A12 falsifier 4 on the crossed interval (whole CI)")
+A1_DENVER_SCORED = False       # A1 (owner 2026-11-04: OUT): True keeps Denver in the support and the scored markets
+#                                (KDEN labels from the cutover, read with model_scoring=False); False drops Denver
+A5_BAR = "magnitude"           # A5 (owner 2026-11-04): "as_written" bar = -0.05 * gap; "magnitude" = -0.05 * |gap|
+A1_MIN_NEGATIVE_MARKETS = 8    # A1 (Q3, owner 2026-11-04): section 4's fleet-wide count, 8 of the 10 scored markets
+A12_FALSIFIER_4 = "interval"   # A12 (owner 2026-11-04): "point" = the crossed point estimate has the opposite sign;
+#                                "interval" = the crossed 95% interval lies entirely on the opposite side of 0
 OWNER_CHOICES = {"A1_DENVER_SCORED": (True, False), "A1_MIN_NEGATIVE_MARKETS": tuple(range(1, len(MARKETS) + 1)),
                  "A5_BAR": ("as_written", "magnitude"), "A12_FALSIFIER_4": ("point", "interval")}
 # R24 freeze receipt (weather.backtesting.venue_label_audit ``freeze --look mg1``, R24 paragraph 3). The schema
@@ -935,7 +938,7 @@ def tail_lens(table, p_mg1, mask):
 
 
 def materiality_bar(gap):
-    """Section 4: estimate <= -5% of the window's own 00-16 served - market gap. A5 (owner question, open):
+    """Section 4: estimate <= -5% of the window's own 00-16 served - market gap. A5 (owner 2026-11-04: magnitude):
     ``as_written`` uses the gap's sign, so a gap <= 0 makes the bar >= 0; ``magnitude`` uses |gap|."""
     if gap is None:
         return None
@@ -943,7 +946,7 @@ def materiality_bar(gap):
 
 
 def crossed_disagrees(est, crossed):
-    """Falsifier 4. A12 (owner question, open): ``point`` compares the crossed point estimate's sign with the
+    """Falsifier 4. A12 (owner 2026-11-04: interval): ``point`` compares the crossed point estimate's sign with the
     fixed-market one. Under equal-cell weights the two are the same mean, so this cannot fire. ``interval`` fires
     when the crossed 95% interval lies entirely on the other side of 0 from the fixed-market estimate."""
     if isinstance(crossed, dict):
