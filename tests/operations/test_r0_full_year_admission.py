@@ -41,6 +41,7 @@ PINNED = [
     # Reviewed additions after this pin was written (L8 ratchet fix, 2026-10-27); each has its own admission test.
     "weather.calibration.high_so_far_parity_shadow",  # L8 shadow parity scorer (ea449e9cc, 10-24)
     "weather.calibration.b_drop_list",  # R19 B-1 coverage verdict ledger and drop list (L36, 11-01)
+    "weather.calibration.mg1_layout",  # R11 Head 1 MG-1 input layout (master 2026-11-01 option d ruling)
     "weather.calibration.mg2_composite",  # MG-2 binding module: emit, check, bind-release (2c80a3262, 10-25)
     "weather.calibration.mg2_inputs",  # MG-2 input-transfer receiver and label-free builder (fe4782e66, 10-25)
     "weather.calibration.mg2_p3d_n",  # MG-2 P3d_N serve and dev-fit control (9f7e1b9b8, 10-25)
