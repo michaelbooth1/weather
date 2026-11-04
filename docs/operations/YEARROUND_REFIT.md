@@ -27,7 +27,8 @@ inside any checkout (any ancestor holding `.git`, the checkout root included), i
 `frozen_records_lists`; the retired keys `frozen_records_list` and `frozen_records_list_sha256` refuse by name.
 
 `fit` refuses by name, and never filters or alters the bound training set:
-- a (market, date) on which any of F, x_high_so_far and x_current_temp has no finite value (WU hourly);
+- a (market, date, scored hour) with rows on which any of F, x_high_so_far and x_current_temp has no finite
+  value (WU hourly; the hour grain, because each scored hour is a separate fit);
 - a date with no NBM mean for any market (a per-market NBM gap stays the section 3.3b imputation; the pooled
   per-month cap refuses, and per-(market, month) counts are reported in the manifest only);
 - a hole in the calendar grid: an expected (market, date) of the record windows with no scored-hour row.
@@ -35,9 +36,11 @@ If one trips on the bound inputs, stop and report the counts; master rules wheth
 The equivalence report carries the same checks as `training_source_checks` (reported, not a pass check).
 
 `emit` refuses by name a batch (market, date) with no captured snapshot, no usable NBM or no METAR replay
-observation. A batch (market, date) that still emits 0 rows is a named hole record in `holes.jsonl` with a reason
-code (`no_snapshot_at_a_scored_cutoff` or `no_row_served`); the receipt carries the hole count and records; the
-forward prereg's countability rules decide its effect.
+observation, counting only snapshots at the fitted state's hours (13-16 by default; master Q1(a), 2026-11-04,
+emit-only). A batch (market, date, state hour) that emits 0 rows
+is a named hole record in `holes.jsonl` with a reason code: `no_gated_snapshot_at_hour` (no snapshot with that
+cutoff hour reached the local-hour gate) or `gated_but_not_served` (gated snapshots at that hour, none served).
+The receipt carries the hole count and records; the forward prereg's countability rules decide its effect.
 
 Disclosure (inherited from bound MG-2, not changed here): training anchors NBM with `nbm_at_cutoff` at h:00, while
 serving uses `usable_v2_mean` at capture time.
@@ -56,9 +59,20 @@ serving uses `usable_v2_mean` at capture time.
 - A refusal after the fit directory exists (the frozen-list compare, a source or calendar-grid check, the pooled
   imputation cap, a missing training market) writes a `REFUSED` marker there: the reason, the message and a UTC
   stamp. A directory with `REFUSED` (or without `fit_manifest.json`) is never a fit; leave it as evidence and fit
-  again with a new fit id. The records root and the NBM work files it wrote stay as they are.
+  again with a new fit id. The records root and the NBM work files it wrote stay as they are. `emit` refuses a
+  fit manifest or state whose directory holds `REFUSED`. If the marker itself cannot be written, the original
+  refusal still propagates, with a note naming the marker failure.
 - An empty calendar grid (no covered year in the training window) refuses by name.
-- Copies the three files to `C:\archive\row28b-forward-state\<fit_id>\` and verifies them sha-equal. Record that
+- `--declare-absent <records.json> --declare-absent-sha <sha>` accepts master-ruled calendar-grid holes as
+  `source_absent_final`, by name, on the grid check only (rows and state are unchanged). Schema
+  `yearround_refit_declared_absent/1`; each record holds `market`, `target_date`, `reason`
+  (`source_absent_final`), `class` (`march_1`, `us_spring_forward_sunday` or `other`), `cause` (a file:line cite)
+  and `ruling`. A declared record that is not a real hole refuses, and an undeclared hole still refuses. The
+  manifest's `source_presence.calendar_grid.declared_absent` names them with the file's sha. The forward freeze is
+  13-16 only.
+- Copies the state and sidecar to `C:\archive\row28b-forward-state\<fit_id>\` and verifies them sha-equal
+  BEFORE `fit_manifest.json` is written (a refused archive leaves no manifest), then adds the manifest to the
+  same archive directory, verified too. Record that
   path and the state and fit-manifest shas in the forward prereg.
 - Freeze the forward 13-16 state only at the FINAL module sha, after `--hours` lands: `emit` refuses when this
   module's sha, `mg2_p3d_n.py` or `r0_ols_floor_devfit.py` differs from the fit manifest, so any module change after
@@ -110,7 +124,28 @@ The module does not write it.
   trainer cover every row; the counts are in the report. `--mode per_row` additionally needs `per_row_compared`
   equal to the rows, needs `--frozen-rows` and its sha, and reads only label-free columns. v12's frozen rows keep only
   `A_yhat`, so `state_sha` is the mode in use. No mode passes with nothing compared.
+- The report's `training_source_checks.calendar_grid` names the first five holes; the uncapped names-only list is
+  written beside the report as `training_grid_holes.json`, with its sha in `holes_file_sha256`.
+
+## 5. Grid holes (check-only, names only)
+
+```powershell
+-m weather.calibration.yearround_refit grid-holes --config <cfg.json> --config-sha <sha> `
+  --records-root <existing records root> --out <new dir outside every checkout>
+```
+
+- Reads an EXISTING records root only (no build): its manifest must hold exactly the expected record windows with
+  matching payload shas and equal the config's `frozen_records_lists` union. The builder's module sha is reported,
+  not required.
+- Builds the label-free frame (`market_frame(with_labels=False)`, cut to `LAST_TRAIN`) and refuses if it holds a
+  label column. Touches no fit, state or emit path.
+- Self-check: refuses unless the grid holds 7315 (market, date) and 81 holes (the accepted 2026-11-04 report).
+- Writes one file, `<out>/grid_holes.json`, write-once, and prints its sha: every (market, date) hole, per-market
+  counts, the classes `march_1`, `us_spring_forward_sunday` and `other` (each named), any 29 February, whether
+  2024-02-29 and 2024-03-01 are holes, and `in_forward_window` (a hole on Dec 17..Jan 30 of any year).
+- Exit code 4 when `in_forward_window` is true: a STOP for master. Exit 0 otherwise.
 
 ## Update this file when
 
-The CLI, the config keys, the windows, the archive root or the emission cadence change.
+The CLI, the config keys, the windows, the archive root, the emission cadence or the grid-hole self-check
+counts change.

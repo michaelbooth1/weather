@@ -171,6 +171,13 @@ FIT_MANIFEST = "fit_manifest.json"
 SHADOW_ROWS = "shadow_rows.jsonl"
 EMIT_RECEIPT = "emit_receipt.json"
 EQUIVALENCE_REPORT = "equivalence_report.json"
+GRID_HOLES_SCHEMA = "yearround_refit_grid_holes/1"
+DECLARED_ABSENT_SCHEMA = "yearround_refit_declared_absent/1"
+DECLARED_ABSENT_REASON = "source_absent_final"
+GRID_HOLE_CLASSES = ("march_1", "us_spring_forward_sunday", "other")
+GRID_HOLES_FILE = "grid_holes.json"
+TRAINING_GRID_HOLES_FILE = "training_grid_holes.json"  # the equivalence run's uncapped names-only hole list
+GRID_HOLES_EXPECTED = {"expected_market_dates": 7315, "holes": 81}  # the accepted 11-04 report 64eed04b
 
 BOUND_P3D_N_STATE_SHA256 = "c6cc39f7b57f668557415d28ec37ac291694f4b429e572a3c178fb74e5a9c780"
 FROZEN_RUNNER_SHA256 = "9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b"
@@ -819,9 +826,9 @@ class SourceAbsent(YearroundRefused):
     """An input source of the bound feature set is absent or empty for a row's (market, date)."""
 
 
-def _refuse_absent(source, keys, n_dates):
-    shown = ", ".join(f"{m} {d}" for m, d in keys[:5])
-    raise SourceAbsent(f"input source {source!r} is absent or empty for {len(keys)} (market, date) of "
+def _refuse_absent(source, keys, n_dates, grain="(market, date)"):
+    shown = ", ".join(" ".join(str(x) for x in k) for k in keys[:5])
+    raise SourceAbsent(f"input source {source!r} is absent or empty for {len(keys)} {grain} of "
                        f"{n_dates}: {shown}{' ...' if len(keys) > 5 else ''}")
 
 
@@ -829,8 +836,8 @@ def refuse_absent_training_sources(frame, arm):
     """Refuse by name a (market, date) of the fit's training rows whose source is entirely missing.
 
     The fit's rows are ``arm_rows`` for the scored hours (any fold). ``wu_hourly`` is absent for a (market, date)
-    when any one of F, x_high_so_far and x_current_temp has no finite value on it (F3(a)). ``nbm`` is absent for
-    a DATE when no
+    and scored hour when any one of F, x_high_so_far and x_current_temp has no finite value on it (F3(a), hour
+    grain). ``nbm`` is absent for a DATE when no
     market has an NBM mean on it: per-(market, date) NBM gaps stay the pre-registered section 3.3b imputation,
     counted and capped by ``imputation_shares`` / IMPUTE_CAP. A pure precondition: it raises or returns counts.
     """
@@ -849,17 +856,19 @@ def refuse_absent_training_sources(frame, arm):
         raise SourceAbsent(f"input source 'wu_hourly' columns are absent from the frame: "
                            f"{sorted(set(TRAIN_SOURCE_COLUMNS['wu_hourly']) - set(cols))}")
     finite = rows[cols].apply(lambda c: np.isfinite(c.to_numpy(float)))
-    # F3(a): EACH named column needs a finite value on the (market, date); one finite column is not enough
-    wu = finite.groupby([rows["market"], rows["_d"]]).any().all(axis=1)
+    # F3(a), hour grain (master 2026-11-04): the h13-16 fits are separate models, so EACH named column needs a
+    # finite value on every (market, date, scored hour) that has rows; one finite column or hour is not enough
+    wu = finite.groupby([rows["market"], rows["_d"], rows["hour"].astype(int)]).any().all(axis=1)
     missing = [k for k, ok in wu.items() if not ok]
     if missing:
-        _refuse_absent("wu_hourly", missing, groups.ngroups)
+        _refuse_absent("wu_hourly", missing, int(len(wu)), grain="(market, date, hour)")
     fh_ok = np.isfinite(rows["fh"].to_numpy(float))
     by_date = pd_series(fh_ok, rows["_d"]).groupby(level=0).any()
     missing = [("all markets", d) for d, ok in by_date.items() if not ok]
     if missing:
         _refuse_absent("nbm", missing, len(by_date))
-    return {"wu_hourly_market_dates": int(groups.ngroups), "nbm_dates": int(len(by_date)),
+    return {"wu_hourly_market_dates": int(groups.ngroups), "wu_hourly_market_date_hours": int(len(wu)),
+            "nbm_dates": int(len(by_date)),
             "rows_missing_any_wu_hourly_value": int((~rows[cols].apply(
                 lambda c: np.isfinite(c.to_numpy(float))).all(axis=1)).sum())}
 
@@ -888,18 +897,85 @@ def training_grid_holes(frame, expected):
     return sorted(expected - have)
 
 
-def refuse_training_grid_holes(frame, expected):
+def _us_spring_forward(day):
+    """The second Sunday of March: the US start of daylight saving time (every market here is a US station)."""
+    return day.month == 3 and day.weekday() == 6 and 8 <= day.day <= 14
+
+
+def _in_forward_scored_window(day):
+    """Dec 17 .. Jan 30 by calendar day: the forward scored window's days in any year."""
+    return (day.month == 12 and day.day >= 17) or (day.month == 1 and day.day <= 30)
+
+
+def grid_hole_names(holes, expected_n):
+    """A NAMES-ONLY account of calendar-grid holes: each (market, date), counts and the date classes. No values."""
+    named = [{"market": m, "target_date": d} for m, d in sorted(holes)]
+    classes = {"march_1": [], "us_spring_forward_sunday": [], "other": []}
+    for m, d in sorted(holes):
+        day = as_date(d)
+        cls = "march_1" if (day.month, day.day) == (3, 1) else (
+            "us_spring_forward_sunday" if _us_spring_forward(day) else "other")
+        classes[cls].append(f"{m} {d}")
+    days = {d for _, d in holes}
+    return {"expected_market_dates": int(expected_n), "holes": len(named), "names": named,
+            "per_market": dict(sorted(Counter(m for m, _ in holes).items())),
+            "by_class": {k: {"count": len(v), "names": v} for k, v in classes.items()},
+            "feb_29_holes": sorted(f"{m} {d}" for m, d in holes if d[5:] == "02-29"),
+            "has_2024_02_29": "2024-02-29" in days, "has_2024_03_01": "2024-03-01" in days,
+            "in_forward_window": any(_in_forward_scored_window(as_date(d)) for d in days),
+            "in_forward_window_names": sorted(f"{m} {d}" for m, d in holes if _in_forward_scored_window(as_date(d)))}
+
+
+def load_declared_absent(path, sha):
+    """The master-ruled ``source_absent_final`` grid-hole records (sha-pinned JSON), or refuse by name.
+
+    Each record names a (market, date), its class, the cause cite and the ruling; nothing else. A duplicate, an
+    unknown market, class or reason, or a record without a cause or ruling refuses.
+    """
+    body = json.loads(_read_verified(path, sha, "declared-absent records"))
+    if body.get("schema") != DECLARED_ABSENT_SCHEMA or not isinstance(body.get("records"), list) or not body["records"]:
+        raise YearroundRefused(f"declared-absent records need schema {DECLARED_ABSENT_SCHEMA} and a non-empty list")
+    keys = []
+    for rec in body["records"]:
+        if set(rec) != {"market", "target_date", "reason", "class", "cause", "ruling"}:
+            raise YearroundRefused(f"declared-absent record has keys {sorted(rec)}")
+        if rec["reason"] != DECLARED_ABSENT_REASON or rec["class"] not in GRID_HOLE_CLASSES:
+            raise YearroundRefused(f"declared-absent record {rec['market']} {rec['target_date']}: reason must be "
+                                   f"{DECLARED_ABSENT_REASON!r} and class one of {GRID_HOLE_CLASSES}")
+        if rec["market"] not in TRAINING_MARKETS or not str(rec["cause"]).strip() or not str(rec["ruling"]).strip():
+            raise YearroundRefused(f"declared-absent record {rec['market']} {rec['target_date']}: unknown market or "
+                                   "no cause cite or ruling")
+        keys.append((rec["market"], as_date(rec["target_date"]).isoformat()))
+    if len(set(keys)) != len(keys):
+        raise YearroundRefused("declared-absent records name a (market, date) twice")
+    return {"records": set(keys), "sha256": sha, "by_class": dict(sorted(Counter(r["class"] for r in body["records"])
+                                                                           .items()))}
+
+
+def refuse_training_grid_holes(frame, expected, declared=None):
     """F3(b), a HARD check: a hole in the calendar grid refuses by name (never filtered or filled).
 
-    An EMPTY expected grid (no covered years recorded) refuses too: it would pass vacuously.
+    An EMPTY expected grid (no covered years recorded) refuses too: it would pass vacuously. ``declared``
+    (``load_declared_absent``) names master-ruled holes that are accepted as ``source_absent_final``: every
+    declared record must be a real hole, and any hole it does not name still refuses. The rows are unchanged.
     """
     if not expected:
         raise SourceAbsent("input source 'training_calendar_grid' is empty: the records manifest lists no covered "
                            "year in the training window")
     holes = training_grid_holes(frame, expected)
-    if holes:
-        _refuse_absent("training_calendar_grid", holes, len(expected))
-    return {"expected_market_dates": len(expected), "holes": 0}
+    named = set() if declared is None else set(declared["records"])
+    not_holes = sorted(named - set(holes))
+    if not_holes:
+        shown = ", ".join(f"{m} {d}" for m, d in not_holes[:5])
+        raise YearroundRefused(f"{len(not_holes)} declared-absent record(s) are not grid holes: {shown}")
+    undeclared = [k for k in holes if k not in named]
+    if undeclared:
+        _refuse_absent("training_calendar_grid", undeclared, len(expected))
+    out = {"expected_market_dates": len(expected), "holes": len(holes) - len(named)}
+    if declared is not None:
+        out["declared_absent"] = {"records": len(named), "sha256": declared["sha256"], "by_class": declared["by_class"],
+                                  "names": [f"{m} {d}" for m, d in sorted(named)]}
+    return out
 
 
 def pd_series(values, index):
@@ -943,8 +1019,11 @@ def imputation_by_market_month(frame, arm):
             "over_cap": sorted(k for k, v in out.items() if v["share"] > IMPUTE_CAP)}
 
 
-def training_source_checks(frame, arm, covered_years, prm):
-    """Equivalence-side report of the fit's hard checks (F3(a), F3(b)) and F3(c) counts: names and counts only."""
+def training_source_checks(frame, arm, covered_years, prm, holes_path=None):
+    """Equivalence-side report of the fit's hard checks (F3(a), F3(b)) and F3(c) counts: names and counts only.
+
+    ``holes_path`` (optional) receives the UNCAPPED names-only hole list (``grid_hole_names``); its sha is reported.
+    """
     out = {}
     try:
         out["source_presence"] = refuse_absent_training_sources(frame, arm)
@@ -954,6 +1033,9 @@ def training_source_checks(frame, arm, covered_years, prm):
     holes = training_grid_holes(frame, expected)
     out["calendar_grid"] = {"expected_market_dates": len(expected), "empty": not expected, "holes": len(holes),
                             "first_holes": [f"{m} {d}" for m, d in holes[:5]]}
+    if holes_path is not None:
+        out["calendar_grid"]["holes_file"] = str(holes_path)
+        out["calendar_grid"]["holes_file_sha256"] = _write_json(holes_path, grid_hole_names(holes, len(expected)))
     out["imputation_by_market_month"] = imputation_by_market_month(frame, arm)
     return out
 
@@ -1050,6 +1132,18 @@ def archive_copy(fit_dir, fit_id, names, archive_root=None):
     return str(dest), out
 
 
+def archive_add(fit_dir, archive_dir, name):
+    """Copy one more frozen file into an existing archive directory, write-once, and verify it sha-equal."""
+    dest = Path(archive_dir) / name
+    if dest.exists():
+        raise YearroundRefused(f"archive file {dest} already exists (write-once)")
+    src_sha = sha256_file(Path(fit_dir) / name)
+    shutil.copyfile(Path(fit_dir) / name, dest)
+    if sha256_file(dest) != src_sha:
+        raise YearroundRefused(f"archive copy of {name} is not sha-equal")
+    return src_sha
+
+
 def verify_archive(fit_dir, archive_dir, names):
     """Re-verify an archived fit: every file present in both places and sha-equal."""
     return {name: sha256_file(Path(archive_dir) / name) == sha256_file(Path(fit_dir) / name) for name in names}
@@ -1065,10 +1159,13 @@ def freeze_state(p3, state, out_dir):
     return sha
 
 
-def fit(cfg, arm="B", now=None, *, records_root):
+def fit(cfg, arm="B", now=None, *, records_root, declared_absent=None, declared_absent_sha=None):
     if arm not in FIT_ARMS:
         raise YearroundRefused(f"only arm(s) {FIT_ARMS} have a forward fit")
     refuse_legacy_config(cfg)
+    if bool(declared_absent) != bool(declared_absent_sha):
+        raise YearroundRefused("--declare-absent needs --declare-absent-sha (and the reverse)")
+    declared = load_declared_absent(declared_absent, declared_absent_sha) if declared_absent else None
     if not cfg.get("frozen_records_lists"):  # F2: a fresh fit needs the frozen lists too, never only on reuse
         raise YearroundRefused("fit requires frozen_records_lists ([path, sha256] pairs) in the config")
     now = now or utc_now()
@@ -1077,14 +1174,17 @@ def fit(cfg, arm="B", now=None, *, records_root):
     fit_id = now.strftime("%Y%m%dT%H%M%SZ")
     out = _new_dir(state_root() / CANDIDATE_ID / fit_id)
     try:
-        return _fit_in(cfg, arm, now, fit_id, out, records_root)
+        return _fit_in(cfg, arm, now, fit_id, out, records_root, declared=declared)
     except Exception as exc:  # a partial fit dir is never mistaken for a fit: it carries a REFUSED marker
-        _write_json(out / REFUSED_MARKER, {"refused": True, "reason": type(exc).__name__, "message": str(exc),
-                                           "refused_utc": utc_now().isoformat()})
-        raise
+        try:
+            _write_json(out / REFUSED_MARKER, {"refused": True, "reason": type(exc).__name__, "message": str(exc),
+                                               "refused_utc": utc_now().isoformat()})
+        except Exception as marker_exc:  # the ORIGINAL refusal is what propagates; the marker failure is noted
+            exc.add_note(f"the {REFUSED_MARKER} marker could not be written: {marker_exc!r}")
+        raise exc
 
 
-def _fit_in(cfg, arm, now, fit_id, out, records_root):
+def _fit_in(cfg, arm, now, fit_id, out, records_root, declared=None):
     mods = _modules()
     upstream = upstream_shas()
     conversion, late_report = bound_hooks(mods, cfg)
@@ -1093,8 +1193,8 @@ def _fit_in(cfg, arm, now, fit_id, out, records_root):
                               frozen_records_union(cfg, mods.prm))
     frame, payload_buckets, build_report = training_frame(cfg, mods, files, out / "work_nbm")
     source_presence = refuse_absent_training_sources(frame, arm)
-    source_presence["calendar_grid"] = refuse_training_grid_holes(
-        frame, expected_training_grid(mods.prm, records_manifest.get("covered_years"), arm))
+    source_presence["calendar_grid"] = refuse_training_grid_holes(  # the check path only: rows and state unchanged
+        frame, expected_training_grid(mods.prm, records_manifest.get("covered_years"), arm), declared=declared)
     by_market_month = imputation_by_market_month(frame, arm)
     shares = imputation_shares(frame, arm)
     if max((v["share"] for v in shares.values()), default=0.0) > IMPUTE_CAP:
@@ -1132,9 +1232,11 @@ def _fit_in(cfg, arm, now, fit_id, out, records_root):
         "extract_failed_closed": records_manifest["extract_failed_closed"],
         "archive_dir": str(ARCHIVE_ROOT / fit_id),
     }
+    # the state and sidecar are archived (and verified) BEFORE the manifest is written, so a refused archive leaves
+    # no manifest; the manifest then joins the same archive directory, verified too
+    archive_dir, archived = archive_copy(out, fit_id, (mods.p3.STATE_FILE, mods.p3.STATE_SIDECAR))
     manifest_sha = _write_json(out / FIT_MANIFEST, manifest)
-    names = (mods.p3.STATE_FILE, mods.p3.STATE_SIDECAR, FIT_MANIFEST)
-    archive_dir, archived = archive_copy(out, fit_id, names)
+    archived[FIT_MANIFEST] = archive_add(out, archive_dir, FIT_MANIFEST)
     return {"fit_dir": str(out), "state_sha256": sha, "state_sidecar_sha256": manifest["state_sidecar_sha256"],
             "fit_manifest_sha256": manifest_sha, "archive_dir": archive_dir, "archive_sha256": archived}
 
@@ -1155,14 +1257,18 @@ def _replay_dirs(replay_root):
         yield slug, date(int(year), months[month], int(day)), folder
 
 
-def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_dec_may, presence=None):
+def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_dec_may, presence=None,
+                hour_presence=None):
     """[(market, snapshot_id, target_date, row_key, distribution)] plus stats; MG-2 ``emit_rows``' gate.
 
     The row gate is ``mg2_p3d_n.emit_rows`` with ``inputs="as_of_capture"`` (cutoff hour in the intraday set,
     local hour >= cutoff, a usable captured NBM mean, a replay observation with high_so_far and current_temp),
     with ``in_coverage`` in place of rule C5's 08-01..12-16 gate. With C5's gate it equals ``emit_rows``.
     ``presence`` (optional dict) receives, per (market, date) of the gated rows, the counts that
-    ``refuse_absent_emit_sources`` reads; the returned rows and stats are unchanged by it.
+    ``refuse_absent_emit_sources`` reads, counting only the state's fitted hours (master Q1(a), 2026-11-04: an
+    as-of-capture input trimmed to the last scored hour must not refuse by construction); ``hour_presence``
+    (optional dict) receives per (market, date, state hour) the gated and emitted counts that ``emit_holes`` reads.
+    The returned rows and stats are unchanged.
     """
     from zoneinfo import ZoneInfo
 
@@ -1174,6 +1280,7 @@ def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_
     from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
 
     hours = {int(h) for h in INTRADAY_CUTOFF_HOURS}
+    state_hours = {int(h) for h in state["hours"]}
     snaps = snaps.assign(nbm_usable=usable_v2_mean(snaps))
     rows, stats, used = [], {}, {}
     for market in markets:
@@ -1205,8 +1312,11 @@ def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_
                 m["outside_training_coverage"] += 1
                 m["coverage_fallback"].append(getattr(row, "row_key", None) or row.snapshot_id)
                 continue
-            tally = None
-            if presence is not None:
+            tally = htally = None
+            if hour_presence is not None and hour in state_hours:
+                htally = hour_presence.setdefault((market, key[0], hour), {"gated": 0, "emitted": 0})
+                htally["gated"] += 1
+            if presence is not None and hour in state_hours:  # Q1(a): the emitter gates on its fitted hours
                 tally = presence.setdefault((market, key[0]), {"gated": 0, "nbm": 0, "replay_folder": False,
                                                               "observation": 0})
                 tally["gated"] += 1
@@ -1247,6 +1357,8 @@ def shadow_rows(state, snaps, replay_root, first, last, markets, in_coverage=in_
                 continue
             rows.append((market, row.snapshot_id, key[0], getattr(row, "row_key", None), dist))
             m["emitted"] += 1
+            if htally is not None:
+                htally["emitted"] += 1
     return rows, stats, used
 
 
@@ -1254,8 +1366,10 @@ def refuse_absent_emit_sources(snaps, presence, first, last, markets, in_coverag
     """Refuse by name a batch (market, date) whose captured source is absent or empty (master 2026-11-03).
 
     ``captured_snapshots``: no snapshot row at all for an emission market on a batch date in coverage.
-    ``captured_metar_replay``: rows passed the hour gates but the date has no replay folder, or no row found an
-    observation with high_so_far and current_temp. ``captured_nbm``: no gated row had a usable NBM mean.
+    ``captured_metar_replay``: rows passed the hour gates at one of the state's fitted hours (master Q1(a),
+    2026-11-04; not the 7..20 intraday set) but the date has no replay folder, or no such row found an observation
+    with high_so_far and current_temp. ``captured_nbm``: no such gated row had a usable NBM mean. Fail-closed at
+    the state hours; a state hour with no gated row is a named hole (``emit_holes``).
     Per-row drops inside a present source stay counted in the receipt's stats.
     """
     days = snaps["target_date"].astype(str).str[:10]
@@ -1274,23 +1388,25 @@ def refuse_absent_emit_sources(snaps, presence, first, last, markets, in_coverag
     return {"market_dates": len(want), "gated_market_dates": len(gated)}
 
 
-def emit_holes(rows, presence, first, last, markets, in_coverage=in_dec_may):
-    """F3(d): a NAMED hole record for each batch (market, date) in coverage that emitted 0 rows, with a reason.
+def emit_holes(hour_presence, first, last, markets, hours, in_coverage=in_dec_may):
+    """F3(d), hour grain: a NAMED hole per batch (market, date, state hour) in coverage that emitted 0 rows.
 
-    The batch is not refused for a hole (master ruling, 2026-11-03); the forward prereg's countability rules
-    decide its effect. Reasons: ``no_snapshot_at_a_scored_cutoff`` (no row passed the cutoff-hour gates) or
-    ``no_row_served`` (gated rows existed but none reached a served distribution).
+    The batch is not refused for a hole (master rulings 2026-11-03/04); the forward prereg's countability rules
+    decide its effect. Reasons say what was measured: ``no_gated_snapshot_at_hour`` (no snapshot with this cutoff
+    hour reached the local-hour gate) or ``gated_but_not_served`` (gated snapshots at this hour, none served).
     """
-    emitted = Counter((m, t) for m, _, t, _, _ in rows)
     holes = []
     for market in markets:
         for i in range((last - first).days + 1):
             day = (first + timedelta(days=i)).isoformat()
-            if not in_coverage(day) or emitted[(market, day)]:
+            if not in_coverage(day):
                 continue
-            tally = presence.get((market, day))
-            reason = "no_row_served" if tally and tally["gated"] else "no_snapshot_at_a_scored_cutoff"
-            holes.append({"market": market, "target_date": day, "rows": 0, "reason": reason})
+            for hour in sorted(int(h) for h in hours):
+                tally = hour_presence.get((market, day, hour)) or {"gated": 0, "emitted": 0}
+                if tally["emitted"]:
+                    continue
+                reason = "gated_but_not_served" if tally["gated"] else "no_gated_snapshot_at_hour"
+                holes.append({"market": market, "target_date": day, "hour": hour, "rows": 0, "reason": reason})
     return holes
 
 
@@ -1380,6 +1496,9 @@ def emit(*, state_path, state_sha, fit_manifest, fit_manifest_sha, forward_recei
     if inputs not in INPUT_MODES:
         raise YearroundRefused(f"emit takes {INPUT_MODES} inputs only (master Q-W)")
     first, last = as_date(first), as_date(last)
+    for beside in {Path(fit_manifest).parent, Path(state_path).parent}:
+        if (beside / REFUSED_MARKER).exists():
+            raise YearroundRefused(f"{beside} holds a {REFUSED_MARKER} marker: it is a refused fit, never a fit")
     manifest = json.loads(_read_verified(fit_manifest, fit_manifest_sha, "fit manifest"))
     if manifest.get("schema") != FIT_MANIFEST_SCHEMA or manifest.get("candidate_id") != CANDIDATE_ID:
         raise YearroundRefused("not a row28_B fit manifest")
@@ -1407,11 +1526,11 @@ def emit(*, state_path, state_sha, fit_manifest, fit_manifest_sha, forward_recei
     shadow_dir = state_root() / CANDIDATE_ID / manifest["fit_id"] / "shadow" / f"{first:%Y%m%d}_{last:%Y%m%d}"
     if shadow_dir.exists():
         raise YearroundRefused(f"{shadow_dir} already exists (write-once)")
-    presence = {}
+    presence, hour_presence = {}, {}
     rows, stats, used = shadow_rows(state, snaps, guard_path(replay_root), first, last, EMIT_MARKETS,
-                                    presence=presence)
+                                    presence=presence, hour_presence=hour_presence)
     source_presence = refuse_absent_emit_sources(snaps, presence, first, last, EMIT_MARKETS)
-    holes = emit_holes(rows, presence, first, last, EMIT_MARKETS)
+    holes = emit_holes(hour_presence, first, last, EMIT_MARKETS, state["hours"])
     out = _new_dir(shadow_dir)
     body = "".join(mods.p3.jsonl_line(m, sid, t, d) for m, sid, t, _, d in rows).encode("utf-8")
     (out / SHADOW_ROWS).write_bytes(body)
@@ -1660,10 +1779,11 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
     records = records_root_arg(records_root, cfg)
     if records.exists() and any(records.iterdir()):
         raise YearroundRefused("the equivalence run needs a NEW records root")
-    now = now or utc_now()
-    out = _new_dir(state_root() / CANDIDATE_ID / "equivalence" / now.strftime("%Y%m%dT%H%M%SZ"))
     mods = _modules()
     prm, p3 = mods.prm, mods.p3
+    frozen_union = frozen_records_union(cfg, prm)  # a malformed list refuses before any write
+    now = now or utc_now()
+    out = _new_dir(state_root() / CANDIDATE_ID / "equivalence" / now.strftime("%Y%m%dT%H%M%SZ"))
     report = {"schema": EQUIVALENCE_SCHEMA, "candidate_id": CANDIDATE_ID, "mode": mode,
               "module_source_sha256": module_source_sha256(), "upstream_sha256": upstream_shas(),
               "frozen_runner_sha256": frozen_runner_sha, "versions": _versions(), "started_utc": now.isoformat(),
@@ -1677,7 +1797,7 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
     # (a) build
     files, records_manifest = build_records(cfg, prm, records)
     ours = {n: e["payload_sha256"] for n, e in records_manifest["files"].items()}
-    rec = compare_records(ours, frozen_records_union(cfg, prm))
+    rec = compare_records(ours, frozen_union)
     report["records"] = rec
     passes.append(("records", rec["pass"]))
     frame, payload_buckets, build_report = training_frame(cfg, mods, files, out / "work_nbm")
@@ -1695,7 +1815,8 @@ def equivalence(cfg, *, records_root, frozen_runner, frozen_runner_sha, mode="st
                                           keys, FRAME_TOLERANCE)  # labels are not compared (design 2.3)
     passes += [("y_free_frame", report["y_free_frame"]["pass"]), ("input_frame", report["input_frame"]["pass"])]
     # the fit's hard checks F3(a)/(b) and the F3(c) counts on the bound inputs, REPORTED (not a pass check)
-    report["training_source_checks"] = training_source_checks(frame, "B", records_manifest.get("covered_years"), prm)
+    report["training_source_checks"] = training_source_checks(frame, "B", records_manifest.get("covered_years"), prm,
+                                                              holes_path=out / TRAINING_GRID_HOLES_FILE)
 
     # (b) row sets and (c) fits
     per_row = {}
@@ -1844,6 +1965,76 @@ def _forward_equivalence(mods, cfg, out, arm, centres, frame, hour_fits, hour_bu
     return result
 
 
+# ----------------------------------------------------------------------------- grid-holes (check-only)
+
+def verify_existing_records_root(cfg, prm, records):
+    """The read-only half of ``build_records``' reuse checks, for a check-only reader of an EXISTING root.
+
+    The manifest must exist (nothing is ever built here), have no fail-closed or skipped entry, hold exactly the
+    expected record windows with matching payload shas and nothing else, and equal the config's frozen records
+    union. Its builder's module sha is reported, not required: the frozen union is the integrity check.
+    """
+    manifest_path = records / RECORDS_MANIFEST
+    if not manifest_path.is_file():
+        raise YearroundRefused(f"grid-holes reads an existing records root only: {records} has no {RECORDS_MANIFEST}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema") != RECORDS_MANIFEST_SCHEMA:
+        raise YearroundRefused("records manifest schema differs")
+    refuse_incomplete_records(manifest)
+    if sorted(manifest["files"]) != expected_record_names(prm, records):
+        raise YearroundRefused("the records root's file set differs from the expected record windows")
+    for name, entry in manifest["files"].items():
+        if payload_sha256(records / name) != entry["payload_sha256"]:
+            raise YearroundRefused(f"record {name} differs from its records manifest")
+    if sorted(p.name for p in records.glob("records_*.pkl.gz")) != sorted(manifest["files"]):
+        raise YearroundRefused("the records root holds files outside its records manifest")
+    refuse_records_not_frozen({n: e["payload_sha256"] for n, e in manifest["files"].items()},
+                              frozen_records_union(cfg, prm))
+    return sorted(records / n for n in manifest["files"]), manifest
+
+
+def grid_holes(cfg, *, records_root, out, expected=None):
+    """Check-only: the NAMES of B's calendar-grid holes on an existing, frozen-equal records root (master 11-04).
+
+    Reads the records with ``market_frame(with_labels=False)`` (each label is masked to presence at load), cut to
+    ``LAST_TRAIN``, and asserts that the frame holds no label column. It writes ONE names-only file under ``out``,
+    a NEW directory outside every checkout, and nothing else; it touches no fit, state or emit path. It refuses
+    unless the grid and hole counts equal ``expected`` (default ``GRID_HOLES_EXPECTED``, the accepted report).
+    """
+    refuse_legacy_config(cfg)
+    if not cfg.get("frozen_records_lists"):
+        raise YearroundRefused("grid-holes requires frozen_records_lists ([path, sha256] pairs) in the config")
+    want = dict(GRID_HOLES_EXPECTED if expected is None else expected)
+    records = records_root_arg(records_root, cfg)
+    out = check_records_root(out)  # no reparse point on the path, not inside any checkout or its data folder
+    if out.exists():
+        raise YearroundRefused(f"refusing to reuse {out} (write-once)")
+    mods = _modules()
+    prm = mods.prm
+    prm.require_output_outside_repo(out)
+    files, manifest = verify_existing_records_root(cfg, prm, records)
+    frame, _ = market_frame(prm, files, with_labels=False)
+    if "y" in frame.columns or "y_present" not in frame.columns:
+        raise YearroundRefused("grid-holes needs the label-free frame (no y column)")
+    frame = frame[frame["target_date"].astype(str).str[:10] <= LAST_TRAIN.isoformat()].reset_index(drop=True)
+    grid = expected_training_grid(prm, manifest.get("covered_years"), "B")
+    holes = training_grid_holes(frame, grid)
+    got = {"expected_market_dates": len(grid), "holes": len(holes)}
+    if got != want:
+        raise YearroundRefused(f"grid-holes self-check: {got} differs from the expected {want}")
+    body = {"schema": GRID_HOLES_SCHEMA, "candidate_id": CANDIDATE_ID, "arm": "B",
+            "module_source_sha256": module_source_sha256(),
+            "records_manifest_module_sha256": manifest.get("module_source_sha256"),
+            "records_root": str(records), "frame_rows": int(len(frame)), **grid_hole_names(holes, len(grid))}
+    out.mkdir(parents=True)
+    path = out / GRID_HOLES_FILE
+    sha = _write_json(path, body)
+    return {"out_file": str(path), "sha256": sha, "holes": body["holes"],
+            "expected_market_dates": body["expected_market_dates"], "in_forward_window": body["in_forward_window"],
+            "has_2024_02_29": body["has_2024_02_29"], "has_2024_03_01": body["has_2024_03_01"],
+            "by_class_counts": {k: v["count"] for k, v in body["by_class"].items()}}
+
+
 # ----------------------------------------------------------------------------- CLI
 
 _REFUSED_FLAGS = ("--live", "--execute", "--place", "--cancel", "--promote")
@@ -1857,6 +2048,8 @@ def _parser():
     f.add_argument("--config", required=True)
     f.add_argument("--config-sha", required=True)
     f.add_argument("--records-root", required=True)
+    f.add_argument("--declare-absent", help="master-ruled source_absent_final grid-hole records (JSON)")
+    f.add_argument("--declare-absent-sha")
     e = sub.add_parser("emit", help="one weekly shadow batch on captured inputs (as_of_capture)")
     for name in ("--state", "--state-sha", "--fit-manifest", "--fit-manifest-sha", "--forward-receipt",
                  "--forward-receipt-sha", "--snapshots", "--replay-root", "--first", "--last"):
@@ -1871,6 +2064,11 @@ def _parser():
     q.add_argument("--mode", choices=("state_sha", "per_row"), default="state_sha")
     q.add_argument("--frozen-rows")
     q.add_argument("--frozen-rows-sha")
+    g = sub.add_parser("grid-holes", help="check-only: the names of B's calendar-grid holes (names only, no values)")
+    g.add_argument("--config", required=True)
+    g.add_argument("--config-sha", required=True)
+    g.add_argument("--records-root", required=True)
+    g.add_argument("--out", required=True)
     return parser
 
 
@@ -1886,12 +2084,17 @@ def main(argv=None):
         os.environ[var] = THREADS  # v12 H4: pinned before numpy or sklearn is imported (the imports are lazy)
     args = _parser().parse_args(argv)
     if args.command == "fit":
-        result = fit(_config(args.config, args.config_sha), arm=args.arm, records_root=args.records_root)
+        result = fit(_config(args.config, args.config_sha), arm=args.arm, records_root=args.records_root,
+                     declared_absent=args.declare_absent, declared_absent_sha=args.declare_absent_sha)
     elif args.command == "emit":
         result = emit(state_path=args.state, state_sha=args.state_sha, fit_manifest=args.fit_manifest,
                       fit_manifest_sha=args.fit_manifest_sha, forward_receipt=args.forward_receipt,
                       forward_receipt_sha=args.forward_receipt_sha, snapshots=args.snapshots,
                       replay_root=args.replay_root, first=args.first, last=args.last, inputs=args.inputs)
+    elif args.command == "grid-holes":
+        result = grid_holes(_config(args.config, args.config_sha), records_root=args.records_root, out=args.out)
+        print(json.dumps(result, indent=1, sort_keys=True))
+        return 4 if result["in_forward_window"] else 0  # a hole in Dec 17..Jan 30 is a STOP for master
     else:
         if args.frozen_runner_sha != FROZEN_RUNNER_SHA256:
             raise SystemExit("the frozen runner must be row28_run_v12.py 9e97c892...")

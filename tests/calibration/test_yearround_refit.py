@@ -630,6 +630,10 @@ def test_equivalence_passes_on_identical_inputs_and_holds_no_value(world, tmp_pa
     assert all(c["coverage_complete"] and c["trainer_compared"] == c["expected_rows"] > 0
                and c["serve_compared"] == c["expected_serve"] > 0 for c in report["fits"])
     assert report["forward"]["coverage_complete"] and report["forward"]["serve_compared"] > 0
+    grid = report["training_source_checks"]["calendar_grid"]
+    holes_file = Path(grid["holes_file"])
+    assert holes_file.name == yr.TRAINING_GRID_HOLES_FILE and _sha(holes_file) == grid["holes_file_sha256"]
+    assert json.loads(holes_file.read_text(encoding="utf-8"))["holes"] == grid["holes"]
 
     def walk_values(obj, path=""):
         if isinstance(obj, dict):
@@ -945,7 +949,7 @@ def test_fit_refuses_by_name_a_training_source_absent_for_a_market_date():
     gap = frame.copy()
     wu_cols = ["F", "x_high_so_far", "x_current_temp"]
     gap.loc[(gap.market == "denver") & (gap.target_date == "2023-01-06"), wu_cols] = nan
-    with pytest.raises(yr.SourceAbsent, match="'wu_hourly' is absent or empty for 1 .*denver 2023-01-06"):
+    with pytest.raises(yr.SourceAbsent, match="'wu_hourly' is absent or empty for 1 .*denver 2023-01-06 13"):
         yr.refuse_absent_training_sources(gap, "B")
     no_nbm = frame.copy()
     no_nbm.loc[no_nbm.target_date == "2023-01-05", "fh"] = nan
@@ -1019,10 +1023,16 @@ def test_wu_hourly_presence_needs_each_named_column():
     nan = float("nan")
     frame = pd.DataFrame([{"market": "atlanta", "target_date": "2023-01-05", "hour": h, "F": 60.0,
                            "x_high_so_far": 60.0, "x_current_temp": nan, "fh": 62.0} for h in (13, 14)])
-    with pytest.raises(yr.SourceAbsent, match="'wu_hourly' .*atlanta 2023-01-05"):
+    with pytest.raises(yr.SourceAbsent, match="'wu_hourly' .*2 \\(market, date, hour\\).*atlanta 2023-01-05 13"):
         yr.refuse_absent_training_sources(frame, "B")
-    frame.loc[frame.hour == 14, "x_current_temp"] = 58.0  # one finite value per column on the date suffices
-    assert yr.refuse_absent_training_sources(frame, "B")["rows_missing_any_wu_hourly_value"] == 1
+    frame.loc[frame.hour == 14, "x_current_temp"] = 58.0  # hour grain: hour 13 still lacks the column
+    with pytest.raises(yr.SourceAbsent, match="for 1 \\(market, date, hour\\) of 2: atlanta 2023-01-05 13"):
+        yr.refuse_absent_training_sources(frame, "B")
+    frame = pd.concat([frame, frame.assign(x_current_temp=58.0)], ignore_index=True)  # a finite row at each hour
+    out = yr.refuse_absent_training_sources(frame, "B")
+    assert out["rows_missing_any_wu_hourly_value"] == 1 and out["wu_hourly_market_date_hours"] == 2
+    checks = yr.training_source_checks(frame.iloc[[0, 1]].assign(nbm_cycle="07"), "B", {}, prm)  # mirrored
+    assert "(market, date, hour)" in checks["source_presence"]["refused"]
 
 
 def test_training_calendar_grid_refuses_a_hole_by_name():
@@ -1051,13 +1061,17 @@ def test_imputation_counts_per_market_month_are_reported_not_refused():
     assert yr.imputation_shares(frame, "B")["01"]["share"] == 0.125  # the pooled cap is the refusing rule
 
 
-def test_emit_holes_are_named_records_with_a_reason():
-    rows = [("atlanta", "s1", "2026-12-21", None, {})]
-    presence = {("atlanta", "2026-12-22"): {"gated": 2, "nbm": 2, "replay_folder": True, "observation": 2}}
-    holes = yr.emit_holes(rows, presence, date(2026, 12, 21), date(2026, 12, 23), ["atlanta"])
-    assert holes == [{"market": "atlanta", "target_date": "2026-12-22", "rows": 0, "reason": "no_row_served"},
-                     {"market": "atlanta", "target_date": "2026-12-23", "rows": 0,
-                      "reason": "no_snapshot_at_a_scored_cutoff"}]
+def test_emit_holes_are_named_records_per_state_hour_with_a_reason():
+    hp = {("atlanta", "2026-12-21", 13): {"gated": 1, "emitted": 1},
+          ("atlanta", "2026-12-21", 14): {"gated": 2, "emitted": 0}}
+    holes = yr.emit_holes(hp, date(2026, 12, 21), date(2026, 12, 22), ["atlanta"], {13: {}, 14: {}})
+    assert holes == [
+        {"market": "atlanta", "target_date": "2026-12-21", "hour": 14, "rows": 0, "reason": "gated_but_not_served"},
+        {"market": "atlanta", "target_date": "2026-12-22", "hour": 13, "rows": 0,
+         "reason": "no_gated_snapshot_at_hour"},
+        {"market": "atlanta", "target_date": "2026-12-22", "hour": 14, "rows": 0,
+         "reason": "no_gated_snapshot_at_hour"}]
+    assert yr.emit_holes(hp, date(2026, 12, 21), date(2026, 12, 21), ["atlanta"], {13: {}}) == []
 
 
 def test_compare_records_fails_on_either_side_missing():
@@ -1155,3 +1169,274 @@ def test_an_empty_training_grid_refuses_by_name():
         assert grid == set()
         with pytest.raises(yr.SourceAbsent, match="'training_calendar_grid' is empty"):
             yr.refuse_training_grid_holes(frame, grid)
+
+
+# ----------------------------------------------------------------------------- post-run commit (master 11-04)
+
+def test_shadow_rows_hour_presence_counts_only_the_state_hours(b_state, tmp_path):
+    tz = ZoneInfo("America/New_York")
+    day = date(2026, 12, 21)
+    snaps = _replay_world(tmp_path / "replay", [day], tz)
+    presence, hour_presence = {}, {}
+    rows, _, _ = yr.shadow_rows(b_state, snaps, tmp_path / "replay", day, day, ["atlanta"], presence=presence,
+                                hour_presence=hour_presence)
+    assert set(hour_presence) == {("atlanta", "2026-12-21", 13)}  # the state holds hour 13 only
+    assert hour_presence[("atlanta", "2026-12-21", 13)] == {"gated": 2, "emitted": len(rows)} and len(rows) == 2
+    assert presence[("atlanta", "2026-12-21")]["gated"] == 2
+    assert yr.emit_holes(hour_presence, day, day, ["atlanta"], b_state["hours"]) == []
+
+
+def test_emit_refusals_gate_on_the_state_hours_not_the_intraday_set(b_state, tmp_path):
+    # Q1(a): a date whose only gated snapshot is at a non-state hour (14; the state holds 13) and has no replay
+    # folder would refuse 'captured_metar_replay' under the 7..20 gate; at the state hours it is a named hole
+    tz = ZoneInfo("America/New_York")
+    d1, d2 = date(2026, 12, 21), date(2026, 12, 22)
+    snaps = pd.concat([_replay_world(tmp_path / "replay", [d1], tz),
+                       _snaps([("atlanta|e22", d2, datetime(2026, 12, 22, 14, 10, tzinfo=tz), 14)], tz)],
+                      ignore_index=True)
+    presence, hour_presence = {}, {}
+    yr.shadow_rows(b_state, snaps, tmp_path / "replay", d1, d2, ["atlanta"], presence=presence,
+                   hour_presence=hour_presence)
+    assert ("atlanta", "2026-12-22") not in presence
+    assert yr.refuse_absent_emit_sources(snaps, presence, d1, d2, ["atlanta"])["gated_market_dates"] == 1
+    assert yr.emit_holes(hour_presence, d1, d2, ["atlanta"], b_state["hours"]) == [
+        {"market": "atlanta", "target_date": "2026-12-22", "hour": 13, "rows": 0,
+         "reason": "no_gated_snapshot_at_hour"}]
+    presence[("atlanta", "2026-12-21")]["replay_folder"] = False  # still fail-closed AT a state hour
+    with pytest.raises(yr.SourceAbsent, match="captured_metar_replay"):
+        yr.refuse_absent_emit_sources(snaps, presence, d1, d2, ["atlanta"])
+
+
+def test_emit_refuses_a_refused_marker_beside_the_manifest_or_state(tmp_path):
+    for where in ("fit", "state"):
+        fit_dir, state_dir = tmp_path / where / "fit", tmp_path / where / "state"
+        fit_dir.mkdir(parents=True)
+        state_dir.mkdir()
+        ((fit_dir if where == "fit" else state_dir) / yr.REFUSED_MARKER).write_text("{}", encoding="utf-8")
+        with pytest.raises(yr.YearroundRefused, match="REFUSED marker"):
+            yr.emit(state_path=state_dir / "s.pkl", state_sha="0" * 64, fit_manifest=fit_dir / yr.FIT_MANIFEST,
+                    fit_manifest_sha="0" * 64, forward_receipt=tmp_path / "r.json", forward_receipt_sha="0" * 64,
+                    snapshots=tmp_path / "s.parquet", replay_root=tmp_path, first="2026-12-21",
+                    last="2026-12-21")
+
+
+def test_a_refused_archive_leaves_no_manifest(world, tmp_path, monkeypatch):
+    def refuse(*_a, **_k):
+        raise yr.YearroundRefused("archive refused for the test")
+
+    monkeypatch.setattr(yr, "archive_copy", refuse)
+    now = datetime(2026, 11, 3, 13, 0, tzinfo=timezone.utc)
+    with pytest.raises(yr.YearroundRefused, match="archive refused for the test"):
+        yr.fit(_fit_cfg(tmp_path, world), arm="B", now=now, records_root=world.root("rec_archive"))
+    fit_dir = tmp_path / "data" / "yearround_refit" / "row28_B" / "20261103T130000Z"
+    assert (fit_dir / yr.REFUSED_MARKER).exists() and not (fit_dir / yr.FIT_MANIFEST).exists()
+
+
+def test_archive_add_is_write_once_and_sha_verified(tmp_path):
+    (tmp_path / "fit").mkdir()
+    (tmp_path / "arc").mkdir()
+    (tmp_path / "fit" / "m.json").write_text("{}", encoding="utf-8")
+    assert yr.archive_add(tmp_path / "fit", tmp_path / "arc", "m.json") == _sha(tmp_path / "fit" / "m.json")
+    with pytest.raises(yr.YearroundRefused, match="write-once"):
+        yr.archive_add(tmp_path / "fit", tmp_path / "arc", "m.json")
+
+
+def test_a_failed_marker_write_keeps_the_original_refusal(world, tmp_path, monkeypatch):
+    altered = _frozen_list(tmp_path, world, alter=True)
+    real = yr._write_json
+
+    def failing(path, obj):
+        if Path(path).name == yr.REFUSED_MARKER:
+            raise OSError("disk full for the test")
+        return real(path, obj)
+
+    monkeypatch.setattr(yr, "_write_json", failing)
+    now = datetime(2026, 11, 3, 13, 30, tzinfo=timezone.utc)
+    cfg = world() | {"frozen_records_lists": [[str(altered[0]), altered[1]]]}
+    with pytest.raises(yr.YearroundRefused, match="differ from the frozen") as info:
+        yr.fit(cfg, arm="B", now=now, records_root=world.root("rec_marker"))
+    assert any("could not be written" in n and "disk full" in n for n in info.value.__notes__)
+
+
+def test_equivalence_refuses_a_malformed_frozen_list_before_any_directory(world, tmp_path):
+    bad = tmp_path / "bad_walk.csv"
+    bad.write_text("not,a,walk\n", encoding="utf-8")
+    cfg = world() | {"frozen_records_lists": [[str(bad), "0" * 64]]}
+    with pytest.raises(yr.YearroundRefused):
+        yr.equivalence(cfg, records_root=world.root("rec_badlist"), frozen_runner=tmp_path / "none.py",
+                       frozen_runner_sha="0" * 64)
+    assert not (tmp_path / "data" / "yearround_refit" / "row28_B" / "equivalence").exists()
+
+
+def test_grid_hole_names_classifies_by_name_and_flags_the_forward_window():
+    holes = [("atlanta", "2022-03-01"), ("atlanta", "2022-03-13"), ("denver", "2024-02-29"),
+             ("denver", "2024-03-01"), ("seattle", "2023-04-02")]
+    out = yr.grid_hole_names(holes, 100)
+    assert out["holes"] == 5 and out["expected_market_dates"] == 100
+    assert out["per_market"] == {"atlanta": 2, "denver": 2, "seattle": 1}
+    assert out["by_class"]["march_1"]["names"] == ["atlanta 2022-03-01", "denver 2024-03-01"]
+    assert out["by_class"]["us_spring_forward_sunday"]["names"] == ["atlanta 2022-03-13"]
+    assert out["by_class"]["other"]["names"] == ["denver 2024-02-29", "seattle 2023-04-02"]
+    assert out["feb_29_holes"] == ["denver 2024-02-29"] and out["has_2024_02_29"] and out["has_2024_03_01"]
+    assert out["in_forward_window"] is False and out["in_forward_window_names"] == []
+    edge = yr.grid_hole_names([("nyc", "2023-12-17"), ("nyc", "2024-01-30"), ("nyc", "2024-01-31"),
+                               ("nyc", "2023-12-16")], 4)
+    assert edge["in_forward_window"] is True
+    assert edge["in_forward_window_names"] == ["nyc 2023-12-17", "nyc 2024-01-30"]
+    assert all(yr._us_spring_forward(date.fromisoformat(d)) for d in ("2022-03-13", "2023-03-12", "2024-03-10",
+                                                                        "2025-03-09", "2021-03-14"))
+    assert not yr._us_spring_forward(date(2024, 3, 17)) and not yr._us_spring_forward(date(2024, 3, 3))
+
+
+def _grid_counts(tmp_path, world):
+    mods = yr._modules()
+    root = tmp_path / "records_frozen"
+    manifest = json.loads((root / yr.RECORDS_MANIFEST).read_text(encoding="utf-8"))
+    files = sorted(root / n for n in manifest["files"])
+    frame, _ = yr.market_frame(mods.prm, files, with_labels=False)
+    frame = frame[frame["target_date"].astype(str).str[:10] <= yr.LAST_TRAIN.isoformat()]
+    grid = yr.expected_training_grid(mods.prm, manifest["covered_years"], "B")
+    return {"expected_market_dates": len(grid), "holes": len(yr.training_grid_holes(frame, grid))}
+
+
+def test_grid_holes_writes_one_names_only_file_and_is_write_once(world, tmp_path):
+    walk = _frozen_list(tmp_path, world)
+    cfg = world() | {"frozen_records_lists": [[str(walk[0]), walk[1]]]}
+    want = _grid_counts(tmp_path, world)
+    assert want["expected_market_dates"] > 0
+    before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
+    result = yr.grid_holes(cfg, records_root=tmp_path / "records_frozen", out=tmp_path / "gh", expected=want)
+    after = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
+    assert set(after) - set(before) == {Path("gh"), Path("gh") / yr.GRID_HOLES_FILE}  # writes only under --out
+    path = Path(result["out_file"])
+    assert _sha(path) == result["sha256"] and result["holes"] == want["holes"]
+    body = json.loads(path.read_text(encoding="utf-8"))
+    assert body["schema"] == yr.GRID_HOLES_SCHEMA and body["module_source_sha256"] == yr.module_source_sha256()
+    assert body["expected_market_dates"] == want["expected_market_dates"]
+    assert sum(body["per_market"].values()) == body["holes"] == len(body["names"])
+    assert sum(c["count"] for c in body["by_class"].values()) == body["holes"]
+    assert set(body["names"][0]) == {"market", "target_date"} if body["names"] else True
+    text = path.read_text(encoding="utf-8")
+    assert "final_bucket" not in text and '"y"' not in text
+    with pytest.raises(yr.YearroundRefused, match="write-once"):
+        yr.grid_holes(cfg, records_root=tmp_path / "records_frozen", out=tmp_path / "gh", expected=want)
+
+
+def test_grid_holes_refuses_a_wrong_count_a_missing_manifest_and_a_checkout_out(world, tmp_path):
+    walk = _frozen_list(tmp_path, world)
+    cfg = world() | {"frozen_records_lists": [[str(walk[0]), walk[1]]]}
+    want = _grid_counts(tmp_path, world)
+    wrong = dict(want, holes=want["holes"] + 1)
+    with pytest.raises(yr.YearroundRefused, match="self-check"):
+        yr.grid_holes(cfg, records_root=tmp_path / "records_frozen", out=tmp_path / "gh_wrong", expected=wrong)
+    assert not (tmp_path / "gh_wrong").exists()
+    with pytest.raises(yr.YearroundRefused, match="self-check"):  # the default is the accepted 7315 / 81
+        yr.grid_holes(cfg, records_root=tmp_path / "records_frozen", out=tmp_path / "gh_default")
+    (tmp_path / "empty_root").mkdir()
+    with pytest.raises(yr.YearroundRefused, match="existing records root only"):
+        yr.grid_holes(cfg, records_root=tmp_path / "empty_root", out=tmp_path / "gh_empty", expected=want)
+    assert not any((tmp_path / "empty_root").iterdir())  # nothing is ever built
+    (tmp_path / "repo" / ".git").mkdir(parents=True)
+    with pytest.raises(yr.YearroundRefused, match="inside a checkout"):
+        yr.grid_holes(cfg, records_root=tmp_path / "records_frozen", out=tmp_path / "repo" / "gh", expected=want)
+    with pytest.raises(yr.YearroundRefused, match="frozen_records_lists"):
+        yr.grid_holes(world(), records_root=tmp_path / "records_frozen", out=tmp_path / "gh_nolist", expected=want)
+
+
+def test_grid_holes_cli_exits_4_on_a_forward_window_hole(monkeypatch, tmp_path, capsys):
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text("{}", encoding="utf-8")
+    calls = []
+
+    def fake(cfg_obj, *, records_root, out):
+        calls.append((records_root, out))
+        return {"in_forward_window": len(calls) == 2, "out_file": "x", "sha256": "0" * 64}
+
+    monkeypatch.setattr(yr, "grid_holes", fake)
+    argv = ["grid-holes", "--config", str(cfg), "--config-sha", _sha(cfg), "--records-root", "r", "--out", "o"]
+    assert yr.main(argv) == 0
+    assert yr.main(argv) == 4
+    assert calls == [("r", "o"), ("r", "o")]
+
+
+def test_grid_holes_touches_no_fit_state_or_emit_path():
+    import inspect
+
+    src = inspect.getsource(yr.grid_holes) + inspect.getsource(yr.verify_existing_records_root)
+    for name in ("fit(", "_fit_in(", "freeze_state(", "write_state", "arm_state(", "emit(", "shadow_rows(",
+                 "training_frame(", "build_records(", "_new_dir(", "state_root("):
+        assert name not in src, name
+
+
+def _declared(tmp_path, records, name="declared.json"):
+    path = tmp_path / name
+    path.write_text(json.dumps({"schema": yr.DECLARED_ABSENT_SCHEMA, "records": records}), encoding="utf-8")
+    return path, _sha(path)
+
+
+def _rec(market, day, cls="other"):
+    return {"market": market, "target_date": day, "reason": "source_absent_final", "class": cls,
+            "cause": "src/weather/model/model_climatology.py:112", "ruling": "master 2026-11-04"}
+
+
+def test_declared_absent_grid_holes_are_by_name_and_fail_closed(tmp_path):
+    expected = yr.expected_training_grid(prm, {"2026-01-08": [2023]}, "B", markets=("atlanta", "denver"))
+    frame = pd.DataFrame([{"market": m, "target_date": d, "hour": 13} for m, d in sorted(expected)
+                          if (m, d) not in {("denver", "2023-01-15"), ("atlanta", "2023-01-02")}])
+    both = yr.load_declared_absent(*_declared(tmp_path, [_rec("denver", "2023-01-15"), _rec("atlanta", "2023-01-02")]))
+    out = yr.refuse_training_grid_holes(frame, expected, declared=both)
+    assert out["holes"] == 0 and out["declared_absent"]["records"] == 2
+    assert out["declared_absent"]["names"] == ["atlanta 2023-01-02", "denver 2023-01-15"]
+    assert out["declared_absent"]["by_class"] == {"other": 2}
+    one = yr.load_declared_absent(*_declared(tmp_path, [_rec("denver", "2023-01-15")], "one.json"))
+    with pytest.raises(yr.SourceAbsent, match="training_calendar_grid.*atlanta 2023-01-02"):
+        yr.refuse_training_grid_holes(frame, expected, declared=one)  # an undeclared hole still refuses
+    extra = yr.load_declared_absent(*_declared(tmp_path, [_rec("denver", "2023-01-15"), _rec("atlanta", "2023-01-02"),
+                                                          _rec("atlanta", "2023-01-03")], "extra.json"))
+    with pytest.raises(yr.YearroundRefused, match="1 declared-absent record.*not grid holes: atlanta 2023-01-03"):
+        yr.refuse_training_grid_holes(frame, expected, declared=extra)
+    with pytest.raises(yr.SourceAbsent, match="training_calendar_grid"):
+        yr.refuse_training_grid_holes(frame, expected)  # no declaration: the hard check as before
+
+
+def test_declared_absent_records_refuse_a_bad_record_by_name(tmp_path):
+    good = _rec("denver", "2023-01-15")
+    for i, (bad, match) in enumerate([
+            ([good, good], "twice"),
+            ([dict(good, reason="missing")], "source_absent_final"),
+            ([dict(good, **{"class": "dst"})], "class"),
+            ([dict(good, cause=" ")], "no cause"),
+            ([dict(good, ruling="")], "no cause cite or ruling"),
+            ([dict(good, market="toronto")], "unknown market"),
+            ([dict(good, value=1)], "keys"),
+            ([], "non-empty")]):
+        with pytest.raises(yr.YearroundRefused, match=match):
+            yr.load_declared_absent(*_declared(tmp_path, bad, f"bad{i}.json"))
+    path, sha = _declared(tmp_path, [good], "pinned.json")
+    with pytest.raises(yr.YearroundRefused):
+        yr.load_declared_absent(path, "0" * 64)  # the sha pins the file
+
+
+def test_fit_with_declared_absent_needs_both_flags_and_refuses_before_any_directory(world, tmp_path):
+    cfg = _fit_cfg(tmp_path, world)
+    now = datetime(2026, 11, 3, 14, 0, tzinfo=timezone.utc)
+    path, sha = _declared(tmp_path, [_rec("denver", "2023-01-15")])
+    with pytest.raises(yr.YearroundRefused, match="--declare-absent-sha"):
+        yr.fit(cfg, arm="B", now=now, records_root=world.root("rec_decl"), declared_absent=path)
+    with pytest.raises(yr.YearroundRefused, match="not grid holes"):  # the world has no hole to declare
+        yr.fit(cfg, arm="B", now=now, records_root=world.root("rec_decl"), declared_absent=path,
+               declared_absent_sha=sha)
+    bad, bad_sha = _declared(tmp_path, [dict(_rec("denver", "2023-01-15"), reason="x")], "bad.json")
+    later = datetime(2026, 11, 3, 14, 30, tzinfo=timezone.utc)
+    with pytest.raises(yr.YearroundRefused, match="source_absent_final"):
+        yr.fit(cfg, arm="B", now=later, records_root=world.root("rec_decl2"), declared_absent=bad,
+               declared_absent_sha=bad_sha)
+    assert not (tmp_path / "data" / "yearround_refit" / "row28_B" / "20261103T143000Z").exists()
+
+
+def test_declared_absent_never_reaches_the_state():
+    import inspect
+
+    src = inspect.getsource(yr._fit_in)
+    head, tail = src.split("provenance = {", 1)
+    assert "declared" in head and "declared" not in tail.split("}", 1)[0]  # not in the state's provenance
