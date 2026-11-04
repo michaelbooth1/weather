@@ -27,7 +27,8 @@ import sys
 
 import pytest
 
-from weather.market.maker_evidence_store import EvidenceStore, WriterLock, encoded
+from weather.market.maker_evidence_store import (MAX_RAW_BYTES, SCHEMA as EVIDENCE_SCHEMA, EvidenceStore,
+                                                RawFootprintLimit, WriterLock, encoded)
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "ops" / "maker_evidence_torn_quarantine.ps1"
@@ -57,6 +58,11 @@ if ($env:FAKE_PROCESS_CMDLINE) {
     function global:Get-CimInstance { [CmdletBinding()] param([Parameter(Position = 0)][string]$ClassName, [string]$Filter)
         if ($env:FAKE_PROCESS_CMDLINE -eq 'throw') { throw 'process query stub failure' }
         [pscustomobject]@{ ProcessId = 4242; CommandLine = $env:FAKE_PROCESS_CMDLINE } }
+}
+if ($env:FAKE_ADD_TYPE_FAIL) {
+    function global:Add-Type { [CmdletBinding()] param([string]$TypeDefinition)
+        if ($TypeDefinition -match 'class StoreScan') { throw 'fake compile failure' }
+        Microsoft.PowerShell.Utility\Add-Type -TypeDefinition $TypeDefinition }
 }
 if ($env:FAKE_HASH_BAD_PREFIX -or $env:FAKE_HASH_NULL_PREFIX) {
     # Get-FileHash is a function of this module in 5.1; an autoload after the stub would replace it.
@@ -287,7 +293,7 @@ def test_live_python_msvcrt_lock_holder_makes_the_tool_refuse(tmp_path):
     try:
         for extra in ((), ("-Apply",)):
             code, payload = run(tmp_path, root, *extra)
-            assert (code, payload["status"]) == (2, "REFUSED_WRITER_ALIVE")
+            assert (code, payload["status"]) == (3, "REFUSED_WRITER_ALIVE_TORN")
             assert payload["candidates"] == []
     finally:
         child.stdin.close()
@@ -306,7 +312,7 @@ def test_real_writer_lock_holder_makes_the_tool_refuse(tmp_path):
     try:
         assert child.stdout.readline().strip() == "LOCKED"
         status = run(tmp_path, root, "-Apply")
-        assert status[0] == 2 and status[1]["status"] == "REFUSED_WRITER_ALIVE"
+        assert status[0] == 3 and status[1]["status"] == "REFUSED_WRITER_ALIVE_TORN"
     finally:
         child.stdin.close()
         child.wait(timeout=30)
@@ -316,13 +322,463 @@ def test_recorder_process_for_this_root_is_an_advisory_refusal(tmp_path):
     root, _ = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
     line = f'pythonw.exe -m weather.market.maker_evidence_capture --root "{root}" --extra-conditions "x.json"'
     code, payload = run(tmp_path, root, "-Apply", env={"FAKE_PROCESS_CMDLINE": line})
-    assert (code, payload["status"]) == (2, "REFUSED_WRITER_ALIVE")
+    assert (code, payload["status"]) == (3, "REFUSED_WRITER_ALIVE_TORN")
     assert "pid 4242" in payload["reasons"][-1]
     other = f'pythonw.exe -m weather.market.maker_evidence_capture --root "{tmp_path / "other"}"'
     code, payload = run(tmp_path, root, env={"FAKE_PROCESS_CMDLINE": other})
     assert (code, payload["status"]) == (0, "REPORT")
     code, payload = run(tmp_path, root, "-Apply", env={"FAKE_PROCESS_CMDLINE": "throw"})
     assert (code, payload["status"]) == (2, "REFUSED_PROCESS_CHECK_FAILED")
+
+
+# Writer alive: read-only mirror of EvidenceStore._recover before the refusal (Stage 2 false-silence
+# fix, master 2026-11-02 and 11-03). The boot task may call a writer-alive refusal benign only with
+# torn_tail_found false; only the live writer's own segment may show a partial line, and only while
+# it moves.
+OLDER = "05-0123456789ab"
+
+
+def alive(root):
+    return {"FAKE_PROCESS_CMDLINE": f'pythonw.exe -m weather.market.maker_evidence_capture --root "{root}"'}
+
+
+def stamps(base):
+    return {str(p.relative_to(base)): p.stat().st_mtime_ns for p in sorted(base.rglob("*"))}
+
+
+def add_segment(root, files, *, day=DAY, segment=OLDER, manifest=None):
+    folder = root / day / segment
+    folder.mkdir(parents=True)
+    for name, data in files.items():
+        (folder / name).write_bytes(data)
+    if manifest is not None:
+        (folder / "manifest.json").write_bytes(manifest)
+    return folder
+
+
+def good_manifest():
+    return encoded({"schema_version": EVIDENCE_SCHEMA, "files": {}, "stream_response_bytes": 0,
+                    "stream_capped": False}) + b"\n"
+
+
+def test_writer_alive_over_a_torn_segment_is_refused_torn_without_any_write(tmp_path):
+    # Crash loop: the only (newest) segment's tail does not move during the settle wait.
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL, "book-1.jsonl": journal()})
+    snapshot, times = tree(tmp_path / "maker_evidence"), stamps(tmp_path / "maker_evidence")
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"]) == (3, "REFUSED_WRITER_ALIVE_TORN")
+    assert payload["torn_tail_found"] is True and payload["torn_tail_scan"] == "complete"
+    assert payload["torn_journals"] == [str(folder / "reward-a.jsonl")]
+    assert payload["unsealed_segments"] == [str(folder)] and payload["live_segment"] == str(folder)
+    assert payload["candidates"] == []
+    assert tree(tmp_path / "maker_evidence") == snapshot and stamps(tmp_path / "maker_evidence") == times
+    assert not (tmp_path / "maker_evidence_quarantine").exists()
+    assert log_rows(tmp_path)[-1]["status"] == "REFUSED_WRITER_ALIVE_TORN"
+
+
+def test_writer_alive_over_an_older_torn_segment_beside_a_clean_live_one_is_torn(tmp_path):
+    # Post-boot, not the newest: scanned like any other segment, no settle exemption.
+    root, live = make_store(tmp_path, {"book-1.jsonl": journal()})
+    older = add_segment(root, {"reward-a.jsonl": TORN_PARTIAL})
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+    assert payload["torn_journals"] == [str(older / "reward-a.jsonl")]
+    assert payload["live_segment"] == str(live)
+    assert (older / "reward-a.jsonl").read_bytes() == TORN_PARTIAL
+
+
+def test_held_writer_lock_over_a_torn_segment_is_refused_torn(tmp_path):
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_PARTIAL})
+    code = ("import sys;from weather.market.maker_evidence_store import WriterLock;"
+            "w=WriterLock(sys.argv[1]).__enter__();print('LOCKED',flush=True);sys.stdin.read()")
+    child = subprocess.Popen([sys.executable, "-c", code, str(root)], cwd=ROOT,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert child.stdout.readline().strip() == "LOCKED"
+        status, payload = run(tmp_path, root, "-Apply")
+        assert (status, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+        assert "writer lock is held" in payload["reasons"][0]
+    finally:
+        child.stdin.close()
+        child.wait(timeout=30)
+    assert (folder / "reward-a.jsonl").read_bytes() == TORN_PARTIAL
+
+
+def test_a_lock_open_failure_that_is_not_a_lock_violation_is_its_own_refusal(tmp_path):
+    root, _ = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
+    lock = root / ".writer.lock"
+    os.chmod(lock, 0o444)  # read-only attribute: ReadWrite open is access denied, not a sharing violation
+    try:
+        code, payload = run(tmp_path, root, "-Apply")
+    finally:
+        os.chmod(lock, 0o666)
+    assert (code, payload["status"]) == (2, "REFUSED_LOCK_UNAVAILABLE")
+    assert "torn_tail_found" not in payload
+
+
+def test_writer_alive_with_a_clean_store_proves_no_torn_tail(tmp_path):
+    root, folder = make_store(tmp_path, {"book-1.jsonl": journal(), "reward-empty.jsonl": b""})
+    sealed = add_segment(root, {"book-1.jsonl": journal()}, manifest=good_manifest())
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"]) == (2, "REFUSED_WRITER_ALIVE")
+    assert payload["torn_tail_found"] is False and payload["torn_tail_scan"] == "complete"
+    assert payload["unsealed_segments"] == [str(folder)] and payload["unsealed_segment_count"] == 1
+    assert str(sealed) not in payload["unsealed_segments"]
+
+
+class MovingWriter:
+    """Appends valid records in two halves: the tail is partial for torn_seconds, then whole."""
+
+    def __init__(self, path, torn_seconds):
+        import threading
+        self.path, self.torn_seconds = path, torn_seconds
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._write, daemon=True)
+
+    def _write(self):
+        import time
+        offset, index = self.path.stat().st_size, 100
+        while not self.stop.is_set():
+            line = encoded({"kind": "reward", "n": index, "offset": offset}) + b"\n"
+            half = len(line) // 2
+            with open(self.path, "ab") as handle:
+                handle.write(line[:half])
+            time.sleep(self.torn_seconds)
+            with open(self.path, "ab") as handle:
+                handle.write(line[half:])
+            time.sleep(0.01)
+            offset, index = offset + len(line), index + 1
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop.set()
+        self.thread.join(timeout=10)
+
+
+def run_until(tmp_path, root, predicate, attempts=3):
+    # The writer's whole-line instant is ~0.5% of each cycle; retry if the first read landed on it.
+    for _ in range(attempts):
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+        if predicate(code, payload):
+            break
+    return code, payload
+
+
+def test_the_live_writers_moving_tail_is_in_flight_not_torn(tmp_path):
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": journal()})
+    with MovingWriter(folder / "reward-a.jsonl", 0.7):
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", False)
+    assert payload["live_segment"] == str(folder)
+    assert payload.get("torn_journals") is None
+
+
+def test_a_partial_tail_that_completes_during_the_settle_wait_is_in_flight(tmp_path):
+    # Partial at the first read, a whole clean line by the second (1.5 s < 2 s settle): the live
+    # writer's own line in flight, so clean and listed, never torn.
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": journal()})
+    with MovingWriter(folder / "reward-a.jsonl", 1.5):
+        code, payload = run_until(tmp_path, root, lambda c, p: p.get("in_flight_journals"))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", False)
+    assert payload["in_flight_journals"] == [str(folder / "reward-a.jsonl")]
+
+
+def test_a_same_day_and_hour_tie_gets_no_live_exemption(tmp_path):
+    # Two unsealed segments in one UTC hour: the store never leaves that, so neither is the live
+    # writer's and a moving partial tail is torn.
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": journal()})
+    add_segment(root, {"book-1.jsonl": journal()}, segment="08-0123456789ab")
+    with MovingWriter(folder / "reward-a.jsonl", 1.9):
+        code, payload = run_until(tmp_path, root, lambda c, p: c == 3)
+    assert (code, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+    assert payload["live_segment"] is None and payload["unsealed_segment_count"] == 2
+
+
+def test_writer_alive_scan_that_cannot_read_a_journal_is_unknown(tmp_path):
+    import ctypes
+    from ctypes import wintypes
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_NUL})
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    handle = kernel32.CreateFileW(str(folder / "reward-a.jsonl"), 0x80000000, 0, None, 3, 0x80, None)
+    assert handle not in (None, wintypes.HANDLE(-1).value)
+    try:
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    finally:
+        kernel32.CloseHandle(handle)
+    assert (code, payload["status"]) == (2, "REFUSED_WRITER_ALIVE")
+    assert payload["torn_tail_found"] is None and payload["torn_tail_scan"].startswith("unknown: ")
+
+
+def test_writer_alive_scan_reads_a_journal_the_writer_holds_open_for_append(tmp_path):
+    # The scan opens shared: a recorder-style append handle does not block it and no byte changes.
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": TORN_PARTIAL})
+    with open(folder / "reward-a.jsonl", "ab"):
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+    assert payload["torn_tail_scan"] == "complete"
+    assert (folder / "reward-a.jsonl").read_bytes() == TORN_PARTIAL
+
+
+def _line(row):
+    return encoded(row) + b"\n"
+
+
+UNVERIFIABLE = {
+    "interior_nul": journal(2) + b"\x00" * 16 + b"\n" + journal(1),
+    "offset_mismatch": journal(2) + _line({"kind": "reward", "n": 9, "offset": 7}),
+    "float_offset": _line({"kind": "reward", "offset": 0.0}),
+    "invalid_json": journal(1) + b'{"kind": reward}\n',
+    "not_an_object": b"[1]\n",
+    "bad_utf8": b'{"kind":"\xff","offset":0}\n',
+    "duplicate_offset": b'{"offset":0,"offset":0}\n',
+    "nan": b'{"offset":0,"x":NaN}\n',
+    "stream_without_response_bytes": _line({"kind": "stream", "offset": 0}),
+    "oversized": b'{"offset":0,"x":"' + b"a" * (16 * 1024 ** 2) + b'"}\n',
+    "integer_over_4300_digits": b'{"offset":0,"x":' + b"7" * 4301 + b'}\n',
+    "response_bytes_too_wide": _line({"kind": "stream", "offset": 0, "response_bytes": 10 ** 12}),
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNVERIFIABLE))
+def test_writer_alive_over_a_record_recovery_would_refuse_is_unknown_not_clean(tmp_path, case):
+    body = UNVERIFIABLE[case]
+    root, folder = make_store(tmp_path, {"reward-a.jsonl": body})
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", None)
+    assert payload["torn_tail_scan"].startswith("unknown: " + str(folder / "reward-a.jsonl"))
+    assert (folder / "reward-a.jsonl").read_bytes() == body
+
+
+@pytest.mark.parametrize("manifest", [b"{}\n", b"not json\n",
+                                      encoded({"schema_version": "maker_evidence_v1", "stream_response_bytes": 0,
+                                               "stream_capped": False}) + b"\n"])
+def test_writer_alive_over_a_sealed_manifest_recovery_would_refuse_is_unknown(tmp_path, manifest):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    add_segment(root, {"book-1.jsonl": journal()}, manifest=manifest)
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", None)
+    assert "manifest.json" in payload["torn_tail_scan"]
+
+
+def test_a_sealed_gzip_manifest_is_verified(tmp_path):
+    import gzip
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    folder = add_segment(root, {})
+    (folder / "manifest.json.gz").write_bytes(gzip.compress(good_manifest()))
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["torn_tail_found"]) == (2, False)
+
+
+def test_writer_alive_torn_tail_stays_torn_when_another_journal_is_unreadable(tmp_path):
+    import ctypes
+    from ctypes import wintypes
+    root, folder = make_store(tmp_path, {"book-1.jsonl": journal(), "reward-a.jsonl": TORN_NUL})
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    handle = kernel32.CreateFileW(str(folder / "book-1.jsonl"), 0x80000000, 0, None, 3, 0x80, None)
+    assert handle not in (None, wintypes.HANDLE(-1).value)
+    try:
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    finally:
+        kernel32.CloseHandle(handle)
+    assert (code, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+    assert payload["torn_tail_scan"].startswith("partial: ")
+    assert payload["torn_journals"] == [str(folder / "reward-a.jsonl")]
+    assert payload["torn_tail_scan_problem_count"] == 1
+
+
+def test_writer_alive_scan_stops_at_64_unsealed_segments_and_is_unknown(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    for index in range(64):
+        add_segment(root, {"book-1.jsonl": journal()}, day="2026-11-01", segment=f"03-{index:012x}")
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", None)
+    assert "only the first 64 scanned" in payload["torn_tail_scan"]
+    assert payload["unsealed_segment_count"] == 64 and len(payload["unsealed_segments"]) == 20
+
+
+def test_writer_alive_output_lists_are_capped_at_20_with_counts(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    for index in range(25):
+        add_segment(root, {"reward-a.jsonl": TORN_PARTIAL}, day="2026-11-01", segment=f"03-{index:012x}")
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"]) == (3, "REFUSED_WRITER_ALIVE_TORN")
+    assert payload["torn_journal_count"] == 25 and len(payload["torn_journals"]) == 20
+    assert payload["unsealed_segment_count"] == 26 and len(payload["unsealed_segments"]) == 20
+
+
+def test_writer_alive_scan_reports_a_junctioned_segment_as_a_problem(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    (root / "2026-11-01").mkdir()
+    link = root / "2026-11-01" / OLDER
+    made = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True)
+    assert made.returncode == 0, made.stdout + made.stderr
+    try:
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+        assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", None)
+        assert payload["torn_tail_scan"] == "unknown: folder is a reparse point: " + str(link)
+        # A torn tail elsewhere still wins over the problem.
+        add_segment(root, {"reward-a.jsonl": TORN_PARTIAL}, day="2026-11-01", segment="02-0123456789ab")
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+        assert (code, payload["torn_tail_found"]) == (3, True)
+        assert payload["torn_tail_scan"].startswith("partial: folder is a reparse point")
+    finally:
+        os.rmdir(link)
+
+
+def test_writer_alive_scan_survives_a_corrupt_gzip_manifest_and_torn_still_wins(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    sealed = add_segment(root, {})
+    (sealed / "manifest.json.gz").write_bytes(b"\x1f\x8b\x08\x00" + b"\x00" * 6 + b"not deflate at all" + b"\x00" * 8)
+    torn = add_segment(root, {"reward-a.jsonl": TORN_PARTIAL}, segment="04-0123456789ab")
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (3, "REFUSED_WRITER_ALIVE_TORN", True)
+    assert payload["torn_journals"] == [str(torn / "reward-a.jsonl")]
+    assert payload["torn_tail_scan"].startswith("partial: " + str(sealed / "manifest.json.gz"))
+
+
+@pytest.mark.parametrize("extra", ["trailing", "second_member"])
+def test_a_gzip_manifest_with_more_than_one_verified_member_is_unknown(tmp_path, extra):
+    import gzip
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    folder = add_segment(root, {})
+    body = good_manifest()
+    packed = gzip.compress(body) + b"junk" if extra == "trailing" else gzip.compress(body[:10]) + gzip.compress(body[10:])
+    (folder / "manifest.json.gz").write_bytes(packed)
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", None)
+    assert payload["torn_tail_scan"].startswith("unknown: " + str(folder / "manifest.json.gz"))
+
+
+def test_a_folder_named_like_a_manifest_or_a_legacy_journal_is_unknown(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    odd = add_segment(root, {"book-1.jsonl": journal()})
+    (odd / "manifest.json").mkdir()
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["torn_tail_found"]) == (2, None)
+    assert payload["torn_tail_scan"] == "unknown: " + str(odd) + ": a folder named like a manifest"
+    (odd / "manifest.json").rmdir()
+    (odd / "manifest.json").write_bytes(good_manifest())
+    (root / DAY / "manifest.jsonl.gz").write_bytes(b"")
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["torn_tail_found"]) == (2, None)
+    assert "legacy daily journal" in payload["torn_tail_scan"]
+    (root / DAY / "manifest.jsonl.gz").unlink()
+    (root / DAY / "manifest.jsonl.d").mkdir()
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["torn_tail_found"]) == (2, None)
+    assert "legacy daily journal" in payload["torn_tail_scan"]
+
+
+def sparse_file(path, size):
+    # Logical size only, so the footprint bound can be reached without writing 500 MB.
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel32.DeviceIoControl.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                         wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+                                         wintypes.LPVOID]
+    handle = kernel32.CreateFileW(str(path), 0x40000000, 0, None, 2, 0x80, None)
+    assert handle not in (None, wintypes.HANDLE(-1).value)
+    returned = wintypes.DWORD()
+    try:
+        made_sparse = kernel32.DeviceIoControl(handle, 0x900C4, None, 0, None, 0, ctypes.byref(returned), None)
+    finally:
+        kernel32.CloseHandle(handle)
+    if not made_sparse:
+        pytest.skip("sparse files unsupported on this volume")
+    with open(path, "r+b") as handle:
+        handle.truncate(size)
+
+
+def counted_bytes(root):
+    return sum(p.stat().st_size for p in [*root.glob("*/*/*.jsonl"), *root.glob("*/*/manifest.json")])
+
+
+@pytest.mark.parametrize(("margin", "expected"), [(5_000, None), (200_000, False)])
+def test_footprint_with_the_manifests_recovery_would_seal_is_bounded(tmp_path, margin, expected):
+    # Blocker 11-03: 100 clean journals with long names in the unsealed segment; raw just under the
+    # bound. Their manifest (accounted with reserve=False) crosses it, so recovery would refuse.
+    names = {f"updates-0x{index:064x}.jsonl": b"" for index in range(100)}
+    root, _ = make_store(tmp_path, names)
+    sealed = add_segment(root, {}, manifest=good_manifest())
+    big = sealed / "big.jsonl"
+    big.write_bytes(b"")
+    sparse_file(big, MAX_RAW_BYTES - margin - counted_bytes(root))
+    try:
+        code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+        assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", expected)
+        if expected is None:
+            assert "uncompressed footprint" in payload["torn_tail_scan"]
+            # The real recovery agrees: it refuses with the footprint limit.
+            with pytest.raises(RawFootprintLimit):
+                EvidenceStore(root, clock=CLOCK)
+    finally:
+        big.unlink()
+
+
+def test_more_than_20000_journal_paths_is_unknown(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    sealed = add_segment(root, {}, manifest=good_manifest())
+    for index in range(20_000):
+        (sealed / f"j{index}.jsonl").write_bytes(b"")
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert (code, payload["torn_tail_found"]) == (2, None)
+    assert "20002 paths" in payload["torn_tail_scan"]
+
+
+def test_a_scan_type_compile_failure_is_unknown_and_non_zero(tmp_path):
+    root, _ = make_store(tmp_path, {"book-1.jsonl": journal()})
+    code, payload = run(tmp_path, root, "-Apply", env={**alive(root), "FAKE_ADD_TYPE_FAIL": "1"})
+    assert (code, payload["status"], payload["torn_tail_found"]) == (2, "REFUSED_WRITER_ALIVE", None)
+    assert payload["torn_tail_scan"] == "unknown: fake compile failure"
+
+
+def test_the_store_scan_constants_match_the_store():
+    from weather.market import maker_evidence_store as store
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert f'public const string Schema = "{store.SCHEMA}";' in text
+    assert f"public const long MaxRawBytes = {store.MAX_RAW_BYTES};" in text
+    assert "public const int MaxLineBytes = 16 * 1024 * 1024;" in text and store.MAX_LINE_BYTES == 16 * 1024 ** 2
+    assert "public const int MaxPaths = 20000;" in text
+    assert "SealReserveBytes" not in text  # the seal is bounded per manifest, not by a fixed reserve
+
+
+@pytest.mark.parametrize(("files", "expected_stage1", "expected_boot"), [
+    ({"book-1.jsonl": journal()}, 2, 0),
+    ({"reward-a.jsonl": TORN_PARTIAL}, 3, 3),
+    ({"reward-a.jsonl": UNVERIFIABLE["offset_mismatch"]}, 2, 2),
+])
+def test_real_stage1_writer_alive_output_drives_the_boot_wrapper(tmp_path, files, expected_stage1, expected_boot):
+    # Behavioural: what Stage 1 really emits for alive+clean / alive+torn / alive+unknown, fed to the
+    # boot wrapper, gives 0 / non-zero / non-zero.
+    root, _ = make_store(tmp_path, files)
+    code, payload = run(tmp_path, root, "-Apply", env=alive(root))
+    assert code == expected_stage1
+    ops = tmp_path / "repo" / "scripts" / "ops"
+    ops.mkdir(parents=True)
+    shutil.copyfile(SCRIPT.parent / "maker_evidence_torn_quarantine_boot.ps1",
+                    ops / "maker_evidence_torn_quarantine_boot.ps1")
+    (ops / SCRIPT.name).write_text("param([switch]$Apply)\n$env:FAKE_STAGE1_OUTPUT\nexit ([int]$env:FAKE_STAGE1_CODE)\n",
+                                   encoding="utf-8")
+    env = {**os.environ, "FAKE_STAGE1_OUTPUT": json.dumps(payload, indent=1), "FAKE_STAGE1_CODE": str(code)}
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                             "-File", str(ops / "maker_evidence_torn_quarantine_boot.ps1")],
+                            capture_output=True, text=True, env=env, timeout=120, check=False)
+    assert result.returncode == expected_boot, result.stdout + result.stderr
 
 
 # 9 -----------------------------------------------------------------------------------------
@@ -678,7 +1134,8 @@ $names = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Languag
     assert payload["errors"] == []
     helpers = {"Get-ShaChecked", "Release-Lock", "Write-Log", "Emit-And-Exit", "Test-TaskSignature", "Finish", "Get-Sha256",
                "Open-Shared", "Get-TailClass", "Test-ContainsNul", "Test-Reparse", "Test-ReparseChain",
-               "Get-VolumeIdentity", "Write-AtomicNew", "Read-JsonFile", "Test-JournalName", "Get-IntentProblem"}
+               "Get-VolumeIdentity", "Write-AtomicNew", "Read-JsonFile", "Test-JournalName", "Get-IntentProblem",
+               "Get-StoreScanType", "Get-Capped", "Finish-WriterAlive"}
     cmdlets = {"Split-Path", "Join-Path", "Get-FileHash", "Test-Path", "New-Item", "ConvertTo-Json", "Out-Null",
                "Get-CimInstance", "Where-Object", "ForEach-Object", "Get-Item", "Get-ChildItem", "Get-Content",
                "ConvertFrom-Json", "Get-ScheduledTaskInfo", "Get-Date", "New-Object", "Add-Type"}

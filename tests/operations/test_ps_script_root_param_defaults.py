@@ -53,6 +53,7 @@ pytestmark = pytest.mark.skipif(
 # Scheduled, landing-path and live execution-host scripts: name -> root parameter.
 BINDING_TARGETS = {
     "daily_refresh.ps1": "RepoRoot",
+    "forward_input_arrival_check.ps1": "RepoRoot",
     "suite_gated_quiet_merge.ps1": "RepoRoot",
     "merge_queue_driver.ps1": "RepoRoot",
     "mg2_input_export.ps1": "ProductionRepoRoot",
@@ -61,6 +62,7 @@ BINDING_TARGETS = {
     "register_clob_enrichment.ps1": "RepoRoot",
     "register_cold_snapshot_nightly.ps1": "ProductionRepoRoot",
     "register_daily_refresh.ps1": "RepoRoot",
+    "register_forward_input_arrival_check.ps1": "RepoRoot",
     "register_health_watchdog.ps1": "RepoRoot",
     "register_integration_attempt.ps1": "RepoRoot",
     "register_maker_evidence_capture.ps1": "RepoRoot",

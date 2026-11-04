@@ -72,6 +72,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_ps_exit_in_finally_ratchet.py",
             "tests/operations/test_maker_shadow_ops_scripts.py",
             "tests/operations/test_maker_evidence_torn_quarantine_script.py",
+            "tests/operations/test_register_maker_evidence_torn_quarantine.py",
             "tests/calibration/test_mg2_input_export.py",
             # Hosted byte-identity coverage: lfs: false gives the win32 lfs_pointers golden tier.
             "tests/model/test_high_so_far_variant_none_byte_identity.py",
@@ -90,6 +91,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_dst_audit_lows_20261011.py",
             "tests/operations/test_dst_audit_suite_20261011.py",
             "tests/operations/test_watchdog_classify_drift.py",
+            "tests/operations/test_forward_input_arrival_check.py",
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_workstation_pregate_script.py",
             "tests/operations/test_reconciler_surface.py",
@@ -179,6 +181,8 @@ EXPECTED_SHARDS = {
             "tests/operations/test_scheduled_task_local_daily_triggers.py",
             "tests/operations/test_exchange_economics_refresh_script.py",
             "tests/operations/test_reset_daily_trigger_local.py",
+            "tests/operations/test_stale_parent_census_script.py",
+            "tests/operations/test_status_self_pinned_tasks.py",
         ],
     ),
     "reconciler-1": (

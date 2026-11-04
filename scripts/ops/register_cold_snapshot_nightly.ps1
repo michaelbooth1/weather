@@ -17,6 +17,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'workload_admission.ps1')
 . (Join-Path $PSScriptRoot 'training_window_contract.ps1')
 . (Join-Path $PSScriptRoot 'scheduled_task_local_trigger.ps1')
+. (Join-Path $PSScriptRoot 'scheduled_task_test_guard.ps1')
+Assert-WeatherScheduledTaskTestIsolation -Command @('Register-ScheduledTask','Get-ScheduledTask')
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $sourceRoot
 if ((Get-WeatherExecutionHostId) -cne [string]$assignment.dedicated_capture_execution_host_id) {

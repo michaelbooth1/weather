@@ -98,6 +98,11 @@ SCRIPT_INVENTORY = {
     # These went missing from the inventory because the 05:15 roll-free merge driver lands
     # branches without running the suite: on 2026-08-11 it merged six of these in forty minutes
     # and left master red from 05:55 until this was noticed. See the Codex audit 8.2.
+    "b_price_coverage.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R19 B-1 coverage counts (integers only) via the unchanged MG-2 exporter's bounded reader; host via b_price_coverage.ps1.",
+    },
     "b_only_screen_09_63a.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",

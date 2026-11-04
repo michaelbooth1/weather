@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Torn-journal quarantine (Stage 2, owner yes 2026-11-02): at startup and then every minute for 15 minutes, runs scripts\ops\maker_evidence_torn_quarantine_boot.ps1 (maker_evidence_torn_quarantine.ps1 -Apply on the core maker-evidence root; a live recorder is exit 0 only when the rest of the store verifies clean). Registered only by scripts\ops\register_maker_evidence_torn_quarantine.ps1.</Description>
+    <URI>\WeatherMakerEvidenceTornQuarantine</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <BootTrigger>
+      <Repetition>
+        <Interval>PT1M</Interval>
+        <Duration>PT15M</Duration>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <Enabled>true</Enabled>
+    </BootTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>__WEATHER_USER_ID__</UserId>
+      <LogonType>S4U</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>__WEATHER_POWERSHELL__</Command>
+      <Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "__WEATHER_REPO_ROOT__\scripts\ops\maker_evidence_torn_quarantine_boot.ps1"</Arguments>
+      <WorkingDirectory>__WEATHER_REPO_ROOT__</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

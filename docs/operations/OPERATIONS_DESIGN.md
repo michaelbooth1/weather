@@ -94,6 +94,15 @@ remain explicit production actions. `WeatherMakerEvidenceLowestTemperature` runs
 same module with `--family lowest_temperature` in its own root (books and reward
 terms, no websocket); its registrar is
 `scripts/ops/register_maker_evidence_family_capture.ps1`.
+`WeatherMakerEvidenceTornQuarantine` is a startup task. Through
+`maker_evidence_torn_quarantine_boot.ps1`, it runs
+`maker_evidence_torn_quarantine.ps1 -Apply` on the core root every minute for 15
+minutes after boot. Its definition is the checked-in
+`scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml`. The registrar is
+`scripts/ops/register_maker_evidence_torn_quarantine.ps1`, which registers only on
+the capture host and never replaces an existing task. It is not registered until
+master does so after Stage 1 lands; the owning section is in
+[the capture contract](passive-maker-evidence-capture.md).
 
 The paper-only `WeatherMakerShadowRunner` (registrar
 `scripts/ops/register_maker_shadow_runner.ps1`) is a separate long-lived public-read
@@ -127,6 +136,19 @@ an unattended task back into an interactive-logon dependency.
 Read each script before registering it. Re-running a registration script
 replaces its task with the supplied parameters.
 
+Because every `ensure` exits after `launch_detached`, each detached worker's
+`ParentProcessId` names a process that has exited; a later process can reuse that
+number, and a PID-walking tree kill of it then reaches the worker (the
+2026-11-01 recorder live-parent design research).
+`scripts/ops/stale_parent_census.ps1` is the read-only, run-by-hand census of that
+exposure for the capture loops, execution tape, maker shadow and evidence workers,
+and the workstation forward recorders: per worker it reports pid, parent pid and
+`parent_status` (`live` only if the parent exists and was created no later than the
+child, else `dead` or `reused`), plus the first exposed link up the chain, as JSON
+on stdout or `-OutFile`. Match patterns default from the loop command builders and
+can be replaced with `-WorkerPatternsJson`. It terminates nothing, writes nothing
+else, and is not scheduled.
+
 ## What actually executes
 
 A scheduled task runs the files at the path frozen into its action when it was registered. Every
@@ -147,6 +169,8 @@ Re-verify rather than trusting this list):
 | `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The registrar requires reviewed watchdog and status SHA256 pins and checks the registered action. Source incorporates deployed tag `deployed/health-watchdog-aa99048` plus the newer bounded log rotation; any upgrade still requires owner-ops review and explicit re-registration. The watchdog also holds a reviewed, reasoned expected-disabled list (`$expectedDisabledTasks`): only the disabled-state flag of an exactly named task there becomes a standing note; every other flag still alerts. `status.ps1` reports drift between this deployment and `master` read-only (`watchdog_deployment`; see [pinned watchdog redeploy](#pinned-watchdog-redeploy)). |
 | `WeatherMemoryCommitGuard` | `scripts\ops\memory_commit_guard.ps1` in the production checkout, no hash pin (`register_memory_commit_guard.ps1`) | A merge to `master` changes guard behavior at the next one-minute tick, with no redeploy and no review gate. |
 | Integration-attempt suite and merge tasks | the orchestration scripts of the checkout that ran `register_integration_attempt.ps1`, with every dependency hash frozen in the manifest | Drift fails closed; see [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md). |
+
+`status.ps1` hashes the `-File` of every `Weather*` action that carries `-ExpectedSelfSha256` (except the pinned watchdog, which the G5 drift check owns) and reports each as `self_pinned_tasks`: a mismatch or a missing file is a FLAG, an action it cannot parse a WARN (R35; module pins are not recomputed).
 
 Check before reasoning about any task's behavior (read-only, light):
 
@@ -583,6 +607,14 @@ report is rewritten after every step, its mtime no longer proves completion:
 `staleness_sweep.ps1` (`chain/daily_refresh_report`) reads the Stage-A manifest and
 is OK only for a `COMPLETED` status, falling back to the report (failing on
 `Status: **running**`) only when the manifest is missing or unreadable.
+
+The sweep's `$knownCriticals` table turns a listed CRITICAL into KNOWN (its
+Markdown `## Known` section and JSONL `known_count` only, never the CRITICAL
+table `status.ps1` reads) only while every named producer task is exactly
+`Disabled` and the dated row, capped at 60 days and renewed only by a dated
+DECISION_LOG row, has not expired; otherwise the CRITICAL stands with a
+`known/lapsed` (or `known/malformed`) CRITICAL, and each JSONL row carries a
+Task Scheduler `task_results` last-run snapshot that never reads the event log.
 
 ### Settlement in the chain: what it does and does not do
 
@@ -1115,6 +1147,9 @@ stopped, or is proving their recovery. Do this task first. If the pass cannot fi
   - the rest have no duration.
 - The streak monitor's 30-minute repetition hangs off its daily trigger and moves with it, which is why it is row 9.
 - `WeatherDataMirror` and `WeatherMirrorRestoreVerify` are not enabled on the host, so they do not apply.
+- `WeatherForwardArrivalCheck` (07:45, 11:45, 18:05; R20) is built with `New-WeatherLocalDailyTrigger` from the
+  start, so it is offset-free and needs no reset. The workstation's R20 receipts beacon is a repeating `-Once`
+  trigger (PT30M) on another host.
 
 **When.** On 2026-10-29 or 2026-10-30, after the fix has landed and production is running it.
 - Work outside the 12:00-00:30 protected windows, and not while a Stage-A chain or bounded suite is running.
@@ -1247,6 +1282,38 @@ touches nothing.
   keyed to that IP form, so use it rather than the host name. `pull` only reads under `--share-root`: it creates,
   renames, locks and writes nothing there; its staging, `incoming\` and the receipt ledger are workstation-local.
 
+## Forward input arrival check (`WeatherForwardArrivalCheck`; registrar only)
+
+Master ruling R20 (2026-11-01) §2. The host checks that yesterday's (D) B and L6_G forward inputs reached the
+workstation and were verified there, from receipts the workstation pushes to the host. Nothing on the host reads
+workstation files directly.
+
+- **Workstation beacon.** `tools/research/ws_forward_receipts_beacon.ps1` runs as a workstation task registered by
+  `tools/research/register_ws_forward_receipts_beacon.ps1` (Interactive/Limited, the vault exception: the share
+  needs the workstation's stored credential; every 30 minutes plus at logon). It opens each forward ledger with
+  `[IO.File]::Open(p, 'Open', 'Read', 'ReadWrite,Delete')`, so a writer appending to the ledger is never blocked.
+  It reads only complete lines and never copies a ledger file. It projects each row to its date, status and sha
+  fields. It writes each file as `.tmp` and renames it under `<share root>\in\forward-receipts\`, with a fallback
+  share root, and adds `heartbeat.json`. Both share roots are parameters; the repository names no host address.
+  The workstation task is registered only on the owner's yes.
+- **Host check.** `scripts/ops/forward_input_arrival_check.ps1` runs as `WeatherForwardArrivalCheck`
+  (`scripts/ops/register_forward_input_arrival_check.ps1`; S4U/Limited; 07:45, 11:45 and 18:05 local; IgnoreNew;
+  a 5-minute limit; no `StartWhenAvailable`). It is pure PowerShell and light: no child process, no lease. It
+  reads the host-local folder behind the share (`-ReceiptsRoot`) and checks D by slot:
+  - at every slot, the export marker `data\exports\mg2-inputs\<D>\manifest.json.sha256` and a heartbeat at most 90
+    minutes old;
+  - from 11:45, a B row for D that is `verified` with `manifest_sha256` equal to the marker, and (D >= 2026-10-31)
+    a `verified` L6_G bundle row;
+  - at 18:05, an L6_G emit receipt for D.
+- **Output.** One row per run in `data\alerts\forward_arrival.jsonl` (`forward_arrival_check/1`) and the atomic
+  state file `data\alerts\forward_arrival_state.json`. Exit 2 on ALERT. After `-LastDate` (2026-12-16) it records
+  RETIRED and checks nothing.
+- **Status.** `status.ps1` reads the state file: ALERT is a `FORWARD_ARRIVAL ALERT` FLAG naming D, the slot and the
+  failures, and the task's exit 2 is then not reported a second time as unexpected. A state more than 14 hours old,
+  or one that cannot be read, is a WARN. No state yet, or RETIRED, is silent. JSON key `forward_arrival`.
+- **Registration.** Master registers the host task after the R20 head lands, from a clean checkout at
+  `-ExpectedSourceTip`, with `-WhatIf` first. The registrar refuses any host other than the dedicated capture host.
+
 ## Why Capture Is Not Packaged Into The Dashboard
 
 A shortcut or executable is useful for opening the dashboard, but it is not a
@@ -1259,5 +1326,5 @@ the owners of evidence capture.
 
 Update when capture-loop ownership, supervisor tasks/commands, status or log
 contracts, dashboard controls, deployment/restart behavior, which checkout a task executes from, daily-chain step
-order or settlement recovery, the MG-2 input export, daily-trigger construction or the DST re-registration list, or retraining
+order or settlement recovery, the MG-2 input export, the forward input arrival check, daily-trigger construction or the DST re-registration list, or retraining
 topology changes.

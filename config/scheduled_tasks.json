@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "scope": "Reviewed repository lifecycle intent, not a Scheduler snapshot or authority to arm a task. Active means maintained; expected_disabled represents operator holds. Patterns cover per-attempt task names. Registrar defaults may be explicitly overridden.",
-  "source": "110n, repo-health D6 at 2c8b90618; host registry unverified",
+  "source": "110n, repo-health D6 at 2c8b90618; registration_evidence of the self-pinned and registrar-only rows corrected to master's 2026-11-01 live Scheduler read (R35)",
   "tasks": [
     {
       "name": "WeatherAgentOvernight1030",
@@ -28,7 +28,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_boot_recovery.ps1",
-      "registration_evidence": "repository registrar; host action and enablement unverified"
+      "registration_evidence": "live action (master's 2026-11-01 Scheduler read, R35): the production checkout's scripts/ops/boot_recovery.ps1, self-pinned with -ExpectedSelfSha256; repointed by the production operator under DECISION_LOG 2026-09-27 (efficiency-audit housekeeping). A landed change to boot_recovery.ps1 makes the next boot throw before recovery until register_boot_recovery.ps1 re-pins it, so such a head lands master-attended with the registrar run right after (R35 ruling); status.ps1 self_pinned_tasks flags a mismatch"
     },
     {
       "name": "WeatherCapturePriorityGuard",
@@ -135,6 +135,15 @@
       "registration_evidence": "repository registrar; host action and enablement unverified"
     },
     {
+      "name": "WeatherForwardArrivalCheck",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_forward_input_arrival_check.ps1",
+      "registration_evidence": "repository registrar only (2026-11-01, master ruling R20 section 2); NOT registered on the capture host until the R20 head lands and master registers it under its scheduled-task authority"
+    },
+    {
       "name": "WeatherHostHealthWatchdog",
       "owner": "docs/operations/OPERATIONS_DESIGN.md",
       "state": "active",
@@ -200,13 +209,22 @@
       "registration_evidence": "repository registrar repeats PT1M; the live host task repeats PT5M, the intended value (owner-approved efficiency audit 2026-09-27, DECISION_LOG; Swarm P F2). Registrar alignment to PT5M is an open owner question (88a behaviour freeze until 2026-10-14)"
     },
     {
+      "name": "WeatherMakerEvidenceTornQuarantine",
+      "owner": "docs/operations/passive-maker-evidence-capture.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_maker_evidence_torn_quarantine.ps1",
+      "registration_evidence": "repository registrar and checked-in task XML scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml (owner yes 2026-11-02, Stage 2); NOT registered until master registers it on the capture host after Stage 1 lands"
+    },
+    {
       "name": "WeatherMakerShadowRunner",
       "owner": "docs/operations/maker-shadow-runner.md",
       "state": "active",
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_maker_shadow_runner.ps1",
-      "registration_evidence": "repository registrar only (2026-10-08); not registered on the capture host until the owner-approved activation block in docs/operations/maker-shadow-runner.md runs"
+      "registration_evidence": "live action (master's 2026-11-01 Scheduler read, R35): the production venv's python -m weather.market.maker_shadow run, registered by register_maker_shadow_runner.ps1 under DECISION_LOG 2026-10-08 (production activates it outside 12:00-00:30); no script pin, so a landed change reaches the long-lived runner at its next restart"
     },
     {
       "name": "WeatherMg2InputExport",
@@ -215,7 +233,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_mg2_input_export.ps1",
-      "registration_evidence": "repository registrar only (2026-10-27, MG-2 binding plan section 9.3); NOT registered on the capture host until the owner says yes"
+      "registration_evidence": "registered 2026-10-28 by the master-agent (-WhatIf first, S4U, 04:15 and 07:00) on the owner's 10-27 yes, recorded late in DECISION_LOG under R35; the action runs the production checkout's scripts/ops/mg2_input_export.ps1 with no script pin, so a landed change takes effect at the next 04:15 run"
     },
     {
       "name": "WeatherManualOrderJournal",
@@ -224,7 +242,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_manual_order_journal.ps1",
-      "registration_evidence": "repository registrar (from PR #127 at ebe72984); the live task runs the pinned detached worktree weather-manual-order-journal-deployed-ebe72984 (DECISION_LOG 2026-09-30); journal modules land on master with PR #127 (N3)"
+      "registration_evidence": "live action (master's 2026-11-01 Scheduler read, R35): scripts/ops/manual_order_journal.ps1 with a runner pin (-ExpectedSelfSha256) and a pin over its five journal modules (-ExpectedModulesSha256); first deployed from a pinned detached worktree under DECISION_LOG 2026-09-29, re-pin to master allowed by DECISION_LOG 2026-10-07 once PR #127 landed. A landed change to the runner or a pinned module makes it refuse (exit 3) until register_manual_order_journal.ps1 re-pins it, so such a head lands master-attended with the registrar run right after (R35 ruling); status.ps1 self_pinned_tasks flags a runner mismatch"
     },
     {
       "name": "WeatherMakerEvidenceLowestTemperature",
@@ -233,7 +251,7 @@
       "expected_disabled": false,
       "expected_nonzero": [],
       "registrar": "scripts/ops/register_maker_evidence_family_capture.ps1",
-      "registration_evidence": "repository registrar; not registered before the post-2026-10-14 integration"
+      "registration_evidence": "not registered (master's 2026-11-01 Scheduler read). It stays unregistered under the R35 ruling, which defers DECISION_LOG 2026-10-02/10-15 (Q10) under the 10-23 model-only directive without superseding them; master revisits after B's look (about 12-13) and may register it under that approval. A landing changes nothing on the host until then"
     },
     {
       "name": "WeatherMarketMakingDailyRoll",

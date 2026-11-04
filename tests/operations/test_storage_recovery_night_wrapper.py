@@ -13,6 +13,7 @@ import venv
 import pytest
 
 from tests.git_template import commit_fixture_tree
+from tests.scheduler_stubs import GUARD_SCRIPT, assert_only_stubs_invoked, module_lookalike, prologue
 
 from weather.paths import repo_path
 from weather.operations.process_lock_identity import observe_process_identity
@@ -80,7 +81,7 @@ def native_fixture(tmp_path, tmp_path_factory):
     production.mkdir()
     venv.EnvBuilder(with_pip=False).create(production / "venv")
     for name in ("windows_kill_on_close_job.ps1", "workload_admission.ps1",
-                 "storage_recovery_night_contract.ps1", "register_storage_recovery_night.ps1"):
+                 "storage_recovery_night_contract.ps1", "register_storage_recovery_night.ps1", GUARD_SCRIPT):
         shutil.copy2(repo_path("scripts/ops", name), scripts / name)
     wrapper = repo_path("scripts/ops/storage_recovery_night_run.ps1").read_text(encoding="utf-8-sig")
     wrapper = wrapper.replace("try {\n    $null = New-Item", "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(6)\n    $null = New-Item")
@@ -216,7 +217,16 @@ function Export-ScheduledTask { param($TaskName,$TaskPath); return '<Task>fixtur
 '''
 
 
-@pytest.mark.parametrize("mode,passed,calls", [("success", True, 1), ("exists", False, 0), ("drift", False, 1)])
+PREFLIGHT_REACHED = {
+    "success": {"Get-ScheduledTask", "Register-ScheduledTask", "Export-ScheduledTask"},
+    "exists": {"Get-ScheduledTask"},
+    "drift": {"Get-ScheduledTask", "Register-ScheduledTask"},
+    "missing_stub": set(),
+}
+
+
+@pytest.mark.parametrize("mode,passed,calls", [
+    ("success", True, 1), ("exists", False, 0), ("drift", False, 1), ("missing_stub", False, 0)])
 def test_registrar_readback_refuses_reuse_and_settings_drift_without_real_scheduler(native_fixture, mode, passed, calls):
     source, production, head, host = native_fixture
     now = datetime.now(timezone.utc)
@@ -235,13 +245,23 @@ def test_registrar_readback_refuses_reuse_and_settings_drift_without_real_schedu
         "__PRODUCTION__": str(production), "__PLAN__": str(path),
         "__SHA__": hashlib.sha256(path.read_bytes()).hexdigest(), "__HEAD__": head}
     script = SCHEDULER_MOCKS
+    if mode == "missing_stub":
+        # The Get-ScheduledTask stub is replaced by a module-owned lookalike of the real command:
+        # WEATHER_TASK_TEST must make the registrar refuse before any Scheduler call.
+        script = script.replace("function Get-ScheduledTask {", "function Unused-WeatherFixtureStub {")
+        script = script.replace("function Export-ScheduledTask", module_lookalike("Get-ScheduledTask") +
+                                "function Export-ScheduledTask")
     for key, value in replacements.items():
         script = script.replace(key, value.replace("'", "''"))
+    ledger = production / "scheduler-ledger.jsonl"
     harness = production / "harness.ps1"
-    harness.write_text(script, encoding="utf-8")
+    harness.write_text(prologue(ledger) + script, encoding="utf-8")
     result = subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
                              "-File",str(harness)], capture_output=True, text=True, timeout=40)
     assert (result.returncode == 0) is passed, result.stdout + result.stderr
+    assert_only_stubs_invoked(ledger, PREFLIGHT_REACHED[mode])
+    if mode == "missing_stub":
+        assert "Get-ScheduledTask is not a test stub" in result.stdout + result.stderr
     observed_calls = calls_path.read_text().splitlines() if calls_path.exists() else []
     assert len(observed_calls) == calls
     receipt = production / "scratch/storage_recovery_nights" / plan["plan_id"] / "registration-preflight/preflight-result.json"
@@ -305,12 +325,15 @@ def test_both_segments_accept_scheduler_normalized_durations_and_reject_changed_
         "__PRODUCTION__": str(production), "__PLAN__": str(path), "__SHA__": sha, "__HEAD__": head}
     for key, value in replacements.items():
         script = script.replace(key, value.replace("'", "''"))
+    ledger = production / "scheduler-ledger.jsonl"
     harness = production / "harness.ps1"
-    harness.write_text(script, encoding="utf-8")
+    harness.write_text(prologue(ledger) + script, encoding="utf-8")
     observed = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                               "-File", str(harness)], capture_output=True, text=True, timeout=40)
     assert (observed.returncode == 0) is passed, observed.stdout + observed.stderr
     assert len(calls.read_text().splitlines()) == expected_calls
+    assert_only_stubs_invoked(ledger, {"Get-ScheduledTask", "Get-ScheduledTaskInfo", "Export-ScheduledTask",
+                                       "Register-ScheduledTask"})
     for segment in ("early", "late"):
         receipt = night_root / "registration-segments" / (segment + "-result.json")
         assert receipt.exists() is passed
