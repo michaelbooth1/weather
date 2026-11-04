@@ -57,6 +57,7 @@ BINDING_TARGETS = {
     "suite_gated_quiet_merge.ps1": "RepoRoot",
     "merge_queue_driver.ps1": "RepoRoot",
     "mg2_input_export.ps1": "ProductionRepoRoot",
+    "r28b_input_trim.ps1": "ProductionRepoRoot",
     "new_integration_attempt.ps1": "RepoRoot",
     "register_boot_recovery.ps1": "RepoRoot",
     "register_clob_enrichment.ps1": "RepoRoot",
