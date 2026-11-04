@@ -5,8 +5,9 @@ MODEL_IMPROVEMENT_METHOD §5 rule 4 (MIM:160-161), "A dev win against served or 
 candidate earns a market test only if its walk-forward w beats the placebo and the floor-only control. A PASS here
 is not an edge claim and not an adoption.
 
-Status: **DRAFT, NOT FROZEN.** Nothing in this file binds. Master reviews it; it freezes only after the owner OKs
-row-28 prereg §9 item 3 (a named forward embargo line starting 12-17), and a freeze commit records its sha256.
+Status: **DRAFT, NOT FROZEN.** Nothing in this file binds. Master reviews it. The owner approved row-28 prereg §9 item 3 on
+2026-11-04 (a named forward embargo line from 12-17: the reserved-window row-28b row; DECISION_LOG 2026-11-04). It
+freezes before 12-17 with the 343b state sha, and a freeze commit records its sha256.
 Drafted by lane L59 on the WS (non-capture) on 2026-11-03 from origin/master `621d67f0f`, outcome-blind for the
 forward window: no forward date's input, label, price or score was read, and no data dated 2026-09-30 or later was
 opened. The only numbers used are row 28's frozen history results (branch
@@ -29,7 +30,9 @@ opened. The only numbers used are row 28's frozen history results (branch
   inflation. No checker change and no rule change. Master's note: MIM rule 7 already covers this case ("A look
   reads a date only when rule 9 allows it").
 - Archive path `C:\archive\row28b-forward-state\<fit_id>\` and equivalence (c) in STATE-SHA mode: OK (master).
-- Still DRAFT, NOT FROZEN until the owner OKs the 12-17 embargo line.
+- Still DRAFT, NOT FROZEN. The 12-17 embargo line is owner-approved (2026-11-04; reserved-window row-28b row;
+  DECISION_LOG). It freezes before 12-17 with the 343b state sha. Forward inputs follow the owner's carve-out
+  (343b design §10, DECIDED).
 
 **Re-test from zero.** Row 28 prereg §8.3: "The forward test re-tests the candidate from zero, and the history point
 is not carried as evidence." The history point (B − S −0.1368) sizes this test; it never enters its verdict.

@@ -389,10 +389,10 @@ the module, and not before. That change contains:
 Until then, nothing names the module in any allowlist, hook mirror or test, and row 28's remaining stages stay on
 launcher v6 under the one-off exception. This note adds no allowlist line.
 
-## 10. OPEN OWNER QUESTION: the forward emission input route
+## 10. DECIDED (owner 2026-11-04): the forward emission input route
 
-Status: **OPEN**. Master asks the owner; agents do not. An answer is needed by about 2026-12-15, ahead of the
-first weekly batch on 2026-12-21. The forward-state freeze does not depend on it.
+Status: **DECIDED.** OWNER DECISION, 2026-11-04 ~10:55 ET, verbatim "approve all recommendations" (owner in the master chat, relayed by master), item (5), DECISION_LOG 2026-11-04. It was OPEN until then; the text
+below keeps the finding and the question as master put them.
 
 **The finding (master accepted, 2026-11-03).** The existing MG-2 host export (`WeatherMg2InputExport`,
 `scripts/ops/mg2_input_export.ps1`) is the natural input route for `emit`. Its bundles cut once per date, at local
@@ -406,7 +406,11 @@ snapshot's capture.
 METAR) for forward dates from D+1, read only by the sha-pinned 343b emitter, with agents seeing names, sizes and
 shas only? Master recommends yes, together with option (a) below as defence in depth.
 
-- (a) an export-side as-of-capture trim (defence in depth). **Not built** until the owner answers.
+- (a) an export-side as-of-capture trim (defence in depth).
 - (b) the owner's explicit carve-out for row 28 B's emitter.
 
-Until the owner answers: no pull for this route, and no build of (a).
+**The answer: yes, with (a) as defence in depth.** The MG-2 input-bundle precedent extends to row-28b for local
+target dates >= 2026-12-17: the workstation may hold full-day input bundles, read ONLY by the sha-pinned 343b
+emitter; agents see names, sizes and shas only; (a) is built as defence in depth. The dates are the row-28b
+forward line in the reserved-confirmation window. The carve-out covers no other reader, candidate or date, and
+this note still authorises no code, task or pull by itself: each goes through its own reviewed head.
