@@ -32,6 +32,24 @@ One subcommand is refused although its module is listed: `weather.calibration.b_
 `python -m weather.calibration.b_look_wrapper look` (master ruling 2026-11-01, B-1 Clarification 3).
 This is a guard on those two paths only: Claude Code sessions have no hook layer. The binding control stays the
 fixed consumed marker plus the look-day checklist naming only the wrapper command.
+Its `research_script` kind (master 2026-11-03, item b) admits one named research script outside the
+package: the arguments must be exactly `-I <script> <args>`, and the script must have one entry, an exact
+absolute path and lowercase sha256, in `Get-WeatherWorkstationResearchScriptAllowlist`
+(`scripts/ops/workload_admission.ps1`; each entry is a reviewed commit, never a wildcard or directory,
+and a script whose bytes change needs a new entry). `Get-WeatherWorkstationResearchScriptRefusal` refuses a path that is not
+`C:\t\<lane>\...\<name>.py` with one lane segment and plain segments (no `..`, wildcards, short names or
+streams), any component from `C:\t` down that is absent or a reparse point or junction, a missing or
+duplicated entry, and any sha mismatch. The wrapper opens the script deny-write before admission, hashes
+that handle, and keeps it open until the child exits, so the bytes Python runs are the pinned bytes. The
+live/execute/place/cancel/promote switch refusal and the b_scorer look refusal apply to its arguments.
+After admission it re-checks the path; a residual check-then-open window remains, open only to a local actor
+under the same user (accepted as narrowed, L16 2026-11-03). It then refuses the start when the script's or the
+checkout's volume has less than `-MinFreeDiskGB` free (default 50 GiB, at least 20). It prints and, with `-Queue`, adds to
+the `finish` event the exit code, `script_sha256` and `peak_job_memory_bytes`: the Job's
+`PeakJobMemoryUsed`, the peak committed memory of the whole tree (the venv `python.exe` is a redirector, so
+its own working set is not the job's peak). Mutexes, slots, state files and the lease are those of every
+other kind. `-I` drops the script's directory and user site from `sys.path`, so a script imports only the
+interpreter's installed packages.
 The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the
