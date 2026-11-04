@@ -77,6 +77,7 @@ jobs:
               tests/calibration/test_mg2_input_export.py
               tests/calibration/test_r28b_input_trim.py
               tests/operations/test_frozen_binding_guard_script.py
+              tests/operations/test_mg2_forward_inputs_task.py
               tests/model/test_high_so_far_variant_none_byte_identity.py
               tests/calibration/test_mg1_look_record.py
               tests/calibration/test_mg1_market.py
