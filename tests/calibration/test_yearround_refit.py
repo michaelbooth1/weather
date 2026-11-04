@@ -1529,3 +1529,22 @@ def test_wu_store_checks_report_fall_back_sundays_and_never_refuse_on_them(tmp_p
     assert "header" in fall[("denver", "2022-11-06")]["refused"]  # report-only: a refused read never refuses
     with pytest.raises(yr.YearroundRefused, match="header"):
         yr.wu_store_checks([("denver", "2022-03-13")], ["atlanta", "denver"])  # a hole's read refusal refuses
+
+
+def test_wu_store_checks_report_every_other_hole_class_and_never_refuse_on_them(tmp_path, monkeypatch):
+    roots = {"atlanta": tmp_path / "a", "denver": tmp_path / "d"}
+    monkeypatch.setattr(yr, "_wu_market_root", lambda m: roots[m])
+    (roots["atlanta"] / "daily").mkdir(parents=True)
+    _daily(roots["atlanta"] / "daily", ["2,2022-03-01,F,24,00:53,61,61", "2,2022-03-13,F,23,00:53,61,61"])
+    (roots["denver"] / "daily").mkdir(parents=True)
+    _daily(roots["denver"] / "daily", ["2,2022-01-01,F,1,x,1,1"], header="bad header\n")
+    out = yr.wu_store_checks([("atlanta", "2022-03-13")], ["atlanta", "denver"],
+                             other_holes=[("atlanta", "2022-03-01", "march_1"), ("atlanta", "2022-03-02", "other"),
+                                          ("denver", "2022-01-01", "other")])
+    other = {(e["market"], e["target_date"]): e for e in out["other_holes_report_only"]}
+    assert other[("atlanta", "2022-03-01")] == {"market": "atlanta", "target_date": "2022-03-01", "class": "march_1",
+                                                "daily_row_present": True, "row_count": 24, "row_count_ge_20": True,
+                                                "hourly_row_present": False}
+    assert other[("atlanta", "2022-03-02")]["daily_row_present"] is False
+    assert "header" in other[("denver", "2022-01-01")]["refused"]  # report-only: a refused read never refuses
+    assert [e["target_date"] for e in out["spring_forward_holes"]] == ["2022-03-13"]

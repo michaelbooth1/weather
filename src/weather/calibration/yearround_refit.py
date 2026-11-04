@@ -2038,7 +2038,9 @@ def grid_holes(cfg, *, records_root, out, expected=None):
             "records_manifest_module_sha256": manifest.get("module_source_sha256"),
             "records_root": str(records), "frame_rows": int(len(frame)), **grid_hole_names(holes, len(grid))}
     spring_forward = [(m, d) for m, d in holes if _us_spring_forward(as_date(d))]
-    body["wu_store_checks"] = wu_store_checks(spring_forward, REQUIRED_FIT_MARKETS)
+    others = [(m, d, "march_1" if as_date(d).month == 3 and as_date(d).day == 1 else "other")
+              for m, d in holes if not _us_spring_forward(as_date(d))]
+    body["wu_store_checks"] = wu_store_checks(spring_forward, REQUIRED_FIT_MARKETS, other_holes=others)
     out.mkdir(parents=True)
     path = out / GRID_HOLES_FILE
     sha = _write_json(path, body)
@@ -2127,31 +2129,39 @@ def wu_hourly_presence(root, dates):
     return out
 
 
-def wu_store_checks(spring_forward_holes, markets):
-    """Spring-forward grid holes (a refusal refuses) and every market's fall-back Sundays (report-only)."""
+def wu_store_checks(spring_forward_holes, markets, other_holes=()):
+    """Spring-forward grid holes (a refusal refuses), every other grid hole with its class (report-only, master
+    R-a 2026-11-04) and every market's fall-back Sundays (report-only). The same Option A bounds read them all."""
     fall_back = [us_fall_back_sunday(y).isoformat() for y in FALL_BACK_YEARS]
-    holes_by_market = defaultdict(list)
+    holes_by_market, others_by_market = defaultdict(list), defaultdict(dict)
     for m, d in spring_forward_holes:
         holes_by_market[m].append(d)
-    spring, fall = [], []
-    for market in sorted(set(markets) | set(holes_by_market)):
+    for m, d, cls in other_holes:
+        others_by_market[m][d] = cls
+    spring, other, fall = [], [], []
+    for market in sorted(set(markets) | set(holes_by_market) | set(others_by_market)):
         root = _wu_market_root(market)
-        dates = sorted(set(holes_by_market[market]) | set(fall_back))
+        dates = sorted(set(holes_by_market[market]) | set(others_by_market[market]) | set(fall_back))
         try:
             daily = wu_daily_presence(root / "daily" / "daily_summary.csv", dates)
             hourly = wu_hourly_presence(root, dates)
         except YearroundRefused as exc:
             if holes_by_market[market]:
                 raise
+            other += [{"market": market, "target_date": d, "class": c, "refused": str(exc)}
+                      for d, c in sorted(others_by_market[market].items())]
             fall += [{"market": market, "target_date": d, "refused": str(exc)} for d in fall_back]
             continue
         for d in dates:
             entry = {"market": market, "target_date": d, **daily[d], "hourly_row_present": hourly[d]}
             if d in holes_by_market[market]:
                 spring.append(entry)
+            if d in others_by_market[market]:
+                other.append({**entry, "class": others_by_market[market][d]})
             if d in fall_back:
                 fall.append(dict(entry))
-    return {"caveat": WU_STORE_CAVEAT, "spring_forward_holes": spring, "fall_back_sundays_report_only": fall}
+    return {"caveat": WU_STORE_CAVEAT, "spring_forward_holes": spring, "other_holes_report_only": other,
+            "fall_back_sundays_report_only": fall}
 
 
 # ----------------------------------------------------------------------------- CLI

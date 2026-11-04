@@ -143,9 +143,11 @@ The module does not write it.
 - Writes one file, `<out>/grid_holes.json`, write-once, and prints its sha: every (market, date) hole, per-market
   counts, the classes `march_1`, `us_spring_forward_sunday` and `other` (each named), any 29 February, whether
   2024-02-29 and 2024-03-01 are holes, and `in_forward_window` (a hole on Dec 17..Jan 30 of any year).
-- Exit code 4 when `in_forward_window` is true: a STOP for master. Exit 0 otherwise.
-- `wu_store_checks` (master Option A, 2026-11-04): for each spring-forward hole, and report-only for every training
-  market's US fall-back Sundays 2020-11-01..2025-11-02, the booleans `daily_row_present`, `row_count_ge_20` (with
+- Exit code 4 when `in_forward_window` is true: a STOP for master. Exit 0 otherwise. A flag raised only by history
+  dates of a training-only market (denver, which is never emitted) is not forward exposure (master 2026-11-04).
+- `wu_store_checks` (master Option A, 2026-11-04): for each spring-forward hole, report-only for every other grid
+  hole with its class (master R-a), and report-only for every training market's US fall-back Sundays
+  2020-11-01..2025-11-02, the booleans `daily_row_present`, `row_count_ge_20` (with
   `row_count`) and `hourly_row_present`, read read-only from the WU store (`data\wunderground\<icao>`). The
   daily header must begin `schema_version,local_date,temperature_unit,row_count,`; lines are compared by their
   local_date token only, the scan stops at the first token on or after 2026-09-30 and refuses on a descending
