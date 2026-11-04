@@ -2730,6 +2730,28 @@ function Exit-WeatherHeavyWorkloadLease {
         if ($null -ne $Lease -and
             $Lease.PSObject.Properties.Name -contains "Stream" -and
             $null -ne $Lease.Stream) {
+            # Overwrite the owner record with a released marker (no pid) while the
+            # handle is still held, so a reader such as memory_commit_guard.ps1 never
+            # mistakes a released lease for a live one while its former owner process
+            # lives on. Best effort: a failure only warns, and the handle is disposed.
+            try {
+                if ($Lease.Stream.CanWrite) {
+                    $releasedRecord = [ordered]@{
+                        schema_version = "weather_heavy_workload_lease_released_v1"
+                        workload = [string]$Lease.Workload
+                        released_at = (Get-Date).ToUniversalTime().ToString("o")
+                    }
+                    $releasedBytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes(
+                        ($releasedRecord | ConvertTo-Json -Compress))
+                    $Lease.Stream.SetLength(0)
+                    $Lease.Stream.Position = 0
+                    $Lease.Stream.Write($releasedBytes, 0, $releasedBytes.Length)
+                    $Lease.Stream.Flush()
+                }
+            }
+            catch {
+                Write-Warning ("heavy-workload lease release marker was not written: {0}" -f $_.Exception.Message)
+            }
             $Lease.Stream.Dispose()
         }
     }

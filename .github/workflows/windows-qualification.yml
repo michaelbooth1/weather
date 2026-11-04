@@ -72,7 +72,9 @@ jobs:
               tests/operations/test_ps_script_root_param_defaults.py
               tests/operations/test_ps_exit_in_finally_ratchet.py
               tests/operations/test_maker_shadow_ops_scripts.py
+              tests/operations/test_maker_evidence_torn_quarantine_script.py
               tests/calibration/test_mg2_input_export.py
+              tests/model/test_high_so_far_variant_none_byte_identity.py
             mark: ''
           - shard: launch
             split_file: ''
