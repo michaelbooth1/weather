@@ -1,5 +1,7 @@
 # PT-1: cool-season paper test, pre-registration (DRAFT)
 
+> **Status 2026-11-03: NOT RUNNABLE (master ruling R21, landed on the 11-04 docs head).** With candidate C-PT, PT-1 fails method rules 4 and 6; it will not be bound and claims no date. See the [receipt](../research/pt1-not-runnable-2026-11-03/receipt.md) (raw sha256 `8c45c8d99dabf1e38b21ad3ebd6e1b015a723b54054dd73d72e2373686cf7c35`), [EXHAUSTION_REGISTER](EXHAUSTION_REGISTER.md) X106 and the DECISION_LOG R21 row. The draft below is unchanged (sha256 as ruled `7de9be949653a1513e5690f1c2a25fc9146946bc77f24e5ac3da252c46a16986`) and kept as the record. Reopen only under a new prereg.
+
 > **Repository copy, filed 2026-10-26 in the docs head.** Copied from the coordinator's draft (raw sha256
 > `e0c1063dd2fef01075ff236aea71e052481b14912f0c5c0d0f79e8596ea1ab59`). Changes: this note, and three literal tabs restored to the
 > backslash-t they stood for in Windows paths (`data\inbox\tapes-...`, `execution_tape\trades-*`), and the answers
@@ -78,6 +80,13 @@ F = capture-time market mid p_market_yes with the rule-4 floor mask, renormalise
   reported to the owner instead of spending dates. The dev evidence that the blend weight of NBM-family
   arms is about 0 (EF §10ad; P3d_N at 13-16) makes this outcome plausible; nobody has measured w for L6
   at 07-12 against the market.
+
+**Source-provenance record items (2026-10-31, master-approved wording; record only, no design change).**
+- The served model v0.5.12 trains on Open-Meteo Historical Forecast `best_match` 2021-25, and the release records
+  no source provenance. L16's composition check: `best_match` tracks HRRR with no break, all held months (12
+  stations x 2021-26 x May-Jun; EF §10an "two archives differ").
+- Captured Open-Meteo `gfs_seamless` is HRRR inside HRRR's horizon (register X63, EF §10an), so a captured "GFS"
+  and "HRRR" pair is one source.
 
 ## 3. The paper decision rule (what a paper trade is)
 

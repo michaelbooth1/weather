@@ -5,8 +5,9 @@ only that attempt's retained receipts (never a source payload), proves every
 started file has a VERIFIED equal-hash after-journal, and writes one create-only
 resolution the scheduled runner accepts. The one unfinished file an interrupted
 attempt can hold (a before-journal without its after-journal) is accepted only
-with a hash-bound read-only nightly retained-file verification attempt. It never deletes, renames, retries or
-recompresses anything, and credits no savings to any nightly total.
+with a hash-bound read-only nightly retained-file verification attempt. An attempt whose child refused
+before writing anything holds only the wrapper receipt and resolves with no file verified. It never deletes,
+renames, retries or recompresses anything, and credits no savings to any nightly total.
 """
 from __future__ import annotations
 
@@ -97,14 +98,22 @@ def resolve(root, name, approved_by, *, now=None, verified_retained=None, verifi
             or wrapper.get("hard_stop") is not False or wrapper.get("deleted_files") != 0
             or wrapper.get("cleanup_eligible") is not False):
         raise ValueError("only a torn-down FAILED attempt without a hard stop can be resolved here")
-    result, result_sha256 = _receipt(attempt / "result.json")
-    if (result.get("schema_version") != schema_version("cold_snapshot_nightly_receipt")
-            or result.get("status") != "FAILED_RETAIN_AND_INSPECT"
-            or result.get("source_git_sha") != wrapper.get("source_git_sha")
-            or result.get("request_sha256") != wrapper.get("request_sha256")
-            or result.get("apply") is not wrapper.get("apply")
-            or result.get("deleted_files") != 0 or result.get("cleanup_eligible") is not False):
-        raise ValueError("child result does not bind the failed wrapper attempt")
+    if [entry.name for entry in attempt.iterdir()] == ["wrapper-result.json"]:
+        # The child refused before writing anything (2026-10-30: an expired policy reached
+        # the 06:50 run after the wrapper had created the attempt). No selection and no
+        # journal exist, so no file was started; resolve it with nothing verified.
+        if "child_result_sha256" in wrapper:
+            raise ValueError("the wrapper binds a child result the attempt does not hold")
+        result, result_sha256 = {"error": wrapper.get("error", "")}, None
+    else:
+        result, result_sha256 = _receipt(attempt / "result.json")
+        if (result.get("schema_version") != schema_version("cold_snapshot_nightly_receipt")
+                or result.get("status") != "FAILED_RETAIN_AND_INSPECT"
+                or result.get("source_git_sha") != wrapper.get("source_git_sha")
+                or result.get("request_sha256") != wrapper.get("request_sha256")
+                or result.get("apply") is not wrapper.get("apply")
+                or result.get("deleted_files") != 0 or result.get("cleanup_eligible") is not False):
+            raise ValueError("child result does not bind the failed wrapper attempt")
     batches = sorted(p for p in attempt.iterdir() if p.is_dir())
     if len(batches) > MAX_BATCHES or any(not re.fullmatch(r"batch-[0-9]{4}", p.name) for p in batches):
         raise ValueError("unexpected attempt directory layout")

@@ -51,7 +51,7 @@ citing it in a new decision.
 | [CAMPAIGN_LEDGER.md](CAMPAIGN_LEDGER.md) | *How much α is spent, and on what?* — the binding decision ledger. Read before proposing any confirmatory look; only the operator allocates. |
 | [MODEL_IMPROVEMENT_METHOD.md](MODEL_IMPROVEMENT_METHOD.md) | *How does a model lane find and measure a candidate?* — locate the loss, OLS + floor baseline first, one ingredient per rung, served → MG-1 → capture-time market read → blend weight, pre-registration discipline. |
 | [DEV_WINDOW_LEDGER.md](DEV_WINDOW_LEDGER.md) | *What has already been scored on the 07-31..09-29 development window?* — one row per candidate, control or read; the reuse count every pre-registration cites and every edge test corrects for. |
-| [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count; enforced by `weather.reporting.scorecards.prereg_check`. |
+| [PREREGISTRATION_CHECKLIST.md](PREREGISTRATION_CHECKLIST.md) | *What must a rule file state before a dev-window candidate is scored?* — positive control, comparator fairness, targeted loss slice, MDE and clusters, reuse count, plus (f) power gate and (g) futility for forward pre-registrations; enforced by `weather.reporting.scorecards.prereg_check` (`--forward` for (f) and (g)). |
 
 Open work is **not** tracked here. Owned work lives in numbered roadmap items, surfaced by the
 generated [`../roadmap/active-backlog.md`](../roadmap/active-backlog.md). What is open on the host
@@ -200,6 +200,7 @@ git; re-verify before relying on it.
 | [REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md) | CLOSED — thread closed; do not dispatch another historical-reproduction mission | Anyone proposes reconstructing what we served from history. |
 | [mirror-paused-2026-08-12.md](mirror-paused-2026-08-12.md) | **PAUSED** — operator decision; the live answer is the `WeatherDataMirror` task state | Anything touching the off-host mirror, workstation `data\`, or mirror flags in `status.ps1`. |
 | [codex-host-overload-2026-08-23.md](codex-host-overload-2026-08-23.md) | CLOSED — incident trace; prevention lives in `HOST_LOAD_POLICY.md` rule 6 | Why Codex verification is serial and time-gated. |
+| [capture-host-wifi-outage-2026-10-28.md](capture-host-wifi-outage-2026-10-28.md) | CLOSED — incident record | Capture shows no new data while the process-count check is healthy, or the cold-snapshot nightly is blocked by a failed attempt. |
 
 ### History appendices
 

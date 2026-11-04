@@ -195,6 +195,20 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
 - **Why it fooled us:** the comparator was the family's historical reference, not the arm actually in the candidate.
   Score every rung against the strongest incumbent that would be replaced.
 
+### "A season-matched P3d_N beats MG-2 at 13-16 by about 0.05" — WRONG COMPARATOR, RETRACTED (2026-10-27)
+
+- **What it looked like:** SM-N (the P3d_N spec refitted on Oct-Dec 2021-25 rows) beat "MG-2's P3d_N" at 13-15 by
+  about 0.05 Brier (SM_N − P3d_N −0.0519 [−0.0590, −0.0454], reported beside SM-H's row 48), and was flagged as a
+  season-matched gain MG-2 was missing at 13-16.
+- **What is true:** the comparator was the dev state `dff5d797…`, which was never bound. Against MG-2's served arm
+  (P3d_N_fwd through the `c6cc39f7…` state) SM-N is worse: +0.00356 [+0.00185, +0.00523] at 13-16 (C10-sel rule
+  `8c59c1b6…`, DEV_WINDOW_LEDGER row 50 on `claude/l2-dev-ledger-rows-20261026`). The season gain is already in
+  `c6cc39f7` (P3d_N_fwd − dev state −0.0569 [−0.0631, −0.0505]). C10 was opened and not adopted. SM-H's own −0.0669 was
+  against the same dev state; re-decided against the served arm it is −0.01273 [−0.01625, −0.00936] (row 51).
+  `ESTABLISHED_FINDINGS.md` §10al; register X40.
+- **Why it fooled us:** the same shape as the R-D blend: the comparator was a convenient state of the family, not the
+  arm actually served. Score every candidate against the bound, served state it would replace.
+
 ### "Toronto has no NBM guidance" — SOURCE PROPERTY CONFUSED WITH CAPTURE SCOPE, RETRACTED (2026-10-26)
 
 - **What it looked like:** the exhaustion register (S1 "no coverage", S13 "Toronto has no NBM", §5 order 12 "because it
@@ -455,6 +469,13 @@ barrier `BLOCK`, or a blocker on another step. Which markets failed, and why, is
 **The distinguishing evidence is the log, not the exit code.** For the training window, check that
 `[RESTORE]` lines follow the `[STOP]` lines in `data\logs\training_window.log` — that is the only
 part that can cost a streak day. If capture was restored, exit 2 is a healthy run.
+
+**Correction (master ruling R18, 2026-11-01): Stage-A rc 2 has four cause classes; read the manifest's
+`first_blocker` code, not the exit code.** (1) Barrier `DIAGNOSTIC_ONLY` = by design (above). (2)
+`exchange_economics_rule_drift` = a real fault, failing since about 2026-10-20, not 10-08 (10-08 was a separate
+episode, closed by the 10-10 matcher merge). (3) `settlement_source_audit` `BLOCK` = a real fault; the cause is
+ruled per case. (4) A transient pre-step deferral = a real fault, fixed by the pre-step retry (`cd93c4e7`). The
+`WeatherTrainingWindow` "2 every night" row above is stale: the task has been Disabled since its 2026-08-13 run.
 
 ### "A live PID proves it still owns an old lock" — FALSE UNDER PID REUSE
 

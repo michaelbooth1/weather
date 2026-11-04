@@ -5,23 +5,23 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-01T23:10:12.390321+00:00
+Generated: 2026-11-04T16:37:07.483695+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 331 |
-| Active items | 15 |
-| OPEN | 3 |
+| Items | 333 |
+| Active items | 16 |
+| OPEN | 4 |
 | PARTIAL | 12 |
 | COMPLETE | 289 |
-| DORMANT | 27 |
-| Active, no disposition within 45 days of 2026-11-01 | 11 |
-| ROADMAP rows | 331 |
-| ROADMAP primary rows | 331 |
-| Metadata manifest rows | 331 |
+| DORMANT | 28 |
+| Active, no disposition within 45 days of 2026-11-03 | 11 |
+| ROADMAP rows | 333 |
+| ROADMAP primary rows | 333 |
+| Metadata manifest rows | 333 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -41,8 +41,9 @@ Status: `OK`
 | 333 | PARTIAL | - | - | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 | 336 | PARTIAL | 2026-10-08 | LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
 | 337 | OPEN | 2026-10-08 | OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
-| 339 | OPEN | 2026-10-21 | OWNER APPROVED; SIGNING AFTER THE THURSDAY FABLE DELTA | [EDGE-1 Model-Edge Pre-Registration Family](items/item-339-edge1-model-edge-preregistration.md) |
 | 340 | OPEN | 2026-11-01 | R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD | [Open-Meteo DST Fix For Training And Backfill Readers](items/item-340-open-meteo-dst-training-readers.md) |
+| 342 | OPEN | 2026-11-03 | MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math](items/item-342-feb29-bound-centre-lookup-crash.md) |
+| 343 | OPEN | 2026-11-03 | MASTER OPTION 1; ROW 28'S FIRST RUN USES THE ONE-OFF OPTION-2 LAUNCHER | [Offline Year-Round Refit Module And Workstation Allowlist Line](items/item-343-offline-year-round-refit-module-allowlist.md) |
 
 ## Active Items Without A Disposition In 45 Days
 
@@ -51,16 +52,16 @@ disposition or mark the item `DORMANT YYYY-MM-DD - reason`.
 
 | Item | Status | Date | Days | File |
 | :--- | :--- | :--- | :--- | :--- |
-| 67 | PARTIAL | 2026-08-30 | 63 | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
-| 224 | PARTIAL | 2026-07-11 | 113 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
-| 309 | PARTIAL | 2026-08-19 | 74 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
-| 323 | PARTIAL | 2026-07-15 | 109 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
-| 324 | PARTIAL | 2026-08-22 | 71 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 325 | PARTIAL | 2026-09-13 | 49 | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
-| 326 | PARTIAL | 2026-08-15 | 78 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
-| 330 | PARTIAL | 2026-09-05 | 57 | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
-| 331 | PARTIAL | 2026-09-12 | 50 | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
-| 332 | PARTIAL | 2026-09-12 | 50 | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
+| 67 | PARTIAL | 2026-08-30 | 65 | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 224 | PARTIAL | 2026-07-11 | 115 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 309 | PARTIAL | 2026-08-19 | 76 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 323 | PARTIAL | 2026-07-15 | 111 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 324 | PARTIAL | 2026-08-22 | 73 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
+| 325 | PARTIAL | 2026-09-13 | 51 | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 326 | PARTIAL | 2026-08-15 | 80 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 330 | PARTIAL | 2026-09-05 | 59 | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 331 | PARTIAL | 2026-09-12 | 52 | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
+| 332 | PARTIAL | 2026-09-12 | 52 | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 | 333 | PARTIAL | - | undated | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 
 ## Dormant Items
@@ -94,6 +95,7 @@ disposition or mark the item `DORMANT YYYY-MM-DD - reason`.
 | 321 | 2026-09-29 | RELEASE 1 DEFERRED UNTIL A RETRAINED CANDIDATE; WAS OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN | [Model Production Readiness, Evidence Integrity, And Staged Release Program](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 | 322 | 2026-09-29 | TAKER RETIRED (OWNER 2026-09-25/26); WAS PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 328 | 2026-09-29 | PAPER MAKER RETIRED (OWNER 2026-09-25/26); WAS PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
+| 339 | 2026-10-23 | POSTPONED BY THE OWNER (DECISION_LOG 2026-10-23), FORWARD TEST B REPLACED IT; WAS OPEN 2026-10-21 - OWNER APPROVED, NEVER SIGNED | [EDGE-1 Model-Edge Pre-Registration Family](items/item-339-edge1-model-edge-preregistration.md) |
 
 ## Lint Issues
 

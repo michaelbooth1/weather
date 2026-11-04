@@ -47,7 +47,7 @@ sequence numbers, not calendar dates.
 | 1h | The point-in-time field test is pre-registered and frozen (`-09-61a`) |
 | 1i | α = 0.0025 is short on the thin tail; quantile amendment A1 (`-09-62a`) |
 | 1j | Decision 10 closed unused; Gate 3 fired on a floor never served (`-09-63a`) |
-| 1k | Missions `-09-64a`..`-09-78a`: instrument audit closed, `high_so_far` is not append-only, replay does not reproduce what was served, recovery thread closed unpowered |
+| 1k | Missions `-09-64a`..`-09-78a`: instrument audit closed, `high_so_far` is not append-only, replay does not reproduce what was served, recovery thread closed unpowered; 2026-11-01 addendum: the decreases are pervasive on dev and released dates, mechanism the 07:00 window |
 | 1m | Workstation research lineage 2026-09-01..04 (unmerged): the eleven extra free PIT fields are tested and inconclusive three times, never harmful; provider history depth by field/year; no free v2 PIT source |
 | 2 | The cool bias is real, seasonal-coverage caused, and not correctable at serve |
 | 3 | The serving floor fix: the one shipped win |
@@ -125,7 +125,17 @@ sequence numbers, not calendar dates.
 | 10ah | Reads from 2026-10-24/25 recorded late (dev): L5 hot-day centre arms and AFD all KILL vs MG-1; L8 high_so_far parity KEEP vs base, not bound; L10 gap atlas has no cell at R <= 1; L11 stage C gross bound; no fresh pre-07-31 dates |
 | 10ai | Before 10-23 the venue paid the WU band 626/626 (routine-only rule 617/626; 8 band flips 08-11..09-29, all SPECI effects): labels are WU before 10-23 and the venue rule from it (master ruling (10-25), reading B) |
 | 10aj | Found defect 2026-10-26: the MG-2 "no production importer" test was vacuous (literal backspace bytes for `\b`); fixed in `e40804dfe`; control-byte ratchet approved (master ruling (10-25)), landing 10-26/27 |
-| 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market |
+| 10ak | Lane reads 2026-10-26 (dev): R-P KILL at gate 3 (a LOYO intercept win is bias correction, not information); R-PD and R-N CLOSED at 00-06 (gate 2 NULL); R-L STOPPED at gate 1a (NBS drops the day's TXN from ≥ 13Z cycles), R-L2 KILL at gate 3; R-R WIN at 07-12 vs L6, still worse than the market; R-S KILL at gate 2 (NBM-published spread closed) |
+| 10al | Reads 2026-10-26/27: R-U CLOSED at P0 (HRRR 3x3 spread as width closed at all hours); C10 opened, not adopted; SM-H selected for MG-3 13-15 (h15 unresolved); CS-1 P3d_H 13-16 transfers, P3d_H 07-12 does not; R-V gate 2 (a) capture-proposal PASS, (b) KILL |
+| 10an | Open-Meteo `gfs_seamless` is HRRR over the US inside HRRR's horizon (provider docs; X63 probe ~57 h): "GFS" and "HRRR" from the multimodel feed are one source; row 78 effective K 16, no verdict change; Previous Runs history composition not established; Previous Runs history changes regime about 2024-01, while served Historical Forecast best_match shows no break (2026-10-31 bullets) |
+| 10ao | Released-window re-base of served vs market, out of sample and not countable (powered=False): R at 00-16 1.455 pre / 1.513 post, inside the dev positive-control CIs; the dev gap persists on released dates; row 101 (D) |
+| 10ap | B's false PASS at the null is 0.041-0.065 against a nominal 0.025 under the measured serial dependence (dev, descriptive, ledger rows 83/84); B unchanged |
+| 10aq | Market prices are calibrated by bin at dev (US11, ECE 0.0067, slope 1.030 [1.014, 1.045]); market-only recalibration is KILL at edge size on all three arms; row 106 (K), register X92 |
+| 10ar | Station pooling: R-P (L48) KILLED at LOYO gate 1 (Los Angeles CI-worse); class-matched R-P2 screen PASS, PARKED (confirmation needs 3-5 seasons); rows 108/109, register X94/X95 |
+| 10as | R28a DSC-NWS P0 at 07-12 (dev, US11): all three arms positive but far below the 0.2236 edge; NWS adds a little information beyond the market, not a tradable amount; row 107 (K), register X96-X101 |
+| 10at | R28b: 88a never held a complete 11-band ladder 09-25..10-08 (census 0/0/0); C3 T+1 kill tier closed untestable, a design gap not a kill; row 100 note, register X86 |
+| 10au | X36-v5: raw NBM 2026 Jan-May warm +0.74°F pooled equally under v4.3 and v5.0; the dev warm bias is seasonal plus a 2026 shift, not a v5.0 artefact; row 111 (C), register X36 |
+| 10av | WS 2026-11-01 22:06-22:08Z: all 10 recorders died together under one dead parent; 4 of 7 capture workers had dead parent PIDs; cause unverified; L34 live-parent design |
 
 ---
 
@@ -1382,6 +1392,26 @@ outcome, label or market price was read. Source:
 `agent-report-2026-09-02-workstation-estimand-power-and-sign.md`.
 
 ---
+
+### 2026-11-01 addendum — `high_so_far` decreases are pervasive after 06-30 too; mechanism the 07:00 window
+
+- **Released 10-01..10-14 (row 103 rehearsal, feature only).** `-09-70a`/`-71a`'s non-append-only high_so_far is
+  pervasive: 29% of snapshots (7,879 of 27,107 on the WU scale) fall below an earlier capture's value, in 150 of 152
+  cells; drops concentrate in local hours 1-8 (median 1.98°F, p90 5.22°F, max 24.66°F). Diag `780a61c8` /
+  `8f39b12e`; probe `02a3c5c1` / `030a6d48`. The register's master-approved wording cites this read as 29.2% of 10-01..10-14 (diag `780a61c8`).
+- **Dev 07-31..09-29 (direction A Q1, feature only).** 29.8% of snapshots decrease (receipt `015a5f88`, script
+  `c4b1bf1b`): 41.6% at 00-16 (00-06 69.9%, 07-12 36.2%, 13-16 2.0%, 17-23 0.9%), in 617 of 626 cells; 65% of
+  episodes return exactly to the earlier max.
+- **Served, not only replayed (gate (i), receipt `079b7953`).** Served high_so_far is byte-equal to the layout
+  (1,980 / 1,980 on the 09-28 sidecars) and decreases on 53.8% of dev 00-12 snapshots. The served hard floor =
+  round(high_so_far), recorded in `snapshot_explanations` (09-25..29 only), decreasing 55.5% at 00-12.
+- **Mechanism (gate (ii)).** The 07:00 window definition (t20.md:53), measured dev 00-12: pre-07 current reading
+  67.8%, post-07 window reset 30.2%, 2.0% undecidable post-07 drops. The register's "moot after 06-30 (WU dark)" is
+  contradicted.
+- **Cost and status.** Bounded by X14 / ledger row 33: the fix raises the HGB input AND the floor (row 33 rule l.32;
+  rows 96 and 98), −0.0088 at 00-16, NOT BOUND. Fix 10 (high_so_far train/serve parity, after 12-13) covers it and
+  should check parity under the early-hour decrease pattern; nothing changes before B. Direction A closed
+  2026-11-01; archive `C:\archive\ruled-out\hsf-repair-cost-A\` (SHA256SUMS `0dd65663…`).
 
 ## 1m. THE ELEVEN EXTRA FREE PIT FIELDS ARE TESTED, NOT UNTESTED — workstation research lineage, 2026-09-01..04 (unmerged)
 
@@ -3626,6 +3656,11 @@ served/market Brier is 1.77x pooled; that is not §1's 1.423246x (different pane
 lead family; **134 registered rule ids** are the multiplicity denominator. No serving, config, capture or reservation change
 was made.
 
+**Reconciliation (added 2026-10-31): 1.77x and 1.73x are two windows, not a disagreement.** 1.77x is served/market on the
+whole table (57 dates, 08-01..09-29); the ladder's 1.73x is the from stratum only (08-23..09-29). §10p prints neither: its
+1.741 is C1/market, not served. The dev scorecard's served R 1.774 (all hours) and 1.526 (00-16) (§10aa) is a third window,
+08-15..09-29, 43 dates. Cite the window with the figure.
+
 - **Ladder (no new source), from stratum, all rows:**
 
   | Block | served − market (ratio) | + evening lock-in restoration (r1) | + MG-1 morning read (r2) | r2 − market (ratio) | r2 share of gap closed |
@@ -4089,6 +4124,7 @@ lanes; nothing here is confirmation. Record, rules (each committed before scorin
   forecast-anchored discretised normal with a hard floor.
 - **Not claimed:** nothing about edge over market prices; one centre (11-24) and five markets; the seasonal columns
   are not served features.
+
 ### 10aa. A pooled residual model beats OLS + floor and the floored forecast on R0's rows, and beats the served vector on the development window; pooling is the lever, and it is still worse than the market — lane L2, workstation, 2026-10-24/25
 
 **Claim, at exactly this scope:** a model pooled across the 11 US markets (`weather.calibration.pooled_residual_model`, arm P3) beats lane L3's OLS + floor ((a), EF §10ab) and the floored bias-corrected forecast ((f)) at 07-12, on R0's own blocked leave-one-year-out rows. Its development variant P3d beats the served vector on the development window.
@@ -4469,6 +4505,16 @@ Nothing dated after 2026-09-29 was read. Records: `p3dn_diag/diag_summary.md` an
   - **Re-centring on the market median removes about 25%** of P3d_N_fix's 07-12 excess (+0.0102 to +0.0077) and about
     15% of L6's (R-I alternative reading); only after re-centring does tempering help (+0.0012 for P3d). Centre, not
     width, is the lever (§1c).
+  - **About two thirds survives both (derivation, added 2026-10-31; source of the "two thirds" in the digest and
+    register X27).** `rungi/ri_summary.md` (sha256 `09261d4540b0d158a126ef53b8245a16b91d3880ef07b6ca7f4a722ca9c86423`,
+    SELECTION EVIDENCE table): P3d_N_fix 07-12 excess +0.0102 uncalibrated, +0.0077 re-centred, +0.0065 re-centred and
+    calibrated, so 0.0065 / 0.0102 = 64% survives; L6 0.0064 / 0.0081 = 79%. "Centre is the larger component" is
+    about the removable part (25% against 12%). Calling the surviving part "sharpness" (winner-bucket mass placed two
+    or more buckets off) is an interpretation: the atlas does not decompose it further.
+  - **Correction (2026-11-02, master ruling on L47 step 0 `ca919dec5`; not a retraction: the numbers stand, the reading
+    changes).** X27/R-I's 'two-thirds survives re-centring = sharpness' is an interpretation that does not hold under
+    continuous mean-shift attribution. 50-75% of P3d's/L6's 07-12 excess is centre, ≤ ~0.001 width, ~0 shape (L47
+    step 0, descriptive; uses the market's own mean, so not a lever). Register X27 points here.
   - At 13-16 P3d_N_fix loses most where the observed path runs below NBM's diurnal path (cold path +0.0183, 47% of the
     window excess); MG-1 alone fails on NBM-too-warm days, which P3d_N_fix mostly removes (+0.0083 against +0.0233).
 - **Reopen if:** the look-ahead question reopens if the live serve path (L8 binding) differs from the as-of-capture
@@ -4553,6 +4599,13 @@ Introduced in `fdd7ddc75`, fixed in `e40804dfe` (the C7/C8 line).
   already does for Markdown. It lands in the 10-26/27 chain; its `tests/AGENTS.md` note lives on that branch.
 - **Lesson:** a negative test must be shown to fail on a planted violation before it is trusted.
 - **Reopen if:** a control byte is found in a `.ps1` file or another type the ratchet does not cover.
+- **Reopened and widened (master ruling 10-30):** TAB/FF/CR reached a `.ps1` comment and broke a launcher, and
+  `"C:\t..."` became a TAB in ledger and register paths. The same test, on `claude/control-char-ratchet-20261030`,
+  now reads the index blobs of every tracked `.ps1`, `.psm1`, `.md`, `.json` and `.py` file. It normalises CRLF, then
+  refuses every control character other than LF and tab, lone CR included, with a justified `ALLOWLIST`. Its first
+  run found a single offender on `origin/master`: `"\restart"` had become CR + `estart` in two command lines of
+  `passive-maker-evidence-capture.md`. That has been fixed. The docs audit allows CR but forbids tab in docs
+  Markdown, so it is stricter for tab in its own scope and missed the CR.
 
 ### 10ak. Lane reads of 2026-10-26: R-P killed, R-PD and R-N closed at 00-06, R-L stopped on an NBS format fact, R-R a dev WIN at 07-12 — workstation, recorded 2026-10-26
 
@@ -4605,7 +4658,355 @@ merge-forward, because that file is not on this head's base.
   [R-R addendum](../research/l2-pooled-residual-2026-10-24/drafts/hrrr_forward_parity_rr_addendum_DRAFT.md),
   [post-13 Clarification](../research/l2-pooled-residual-2026-10-24/drafts/mg2_post13_clarification_rk_DRAFT.md),
   [pre-13 Clarification](../research/l2-pooled-residual-2026-10-24/drafts/mg2_pre13_clarification_rr_DRAFT.md)). B is unaffected.
+- **R-S (L15), NBM-published spread (NBP TXNSD anomaly) as a scale modulator on P3d_N_fix at 07-12: KILL at gate 2.**
+  Gate 1 nested LOYO 07-12 −0.00099 [−0.00171, −0.00026] passed (19,657 rows); gate 2 dev 07-12 dR +0.00067
+  [−0.00604, +0.00722] failed (21,664 snapshots, 43 dates, 473 market-days); the secondary 13-16 LOYO −0.00023
+  [−0.00060, +0.00017] failed (no dev run). The kill closes the NBM-published-spread family (NBP TXNSD, NBP p90 − p10,
+  NBS XND/TSD) as a scale modulator for every NBM-anchored arm; GEFS member spread, multi-model dispersion and
+  observed-state predictors are not covered. Likely cause (a reading, not a gate): NBM v5.0 TXNSD on dev is compressed
+  (25% of values equal 1). Rule `70908316…` (committed `8f80ea821`), plan `523d334e…`, `results.md` `604b0a0f…`, score
+  `c3e8f0b2…`, branch `claude/spread-info-20261026` @ `efd95d8b9`. **Reopen if:** a future NBM version publishes
+  uncompressed spread, or an Oct-Dec rung under R10. Register X37; DEV_WINDOW_LEDGER row 58.
 - **Not claimed:** edge; any forward result; that a kill here covers another input form.
+
+### 10al. Reads of 2026-10-26/27: R-U closes HRRR spread as width at 13-16, C10 is not adopted, SM-H is selected for MG-3 13-15, P3d_H 07-12 does not transfer to the cool season, R-V gate 2 splits — workstation, recorded 2026-10-27
+
+**Scope:** history (2021-25) and development evidence on dates ≤ 2026-09-29; every rule committed before its rows;
+nothing after 09-29 read. Register §6 X39-X42 holds the rule-outs. Ledger rows 42, 48, 50, 51, 55 and 56 are on
+`claude/l2-dev-ledger-rows-20261026` @ `5a4861117`; rows 45, 47 and 49 on `claude/l3-dev-ledger-rows-20261025` @
+`e4d224c72`. They are cited here, not copied.
+
+- **R-U (L2), HRRR 3x3 spread anomaly as a width signal on P3d_H at 13-16: CLOSED at P0** (2026-10-26). History only,
+  Aug-Sep 2021-25, 13,108 rows, z coverage 1.00. LOYO-μ pooled ρ(za, |dmax − μ|) −0.0007 (the bar is ≥ 0.05), with 2
+  opposite-sign years (at most 1 allowed); per hour h13 +0.011, h14 +0.029, h15 −0.026, h16 −0.050; rise subset pooled
+  +0.029; frozen-state μ −0.006 (reported). high_so_far removes most 15-16 error mechanically (median |dmax − μ| 0.83 →
+  0.16 °F while sd9 stays near 0.6 °F), but h13-14 and the rise subset are below the bar too. **With X38 (00-06, 07-12),
+  HRRR 3x3 spread as width is closed at all hours.** Rule `9441cc94…`; `ru_p0.json` sha256
+  `cacdf2c84987865358444de1a63f29cac903d4ae8b738de804fb570a4adc5264`; record `ru/p0_result.md` on
+  `claude/ru-hrrr-spread-1316-20261026` @ `a8c896a64`; ledger row 42 (commit `a55790422`). Register X39.
+- **C10 (L2), season-matched P3d_N (SM-N) for MG-2 13-16: opened, not adopted** (master, 10-27). SM_N − P3d_N_fwd 13-16
+  Brier +0.00356 [+0.00185, +0.00523] (history LOYO; h15 +0.0090, h16 +0.0075, both intervals above 0). The season gain
+  is already in the served forward state `c6cc39f7…` (P3d_N_fwd − dev state −0.0569 [−0.0631, −0.0505]); MG-2 keeps
+  `c6cc39f7`. Rule `8c59c1b6…`, audit `c10_audit.json` `9c237dd0…`, ledger row 50. Register X40; the earlier "~0.05"
+  flag is retracted (RF "A season-matched P3d_N beats MG-2 at 13-16").
+- **SM-H (L2): selected for MG-3 13-15** under clarification SMH-1 `b3007803…` (ledger row 51): SM_H − P3d_N_fwd 13-15
+  Brier −0.01273 [−0.01625, −0.00936] on identical keys (12,372). Row 48's acceptance is SUPERSEDED: its −0.0669 is
+  recorded as vs the dev state `dff5d797…`, never the served arm. **h15 alone is unresolved** (+0.0029 [−0.0019,
+  +0.0080]); disclosed in MG-3's scope, not a decision input.
+- **CS-1 cool-season transfer (L3, history only, descriptive):** (1b) P3d_H 13-16 vs the MG-1 analogue Oct-Dec 2021-25
+  −0.310 [−0.319, −0.300] (16,496 rows; `part1b.json` `34284e45…`): **transfers**. CS-1's P3d_N column is the dev state
+  `dff5d797…`, not MG-2's bound `c6cc39f7…`. (1c) on Oct-Dec 2024-25 (9,830 rows, 150 date clusters; 2021-23 Oct-Dec is a
+  coverage gap): **P3d_H 07-12 −0.0063 [−0.0167, +0.0036], no transfer** (interval spans 0; Aug-Sep 2024-25 in-sample
+  −0.0797); blend_l6_H −0.0163 [−0.0238, −0.0090], weakened but still below 0. Ledger rows 45, 47 and 49. Register X41.
+- **R-V gate 2 (L2, dev, master accepted 10-27).** IEM MOS/NBE day-max (v_gap) as an afternoon input. **(a) PASS:**
+  P3d_V_fwd − served `c6cc39f7` 13-16 dR −0.0206 [−0.0405, −0.0008] (13,970 snapshots), gain at 13-14 (−0.0318
+  [−0.0538, −0.0096]; 15-16 +0.0044 [−0.0297, +0.0372]); R 1.266 vs 1.286, both still worse than the market. It is a
+  capture-proposal pass only, for a future MG-2 successor refit; there is no MG-3 route, because SM-H serves h13-15
+  and (b) killed v_gap there. **(b) FAIL, pre-registered KILL:** SM_HV − SM-H 13-15 ex-San Francisco dR −0.0007
+  [−0.0185, +0.0164] (10,514 snapshots; out of season, Oct-Dec fits on Aug-Sep dev); San Francisco reported only,
+  −0.0185 [−0.0485, +0.0083]. Rule `b0cf2a03…` + RV-C1 + RV-G2a `3605333b…` / RV-G2b `d9275e5e…`; run `rv-g2` at
+  `claude/rv-c1-20261027` @ `1c8730c1a`; audit `g2_audit.json` `4f1d2441…`, dev MOS manifest `e0c6caa3…`, frozen
+  states P3d_V_fwd `8a113250…` and SM_HV `3e91349e…`; ledger rows 55 and 56. Register X42.
+- **Not claimed:** edge; any forward result; a binding change to MG-2 or B from any read here.
+
+### 10am. R-Q: GEFS member spread as a scale modulator is killed at 07-16; its 00-06 variant is blocked on capture parity — lane L13 (L15's rule), workstation, 2026-10-29
+
+**Scope:** history (2021-25) and development evidence on dates ≤ 2026-09-29; rule committed before any row; nothing
+after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cited here, not copied.
+
+- **Variant A, GEFS v12 member SD as a scale modulator on P3d_N_fix at 07-12: KILLED** (master ruling, 2026-10-29).
+  u = ln max(SD, 0.25), centred per market; m = clip(β·u, ±ln 2); s' = max(0.5, s·e^m). Gate 2 dev 07-12 dR −0.00260
+  [−0.00650, +0.00094] failed (21,664 snapshots, 473 market-days, 43 dates; control byte-identical to `cd0034b9…`;
+  no hour's lower bound above 0). **Kill scope:** GEFS member SD as a P3d_N_fix/L6-family scale modulator at 07-16,
+  full breadth: no other cycle, product, member statistic, centring, clip, grid or hour grouping under any rung name.
+  **Context only, not decision inputs:** gate 1 nested LOYO 07-12 −0.00067 [−0.00122, −0.00015] passed (19,657 rows,
+  frozen β 0.20-0.30); the secondary 13-16 LOYO −0.00024 [−0.00062, +0.00014] failed. Precondition P is R-O's P under
+  rule_rn Clarification 1 (`7a4354d05`, 10-27), which fixed P's definition before R-Q was scored; clarifications are
+  part of the governing rule, so A is killed rather than blocked. The run used environment `c471b32b9` (the code
+  commit alone lacked `ols_floor_ladder`; module byte-identical); master accepted the deviation.
+- **Variant B, MG-1 warm half at 00-06 from the 18Z D-1 GEFS cycle: BLOCKED, not killed.** Precondition P_B (L11's
+  limits: |mean diff| ≤ 1 °F, median |diff| ≤ 1 °F, r ≥ 0.95) failed as registered (p10 −1.41 °F) and again under R-Q
+  Clarification 1 `1d47c8bb…` (capture side recomputed at history's node maximum, the same fix as R-O C1): p10 mean
+  diff −1.156 °F, median |diff| 1.078, r 0.986; p90 −0.971, 1.000, r 0.988 (33,609 snapshots). The gap is concentrated
+  in San Francisco (about −5.3 °F), Houston (−1.8) and NYC (−1.4 to −1.7); the rest are within about 0.9 °F, consistent
+  with coastal cells on the 0.5° grid vs Open-Meteo (a reading, not a gate). **Train/serve fact:** captured Open-Meteo
+  GEFS member highs are not a parity substitute for ap5 18Z history at 00-06. Gate B1 was not run; no 18Z recorder
+  costing.
+- Rule `rule_rq.md` sha256 `5703f06542b6f369bd32eaa2b84214bf4064b98490be3791b223c439d5e010c4` (`197729f4a`); C1
+  `5641dbfc9`; code `19d822389` + `33b9fdd0a`; score `a2e0dcdb…`, LOYO `441ccce4…`, P_B `fdf28824…`, P_B C1
+  `72b97e0b…`; `results_rq.md` on `claude/rq-run-env-20261029` @ `558889b13`. Code unlanded (P3d_N family B-bound).
+- **Not claimed:** edge; any forward result; that the kill covers multi-model dispersion, observed-state predictors
+  or a GEFS-anchored arm.
+
+### 10an. Open-Meteo `gfs_seamless` is HRRR over the United States inside HRRR's horizon, so "GFS" and "HRRR" from the multimodel feed are one source: L14, 2026-10-31 (docs plus the X63 probe; no data re-read)
+
+- **Fact.** For US points, Open-Meteo's `/v1/gfs` `gfs_seamless` returns HRRR values for every hour that HRRR
+  covers, and GFS after that.
+  - L2's live probe measured the handover at about 57 h (register X63, probe `1081d6d7…`, master ruling
+    2026-10-30: NOT A DEFECT).
+  - The provider documents the design (<https://open-meteo.com/en/docs/gfs-api>, page sha256 `c88ac6fb…`). The
+    API "combines them with high-resolution HRRR forecasts", "them" being NOAA GFS. High-resolution data
+    exist for the United States only. A "Seamless" model combines one provider's models.
+  - Captured rows agree. In row 78's `features.parquet`, `mm_gfs_seamless == mm_ncep_hrrr_conus` on 110,692 of
+    110,692 rows, because the 2-day capture window keeps target hours inside the horizon.
+- **Consequence.** Any test, feature or blend that lists `gfs_seamless` and `ncep_hrrr_conus` as two sources
+  counts one source twice. Any CONUS read that calls `gfs_seamless` "GFS" at short lead is reading HRRR.
+  - Row 78's K = 17 is effectively 16. BH recomputed from the recorded p-values (receipt `02c46630…`) still
+    rejects nothing: the smallest q goes from 0.8125 to 0.7647. No verdict changes.
+  - `open_meteo_gfs_high_delta` and `open_meteo_hrrr_high_delta` are duplicate columns.
+  - The multimodel medians (`reference_high` fallback, run-to-run change) double-weight HRRR.
+  - The range spreads (`OM-MM-SPREAD`, `open_meteo_multimodel_next_3h_spread`) are unaffected.
+  - F4's `gfs_seamless` (row 9) and L4's "GFS" member (X6) are HRRR-in-horizon reads.
+  - The full list is in [the duplication table](../research/s31-other-venue-prices-2026-10-31/gfs-hrrr-duplication-2026-10-31.md).
+- **Previous Runs composition (indirect; L14 JOB 2 and docs narrowing, 2026-10-31, master-approved wording).**
+  PIT day-1 `gfs_seamless` at f24-30 is within 0.2°F of native HRRR on 3% of rows in 2021-23 against 81% / 77% in
+  2024 / 2025, so the composition changes between 2023-09-29 and 2024-07-30; 2026 day-0 capture equals HRRR on 100%
+  (outcome-free; output `3af50b2f…`, receipt `49270197…`, archive `C:\archive\ruled-out\_s31-intake\gfs-hrrr\`).
+  The provider's Previous Runs page says most models are archived from January 2024 and GFS 2 m temperature from
+  March 2021; the inference is that 2021-23 seamless is a GFS-only back-extension and HRRR enters about 2024-01
+  (note `9d800fdd…`). Consumers that span the change: the PIT corpora, R0, L5 arm B, L4 and the retired MG-2 arm A;
+  the MG-2 live input is not affected. Register scope note (§6, after the pooled-candidate inventory).
+- **The two archives differ (L16, 2026-10-31, master-approved wording).** The served model's Historical Forecast
+  `best_match` tracks HRRR with **no break** 2021-26: no break in any held month (12 stations x 2021-26 x May-Jun,
+  the only months the cache holds; HRRR share 0.77-1.0, zero NOT_HRRR cells; tables `d3f0efbc…`, `3c5c7ab4…`,
+  archive `C:\archive\ruled-out\_s31-intake\best-match\`). Previous Runs `best_match` day-1 equals PIT seamless,
+  with the regime break about 2023-12 / 2024-01 (indicative). The break touches research refits only (R0, L5 arm B,
+  L4); no served or frozen-forward target reads PIT seamless (sweep table `7b9823e6…`). Lever draft `81b4fddb…`
+  (single regime from 2024-02-01, or a regime indicator) is on HOLD. PT-1 record item: the PT-1 draft §2.
+- **Do not re-chase** the equality as a capture defect (X63).
+- **Reopen if** Open-Meteo changes seamless blending, or a capture window extends past the HRRR horizon.
+
+### 10ao. On released dates the served path's loss to the market stays about 1.5x at 00-16, inside the dev positive-control CIs: atlas re-base P1, ledger row 101 (D), 2026-10-31
+
+- **Master's text (verbatim).** "Released-window re-base, out of sample, not countable (powered=False: 9 and 5
+  dates). Served/market loss R at 00-16 = 1.455 pre and 1.513 post; all-block 1.648 / 1.514. Both sit inside the
+  dev positive-control CIs, and every pooled block CI excludes 1. The dev served-vs-market gap persists on
+  released dates. The 17-23 block is degenerate (market loss about 0 after the print). Per-market ordering is
+  unstable between strata."
+- **Support.** Rule `docs/research/iterate-faster-2026-10-30/atlas-rebase-rule-2026-10-31.md`, sha256
+  `ece56e836cee9d3bf037e0e2c0b0847bd37a7cf2d60865a1ce949c18fd772bf7` (frozen by master 2026-10-31). Receipt
+  `d3e9db76c4761007290cac3ca114d41339536a755ccf7e7eec9b0c46e0db09ca`; archive `C:\archive\ruled-out\_atlas\row101_p1\`,
+  SHA256SUMS `e378991d24d3287d5707c1d4fcd967176633bb92006492e8cb9b884334f56a4d`. P1 only: US11, local targets
+  10-01..10-14 minus Austin 10-03, strata `pre` 10-01..10-09 and `post` 10-10..10-14, never pooled. P2 and P3 are
+  NOT RUNNABLE.
+- **Reading.** Descriptive only: no candidate, no fit, not counted in the dev reuse count, and nothing here kills
+  or closes anything (rule §8). It is consistent with row 80 NOT REPLICATED, and it implies no new lever.
+- **Relation to the dev number.** The TAINTED dev ratio 1.423246x (§1) is unchanged; this section describes
+  today's served path on released dates, which that ratio cannot.
+
+### 10ap. B's false PASS at the null is 0.041-0.065, not the nominal 0.025, because B's daily differences are serially correlated: lane L8, ledger rows 83/84 (D), 2026-10-31
+
+- **Fact.** On dev (dates <= 2026-09-29), the B-shaped pair (MG-1 - market on B's estimand: local hours 07-16, B's
+  10 fixed markets, no Denver) has a daily loss difference with lag-1 ρ **+0.219** (SE 0.149; 13-16 +0.310, 07-12
+  +0.118). Simulating B's rule at the null at N = 45 (20,000 paths) gives a false PASS of **0.041-0.065** depending on
+  the dependence model, against the nominal 0.025:
+  - B's full PASS condition (B §6, U < 0 and neither split range's lower bound > 0), joint VAR(1) at the measured
+    per-range ρ: 0.0651. The split veto binds on no path, so full PASS equals primary-only.
+  - Joint block-3 resampled dev dates, construction fixed (post hoc, named in row 84 before computing): 0.0464
+    re-centred / 0.0413 circular. Row 83's block-3 figure of 0.0692 was a centring error and is corrected by row 84.
+  - At ρ 0: 0.0299 (VAR) and 0.0293 (joint iid resample), close to nominal.
+- **Support.** [DEV_WINDOW_LEDGER](DEV_WINDOW_LEDGER.md) rows 83 and 84 (both D, descriptive; no candidate, no fit,
+  no addition to the multiplicity denominator); write-up
+  `docs/research/iterate-faster-2026-10-30/b-pair-serial-rho-dev.md` (section 4 for row 84). Controls reproduced
+  first (served R 1.7739 / 1.5263; MG-1 07-12 excess 0.01196).
+- **Consequence.** B stays exactly as bound (owner decision 9, DECISION_LOG 2026-10-30); no number here changes B,
+  its scorer or any sealed design, and the bound design's "false PASS 0.025" row is left as bound. Read a B PASS on
+  12-13 as carrying roughly twice the nominal false-positive risk. A frozen post-look module may only label a PASS
+  "fragile" (master ruling); B's verdict stands either way.
+- **Do not** cite 0.025 as B's delivered false-PASS rate, or row 83's block-3 0.0692.
+
+### 10aq. Market prices are calibrated by bin at dev; market-only recalibration is below edge size on every arm: lane L21, ledger row 106 (K), 2026-11-02
+
+- **Fact.** Market prices are calibrated by bin at dev (US11, 08-01..09-29): ECE 0.0067, calibration slope
+  **1.030 [1.014, 1.045]** (widest of three date bootstraps), intercept −0.0027.
+  - Market-reliability miscalibration is below edge size on all three arms. Each is a cosine Δ on the residual
+    y − m̃, with m̃ the price normalised over the full ladder, so Δ² is the oracle Brier fraction. The widest of
+    three date bootstraps is used (date-iid 10k, block-3 10k, circular block-3 2k; seed 20261024), with the kill
+    bar Δ = √0.05 = 0.2236.
+  - A1 linear tilt toward uniform: **0.0344 [0.0156, 0.0534]**.
+  - A2 binned leave-one-date-out (LODO) mean residual: **0.0400 [−0.0320, 0.0793]**.
+  - A3 LODO power recalibration q ∝ m̃^β: **0.0430 [−0.0875, 0.0868]**, with LODO β 1.11-1.14.
+  - The verdict is **KILL at edge size** on all three arms: not an exploitable lever.
+- **Controls.** All PASS, in the order the prereg enforces in code:
+  - Served vs market R 1.7739 / 1.5263, against 1.774 / 1.526.
+  - Synthetic null: every arm's interval covers 0.
+  - Synthetic planted: A3 widest lower bound 0.1718.
+  - Training-score check: in-sample β̂ 1.13, Brier 5451.946 vs 5466.966 at β = 1, F3 identity 9.5e-11.
+  - Realised power at 0.2236: 1.000 / 1.000 / 0.9998, with SE (widest) 0.0095 / 0.0272 / 0.0404.
+- **Population.**
+  - 57 dates (08-16, 09-01 and 09-02 are absent from the layout), 11 markets, 626 market-days, 14,969 ladders.
+  - 121,288 of 164,659 band rows were scored. The 43,371 floor-impossible rows were excluded, with 0 flag
+    disagreements.
+  - 0 ladders were dropped. Toronto is out (no price in the layout).
+  - Price is the layout's `p_market_yes`. Its mid-versus-last semantics are undocumented, a limitation disclosed
+    in the prereg (O4).
+- **Support.**
+  - Prereg `docs/research/market-reliability-bin-2026-11-01/README.md`, sha256
+    `7619aea108d926a8f2ce698646162b9fdd4fb2035209f94eec336a2f21f71fd1` (revision 2, `e541ad401`, approved by
+    master), on `claude/market-reliability-bin-prereg-20261101` (not on master).
+  - Script `run_reliability.py`, sha256 `df12cc8cab980b2af71c55942ce9ec9bbc8422d17c5852bdfc7ae332e421f7a3`.
+  - One direct run on 2026-11-02 at `e7eac94eaaa7ad79060af01a3012c067e5cb3590`. It is bound on the pushed branch,
+    not master, per [method](MODEL_IMPROVEMENT_METHOD.md) §4 and master's 2026-11-02 ruling.
+  - Receipt `7f43359474b09e2fad5ab51b7ac06909705037eacf122c7e2ac9652b533ead5f` (printed `ea6bca1d…`).
+  - Archive `C:\archive\ruled-out\market-reliability-bin-us11\`, SHA256SUMS
+    `cfc208b8b4282e5eed28df336bcc26fe1d9fef02f2c03739b0cb98c6a3bc657c`.
+  - Result note `docs/research/market-reliability-bin-2026-11-01/RESULT.md` (same branch).
+- **Reading.**
+  - The squared point estimates put the oracle Brier gain from recalibrating the market alone at about
+    0.12-0.18%, against the 5% bar. This is a derived quantity, not a separate test.
+  - Like §1c (the gap is information, not calibration), it leaves no calibration lever: here, on the market's
+    side.
+  - A1's interval lies above 0. Master ruled that it stays without comment: no follow-up row, and a KILL earns no
+    screen label.
+  - Silent on the overround, which is a fee (maker economics CLOSED).
+  - The history-tier follow-up on public price history (ledger row 113, register X93) is UNTESTABLE at its label
+    cap with no successor; this section stays the record for the lever.
+- **Do not** cite this as a model or edge result, as a statement about our 12 beyond US11, or as a measurement of
+  the overround.
+
+### 10ar. Station pooling: R-P (L48) is killed at LOYO gate 1 by Los Angeles; class-matched pooling (R-P2) passes its screen but cannot be confirmed at size: lane L48, ledger rows 108 (C) / 109 (K), 2026-11-02
+
+- **Scope.** History only: LOYO 2021-25 Aug-Sep, hours 07-12, training rows only; the dev window was not read
+  (R-P2: reuse count unchanged). R-P here is lane L48's candidate, not the L14 R-P of §10ak and register X30.
+- **R-P (L48 station-pooled corpus, +300 IEM ASOS stations, training rows only) KILLED** at LOYO gate 1 by the
+  market-CI condition: pooled d −0.00185 [−0.00355, −0.00007] block-3; 5 markets CI-better; but los-angeles
+  +0.0217 [0.0158, 0.0278] (warm shift −0.33 F in held-out residual). Controls (row 108): corpus gating matches L9
+  on 3,300 of 3,300 market blocks; METAR F = WU F 99.6-99.9% by hour; label agreement 97.8%. Master accepted the
+  KILL as frozen (relayed by the coordinator, received before 2026-11-02 13:07:43 EST).
+- **R-P2 (class-matched pooling, 25 km open-ocean marine vs continental): screen PASS** (d −0.00390 [−0.00545,
+  −0.00225] block-3; no market CI-worse; LA +0.0041 vs +0.0217 under R-P); **confirmation infeasible at size**: an
+  Aug-Sep-trained model needs ~180 (observed, optimistic) to ~306 (planning) dates = 3-5 seasons. PARKED as the
+  default corpus-expansion ingredient for any future year-round or retrained base model. Reopen triggers: (1) a
+  year-round base model; (2) a variance reduction bringing the forward length under 1 season; (3) any new
+  base-model retrain lane must pre-register class-matched pooling as a candidate arm. Master confirmed, relayed.
+- **Support.** Rule `rule_station_pool.md` sha256 `33d5c67ab499e7efde18b7a9f08cd970134df7d0416853925335eea0b1210938`;
+  R-P report sha256 `ce4a610acd43de5ebeb1f1bed542463c125f292d578d71af7112939fe7cfa83f`; R-P2 prereg sha256
+  `2a438306214ece68e6e58d6f288765dc8addace7d21b89a02a22141e9c2d3e70`, report sha256
+  `66f9278e12acc0417a930a4b01a9ef0caee3073731dcbec93bd8b52411884c50`; branch
+  `claude/station-pooled-corpus-s0-20261101`; archives `C:\archive\ruled-out\station-pool-n300\` and
+  `C:\archive\ruled-out\rp2-climate-pooling\`; register X94, X95.
+- **Do not** cite R-P2's screen as a model win: it is a design-informed screen, necessary only, with no dev or
+  market read.
+
+### 10as. NWS adds a little information beyond the market at 07-12, not a tradable amount: R28a DSC-NWS market-residual P0, lane L40, ledger row 107 (K), 2026-11-01
+
+- **Scope.** Dev 08-15..09-29, US11, hours 07-12, against the market's own error; layout `C:/swarm/v3layout`.
+  Rule `rule_dsc_nws_p0.md` sha256 `aaa8d5f36404d721d97984fb74afcb51cf1ef58233ad76476c62665ba1f0fe86`
+  (freeze `95b1c19fc7fb07de5f5b48ffd9b0c01da58b24b9`); run `392e710bd5ed82133de2cb8719d6a719e5c0a1af` (never merged).
+- **Result.** NWS-FADE-0712 d +0.0331, wider [−0.0098, +0.0797]; NWS-GAP-0712 d +0.0284 [−0.0186, +0.0803];
+  W1-0712 d +0.0080 [−0.0123, +0.0373]; BH none (q 0.211 / 0.193 / 0.193); C0-C3 PASS. W1-0712's planted
+  control reaches only 0.2207 < 0.2236 (C5), so it is UNTESTABLE at edge; W1-0006 was dropped before any read.
+- **Master's reading (2026-11-01):** "All three R28a arms had positive point estimates (+0.008 / +0.033 / +0.028) but nowhere near the 0.2236 edge: NWS adds a little information beyond the market, not a tradable amount."
+- **Do not** read the positive points as a lever: each interval spans zero and every upper bound is below the
+  edge bar. Register X96-X101; archive `C:\archive\ruled-out\r28a-dsc-nws-p0\`.
+
+### 10at. The 88a recorder never held a complete ladder: the C3 T+1 kill tier is closed untestable, a design gap and not a kill: R28b, lane L41, ledger row 100 note, 2026-11-01
+
+- **Census (88a, 09-25..10-08):** 0 donor-flagged lead-1 event-hours (needed 200), 0 targets (needed 10),
+  0 markets (needed 5); no complete 11-band ladder at any instant (`yes_or_no_book_absent`).
+- **Why:** 88a held books for <0.7 of 11 bands at any instant (most lead-1 cells 0.2–0.4); no complete ladder ever captured 09-25..10-08.
+- **Consequence.** REPORT under T+1 §8.1; A1 unchanged; no K row. The T+2 presence check is dropped (lead 2
+  covered 0). The full-ladder T+1 recorder is the forward test. Master accepted. Register X86.
+
+### 10au. The 2026 dev warm NBM bias is not a v5.0 artefact: X36 reopen test (X36-v5), lane L47b, ledger row 111 (C), 2026-11-01
+
+- **Context (master):** X36 closed centre shifts fitted on 2021-25 (no bias there, ±0.4°F). On 2026 dev the NBM
+  read is +0.74–0.84°F warm against the outcome while the market is +0.02 (morning-loss Analysis 5), consistent
+  with an NBM v5.0 change (X35). X36's reopen test runs on 2026-01..05 v5.0 (L47).
+- **Result** (`7c0335f38395e952600e5c3743075aa9e6042c7b`): raw NBM 2026 Jan-May is warm by +0.74°F pooled
+  (Denver +1.86, LA +1.32), equally under v4.3 and v5.0: a year or seasonal effect, not a v5.0 change. X36's
+  reopen condition (a residual shift) is not met.
+- **Kept finding:** the dev warm bias is not a v5.0 artefact; it sits on a strongly seasonal raw NBM bias plus a
+  2026 shift. No speed or observations mechanism is established. A trailing-window centre correction is ruled
+  distinct from X36 (DL 2026-11-01; K row 112). Register X36.
+
+### 10av. All ten WS recorders died at once under one dead parent: a stale-parent tree kill, cause unverified: workstation, 2026-11-01
+
+- **Observed.** On the WS, 2026-11-01 22:06-22:08Z, all 10 recorders died together; they shared one parent (a WMI
+  host process) that had already exited. A host census found 4 of 7 capture workers also running under dead
+  parent PIDs (10004, 7428, 16984, 14672); PID 4600 is the execution tape.
+- **Cause UNVERIFIED.** A `taskkill /T` path in Claude Code 2.1.309 is real, but it is not verified as the
+  trigger.
+- **Consequence.** Long-lived recorders need a live, owned parent; the L34 design
+  ([recorder live-parent design](../research/recorder-live-parent-design-2026-11-01/design.md)) is the response.
+  The no-raw-taskkill rule waits for its code to reach master.
+
+### 10aw. Row 28 year-round P3d_N refit, history only: arms A and B SURVIVE-history, arms C and D KILL, candidate B, not an adoption: lane L59, ledger rows 114-117 (K) / 118 (C), 2026-11-03
+
+- **Verdict (master 2026-11-03, frozen per prereg §8.2).** A SURVIVES-history; B SURVIVES-history; C KILL; D KILL.
+  The prereg's words for the survivors: "**SURVIVES-history.** Everything else. Survival is V4-scoped and is not an
+  adoption." For C and D: "**KILL** (a true kill). Any one of the *crossing* conditions, at any power".
+- **Selection (prereg §8.3).** Survivors A and B; both points are ≤ their own G (A −0.03028, B −0.03062); the forward
+  candidate is **B**, "the survivor with the most negative point *among survivors whose point is ≤ their G*". The
+  prereg: "The selection is disclosed. The forward test re-tests the candidate from zero, and the history point is not
+  carried as evidence." Forward dates need all three §9 conditions; the forward test is a separate prereg.
+- **Population.** Deciding tier Dec 17-May 31 of 2021-25, five folds 2021-2025; n 657 (restated by the integrity
+  report from 660), 643 pairs, 221 blocks; no 07-31..09-29 date read; history only. Comparator S is the MG-1 C5 bound
+  served arm. Arms: A year-round pooled refit; B season-matched refit (Dec 17-May 31 rows only); C arm A + R-P2
+  class-matched pooling, gap option 3; D arm A + the frozen K112 trailing correction.
+- **X−S, pooled (ci95_wide; SE_wide = the ×1.07 SE of prereg §8.4).**
+
+  | Arm | Point | ci95_wide | κ_wide | SE_wide | X−S power | Folds d > 0 | G | Outcome |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | A | −0.13614 | [−0.14375, −0.12853] | 1.549 | 0.00415 | 0.130 | 0 of 5 | −0.03028 | SURVIVES-history |
+  | B | −0.13684 | [−0.14453, −0.12914] | 1.570 | 0.00420 | 0.127 | 0 of 5 | −0.03062 | SURVIVES-history |
+  | C | −0.14120 | [−0.14850, −0.13391] | 1.469 | 0.00398 | 0.143 | 0 of 5 | −0.02902 | KILL |
+  | D | −0.07570 | [−0.09441, −0.05700] | 3.540 | 0.01021 | 0.026 | 1 of 5 | −0.07441 | KILL |
+
+- **X−A gate (C, D).** C−A −0.00506 [−0.00685, −0.00327], power 0.99995, 0 of 5 folds > 0; per-market lower bound
+  > 0 in san-francisco and seattle. D−A +0.06044 [+0.04529, +0.07559], power 0.102, 5 of 5 folds > 0; per-market
+  lower bound > 0 in 8 markets; D's per-market X−S CI lies above 0 in san-francisco.
+- **Conditions fired.** A, B: no crossing and no failure-to-show condition. C: crossing "a per-market X-A 95% lower
+  bound (wide) > 0". D: crossings "a per-market X-S 95% CI (wide) lies above 0", "X-A point >= -0.0005" and "a
+  per-market X-A 95% lower bound (wide) > 0"; failure-to-show (X−A) "X-A wide 95% upper bound >= 0" and "more than 1
+  of 5 folds have X-A d > 0". Holm rejected all four arms (thresholds 0.0125 / 0.0167 / 0.025 / 0.05).
+- **Disclosed flags (master: they do not change the verdict).**
+  - Prereg §8.4, method rule 16: realised X−S power is < 0.50 in all four arms, band "< 0.50 (rule-16 failure
+    flagged)". Pre-look projection (integrity report table 6.3): σ_eff 0.01872, MDE80 0.00261, power 0.99999.
+    Realised SE_wide 0.00398-0.01021 against the adequacy threshold 0.001707 (A's σ̂ 0.0995).
+  - The archive `INDEX.md` line rewrite for the C and D lines was accepted.
+- **Not built (descriptive only):** S_bound (§2), hours 07-12 vs the L6 stack (§4.4), fold 2026 / the V5.0 sliver.
+- **Records.** `claude/row28-yearround-history-20261102` @ `3e26cd2a8` (RUN_LOG); prereg sha256 `cb6d4e8da0ab5a144a185cf8dbaf777881402ea8a95db99f2a0e98f20a5e132b`;
+  runner v12 `9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b`; score result `32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b` + receipt `50cdadd1c028a55e04d307cf4c67298de889a912f180ded37af5c1edc1745430` @ `741174e5f`;
+  integrity gate `d8404064…` @ `95762ae89`; look gate `9611df77…` @ `774abff81`. Archive `C:\archive\ruled-out\row28-yearround-history-2026-11-02\`
+  (six stage receipts); register X104, X105.
+- **POST-HOC (gates nothing; master GO 2026-11-03; the verdict above is frozen and unchanged).** Branch
+  `claude/row28-posthoc-diag-20261103` @ `2a9cfcdf6`; script `POSTHOC_diag_v2.py` sha256 `b62c936f…`; output
+  `POSTHOC_diag_v2.json` sha256 `57663cf8…`. Reads only the stage-5 and stage-6 per-row score files (no refit) and
+  reproduces the committed pooled X−S point and SE of all four arms to 1e-12. Per-date means, US10, hours 13-16.
+  - **D1, X−S by month** (Dec n 30, Jan 93, Feb 113, Mar 116, Apr 150, May 155):
+
+    | Arm | Dec | Jan | Feb | Mar | Apr | May |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | A | −0.0775 | −0.1052 | −0.1360 | −0.1271 | −0.1598 | −0.1500 |
+    | B | −0.0546 | −0.1061 | −0.1396 | −0.1295 | −0.1631 | −0.1492 |
+    | C | −0.0941 | −0.1141 | −0.1427 | −0.1340 | −0.1620 | −0.1508 |
+    | D | +0.0985 | +0.0502 | −0.0473 | −0.0870 | −0.1411 | −0.1340 |
+
+  - **D1, X−S by fold** (2021 n 61, 2022 163, 2023 164, 2024 120, 2025 149): A −0.1492 / −0.1070 / −0.1321 /
+    −0.1633 / −0.1452; B −0.1486 / −0.1084 / −0.1307 / −0.1672 / −0.1455; C −0.1521 / −0.1119 / −0.1370 / −0.1680 /
+    −0.1518; D −0.1437 / +0.0036 / −0.0606 / −0.1401 / −0.0994. A−S share of the pooled point by month: Dec 0.026,
+    Jan 0.109, Feb 0.172, Mar 0.165, Apr 0.268, May 0.260.
+  - **D1, X−A by month** (Dec..May): B +0.0229 / −0.0010 / −0.0036 / −0.0024 / −0.0033 / +0.0008; C −0.0166 /
+    −0.0090 / −0.0067 / −0.0068 / −0.0021 / −0.0008; D +0.1760 / +0.1554 / +0.0887 / +0.0402 / +0.0188 / +0.0160.
+    By fold (2021..2025): B +0.0007 / −0.0014 / +0.0015 / −0.0039 / −0.0003; C −0.0029 / −0.0049 / −0.0049 /
+    −0.0047 / −0.0066; D +0.0056 / +0.1106 / +0.0715 / +0.0232 / +0.0458.
+  - **D1, own Brier** (pooled; Dec..May): S 0.6584; 0.5124 / 0.5527 / 0.6023 / 0.6817 / 0.7272 / 0.7069. A 0.5223;
+    0.4350 / 0.4475 / 0.4663 / 0.5546 / 0.5674 / 0.5569. S/A 1.178 / 1.235 / 1.292 / 1.229 / 1.282 / 1.269. By fold
+    (2021..2025): S 0.7246 / 0.6112 / 0.6471 / 0.6878 / 0.6717; A 0.5753 / 0.5042 / 0.5150 / 0.5245 / 0.5265.
+  - **D2, realised vs projected SE.** Projection: σ_eff 0.01872 = SD 0.016304 (row-109 receipt) × √1.318 (ρ 0.137);
+    SE_wide 0.000780 at n 660, power 0.99999. Realised, arm A: SD 0.07995, ρ 0.2155, κ_AR 1.549 (643 pairs),
+    κ_block3 1.419 (221 blocks), κ_wide 1.549, n_eff 424, SE_wide 0.00415 = 5.33× projected = SD ratio 4.904 ×
+    √(κ_wide/1.318) 1.084 × √(660/657) 1.002. Rows per date 40.0 (design 40). SD with month means removed 0.0769.
+    B: SD 0.0803, κ_AR 1.570, κ_block3 1.419, SE 5.39×; C: 0.0787, 1.469, 1.402, 5.11×; D: 0.1300, 3.540, 2.075,
+    13.10×. Arm A per fold (n, SD, within / between share of the sum of squares): 2021 61, 0.0696, 0.069 / 0.002;
+    2022 163, 0.0662, 0.169 / 0.033; 2023 164, 0.0790, 0.243 / 0.001; 2024 120, 0.0845, 0.203 / 0.021; 2025 149,
+    0.0851, 0.256 / 0.003. The projection input that was wrong is the per-date SD (method rule 19).
+  - **Master's reading (post-hoc, master's, 2026-11-03).** The "S scored out of season" hypothesis is not supported
+    in its simple form. X-S is negative in every month and every fold for arms A, B and C. D (KILL) is positive in
+    Dec (+0.099), Jan (+0.050) and fold 2022 (+0.004). The S/A Brier ratio is 1.18-1.29 in every month. It is still
+    a comparison to S, not to the market.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first

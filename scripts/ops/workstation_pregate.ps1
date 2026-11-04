@@ -36,6 +36,23 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Decided up front, not during a Ctrl+C stop: is this script the one the host
+# process was started with (powershell.exe -File <this script>)? Only then may
+# the final exit also set the host's exit code (see the final finally); an
+# in-process caller (& or dot-source from another session or script) must
+# survive the pre-gate.
+$pregateIsHostFileScript = $false
+try {
+    $hostArguments = @([Environment]::GetCommandLineArgs())
+    for ($index = 1; $index -lt ($hostArguments.Count - 1); $index++) {
+        if ($hostArguments[$index] -match '^[-/](?:f|fi|fil|file)$') {
+            $hostScript = [IO.Path]::GetFullPath($hostArguments[$index + 1])
+            $pregateIsHostFileScript = ($hostScript -ieq [IO.Path]::GetFullPath($PSCommandPath))
+            break
+        }
+    }
+}
+catch { $pregateIsHostFileScript = $false }
 $receiptSchema = "weather.workstation_pregate_receipt.v1"
 $queueTimeoutExitCode = 75
 
@@ -275,6 +292,7 @@ $receipt = [ordered]@{
     lease_mode = $null
     workstation_slot_id = $null
     workstation_exclusive = $false
+    exclusive_holder = $null
     launch_mode = [ordered]@{
         driver = "Start-WeatherProcessInJob -OutputCapture (CREATE_SUSPENDED|CREATE_NO_WINDOW, stdio pipes, kill-on-close Job), as integration_attempt_suite.ps1 launches the host suite"
         chunks = "host bounded suite statements replayed from its AST: Start-WeatherProcessInJob (CREATE_SUSPENDED|CREATE_NO_WINDOW, no inherited handles, kill-on-close Job)"
@@ -352,6 +370,27 @@ try {
         $receipt.lease_mode = "workstation_queue"
         $receipt.workstation_slot_id = [int]$lease.WorkstationSlotId
         $receipt.workstation_exclusive = $true
+    }
+    if ($null -ne $lease -and
+        $lease.PSObject.Properties.Name -contains "InheritedFromExclusiveHolder" -and
+        $lease.InheritedFromExclusiveHolder) {
+        # A descendant of the exclusive holder got an empty hold, not a lease.
+        $exclusiveHold = $lease
+        $lease = $null
+        $receipt.workstation_slot_id = $null
+    }
+    if ($null -ne $exclusiveHold -and
+        $exclusiveHold.PSObject.Properties.Name -contains "InheritedFromExclusiveHolder" -and
+        $exclusiveHold.InheritedFromExclusiveHolder) {
+        # Already inside a live ancestor's exclusive hold (PG-NEST-1): admitted
+        # at once, no ticket and no mutex of its own.
+        $receipt.lease_mode = "inherited_from_exclusive_holder"
+        $receipt.workstation_exclusive = $true
+        $receipt.exclusive_holder = [ordered]@{
+            pid = [int]$exclusiveHold.ExclusiveHolderPid
+            owner_process_start_utc = [string]$exclusiveHold.ExclusiveHolderStartUtc
+            workload = [string]$exclusiveHold.ExclusiveHolderWorkload
+        }
     }
 
     # ------------------------------------------------------------ git identity
@@ -598,6 +637,10 @@ finally {
     }
     finally {
         if (-not $receiptWritten -and $exitCode -eq 0) { $exitCode = 1 }
+        # A [CmdletBinding()] script stopped by Ctrl+C under PS 5.1 -File exits 0
+        # even from here; setting the host's exit code first keeps it. Only the
+        # host's own -File script may do that, since it ends the host process.
+        if ($pregateIsHostFileScript) { $host.SetShouldExit($exitCode) }
         exit $exitCode
     }
 }

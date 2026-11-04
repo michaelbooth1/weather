@@ -13,6 +13,9 @@ every head bound for a host landing night in exactly the host suite's mode:
   log; the detached worktree and per-chunk basetemps are removed;
 * nested ("inherited" lease) mode still proves this is the assigned non-capture
   workstation, because the capture host's heavy lease uses the same mutex name;
+* a nested pre-gate under an outer exclusive pre-gate (its own ancestor) is
+  admitted at once as ``inherited_from_exclusive_holder`` and passes, instead of
+  queueing behind its ancestor until timeout (PG-NEST-1);
 * an interrupted run (Ctrl+C) exits non-zero, matching its FAIL receipt;
 * a content-only change to any replaced host statement is refused (pinned hashes).
 
@@ -33,9 +36,12 @@ import site
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import pytest
+
+from tests.process_job import KillOnCloseJob, terminate_job_and_wait
 
 pytestmark = [
     pytest.mark.spawns,
@@ -153,9 +159,21 @@ def _git(repo: Path, *args: str) -> str:
 
 
 class _HeldWorkstationMutex:
-    """Hold the host-global workstation mutex unless workstation_heavy already does."""
+    """Hold the host-global workstation mutex unless workstation_heavy already does.
+
+    Inside workstation_heavy.ps1 (WEATHER_WORKSTATION_WRAPPER_ACTIVE=1) the
+    wrapper already holds a proved slot, exported as WEATHER_WORKSTATION_WRAPPER_SLOT,
+    and the nested pre-gate inherits that one. Taking slot 1 here as well would
+    make this test process, an ancestor of the nested pre-gate, hold a slot that
+    the pre-gate must drain, so it would wait out its timeout whenever the
+    wrapper was given a slot other than 1.
+    """
 
     def __enter__(self):
+        self.handle = None
+        self.owned = False
+        if os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") == "1":
+            return self
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.CreateMutexW.restype = ctypes.c_void_p
         kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
@@ -168,6 +186,8 @@ class _HeldWorkstationMutex:
         return self
 
     def __exit__(self, *exc):
+        if self.handle is None:
+            return
         if self.owned:
             self.kernel32.ReleaseMutex(self.handle)
         self.kernel32.CloseHandle(self.handle)
@@ -208,11 +228,13 @@ def _write_assignment(repo: Path, identity: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
+def _fixture_repo(root: Path, probe_out: Path, admission_text: str | None = None) -> dict[str, str]:
     repo = root / "repo"
     (repo / "scripts" / "ops").mkdir(parents=True)
     for name in COPIED_SCRIPTS:
         shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    if admission_text is not None:
+        (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(admission_text, encoding="utf-8")
     (repo / "src" / "weather").mkdir(parents=True)
     (repo / "src" / "weather" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "tests").mkdir()
@@ -286,6 +308,60 @@ def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subproc
         result = _run(command, cwd=root, env=env, timeout=900)
     assert receipt.is_file(), result.stdout + result.stderr
     return result, json.loads(receipt.read_text(encoding="utf-8"))
+
+
+# This process's real ancestry, nearest first: pid and .NET start time (UTC,
+# round-trip format, as the receipt records it). The walk stops at a parent
+# created after its child, which is a reused pid and not an ancestor. Plain CIM
+# and .NET only: deliberately not the admission script's own matcher.
+ANCESTRY_PROBE = r"""
+$ErrorActionPreference = 'Stop'
+$byId = @{}
+foreach ($p in @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate)) {
+    $byId[[int]$p.ProcessId] = $p
+}
+$current = $byId[[int]$env:PG_ANCESTRY_FROM]
+$chain = @()
+while ($null -ne $current) {
+    $start = $null
+    try {
+        $start = [Diagnostics.Process]::GetProcessById([int]$current.ProcessId).StartTime.ToUniversalTime().ToString('o')
+    }
+    catch { }
+    $chain += [ordered]@{ pid = [int]$current.ProcessId; start = $start }
+    $parent = $byId[[int]$current.ParentProcessId]
+    if ($null -eq $parent -or [int]$parent.ProcessId -eq [int]$current.ProcessId -or
+        $parent.CreationDate -gt $current.CreationDate) { break }
+    $current = $parent
+}
+ConvertTo-Json -InputObject @($chain) -Compress
+"""
+
+
+def _ancestry() -> list[dict]:
+    env = {**os.environ, "PG_ANCESTRY_FROM": str(os.getpid())}
+    result = _run([*POWERSHELL, "-Command", ANCESTRY_PROBE], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _assert_lease_mode_matches_context(receipt: dict) -> None:
+    """The nested lease mode follows from the receipt itself (PG-NEST-1).
+
+    No exclusive holder: the run inherited workstation_heavy's slot. A holder:
+    this test process runs inside an outer exclusive pre-gate, which must be a
+    real ancestor (pid plus start time) and the one the host queue records.
+    """
+    holder = receipt["exclusive_holder"]
+    if holder is None:
+        assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+        return
+    assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
+    ancestors = _ancestry()[1:]
+    assert {"pid": holder["pid"], "start": holder["owner_process_start_utc"]} in ancestors, (holder, ancestors)
+    queue_root = Path(os.environ["ProgramData"]) / "WeatherProject" / "heavy_workload_queue_v1"
+    record = json.loads((queue_root / "exclusive_holder_v1.json").read_text(encoding="utf-8-sig"))
+    assert (record["pid"], record["owner_process_start_utc"]) == (holder["pid"], holder["owner_process_start_utc"])
 
 
 def _assert_clean(info: dict, receipt: dict) -> None:
@@ -435,7 +511,7 @@ def test_pregate_passes_a_good_head_in_host_console_mode_and_cleans_up(fixture_r
     assert result.returncode == 0
     assert receipt["schema"] == "weather.workstation_pregate_receipt.v1"
     assert receipt["head"] == fixture_repo["good"]
-    assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+    _assert_lease_mode_matches_context(receipt)
     assert receipt["launch_mode"]["scheduled_task_registered"] is False
     assert receipt["chunk_plan"] == [["tests/test_fixture_console.py", "tests/test_fixture_ok.py"]]
     assert [(c["ordinal"], c["files"], c["logged_files"], c["exit_code"]) for c in receipt["chunks"]] == [
@@ -547,6 +623,91 @@ def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstatio
     assert not (tmp_path / "wt").exists()
 
 
+# ------------------------------------------------------------------ nested under an exclusive pre-gate
+# Only this test's own copy of workload_admission.ps1 is rewritten: a private
+# mutex name and a fixture-local state file (so the queue and the exclusive
+# holder record live under tmp_path), plus no residual-process or memory veto.
+# The production script honours no redirect of any kind.
+ISOLATED_ADMISSION_OVERRIDES = r"""
+# TEST-ONLY: FIXTURE-LOCAL STATE, NO RESIDUAL-PROCESS OR MEMORY VETO
+function Get-WeatherHeavyWorkloadPoisonPath {
+    param([switch]$CreateIfMissing)
+    $root = '{state_root}'
+    if ($CreateIfMissing) { [void][IO.Directory]::CreateDirectory($root) }
+    Join-Path $root 'heavy_workload_v1.poison'
+}
+function Get-WeatherActiveWorkstationHeavyProcess { param($ProcessSnapshot, $TaskObservation, $DecisionLog) }
+function Get-WeatherWorkstationMemoryReading {
+    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = 16GB; CommitPercent = 40.0 }
+}
+"""
+
+OUTER_EXCLUSIVE_PREGATE = r"""
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$lease = Enter-WeatherWorkstationHeavyExclusiveLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-pregate-outer' `
+    -TimeoutSeconds 60 -PollMilliseconds 100 -ReportSeconds 1
+if ($null -eq $lease) {{ exit 3 }}
+$env:WEATHER_WORKSTATION_WRAPPER_ACTIVE = '1'
+Remove-Item Env:WEATHER_WORKSTATION_WRAPPER_SLOT -ErrorAction SilentlyContinue
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$ErrorActionPreference = 'Continue'
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '{pregate}' -Head '{head}' -RepoRoot '{repo}' `
+    -OutputDirectory '{out}' -ReceiptPath '{receipt}' -WorktreeParent '{worktrees}' -QueueTimeoutSeconds 60 *> '{log}'
+$nestedExit = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+[IO.File]::WriteAllText('{outer}', ([ordered]@{{ pid = $PID; nested_exit = $nestedExit; seconds = $clock.Elapsed.TotalSeconds }} |
+    ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
+Exit-WeatherHeavyWorkloadLease -Lease $lease
+"""
+
+
+def test_a_nested_pregate_under_an_outer_exclusive_pregate_is_admitted_and_passes(tmp_path):
+    # PG-NEST-1: the 2026-10-27 workstation pre-gate hung at chunk 12 because this
+    # module's nested pre-gate queued behind the outer pre-gate that was its own
+    # ancestor. With an outer exclusive holder in place, the nested run must be
+    # admitted at once as its descendant and pass, not wait out its queue timeout.
+    if shutil.disk_usage(tmp_path).free < 55 * 1024**3:
+        pytest.skip("the host suite's 50 GiB disk floor cannot be met on this volume")
+    state_root = tmp_path / "host-state"
+    text = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
+    assert MUTEX_NAME in text
+    admission = text.replace(MUTEX_NAME, "Local\\WeatherPgNestFixture-" + uuid.uuid4().hex)
+    admission += ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", str(state_root))
+    info = _fixture_repo(tmp_path, tmp_path / "probe.json", admission_text=admission)
+    repo = Path(info["repo"])
+    receipt_path, outer_path = tmp_path / "receipt.json", tmp_path / "outer.json"
+    script = OUTER_EXCLUSIVE_PREGATE.format(
+        admission=repo / "scripts" / "ops" / "workload_admission.ps1", repo=repo,
+        pregate=repo / "scripts" / "ops" / "workstation_pregate.ps1", head=info["good"],
+        out=tmp_path / "out", receipt=receipt_path, worktrees=tmp_path / "wt",
+        log=tmp_path / "nested.log", outer=outer_path,
+    )
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WEATHER_WORKSTATION_WRAPPER")}
+    result = _run([*POWERSHELL, "-Command", script], cwd=tmp_path, env=env, timeout=600)
+    nested_log = (tmp_path / "nested.log").read_text(encoding="utf-8", errors="replace") if (tmp_path / "nested.log").exists() else ""
+    assert result.returncode == 0, result.stdout + result.stderr + nested_log
+    outer = json.loads(outer_path.read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "PASS", (receipt["failure_reasons"], nested_log)
+    assert outer["nested_exit"] == 0
+    assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
+    assert receipt["workstation_exclusive"] is True
+    assert receipt["exclusive_holder"]["pid"] == outer["pid"]
+    assert receipt["exclusive_holder"]["workload"] == "WorkstationOffline-pytest-pregate-outer"
+    events = [
+        json.loads(line)
+        for line in (repo / "data" / "logs" / "heavy_workload_queue.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    nested = [event for event in events if event["pid"] != outer["pid"]]
+    assert [event["event"] for event in nested] == ["start"]
+    assert nested[0]["lease_mode"] == "inherited_from_exclusive_holder"
+    _assert_clean(info, receipt)
+    assert not (state_root / "heavy_workload_queue_v1" / "exclusive_holder_v1.json").exists()
+
+
 # ------------------------------------------------------------------ interrupted exit code
 CTRL_C_SENDER = r"""
 import ctypes, sys
@@ -580,36 +741,47 @@ def _hidden_console() -> subprocess.STARTUPINFO:
 
 def _ctrl_c_reaches_a_new_console(tmp_path: Path) -> bool:
     """Some runners (e.g. a kill-on-close Job queue) never deliver console Ctrl+C."""
-    started = tmp_path / "ctrlc-probe-started"
-    script = tmp_path / "ctrlc_probe.ps1"
+    return _ctrl_c_exit_code(tmp_path, "probe", "", "exit 7") == 7
+
+
+def _ctrl_c_exit_code(tmp_path: Path, label: str, prefix: str, final: str) -> int | None:
+    """Exit code of a -File script stopped by Ctrl+C whose finally runs ``final``."""
+    started = tmp_path / f"ctrlc-{label}-started"
+    script = tmp_path / f"ctrlc_{label}.ps1"
     script.write_text(
-        f"Set-Content -LiteralPath '{started}' -Value x\n"
-        "try { while ($true) { Start-Sleep -Milliseconds 200 } } finally { exit 7 }\n",
+        prefix
+        + f"Set-Content -LiteralPath '{started}' -Value x\n"
+        + "try { while ($true) { Start-Sleep -Milliseconds 200 } }\nfinally {\n    "
+        + final
+        + "\n}\n",
         encoding="utf-8",
     )
     command = [*POWERSHELL, "-File", str(script)]
-    process = subprocess.Popen(
-        [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
-        creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
-    )
-    try:
-        deadline = time.monotonic() + 60
-        while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
-            time.sleep(0.2)
-        _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
-        return process.wait(timeout=20) == 7
-    except subprocess.TimeoutExpired:
-        return False
-    finally:
-        if process.poll() is None:
-            _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
-            process.wait(timeout=60)
+    with KillOnCloseJob() as job:
+        process = job.popen(
+            [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
+            creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
+        )
+        try:
+            deadline = time.monotonic() + 60
+            while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
+                time.sleep(0.2)
+            _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
+            return process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            return None
+        finally:
+            # Job containment, never a parent-PID tree kill (L33, 2026-11-01).
+            terminate_job_and_wait(job, process, timeout=60)
 
 
 def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_repo, tmp_path):
     # test_pregate_exit_is_issued_from_the_final_finally guards the same contract
     # statically wherever console Ctrl+C cannot be delivered.
     if not _ctrl_c_reaches_a_new_console(tmp_path):
+        # Skips only where console Ctrl+C is not delivered; the KillOnCloseJob
+        # launch and terminate_job_and_wait cleanup below are then unexercised.
+        # (A 2026-11-02 workstation_heavy.ps1 -Queue run did deliver it.)
         pytest.skip("console Ctrl+C is not delivered in this runner")
     root = Path(fixture_repo["root"])
     receipt_path = root / "receipt-interrupt.json"
@@ -622,9 +794,9 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
         "-OutputDirectory", str(root / "out-interrupt"), "-ReceiptPath", str(receipt_path),
         "-WorktreeParent", str(root / "wt"),
     ]
-    with _HeldWorkstationMutex():
+    with _HeldWorkstationMutex(), KillOnCloseJob() as job:
         # A private console so the Ctrl+C reaches only the pre-gate process.
-        process = subprocess.Popen(
+        process = job.popen(
             [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
             cwd=root, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
         )
@@ -639,8 +811,8 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
             returncode = process.wait(timeout=180)
         finally:
             if process.poll() is None:
-                _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
-                process.wait(timeout=60)
+                # Job containment, never a parent-PID tree kill (L33, 2026-11-01).
+                terminate_job_and_wait(job, process, timeout=60)
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["verdict"] == "FAIL"
     assert "host suite driver did not complete" in receipt["failure_reasons"]
@@ -657,17 +829,96 @@ $last = $ast.EndBlock.Statements[-1]
 $finally = if ($last -is [Management.Automation.Language.TryStatementAst]) { $last.Finally } else { $null }
 $inner = if ($finally) { $finally.Statements[-1] } else { $null }
 $exit = if ($inner -is [Management.Automation.Language.TryStatementAst] -and $inner.Finally) { $inner.Finally.Statements[-1].Extent.Text } else { $null }
+$guard = if ($exit -and $inner.Finally.Statements.Count -ge 2) { $inner.Finally.Statements[-2].Extent.Text } else { $null }
+$top = $ast.EndBlock.Statements
+$flags = @($top | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$pregateIsHostFileScript' })
+$flagBeforeTry = ($flags.Count -ge 1) -and ($top.IndexOf($flags[0]) -lt ($top.Count - 1))
 $writes = if ($finally) { @($finally.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Write-Output', 'Write-Host') }, $true)).Count } else { -1 }
-ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; writes = $writes }
+ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; guard = $guard; flag_before_try = $flagBeforeTry; writes = $writes }
 """
 
 
 def test_pregate_exit_is_issued_from_the_final_finally():
     # A stopped (Ctrl+C) PS 5.1 -File script skips statements after its finally
-    # and exits 0, and Write-Output during a stop aborts the finally.
+    # and exits 0, and Write-Output during a stop aborts the finally. Because the
+    # pre-gate is a [CmdletBinding()] script, a bare exit there still yields 0
+    # (test_an_advanced_script_stopped_by_ctrl_c_keeps_its_exit_code_only_via_the_host),
+    # so the host's own -File script sets the host exit code first; the flag is
+    # computed at the top, never during the stop.
     result = _run([*POWERSHELL, "-Command", EXIT_SHAPE], env={**os.environ, "PG_PREGATE": str(PREGATE)}, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"last_is_try": True, "exit": "exit $exitCode", "writes": 0}
+    assert json.loads(result.stdout) == {
+        "last_is_try": True,
+        "exit": "exit $exitCode",
+        "guard": "if ($pregateIsHostFileScript) { $host.SetShouldExit($exitCode) }",
+        "flag_before_try": True,
+        "writes": 0,
+    }
+
+
+@pytest.mark.parametrize("caller", ["open_session", "file_harness"])
+def test_an_in_process_caller_survives_the_pregate_and_reads_its_exit_code(tmp_path, caller):
+    # Every in-repo caller starts the pre-gate as its own powershell.exe -File
+    # child, but the runbooks name the bare script, which an operator may run
+    # with & in an open session. SetShouldExit there ends that whole session
+    # after the command (measured: the next line never ran, the host exited 1),
+    # so the pre-gate calls it only when it is the host's -File script.
+    # "open_session" feeds commands one by one to `powershell -Command -`, the
+    # scripted stand-in for a typed session, and is the case that catches an
+    # unguarded SetShouldExit.
+    repo = tmp_path / "repo"
+    (repo / "scripts" / "ops").mkdir(parents=True)
+    for name in COPIED_SCRIPTS:
+        shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    (repo / "venv" / "Scripts").mkdir(parents=True)
+    (repo / "venv" / "Scripts" / "python.exe").write_bytes(b"")
+    _write_assignment(repo, "unassigned")
+    receipt_path = tmp_path / "receipt.json"
+    pregate = repo / "scripts" / "ops" / "workstation_pregate.ps1"
+    call = (
+        f"& '{pregate}' -Head ('a' * 40) -RepoRoot '{repo}' -OutputDirectory '{tmp_path / 'out'}' "
+        f"-ReceiptPath '{receipt_path}' -WorktreeParent '{tmp_path / 'wt'}'\n"
+        "[Console]::Out.WriteLine(('SURVIVED code={0}' -f $LASTEXITCODE))\n"
+        "exit 0\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k.upper() != "WEATHER_WORKSTATION_WRAPPER_ACTIVE"}
+    if caller == "file_harness":
+        harness = tmp_path / "harness.ps1"
+        harness.write_text(call, encoding="utf-8")
+        result = _run([*POWERSHELL, "-File", str(harness)], cwd=tmp_path, env=env, timeout=180)
+    else:
+        result = subprocess.run(
+            [*POWERSHELL, "-Command", "-"], input=call, cwd=tmp_path, env=env,
+            check=False, capture_output=True, text=True, timeout=180,
+        )
+    assert "SURVIVED code=1" in result.stdout, result.stdout + result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "FAIL"
+    assert any("not the assigned non-capture workstation" in item for item in receipt["failure_reasons"])
+
+
+@pytest.mark.parametrize(
+    ("prefix", "final", "expected"),
+    [
+        pytest.param("", "exit 7", 7, id="plain_script_bare_exit"),
+        pytest.param(
+            "[CmdletBinding()]\nparam()\n$isHostFileScript = $true\n",
+            "if ($isHostFileScript) { $host.SetShouldExit(7) }\n    exit 7",
+            7,
+            id="cmdletbinding_script_pregate_exit_form",
+        ),
+    ],
+)
+def test_an_advanced_script_stopped_by_ctrl_c_keeps_its_exit_code_only_via_the_host(tmp_path, prefix, final, expected):
+    # The minimal-script probe, extended to the pre-gate's own shape. Under PS 5.1
+    # a [CmdletBinding()] -File script stopped by Ctrl+C exits 0 even when its
+    # finally runs `exit 7` (measured 2026-10-27); the plain probe used to gate
+    # the interrupt test returns 7 and so hid that. The pre-gate's exit form
+    # (host exit code first, then exit) must keep the code for an advanced script.
+    if not _ctrl_c_reaches_a_new_console(tmp_path):
+        pytest.skip("console Ctrl+C is not delivered in this runner")
+    assert _ctrl_c_exit_code(tmp_path, "advanced", prefix, final) == expected
 
 
 # ------------------------------------------------------------------ content pins

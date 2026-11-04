@@ -70,6 +70,7 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherEveningEvidenceRefresh | active | True | scripts/ops/register_daily_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherExchangeEconomicsSnapshotRefresh | active | False | scripts/ops/register_exchange_economics_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherExecutionTapeSupervisor | active | False | scripts/ops/register_execution_tape_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherForwardArrivalCheck | active | False | scripts/ops/register_forward_input_arrival_check.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherHostHealthWatchdog | active | False | scripts/ops/register_health_watchdog.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherIntegrationMerge_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherIntegrationRecoveryBootstrapMerge0822 | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
@@ -77,7 +78,9 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherIntegrationSuite_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherLocationConfigRefresh | active | False | scripts/ops/register_location_config_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMakerEvidenceCapture | active | False | scripts/ops/register_maker_evidence_capture.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherMakerEvidenceTornQuarantine | active | False | scripts/ops/register_maker_evidence_torn_quarantine.ps1 | docs/operations/passive-maker-evidence-capture.md |
 | WeatherMakerShadowRunner | active | False | scripts/ops/register_maker_shadow_runner.ps1 | docs/operations/maker-shadow-runner.md |
+| WeatherMg2InputExport | active | False | scripts/ops/register_mg2_input_export.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherManualOrderJournal | active | False | scripts/ops/register_manual_order_journal.ps1 | docs/operations/manual-order-journal.md |
 | WeatherMakerEvidenceLowestTemperature | active | False | scripts/ops/register_maker_evidence_family_capture.ps1 | docs/operations/passive-maker-evidence-capture.md |
 | WeatherMarketMakingDailyRoll | retired | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |

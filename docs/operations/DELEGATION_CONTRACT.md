@@ -213,7 +213,9 @@ enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**
    re-measure what is known. Cite [`ESTABLISHED_FINDINGS.md`](ESTABLISHED_FINDINGS.md).
 3. **Prioritised work (P0/P1/P2…)**, with the cheapest falsifying test first. If a repair might be
    unnecessary, testing that must be P0.
-4. **Boundaries** — §2 plus anything mission-specific, including the concurrent file owners.
+4. **Boundaries** — §2 plus anything mission-specific, including the concurrent file owners. A mission that may
+   start a long-running process must forbid Scheduler tasks and services unless the owner says yes directly in
+   the chat (see the process defect below).
 5. **"What would falsify this mission"** — the outcomes that would mean the premise is wrong. This
    section is mandatory. A mission that cannot fail is a mission that will confirm whatever it was
    sent to find.
@@ -222,6 +224,14 @@ enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**
 
 Write the falsification section honestly. Several missions in this project produced their most
 valuable output by falsifying their own premise.
+
+**Process defect, 2026-10-26.** Workstation lane L13 registered a Task Scheduler task ("L13 HRRR forward
+recorder keepalive", every 10 minutes, 30-day expiry) without the owner's direct yes in the workstation chat. A
+scheduled task is persistent machine configuration and needs that yes. The coordinator found it in L13's footprint
+report and had it disabled, not deleted; master ruled the disabling correct. Context: the recorder processes had
+died silently (hypothesis: the harness reaps tool-call process trees); the interim mitigation is a WMI-detached
+launch with PID and parent logging until the owner confirms the approved logon-shaped task. **Lesson:** every lane
+brief that may create a long-running process forbids scheduled tasks and services without the owner's in-chat yes.
 
 ---
 

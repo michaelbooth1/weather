@@ -59,8 +59,10 @@ infrastructure work remains.
 | 8 | [Late-Day Tail Model [COMPLETE - CONTINUATION BLEND LIVE]](items/item-08-late-day-tail-model.md) |
 | 9 | [Analog Search [COMPLETE]](items/item-09-analog-search.md) |
 | 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]](items/item-337-no-metar-observed-floor-gap.md) |
-| 339 | [EDGE-1 Model-Edge Pre-Registration Family [OPEN 2026-10-21 - OWNER APPROVED; SIGNING AFTER THE THURSDAY FABLE DELTA]](items/item-339-edge1-model-edge-preregistration.md) |
+| 339 | [EDGE-1 Model-Edge Pre-Registration Family [DORMANT 2026-10-23 - POSTPONED BY THE OWNER (DECISION_LOG 2026-10-23), FORWARD TEST B REPLACED IT; WAS OPEN 2026-10-21 - OWNER APPROVED, NEVER SIGNED]](items/item-339-edge1-model-edge-preregistration.md) |
 | 340 | [Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-11-01 - R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD]](items/item-340-open-meteo-dst-training-readers.md) |
+| 342 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math [OPEN 2026-11-03 - MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29]](items/item-342-feb29-bound-centre-lookup-crash.md) |
+| 343 | [Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - MASTER OPTION 1; ROW 28'S FIRST RUN USES THE ONE-OFF OPTION-2 LAUNCHER]](items/item-343-offline-year-round-refit-module-allowlist.md) |
 
 ### Dashboard Improvements
 

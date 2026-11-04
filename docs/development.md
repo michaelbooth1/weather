@@ -96,11 +96,27 @@ plus later sightings.
 | `tests/operations/test_storage_recovery_inventory_wrapper.py::test_real_wrapper_completion_binding_failure_and_child_tree_teardown[success-True]` | Windows | 1 | run 37078892774 attempt 1 failed, attempt 2 passed |
 | `tests/operations/test_live_wrapper_credential_launcher.py::test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse` | Windows | 1 | inferred, not same-SHA proven (P0-3) |
 | `tests/operations/test_production_baseline_reconciler_execution.py::test_post_start_hung_read_cannot_consume_the_containment_stop_reserve` | Windows (`reconciler-5`) | 1 | run 37246104447 (PR #209, 3767c21f): attempt 1 asserted `[] == ['WeatherOneShotPush']` after 48 s; same-SHA rerun passed. Timing-sensitive hang test on a slow hosted runner |
+| `tests/operations/test_replay_cache_compression_wrapper.py::test_abrupt_wrapper_exit_kills_entire_owned_tree` | Windows | intermittent (2026-11-02; not counted) | Intermittent on slow Windows runners: the fixture's 4 s hang deadline also covered child-tree launch, so a slow launch tripped it before the tree existed (teardown itself proved). Fix: arm the deadline once the tree exists (tests-only branch `claude/ci-fixture-robustness-20261102`). Remove this row when the fix lands |
 
 A deterministic timing race is fixed, not tabled. `test_workload_admission_script.py` held the heavy-workload
 mutex for a fixed 2 s while a contender started; on a slow hosted runner the contender started after the
 release, so `windows-lane-a` was red on master (runs 37743128778, 37793211993). The holders now keep the
 mutex until the test creates a release file.
+
+### Known-failing Windows Qualification groups
+
+These groups fail on hosted Windows Qualification for a known, environment-bound cause; they are not flakes and not
+regressions of the head under test (master, 2026-11-02). A backlog lane fixes both (low priority). Remove a group when
+its fix lands.
+
+- `tests/market/test_maker_counterfactual_tape.py`: the fixture's `compress_closed_segments` returns False off the
+  capture host.
+- `tests/operations/test_international_live_session_runner.py` and
+  `tests/operations/test_international_live_session_launcher_sealer.py`: they fail with `live-session artifact is absent`
+  (raised in `weather.operations.live_path_security`). Root cause (master, 2026-11-02): `canonical_git_executable()`
+  (`src/weather/operations/live_path_security.py:566/572`) builds `<GitForWindows InstallPath>\mingw64\bin\git.exe` from
+  the registry, and the runner's Git 2.56 has no `mingw64` there, so it fails closed. This is also a
+  before-any-live-attempt prerequisite: [live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) prerequisite 10.
 
 ### Proposal: shrink the host suite once the Windows lane is green (not in force)
 
@@ -137,7 +153,8 @@ The actual-host S4U smoke is not replaced.
 The baseline commands are not authority to run a direct full suite or parallel verification here.
 [HOST_LOAD_POLICY](operations/HOST_LOAD_POLICY.md) is the contract. In short: focused tests run serially and only
 inside 00:30-09:00 local; in Codex sessions the user-layer hook rejects direct unbounded pytest at every hour and
-rejects pytest/compileall outside that window (Claude Code has no hook; the S4U guard is its only backstop). A full suite runs only through
+rejects pytest/compileall outside that window (Claude Code has no pre-launch hook; the S4U guard, which sees its Bash and PowerShell
+tool trees, is its only backstop and acts only after launch). A full suite runs only through
 `scripts/ops/bounded_worktree_test_suite.ps1`, against a clean worktree at an exact commit. Its enforced limits
 (read the script, not this list, if they matter to a decision):
 
@@ -147,7 +164,7 @@ rejects pytest/compileall outside that window (Claude Code has no hook; the S4U 
 | Chunk size | `-MaxFilesPerChunk` default 25 (owner decision 2026-10-04; was 20), which is also the hard maximum and what new integration attempts freeze; always `ceil(files / MaxFilesPerChunk)` chunks |
 | Chunk grouping | time-packed (longest first into the lightest chunk with room) from the candidate's `tests/bounded_suite_file_timings.json`; an unlisted file weighs `default_seconds`, an absent table weighs every file equally, a malformed one refuses. Grouping never changes the file set, the cap or the chunk count. Regenerate the table from one or more complete Windows JUnit runs with `python tools/bounded_suite_timings.py --run "<run>/*.xml" --source "<what, when, sha>"` |
 | Commit charge | refuses to start above `-StartCommitPercent` 64, aborts before any chunk above `-AbortCommitPercent` 66 |
-| Clean tree | `git status --porcelain` must be empty before and after the run. That Git runs hermetically (no system or global config, no hooks, no fsmonitor) but names the standard `filter.lfs.*` driver explicitly, so a racily clean LFS file in a smudged worktree is compared through its pointer, not reported modified (fix of 2026-10-25); `git-lfs` must be reachable from the bound `git.exe` (with `filter.lfs.required=true` a missing one fails closed). Integration attempts bind this script by hash, so an attempt created before a suite change refuses its suite receipt; create it afresh. Known pre-existing failure, unrelated to this check: `tests/operations/test_workstation_pregate_script.py::test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt` exits 0 on the workstation wrapper (Ctrl+C delivery inside the Job), identically with the earlier suite script |
+| Clean tree | `git status --porcelain` must be empty before and after the run. That Git runs hermetically (no system or global config, no hooks, no fsmonitor) but names the standard `filter.lfs.*` driver explicitly, so a racily clean LFS file in a smudged worktree is compared through its pointer, not reported modified (fix of 2026-10-25); `git-lfs` must be reachable from the bound `git.exe` (with `filter.lfs.required=true` a missing one fails closed). Integration attempts bind this script by hash, so an attempt created before a suite change refuses its suite receipt; create it afresh. |
 | Free disk | 50 GiB (53,687,091,200 bytes) free on the volume, or it refuses |
 | Window | must start inside 00:30-09:00; hard teardown at 09:00 or `-MaxRuntimeSeconds` (max 5400) |
 | Exclusivity | takes the `data/logs/heavy_workload.lock` lease; refuses if another heavy workload holds it |
@@ -189,7 +206,11 @@ host. The run:
   **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
   follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
   issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
-  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  otherwise exit 0. Because the pre-gate is a `[CmdletBinding()]` script, even that `exit` yields 0 after
+  a Ctrl+C (measured 2026-10-27), so when it is the host's own `-File` script it first sets the host
+  exit code (`$host.SetShouldExit`). Run it as `powershell.exe -File …`; called in-process (`&` in an open
+  session or another script) it skips that step so the caller's session survives, and only the receipt
+  is reliable after a Ctrl+C. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
   `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
 
 Known gaps (Defender review of 2026-10-07, not fixed):
@@ -265,7 +286,7 @@ $argumentJson = ConvertTo-Json -InputObject @("-m", "pytest", "-q") -Compress
 $argumentBase64 = [Convert]::ToBase64String(
   [Text.Encoding]::UTF8.GetBytes($argumentJson)
 )
-& (Join-Path $repoRoot "scripts\ops\workstation_heavy.ps1") `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot "scripts\ops\workstation_heavy.ps1") `
   -Kind pytest -PythonPath $pythonPath -ArgumentsBase64 $argumentBase64 `
   -RepoRoot $repoRoot
 ```
@@ -287,6 +308,19 @@ are byte-identical to the installed hook's reference checkout. Compute the
 base64 value in a light command, then submit the wrapper invocation as a second
 command; backtick continuations, chained commands, variables, `Join-Path`, and
 other dynamically expanded forms fail closed.
+
+**Run worktree code against the worktree (2026-10-31).** Never run worktree code with `python -I`. A venv
+editable `.pth` (`__editable__.weather_market-0.1.0.pth`) appends the MAIN checkout's `src`, so first-party
+packages other than `weather` (e.g. `maker_core`) resolve to the main checkout. Run `-Queue` jobs as plain `-m`
+with RepoRoot = the run tree and `PYTHONPATH=<tree>\src` (as `bounded_worktree_test_suite.ps1` does), and record
+an origin pre-flight (or an in-module assertion) in the receipt. The
+[maker_core leak audit](research/p5-screens-2026-10-31/maker_core_leak_audit.md) of every wrapper job since
+the editable install found no impact on any recorded result.
+
+**A null `exit_code` in a direct-run receipt is not a result (master ruling 2026-10-31).** A PowerShell
+`Start-Process -PassThru` wrapper that does not cache `$p.Handle` before waiting can record `exit_code: null` even
+when the child succeeded (L14's gfs_seamless history job 2, receipt `49270197…`). Such wrappers cache `$p.Handle`
+first; a recorded null is noted in the `C:\archive\ruled-out` INDEX and is read as neither success nor failure.
 
 ### Starting workstation verification from the capture controller
 
@@ -348,7 +382,7 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 | Settlement ledger, tape scoring, replay | matching `tests/backtesting` |
 | Market, maker, or taker logic | matching `tests/market`; keep execution non-live |
 | Daily/nightly/supervisor behavior | matching `tests/operations`; use status/dry-run paths |
-| `scripts/ops/*.ps1` | the matching `tests/operations/test_*_script*.py`; tests that execute PowerShell are skipped off Windows, so CI does not prove them. A clean parse does not prove parameter binding; read the `param()` block |
+| `scripts/ops/*.ps1` | the matching `tests/operations/test_*_script*.py`; tests that execute PowerShell are skipped off Windows, so CI does not prove them. A clean parse does not prove parameter binding; read the `param()` block. Exit codes after Ctrl+C: see below |
 | Shared root modules (`weather.io`, `weather.artifacts`, release serving) | the top-level `tests/test_*.py` files plus the owning package tests |
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
@@ -359,6 +393,19 @@ and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor: on a workstation or through CI, and on the capture host only
 through the bounded runner above.
+
+**Exit codes after Ctrl+C (Windows PowerShell 5.1, measured 2026-10-22).** A `-File` script stopped by
+Ctrl+C runs its `finally` blocks and traps but no `catch` block, and nothing after the stopped statement,
+so it exits 0 unless the code is set from a `finally` or trap. In an *advanced* script (`[CmdletBinding()]`
+or any `[Parameter()]` attribute) the code of an `exit` in a `finally` is dropped as well; in any script a
+trap cannot start a command during the stop, so its `exit` or rethrow (`throw`, `break`) after a cmdlet or
+function call never runs. Put `$Host.SetShouldExit(<code>)` immediately before such a `finally` exit and
+first in every trap that exits, throws or breaks (directly or through any `scripts/ops` function it calls);
+a trap whose first statement is an `exit` that starts no command is exempt. A trap that sets the exit code
+must not resume with `continue`, or a run that was never stopped exits with that code.
+`tests/operations/test_ps_exit_in_finally_ratchet.py` enforces both over `scripts/ops/*.ps1`.
+`SetShouldExit` sets the host's exit code, so it also ends an interactive or line-by-line session that ran
+the script in-process: start these scripts with `powershell.exe -File` or from a fresh shell.
 
 ### Affected-test selection
 
@@ -440,6 +487,25 @@ Use `--help`, read the relevant [operations runbook](operations/README.md), and
 prefer status, audit, dry-run, read-only, shadow, or paper modes. Never assume an
 argument-free registration example is valid; the script parameter block is the
 executable source of truth.
+
+**Default-fail exit codes for critical ops wrappers (2026-10-22).** A Windows PowerShell 5.1 script
+stopped by Ctrl+C, or ended by an uncaught error after a success path set its code, must never exit 0.
+`quiet_window_merge.ps1`, `docs_light_path.ps1`, `workstation_heavy.ps1`,
+`bounded_worktree_test_suite.ps1`, `integration_attempt_suite.ps1`, `training_window.ps1` and
+`daily_refresh.ps1` therefore initialise their exit-code variable to a non-zero literal before their
+outermost `try`, record the code in it immediately before every `exit` inside that `try` (an `exit`
+there runs the `finally`, whose own `exit` decides the process code), set 0 only on the proven-success
+path, print an uncaught error from a `catch` (the `finally`'s `exit` would discard it), and end the
+final `finally` with `$Host.SetShouldExit($code); exit $code`. Where cleanup in that `finally` can be
+aborted by the stop, the code is also set at its start. `tests/operations/test_ps_exit_default_fail_ratchet.py`
+enforces the shape. In-process `& script.ps1` calls whose exit code is read seed
+`$global:LASTEXITCODE = 9009` first, so a child that returns without `exit` reads as a failure, not
+as a stale 0 from an earlier `git` call (`suite_gated_quiet_merge.ps1`,
+`adopt_execution_tape_after_merge.ps1`, and the roll-verdict call in `quiet_window_merge.ps1`).
+Roll-verdict consumers (`quiet_window_merge.ps1`, `docs_light_path.ps1`) treat a branch as ROLL-FREE
+only for exit 0 **and** a readable `-JsonOut` whose `verdict` is `ROLL-FREE` and whose `branch` is the
+exact tip being merged. Because `SetShouldExit` sets the host's code, start these scripts with
+`powershell.exe -File`, not by dot-sourcing or `&` from an interactive session.
 
 ## Model-change evidence
 

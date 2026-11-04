@@ -21,6 +21,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Versioned NBM parser diagnostics; network-free compilation smoke.",
     },
+    "mosmix_forward_recorder.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L13 DWD MOSMIX forward-capture recorder (free DWD open data); network-free compilation smoke.",
+    },
     "analyze_boundaries.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
@@ -76,6 +81,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile",
         "notes": "Local historical backfill queue summary.",
     },
+    "t1_forward_emitter.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L3 T+1 forward-test daily emitter (research/shadow; forecast recorders only); network-free compilation smoke.",
+    },
     "ten_minute_performance_audit.py": {
         "status": "retired",
         "smoke": "compile_main_guard",
@@ -88,6 +98,11 @@ SCRIPT_INVENTORY = {
     # These went missing from the inventory because the 05:15 roll-free merge driver lands
     # branches without running the suite: on 2026-08-11 it merged six of these in forty minutes
     # and left master red from 05:55 until this was noticed. See the Codex audit 8.2.
+    "b_price_coverage.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R19 B-1 coverage counts (integers only) via the unchanged MG-2 exporter's bounded reader; host via b_price_coverage.ps1.",
+    },
     "b_only_screen_09_63a.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",

@@ -1,6 +1,6 @@
 # Fail-forward light path for a docs-only branch (Operations agent role, section 6, rule 2).
 #
-#   .\scripts\ops\docs_light_path.ps1 -Branch origin/codex/... -ExpectedTip <full-sha> [-CheckOnly]
+#   powershell.exe -NoProfile -File .\scripts\ops\docs_light_path.ps1 -Branch origin/codex/... -ExpectedTip <full-sha> [-CheckOnly]
 #
 # A branch whose roll verdict is ROLL-FREE and whose diff is only Markdown under
 # docs/ cannot restart capture, so it lands without the heavy lease or the quiet
@@ -15,6 +15,16 @@
 # Exit codes: 0 published (or -CheckOnly passed); 1 refused, nothing changed or
 # the unpublished merge was undone; 3 merged locally but publication is unproven
 # (re-run WeatherOneShotPush or investigate; the receipt names the merge commit).
+# The code defaults to 1 and is issued from the final finally, so an error or a
+# Ctrl+C never exits 0. ROLL-FREE needs roll_verdict exit 0 and its JSON naming
+# ROLL-FREE for the exact -ExpectedTip.
+#
+# Clock rule (STATE_OF_PLAY "Current authority"): the light path runs only
+# 00:30-12:00 local and is refused 12:00-00:30 (the graded capture window and the
+# near-close window), -CheckOnly included. The clock is checked first and again
+# immediately before the local merge, so a run that crosses 12:00 while fetching
+# or classifying refuses with nothing changed. The production agent's ~07:30
+# morning docs landing is inside the window.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
@@ -126,8 +136,27 @@ function Save-Receipt([string]$stage, [bool]$ok, [string]$detail) {
 
 function Refuse([string]$m) {
     Note "REFUSED: $m"
+    $script:lightPathExitCode = 1
     exit 1
 }
+
+# Allowed start window, local time, in minutes after midnight: [00:30, 12:00).
+$lightPathWindowStartMinute = 30
+$lightPathWindowEndMinute = 12 * 60
+function Assert-LightPathClock([string]$when) {
+    $now = Get-Date
+    $minute = $now.Hour * 60 + $now.Minute
+    if ($minute -lt $lightPathWindowStartMinute -or $minute -ge $lightPathWindowEndMinute) {
+        Refuse ("{0}: local time {1:HH:mm} is outside the light-path window 00:30-12:00 (never 12:00-00:30)" -f $when, $now)
+    }
+}
+
+# Default-fail: only a passed -CheckOnly and a proven publication set 0. Every
+# exit below records its code first; the final finally issues it.
+$lightPathExitCode = 1
+try {
+# ---- 0. clock: 00:30-12:00 local only ----
+Assert-LightPathClock "start"
 
 # ---- 1. repository state: on master, synchronized, nothing in flight ----
 $symbolic = Invoke-Git @("symbolic-ref", "-q", "HEAD")
@@ -187,16 +216,26 @@ try {
     }
     finally { $ErrorActionPreference = $previous }
     $verdictName = $null
+    $verdictBranch = $null
     $verdictSha = $null
     if (Test-Path -LiteralPath $verdictJson -PathType Leaf) {
         $verdictSha = (Get-FileHash -LiteralPath $verdictJson -Algorithm SHA256).Hash.ToLowerInvariant()
-        try { $verdictName = [string](Get-Content -LiteralPath $verdictJson -Raw | ConvertFrom-Json).verdict }
-        catch { $verdictName = $null }
+        try {
+            $verdictPayload = Get-Content -LiteralPath $verdictJson -Raw | ConvertFrom-Json
+            $verdictName = [string]$verdictPayload.verdict
+            $verdictBranch = ([string]$verdictPayload.branch).Trim().ToLowerInvariant()
+        }
+        catch { $verdictName = $null; $verdictBranch = $null }
     }
 }
 finally { Remove-Item -LiteralPath $verdictJson -Force -ErrorAction SilentlyContinue }
 $receipt.roll_verdict = [ordered]@{ exit_code = $verdictExit; verdict = $verdictName; json_sha256 = $verdictSha }
 if ($verdictExit -ne 0) { Refuse "roll verdict exit $verdictExit ($verdictName) is not ROLL-FREE; use quiet_window_merge.ps1" }
+# Exit 0 alone is not the verdict: the JSON must say ROLL-FREE for this exact
+# tip. A missing, unreadable or mismatched verdict fails closed.
+if ($verdictName -cne "ROLL-FREE" -or $verdictBranch -cne $ExpectedTip) {
+    Refuse "roll verdict JSON ($verdictName for $verdictBranch) is not ROLL-FREE for $ExpectedTip; use quiet_window_merge.ps1"
+}
 Note "roll verdict ROLL-FREE"
 
 # ---- 5. the publication task is present and idle ----
@@ -206,18 +245,21 @@ if ([string]$tasks[0].State -ne "Ready") { Refuse "$pushTaskName is $($tasks[0].
 
 if ($CheckOnly) {
     Note "CHECK PASS: $Branch @ $ExpectedTip may land on the light path (nothing changed)"
-    exit 0
+    $lightPathExitCode = 0
+    exit $lightPathExitCode
 }
 
 # ---- 6. local merge, then prove its own diff ----
+Assert-LightPathClock "before the merge"
 $branchLabel = $Branch -replace '^origin/', ''
 $merge = Invoke-Git @("merge", "--no-ff", "--no-edit", "-m",
     "Merge $branchLabel into master (fail-forward light path, docs only)", $ExpectedTip)
 if ($merge.code -ne 0) {
     [void](Invoke-Git @("merge", "--abort"))
     $after = Get-GitCommit "HEAD"
-    if ($after -ne $preMerge) { Save-Receipt "merge_failed" $false "merge failed and HEAD $after is not the pre-merge commit"; exit 3 }
+    if ($after -ne $preMerge) { Save-Receipt "merge_failed" $false "merge failed and HEAD $after is not the pre-merge commit"; $lightPathExitCode = 3; exit 3 }
     Save-Receipt "merge_failed" $false ("git merge failed and was aborted: {0}" -f ($merge.lines -join ' | '))
+    $lightPathExitCode = 1
     exit 1
 }
 $mergeCommit = Get-GitCommit "HEAD"
@@ -230,6 +272,7 @@ if ($mergeNonDocs.Count -gt 0) {
     # any unrelated working-tree drift.
     [void](Get-GitLines @("reset", "--keep", $preMerge))
     Save-Receipt "rolled_back" $false ("merge result touched non-docs paths: {0}" -f ($mergeNonDocs -join ', '))
+    $lightPathExitCode = 1
     exit 1
 }
 Note "merged locally: $mergeCommit"
@@ -243,8 +286,14 @@ $push = [ordered]@{
     last_run_time = $null
     last_task_result = $null
     completed = $false
+    stale_scheduler_result = $false
 }
 $receipt.push = $push
+# 0x41301 (SCHED_S_TASK_RUNNING) / 0x41303 (SCHED_S_TASK_HAS_NOT_RUN) read while the task
+# is already Ready are a stale transient, not a result (same rule as
+# integration_attempt_merge.ps1): keep polling. 11-01 07:27 exited 3 on a read of 267009
+# seconds before WeatherOneShotPush reported rc 0 with origin/master at the merge commit.
+$staleSchedulerResults = @(0x41301, 0x41303)
 Start-ScheduledTask -TaskName $pushTaskName
 $deadline = (Get-Date).AddSeconds($PushTimeoutSeconds)
 while ((Get-Date) -lt $deadline) {
@@ -254,16 +303,26 @@ while ((Get-Date) -lt $deadline) {
     if ($info.LastRunTime -and ([datetime]$info.LastRunTime).ToUniversalTime() -gt $preRunUtc -and $state -eq "Ready") {
         $push.last_run_time = ([datetime]$info.LastRunTime).ToString("o")
         $push.last_task_result = [long]$info.LastTaskResult
+        if ([long]$info.LastTaskResult -in $staleSchedulerResults) { continue }
         $push.completed = $true
         break
     }
 }
 if (-not $push.completed) {
-    Save-Receipt "merged_unpushed" $false "$pushTaskName did not finish within $PushTimeoutSeconds s"
-    exit 3
+    if ($null -ne $push.last_task_result -and $push.last_task_result -in $staleSchedulerResults) {
+        # Still a stale transient at the deadline: let step 8 (origin/master == merge commit) decide.
+        $push.stale_scheduler_result = $true
+        Note "$pushTaskName still reports stale result $($push.last_task_result) at the deadline; deciding by origin/master"
+    }
+    else {
+        Save-Receipt "merged_unpushed" $false "$pushTaskName did not finish within $PushTimeoutSeconds s"
+        $lightPathExitCode = 3
+        exit 3
+    }
 }
-if ($push.last_task_result -ne 0) {
+elseif ($push.last_task_result -ne 0) {
     Save-Receipt "merged_unpushed" $false "$pushTaskName finished with result $($push.last_task_result)"
+    $lightPathExitCode = 3
     exit 3
 }
 
@@ -281,8 +340,24 @@ else {
 $receipt.published_commit = $published
 if ($published -ne $mergeCommit) {
     Save-Receipt "merged_unpushed" $false "origin/master is $published, not the merge commit $mergeCommit"
+    $lightPathExitCode = 3
     exit 3
 }
 Save-Receipt "pushed" $true "published $mergeCommit (verified by $($receipt.publication_verified_by))"
 Note "PUBLISHED: origin/master == $mergeCommit"
-exit 0
+$lightPathExitCode = 0
+exit $lightPathExitCode
+}
+catch {
+    # The exit issued from the finally below discards an uncaught error, so print
+    # it here. $lightPathExitCode is still its default 1 on every throw path.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
+    throw
+}
+finally {
+    # Default-fail exit: a stopped (Ctrl+C) Windows PowerShell 5.1 advanced
+    # script would otherwise exit 0. Run with powershell.exe -File: the host
+    # exit code also ends an interactive session that ran this in-process.
+    $Host.SetShouldExit($lightPathExitCode)
+    exit $lightPathExitCode
+}

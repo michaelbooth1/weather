@@ -85,10 +85,12 @@ def payload_seen(module, root, days, monkeypatch):
 
 # --- the window -------------------------------------------------------------------------------
 
-def test_window_is_bounded_from_d0_to_the_recorded_last_and_allowlist_is_empty():
+def test_window_is_bounded_from_d0_to_the_recorded_last_and_allowlist_is_the_mg1_look():
     assert mg1.MG1_FLOOR == date(2026, 10, 15) and mg1.MG1_RESERVED_COUNT == 45
-    # No MG-1 look entry point is registered as code yet; adding one is a reviewed edit of this pin.
-    assert mg1.MG1_CONFIRMATION_ENTRY_POINTS == {}
+    # The one registered look (R3, 2026-10-26) at its current source sha; any change is a reviewed edit of this pin.
+    look = SRC / "weather/calibration/mg1_look.py"
+    assert mg1.MG1_CONFIRMATION_ENTRY_POINTS == {
+        "weather.calibration.mg1_look": hashlib.sha256(look.read_bytes()).hexdigest()}
     assert mg1.window() == (mg1.MG1_D0, mg1.MG1_LAST)
     for day in RESERVED + [mg1.MG1_LAST]:
         assert mg1.is_reserved(day) and mg1.is_reserved(day.isoformat())

@@ -37,9 +37,11 @@ exception is the registered MG-1 confirmation look itself:
 ``MG1_CONFIRMATION_ENTRY_POINTS`` maps the look's module name, as run with
 ``python -m``, to the SHA-256 of that module's source bytes. A process is
 admitted only when its ``__main__`` module has exactly that name and those
-bytes. The MG-1 pre-registration names no look entry point yet, so the
-allowlist is empty and every caller is refused. Adding the look is an explicit,
-reviewed, tested edit of that constant.
+bytes. The registered look is ``weather.calibration.mg1_look`` (master's R3
+ruling, 2026-10-26): the only writer of MG-1's look receipt, which stamps
+``looked_at_utc`` before its first outcome join. Every edit of that module
+changes its sha256 and so needs an explicit, reviewed, tested edit of the
+constant; until then every caller, the edited look included, is refused.
 
 Convergence: when U7 lands on master, ``maker_core.mg1_window`` becomes the one
 recorded copy of the window constants. This module should then import
@@ -63,9 +65,10 @@ MG1_FLOOR = date(2026, 10, 15)
 MG1_D0: date | None = date(2026, 10, 15)
 MG1_LAST: date | None = date(2026, 11, 28)
 MG1_RESERVED_COUNT = 45
-# module name (as run with ``python -m``) -> SHA-256 of its source bytes. Empty:
-# the MG-1 confirmation look is not yet registered as code.
-MG1_CONFIRMATION_ENTRY_POINTS: dict[str, str] = {}
+# module name (as run with ``python -m``) -> SHA-256 of its source bytes (LF, as checked out).
+MG1_CONFIRMATION_ENTRY_POINTS: dict[str, str] = {
+    "weather.calibration.mg1_look": "1e691c58b68a203aebaed3f505295971f56821e92555e3bc12ef8a4db23ff305",
+}
 
 
 class MG1Reserved(ValueError):

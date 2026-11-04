@@ -18,7 +18,7 @@ does not make a blocked gate pass and it never authorizes Polymarket US.
 | Purpose and claim boundary | You need what a lifecycle probe can and cannot claim. |
 | Current production disposition | Always, first: who owns authority and history, what ran on 2026-09-06, why it is spent, the geography record. |
 | Immutable pilot envelope | Any change touching caps, order type, TTL, wallet or session shape. These ceilings may be lowered, never raised, without a new dated owner decision. |
-| Prerequisites (1–9) | Preparing or reviewing a session. Item 9 is geographic eligibility and the tunnel-down preflight line. |
+| Prerequisites (1–10) | Preparing or reviewing a session. Item 9 is geographic eligibility and the tunnel-down preflight line; item 10 is the Git for Windows layout check. |
 | Staged protocol → Stage 0: no-order account proof | Working on bootstrap, account reads, heartbeat or cancel-all evidence. |
 | Staged protocol → Stage 1: dead-man and cancel proof | Working on the lifecycle probe, the no-fill proof, the bundle builder or the one-submit capability. |
 | Staged protocol → Execution-host preparation | Only when executing or editing the attended command sequence. It is about two thirds of the file. Landmarks, in order: review-only candidate plan ("informed acceptance"); wallet topology ("declares the first topology"); credential import ("Choose the provisioning branch"); discovery and manifest build ("Only now start the expiring discovery"); three manifests and outer launchers ("Prepare all three manifests"); fresh candidate before Stage 0 ("The discovery plan is not the candidate"); Stage 1 helper ("Run this exact helper once for each Stage 1 mode"); offline bundle ("Only after both Stage 1 calls pass"). Search for the quoted phrase. |
@@ -335,6 +335,13 @@ All must be current for the target date and selected market:
    self-hash and freshness immediately before the order-submit boundary. A
    missing attestor, malformed receipt, or receipt that expires while those
    calls run blocks before `place_order`.
+
+10. **Git for Windows layout (added 2026-11-02, master; BEFORE ANY LIVE ATTEMPT).** `canonical_git_executable()`
+    (`src/weather/operations/live_path_security.py:566/572`) builds `<GitForWindows InstallPath>\mingw64\bin\git.exe`
+    from the registry and fails closed when that file is absent. Hosted Windows runners with Git 2.56 have no
+    `mingw64` there, so the live-session tests fail with `live-session artifact is absent`. Before any live
+    attempt, the execution host must resolve this path. Before any fix: a read-only check of the Git for Windows 2.5x
+    layout. See the known-failing Windows Qualification groups in [development](../development.md).
 
 ## Staged protocol
 

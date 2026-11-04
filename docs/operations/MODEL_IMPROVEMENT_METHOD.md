@@ -138,9 +138,102 @@ lane does all of the following.
       r4 required at least 0.95 of doubly dead buckets to have a receipt at or after the killing report,
       and got 0.972; the Toronto Celsius check matched the IEM high on 60 of 60 days.
 - [ ] **A dev-ledger row before scoring** (`pending`), filled after it ([ledger](DEV_WINDOW_LEDGER.md)).
+- [ ] **Cite the published dev reuse count.** Name the ledger's "Dev reuse count" (one number, ledger section of
+      that name) as the multiplicity denominator the rule inherits, plus one for the new row.
 
 A dev-window win is selection evidence only. It earns a pre-registration on new dates and a forward
 shadow, never a promotion (EF §5).
+
+## 5. Fast-iteration pipeline (owner 2026-10-30)
+
+The owner approved nine decisions on 2026-10-30, all as master-agent recommended ([DECISION_LOG](DECISION_LOG.md)).
+The rationale is the dated [iterate-faster plan](../research/iterate-faster-2026-10-30/plan.md). They add these rules.
+
+1. **Two currencies.** History and dev reads are cheap and can only kill. Forward dates are spent only on frozen,
+   sha-pinned candidates or batches.
+2. **Kill at the cheapest tier that can.** Intake must say why the market might lack the information; an exhausted family
+   ([exhaustion register](EXHAUSTION_REGISTER.md) §6) is refused without a new mechanism. Then outcome-free checks (coverage,
+   per-version, receipt-dated availability), history (LOYO), dev, and only then a forward look.
+3. **Market-facing ideas go to the market-residual P0 first.** Does the signal predict the market's error at the same hour?
+   One rule, a ledger row first, BH at q = 0.10 across arms, a calibration-matched placebo (the residual deranged across
+   dates, 20 seeds), and per-date rows written beside the result.
+4. **w first.** A candidate earns a market test only if its walk-forward w beats the placebo and the floor-only control
+   (§3 rung 4) and it then passes a dev tradability replay. A dev win against served or MG-1 is not edge progress.
+5. **Batch small levers.** A lever smaller than about half the dev MDE80 goes into a batch, never a solo forward test.
+6. **Size each test from its own numbers:** N from the pair's measured sigma at half the dev effect, at least 20 dates before
+   any PASS, no screen launched below power 0.5, and training coverage that reaches the last forward date.
+7. **Futility looks in new pre-registrations only** (Rule B, [power and futility read](../research/iterate-faster-2026-10-30/prereg-power-futility.md)):
+   a harm stop at 7 dates, then stop at 14, 21 and 31 dates on the registered boundaries; inflate the MDE 4-7% and report
+   a block-3 interval beside the date-clustered one. A look reads a date only when rule 9 allows it. Bound tests (B,
+   MG-1, L6_G) never change; B gets no futility look.
+8. **Standing blind accrual.** A frozen arm accrues outcome-blind from its freeze with no per-candidate owner exemption.
+   It looks only after every test that claims its dates has looked. Arms on B's dates are screens, never edge claims.
+9. **One date rule.** No outcome, label or price on a date is read until every test that claims that date has taken its
+   look. After the last claiming look the date joins dev, prices included. **Look order on shared dates** (master
+   ruling 2026-11-01, state review item 13; not an owner decision): claims on a date rank by freeze time, and a
+   later-frozen test never reads a date before every earlier-frozen claimant of it has looked. A claim binds only over
+   its own scope (markets, dates, inputs): MG-1's covers NBM-derived reads only. A claim whose scope cannot be shown
+   not to intersect is treated as intersecting. A test's pre-registration lists its claimants by name before it freezes.
+10. **2026-09-30..10-14 is opened once** for kill-only and atlas reads, after a written check that no running test claims
+    those dates. Nothing read there supports an edge claim.
+11. **The workstation records pre-registered kills itself** (ledger row and register row); master audits them daily.
+12. **Record first.** Free forward-only sources start recording before any dev win; a standing defect lane runs alongside.
+
+Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 and 15 are master's rulings of
+2026-10-31, from the dated [research review](../research/research-review-2026-10-31/review.md); they are not owner decisions. Rules 16 and 17 are master's rulings of 2026-10-31 and 2026-11-02.
+
+13. **Archive what is ruled out.** Every ruled-out candidate, retro-filled for older rows, keeps its pre-registration or
+    draft, script commit sha, raw outputs, receipts and logs under `C:\archive\ruled-out\<folder>` (workstation; copies,
+    never moves), indexed by `INDEX.md` and `index.json` there with per-file sha256, built by its `build_index.py`.
+    A register or ledger kill cites its archive folder. Nothing under the archive root is deleted; scratch work
+    lives outside it.
+14. **Intake prior: already priced.** No new single free-source T+0 screen on the US11 opens unless its S0 names a
+    mechanism by which the *market* lacks the information at that hour. "It beats served" is not a mechanism: on the dev
+    scorecard served is 1.53x (00-16) to 1.77x (all hours) the market's Brier (EF §10aa; 1.77x on the 111h table too,
+    EF §10q), so almost any public input beats it. Without the mechanism the default reading is that the crowd already
+    prices the source, and the screen is refused at intake.
+15. **A family kill cites a measurement on the member it closes.** A member closed only by extension from a sibling's
+    result is labelled **CLOSED-BY-RULE (reopenable)**, never KILL or COVERED, and its register row names the sibling
+    and the rule that extended it. A new mechanism or a measurement on the member itself reopens it.
+16. **A power projection applies the statistic's full population rule** (master, 2026-10-31, after ledger row 103):
+    "A pre-look power projection must apply the statistic's FULL population rule (for mr_sweep: covered AND every
+    placebo donor covered under all seeds), computed outcome-free on the real layout. Covered counts alone are not a
+    projection. A rehearsal must report the realised population per arm, not only the covered count." Instances:
+    S31 v1 (ledger row 99) and X13 (row 103, realised population 0). Template: the per-arm realised-population
+    count in `rodc_released_p0 --rehearse-to-table` at `d4ebc9576a991f3fd8b4446250030b98494b1359`
+    (`claude/rodc-released-p0-run-20261031`).
+    Instance, projection vs realised: row 28 (ledger rows 114-117, 2026-11-03): the pre-look projection gave X−S
+    power 0.99999 (σ_eff 0.01872, MDE80 0.00261); realised SE_wide 0.00415 / 0.00420 / 0.00398 / 0.01021 (arms
+    A-D) against 0.001707, power 0.130 / 0.127 / 0.143 / 0.026, all < 0.50 (EF §10aw).
+17. **Compute an integrity cap's inputs before freezing it** (master, 2026-11-02, after ledger row 113, verbatim):
+    "Before freezing an integrity cap, compute its input counts outcome-blind (e.g. partial/missing label days per
+    period and market) and record them in the prereg, so a cap is set knowing the base rate." Instance: row 113 (3a,
+    register X93) closed UNTESTABLE at a 2% label-integrity cap (2.82%); 26 of its 40 partial days fall in the five
+    late-March markets (austin, denver, houston, los-angeles, san-francisco), label metadata available before any read.
+18. **Guard and run-hygiene lessons from the row-28 control stage** (master, 2026-11-03; lever-inventory row 28,
+    ledger rows 114-118; these are process lessons and say nothing about row 28's results):
+    - (a) The output guard hit 276 `r0_scope` `DECISION_*` owner-date constants embedded in records plans; the
+      reviewer's "docstrings only" claim was wrong.
+    - (b) `gzip.open` stamps MTIME, so raw records shas differ run to run; identity is the decompressed sha (or the
+      raw sha with bytes 4-8 masked).
+    - (c) The diag category list lacked `DECISION_CONST` and would have mis-routed hits (caught before d2 ran).
+    - (d) Launcher v5's G2 self-hit passed all reviews, hence the smoke-run requirement.
+    - (e) Master (2026-11-03, wording): "a wrapper run with -RepoRoot inside a guarded worktree creates data\logs
+      and breaks the exactly-4-junctions check; seen a1 and a5". Rule: the junction count is re-checked inside the
+      same command block immediately before every launch; the wrapper's -RepoRoot is outside the worktree.
+    - (f) "build 1 guard HALT: 11 market (+ pool) NBM valid_time_utc values fell on 2026-01-01 UTC as UTC rollovers
+      of 2025-12-31 local rows; a date-prefix guard must scope by local date and market tz, not raw UTC string, or it
+      halts on legitimate pre-cutoff rows (fixed by a narrowly scoped, byte-span-cut allowance)."
+    - (g) "runner v11 review B-1: the ruling text embedded in the runner contained a literal dated instant that the
+      runner's own rulings report would withhold under the guard, so the run would HALT on its own ruling; fixed in
+      v12 by rewording plus a sentinel over the rulings dict. Lesson: guard-scanned outputs must not quote
+      guard-matching literals, including in rulings/docstrings."
+19. **A projection's SD input matches the tested contrast** (master, 2026-11-03, after ledger rows 114-117, verbatim):
+    "A power projection's SD input must come from a contrast of the same kind and distance as the one tested, never a
+    near-twin, or from a stated conservative bound. After the look, report the realised/projected SD ratio."
+    Instances: row 28 (lever-inventory row 28, ledger rows 114-117; EF §10aw): the projection took per-date SD
+    0.016304 from the row-109 Aug-Sep near-twin receipt; realised X−S SD 0.0799 / 0.0803 / 0.0787 / 0.1300 (arms
+    A-D), a realised/projected SD ratio of 4.90 / 4.93 / 4.83 / 7.97 (POST-HOC D2, `2a9cfcdf6`).
 
 ## Update this file when
 

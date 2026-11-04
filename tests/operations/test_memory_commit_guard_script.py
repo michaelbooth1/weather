@@ -58,11 +58,18 @@ def test_memory_guard_attributes_and_reaps_codex_heavy_tool_trees():
     assert "$minuteOfDay -ge 30.0" in block
     assert "$minuteOfDay -lt 540.0" in block
     assert "$MaxConcurrentAgentHeavyWorkloads" in block
-    assert "Codex heavy workload is outside the 00:30-09:00 host window" in block
+    assert "agent heavy workload is outside the 00:30-09:00 host window" in block
     assert "Test-GovernedWeatherProcess" in block
     assert "Get-ChildItem" in block
     assert "-Recurse" in block
-    assert "daily_refresh|score_all" in block
+    assert "Get-WeatherWorkstationOfflineModule" in block
+    # Master's shell-line rule on powershell/pwsh/cmd is kept (review M3), with the
+    # guard's explicit module list and the status/--help reader exemption.
+    assert "function Test-AgentShellLineHeavy" in block
+    assert "return (Test-AgentShellLineHeavy $cmd)" in block
+    assert "(?:retrain|training|replay|backtest|daily_refresh|score_all)" in block
+    assert "'weather.backtesting.r0_paired_replay'" in block
+    assert "'status', '--help', '-h', '--version'" in block
     assert "Get-ProcessTreePrivateBytes" in block
     assert "$agentTreeBytes" in block
     assert "$MinKillPrivateBytes" in block

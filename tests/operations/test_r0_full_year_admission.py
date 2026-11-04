@@ -38,6 +38,17 @@ PINNED = [
     "weather.calibration.upstream_obs_screen",
     "weather.calibration.pooled_residual_model",
     "weather.calibration.r0_ols_floor_challenger",
+    # Reviewed additions after this pin was written (L8 ratchet fix, 2026-10-27); each has its own admission test.
+    "weather.calibration.high_so_far_parity_shadow",  # L8 shadow parity scorer (ea449e9cc, 10-24)
+    "weather.calibration.b_drop_list",  # R19 B-1 coverage verdict ledger and drop list (L36, 11-01)
+    "weather.calibration.mg2_composite",  # MG-2 binding module: emit, check, bind-release (2c80a3262, 10-25)
+    "weather.calibration.mg2_inputs",  # MG-2 input-transfer receiver and label-free builder (fe4782e66, 10-25)
+    "weather.calibration.mg2_p3d_n",  # MG-2 P3d_N serve and dev-fit control (9f7e1b9b8, 10-25)
+    "weather.calibration.b_scorer",  # Rule B-1 scorer: control and the one look (b5c2108b3, 10-25)
+    "weather.calibration.b_post_look_serial",  # L8 ruling (b) post-look analysis, frozen (fa380db09, 10-31)
+    "weather.calibration.b_look_per_date",  # L8 ruling (i) per-date extractor for B's look (818232cfd, 10-31)
+    "weather.calibration.b_look_wrapper",  # Rule B-1 look at a pinned S1 (B-1 Clarification 3, master M3 2026-11-01)
+    "weather.calibration.l6_own_state",  # L3's one-time L6 own-state fit, master D2 (i) (1d69a87f1, 10-26)
     "weather.market.maker_evidence_inspect",
     "weather.market.maker_counterfactual_tape",
     "weather.operations.base_retrain",
@@ -46,6 +57,7 @@ PINNED = [
     "weather.operations.replay_status_backfill",
     "weather.operations.workstation_cold_archive_stage",
     "weather.operations.workstation_cold_archive_restore",
+    "weather.reporting.research.guidance_extract",  # row 80 look step 2, master (a) 2026-10-31
     "weather.reporting.scorecards.dev_scorecard",
     "weather.reporting.scorecards.loss_atlas",
     "weather.reporting.scorecards.train_serve_feature_parity",
