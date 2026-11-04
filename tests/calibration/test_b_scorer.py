@@ -589,7 +589,8 @@ def test_void_5_passes_on_a_written_receipt_and_fails_absent_or_hand_edited(tmp_
 
 def test_void_5_fails_a_receipt_whose_entry_sha_is_not_the_recorded_one(tmp_path, monkeypatch):
     """Master's item 3: a receipt written by a registered entry point at a sha B-1 did not record fails VOID 5."""
-    assert b.MG1_LOOK_ENTRY_SHA256 == b.MG1_LOOK_ENTRY_UNRECORDED  # shipped: no entry sha recorded yet
+    # S0: no entry sha recorded yet; S1 (R14): the one permitted edit set it to a 64-hex sha
+    assert b.MG1_LOOK_ENTRY_SHA256 == b.MG1_LOOK_ENTRY_UNRECORDED or mg2.SHA256_HEX.fullmatch(b.MG1_LOOK_ENTRY_SHA256)
     assert not mg2.SHA256_HEX.fullmatch(b.MG1_LOOK_ENTRY_UNRECORDED)
     args = _look_inputs(tmp_path, monkeypatch)
     receipt = Path(args["mg1_look_receipt"])
