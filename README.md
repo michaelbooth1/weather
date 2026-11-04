@@ -499,6 +499,11 @@ need 10-29:
 .\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --no-market --replay <commit>=scratch\transfer\replay.jsonl --ledger-rows scratch\transfer\ledger_rows.jsonl --served-commits scratch\transfer\served.json --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\stage1.json
 ```
 
+On the workstation the scorer is an admitted offline module (item 343a): run it
+through `scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`, not directly.
+The wrapper still refuses the live/execute/place/cancel/promote arguments and any
+command that names b_scorer with a look-like token.
+
 `weather.calibration.feature_model` trains one market/unit-family at a time.
 Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use

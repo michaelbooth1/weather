@@ -113,7 +113,10 @@ parity, and canonical command hygiene. The roadmap command validates numbered
 item/index ownership. The explicit local output paths above make it a
 non-tracked check. After an intentional roadmap change, omit `--report-out` to
 regenerate the canonical tracked `docs/roadmap/active-backlog.md`, then review
-its diff.
+its diff. `--repo-root <tree>` audits that tree from any current directory: every
+path and git call resolves through it, not the cwd or the importing checkout
+(though `python -m` still runs whichever checkout the interpreter imports,
+normally the current directory's).
 
 The knowledge audit also enforces the controls added after the 2026-09-18 audit
 (constants in `src/weather/operations/agent_docs_audit.py`):

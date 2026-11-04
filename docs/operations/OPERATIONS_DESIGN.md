@@ -1368,6 +1368,33 @@ workstation files directly.
 - **Registration.** Master registers the host task after the R20 head lands, from a clean checkout at
   `-ExpectedSourceTip`, with `-WhatIf` first. The registrar refuses any host other than the dedicated capture host.
 
+## MG-1 Input Backfill (manual; no scheduled task)
+
+R11 Head 1 backfills MG-2-format input bundles for the MG-1 reserved window dates 2026-10-15..2026-10-27,
+which predate the MG-2 export. The host side is `scripts/ops/mg1_input_backfill.ps1` (by hand, never
+registered), which wraps `python -m tools.research.mg1_input_backfill`. That tool swaps only the exporter's date
+gate inside `try/finally` and calls the unchanged `weather.calibration.mg2_input_export` with coverage counts
+always off; nothing under `src/` imports or names it.
+
+- **Admission.** Identical to the MG-2 export wrapper (00:30-09:00, lease workload `mg1_input_backfill` refused
+  when busy, 5 GiB free on the output volume, the dedicated capture host, kill-on-close job, deadline before
+  09:00), with the `-P -B` child pinned to `<source>;<source>\src` and both modules proven to resolve there, and
+  memory freshness measured in UTC by `Get-WeatherMemoryGuardStatusAgeMinutes`. `-Mode Precheck` lists input
+  presence and sizes from metadata only; `-PlanOnly` prints the plan and stops.
+- **Writes.** Only under `data\exports\mg1-inputs\`: the exporter's `<D>\` and `<D>.SHA256SUMS`, a sidecar
+  `<D>.mg1_backfill_receipt.json` (exporter and wrapper sha256, manifest sha256, coverage counts false), and
+  `_runs\`. A date already exported is skipped; partial outputs refuse the date.
+- **Transfer (master 2026-11-01; no new share).** Master copies each date's `<D>\`, `<D>.SHA256SUMS` and
+  `<D>.mg1_backfill_receipt.json` from the host's `data\exports\mg1-inputs\` into `mg1-inputs\` on the existing
+  xfer share. On the workstation, `python -m weather.calibration.mg1_layout stage --share-root <xfer UNC>\mg1-inputs
+  --inbox <I> --date <D>` copies `<D>\` and the sidecar read-only and prints
+  `MG1-STAGE <D> <sha> STAGED (not verified yet)`. `admit --inbox <I> --date <D>` runs every §9.3 check except the
+  deadline, records the outcome in MG-1's own ledger, and prints one verify line,
+  `MG1-VERIFY <D> <bundle manifest sha256> PASS` (or `FAIL:<reason>` / `NOT_READY`). Master deletes the share's
+  staging copy of a date only after its PASS line; a FAIL keeps it for inspection. `build` and `concat` assemble
+  the full window once it has closed. The share root is always an argument and is never written; the repository
+  names no share path or host.
+
 ## Why Capture Is Not Packaged Into The Dashboard
 
 A shortcut or executable is useful for opening the dashboard, but it is not a
