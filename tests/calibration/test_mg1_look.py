@@ -339,10 +339,11 @@ def test_the_registered_rule_constants_are_the_preregistrations():
 def test_the_owner_constants_are_the_owners_2026_11_04_answers():
     """A1 (with its Q3 count), A5 and A12 (MG-1 Clarification 2 section 3), answered by the owner 2026-11-04:
     DECISION_LOG 2026-11-04 "approve all recommendations" (A1 Denver OUT, 8 of 10; A5 -0.05 * |gap|; A12 crossed
-    interval). The DL row lands on the docs head claude/owner-1104-docs-20261104."""
+    interval). The DL row landed in master commit b6c8f40fd."""
     assert m.owner_constants() == {"A1_DENVER_SCORED": False, "A1_MIN_NEGATIVE_MARKETS": 8, "A5_BAR": "magnitude",
                                    "A12_FALSIFIER_4": "interval"}
     assert m.OWNER_DECISION_REF.startswith("DECISION_LOG 2026-11-04: owner \"approve all recommendations\"")
+    assert m.OWNER_DECISION_REF.endswith("row landed in master commit b6c8f40fd1ba7659f7bd3d0513a52d02aad0989d")
     for answer in ("A1 Denver OUT", "8 of 10", "-0.05 * |gap|", "A12 falsifier 4 on the crossed interval"):
         assert answer in m.OWNER_DECISION_REF
     assert m.support_markets() == tuple(x for x in m.MARKETS if x != "denver") and len(m.support_markets()) == 10

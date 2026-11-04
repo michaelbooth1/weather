@@ -263,7 +263,8 @@ MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-a
 # built and tested, and the values below are the owner's answers, in force before the look.
 OWNER_DECISION_REF = ("DECISION_LOG 2026-11-04: owner \"approve all recommendations\" (master chat, about 10:55 ET): "
                       "A1 Denver OUT of MG-1, falsifier negative-market count 8 of 10; A5 bar -0.05 * |gap|; "
-                      "A12 falsifier 4 on the crossed interval (whole CI)")
+                      "A12 falsifier 4 on the crossed interval (whole CI); "
+                      "row landed in master commit b6c8f40fd1ba7659f7bd3d0513a52d02aad0989d")
 A1_DENVER_SCORED = False       # A1 (owner 2026-11-04: OUT): True keeps Denver in the support and the scored markets
 #                                (KDEN labels from the cutover, read with model_scoring=False); False drops Denver
 A5_BAR = "magnitude"           # A5 (owner 2026-11-04): "as_written" bar = -0.05 * gap; "magnitude" = -0.05 * |gap|
