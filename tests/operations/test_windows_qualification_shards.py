@@ -128,6 +128,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_mg2_composite_admission.py",
             "tests/operations/test_b_scorer_admission.py",
             "tests/operations/test_b_look_wrapper_admission.py",
+            "tests/operations/test_evening_fix_scorer_admission.py",
             "tests/operations/test_l6_own_state_admission.py",
             "tests/operations/test_mg1_input_admission.py",
             "tests/operations/test_pooled_residual_model_admission.py",

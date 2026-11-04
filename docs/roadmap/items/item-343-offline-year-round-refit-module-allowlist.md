@@ -1,4 +1,4 @@
-# 343. Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - MASTER OPTION 1; ROW 28'S FIRST RUN USES THE ONE-OFF OPTION-2 LAUNCHER]
+# 343. Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - MASTER OPTION 1 SPLIT: 343a SCORER ALLOWLIST LINE; 343b MODULE DEFERRED]
 
 Goal: give the lever-inventory row 28 year-round P3d_N refit (and later year-round history runs) a packaged
 offline module under `src/weather/` and one line in the workstation offline-module allowlist, so that they run
@@ -20,7 +20,7 @@ Why this matters: the wrapper admits a weather-heavy job only when its module is
 "weather-heavy workload must be an offline training/replay module" (`:146`) for any other module, and for a
 `--live`, `execute`, `place`, `cancel` or `promote` argument. The list lives in
 `scripts/ops/workload_admission.ps1:611-667`, next to the B-look argument refusal (`:696`) and the command-line
-test (`:898`). The one-minute guard parses that file on every tick and uses the list to classify processes
+test (`:898`); after item 17 (combo B), the S4U memory-commit guard parses this file every tick; workstation_pregate.ps1:82 and the wrapper dot-source it. The list classifies processes
 (`:1176-1177`), so a parse error or a wrong entry there affects every guard tick, not only this lever. Each
 one-off launcher is another reviewed script outside the shared admission path.
 
@@ -28,27 +28,68 @@ Precedent: `weather.calibration.r0_full_year` went the same way (allowlist entry
 `workload_admission.ps1:649`, Codex mirror `pre_tool_use_host_load.py:84`, admission test
 `tests/operations/test_r0_full_year_admission.py`).
 
+Split (master ruling 2026-11-03, relayed by the coordinator): design (B), a pinned-runner entry point that runs a
+reviewed runner file by sha, is REJECTED as a file-path loader in disguise. The item splits into 343a (built now)
+and 343b (deferred, design (A)). **Until 343b lands, row 28's remaining stages stay on launcher v6 under the one-off
+exception.**
+
+The module name `weather.calibration.yearround_refit` is reserved here only. No allowlist line and no hook-mirror
+entry exists for it, and no test pins it as admitted: an admitted name with no module behind it is a slot that
+anything could fill. Its line lands with its module in 343b.
+
 Checklist:
 
-- [ ] An offline row-28 / year-round refit module under `src/weather/calibration/`, research-only and
-  history-only. It reproduces the frozen row-28 run's arms from the frozen prereg, with no live, order or
-  promotion path and no B-bound file edited (it may import them read-only).
-- [ ] One allowlist line in `Get-WeatherWorkstationOfflineModule` (`scripts/ops/workload_admission.ps1`) and the
-  matching entry in the Codex hook mirror, with an admission test beside `test_r0_full_year_admission.py`. The
-  B-look argument refusal stays in force for the new module.
-- [ ] Fold `weather.backtesting.evening_fix_scorer` into the same offline-module allowlist work, with the same review
-  and combo (master 2026-11-03). The evening-fix Stage 1 score ran once as a direct run of `stage1_score_v1.py`
-  (`ce70e3e8`) under a master one-off ruling, because the wrapper refused the scorer module ([item 337](item-337-no-metar-observed-floor-gap.md)).
+343a (branch `claude/item343-offline-refit-allowlist-20261103`):
+
+- [ ] One allowlist line for `weather.backtesting.evening_fix_scorer` in `Get-WeatherWorkstationOfflineModule`
+  (`scripts/ops/workload_admission.ps1`) and the matching entry in the Codex hook mirror (master 2026-11-03). The
+  evening-fix Stage 1 score ran once as a direct run of `stage1_score_v1.py` (`ce70e3e8`) under a master one-off
+  ruling, because the wrapper refused the scorer module ([item 337](item-337-no-metar-observed-floor-gap.md)).
+- [ ] Admission tests beside `test_r0_full_year_admission.py` (`test_evening_fix_scorer_admission.py`): exact-name
+  admission in both mirrors, sibling and live/promote refusals before any lease, and the B-look refusal kept
+  (`b_scorer look` refused, `b_look_wrapper look` admitted). The full-list pin in `test_r0_full_year_admission.py`
+  gains the entry.
+- [ ] `README.md` (operator command catalog) notes the wrapper route for the scorer.
 - [ ] Land through a combo with WS exact-tip suite evidence (the bounded suite at the combo's exact tip) and
-  guard-parse evidence: the guard script parses the edited `workload_admission.ps1` cleanly and classifies the new
-  module as offline.
-- [ ] Update `README.md` (operator command catalog) and the owning runbook for the new command in the same change.
+  guard-parse evidence: the guard script parses the edited `workload_admission.ps1` cleanly and classifies the
+  scorer as offline.
+
+343b (DEFERRED; design (A)):
+
+- [ ] The durable offline year-round refit module `weather.calibration.yearround_refit` under
+  `src/weather/calibration/`, research-only and history-only: the stages, the arms and the output guard as a library,
+  repo paths through `weather.paths` and config-driven roots, with no live, order or promotion path and no B-bound
+  file edited (it may import them read-only).
+- [ ] Its own review, and a real-data equivalence re-run against the frozen row-28 run's stages.
+- [ ] Its allowlist line and hook-mirror entry, landing with the module, with its own admission test; the B-look
+  argument refusal stays in force for it.
+- [ ] `README.md` and the owning runbook for the new command in the same change.
+- **Trigger (master 2026-11-03):** a second approved year-round lever, OR the next row-28 stage that needs the
+  wrapper. Until then nothing in 343b is built.
+
+Evidence (343a):
+
+- Guard parse at `c8e9b611d` (WS, read-only): `Parser::ParseFile` reports 0 errors on `workload_admission.ps1`,
+  `workstation_heavy.ps1`, `memory_commit_guard.ps1` and `workstation_pregate.ps1`; 51 modules listed, the scorer
+  once, nothing named yearround; the scorer is classified offline and its `_x` sibling and `yearround_refit` are not.
+- Master's combo-tip expectation: after B and A', the module count becomes 52 (A' adds
+  `weather.calibration.b_drop_list`), with the scorer listed once and nothing named yearround. Master re-runs the
+  guard parse at the combo tip on the host with B's `memory_commit_guard.ps1`.
+- WS exact-tip suite: recorded in the combo's report (26 chunks of at most 25 files through
+  `workstation_heavy.ps1 -Queue`).
 
 Acceptance:
 
-- `workstation_heavy.ps1 -Kind weather_heavy` admits the new module and `weather.backtesting.evening_fix_scorer`, and still refuses an unlisted module and
-  the live/execute/place/cancel/promote arguments.
+343a:
+
+- `workstation_heavy.ps1 -Kind weather_heavy` admits `weather.backtesting.evening_fix_scorer`, and still refuses an
+  unlisted module and the live/execute/place/cancel/promote arguments.
 - The guard parses the edited file at the combo tip, with the evidence recorded in the combo's report.
+- No allowlist line or hook-mirror entry names `weather.calibration.yearround_refit`.
+
+343b:
+
+- `workstation_heavy.ps1 -Kind weather_heavy` admits `weather.calibration.yearround_refit`, with the same refusals.
 - A later year-round run needs no option-2 launcher; the row-28 option-2 exception stays a one-off.
 - Train/serve parity, probability mass and release binding are unchanged: the module is offline research and
   serves nothing.
