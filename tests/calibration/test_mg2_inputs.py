@@ -624,8 +624,9 @@ def test_no_production_module_imports_the_receiver():
     hits = []
     for top in ("src", "app"):
         for path in (ROOT / top).rglob("*.py"):
-            # the receiver itself, the binding (its release file list) and the allow-list (its docstring)
-            if path.name in ("mg2_inputs.py", "mg2_composite.py", "mg2_input_allowlist.py"):
+            # the receiver itself, the binding (its release file list), the allow-list (its docstring) and the
+            # row-28b workstation verifier (research-only; it calls verify_bundle unchanged, master 2026-11-04)
+            if path.name in ("mg2_inputs.py", "mg2_composite.py", "mg2_input_allowlist.py", "r28b_inputs.py"):
                 continue
             if "mg2_inputs" in path.read_text(encoding="utf-8", errors="replace"):
                 hits.append(path.relative_to(ROOT).as_posix())

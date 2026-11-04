@@ -1,7 +1,9 @@
 # Row-28b forward inputs: the (a) export-side as-of-capture trim, design note (no code)
 
-Status: **DESIGN ONLY, for master review before any code.** Lane L16 (workstation, non-capture), 2026-11-04,
-from origin/master `b6c8f40fd1ba7659f7bd3d0513a52d02aad0989d`. Nothing here is built, scheduled or pulled.
+Status: **APPROVED by master 2026-11-04 (about 11:15) and BUILT** on `claude/r28b-input-trim-20261104`, with the
+rulings in §8 (which override the text above where they differ) and the build in §9. Designed by lane L16
+(workstation, non-capture), 2026-11-04, from origin/master `b6c8f40fd1ba7659f7bd3d0513a52d02aad0989d`. Nothing is
+scheduled or pulled.
 
 How it was written:
 
@@ -362,19 +364,44 @@ New test files go into the archive shard (`windows-qualification.yml` plus `EXPE
 - If master later rules that emission-only inputs past 01-30 may travel, only trimmed bundles travel for those
   dates (Q4), and the window constant is the only change.
 
-## 8. Open questions for master
+## 8. Master's rulings (2026-11-04), as built
 
-- **Q1.** The gate/trim interaction (§3.3): (a) the 343b emitter gates on the fitted hours 13–16 (recommended), or
-  (b) H_LAST = 20.
-- **Q2.** The fallback if `WeatherMg2InputExport` stops before 2027-01-30: library use of the bound exporter into
-  host-private staging (§3.1), or no fallback, in which case the dates become holes.
-- **Q3.** `prev_dmax`: off (recommended; no row-28b reader), or on per §4. If on, how to treat D = 12-17, whose
-  D-1 = 12-16 is outside the row-28b line.
-- **Q4.** Emission-only inputs for dates after 2027-01-30: none (the default here), or trimmed-only under a later
-  owner line.
-- **Q5.** The scheduled task versus manual one-shots for the trim. Either way it is host-side, after the
-  exporter, inside 00:30–09:00 under the lease, and registration needs the owner's yes.
-- **Q6.** Whether the real-data dev-window check (§3.3, option 1) is wanted, and whether development-window MG-2
-  bundles are available on the WS for it.
+The questions as first put are kept in the history of this file; the answers below bind the build. Where a
+ruling differs from the text above, the ruling wins.
 
-This note authorises no code, task, registration or pull. Each goes through its own reviewed head.
+- **Q1, superseded by master's later ruling of the same day.** The 343b `shadow_rows` row gate and its stats
+  counters stay at `INTRADAY_CUTOFF_HOURS` (7..20); H_LAST stays 16. Exactly the counters named in §3.3
+  (`outside_cutoff_hours`, `no_fit_for_hour`, `replay_hours`) may differ between full and trimmed inputs, and the
+  invariance receipt lists them by name (`stats_allowed_to_differ`). `shadow_rows` byte-equality, hole-key
+  equality and an equal `refuse_absent_emit_sources` outcome stay hard: any other difference is a STOP (§3.3's
+  live risk is therefore caught, not fixed).
+- **Q2.** No library use of the bound exporter. A date whose MG-2 bundle is not published by its D+1 deadline
+  (09:00 America/Toronto on D+1), or whose `export_finished_utc` is later, is a NAMED hole:
+  `r28b_hole_not_exported_by_deadline` or `r28b_hole_exported_after_deadline`, written once to
+  `data\exports\r28b-inputs\_holes\<D>.json` and disclosed. A bundle that turns up later never replaces it.
+- **Q3.** `prev_dmax` is OFF and not built. `prev_day/` is dropped (§4's scalar spec is not implemented).
+- **Q4.** No inputs after 2027-01-30. The trim and the verifier hard-refuse every D outside 2026-12-17..2027-01-30.
+- **Q5.** No scheduled task. Master runs `scripts\ops\r28b_input_trim.ps1` weekly on the host as a detached,
+  lease-held one-shot inside 07:30–09:00 (after the 04:15 and 07:00 exports), and logs each trimmed manifest sha
+  with the host timestamp for the workstation verifier. The wrapper carries no registration code.
+- **Q6.** The 10-29..11-02 bundles are not used. The 2026-09-28 dev rehearsal bundle cannot be used without a new
+  date-override path: the trim's Q4 window refuses it, and the 343b emitter refuses it too (its forward-receipt
+  window, and its Dec 17 – May 31 coverage gate would emit no row). No override is added. The invariance
+  therefore runs on the **first forward batch**: `r28b_inputs compare` emits on the full and on the trimmed inputs
+  and reports booleans, counts and shas only. Unequal is a STOP (a STOP marker beside the row-28b ledger), and
+  nothing emits from the trimmed set until master rules (`r28b_inputs gate`).
+
+## 9. Build (L16, 2026-11-04)
+
+- `src/weather/calibration/r28b_input_trim.py`: the host one-shot (stdlib plus the bound `mg2_input_allowlist`,
+  read-only). It reads only `data\exports\mg2-inputs\<D>\` and its `<D>.SHA256SUMS`, verified first, and writes
+  only under `data\exports\r28b-inputs\`.
+- `scripts/ops/r28b_input_trim.ps1`: the host wrapper (07:30–09:00 Toronto, shared lease `r28b_input_trim`,
+  capture-host identity, memory and disk refusals, pinned `-P -B` child in a kill-on-close job, run receipt).
+  `-PlanOnly` touches nothing.
+- `src/weather/calibration/r28b_inputs.py`: the workstation `verify`, `hole`, `compare` and `gate` commands and
+  the row-28b ledger `C:\t\r28b\forward\input_receipts.jsonl` (it refuses MG-2's ledger).
+- Tests: `tests/calibration/test_r28b_input_trim.py`, synthetic only, in the archive shard.
+- Runbook: [operations topology](../operations/OPERATIONS_DESIGN.md), "Row-28b input trim".
+
+Nothing here registers a task or pulls a bundle.
