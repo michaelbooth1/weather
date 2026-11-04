@@ -5,7 +5,7 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-04T16:37:07.483695+00:00
+Generated: 2026-11-04T18:22:43.142169+00:00
 Status: `OK`
 
 ## Summary
@@ -43,7 +43,7 @@ Status: `OK`
 | 337 | OPEN | 2026-10-08 | OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
 | 340 | OPEN | 2026-11-01 | R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD | [Open-Meteo DST Fix For Training And Backfill Readers](items/item-340-open-meteo-dst-training-readers.md) |
 | 342 | OPEN | 2026-11-03 | MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math](items/item-342-feb29-bound-centre-lookup-crash.md) |
-| 343 | OPEN | 2026-11-03 | MASTER OPTION 1; ROW 28'S FIRST RUN USES THE ONE-OFF OPTION-2 LAUNCHER | [Offline Year-Round Refit Module And Workstation Allowlist Line](items/item-343-offline-year-round-refit-module-allowlist.md) |
+| 343 | OPEN | 2026-11-03 | MASTER OPTION 1 SPLIT: 343a SCORER ALLOWLIST LINE; 343b MODULE DEFERRED | [Offline Year-Round Refit Module And Workstation Allowlist Line](items/item-343-offline-year-round-refit-module-allowlist.md) |
 
 ## Active Items Without A Disposition In 45 Days
 

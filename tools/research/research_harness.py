@@ -188,6 +188,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Maker replay v2 H1 oracle-handout cut/rebind (gate spec v3.4); workstation only.",
     },
+    "mg1_input_backfill.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R11 MG-1 input backfill 10-15..10-27 via the unchanged MG-2 exporter; host via mg1_input_backfill.ps1.",
+    },
 }
 
 

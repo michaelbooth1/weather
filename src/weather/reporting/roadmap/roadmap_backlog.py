@@ -70,8 +70,16 @@ def item_files(root: str | Path = DEFAULT_ROADMAP_ROOT) -> list[Path]:
     return sorted(items_root.glob("item-*.md"))
 
 
-def _relative(path: Path) -> str:
-    return relative_to_repo(path)
+def _relative(path: Path, repo_root: Path | None = None) -> str:
+    # The importing checkout's REPO_ROOT is not necessarily the audited one: an
+    # audit run from another checkout imports that checkout's package, so callers
+    # auditing an explicit tree pass its root and paths stay repo-relative.
+    if repo_root is None:
+        return relative_to_repo(path)
+    try:
+        return Path(path).relative_to(repo_root).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
 
 
 def _is_non_primary_index_section(section: str) -> bool:
@@ -79,12 +87,14 @@ def _is_non_primary_index_section(section: str) -> bool:
     return "cross" in normalized and ("link" in normalized or "reference" in normalized)
 
 
-def parse_roadmap_index(root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, Any]:
+def parse_roadmap_index(
+    root: str | Path = DEFAULT_ROADMAP_ROOT, *, repo_root: Path | None = None
+) -> dict[str, Any]:
     root = Path(root)
     path = root / "ROADMAP.md"
     if not path.exists():
         return {
-            "path": _relative(path),
+            "path": _relative(path, repo_root),
             "exists": False,
             "rows": [],
         }
@@ -109,7 +119,7 @@ def parse_roadmap_index(root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, An
             "title": None,
             "status_text": None,
             "link": link,
-            "target_path": _relative(root / link),
+            "target_path": _relative(root / link, repo_root),
             "line": line_number,
             "section": section,
             "primary": not _is_non_primary_index_section(section),
@@ -124,7 +134,7 @@ def parse_roadmap_index(root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, An
         rows.append(row)
 
     return {
-        "path": _relative(path),
+        "path": _relative(path, repo_root),
         "exists": True,
         "rows": rows,
     }
@@ -135,14 +145,16 @@ def _owner_package(text: str) -> str:
     return match.group("value").strip() if match else ""
 
 
-def parse_item(path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, Any]:
+def parse_item(
+    path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT, repo_root: Path | None = None
+) -> dict[str, Any]:
     path = Path(path)
     text = path.read_text(encoding="utf-8-sig", errors="replace")
     lines = text.splitlines()
     heading = lines[0] if lines else ""
     parsed = HEADING_RE.match(heading)
     item: dict[str, Any] = {
-        "path": _relative(path),
+        "path": _relative(path, repo_root),
         "heading": heading,
         "number": None,
         "title": None,
@@ -376,13 +388,14 @@ def build_payload(
     roadmap_root: str | Path = DEFAULT_ROADMAP_ROOT,
     *,
     generated_at_utc: str | None = None,
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
-    items = [parse_item(path, root=roadmap_root) for path in item_files(roadmap_root)]
+    items = [parse_item(path, root=roadmap_root, repo_root=repo_root) for path in item_files(roadmap_root)]
     items.sort(key=lambda row: (row.get("number") is None, row.get("number") or 0, row.get("path") or ""))
     active_items = [row for row in items if row.get("active")]
     dormant_items = [row for row in items if row.get("status") == "DORMANT"]
     as_of_date, stale_active = stale_active_items(items)
-    roadmap_index = parse_roadmap_index(roadmap_root)
+    roadmap_index = parse_roadmap_index(roadmap_root, repo_root=repo_root)
     issues = [issue for item in items for issue in lint_item(item)]
     issues.extend(lint_roadmap_index(items, roadmap_index))
     status_counts = Counter(row.get("status") or "UNPARSED" for row in items)
@@ -392,7 +405,7 @@ def build_payload(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
-        "roadmap_root": _relative(Path(roadmap_root)),
+        "roadmap_root": _relative(Path(roadmap_root), repo_root),
         "summary": {
             "item_count": len(items),
             "active_item_count": len(active_items),
