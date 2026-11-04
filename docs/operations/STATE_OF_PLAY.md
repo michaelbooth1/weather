@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-03 America/Toronto (evening-fix Stage 1 accepted, R24 first host label run, Denver 107-miss open, rows 106/107/109/113 closed, row 28 A/B SURVIVE-history and C/D KILL, R-CS/R-P2/K112 PARKED; night 11-02/03 combo landed).**
+**Last updated: 2026-11-04 America/Toronto (owner 11-04: MG-1 A1/A5/A12 decided, row-28b 12-17 line; evening-fix Stage 1 accepted, R24 first host label run, Denver 107-miss open, rows 106/107/109/113 closed, row 28 A/B SURVIVE-history and C/D KILL, R-CS/R-P2/K112 PARKED; night 11-02/03 combo landed).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -39,14 +39,14 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
   **Night 11-02/03 combo `claude/night-combo-20261102` @ `8d10666ed` LANDED 11-03 (merge `cb890e6b3`, quiet-window merge; master):** blook-r3, B-look S0/S1 `d5a254b6c`, #5, items 23/33, CI shard, tests-only fix (DL). First new training_window.ps1 run 04:15, rc checked by master.
 - **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev.
   **09-30..10-14 released once for weather kill-only/atlas reads** (owner 10-30, DL): local target date; Austin 10-03 out; MG-2/B
-  outputs out; **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17).
+  outputs out; **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17). **>= 12-17: row-28b B forward line** (owner 11-04, DL).
 - **WS `data\` is a paused mirror** (master 11-02): mirror paused 2026-08-12; last complete WU day in it = 2026-08-10 (manifest `last_date`, all 12 markets); a WS lane needing Aug+ WU uses labels or a host bounded extract and checks store coverage (max date >= need) before use.
 - **Market price reliability by bin CLOSED (row 106, X92, EF §10aq):** KILL at edge size on US11 dev (08-01..09-29; ECE 0.0067,
   slope 1.030 [1.014, 1.045]; all three arms below 0.2236): not an exploitable lever, silent on the overround. **Row 113** (3a history tier) UNTESTABLE at its 2% label cap (2.82%), frozen 11-02, no successor (X93).
 - **R28a NWS P0 (row 107, X96-X101, EF §10as):** FADE and GAP KILL at edge, W1-0712 UNTESTABLE at edge; NWS adds a little, not a tradable amount. **R28b:** C3 closed untestable (R28b census 0/0/0; design gap, not a kill; A1 unchanged). X86, EF §10at.
 - **R-CS coastal specialist PARKED** (master 11-01; no ledger row; register note, two reopen conditions). **L47 2a and lever 2 PARKED** (X102, X103). 11-01 closures (master): #21 GEFS true mean (X91); direction A (register §0.2, EF §1k); B PARKED; B2 UNTESTABLE (row 105, X90). **X36-v5 (row 111 C, EF §10au):** 2026 raw NBM warm +0.74°F equally under v4.3 and v5.0; not a v5.0 artefact; X36 reopen not met.
 - **Evening-fix Stage 1 ACCEPTED (master 11-03): CONDITIONS 1-2 MET, condition 3 pending.** Primary -0.04854 [-0.05532, -0.04211], 11/11 markets, 128 market-days; both sensitivities share sign; SAFETY 0 and 0; "Stage 2 after MG-1 look receipt (after 11-28)"; H2 NOT TESTED; 10-28 outside frozen window, extension not triggered; shas and the one-off direct-run disclosure in [item 337](../roadmap/items/item-337-no-metar-observed-floor-gap.md).
-- **Row 28 year-round P3d_N refit (L59, ledger rows 114-118, history only; master verdict 11-03, EF §10aw):** A SURVIVES-history, B SURVIVES-history, C KILL, D KILL (X104, X105); §8.3 candidate B; survival is V4-scoped and is not an adoption. Flags: X−S power < 0.50 in all 4 arms (rule-16 failure); archive INDEX rewrite accepted. Result `32932ebc…` @ `741174e5f`.
+- **Row 28 year-round P3d_N refit (L59, ledger rows 114-118, history only; master verdict 11-03, EF §10aw):** A SURVIVES-history, B SURVIVES-history, C KILL, D KILL (X104, X105); §8.3 candidate B; survival is V4-scoped and is not an adoption. Flags: X−S power < 0.50 in all 4 arms (rule-16 failure); archive INDEX rewrite accepted. Result `32932ebc…` @ `741174e5f`. Forward test: 12-17 line + input carve-out (owner 11-04, DL).
 - **L52 price history** (owner GO 11-01, DL): International PM public closed-event `/prices-history` at fidelity 1, sealed 11-02 (22 markets, events 2025-01-22..2026-09-29, no guarded dates); the series is the book mid, not last trade. HISTORY-TIER selection evidence only, never an edge claim.
 - **R-P (L48 station-pooled corpus) KILLED** at LOYO gate 1 (row 109, X94; Los Angeles CI-worse). **R-P2** (class-matched pooling): screen PASS, confirmation infeasible at size (3-5 seasons); **PARKED** as the default corpus-expansion ingredient (X95, three reopen triggers). L48 GO N=300 (rule 33d5c67a…, rows 108 C / 109 K); R-I scope ruled not covering a rows-only retrain.
 - **K112:** dev CONSISTENT (C1.6). History-tier test NOT RUN: Dec-May NBM 07Z and P3d_N_fix inputs absent on WS; power ~0.14 at dev point (MDE80 ~0.009 vs -0.0027); seasonal transfer of b_train unresolved. PARKED, not killed.
@@ -79,7 +79,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | What | Owner | Due | Verify |
 | --- | --- | --- | --- |
 | PT-1 NOT RUNNABLE (R21; rules 4/6): receipt + register row X106; F8-MH Cl. 2; T+1 dated clause | master (rule-11 receipt audit) + WS L59 | 11-04 docs head | receipt sha; DL row |
-| MG-1/B rulings DONE 11-03 (MG-1 Cl. 2, B-1 Cl. 5); owner A1/A5/A12 open; mg1_look scoring head; b_transfer T1/T3/T4 + B label loader; scorer and writer reviews | master (owner A1/A5/A12); WS heads | owner answers before the look; head 11-12/13; 11-20; 12-01 | DL 11-03 row; head tips |
+| MG-1/B rulings DONE 11-03 (MG-1 Cl. 2, B-1 Cl. 5); A1/A5/A12 decided 11-04 (MG-1 Cl. 3, DL); mg1_look scoring head; b_transfer T1/T3/T4 + B label loader; scorer and writer reviews | master; WS heads | constants recorded before the look; head 11-12/13; 11-20; 12-01 | DL 11-03 row; head tips |
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
 | Evening-fix Stage 2: gap read after the MG-1 look receipt (Clarification 1 s5); H2 then needs a market-arm replay (owner question) | master + WS | after 11-28 | MG-1 look receipt; Stage 2 receipt |
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
