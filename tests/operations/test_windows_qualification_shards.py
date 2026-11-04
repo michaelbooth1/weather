@@ -75,6 +75,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_register_maker_evidence_torn_quarantine.py",
             "tests/calibration/test_mg2_input_export.py",
             "tests/calibration/test_r28b_input_trim.py",
+            "tests/operations/test_frozen_binding_guard_script.py",
             # Hosted byte-identity coverage: lfs: false gives the win32 lfs_pointers golden tier.
             "tests/model/test_high_so_far_variant_none_byte_identity.py",
             "tests/calibration/test_mg1_look_record.py",
