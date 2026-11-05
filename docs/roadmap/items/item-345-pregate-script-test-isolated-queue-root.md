@@ -19,7 +19,7 @@ suite's 50 GiB disk floor cannot be met on this volume"); a green run on a fulle
 Checklist:
 
 - [x] No production override was added: the production admission script still honours no redirect. Instead
-  every fixture copy of `workload_admission.ps1` in the test is rewritten (`_isolate_admission`): a private
+  every fixture copy of `workload_admission.ps1` in the test is rewritten (`_copy_isolated_scripts`): a private
   `Local\WeatherPgFixture-<uuid>` mutex family and a temporary state root, so the queue, slot state and exclusive-holder
   record resolve under `tmp_path`. Nested tests hold that private slot 1 instead of inheriting the caller's real slot.
   Setup fails closed before any write: each overridden production function must be defined exactly once and the
@@ -32,5 +32,8 @@ Checklist:
   application-data root; the end-to-end receipts assert the queue directory under the temporary root. The test file no
   longer names the real queue path.
 - [ ] The 55 GiB skips are reported in the suite receipt when they fire.
+- [ ] Open follow-up (delta review of `be1beced9`, findings 1-2): take the overridden function's span from the
+  PowerShell parser AST instead of a text scan to the next `function`, and check that no top-level statement of the
+  production admission script reaches host state outside the overridden functions.
 
 Acceptance: the test passes with no read or write under the real `%ProgramData%\WeatherProject` queue directory.

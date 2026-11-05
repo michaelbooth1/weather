@@ -165,7 +165,7 @@ def _git(repo: Path, *args: str) -> str:
 class _HeldWorkstationMutex:
     """Hold a fixture repository's PRIVATE slot-1 mutex, standing in for workstation_heavy.
 
-    Every fixture copy of workload_admission.ps1 is isolated (_isolate_admission):
+    Every fixture copy of workload_admission.ps1 is isolated (_copy_isolated_scripts):
     a private mutex family and a temp state root, so its queue, slot state files
     and exclusive-holder record live under tmp_path. A nested pre-gate proves this
     hold (WEATHER_WORKSTATION_WRAPPER_SLOT unset, so slot 1) and never sees the
@@ -235,7 +235,15 @@ def _function_span(text: str, name: str) -> tuple[int, int]:
     return start, (len(text) if following < 0 else following)
 
 
-def _assert_overrides_bind(text: str) -> None:
+def _production_scripts() -> dict[str, bytes]:
+    return {name: (OPS / name).read_bytes() for name in COPIED_SCRIPTS}
+
+
+def _script_text(raw: bytes) -> str:
+    return raw.decode("utf-8-sig")
+
+
+def _assert_overrides_bind(scripts: dict[str, bytes]) -> None:
     """Refuse BEFORE any fixture write if the appended overrides could be dead code.
 
     The overrides are appended function definitions, so a renamed production
@@ -243,6 +251,7 @@ def _assert_overrides_bind(text: str) -> None:
     silently send fixture tickets, holder records and slot files to the real
     host-global state (Opus review of 3e91dbb8d, MAJOR 1).
     """
+    text = _script_text(scripts["workload_admission.ps1"])
     for name in OVERRIDDEN_FUNCTIONS:
         assert text.count(f"function {name} {{") == 1, f"{name} is not defined exactly once in production"
     start, end = _function_span(text, "Get-WeatherHeavyWorkloadPoisonPath")
@@ -252,33 +261,26 @@ def _assert_overrides_bind(text: str) -> None:
         inside = lowered[start:end].count(token.lower())
         assert total == inside, f"{token} is used outside Get-WeatherHeavyWorkloadPoisonPath"
     assert lowered[start:end].count("commonapplicationdata") == 1
-    for name in COPIED_SCRIPTS:
+    for name, raw in scripts.items():
         if name == "workload_admission.ps1":
             continue
-        other = (OPS / name).read_text(encoding="utf-8-sig").lower()
-        assert not any(token.lower() in other for token in HOST_STATE_ROOT_TOKENS), name
+        other = _script_text(raw).lower()
+        found = [token for token in HOST_STATE_ROOT_TOKENS if token.lower() in other]
+        assert not found, f"{name} names the host state root ({found})"
 
 
-def _isolated_admission_text(state_root: Path, mutex_name: str, production_text: str | None = None) -> str:
+def _isolated_admission_text(state_root: Path, mutex_name: str, scripts: dict[str, bytes] | None = None) -> str:
     """Pure string work: it fails closed before anything is written or any admission code runs."""
-    text = production_text
-    if text is None:
-        text = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
-    _assert_overrides_bind(text)
+    scripts = _production_scripts() if scripts is None else scripts
+    _assert_overrides_bind(scripts)
+    text = _script_text(scripts["workload_admission.ps1"])
     assert MUTEX_NAME in text
     isolated = text.replace(MUTEX_NAME, mutex_name)
     assert MUTEX_NAME not in isolated
     quoted = str(state_root).replace("'", "''")  # pasted into a single-quoted PowerShell string
-    return isolated + ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", quoted)
-
-
-def _isolate_admission(repo: Path, state_root: Path) -> str:
-    """Rewrite ``repo``'s copied admission script; return its private slot-1 mutex name."""
-    mutex_name = "Local\\WeatherPgFixture-" + uuid.uuid4().hex
-    (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(
-        _isolated_admission_text(state_root, mutex_name), encoding="utf-8"
-    )
-    return mutex_name
+    isolated += ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", quoted)
+    assert "global\\" not in isolated.lower(), "the rewritten admission text still names a Global\\ object"
+    return isolated
 
 
 # Read-only: no -CreateIfMissing, so even a dead override creates nothing.
@@ -294,11 +296,16 @@ ConvertTo-Json -Compress -InputObject ([ordered]@{
 """
 
 
-def _copy_isolated_scripts(repo: Path, state_root: Path) -> str:
+def _copy_isolated_scripts(repo: Path, state_root: Path, scripts: dict[str, bytes] | None = None) -> str:
+    """Copy the scripts with an isolated admission copy; every check runs before the first write."""
+    scripts = _production_scripts() if scripts is None else scripts
+    mutex_name = "Local\\WeatherPgFixture-" + uuid.uuid4().hex
+    admission = _isolated_admission_text(state_root, mutex_name, scripts)
     (repo / "scripts" / "ops").mkdir(parents=True)
-    for name in COPIED_SCRIPTS:
-        shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
-    mutex_name = _isolate_admission(repo, state_root)
+    for name, raw in scripts.items():
+        if name != "workload_admission.ps1":
+            (repo / "scripts" / "ops" / name).write_bytes(raw)
+    (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(admission, encoding="utf-8")
     env = {**os.environ, "PG_ADMISSION": str(repo / "scripts" / "ops" / "workload_admission.ps1")}
     result = _run([*POWERSHELL, "-Command", RESOLUTION_PROBE], env=env, timeout=120)
     assert result.returncode == 0, result.stderr
@@ -496,39 +503,88 @@ def test_fixture_admission_uses_a_temp_queue_root_and_private_mutexes(tmp_path):
     assert not any(m.startswith("Global\\") for m in observed["mutexes"])
 
 
-@pytest.mark.parametrize(
-    ("mutation", "message"),
-    [
-        ("renamed_override_target", "Get-WeatherHeavyWorkloadPoisonPath is not defined exactly once"),
-        ("second_common_data_use", "CommonApplicationData is used outside Get-WeatherHeavyWorkloadPoisonPath"),
-    ],
-)
-def test_isolation_fails_closed_at_setup_when_an_override_would_not_bind(tmp_path, monkeypatch, mutation, message):
+def _host_state_snapshot() -> list[tuple[str, int, int]]:
+    """Names, LastWriteTimeUtc (ns) and length under the real host-global state root. Metadata only."""
+    root = Path(os.environ["ProgramData"]) / "WeatherProject"
+    if not root.exists():
+        return []
+    rows = []
+    for directory, names, files in os.walk(root):
+        for name in [*names, *files]:
+            item = Path(directory) / name
+            info = item.stat()
+            rows.append((str(item.relative_to(root)), info.st_mtime_ns, info.st_size if item.is_file() else -1))
+    info = root.stat()
+    rows.append((".", info.st_mtime_ns, -1))
+    return sorted(rows)
+
+
+def _rename_definition(name: str):
+    return lambda scripts: {
+        **scripts,
+        "workload_admission.ps1": scripts["workload_admission.ps1"].replace(
+            f"function {name} {{".encode(), f"function {name}Renamed {{".encode()
+        ),
+    }
+
+
+NOT_BINDING_MUTATIONS = {
+    "renamed_poison_path": (
+        _rename_definition("Get-WeatherHeavyWorkloadPoisonPath"),
+        "Get-WeatherHeavyWorkloadPoisonPath is not defined exactly once",
+    ),
+    "renamed_residual_process_probe": (
+        _rename_definition("Get-WeatherActiveWorkstationHeavyProcess"),
+        "Get-WeatherActiveWorkstationHeavyProcess is not defined exactly once",
+    ),
+    "renamed_memory_reading": (
+        _rename_definition("Get-WeatherWorkstationMemoryReading"),
+        "Get-WeatherWorkstationMemoryReading is not defined exactly once",
+    ),
+    "second_common_data_use": (
+        lambda scripts: {
+            **scripts,
+            "workload_admission.ps1": scripts["workload_admission.ps1"]
+            + b"\nfunction Get-WeatherHeavyWorkloadSecondStateRoot {\n"
+            b"    [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)\n}\n",
+        },
+        "CommonApplicationData is used outside Get-WeatherHeavyWorkloadPoisonPath",
+    ),
+    "program_data_in_another_copied_script": (
+        lambda scripts: {
+            **scripts,
+            "workstation_pregate.ps1": scripts["workstation_pregate.ps1"]
+            + b"\n$stateRoot = Join-Path $env:ProgramData 'WeatherProject'\n",
+        },
+        "workstation_pregate.ps1 names the host state root",
+    ),
+}
+
+
+@pytest.mark.parametrize("mutation", sorted(NOT_BINDING_MUTATIONS))
+def test_isolation_fails_closed_at_setup_when_an_override_would_not_bind(tmp_path, monkeypatch, mutation):
     # Opus review of 3e91dbb8d, MAJOR 1: the overrides are appended function
-    # definitions, so a renamed production target or a second host-state path
+    # definitions, so a renamed production target or another host-state path
     # would leave them dead and send fixture state to the real host-global root.
-    # Setup must abort first: pure string checks, before any file is written and
-    # before any PowerShell (so no admission code) is started.
-    production = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
-    if mutation == "renamed_override_target":
-        mutated = production.replace(
-            "function Get-WeatherHeavyWorkloadPoisonPath {", "function Get-WeatherHeavyWorkloadStatePath {"
-        )
-    else:
-        mutated = production + (
-            "\nfunction Get-WeatherHeavyWorkloadSecondStateRoot {\n"
-            "    [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)\n}\n"
-        )
+    # The real setup path must abort first: before any file is written, before
+    # any PowerShell (so no admission code) starts, and with the real host-global
+    # state root unchanged (names, LastWriteTimeUtc, length; metadata only).
+    mutate, message = NOT_BINDING_MUTATIONS[mutation]
+    production = _production_scripts()
+    mutated = mutate(production)
     assert mutated != production
 
-    def admission_code_started(*args, **kwargs):
+    def process_started(*args, **kwargs):
         raise RuntimeError("a process was started during isolation setup")
 
-    monkeypatch.setattr(subprocess, "run", admission_code_started)
-    monkeypatch.setattr(subprocess, "Popen", admission_code_started)
+    before = _host_state_snapshot()
+    monkeypatch.setattr(subprocess, "run", process_started)
+    monkeypatch.setattr(subprocess, "Popen", process_started)
     with pytest.raises(AssertionError, match=message):
-        _isolated_admission_text(tmp_path / "host-state", "Local\\WeatherPgFixture-" + uuid.uuid4().hex, mutated)
+        _copy_isolated_scripts(tmp_path / "repo", tmp_path / "host-state", mutated)
+    monkeypatch.undo()
     assert list(tmp_path.iterdir()) == []
+    assert _host_state_snapshot() == before
 
 
 # ------------------------------------------------------------------ chunk plan
@@ -780,7 +836,7 @@ def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstatio
 
 
 # ------------------------------------------------------------------ nested under an exclusive pre-gate
-# The fixture's isolated admission copy (_isolate_admission) holds the queue and
+# The fixture's isolated admission copy (_copy_isolated_scripts) holds the queue and
 # the exclusive holder record under tmp_path.
 OUTER_EXCLUSIVE_PREGATE = r"""
 $ErrorActionPreference = 'Stop'
