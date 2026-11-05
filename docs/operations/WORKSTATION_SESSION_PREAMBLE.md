@@ -63,6 +63,10 @@ missions in parallel in this same clone.
 
 At END SESSION remove your own worktree (`git worktree remove`, after the branch is pushed) and your temp
 directories, then say in the handback which paths you removed and anything you deliberately left.
+`git worktree remove` also deletes IGNORED files, so a `data\` directory inside the worktree is lost with it: run
+`git status --porcelain --ignored` first and move anything that must survive (research output goes archive-first to
+`C:\archive\ruled-out\<id>` with an `INDEX.md` line). The old-worktree sweep is
+[item 346](../roadmap/items/item-346-ws-worktree-sweep.md).
 
 Write the report the handoff names (verdict first, per [delegation contract](DELEGATION_CONTRACT.md) §5),
 push it with the branch, then reply with: the report path, the PR link(s), the head SHA(s) and the CI

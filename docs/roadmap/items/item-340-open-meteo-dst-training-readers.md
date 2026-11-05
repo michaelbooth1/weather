@@ -1,4 +1,4 @@
-# 340. Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-11-01 - R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD]
+# 340. Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-11-05 - LANDED bad845b50; ACTIVATION CHECKS PENDING]
 
 Goal: every training and backfill reader of Open-Meteo hourly payloads places each naive label with the response's
 own `utc_offset_seconds`, through the one shared conversion `weather.time.provider_hourly_local_times`, and refuses a
@@ -102,3 +102,6 @@ offset series. The capture-host store may hold the same files; `tools/research/r
 
 Not claimed: reading by the response offset moves the hours at a payload's edges across midnight, so a day at the
 edge of a payload can gain or lose an hour; this item does not stitch adjacent payloads.
+
+Status (2026-11-05, closeout): **landed, activation checks pending.** Item 340s landed as master `bad845b50`,
+2026-11-05 03:03, roll-sensitive via the quiet-window merge, host suite 26/26, capture recovered.

@@ -152,7 +152,10 @@ no effect before 2026-10-31T00:00Z.
 day-1 receipt allowance at line 265) the shipped block sets `pilot: "on"` for all ten
 rows; `rewards_sweep` stays `off` and `built_in_reward_cadence` stays `legacy`. Ten rows
 mean 100 pilot bands and 200 trade tokens, so the `pilot_trades` channel runs two sockets
-of at most 100 tokens. The S2+S9 receipts are measured after the flip.
+of at most 100 tokens. The S2+S9 receipts are measured after the flip; the 24 h receipt for UTC
+11-03 and 11-04 is recorded in the [data layer v2 plan](DATA_LAYER_V2_PLAN.md) (*S2+S9 24 h receipt*):
+pilot within budget, core over the 0.4 total under legacy cadence (the budget applies after the
+`event_driven` flip), built-ins' selection unchanged (separate check 11-05); the receipt is complete.
 
 The pilot shares the core process (owner Q1 via master, 10-15). A failed pilot cycle or
 a failed or closed pilot trade socket is the pilot's own `DEGRADED`; the built-in cycle,
