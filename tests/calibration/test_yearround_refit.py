@@ -944,7 +944,7 @@ def test_emit_refuses_when_a_serve_helper_source_changed_since_the_fit(b_state, 
 def test_fit_refuses_by_name_a_training_source_absent_for_a_market_date():
     nan = float("nan")
     rows = [{"market": m, "target_date": d, "hour": 13, "F": 60.0, "x_high_so_far": 60.0, "x_current_temp": 58.0,
-             "fh": 62.0} for m in ("atlanta", "denver") for d in ("2023-01-05", "2023-01-06")]
+             "fh": 62.0, "nbm_cycle": "07"} for m in ("atlanta", "denver") for d in ("2023-01-05", "2023-01-06")]
     frame = pd.DataFrame(rows)
     assert yr.refuse_absent_training_sources(frame, "B")["wu_hourly_market_dates"] == 4
     gap = frame.copy()
@@ -953,12 +953,14 @@ def test_fit_refuses_by_name_a_training_source_absent_for_a_market_date():
     with pytest.raises(yr.SourceAbsent, match="'wu_hourly' is absent or empty for 1 .*denver 2023-01-06 13"):
         yr.refuse_absent_training_sources(gap, "B")
     no_nbm = frame.copy()
-    no_nbm.loc[no_nbm.target_date == "2023-01-05", "fh"] = nan
+    no_nbm.loc[no_nbm.target_date == "2023-01-05", "nbm_cycle"] = None
     with pytest.raises(yr.SourceAbsent, match="'nbm' is absent or empty .*all markets 2023-01-05"):
         yr.refuse_absent_training_sources(no_nbm, "B")
     one_market = frame.copy()
-    one_market.loc[(one_market.market == "atlanta") & (one_market.target_date == "2023-01-05"), "fh"] = nan
+    one_market.loc[(one_market.market == "atlanta") & (one_market.target_date == "2023-01-05"), "nbm_cycle"] = None
     yr.refuse_absent_training_sources(one_market, "B")  # a per-market NBM gap stays the capped 3.3b imputation
+    with pytest.raises(yr.SourceAbsent, match="'nbm' column 'nbm_cycle' is absent"):
+        yr.refuse_absent_training_sources(frame.drop(columns=["nbm_cycle"]), "B")
 
 
 def test_emit_refuses_by_name_a_captured_source_absent_for_a_market_date(tmp_path):
@@ -1023,7 +1025,8 @@ def test_fit_requires_the_frozen_lists_and_refuses_the_legacy_keys_by_name(world
 def test_wu_hourly_presence_needs_each_named_column():
     nan = float("nan")
     frame = pd.DataFrame([{"market": "atlanta", "target_date": "2023-01-05", "hour": h, "F": 60.0,
-                           "x_high_so_far": 60.0, "x_current_temp": nan, "fh": 62.0} for h in (13, 14)])
+                           "x_high_so_far": 60.0, "x_current_temp": nan, "fh": 62.0, "nbm_cycle": "07"}
+                          for h in (13, 14)])
     with pytest.raises(yr.SourceAbsent, match="class nan_feature .* on 2 undeclared \\(market, date, hour\\) of 2: "
                                               "atlanta 2023-01-05 13 \\[x_current_temp\\]"):
         yr.refuse_absent_training_sources(frame, "B")
@@ -1035,7 +1038,7 @@ def test_wu_hourly_presence_needs_each_named_column():
     out = yr.refuse_absent_training_sources(frame, "B")
     assert out["rows_missing_any_wu_hourly_value"] == 1 and out["wu_hourly_market_date_hours"] == 2
     assert out["wu_hourly_absent"] == 0 and out["wu_hourly_nan_feature"] == 0
-    checks = yr.training_source_checks(frame.iloc[[0, 1]].assign(nbm_cycle="07"), "B", {}, prm)  # mirrored
+    checks = yr.training_source_checks(frame.iloc[[0, 1]], "B", {}, prm)  # mirrored
     assert "class nan_feature" in checks["source_presence"]["refused"]
     assert checks["source_presence"]["wu_hourly_classes"] == {
         "keys": 2, "absent": 0, "absent_names": [], "nan_feature": 1,
@@ -1050,7 +1053,7 @@ def _wu_frame(cells):
     rows = []
     for (m, d, h), bad in cells.items():
         row = {"market": m, "target_date": d, "hour": h, "F": 60.0, "x_high_so_far": 60.0, "x_current_temp": 58.0,
-               "fh": 62.0}
+               "fh": 62.0, "nbm_cycle": "07"}
         row.update({c: nan for c in bad})
         rows.append(row)
     return pd.DataFrame(rows)
@@ -1156,6 +1159,110 @@ def test_declared_absent_v1_loads_with_an_empty_nan_section_and_v2_is_strict(tmp
     v2 = _declared_v2(tmp_path, [good], "ok.json")
     assert v2["nan_feature_keys"] == {(("nyc", "2024-03-13", 13), ("x_current_temp",))}
     assert v2["records"] == {("denver", "2023-01-15")}  # the grid-hole section is unchanged
+    assert v1["nbm_absent_dates"] == set() and v2["nbm_absent_dates"] == set()  # /1 and /2 declare no NBM date
+
+
+# ----------------------------------------------------------------------- NBM date presence (master 2026-11-05)
+
+def _nbm_frame(missing):
+    """Two markets x two dates x hours 13-14; ``missing`` names (market, date) with no NBM cycle (pre-imputation).
+    ``fh`` stays finite everywhere, as ``attach_training_nbm`` leaves it after the forecast_high fill."""
+    rows = []
+    for m in ("atlanta", "denver"):
+        for d in ("2022-01-05", "2022-01-06"):
+            for h in (13, 14):
+                rows.append({"market": m, "target_date": d, "hour": h, "F": 60.0, "x_high_so_far": 60.0,
+                             "x_current_temp": 58.0, "fh": 62.0,
+                             "nbm_cycle": None if (m, d) in missing else "07"})
+    return pd.DataFrame(rows)
+
+
+def _nbm_date(day):
+    return {"target_date": day, "reason": "nbm_all_market_absent", "cause": "no NBM cycle at the cutoff, any market",
+            "ruling": "master 2026-11-05"}
+
+
+def _declared_v3(tmp_path, dates, name="declared_v3.json", nan_keys=None, extra=None):
+    body = {"schema": yr.DECLARED_ABSENT_SCHEMA_V3, "records": [_rec("denver", "2023-01-15")],
+            "nan_feature_keys": nan_keys or [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])],
+            "nbm_absent_dates": dates} | (extra or {})
+    path = tmp_path / name
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return yr.load_declared_absent(path, _sha(path))
+
+
+def test_nbm_undeclared_all_market_gap_refuses_on_the_pre_imputation_column(tmp_path):
+    gap = _nbm_frame({("atlanta", "2022-01-06"), ("denver", "2022-01-06")})
+    v2 = _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])])
+    frame = pd.concat([gap, _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",)})], ignore_index=True)
+    # fh is finite on every row: only the pre-imputation nbm_cycle shows the gap
+    with pytest.raises(yr.SourceAbsent, match="'nbm' is absent or empty for 1 dates .* of 2: all markets 2022-01-06$"):
+        yr.refuse_absent_training_sources(gap, "B")
+    with pytest.raises(yr.SourceAbsent, match="'nbm' is absent or empty for 1 dates .* of 3: all markets 2022-01-06$"):
+        yr.refuse_absent_training_sources(frame, "B", declared=v2)  # a /2 file declares no NBM date
+    assert yr.nbm_class_report(frame, "B") == {"dates": 3, "absent_dates": 1, "absent_date_names": ["2022-01-06"]}
+
+
+def test_nbm_declared_exact_match_passes_and_the_rows_are_untouched(tmp_path):
+    frame = pd.concat([_nbm_frame({("atlanta", "2022-01-06"), ("denver", "2022-01-06")}),
+                       _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",)})], ignore_index=True)
+    before = frame.copy()
+    declared = _declared_v3(tmp_path, [_nbm_date("2022-01-06")])
+    assert declared["nbm_absent_dates"] == {"2022-01-06"}
+    out = yr.refuse_absent_training_sources(frame, "B", declared=declared)
+    pd.testing.assert_frame_equal(frame, before)  # refuse-only: the forecast_high fill is the treatment, unchanged
+    assert out["nbm_dates"] == 3 and out["nbm_absent_dates"] == 1
+    assert out["nbm_absent_declared"] == {"dates": 1, "sha256": declared["sha256"], "names": ["2022-01-06"]}
+
+
+def test_nbm_an_extra_or_missing_declared_date_refuses(tmp_path):
+    base = _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",)})
+    gap = pd.concat([_nbm_frame({("atlanta", "2022-01-06"), ("denver", "2022-01-06")}), base], ignore_index=True)
+    extra = _declared_v3(tmp_path, [_nbm_date("2022-01-06"), _nbm_date("2022-01-05")], "extra.json")
+    with pytest.raises(yr.YearroundRefused, match="1 declared nbm_absent date\\(s\\) are not all-market NBM gaps on "
+                                                  "the frame: 2022-01-05$"):
+        yr.refuse_absent_training_sources(gap, "B", declared=extra)
+    clean = pd.concat([_nbm_frame(set()), base], ignore_index=True)
+    one = _declared_v3(tmp_path, [_nbm_date("2022-01-06")], "one.json")
+    with pytest.raises(yr.YearroundRefused, match="declared nbm_absent date\\(s\\) .*: 2022-01-06$"):
+        yr.refuse_absent_training_sources(clean, "B", declared=one)  # declared but present: extra
+    two = pd.concat([_nbm_frame({("atlanta", "2022-01-05"), ("denver", "2022-01-05"), ("atlanta", "2022-01-06"),
+                                 ("denver", "2022-01-06")}), base], ignore_index=True)
+    with pytest.raises(yr.SourceAbsent, match="'nbm' is absent or empty for 1 dates .*: all markets 2022-01-05$"):
+        yr.refuse_absent_training_sources(two, "B", declared=one)  # a gap date the file does not name: missing
+
+
+def test_nbm_a_per_market_date_gap_still_imputes_and_does_not_refuse(tmp_path):
+    frame = pd.concat([_nbm_frame({("atlanta", "2022-01-06")}),
+                       _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",)})], ignore_index=True)
+    v2 = _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])])
+    out = yr.refuse_absent_training_sources(frame, "B", declared=v2)
+    assert out["nbm_absent_dates"] == 0 and "nbm_absent_declared" not in out
+    imputed = yr.imputation_by_market_month(frame, "B")["by_market_month"]["atlanta|01"]
+    assert imputed == {"rows": 4, "imputed": 2, "share": 0.5}  # the capped 3.3b imputation counts it
+
+
+def test_declared_absent_v3_is_strict(tmp_path):
+    good = _nbm_date("2022-01-06")
+    for i, (bad, match) in enumerate([
+            ([], "non-empty nbm_absent_dates"),
+            ([good, good], "twice"),
+            ([dict(good, reason="source_absent_final")], "nbm_all_market_absent"),
+            ([dict(good, cause=" ")], "cause cite"),
+            ([dict(good, ruling="")], "ruling"),
+            ([dict(good, market="nyc")], "keys"),
+            (["2022-01-06"], "keys")]):
+        with pytest.raises(yr.YearroundRefused, match=match):
+            _declared_v3(tmp_path, bad, f"bad_v3_{i}.json")
+    path = tmp_path / "v3_no_section.json"
+    path.write_text(json.dumps({"schema": yr.DECLARED_ABSENT_SCHEMA_V3, "records": [_rec("denver", "2023-01-15")],
+                                "nan_feature_keys": [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])]}),
+                    encoding="utf-8")
+    with pytest.raises(yr.YearroundRefused, match="and nbm_absent_dates"):
+        yr.load_declared_absent(path, _sha(path))
+    with pytest.raises(yr.YearroundRefused, match="needs exactly schema, records"):
+        _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])], "v2_with_nbm.json",
+                     extra={"nbm_absent_dates": [good]})  # /2 never carries the NBM section
 
 
 def test_training_calendar_grid_refuses_a_hole_by_name():

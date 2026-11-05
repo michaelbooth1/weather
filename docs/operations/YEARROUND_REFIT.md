@@ -33,8 +33,11 @@ inside any checkout (any ancestor holding `.git`, the checkout root included), i
   `nan_feature`, amended F3(a), master 2026-11-04), unless the declared-absent file names it exactly (below). The
   message names the class, the key and the non-finite columns. The check is refuse-only: rows and NaNs are carried
   into the fit exactly as before;
-- a date with no NBM mean for any market (a per-market NBM gap stays the section 3.3b imputation; the pooled
-  per-month cap refuses, and per-(market, month) counts are reported in the manifest only);
+- a date on which no market has an NBM cycle at any scored hour, read from the PRE-imputation `nbm_cycle` (master
+  2026-11-05; `fh` already carries the forecast_high fill, so it cannot show the gap), unless the declared-absent
+  file names exactly that date (below). The rows keep their forecast_high fill, as the bound reference had it. A
+  per-market NBM gap stays the section 3.3b imputation; the pooled per-month cap refuses, and per-(market, month)
+  counts are reported in the manifest only;
 - a hole in the calendar grid: an expected (market, date) of the record windows with no scored-hour row.
 If one trips on the bound inputs, stop and report the counts; master rules whether it is a disclosure or a defect.
 The equivalence report carries the same checks as `training_source_checks` (reported, not a pass check).
@@ -81,8 +84,13 @@ serving uses `usable_v2_mean` at capture time.
   must be one; either way a mismatch refuses. A `/1` file loads with an empty `nan_feature_keys` section, so any
   `nan_feature` key still refuses with it; a `/1` file holding any other top-level key refuses. The manifest's
   `source_presence.nan_feature_declared` names them with the file's sha.
+- Schema `yearround_refit_declared_absent/3` is `/2` plus a non-empty `nbm_absent_dates` list. Each record holds
+  exactly `target_date`, `reason` (`nbm_all_market_absent`), `cause` and `ruling`. Every all-market NBM gap date on
+  the frame must be declared and every declared date must be one; either way a mismatch refuses. `/1` and `/2`
+  files load with an empty `nbm_absent_dates` section (so any such date still refuses with them) and a `/2` file
+  holding that section refuses. The manifest's `source_presence.nbm_absent_declared` names them with the file's sha.
 - The equivalence report's `training_source_checks.source_presence.wu_hourly_classes` counts and names the
-  `absent` and `nan_feature` keys (report-only).
+  `absent` and `nan_feature` keys, and `nbm_classes` counts and names the all-market NBM gap dates (report-only).
 - Copies the state and sidecar to `C:\archive\row28b-forward-state\<fit_id>\` and verifies them sha-equal
   BEFORE `fit_manifest.json` is written (a refused archive leaves no manifest), then adds the manifest to the
   same archive directory, verified too. Record that

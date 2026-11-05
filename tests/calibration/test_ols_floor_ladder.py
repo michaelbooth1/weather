@@ -82,5 +82,7 @@ def test_no_production_code_imports_the_ladder():
         "src/weather/calibration/mg2_p3d_n.py": ws_only,
         "src/weather/calibration/pooled_residual_model.py": "lane L2, lazily, only in its research dev emitters",
         "src/weather/calibration/r0_ols_floor_challenger.py": "lazily, only for its research dev variants",
+        # master 2026-11-05 suite ruling: roll_verdict proves the module FREE, in no live closure.
+        "src/weather/calibration/yearround_refit.py": "item 343b, shadow-only forward emitter, not a serving path",
     }
     assert sorted(hits) == sorted(expected)

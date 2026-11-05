@@ -70,6 +70,10 @@ Second fix (L16 re-review and master rulings, 2026-11-03):
   (market, date, scored hour) on which EVERY named WU-hourly column is non-finite is ``absent`` and refuses; one on
   which some are finite and some are not is class ``nan_feature`` and refuses unless the declared-absent file's
   ``nan_feature_keys`` section (schema ``/2``) names exactly it and its sorted non-finite columns, both ways.
+* NBM date presence (master 2026-11-05, refuse-only): the check reads the PRE-imputation ``nbm_cycle``, so a date
+  on which no market has an NBM cycle at any scored hour is seen; it refuses unless the declared-absent file's
+  ``nbm_absent_dates`` section (schema ``/3``) names exactly those dates, both ways. The treatment is unchanged:
+  such rows keep the forecast_high fill of ``attach_training_nbm``; a per-(market, date) gap imputes as before.
 * F6: a snapshot ``target_date`` outside :data:`SNAPSHOT_TARGET_DATE_TYPES` refuses by name. F7: a records root
   inside any checkout (an ancestor holding ``.git``) refuses. F8: ``source_presence`` goes into the fit manifest
   and the emit receipt.
@@ -110,6 +114,8 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+
+from weather.time import utc_now  # the shared UTC clock owner (master 2026-11-05 suite ruling)
 
 MODULE = "weather.calibration.yearround_refit"
 CANDIDATE_ID = "row28_B"
@@ -178,9 +184,12 @@ EQUIVALENCE_REPORT = "equivalence_report.json"
 GRID_HOLES_SCHEMA = "yearround_refit_grid_holes/1"
 DECLARED_ABSENT_SCHEMA = "yearround_refit_declared_absent/1"
 DECLARED_ABSENT_SCHEMA_V2 = "yearround_refit_declared_absent/2"  # adds nan_feature_keys (amended F3(a), 11-04)
-DECLARED_ABSENT_SCHEMAS = (DECLARED_ABSENT_SCHEMA, DECLARED_ABSENT_SCHEMA_V2)
+DECLARED_ABSENT_SCHEMA_V3 = "yearround_refit_declared_absent/3"  # adds nbm_absent_dates (master 2026-11-05)
+DECLARED_ABSENT_SCHEMAS = (DECLARED_ABSENT_SCHEMA, DECLARED_ABSENT_SCHEMA_V2, DECLARED_ABSENT_SCHEMA_V3)
 DECLARED_ABSENT_REASON = "source_absent_final"
 NAN_FEATURE_REASON = "nan_feature"
+NBM_ABSENT_REASON = "nbm_all_market_absent"
+NBM_PRESENCE_COLUMN = "nbm_cycle"  # the PIT lookup's cycle, recorded before attach_training_nbm imputes fh
 GRID_HOLE_CLASSES = ("march_1", "us_spring_forward_sunday", "other")
 # WU-store booleans in grid-holes (master Option A, 2026-11-04): the store's writer puts local_date second
 # (wu_history.write_daily_summary); nothing dated on or after the cutoff is ever handed to a parser
@@ -325,10 +334,6 @@ def guard_path(path):
     if any("panel" in part.lower() for part in p.parts):
         raise YearroundRefused(f"forbidden path (panel store): {p}")
     return p
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
 
 
 def state_root():
@@ -906,9 +911,11 @@ def refuse_absent_training_sources(frame, arm, declared=None):
     and refuses as before. It is class ``nan_feature`` when at least one named column is finite and at least one is
     not: that refuses unless ``declared`` (``load_declared_absent``) names exactly that (market, date, hour, sorted
     non-finite column set); a declared key that is not such a key on the frame refuses too. ``nbm`` is absent for a
-    DATE when no market has an NBM mean on it: per-(market, date) NBM gaps stay the pre-registered section 3.3b
-    imputation, counted and capped by ``imputation_shares`` / IMPUTE_CAP. A pure precondition: it raises or
-    returns counts.
+    DATE when no market has an NBM cycle on it, read from the PRE-imputation ``nbm_cycle`` (master 2026-11-05),
+    and refuses unless ``declared`` names exactly those dates in ``nbm_absent_dates`` (an extra declared date
+    refuses too); the rows keep their forecast_high fill. Per-(market, date) NBM gaps stay the pre-registered
+    section 3.3b imputation, counted and capped by ``imputation_shares`` / IMPUTE_CAP. A pure precondition: it
+    raises or returns counts.
     """
     import numpy as np
 
@@ -929,19 +936,39 @@ def refuse_absent_training_sources(frame, arm, declared=None):
     if extra:
         raise YearroundRefused(f"{len(extra)} declared nan_feature key(s) are not nan_feature keys on the frame: "
                                f"{', '.join(_nan_feature_names(extra)[:20])}")
-    fh_ok = np.isfinite(rows["fh"].to_numpy(float))
-    by_date = pd_series(fh_ok, rows["_d"]).groupby(level=0).any()
-    missing = [("all markets", d) for d, ok in by_date.items() if not ok]
-    if missing:
-        _refuse_absent("nbm", missing, len(by_date))
+    n_dates, nbm_absent = nbm_absent_dates(rows)
+    nbm_named = set() if declared is None else set(declared.get("nbm_absent_dates") or ())
+    undeclared_dates = sorted(nbm_absent - nbm_named)
+    if undeclared_dates:
+        _refuse_absent("nbm", [("all markets", d) for d in undeclared_dates], n_dates,
+                       grain="dates (pre-imputation nbm_cycle, every market)")
+    extra_dates = sorted(nbm_named - nbm_absent)
+    if extra_dates:
+        raise YearroundRefused(f"{len(extra_dates)} declared nbm_absent date(s) are not all-market NBM gaps on the "
+                               f"frame: {', '.join(extra_dates[:20])}")
     out = {"wu_hourly_market_dates": int(groups.ngroups), "wu_hourly_market_date_hours": n_keys,
-           "wu_hourly_absent": 0, "wu_hourly_nan_feature": len(found), "nbm_dates": int(len(by_date)),
+           "wu_hourly_absent": 0, "wu_hourly_nan_feature": len(found), "nbm_dates": n_dates,
+           "nbm_absent_dates": len(nbm_absent),
            "rows_missing_any_wu_hourly_value": int((~rows[cols].apply(
                lambda c: np.isfinite(c.to_numpy(float))).all(axis=1)).sum())}
     if found:
         out["nan_feature_declared"] = {"keys": len(found), "sha256": declared["sha256"],
                                        "names": _nan_feature_names(found)}
+    if nbm_absent:
+        out["nbm_absent_declared"] = {"dates": len(nbm_absent), "sha256": declared["sha256"],
+                                      "names": sorted(nbm_absent)}
     return out
+
+
+def nbm_absent_dates(rows):
+    """Master 2026-11-05: the NBM date check reads the PRE-imputation column ``nbm_cycle`` (``training_frame``
+    records the PIT lookup's cycle before ``attach_training_nbm`` fills ``fh`` from forecast_high), so a date on
+    which NO market has an NBM cycle at any scored hour is seen. Returns (n_dates, set of such dates). Read-only."""
+    if NBM_PRESENCE_COLUMN not in rows:
+        raise SourceAbsent(f"input source 'nbm' column {NBM_PRESENCE_COLUMN!r} is absent from the frame")
+    present = rows[NBM_PRESENCE_COLUMN].notna().to_numpy()
+    by_date = pd_series(present, rows["_d"]).groupby(level=0).any()
+    return int(len(by_date)), {str(d) for d, ok in by_date.items() if not ok}
 
 
 def wu_hourly_class_report(frame, arm):
@@ -954,6 +981,16 @@ def wu_hourly_class_report(frame, arm):
     n_keys, absent, nan_feature = wu_hourly_classes(rows, cols)
     return {"keys": n_keys, "absent": len(absent), "absent_names": [" ".join(str(x) for x in k) for k in absent],
             "nan_feature": len(nan_feature), "nan_feature_names": _nan_feature_names(nan_feature.items())}
+
+
+def nbm_class_report(frame, arm):
+    """Equivalence-side count of all-market NBM gap dates (pre-imputation ``nbm_cycle``); names only."""
+    try:
+        rows, _ = _training_source_rows(frame, arm)
+        n_dates, absent = nbm_absent_dates(rows)
+    except SourceAbsent as exc:
+        return {"refused": str(exc)}
+    return {"dates": n_dates, "absent_dates": len(absent), "absent_date_names": sorted(absent)}
 
 
 def expected_training_grid(prm, covered_years, arm, markets=None):
@@ -1021,6 +1058,7 @@ def load_declared_absent(path, sha):
         raise YearroundRefused(f"declared-absent records need a schema in {DECLARED_ABSENT_SCHEMAS} and a non-empty "
                                "list")
     nan_keys = _declared_nan_feature_keys(body)
+    nbm_dates = _declared_nbm_absent_dates(body)
     keys = []
     for rec in body["records"]:
         if set(rec) != {"market", "target_date", "reason", "class", "cause", "ruling"}:
@@ -1036,23 +1074,24 @@ def load_declared_absent(path, sha):
         raise YearroundRefused("declared-absent records name a (market, date) twice")
     return {"records": set(keys), "sha256": sha, "by_class": dict(sorted(Counter(r["class"] for r in body["records"])
                                                                            .items())),
-            "nan_feature_keys": nan_keys}
+            "nan_feature_keys": nan_keys, "nbm_absent_dates": nbm_dates}
 
 
 def _declared_nan_feature_keys(body):
     """The ``nan_feature_keys`` section (amended F3(a), master 2026-11-04) as a set of ((market, date, hour),
     sorted non-finite columns), or refuse by name. Schema /1 (grid holes only) has NO such section and loads with
     an empty set (so every nan_feature key refuses); schema /2 needs exactly the keys schema, records and
-    nan_feature_keys, with a non-empty section."""
+    nan_feature_keys, with a non-empty section; schema /3 is /2 plus a non-empty nbm_absent_dates section."""
     if body["schema"] == DECLARED_ABSENT_SCHEMA:
         if set(body) != {"schema", "records"}:
             raise YearroundRefused(f"declared-absent schema {DECLARED_ABSENT_SCHEMA} holds only schema and records, "
                                    f"not {sorted(set(body) - {'schema', 'records'})}")
         return set()
-    if set(body) != {"schema", "records", "nan_feature_keys"} or not isinstance(body["nan_feature_keys"], list) \
-            or not body["nan_feature_keys"]:
-        raise YearroundRefused(f"declared-absent schema {DECLARED_ABSENT_SCHEMA_V2} needs exactly schema, records and "
-                               "a non-empty nan_feature_keys list")
+    want = {"schema", "records", "nan_feature_keys"} | (
+        {"nbm_absent_dates"} if body["schema"] == DECLARED_ABSENT_SCHEMA_V3 else set())
+    if set(body) != want or not isinstance(body["nan_feature_keys"], list) or not body["nan_feature_keys"]:
+        raise YearroundRefused(f"declared-absent schema {body['schema']} needs exactly schema, records and a non-empty "
+                               f"nan_feature_keys list{' and nbm_absent_dates' if 'nbm_absent_dates' in want else ''}")
     wu = TRAIN_SOURCE_COLUMNS["wu_hourly"]
     keys = []
     for rec in body["nan_feature_keys"]:
@@ -1075,6 +1114,29 @@ def _declared_nan_feature_keys(body):
     if len({k for k, _ in keys}) != len(keys):
         raise YearroundRefused("declared nan_feature keys name a (market, date, hour) twice")
     return set(keys)
+
+
+def _declared_nbm_absent_dates(body):
+    """The ``nbm_absent_dates`` section (master 2026-11-05) as a set of ISO dates, or refuse by name. Schemas /1 and
+    /2 have no such section and load with an empty set (so every all-market NBM gap date refuses); schema /3 needs a
+    non-empty list of records with exactly target_date, reason, cause and ruling, no date twice."""
+    if body["schema"] != DECLARED_ABSENT_SCHEMA_V3:
+        return set()
+    recs = body.get("nbm_absent_dates")
+    if not isinstance(recs, list) or not recs:
+        raise YearroundRefused(f"declared-absent schema {DECLARED_ABSENT_SCHEMA_V3} needs a non-empty "
+                               "nbm_absent_dates list")
+    dates = []
+    for rec in recs:
+        if not isinstance(rec, dict) or set(rec) != {"target_date", "reason", "cause", "ruling"}:
+            raise YearroundRefused(f"declared nbm_absent date has keys {sorted(rec) if isinstance(rec, dict) else rec}")
+        if rec["reason"] != NBM_ABSENT_REASON or not str(rec["cause"]).strip() or not str(rec["ruling"]).strip():
+            raise YearroundRefused(f"declared nbm_absent date {rec['target_date']}: reason must be "
+                                   f"{NBM_ABSENT_REASON!r}, with a cause cite and a ruling")
+        dates.append(as_date(rec["target_date"]).isoformat())
+    if len(set(dates)) != len(dates):
+        raise YearroundRefused("declared nbm_absent dates name a date twice")
+    return set(dates)
 
 
 def refuse_training_grid_holes(frame, expected, declared=None):
@@ -1155,6 +1217,7 @@ def training_source_checks(frame, arm, covered_years, prm, holes_path=None):
     except SourceAbsent as exc:
         out["source_presence"] = {"refused": str(exc)}
     out["source_presence"]["wu_hourly_classes"] = wu_hourly_class_report(frame, arm)  # amended F3(a), 11-04
+    out["source_presence"]["nbm_classes"] = nbm_class_report(frame, arm)  # pre-imputation NBM, 11-05
     expected = expected_training_grid(prm, covered_years, arm)
     holes = training_grid_holes(frame, expected)
     out["calendar_grid"] = {"expected_market_dates": len(expected), "empty": not expected, "holes": len(holes),
