@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-05 America/Toronto (night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt recorded; 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
+**Last updated: 2026-11-05 America/Toronto (night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -65,7 +65,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 - **WS forward recorders:** ENS, GEM and IEM MOS logon tasks plus the 15-min keepalive (owner yes 10-30). All 10 died at once 11-01 22:06-22:08Z under one dead parent (cause unverified, EF §10av); L34 [live-parent design](../research/recorder-live-parent-design-2026-11-01/design.md).
 - **Exchange economics refresh:** failed daily since at least 10-08; rc 0 11-01 06:50, accepted snapshot and barrier unverified; fix before any maker work ([runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
 - **No forecast_history / open_meteo_archives / reanalysis cache rebuild until `a399941e` lands (after 12-21)** (master).
-- **More markets** (owner 10-23; R1+R2, master D1-7, DL 11-01): roll-free config revert if capture < 10/10, RAM < 3.5 GB 3 ticks, commit >= 70%, rising 88a 429s/errors or abnormal partitions. **R1+R2 24 h receipt 11-05** ([plan](DATA_LAYER_V2_PLAN.md) *S2+S9 24 h receipt*): pilot REST, 0 429s, MB/city-day, 88a RSS PASS; core total NOT MET under legacy cadence (0.4 applies after `event_driven`); built-ins unchanged OPEN.
+- **More markets** (owner 10-23; R1+R2, master D1-7, DL 11-01): roll-free config revert if capture < 10/10, RAM < 3.5 GB 3 ticks, commit >= 70%, rising 88a 429s/errors or abnormal partitions. **R1+R2 24 h receipt 11-05** ([plan](DATA_LAYER_V2_PLAN.md) *S2+S9 24 h receipt*): pilot REST, 0 429s, MB/city-day, 88a RSS PASS; core total NOT MET under legacy cadence (0.4 applies after `event_driven`); 12 built-ins' selection UNCHANGED (check 11-05). Receipt COMPLETE.
   **91a nightly** policy `eca4064a…` (expires 11-27). **Maker shadow ACTIVE** (paper; `data\maker_shadow\STOP`). **88a hold:** UTC 09-27..10-30.
 
 ## Ordered critical path
@@ -87,7 +87,6 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | Host hardening: Ethernet (host on Wi-Fi; owner 11-02 "Ethernet cord is coming"); Wi-Fi stays connected with it (DL 11-02) | owner | OPEN until the cable is in | Get-NetAdapter Up |
 | Torn-journal Stage 1 lands RF on a CLEAN review; then master registers Stage 2 on the host | master | open | registration receipt |
 | Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run DONE 11-03 (rc 0, runbook receipt); Mondays; module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
-| R1+R2 S2+S9: the "12 built-ins' selection unchanged" check (not measured by the 11-05 verifier) | master | open | ratchet + check receipt |
 
 ## Update this file when
 
