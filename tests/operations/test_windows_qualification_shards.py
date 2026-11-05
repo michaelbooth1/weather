@@ -74,9 +74,13 @@ EXPECTED_SHARDS = {
             "tests/operations/test_maker_evidence_torn_quarantine_script.py",
             "tests/operations/test_register_maker_evidence_torn_quarantine.py",
             "tests/calibration/test_mg2_input_export.py",
+            "tests/calibration/test_r28b_input_trim.py",
             "tests/operations/test_frozen_binding_guard_script.py",
+            "tests/operations/test_mg2_forward_inputs_task.py",
             # Hosted byte-identity coverage: lfs: false gives the win32 lfs_pointers golden tier.
             "tests/model/test_high_so_far_variant_none_byte_identity.py",
+            "tests/calibration/test_mg1_look_record.py",
+            "tests/calibration/test_mg1_market.py",
         ],
     ),
     "launch": (
@@ -180,6 +184,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_codex_host_load_hook_focused_exemption.py",
             "tests/operations/test_workstation_heavy_queue.py",
             "tests/operations/test_workstation_heavy_slots.py",
+            "tests/operations/test_workstation_heavy_research_script.py",
             "tests/operations/test_thin_ensure.py",
             "tests/operations/test_scheduled_task_local_daily_triggers.py",
             "tests/operations/test_exchange_economics_refresh_script.py",

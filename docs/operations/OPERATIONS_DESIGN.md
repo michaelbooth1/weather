@@ -1289,6 +1289,53 @@ This resolves audit D1-13.
   the 10-29 bundle was hand-verified (manifest `46003a30`, 8/8 checks); see DECISION_LOG. The bound file stays
   untouched. `9be9eedcc` is not yet on master and lands in a later RF combo.
 
+## Row-28b input trim (master-run weekly one-shot; no task)
+
+The (a) as-of-capture trim for the row-28b forward inputs ([design and master's rulings of
+2026-11-04](../research/row28b-asof-trim-design-2026-11-04.md); the owner's carve-out is the reserved-window
+row-28b row). The host side is `scripts/ops/r28b_input_trim.ps1`, which wraps
+`python -m weather.calibration.r28b_input_trim`. **No scheduled task exists or is planned** (master Q5): master
+starts the wrapper on the capture host, detached, once per weekly emission batch, and logs each output line.
+
+- **When.** From 2026-12-21 (the first emission batch), 07:30–09:00 America/Toronto: after the 04:15 MG-2 export
+  and its 07:00 retry, inside 00:30–09:00. `-Date` takes one batch, 1 to 7 comma-separated local target dates.
+  Only dates 2026-12-17..2027-01-30 are accepted; the module refuses every other date and any run before
+  2026-12-21, with no override (master Q4, Q6).
+- **Admission.** The shared lease (workload `r28b_input_trim`; the wrapper refuses when it is busy), the assigned
+  dedicated capture host, 5 GiB free, fresh memory-guard evidence below 70 % commit, a `-P -B` child pinned to the
+  checkout's `src` in a kill-on-close job, and a deadline before 09:00. A stale `.<D>.partial` of a batch date is
+  removed under the lease. Cost: seconds, well under 1 GB.
+- **Reads.** Only the published `data\exports\mg2-inputs\<D>\` and `<D>.SHA256SUMS`, verified first (ready marker,
+  manifest sha, allowlist sha, export cut, every file's sha and size, no unlisted file, the SUMS lines, no link or
+  reparse point). Nothing under `data\snapshots\` or `forecast_payload_cas\`; the bound exporter is never run.
+- **What it keeps.** Per market, T* is the latest capture in D's `features_long.csv` with an integer captured
+  cutoff hour of at most 16, on local date D in the market's own zone. Only records captured at or before T* are
+  kept (`replay_inputs.jsonl`, `snapshots_long.csv`, `features_long.csv`, the D-1/D/D+1 NBM manifests), byte for
+  byte, with only the NBM blobs a kept row references. W1 (`r28b_w1_after_local_midnight`): a capture after local
+  midnight ending D never sets T* and never travels. W2 (`r28b_w2_no_scored_cutoff_snapshot`): a market without
+  such a snapshot is refused by name and none of its files travel. `prev_day/` is dropped; no `prev_dmax` is built.
+- **Writes.** Only under `data\exports\r28b-inputs\`: `<D>\` (an `mg2_input_bundle/1` bundle, atomically renamed
+  from `.<D>.partial`, whose manifest adds the `r28b_trim` block), `<D>.SHA256SUMS`, `_holes\<D>.json` and the
+  wrapper's `_runs\` receipt and captured output.
+- **Holes (master Q2).** A date not published by 09:00 Toronto on D+1, or finished later, is a named hole
+  (`r28b_hole_not_exported_by_deadline`, `r28b_hole_exported_after_deadline`), written once and disclosed; exit 4.
+  Before that deadline an absent bundle is `not_ready` (exit 3) and nothing is written. Exit 2 is a refusal.
+- **What master logs.** Each output line's `manifest_sha256` (or `hole_sha256`) with the host timestamp, the same
+  day. The workstation verifier accepts a trimmed bundle only against that logged sha, which replaces the MG-2
+  receiver's D+1 deadline for the weekly route.
+- **Workstation side.** `python -m weather.calibration.r28b_inputs`:
+  - `verify` runs the bound `mg2_inputs.verify_bundle` unchanged plus the `r28b_trim` checks (the pinned trim
+    module sha, H_LAST, `prev_day` dropped, nothing captured after T*) and appends to the row-28b ledger
+    `C:\t\r28b\forward\input_receipts.jsonl` (never MG-2's);
+  - `hole` records a host-named hole;
+  - `compare` runs on the first forward batch: the 343b emitter on the full and on the trimmed inputs, reporting
+    booleans, counts and shas only. Only `outside_cutoff_hours`, `no_fit_for_hour` and `replay_hours` may differ;
+    anything else is a STOP (a `STOP_r28b_trim_invariance` marker beside the ledger, removed only by master);
+  - `gate` prints `emit_allowed`. Nothing emits from a trimmed set while it is false.
+- **Not changed.** `WeatherMg2InputExport`, its wrapper and the bound exporter, receiver and allow-list. Whether
+  the workstation's MG-2 forward pull task keeps pulling full MG-2 bundles for dates >= 2026-12-17 is a separate
+  MG-2 decision. Row-28b reads only its own trimmed inbox.
+
 ## Forward input arrival check (`WeatherForwardArrivalCheck`; registrar only)
 
 Master ruling R20 (2026-11-01) §2. The host checks that yesterday's (D) B and L6_G forward inputs reached the

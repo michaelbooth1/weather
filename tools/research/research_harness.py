@@ -103,6 +103,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "R19 B-1 coverage counts (integers only) via the unchanged MG-2 exporter's bounded reader; host via b_price_coverage.ps1.",
     },
+    "capture_price_export.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Look-morning capture-time prices for a look's --market file (counts-only receipts); capture host only, under master's lease.",
+    },
     "b_only_screen_09_63a.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",

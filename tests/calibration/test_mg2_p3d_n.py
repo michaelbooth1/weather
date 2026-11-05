@@ -445,6 +445,7 @@ def test_module_has_no_network_and_no_production_importer():
     # ("mg2_p3d_n_state/1") without importing this module.
     importer = re.compile(r"calibration\.mg2_p3d_n\b|\bimport\s+mg2_p3d_n\b|mg2_p3d_n\s+import\b")
     hits = [str(p.relative_to(ROOT)) for p in (ROOT / "src").rglob("*.py")
-            if p.name not in ("mg2_composite.py", "mg2_p3d_n.py")
+            if p.name not in ("mg2_composite.py", "mg2_p3d_n.py",
+                              "r28b_inputs.py")  # row-28b invariance compare: load_state + jsonl_line, read-only
             and importer.search(p.read_text(encoding="utf-8"))]
     assert hits == []
