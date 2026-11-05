@@ -81,6 +81,7 @@ EXPECTED_SHARDS = {
             "tests/model/test_high_so_far_variant_none_byte_identity.py",
             "tests/calibration/test_mg1_look_record.py",
             "tests/calibration/test_mg1_market.py",
+            "tests/calibration/test_mg1_look_check_keys.py",
         ],
     ),
     "launch": (
