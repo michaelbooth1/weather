@@ -17,13 +17,14 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 
 import pyarrow.parquet as pq
 import pytest
 
 from weather.market import maker_counterfactual_tape as tape
 from weather.market.maker_evidence_archive import compress_closed_segments
-from weather.market.maker_evidence_store import EvidenceStore, WriterLock
+from weather.market.maker_evidence_store import EvidenceStore, WriterLock, disk_band
 from weather.market.market_config import event_slug_for_date
 
 from tests.market import cf_tape_build2_contract as build2
@@ -34,6 +35,10 @@ DAY_LATE, DAY_EARLY = date(2026, 9, 28), date(2026, 9, 27)
 RESERVED_DAY, AFTER_DAY = date(2026, 9, 30), date(2026, 10, 16)
 FORBIDDEN = ("2026-09-30", "2026-10-16", ".writer.lock", "status.json", "book-331", "book-332")
 UNSEALED = "15-0123456789ab"
+# The fixture's stores report this free space instead of the real volume's, so the archive's
+# critical-band brake (compress_closed_segments) never depends on the host's disk.
+FIXTURE_FREE_BYTES = 500 * 1024**3
+GIB = 1024**3
 STAMP_CLOCK = datetime(2026, 10, 17, 3, 55, tzinfo=timezone.utc)
 
 
@@ -60,6 +65,7 @@ def write_day(root, day, *, cycles=10, gz=False):
     """One sealed 88a segment: universe, both-side books every minute, and public prints."""
     clock = [datetime(day.year, day.month, day.day, 14, 0, 10, tzinfo=timezone.utc)]
     store = EvidenceStore(root, clock=lambda: clock[0])
+    store.free_bytes = lambda: FIXTURE_FREE_BYTES  # never the real volume (see FIXTURE_FREE_BYTES)
     start = clock[0]
     for cycle in range(cycles):
         clock[0] = start + timedelta(minutes=cycle)
@@ -87,8 +93,7 @@ def write_day(root, day, *, cycles=10, gz=False):
     return root / day.isoformat()
 
 
-@pytest.fixture
-def evidence(tmp_path):
+def build_evidence(tmp_path):
     root = tmp_path / "maker_evidence"
     write_day(root, DAY_LATE, gz=True)      # gzip first: the archive compresses every sealed segment
     write_day(root, DAY_EARLY, cycles=3)
@@ -101,6 +106,33 @@ def evidence(tmp_path):
     (root / "status.json").write_text("{}", encoding="utf-8")
     (root / ".writer.lock").write_bytes(b"0")
     return root
+
+
+@pytest.fixture
+def evidence(tmp_path):
+    return build_evidence(tmp_path)
+
+
+@pytest.mark.parametrize("free_gib", [93.7, 39.0], ids=["green_host", "critical_host"])
+def test_fixture_does_not_depend_on_the_real_free_space(tmp_path, monkeypatch, free_gib):
+    """The fixture is built the same on a host in any disk band: the real volume is never read."""
+    real_disk_usage = shutil.disk_usage
+
+    def simulated(path):
+        usage = real_disk_usage(path)
+        return type(usage)(usage.total, usage.total - int(free_gib * GIB), int(free_gib * GIB))
+
+    monkeypatch.setattr(shutil, "disk_usage", simulated)
+    assert disk_band(shutil.disk_usage(tmp_path).free) == ("critical" if free_gib < 40 else "green")
+    root = build_evidence(tmp_path)
+    late = sorted((root / DAY_LATE.isoformat()).iterdir())
+    sealed = [segment for segment in late if segment.name != UNSEALED]
+    assert sealed, late
+    for segment in sealed:
+        names = sorted(path.name for path in segment.iterdir())
+        assert names and all(name.endswith(".gz") for name in names), names
+    for day in (DAY_EARLY, RESERVED_DAY, AFTER_DAY):
+        assert not list((root / day.isoformat()).rglob("*.gz")), day
 
 
 class Recorder:
