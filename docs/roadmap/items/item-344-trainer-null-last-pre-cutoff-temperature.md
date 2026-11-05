@@ -18,10 +18,14 @@ moves MG-1 and row-28b, and a serve-only fix is forbidden.
 
 Checklist:
 
-- [ ] Until the fix: a test that pins today's mismatch, citing this item and EF §10ay (trainer `current_temp` null,
+- [x] Until the fix: a test that pins today's mismatch, citing this item and EF §10ay (trainer `current_temp` null,
   serve helper returns the latest non-null row, on the same rows). Tests-only; no B-bound file edited.
+  Done in `tests/model/test_item344_null_last_pre_cutoff_temp_pin.py`; plan in
+  [the design note](../../research/item344-null-temp-plan-2026-11-05/design.md).
 - [ ] A parity-gate fixture with a null-temperature last pre-cutoff row, so the gate compares the serve helper with
-  the trainer on that case instead of the trainer with itself.
+  the trainer on that case instead of the trainer with itself. Comparator level done (same test file, through
+  `compare_feature_records`). A manifest case kind needs a scorecard source edit (`_wu_sources` floats every
+  temperature), so it is held for master.
 - [ ] At the next retrain or model change (not before; master): the trainer adopts the serve semantics (latest
   non-null row), with the pin test flipped to assert agreement, through the retrain and edge gates.
 
