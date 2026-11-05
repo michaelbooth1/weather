@@ -59,6 +59,7 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherAgentOvernight1030 | one-shot | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherAgentQuietWindow | active | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherBootRecovery | active | False | scripts/ops/register_boot_recovery.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherBPriceCoverage | active | False | scripts/ops/register_b_price_coverage.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherCapturePriorityGuard | active | False | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherClobBookLoopSupervisor | active | False | scripts/ops/register_clob_supervisor.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherClobEnrichmentLoop | retired | True | scripts/ops/register_clob_enrichment.ps1 | docs/operations/OPERATIONS_DESIGN.md |

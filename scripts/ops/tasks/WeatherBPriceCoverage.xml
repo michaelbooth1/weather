@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>R19 B-1 coverage counts (owner yes 2026-11-05): daily at 04:35 local, runs scripts\ops\b_price_coverage.ps1 in its catch-up default (every published MG-2 input date from 2026-10-29 with no _b_coverage sidecar yet) under the shared workload lease, with -MaxRuntimeSeconds 540 so it ends before the 04:45 tiering reserve. A busy lease refuses the run and the next day's catch-up fills the date. Registered only by scripts\ops\register_b_price_coverage.ps1.</Description>
+    <URI>\WeatherBPriceCoverage</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-11-06T04:35:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>__WEATHER_USER_ID__</UserId>
+      <LogonType>S4U</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>__WEATHER_POWERSHELL__</Command>
+      <Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "__WEATHER_REPO_ROOT__\scripts\ops\b_price_coverage.ps1" -MaxRuntimeSeconds 540</Arguments>
+      <WorkingDirectory>__WEATHER_REPO_ROOT__</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

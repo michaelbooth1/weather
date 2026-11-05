@@ -1289,6 +1289,67 @@ This resolves audit D1-13.
   the 10-29 bundle was hand-verified (manifest `46003a30`, 8/8 checks); see DECISION_LOG. The bound file stays
   untouched. `9be9eedcc` is not yet on master and lands in a later RF combo.
 
+## B-1 coverage counts (`WeatherBPriceCoverage`; registrar only)
+
+Master ruling R19 and B-1 Clarification 4: one integers-only `_b_coverage\<D>.json` sidecar per exported MG-2
+date, written by `scripts/ops/b_price_coverage.ps1` (which wraps `python -m tools.research.b_price_coverage`; the
+script header owns its guards, reads and exit codes). The owner approved registering it as a daily task on
+2026-11-05 (DECISION_LOG). `scripts/ops/register_b_price_coverage.ps1` registers the checked-in definition
+`scripts/ops/tasks/WeatherBPriceCoverage.xml` with `Register-ScheduledTask -Xml`, the pattern of
+`WeatherMakerEvidenceTornQuarantine`. **Not registered by the repository:** master registers it on the capture
+host; until then the catch-up is run by hand after the 04:15 export.
+
+- **Registrar.** `-ExpectedSourceTip <40 hex>` and `-ExpectedScriptSha256 <sha256 of b_price_coverage.ps1>`, both
+  mandatory. `-WhatIf` prints one plan JSON line and the exact XML and touches nothing (no host check, git or
+  Scheduler call); both modes refuse a pin mismatch. Without `-WhatIf` it requires the dedicated capture host,
+  `HEAD` equal to the tip, no tracked change (untracked files do not block), the pin again, and no existing task
+  of that name; it never replaces one. After registering it reads the task back against the rendered XML
+  (path, enabled, S4U/Limited principal, one exact action, one enabled daily trigger every day at an unzoned
+  04:35 boundary equal to the XML's, no end boundary, delay or repetition, and every setting). On any mismatch
+  it disables the task, proves `Settings.Enabled` false and fails; on success it prints the plan and the
+  exported XML.
+- **Task.** Daily `CalendarTrigger` at 04:35 local (unzoned, so DST-safe). Action:
+  `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "<repo>\scripts\ops\b_price_coverage.ps1"
+  -MaxRuntimeSeconds 540`, working directory the repository root: the catch-up default (every published date
+  from 2026-10-29 without a sidecar). The wrapper's deadline is 04:44 plus a 5 s job teardown; the Scheduler's
+  `PT10M` limit (04:45) is only a backstop. IgnoreNew, no `StartWhenAvailable`, S4U/Limited.
+- **A refused run is acceptable.** If the 04:15 export (or any other holder) still has the shared lease at 04:35,
+  the wrapper refuses and the task ends non-zero; the next day's catch-up counts every date still without a
+  sidecar, so a refusal only delays a date by a day. The same holds for exit 3 (a source still too fresh). Exit 4
+  (a sidecar records `match` false) and a `<D>.json` without its `.SHA256SUMS` (a run killed while writing,
+  which the tool then refuses for that date every day) need master by hand.
+- **Why 04:35.** It must follow the 04:15 export of D (so D is counted the same morning, close to the export,
+  while the source most likely still reproduces the bundle) and finish before the 04:45 tiering reserve. The
+  04:00-04:45 slot of the [per-night lease timetable](DATA_LAYER_V2_PLAN.md#4f-per-night-lease-timetable-capture-host)
+  is the bounded-process slot. 00:30-01:00 is for unleased light tasks only, and a run there would count D a
+  day late, possibly after B's look. The 01:00-04:00 quiet window belongs to integration attempts, and after
+  06:50 the cold-snapshot nightly holds the lease to 09:00.
+
+00:30-09:00 host timetable (registrar defaults; live state is the host's Scheduler):
+
+| Local time | Task or window | Limit / end | Source |
+| --- | --- | --- | --- |
+| 00:35 | `WeatherEveningEvidenceRefresh` (Stage B, disabled unless enabled) | PT8H40M, teardown 09:00 | `scripts/ops/register_daily_refresh.ps1:23`, `:216` |
+| 01:00 | `WeatherTrainingWindow` / `WeatherNightlyRetrainValidatePromote` one-shots (disabled) | PT3H45M / PT8H15M | `scripts/ops/register_training_window.ps1:70`, `:110`; `scripts/ops/register_nightly_retrain.ps1:229` |
+| 01:00-04:00 | quiet merge window: one integration attempt | runbook | `docs/operations/DATA_LAYER_V2_PLAN.md:253` |
+| 04:15 | `WeatherTrainingWindowRestore` | PT15M (04:30) | `scripts/ops/register_training_window.ps1:18`, `:153` |
+| 04:15 | `WeatherMg2InputExport` | PT1H15M; runs minutes | `scripts/ops/register_mg2_input_export.ps1:34`, `:62` |
+| **04:35** | **`WeatherBPriceCoverage`** | **540 s cap (04:44), PT10M (04:45)** | `scripts/ops/tasks/WeatherBPriceCoverage.xml` |
+| 04:45-06:45 | tiering reserve | untouched | `docs/operations/DATA_LAYER_V2_PLAN.md:255` |
+| 05:00 | `WeatherClobTiering` | PT31M | `scripts/ops/register_clob_tiering.ps1:26`, `:69` |
+| 05:45-06:08 | merge blackout | master's L66 brief; no repository source | — |
+| 06:00 | `WeatherClobRawTapeTiering` | PT41M | `scripts/ops/register_clob_raw_tape_tiering.ps1:11`, `:52` |
+| 06:00 | `WeatherLocationConfigRefresh` (light) | PT10M | `scripts/ops/register_location_config_refresh.ps1:38`, `:44` |
+| 06:50 | `WeatherColdSnapshotNightly` (lease to 09:00, latest start 07:30) | PT2H20M | `scripts/ops/register_cold_snapshot_nightly.ps1:41`, `:43` |
+| 06:50 | `WeatherExchangeEconomicsSnapshotRefresh` | PT5M | `scripts/ops/register_exchange_economics_refresh.ps1:22`, `:53` |
+| 07:00 | `WeatherMg2InputExport` retry | PT1H15M | `scripts/ops/register_mg2_input_export.ps1:34` |
+| 07:30-09:00 | row-28b trim (master-run, from 2026-12-21) | 09:00 | `scripts/ops/r28b_input_trim.ps1:59` |
+| 07:45 | `WeatherForwardArrivalCheck` (light) | PT5M | `scripts/ops/register_forward_input_arrival_check.ps1:42`, `:72` |
+| 08:10 | `WeatherStalenessSweep` (host-local, no registrar) | — | this file, DST table row 8 |
+
+`tests/operations/test_register_b_price_coverage.py` pins the XML, the slot against these windows, the `-WhatIf`
+output, the pin refusals, the off-host refusal before any Scheduler call and every readback drift.
+
 ## Row-28b input trim (master-run weekly one-shot; no task)
 
 The (a) as-of-capture trim for the row-28b forward inputs ([design and master's rulings of
