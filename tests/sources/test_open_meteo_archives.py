@@ -29,6 +29,7 @@ class TestOpenMeteoArchives(unittest.TestCase):
     def test_global_model_archive_normalizes_hourly_and_daily_rows(self):
         spec = spec_for_id("nyc")
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-01T13:00"],
                 "temperature_2m_ecmwf_ifs025": [84.0, 86.0],
@@ -61,6 +62,7 @@ class TestOpenMeteoArchives(unittest.TestCase):
         spec = spec_for_id("toronto")
         params = build_open_meteo_air_quality_archive_params(spec, "2026-06-01", "2026-06-01")
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-01T13:00"],
                 "pm2_5": [12.0, 36.0],
@@ -89,6 +91,7 @@ class TestOpenMeteoArchives(unittest.TestCase):
     def test_archive_store_writes_normalized_csvs_and_raw_payloads(self):
         spec = spec_for_id("nyc")
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00"],
                 "temperature_2m_ecmwf_ifs025": [84.0],
@@ -115,6 +118,7 @@ class TestOpenMeteoArchives(unittest.TestCase):
     def test_global_model_store_merges_chunks_and_reports_coverage(self):
         spec = spec_for_id("nyc")
         first_payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00"],
                 "temperature_2m_ecmwf_ifs025": [84.0],
@@ -124,6 +128,7 @@ class TestOpenMeteoArchives(unittest.TestCase):
             }
         }
         second_payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
                 "temperature_2m_ecmwf_ifs025": [86.0, 80.0],
@@ -154,6 +159,7 @@ class TestOpenMeteoArchives(unittest.TestCase):
     def test_air_quality_store_merges_chunks_and_reports_coverage(self):
         spec = spec_for_id("nyc")
         first_payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00"],
                 "pm2_5": [36.0],
@@ -165,6 +171,7 @@ class TestOpenMeteoArchives(unittest.TestCase):
             }
         }
         second_payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
                 "pm2_5": [37.0, 12.0],

@@ -764,6 +764,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_history_writes_source_issue_rows(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-11T14:00", "2026-06-11T15:00"],
                 "temperature_2m": [82, 85],
@@ -821,6 +822,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_profile_loader_reads_new_radiation_and_cloud_layers(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-11T12:00", "2026-06-11T13:00"],
                 "temperature_2m": [82, 85],
@@ -864,6 +866,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_history_coverage_reports_rich_field_completeness(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-11T12:00", "2026-06-11T13:00"],
                 "temperature_2m": [82, 85],
@@ -944,6 +947,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_forecast_history_backfill_manifest_declares_its_target_window(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2023-07-17T12:00"],
                 **{field: [1.0] for field in (
@@ -1202,6 +1206,7 @@ class TestHistoricalSources(unittest.TestCase):
     def test_reanalysis_normalizes_to_native_unit_schema(self):
         payload = {
             "generationtime_ms": 1.2,
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-01T13:00"],
                 "temperature_2m": [20.1, 21.6],
@@ -1225,6 +1230,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_reanalysis_store_rebuild_writes_manifest(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00"],
                 "temperature_2m": [75.0],
@@ -1249,6 +1255,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_reanalysis_coverage_uses_normalized_daily_dates(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00"],
                 "temperature_2m": [75.0],
@@ -1276,6 +1283,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_reanalysis_coverage_flags_normalizable_raw_only_days(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
                 "temperature_2m": [75.0, 76.0],
@@ -1298,6 +1306,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_reanalysis_rich_variable_refresh_flags_stale_core_only_payloads(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
                 "temperature_2m": [75.0, 76.0],
@@ -1323,6 +1332,7 @@ class TestHistoricalSources(unittest.TestCase):
 
     def test_reanalysis_rich_variable_refresh_skips_complete_rich_payloads(self):
         payload = {
+            "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
             "hourly": {
                 "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
                 "temperature_2m": [75.0, 76.0],

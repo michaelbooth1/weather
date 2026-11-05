@@ -6160,6 +6160,9 @@ class TestDailyRefresh(unittest.TestCase):
             def rebuild(self):
                 return [], []
 
+            def offset_refused_row_count(self):
+                return 0  # item 340 / R26: the Stage-A step's one refusal pass per market
+
         args = _args(
             tempfile.gettempdir(),
             reanalysis_end_date="2026-06-02",

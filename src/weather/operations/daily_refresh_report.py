@@ -119,7 +119,10 @@ def render_report(payload):
             if result.get("skipped"):
                 detail = result.get("reason") or "skipped"
             else:
-                detail = f"fetched {result.get('fetched_ranges')} ranges; errors {result.get('error_count')}"
+                detail = (
+                    f"fetched {result.get('fetched_ranges')} ranges; errors {result.get('error_count')}; "
+                    f"offset-refused rows {result.get('offset_refused_row_count', 0)}"
+                )
         elif step.get("name") == "ingest_quality_gate":
             if result.get("skipped"):
                 detail = result.get("reason") or "skipped"

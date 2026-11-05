@@ -397,6 +397,8 @@ def run_reanalysis_recent_refresh_step(args):
             if ranges:
                 store.rebuild()
             after = store.coverage(start_date, end_date)
+            # Item 340 / R26: the one extra raw-payload pass per market, outside coverage().
+            offset_refused_rows = store.offset_refused_row_count()
             market_rows.append({
                 "market_id": spec.id,
                 "station": spec.icao,
@@ -404,6 +406,9 @@ def run_reanalysis_recent_refresh_step(args):
                 "missing_before": before.get("missing_days"),
                 "missing_after": after.get("missing_days"),
                 "raw_only_after": after.get("raw_only_day_count"),
+                # Rows the readers refuse for a missing/unusable utc_offset_seconds or a non-uniform naive label
+                # series (item 340): never silent.
+                "offset_refused_rows": int(offset_refused_rows or 0),
             })
         except Exception as exc:  # noqa: BLE001 - archive lag must not block promotion refresh
             errors[spec.id] = f"{type(exc).__name__}: {exc}"
@@ -423,6 +428,7 @@ def run_reanalysis_recent_refresh_step(args):
         "fetched_ranges": fetched_ranges,
         "error_count": len(errors),
         "errors": errors,
+        "offset_refused_row_count": sum(row.get("offset_refused_rows") or 0 for row in market_rows),
         "markets": market_rows,
     }
 

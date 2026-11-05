@@ -33,6 +33,7 @@ import requests
 
 from weather.market.market_registry import TORONTO, all_specs, spec_for_id
 from weather.sources.daily_summary import native_to_c
+from weather.sources.open_meteo_label_times import payload_local_times, refused_row_count
 from weather.units import to_float
 
 HIST_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
@@ -337,13 +338,6 @@ def hourly_value(hourly, key, index):
     return to_float(values[index] if index < len(values) else None)
 
 
-def local_valid_datetime(raw_time, spec):
-    dt = datetime.fromisoformat(str(raw_time))
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=spec.tz)
-    return dt.astimezone(spec.tz)
-
-
 def rich_row(
     spec,
     source,
@@ -421,16 +415,25 @@ def rich_row(
     return row
 
 
-def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
+def _record_offset_refused_rows(refused_rows, key, payload, local_times, refusal):
+    """Add this payload's refused rows (item 340: no usable offset or a non-uniform naive label series) to the
+    caller's ``refused_rows`` counter under ``key``, so the backfill manifest reports them."""
+    if refused_rows is not None:
+        refused_rows[key] = refused_rows.get(key, 0) + refused_row_count(payload, local_times, refusal)
+
+
+def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match", *, refused_rows=None):
     hourly = payload.get("hourly", {}) or {}
     times = hourly.get("time") or []
     temps = hourly.get("temperature_2m") or []
+    local_times, refusal = payload_local_times(payload, spec.tz)  # EF 10w: response offset; refused without one
+    _record_offset_refused_rows(refused_rows, "historical_forecast", payload, local_times, refusal)
     rows = []
     for index, raw_time in enumerate(times):
         temp = to_float(temps[index] if index < len(temps) else None)
-        if temp is None or not raw_time:
+        valid_dt = local_times[index] if index < len(local_times) else None
+        if temp is None or not raw_time or valid_dt is None:
             continue
-        valid_dt = local_valid_datetime(raw_time, spec)
         rows.append(rich_row(
             spec,
             source="open_meteo_historical_forecast",
@@ -466,14 +469,18 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
     return rows
 
 
-def previous_run_rows(payload, spec=TORONTO, leads=DEFAULT_PREVIOUS_RUN_LEADS, source_model="best_match"):
+def previous_run_rows(
+    payload, spec=TORONTO, leads=DEFAULT_PREVIOUS_RUN_LEADS, source_model="best_match", *, refused_rows=None,
+):
     hourly = payload.get("hourly", {}) or {}
     times = hourly.get("time") or []
+    local_times, refusal = payload_local_times(payload, spec.tz)  # EF 10w: response offset; refused without one
+    _record_offset_refused_rows(refused_rows, "previous_runs", payload, local_times, refusal)
     rows = []
     for index, raw_time in enumerate(times):
-        if not raw_time:
+        valid_dt = local_times[index] if index < len(local_times) else None
+        if not raw_time or valid_dt is None:
             continue
-        valid_dt = local_valid_datetime(raw_time, spec)
         for lead in leads:
             key = f"temperature_2m_previous_day{lead}"
             values = hourly.get(key) or []
@@ -778,6 +785,7 @@ def backfill(
     rich_rows = []
     per_year = {}
     previous_per_year = {}
+    offset_refused_rows = {"historical_forecast": 0, "previous_runs": 0}
     for year in range(start_year, end_year + 1):
         try:
             payload = fetch_historical_forecast_payload(
@@ -787,7 +795,7 @@ def backfill(
                 target_window_days=target_window_days,
                 history_window_days=history_window_days,
             )
-            year_rows = historical_forecast_rows(payload, spec)
+            year_rows = historical_forecast_rows(payload, spec, refused_rows=offset_refused_rows)
             year_daily = compatibility_daily_from_rows(year_rows)
         except Exception as exc:  # noqa: BLE001 - report and continue
             print(f"  {year}: ERROR {type(exc).__name__}: {exc}")
@@ -811,6 +819,7 @@ def backfill(
                     spec,
                     leads=previous_runs_leads,
                     source_model=previous_runs_model,
+                    refused_rows=offset_refused_rows,
                 )
             except Exception as exc:  # noqa: BLE001 - previous-runs availability varies by model/year
                 print(f"  {year}: previous-runs ERROR {type(exc).__name__}: {exc}")
@@ -873,6 +882,8 @@ def backfill(
         "daily_issue_rows": len(issue_rows),
         "covered_years": covered_years,
         "per_year_days": per_year,
+        # Item 340: hourly rows refused for no usable utc_offset_seconds or a non-uniform naive label series.
+        "offset_refused_rows": offset_refused_rows,
     }
     with manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2, sort_keys=True)
@@ -883,6 +894,8 @@ def backfill(
     print(f"  total forecast-days: {len(ordered)}")
     print(f"  long source/issue rows: {len(rich_rows)}")
     print(f"  daily source/issue rows: {len(issue_rows)}")
+    print(f"  offset-refused rows: {offset_refused_rows['historical_forecast']} historical forecast, "
+          f"{offset_refused_rows['previous_runs']} previous runs")
     print(f"  written to {daily_path}")
     return manifest
 
