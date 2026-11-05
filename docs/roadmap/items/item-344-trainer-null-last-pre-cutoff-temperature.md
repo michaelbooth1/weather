@@ -33,6 +33,9 @@ Checklist:
   - The parity scorecard's manifest gets a null-last-row case kind. This needs the serving surface
     `train_serve_feature_parity._wu_sources` (`:539`), which calls `float(row["temp_native"])` on every row (`:547`),
     to accept a null temperature. It is a source edit, so it lands only with the retrain (master Q2, 2026-11-05).
+  - The same WU serving surface takes `latest = dict(rows[-1])` (`train_serve_feature_parity.py:546`), which can be a
+    null-temperature row. At the retrain it must follow the whole-row rule (the latest non-null-temperature row), as
+    a source edit next to the `:539`/`:547` step (master, 2026-11-05).
 
 Acceptance:
 
