@@ -65,30 +65,40 @@ Status:
 - [x] Head A and head B built and merged into `2638fdee1` (combined pregate tip).
 - [x] R26 re-tip (`claude/om-dst-readers-ab-r2-20261104`): steps 1-4 and 7 built and tested on the workstation.
 - [x] R26 step 5 (workstation copies, every range ending 2026-08-10): no payload lacks a usable offset and none has
-  a non-uniform series. Chicago scratch rebuild row counts: 23:25, 24:8833, 25:25, >=26:778, none <=22. The edge rule
-  drops one day per market (1999-12-31), 12 across the 12 markets.
+  a non-uniform series. Chicago scratch rebuild row counts before the duplicate-chunk dedupe: 23:25, 24:8833,
+  25:25, >=26:778, none <=22. The edge rule drops one day per market (1999-12-31), 12 across the 12 markets.
 - [ ] Merge `origin/master` after the previous night's landings are published; WS bounded suite on the exact tip.
 - [ ] Landing: roll-sensitive (`reanalysis_history` and `reanalysis_synoptic` are loop-imported), its own suite head,
   target night 11-04/05; host `roll_verdict`, merge-tree simulation and B guard first.
 - [ ] EF §10w entry updated on a separate docs head after landing.
 
-Known pre-existing issue (not fixed here, does not block): the workstation reanalysis copies hold overlapping raw
-payloads for 2024-2026. Two 30-day chunk series are offset by one day, and each chunk shares its edge day with the
-next. About 778 Chicago days therefore carry about 48 hourly rows instead of 24. Nothing between the raw store and
-the features dedupes on timestamp. `ReanalysisStore.rebuild`, `summarize_daily`, the hourly partitions,
-`reanalysis_synoptic.load_normalized_hourly_daily_metrics` and `load_raw_daily_metrics` all keep every copy.
+Duplicate chunks (pre-existing; master ruled it model-relevant, so it is fixed in this head): the workstation
+reanalysis copies hold overlapping raw payloads for 2024-2026. Two 30-day chunk series are offset by one day, and
+each chunk shares its edge day with the next. Read as is, about 778 Chicago days carried about 48 hourly rows. That
+doubled `row_count`, `max_temp_times` and the synoptic sums (precipitation, ET0, shortwave and the 7/14/30-day
+antecedent windows), and reweighted means on partly duplicated days. Maxima and minima were unaffected.
 
-- Unaffected: maxima and minima (`max_temp`, `min_temp`, max dewpoint, wind and gust), as long as the copies agree.
-- Double-counted: `row_count`; `max_temp_times`, which lists each time twice; and the synoptic sums
-  (`reanalysis_prev_day_precipitation_sum`, the ET0 and shortwave sums, and the 7/14/30-day antecedent windows), which
-  double on fully duplicated days.
-- Means (`avg_temp`, pressure, soil, VPD and cloud means) keep their value when a whole day is duplicated, but are
-  reweighted on partly duplicated days.
+- Fix: `ReanalysisStore.rebuild` (`dedupe_hourly_records`) and `reanalysis_synoptic.load_raw_daily_metrics` keep
+  one copy per UTC hour, null-aware per field (master ruling R26 (i)/(ii)):
+  - The first copy in raw-file order is kept.
+  - A field that is null there takes the first later non-null value for that hour. A non-null value is never
+    overwritten.
+  - Two differing non-null values keep the first.
+  - The rebuild merges before it drops null-temperature hours, so a later copy can supply a missing temperature.
+- Audit trail: the rebuild manifest records `duplicate_hours_dropped`; `filled_null_fields` (a count per field);
+  and `duplicate_disagreement_days` with `duplicate_disagreement_dates`, the local dates where two non-null values
+  differ. The generation-time field is ignored. The rebuild's disagreement check uses the normalized record. The
+  synoptic reader merges its raw fields the same way, but it has no manifest and logs nothing.
+- `load_raw_daily_metrics` fills are not logged because it has no manifest.
+- Chicago scratch rebuild with the null-aware merge: 19,344 duplicate hours dropped, matching the census. No field
+  was filled and none disagreed. Row counts are 23:27, 24:9608, 25:26, none <=22 or >=26. The keep-first dedupe
+  dropped 18,882 because it ran after null-temperature hours were skipped. The other 462 duplicate hours have no
+  temperature in either copy, so none is filled and they stay skipped.
 
-`chunk_date_range` never makes two chunks that share an edge day, so the edge-sharing files came from an earlier
-or out-of-repo writer. A `backfill` run without `--skip-existing` from a different start date can still add a second,
-offset series. The capture-host
-store may hold the same files if they came from the same source; it was not scanned.
+`chunk_date_range` never makes two chunks that share an edge day, so the edge-sharing files came from an earlier or
+out-of-repo writer. A `backfill` run without `--skip-existing` from a different start date can still add a second,
+offset series. The capture-host store may hold the same files; `tools/research/reanalysis_chunk_overlap_census.py`
+(its own roll-free branch) counts them there.
 
 Not claimed: reading by the response offset moves the hours at a payload's edges across midnight, so a day at the
 edge of a payload can gain or lose an hour; this item does not stitch adjacent payloads.

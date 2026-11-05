@@ -379,6 +379,9 @@ def load_normalized_hourly_daily_metrics(hourly_root):
 
 def load_raw_daily_metrics(store):
     bounds = store.archive_bounds()  # item 340 / R26: no partial day outside the archive's named range
+    # Item 340: an hour held by overlapping chunks counts once per field. The first non-null value in raw-file
+    # order is taken, so a later copy fills a field the first left null and never overwrites a value.
+    taken = set()
     grouped = defaultdict(lambda: defaultdict(list))
     for payload in store.iter_raw_payloads():
         hourly = payload.get("hourly") or {}
@@ -391,7 +394,8 @@ def load_raw_daily_metrics(store):
             local_date = local_dt.date()
             for source_key in RAW_DAILY_FIELD_SPECS:
                 raw_value = value_at(hourly, source_key, index)
-                if raw_value is not None:
+                if raw_value is not None and (local_dt, source_key) not in taken:
+                    taken.add((local_dt, source_key))
                     grouped[local_date][source_key].append(raw_value)
     daily = {}
     for local_date, metrics in grouped.items():

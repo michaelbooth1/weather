@@ -111,7 +111,41 @@ def inside_archive(local_date, bounds):
     return bounds is None or bounds[0] <= local_date <= bounds[1]
 
 
-def normalize_payload(payload, spec):
+_PER_RESPONSE_FIELDS = frozenset({"source_report_type"})  # generation time: differs per response, never merged
+
+
+def dedupe_hourly_records(records):
+    """One record per ``valid_time_utc``, null-aware (item 340, duplicate chunks; master ruling R26 (i)/(ii)).
+
+    Overlapping raw chunks hold the same hour twice; read twice, a day carries ~48 rows and its counts and sums
+    double. The first copy in raw-file order is kept. A field that is null in the kept copy takes the first later
+    non-null value for the same hour; a non-null value is never overwritten. Two non-null values that differ are
+    a disagreement: the first stays and the local date is recorded.
+    -> (kept records, dropped duplicate count, sorted disagreement dates, {field: filled count}).
+    """
+    kept = {}
+    dropped = 0
+    disagreeing_dates = set()
+    filled = {}
+    for record in records:
+        first = kept.setdefault(record["valid_time_utc"], record)
+        if first is record:
+            continue
+        dropped += 1
+        for key, value in record.items():
+            if key in _PER_RESPONSE_FIELDS or value is None:
+                continue
+            if first.get(key) is None:
+                first[key] = value
+                filled[key] = filled.get(key, 0) + 1
+            elif first[key] != value:
+                disagreeing_dates.add(first["local_date"])
+    return list(kept.values()), dropped, sorted(disagreeing_dates), dict(sorted(filled.items()))
+
+
+def normalize_payload(payload, spec, *, keep_null_temperature=False):
+    """Hourly records for one payload. A null-temperature hour is skipped unless ``keep_null_temperature`` (the
+    rebuild keeps it so a later overlapping copy can supply the value before such hours are dropped)."""
     hourly = payload.get("hourly") or {}
     times = hourly.get("time") or []
     local_times = payload_local_datetimes(payload, spec.tz)
@@ -121,7 +155,7 @@ def normalize_payload(payload, spec):
         if not local_dt:
             continue
         temp = value_at(hourly, "temperature_2m", index)
-        if temp is None:
+        if temp is None and not keep_null_temperature:
             continue
         records.append(hourly_record(
             source=SOURCE,
@@ -307,14 +341,20 @@ class ReanalysisStore:
 
     def rebuild(self):
         bounds = self.archive_bounds()
+        candidates = []
+        for payload in self.iter_raw_payloads():
+            candidates.extend(normalize_payload(payload, self.spec, keep_null_temperature=True))
+        # Item 340: merge overlapping chunks first, so a later copy can fill a null (temperature included).
+        merged, duplicate_hours, disagreeing_dates, filled_null_fields = dedupe_hourly_records(candidates)
         records = []
         edge_dropped = set()
-        for payload in self.iter_raw_payloads():
-            for record in normalize_payload(payload, self.spec):
-                if inside_archive(date.fromisoformat(record["local_date"]), bounds):
-                    records.append(record)
-                else:
-                    edge_dropped.add(record["local_date"])
+        for record in merged:
+            if record["temp_native"] is None:
+                continue  # no copy has a temperature for this hour: skipped, as a single copy always was
+            if inside_archive(date.fromisoformat(record["local_date"]), bounds):
+                records.append(record)
+            else:
+                edge_dropped.add(record["local_date"])
         # Item 340 / R26: partial days outside the archive's named range are dropped and counted, never silent.
         self.archive_edge_dropped_dates = sorted(edge_dropped)
         records.sort(key=lambda row: row["valid_time_utc"])
@@ -336,6 +376,10 @@ class ReanalysisStore:
                 "quality_counts": quality_counts(records),
                 "archive_edge_days_dropped": len(self.archive_edge_dropped_dates),
                 "archive_edge_dropped_dates": self.archive_edge_dropped_dates,
+                "duplicate_hours_dropped": duplicate_hours,
+                "duplicate_disagreement_days": len(disagreeing_dates),
+                "duplicate_disagreement_dates": disagreeing_dates,
+                "filled_null_fields": filled_null_fields,
             },
         )
         return records, daily
