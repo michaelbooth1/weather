@@ -1,6 +1,6 @@
 """Atomic look-morning label freeze and its named recovery (R24; master rulings 2026-11-03, items 2(a)-(c)).
 
-Guards:
+Guards: master ruling R24 (2026-11-03; docs/operations/venue-rule-labels.md "Forward-look labels"):
 
 - (a) unless the run's audit is OK (STATION_DRIFT exits 3), the freeze refuses before any folder under
   ``frozen/`` is made;
