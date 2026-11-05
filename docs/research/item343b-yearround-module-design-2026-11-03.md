@@ -414,3 +414,34 @@ target dates >= 2026-12-17: the workstation may hold full-day input bundles, rea
 emitter; agents see names, sizes and shas only; (a) is built as defence in depth. The dates are the row-28b
 forward line in the reserved-confirmation window. The carve-out covers no other reader, candidate or date, and
 this note still authorises no code, task or pull by itself: each goes through its own reviewed head.
+
+## Clarification 1 (2026-11-05): master rulings of 11-04 and 11-05
+
+Dated clarification, added by the WS docs lane on 2026-11-05 from master's rulings (relayed by the WS coordinator).
+The module and its runbook (`docs/operations/YEARROUND_REFIT.md`) are on branch
+`claude/item343b-yearround-module-20261103` @ `84b50a173`, not on master; this note records the rulings here until
+they land. Item status: [item 343](../roadmap/items/item-343-offline-year-round-refit-module-allowlist.md).
+
+- **`--hours` dropped: 4b closed (master 11-04).**
+- **Amended F3(a), refuse-only (master 11-05).** Master's 2026-11-04 hour-grain ruling ("each named column finite per
+  (market, date, hour)") was master's own error: it treated a NaN feature as an absent source. Amended:
+  - ABSENT = every named `wu_hourly` column non-finite for the (market, date, hour). It refuses.
+  - `nan_feature` = partial (some but not all named columns non-finite). It refuses unless the exact key (market,
+    date, hour, sorted non-finite columns) is declared in `nan_feature_keys`.
+- **NBM date-presence check (master 11-05).** It had read `fh` AFTER imputation: `prm.attach_training_nbm` keeps
+  `forecast_high` when NBM is missing (`src/weather/calibration/pooled_residual_model.py:1081-1084`), so it could not
+  see an all-market gap. It now reads the pre-imputation `nbm_cycle`. The `declared_absent` schema `/3` adds
+  `nbm_absent_dates`.
+- **Data finding.** 2022-01-06 has an all-market NBM gap at h13-16: these are the 44 imputed keys (11 markets × 4
+  hours). It falls inside the Dec 25-Jan 7 year-wrap span, but it is a DATA gap, not a climatology defect (the
+  climatology defects are [EF §10ay](../operations/ESTABLISHED_FINDINGS.md)).
+- **Run-procedure lesson.** Before any fit launches, list and read every report-only check in the (A) report
+  (`training_source_checks.*`). A non-empty one blocks the launch.
+- **Disclosure: the reanalysis CSV is loaded but unused.** `reanalysis_synoptic_features.csv` is loaded but unused
+  by the 343b B fit: `x_reanalysis_*` columns are dropped at `yearround_refit.py:623` (branch
+  `claude/item343b-yearround-module-20261103` @ `84b50a173`; the keep list is `pooled_residual_model.DEV_KEEP_X`,
+  `pooled_residual_model.py:934` on master) before `fit_pooled`. The `reanalysis_synoptic build` CLI
+  (`write_feature_csv`, `src/weather/sources/reanalysis_synoptic.py:1172`; subcommand at `:1431`) is the only writer,
+  and the daily refresh does not rebuild it. A rebuild would move records, and the sha-bound fit would refuse. The
+  CSVs on the WS and the host were last written 2026-06-23 and match byte for byte (master check 11-05).
+- **Fit pin.** The 343b fit pin `0e5c4f729e8b…` is SUPERSEDED (its module sha changed); see item 343.

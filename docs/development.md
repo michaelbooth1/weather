@@ -233,7 +233,26 @@ without running its script. The pre-gate cannot reproduce two host properties:
 - the host's machine-level environment.
 
 The pre-gate removes the agent-harness and Python override variables the host task would not carry, and
-lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`.
+lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`. That test uses the real
+`%ProgramData%` heavy-workload queue (`test_workstation_pregate_script.py:362`), so it needs an isolated queue root
+([item 345](roadmap/items/item-345-pregate-script-test-isolated-queue-root.md)); two of its fixtures skip below 55 GiB
+free (`:285-286`, `:671-672`), so a run on a fuller disk does not exercise them.
+
+**Run lessons (WS, 2026-11-04/05).**
+
+- **Every member of a combo gets its own full-suite gate BEFORE any combo is built.** Skipping it recurred: 343b's
+  first full suite found 6 ratchets that its member gate should have found.
+- **Use the standard driver only.** A custom suite driver was retired after it caused 8 false failures: it ran
+  with `PYTHONSAFEPATH=1` and a `RepoRoot` that did not match the tree under test, and it hit the Windows
+  PowerShell 5.1 `ConvertFrom-Json` array defect (a one-element JSON array comes back unwrapped). The pre-gate above
+  and `scripts/ops/bounded_worktree_test_suite.ps1` are the supported drivers.
+- **Read every report-only check before a fit launches** (for 343b, `training_source_checks.*` in the (A) report;
+  [343b design, Clarification 1](research/item343b-yearround-module-design-2026-11-03.md#clarification-1-2026-11-05-master-rulings-of-11-04-and-11-05)).
+  A non-empty one blocks the launch.
+- Never force-kill a `workstation_heavy.ps1` wrapper
+  ([host load policy, slots](operations/HOST_LOAD_POLICY.md#workstation-focused-runs-fifo-queue-and-xdist-owner-decision-2026-10-04)),
+  and check ignored files before removing a worktree
+  ([session preamble, finishing](operations/WORKSTATION_SESSION_PREAMBLE.md#finishing)).
 
 #### Capture-host collection emulation
 

@@ -93,3 +93,13 @@ Acceptance:
 - A later year-round run needs no option-2 launcher; the row-28 option-2 exception stays a one-off.
 - Train/serve parity, probability mass and release binding are unchanged: the module is offline research and
   serves nothing.
+
+Status 343b (2026-11-05, WS docs head; status only):
+
+- In progress on the WS at landing tip `84b50a173` (branch `claude/item343b-yearround-module-20261103`: the merge
+  of master plus a test-only exemption). (A), the fit, (B) and the suite are pending; it is not on master.
+- The 343b fit pin `0e5c4f729e8bacfe8995a1533d96d0b5a71cd410adaa4ca654b737b7a6ea339b` is **SUPERSEDED**: its module
+  sha changed. Its archive is kept at `C:\archive\row28b-forward-state\20261105T061242Z`.
+- `--hours` dropped: 4b closed (master 11-04). Design Clarification 1 (2026-11-05) records the amended F3(a), the
+  pre-imputation NBM date check and the run-procedure lesson:
+  [design note](../../research/item343b-yearround-module-design-2026-11-03.md#clarification-1-2026-11-05-master-rulings-of-11-04-and-11-05).

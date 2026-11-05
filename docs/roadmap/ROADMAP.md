@@ -63,6 +63,9 @@ infrastructure work remains.
 | 340 | [Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-11-01 - R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD]](items/item-340-open-meteo-dst-training-readers.md) |
 | 342 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math [OPEN 2026-11-03 - MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29]](items/item-342-feb29-bound-centre-lookup-crash.md) |
 | 343 | [Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - MASTER OPTION 1 SPLIT: 343a SCORER ALLOWLIST LINE; 343b MODULE DEFERRED]](items/item-343-offline-year-round-refit-module-allowlist.md) |
+| 344 | [Trainer Keeps A Null Last Pre-Cutoff Temperature That Serve And Replay Skip [OPEN 2026-11-05 - MASTER RULING; FIX AT THE NEXT RETRAIN OR MODEL CHANGE, PIN NOW]](items/item-344-trainer-null-last-pre-cutoff-temperature.md) |
+| 345 | [Isolated Queue Root For The Workstation Pre-Gate Script Test [OPEN 2026-11-05 - WS RUN LESSON, NOT STARTED]](items/item-345-pregate-script-test-isolated-queue-root.md) |
+| 346 | [Scripted Daytime Sweep Of Old Workstation Worktrees [OPEN 2026-11-05 - WS BACKLOG; DRY-RUN LIST TO MASTER FIRST]](items/item-346-ws-worktree-sweep.md) |
 
 ### Dashboard Improvements
 

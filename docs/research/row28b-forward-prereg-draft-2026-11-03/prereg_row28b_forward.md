@@ -93,6 +93,7 @@ with verdict pending. No ledger row is added while this file is a draft.
   (routine METAR, WU fallback), read only through `read_venue_labels` inside the registered entry point from the
   look-morning R24 frozen copy. **Disclosed mismatch:** row 28's history used WU labels. Denver is excluded from
   scoring and emission, as in row 28 §5.3; it stays in B's training, as in v12 (master ruling 11-03).
+- **Disclosed train/serve mismatch (master ruling 11-05; EF §10ax, item 344).** B's trainer keeps a null last pre-cutoff temperature (`x_current_temp` NaN, into the HGB) where serve and replay take the latest non-null row; history rate 2 of 28,936 (market, date, hour) keys. Not fixed before this test (a trainer fix would move B's state); no emitter code change.
 
 ## 3. Statistic
 
@@ -199,6 +200,7 @@ produces a PASS, changes N or the estimand, or starts a refit.
 - B and S against the market at hours 13-16: R and the walk-forward log-pool weight w (method §3 rung 4), with the
   floor-only control. Prices are read only under the §1 read rule.
 - Per-market d, per-month d, and the realised/projected SD ratio (rule 19).
+- The count of scored keys whose last pre-cutoff row has a null temperature (EF §10ax), from captured inputs, counted after the window; counts only, no emitter code change, decides nothing.
 
 ## 7a. The rule-4 w step (pointer only; not drafted here)
 

@@ -182,6 +182,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - Every numpy import commits ~756 MiB of private memory through OpenBLAS per-thread buffers (17 MiB with `OPENBLAS_NUM_THREADS=1`), about 2.9 GiB across the four numpy capture workers on the host (2026-10-15); workers started by `supervisor.launch_detached` now get a one-thread cap; the short-lived `ensure` processes do not. EF §10s.
 - Open-Meteo `gfs_seamless` is HRRR over the US inside HRRR's horizon (provider design; the 2-day capture keeps target hours inside it), so multimodel "GFS" and "HRRR" are one source: row 78's K is effectively 16 (no verdict change), and Previous Runs history is GFS-only before about 2024-01 and HRRR-blended after, while the served model's Historical Forecast best_match shows no break 2021-26; the regime change touches research refits only (R0, L5 arm B, L4). EF §10an; register X63 and the §6 scope note.
 - The served GEFS "ensemble mean" `day_max` is the GEFS control run, not the member mean (parity holds; name wrong). EF §10s.
+- **Known train/serve mismatch (rare):** the trainer keeps a null last pre-cutoff temperature, serve and replay take the latest non-null row; 2 of 28,936 history keys; not fixed (either side moves a frozen state), not a lever. EF §10ax; item 344.
 - `last_good_sources.json` (~36 MB per US station) is rewritten whole on every snapshot pass, even unchanged: ~53 GiB/day of writes on the host. EF §10s.
 - Raw L2 deltas (VR-2 input) run ≈3.1 GB/day for the T+0 exec-tape universe and ≈7.0 GB/day with T+1; a p95 per-(token, hour) budget (~1.8-1.9 MB) drops 26-45% of bytes. One night, US daytime unsampled, post-gzip not measured. EF §10s.
 - Master does not describe everything production ran: the 2026-09-06 live test and other lanes executed from unmerged code. EF §10f; current reconciliation in [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
@@ -215,6 +216,7 @@ never pooled across the 2026-07-31 provenance boundary.
 | HRRR 3x3 neighbourhood spread as a width signal, any hour | R-Z (00-06, 07-12) and R-U (13-16) CLOSED at P0: pooled ρ below 0.05 | EF §10al; register §6 X38, X39 |
 | MOS/NBE day-max as an SM-H h13-15 input | R-V (b) pre-registered KILL, −0.0007 [−0.0185, +0.0164] | EF §10al; register §6 X42 |
 | Dead-bucket NO buying (US and Toronto) | Under capture-time dating US r4 $0.03/day [0.00, 0.09], Toronto $0.00; NOT WORTH PURSUING | EF §10ad; RF "Dead-bucket stage A" |
+| Climatology window and floor fixes (leap reference, no year wrap, spring-forward row-count floor) as a lever | UNTESTABLE: SD bound 0.080, power about 0.10; any fix is a retrain plus the edge gates, never serve-only | EF §10ay |
 
 ## Retracted numbers — never cite
 

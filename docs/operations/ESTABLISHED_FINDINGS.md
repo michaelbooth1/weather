@@ -5007,6 +5007,56 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
     Dec (+0.099), Jan (+0.050) and fold 2022 (+0.004). The S/A Brier ratio is 1.18-1.29 in every month. It is still
     a comparison to S, not to the market.
 
+### 10ax. Known defect: a RARE TRAIN/SERVE MISMATCH in the last pre-cutoff temperature (trainer keeps a null row, serve and replay skip it); not fixed, not a lever: master ruling, 2026-11-05
+
+This is a mismatch, not parity: do not describe the current state as parity-preserving.
+
+- **Trainer.** `feature_store.build_historical_feature_record` (`src/weather/model/feature_store.py:1194`, default
+  `strict=False` at `:1215`) takes the last row at or before the cutoff whatever its temperature:
+  `obs_before` at `:1226-1230`, `current_obs = obs_before[-1]` at `:1233`, then
+  `current_temp = row_temp_native(current_obs)` at `:1258`. With `strict=False` (`:1259`) a null temperature on that
+  row is carried as a null `current_temp`, while `high_so_far` skips it (`:1234`).
+- **Serve and replay.** Each takes the latest row with a NON-null temperature: `mg_serve_core.observations_at_cutoff`
+  (`src/weather/model/mg_serve_core.py:108`; the null skip at `:119-121`, latest at `:128-129`);
+  `r0_ols_floor_challenger.observations_at_cutoff` (`src/weather/calibration/r0_ols_floor_challenger.py:572`; skip
+  `:583-585`, latest `:592-593`), which the B-bound `mg2_p3d_n._observations` reaches at `mg2_p3d_n.py:361` (cited
+  only); and `pooled_residual_model.scan_replay_n` (`src/weather/calibration/pooled_residual_model.py:1101`), which
+  calls the helper at `:1128`. All three docstrings claim the trainer's semantics; the null row is where they differ.
+- **History rate.** 2 of 28,936 (market, date, hour) keys: nyc 2024-03-13 h13 and san-francisco 2022-03-17 h13. The
+  column is `x_current_temp`; the reference fit carried the NaN into the HGB through sklearn's native missing-value
+  handling.
+- **Trainer-side users of the builder:** `model_features.find_analog_days` (`src/weather/model/model_features.py:1777`,
+  call `:1807`), `pooled_feature_assembly.build_market_records`
+  (`src/weather/calibration/pooled_feature_assembly.py:774`, call `:906`), and the parity scorecard's
+  `train_serve_feature_parity._base_training_record`
+  (`src/weather/reporting/scorecards/train_serve_feature_parity.py:512`, call `:521`). Because the parity gate builds
+  its training side with the trainer builder, it was blind to this case. (`feature_model.build_feature_records_for_model`
+  at `src/weather/calibration/feature_model.py:952`, call `:987`, is a further caller.)
+- **State: not fixed.** Fixing either side moves a frozen or pinned state: the trainer change moves MG-1 and row-28b,
+  and a serve-only fix is forbidden. It is **not a lever**: too rare to power. The work is
+  [item 344](../roadmap/items/item-344-trainer-null-last-pre-cutoff-temperature.md); row-28b discloses it in its
+  prereg draft.
+
+### 10ay. Climatology window and floor defects: three defects, the lever is UNTESTABLE (SD bound 0.080, power about 0.10): master ruling, 2026-11-05
+
+Any fix means a retrain plus the edge gates; there is no serve-only fix. Line numbers verified at `cb6678f35`.
+
+- **(a) Leap reference.** The served history window measures day distance in reference year 2000, a leap year
+  (`src/weather/model/model_climatology.py:113`, `target_reference` at `:114`, `local_date.replace(year=reference_year)` at
+  `:123`, the `> HISTORY_WINDOW_DAYS` test at `:124`, `HISTORY_WINDOW_DAYS = 7` at `model_constants.py:25`), while
+  the training window `pooled_residual_model.window_days` (`pooled_residual_model.py:181-186`) counts calendar days in
+  the target year. The two disagree across Feb 29 for targets about Feb 22-Mar 7, and this causes the 1-Mar grid
+  holes.
+- **(b) No year wrap.** The same reference-year distance does not wrap the year, so targets Dec 25-Jan 7 get a
+  half-width window on Dec 31 and Jan 1. It touches the served stack only.
+- **(c) Spring-forward floor.** A daily summary row with `row_count < HISTORY_MIN_ROW_COUNT` is dropped
+  (`model_climatology.py:126-127`; `HISTORY_MIN_ROW_COUNT = 20` at `model_constants.py:24`). The same floor is applied
+  in `_fallback_prior_buckets` (`model_climatology.py:226`, floor at `:236`) and passed as `min_row_count` at
+  `src/weather/model/model_sources.py:1350`. Served and training paths both use it, so parity holds here; the floor
+  drops US spring-forward Sundays.
+- **Evidence (343b grid holes).** 81 holes = 33 leap + 48 `row_count < 20` (44 spring-forward plus 4 Denver).
+- **Lever verdict: UNTESTABLE.** SD bound 0.080, power about 0.10.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first
