@@ -638,6 +638,48 @@ namespace Weather.Operations
             }
         }
 
+        // Peak committed memory of the whole job (every process ever assigned,
+        // so the real interpreter behind a venv redirector stub is included).
+        public UInt64 PeakJobMemoryUsedBytes()
+        {
+            if (handle == IntPtr.Zero)
+            {
+                throw new ObjectDisposedException("KillOnCloseJob");
+            }
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits =
+                new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+            Int32 size = Marshal.SizeOf(limits);
+            IntPtr information = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(limits, information, false);
+                UInt32 returned;
+                if (!QueryInformationJobObject(
+                    handle,
+                    JobObjectExtendedLimitInformation,
+                    information,
+                    (UInt32)size,
+                    out returned
+                ))
+                {
+                    throw new Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "QueryInformationJobObject(extended limits) failed"
+                    );
+                }
+                limits = (JOBOBJECT_EXTENDED_LIMIT_INFORMATION)
+                    Marshal.PtrToStructure(
+                        information,
+                        typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)
+                    );
+                return limits.PeakJobMemoryUsed.ToUInt64();
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(information);
+            }
+        }
+
         public void TerminateAndWait(Int32 timeoutMilliseconds)
         {
             if (handle == IntPtr.Zero)

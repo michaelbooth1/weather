@@ -94,6 +94,15 @@ remain explicit production actions. `WeatherMakerEvidenceLowestTemperature` runs
 same module with `--family lowest_temperature` in its own root (books and reward
 terms, no websocket); its registrar is
 `scripts/ops/register_maker_evidence_family_capture.ps1`.
+`WeatherMakerEvidenceTornQuarantine` is a startup task. Through
+`maker_evidence_torn_quarantine_boot.ps1`, it runs
+`maker_evidence_torn_quarantine.ps1 -Apply` on the core root every minute for 15
+minutes after boot. Its definition is the checked-in
+`scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml`. The registrar is
+`scripts/ops/register_maker_evidence_torn_quarantine.ps1`, which registers only on
+the capture host and never replaces an existing task. It is not registered until
+master does so after Stage 1 lands; the owning section is in
+[the capture contract](passive-maker-evidence-capture.md).
 
 The paper-only `WeatherMakerShadowRunner` (registrar
 `scripts/ops/register_maker_shadow_runner.ps1`) is a separate long-lived public-read
@@ -127,6 +136,19 @@ an unattended task back into an interactive-logon dependency.
 Read each script before registering it. Re-running a registration script
 replaces its task with the supplied parameters.
 
+Because every `ensure` exits after `launch_detached`, each detached worker's
+`ParentProcessId` names a process that has exited; a later process can reuse that
+number, and a PID-walking tree kill of it then reaches the worker (the
+2026-11-01 recorder live-parent design research).
+`scripts/ops/stale_parent_census.ps1` is the read-only, run-by-hand census of that
+exposure for the capture loops, execution tape, maker shadow and evidence workers,
+and the workstation forward recorders: per worker it reports pid, parent pid and
+`parent_status` (`live` only if the parent exists and was created no later than the
+child, else `dead` or `reused`), plus the first exposed link up the chain, as JSON
+on stdout or `-OutFile`. Match patterns default from the loop command builders and
+can be replaced with `-WorkerPatternsJson`. It terminates nothing, writes nothing
+else, and is not scheduled.
+
 ## What actually executes
 
 A scheduled task runs the files at the path frozen into its action when it was registered. Every
@@ -147,6 +169,8 @@ Re-verify rather than trusting this list):
 | `WeatherHostHealthWatchdog` | `health_watchdog.ps1` from a detached worktree named `weather-watchdog-deployed-<commit>`, with `-ExpectedSelfSha256`, `-StatusScriptPath` (that worktree's `status.ps1`) and `-ExpectedStatusScriptSha256` pinned in the action, and `-RepoRoot` set to the production checkout | A merged `status.ps1` or watchdog change does not reach the alarm path until a new pinned deployment is registered. An interactive `status.ps1` run from the production checkout can therefore disagree with the watchdog. The registrar requires reviewed watchdog and status SHA256 pins and checks the registered action. Source incorporates deployed tag `deployed/health-watchdog-aa99048` plus the newer bounded log rotation; any upgrade still requires owner-ops review and explicit re-registration. The watchdog also holds a reviewed, reasoned expected-disabled list (`$expectedDisabledTasks`): only the disabled-state flag of an exactly named task there becomes a standing note; every other flag still alerts. `status.ps1` reports drift between this deployment and `master` read-only (`watchdog_deployment`; see [pinned watchdog redeploy](#pinned-watchdog-redeploy)). |
 | `WeatherMemoryCommitGuard` | `scripts\ops\memory_commit_guard.ps1` in the production checkout, no hash pin (`register_memory_commit_guard.ps1`) | A merge to `master` changes guard behavior at the next one-minute tick, with no redeploy and no review gate. |
 | Integration-attempt suite and merge tasks | the orchestration scripts of the checkout that ran `register_integration_attempt.ps1`, with every dependency hash frozen in the manifest | Drift fails closed; see [INTEGRATION_ATTEMPT_RUNBOOK](INTEGRATION_ATTEMPT_RUNBOOK.md). |
+
+`status.ps1` hashes the `-File` of every `Weather*` action that carries `-ExpectedSelfSha256` (except the pinned watchdog, which the G5 drift check owns) and reports each as `self_pinned_tasks`: a mismatch or a missing file is a FLAG, an action it cannot parse a WARN (R35; module pins are not recomputed).
 
 Check before reasoning about any task's behavior (read-only, light):
 
@@ -583,6 +607,14 @@ report is rewritten after every step, its mtime no longer proves completion:
 `staleness_sweep.ps1` (`chain/daily_refresh_report`) reads the Stage-A manifest and
 is OK only for a `COMPLETED` status, falling back to the report (failing on
 `Status: **running**`) only when the manifest is missing or unreadable.
+
+The sweep's `$knownCriticals` table turns a listed CRITICAL into KNOWN (its
+Markdown `## Known` section and JSONL `known_count` only, never the CRITICAL
+table `status.ps1` reads) only while every named producer task is exactly
+`Disabled` and the dated row, capped at 60 days and renewed only by a dated
+DECISION_LOG row, has not expired; otherwise the CRITICAL stands with a
+`known/lapsed` (or `known/malformed`) CRITICAL, and each JSONL row carries a
+Task Scheduler `task_results` last-run snapshot that never reads the event log.
 
 ### Settlement in the chain: what it does and does not do
 
@@ -1115,6 +1147,9 @@ stopped, or is proving their recovery. Do this task first. If the pass cannot fi
   - the rest have no duration.
 - The streak monitor's 30-minute repetition hangs off its daily trigger and moves with it, which is why it is row 9.
 - `WeatherDataMirror` and `WeatherMirrorRestoreVerify` are not enabled on the host, so they do not apply.
+- `WeatherForwardArrivalCheck` (07:45, 11:45, 18:05; R20) is built with `New-WeatherLocalDailyTrigger` from the
+  start, so it is offset-free and needs no reset. The workstation's R20 receipts beacon is a repeating `-Once`
+  trigger (PT30M) on another host.
 
 **When.** On 2026-10-29 or 2026-10-30, after the fix has landed and production is running it.
 - Work outside the 12:00-00:30 protected windows, and not while a Stage-A chain or bounded suite is running.
@@ -1208,14 +1243,15 @@ means the task still has a zoned boundary.
   twice that night.
 - 05-F3: do not run the integration sequencer on the night of 2026-10-31 to 2026-11-01.
 
-## MG-2 Input Export (`WeatherMg2InputExport`; registrar only)
+## MG-2 Input Export (`WeatherMg2InputExport`)
 
 The MG-2 binding plan (`docs/research/mg2-composite-binding-2026-10-25/binding-plan.md` §9) moves one
 outcome-free input bundle per target date D from the capture host to the workstation. The host side is
-`scripts/ops/mg2_input_export.ps1`, which wraps `python -m weather.calibration.mg2_input_export`. The task is
-**not registered**: `scripts/ops/register_mg2_input_export.ps1` registers it only after the owner says yes, on the
-dedicated capture host, from a clean checkout at `-ExpectedSourceTip`. `-WhatIf` prints the task definition and
-touches nothing.
+`scripts/ops/mg2_input_export.ps1`, which wraps `python -m weather.calibration.mg2_input_export`.
+`scripts/ops/register_mg2_input_export.ps1` registers it on the dedicated capture host, from a clean checkout at
+`-ExpectedSourceTip`; `-WhatIf` prints the task definition and touches nothing. **The task is registered** (master's
+host read, 2026-11-03 16:2x): Ready, daily triggers 04:15 and 07:00, no end boundary, last run rc 0 on 2026-11-03.
+This resolves audit D1-13.
 
 - **When.** 04:15 local on D+1 (after the export cut, LA midnight ending D, and the 01:00-04:00 quiet window),
   with one retry at 07:00 that is a no-op once `<D>\manifest.json.sha256` exists. No `StartWhenAvailable`; a
@@ -1246,6 +1282,118 @@ touches nothing.
   `\\192.168.1.247\mg2-inputs`, read-only for the workstation account; the workstation's stored credential is
   keyed to that IP form, so use it rather than the host name. `pull` only reads under `--share-root`: it creates,
   renames, locks and writes nothing there; its staging, `incoming\` and the receipt ledger are workstation-local.
+- **Workstation task (drift note, 2026-11-03).** The binding plan §9.7 (`binding-plan.md:434`) says no Scheduler
+  task is registered on the workstation. That statement is SUPERSEDED: with the owner's 2026-10-30 yes, the
+  workstation task `\L2 MG-2 forward input pull+receive` was registered about 18:10 ET that day (launcher
+  `34f83043`, pinned worktree `C:/wt/mg2-forward-pinned` @ `9be9eedcc`, 18 triggers 06:30-23:00, Build off), after
+  the 10-29 bundle was hand-verified (manifest `46003a30`, 8/8 checks); see DECISION_LOG. The bound file stays
+  untouched. `9be9eedcc` is not yet on master and lands in a later RF combo.
+
+## Row-28b input trim (master-run weekly one-shot; no task)
+
+The (a) as-of-capture trim for the row-28b forward inputs ([design and master's rulings of
+2026-11-04](../research/row28b-asof-trim-design-2026-11-04.md); the owner's carve-out is the reserved-window
+row-28b row). The host side is `scripts/ops/r28b_input_trim.ps1`, which wraps
+`python -m weather.calibration.r28b_input_trim`. **No scheduled task exists or is planned** (master Q5): master
+starts the wrapper on the capture host, detached, once per weekly emission batch, and logs each output line.
+
+- **When.** From 2026-12-21 (the first emission batch), 07:30–09:00 America/Toronto: after the 04:15 MG-2 export
+  and its 07:00 retry, inside 00:30–09:00. `-Date` takes one batch, 1 to 7 comma-separated local target dates.
+  Only dates 2026-12-17..2027-01-30 are accepted; the module refuses every other date and any run before
+  2026-12-21, with no override (master Q4, Q6).
+- **Admission.** The shared lease (workload `r28b_input_trim`; the wrapper refuses when it is busy), the assigned
+  dedicated capture host, 5 GiB free, fresh memory-guard evidence below 70 % commit, a `-P -B` child pinned to the
+  checkout's `src` in a kill-on-close job, and a deadline before 09:00. A stale `.<D>.partial` of a batch date is
+  removed under the lease. Cost: seconds, well under 1 GB.
+- **Reads.** Only the published `data\exports\mg2-inputs\<D>\` and `<D>.SHA256SUMS`, verified first (ready marker,
+  manifest sha, allowlist sha, export cut, every file's sha and size, no unlisted file, the SUMS lines, no link or
+  reparse point). Nothing under `data\snapshots\` or `forecast_payload_cas\`; the bound exporter is never run.
+- **What it keeps.** Per market, T* is the latest capture in D's `features_long.csv` with an integer captured
+  cutoff hour of at most 16, on local date D in the market's own zone. Only records captured at or before T* are
+  kept (`replay_inputs.jsonl`, `snapshots_long.csv`, `features_long.csv`, the D-1/D/D+1 NBM manifests), byte for
+  byte, with only the NBM blobs a kept row references. W1 (`r28b_w1_after_local_midnight`): a capture after local
+  midnight ending D never sets T* and never travels. W2 (`r28b_w2_no_scored_cutoff_snapshot`): a market without
+  such a snapshot is refused by name and none of its files travel. `prev_day/` is dropped; no `prev_dmax` is built.
+- **Writes.** Only under `data\exports\r28b-inputs\`: `<D>\` (an `mg2_input_bundle/1` bundle, atomically renamed
+  from `.<D>.partial`, whose manifest adds the `r28b_trim` block), `<D>.SHA256SUMS`, `_holes\<D>.json` and the
+  wrapper's `_runs\` receipt and captured output.
+- **Holes (master Q2).** A date not published by 09:00 Toronto on D+1, or finished later, is a named hole
+  (`r28b_hole_not_exported_by_deadline`, `r28b_hole_exported_after_deadline`), written once and disclosed; exit 4.
+  Before that deadline an absent bundle is `not_ready` (exit 3) and nothing is written. Exit 2 is a refusal.
+- **What master logs.** Each output line's `manifest_sha256` (or `hole_sha256`) with the host timestamp, the same
+  day. The workstation verifier accepts a trimmed bundle only against that logged sha, which replaces the MG-2
+  receiver's D+1 deadline for the weekly route.
+- **Workstation side.** `python -m weather.calibration.r28b_inputs`:
+  - `verify` runs the bound `mg2_inputs.verify_bundle` unchanged plus the `r28b_trim` checks (the pinned trim
+    module sha, H_LAST, `prev_day` dropped, nothing captured after T*) and appends to the row-28b ledger
+    `C:\t\r28b\forward\input_receipts.jsonl` (never MG-2's);
+  - `hole` records a host-named hole;
+  - `compare` runs on the first forward batch: the 343b emitter on the full and on the trimmed inputs, reporting
+    booleans, counts and shas only. Only `outside_cutoff_hours`, `no_fit_for_hour` and `replay_hours` may differ;
+    anything else is a STOP (a `STOP_r28b_trim_invariance` marker beside the ledger, removed only by master);
+  - `gate` prints `emit_allowed`. Nothing emits from a trimmed set while it is false.
+- **Not changed.** `WeatherMg2InputExport`, its wrapper and the bound exporter, receiver and allow-list. Whether
+  the workstation's MG-2 forward pull task keeps pulling full MG-2 bundles for dates >= 2026-12-17 is a separate
+  MG-2 decision. Row-28b reads only its own trimmed inbox.
+
+## Forward input arrival check (`WeatherForwardArrivalCheck`; registrar only)
+
+Master ruling R20 (2026-11-01) §2. The host checks that yesterday's (D) B and L6_G forward inputs reached the
+workstation and were verified there, from receipts the workstation pushes to the host. Nothing on the host reads
+workstation files directly.
+
+- **Workstation beacon.** `tools/research/ws_forward_receipts_beacon.ps1` runs as a workstation task registered by
+  `tools/research/register_ws_forward_receipts_beacon.ps1` (Interactive/Limited, the vault exception: the share
+  needs the workstation's stored credential; every 30 minutes plus at logon). It opens each forward ledger with
+  `[IO.File]::Open(p, 'Open', 'Read', 'ReadWrite,Delete')`, so a writer appending to the ledger is never blocked.
+  It reads only complete lines and never copies a ledger file. It projects each row to its date, status and sha
+  fields. It writes each file as `.tmp` and renames it under `<share root>\in\forward-receipts\`, with a fallback
+  share root, and adds `heartbeat.json`. Both share roots are parameters; the repository names no host address.
+  The workstation task is registered only on the owner's yes.
+- **Host check.** `scripts/ops/forward_input_arrival_check.ps1` runs as `WeatherForwardArrivalCheck`
+  (`scripts/ops/register_forward_input_arrival_check.ps1`; S4U/Limited; 07:45, 11:45 and 18:05 local; IgnoreNew;
+  a 5-minute limit; no `StartWhenAvailable`). It is pure PowerShell and light: no child process, no lease. It
+  reads the host-local folder behind the share (`-ReceiptsRoot`) and checks D by slot:
+  - at every slot, the export marker `data\exports\mg2-inputs\<D>\manifest.json.sha256` and a heartbeat at most 90
+    minutes old;
+  - from 11:45, a B row for D that is `verified` with `manifest_sha256` equal to the marker, and (D >= 2026-10-31)
+    a `verified` L6_G bundle row;
+  - at 18:05, an L6_G emit receipt for D.
+- **Output.** One row per run in `data\alerts\forward_arrival.jsonl` (`forward_arrival_check/1`) and the atomic
+  state file `data\alerts\forward_arrival_state.json`. Exit 2 on ALERT. After `-LastDate` (2026-12-16) it records
+  RETIRED and checks nothing.
+- **Status.** `status.ps1` reads the state file: ALERT is a `FORWARD_ARRIVAL ALERT` FLAG naming D, the slot and the
+  failures, and the task's exit 2 is then not reported a second time as unexpected. A state more than 14 hours old,
+  or one that cannot be read, is a WARN. No state yet, or RETIRED, is silent. JSON key `forward_arrival`.
+- **Registration.** Master registers the host task after the R20 head lands, from a clean checkout at
+  `-ExpectedSourceTip`, with `-WhatIf` first. The registrar refuses any host other than the dedicated capture host.
+
+## MG-1 Input Backfill (manual; no scheduled task)
+
+R11 Head 1 backfills MG-2-format input bundles for the MG-1 reserved window dates 2026-10-15..2026-10-27,
+which predate the MG-2 export. The host side is `scripts/ops/mg1_input_backfill.ps1` (by hand, never
+registered), which wraps `python -m tools.research.mg1_input_backfill`. That tool swaps only the exporter's date
+gate inside `try/finally` and calls the unchanged `weather.calibration.mg2_input_export` with coverage counts
+always off; nothing under `src/` imports or names it.
+
+- **Admission.** Identical to the MG-2 export wrapper (00:30-09:00, lease workload `mg1_input_backfill` refused
+  when busy, 5 GiB free on the output volume, the dedicated capture host, kill-on-close job, deadline before
+  09:00), with the `-P -B` child pinned to `<source>;<source>\src` and both modules proven to resolve there, and
+  memory freshness measured in UTC by `Get-WeatherMemoryGuardStatusAgeMinutes`. `-Mode Precheck` lists input
+  presence and sizes from metadata only; `-PlanOnly` prints the plan and stops.
+- **Writes.** Only under `data\exports\mg1-inputs\`: the exporter's `<D>\` and `<D>.SHA256SUMS`, a sidecar
+  `<D>.mg1_backfill_receipt.json` (exporter and wrapper sha256, manifest sha256, coverage counts false), and
+  `_runs\`. A date already exported is skipped; partial outputs refuse the date.
+- **Transfer (master 2026-11-01; no new share).** Master copies each date's `<D>\`, `<D>.SHA256SUMS` and
+  `<D>.mg1_backfill_receipt.json` from the host's `data\exports\mg1-inputs\` into `mg1-inputs\` on the existing
+  xfer share. On the workstation, `python -m weather.calibration.mg1_layout stage --share-root <xfer UNC>\mg1-inputs
+  --inbox <I> --date <D>` copies `<D>\` and the sidecar read-only and prints
+  `MG1-STAGE <D> <sha> STAGED (not verified yet)`. `admit --inbox <I> --date <D>` runs every §9.3 check except the
+  deadline, records the outcome in MG-1's own ledger, and prints one verify line,
+  `MG1-VERIFY <D> <bundle manifest sha256> PASS` (or `FAIL:<reason>` / `NOT_READY`). Master deletes the share's
+  staging copy of a date only after its PASS line; a FAIL keeps it for inspection. `build` and `concat` assemble
+  the full window once it has closed. The share root is always an argument and is never written; the repository
+  names no share path or host.
 
 ## Why Capture Is Not Packaged Into The Dashboard
 
@@ -1259,5 +1407,5 @@ the owners of evidence capture.
 
 Update when capture-loop ownership, supervisor tasks/commands, status or log
 contracts, dashboard controls, deployment/restart behavior, which checkout a task executes from, daily-chain step
-order or settlement recovery, the MG-2 input export, daily-trigger construction or the DST re-registration list, or retraining
+order or settlement recovery, the MG-2 input export, the forward input arrival check, daily-trigger construction or the DST re-registration list, or retraining
 topology changes.

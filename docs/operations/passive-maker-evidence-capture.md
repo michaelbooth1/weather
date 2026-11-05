@@ -449,6 +449,181 @@ the Scheduler). It waits up to `-WaitSeconds` (default 420) for a new pid in
 Exit 0 only for `RESTARTED_CURRENT`; 2 refused, 3 not restarted, 4 not current.
 Record the gap in the panel notes.
 
+### Torn-journal quarantine tool
+
+`scripts/ops/maker_evidence_torn_quarantine.ps1` performs the torn-journal recovery
+after a hard power loss: it moves the unsealed segment's torn journals byte-exact to
+`data\maker_evidence_quarantine\<UTC-day>\<segment>\` with a receipt, so the next
+recorder start can seal the rest. It is report-only unless `-Apply`. The default root
+is the core `data\maker_evidence`, checked against `WeatherMakerEvidenceCapture`. A
+family root needs an explicit `-Root` and `-QuarantineRoot`, and is checked against a
+task only when `-TaskName` is given. It never starts or changes a scheduled task;
+start the recorder yourself afterwards.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1 -Apply
+```
+
+- It holds byte 0 of `.writer.lock` for the whole pass, refuses while a recorder holds
+  it, and releases it on every exit.
+- Before a writer-alive refusal (`REFUSED_WRITER_ALIVE`: a recorder process for the root, or a
+  sharing or lock violation on `.writer.lock`), it runs a read-only mirror of
+  `EvidenceStore._recover` over the whole store, with shared opens and no writes.
+  - Every unsealed segment, whenever written, is checked record by record: strict UTF-8, a strict
+    JSON object per line, no integer over 4300 digits, the offset chain, the 16 MiB line bound,
+    and an integer `response_bytes` of at most 12 digits on stream records.
+  - Every sealed `manifest.json` or `manifest.json.gz` must parse and name the store schema. A gzip
+    manifest must be one member whose CRC32 and size footer match, with no trailing bytes. A
+    folder named like a manifest, or a legacy `manifest.jsonl*` at day level, is a problem.
+  - Footprint: at most 20,000 journal and manifest paths, and the uncompressed bytes plus an
+    upper bound of every manifest recovery would write when sealing the unsealed segments must
+    stay under the 500 MB bound. Sealing is accounted without the reserve, so a segment with
+    thousands of journals can cross it.
+  - The only exemption is the live writer's own segment: the single newest unsealed segment in a
+    UTC day folder. A partial last line there passes only if the file moves during a 2-second
+    wait. A tail that stays still is torn, which is the crash-looping recorder case.
+  - A tail still partial after the wait but whose length changed also counts as in flight
+    (clean), on movement alone; that partial tail is never verified. This is accepted because
+    only a live writer extends a file. If the writer later dies mid-line, the next run sees a
+    still tail and returns exit 3. The task repeats every minute for 15 minutes after boot, so
+    that run comes within minutes; after the window it is the next boot's run.
+  - The result carries `torn_tail_found`: `true`, `false`, or `null`. It is `false` only when
+    everything was positively verified. It is `null` on any unreadable file or folder, reparse
+    point, record or manifest that recovery would refuse, or more than 64 unsealed segments (only
+    the first 64 are scanned). Lists in the result are capped at 20, with counts.
+  - Any torn tail is `REFUSED_WRITER_ALIVE_TORN` (exit 3), even if other files failed
+    (`torn_tail_scan` then starts `partial:`). A recorder cannot start over it, or something
+    other than a recorder holds the lock.
+- Any other failure to open or lock `.writer.lock` (access denied, I/O) is
+  `REFUSED_LOCK_UNAVAILABLE` (exit 2), never the writer-alive path.
+- It acts only on a single unsealed segment. It moves at most 10 non-empty, non-dot
+  `*.jsonl` without a final newline. Root, quarantine, day, segment and journal must not
+  be reparse points, and root and quarantine must be on one volume.
+- Each move is a same-volume rename with SHA-256 before and after.
+  `QUARANTINE_INTENT.json` is written first and `QUARANTINE_RECEIPT.json` last. A rerun
+  reconciles from the intent. If the receipt failed and the recorder has since sealed
+  the segment, the rerun reports `REPORT_AFTER_SEAL`, and `-Apply` writes the receipt
+  (`RECONCILED_AFTER_SEAL`).
+- `UNRESOLVED` (exit 5, nothing moved) means a NUL inside a newline-terminated journal,
+  quarantined bytes that no longer match the intent, or an intent without a receipt
+  whose source segment is gone.
+- Every no-action (`NOOP_*`) result also reads the task's last result. If it is 1, and
+  newer than that segment's receipt when one exists, the result becomes
+  `TORN_SIGNATURE_UNRESOLVED` (exit 5). Examples: a torn `manifest.json`, or corruption
+  this tool may not move.
+  If the tool's own run coincided with a recorder trigger, this can be a false alarm:
+  start the task and rerun.
+
+Exit codes:
+
+| Code | Results |
+| --- | --- |
+| 0 | `NOOP_*`, `REPORT*`, `QUARANTINED`, `RECONCILED`, `RECONCILED_AFTER_SEAL` |
+| 2 | refused |
+| 3 | `REFUSED_WRITER_ALIVE_TORN`: a writer holds the store and an unsealed segment it is not writing has a torn tail; nothing moved |
+| 4 | failed mid-apply, or `FAILED_HASH_READ`; rerun reconciles, or reports `UNRESOLVED` (hash mismatch) |
+| 5 | unresolved; needs a human |
+| 6 | internal error; lock released |
+
+`-Apply` appends one line per pass to `data\alerts\maker_evidence_torn_quarantine.jsonl`.
+
+### Torn-journal quarantine at boot (Stage 2)
+
+`WeatherMakerEvidenceTornQuarantine` runs the same tool unattended after a reboot (owner yes
+2026-11-02). Master registers it on the capture host only after Stage 1 has landed there.
+**It is not registered until then.** The canonical definition is the checked-in
+`scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml`, and
+`scripts/ops/register_maker_evidence_torn_quarantine.ps1` registers that definition and nothing
+else. The registrar substitutes three values into it: the current user, the checkout root and the
+Windows PowerShell path.
+
+- Trigger: at startup with no delay, then every minute for 15 minutes. The Scheduler repetition is
+  the bounded poll from the design, so the Stage 1 script is unchanged. There is no
+  `StartWhenAvailable`.
+- Settings: IgnoreNew, a 5-minute run limit, and it runs on batteries. Principal: current-user
+  S4U/Limited.
+- Action: `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+  "<root>\scripts\ops\maker_evidence_torn_quarantine_boot.ps1"`. The boot wrapper runs
+  `maker_evidence_torn_quarantine.ps1 -Apply` on the core root in a child PowerShell and passes its
+  exit code through. The one exception is `REFUSED_WRITER_ALIVE` (exit 2: a running recorder or a
+  held `.writer.lock`). It becomes 0 only when the same JSON says `torn_tail_found` is `false`, that
+  is, the recovery-mirror scan verified the whole store. A missing or `null` value stays 2, and
+  `REFUSED_WRITER_ALIVE_TORN` stays 3. Family roots stay operator-run.
+- Behavior on a normal boot:
+  - Before the recorder starts, a run classifies under the lock and moves torn tails, if there are
+    any.
+  - The recorder's next PT5M trigger then seals the rest. This task never starts the recorder
+    itself.
+  - Once the recorder is up, it has sealed every older segment and writes only its own. Every
+    later run is then a clean `REFUSED_WRITER_ALIVE` mapped to 0, so the window ends with
+    `LastTaskResult` 0. Each such run reads the live segment once (up to the 100 MB rotation size)
+    and, if its tail is mid-write, waits 2 seconds.
+- Collision with the recorder's first start, which is likely: the recorder task has
+  `StartWhenAvailable`, so its catch-up start falls near the boot trigger. A quarantine run holds
+  the lock for a few seconds.
+  - If the recorder starts during that hold, it refuses ("already has a writer") and retries 5
+    minutes later.
+  - Meanwhile the next quarantine run reports `TORN_SIGNATURE_UNRESOLVED` (exit 5).
+  - The first run after the recorder is up returns 0 again. Capture starts at most one PT5M
+    interval late.
+- Race: the recorder starts first over a torn segment, or crash-loops on one (killed mid-write
+  after boot, then refused by recovery at every start), or something else holds the lock.
+  - Each quarantine run that sees a writer alive (process or lock) and a still torn tail returns
+    `REFUSED_WRITER_ALIVE_TORN`, exit 3, and moves nothing. Boot time plays no part, so Fast
+    Startup does not matter. `status.ps1` flags `WeatherMakerEvidenceTornQuarantine 0x3
+    unexpected`.
+  - The recorder then fails in recovery and releases the lock, and the next run quarantines. A
+    later 0 clears the flag.
+  - If 0x3 is still the last result after the window, the recorder kept winning the race.
+    Operator: confirm `REFUSED_WRITER_ALIVE_TORN` in
+    `data\alerts\maker_evidence_torn_quarantine.jsonl`. Wait until no recorder process runs for
+    the core root, which is the case while `WeatherMakerEvidenceCapture` is failing. Then run the
+    tool by hand, report-only and then `-Apply` (see the tool section), and start the recorder task.
+  - A scan that cannot verify the store (`torn_tail_found` `null`) stays exit 2 and is flagged the
+    same way. Read `torn_tail_scan` and `torn_tail_scan_problems` in the alert row. The problem
+    names the file and the record offset that recovery would refuse; treat it as the manual
+    torn-journal procedure, not as something this tool moves.
+- Timeout overlap. At the PT5M limit, Task Scheduler may end only the wrapper and leave its Stage 1
+  child running.
+  - The next run sees that orphan's lock as a live writer. While a torn tail remains, that
+    is exit 3. Once the orphan has moved the tails, it is a clean refusal mapped to 0, which hides
+    the overlap.
+  - The orphan still holds the lock, finishes or fails on its own, and appends its own log line.
+  - A Stage 1 pass normally takes seconds. If the task history shows a timeout (run terminated at
+    the limit), look for a leftover `maker_evidence_torn_quarantine.ps1` process and read its log
+    line once it ends.
+- A non-zero last result shows in `status.ps1` like any `Weather*` task. A non-zero result at the
+  end of the 15-minute window stays visible until the next boot and needs a human. That covers
+  exit 2 (cap, several unsealed segments, volume or reparse refusals, `REFUSED_LOCK_UNAVAILABLE`,
+  an unverified writer-alive scan), 3, 4, 5 and 6. Read
+  `data\alerts\maker_evidence_torn_quarantine.jsonl`.
+
+Registration (production agent only, never on the workstation):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\register_maker_evidence_torn_quarantine.ps1 -ExpectedSourceTip <full tip> -ExpectedScriptSha256 <sha256 of maker_evidence_torn_quarantine.ps1> -ExpectedBootWrapperSha256 <sha256 of maker_evidence_torn_quarantine_boot.ps1> -WhatIf
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\register_maker_evidence_torn_quarantine.ps1 -ExpectedSourceTip <full tip> -ExpectedScriptSha256 <sha256 of maker_evidence_torn_quarantine.ps1> -ExpectedBootWrapperSha256 <sha256 of maker_evidence_torn_quarantine_boot.ps1>
+```
+
+- `-WhatIf` prints PowerShell's own `What if:` line, one JSON plan line and then the exact XML. It
+  touches nothing: no host check, git call or Scheduler call.
+- Both modes refuse when the Stage 1 script or the boot wrapper does not hash to its pin.
+- Without `-WhatIf`, the registrar refuses unless all of the following hold: it is on the
+  dedicated capture host, the checkout is at `-ExpectedSourceTip` with no tracked change, and no
+  task of that name exists. It never replaces a task: an access or service error on the existence
+  check stops it, and `Register-ScheduledTask` runs without `-Force`.
+- After registering, it reads back the action, trigger, principal and settings.
+  - On any mismatch or readback error it disables the task, proves `Settings.Enabled` is false, and
+    fails.
+  - If disabling fails, the error says so and the task must be disabled by hand.
+  - On success it prints the exported XML and its SHA-256 for the record.
+- The action runs the checkout's scripts. A later merge that changes either script changes what
+  runs at boot, with no re-registration. Every log line records the running Stage 1
+  `script_sha256`.
+- Undo: `Disable-ScheduledTask -TaskName WeatherMakerEvidenceTornQuarantine` (an owner decision,
+  like the registration).
+
 The central schema registration is additive. Its shared-registry placement
 means deployment must use the repository roll-verdict tool; independence of
 the worker does not itself prove the entire branch roll-free.

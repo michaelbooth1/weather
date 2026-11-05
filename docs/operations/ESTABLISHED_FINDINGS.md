@@ -4931,6 +4931,82 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   ([recorder live-parent design](../research/recorder-live-parent-design-2026-11-01/design.md)) is the response.
   The no-raw-taskkill rule waits for its code to reach master.
 
+### 10aw. Row 28 year-round P3d_N refit, history only: arms A and B SURVIVE-history, arms C and D KILL, candidate B, not an adoption: lane L59, ledger rows 114-117 (K) / 118 (C), 2026-11-03
+
+- **Verdict (master 2026-11-03, frozen per prereg §8.2).** A SURVIVES-history; B SURVIVES-history; C KILL; D KILL.
+  The prereg's words for the survivors: "**SURVIVES-history.** Everything else. Survival is V4-scoped and is not an
+  adoption." For C and D: "**KILL** (a true kill). Any one of the *crossing* conditions, at any power".
+- **Selection (prereg §8.3).** Survivors A and B; both points are ≤ their own G (A −0.03028, B −0.03062); the forward
+  candidate is **B**, "the survivor with the most negative point *among survivors whose point is ≤ their G*". The
+  prereg: "The selection is disclosed. The forward test re-tests the candidate from zero, and the history point is not
+  carried as evidence." Forward dates need all three §9 conditions; the forward test is a separate prereg.
+- **Population.** Deciding tier Dec 17-May 31 of 2021-25, five folds 2021-2025; n 657 (restated by the integrity
+  report from 660), 643 pairs, 221 blocks; no 07-31..09-29 date read; history only. Comparator S is the MG-1 C5 bound
+  served arm. Arms: A year-round pooled refit; B season-matched refit (Dec 17-May 31 rows only); C arm A + R-P2
+  class-matched pooling, gap option 3; D arm A + the frozen K112 trailing correction.
+- **X−S, pooled (ci95_wide; SE_wide = the ×1.07 SE of prereg §8.4).**
+
+  | Arm | Point | ci95_wide | κ_wide | SE_wide | X−S power | Folds d > 0 | G | Outcome |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | A | −0.13614 | [−0.14375, −0.12853] | 1.549 | 0.00415 | 0.130 | 0 of 5 | −0.03028 | SURVIVES-history |
+  | B | −0.13684 | [−0.14453, −0.12914] | 1.570 | 0.00420 | 0.127 | 0 of 5 | −0.03062 | SURVIVES-history |
+  | C | −0.14120 | [−0.14850, −0.13391] | 1.469 | 0.00398 | 0.143 | 0 of 5 | −0.02902 | KILL |
+  | D | −0.07570 | [−0.09441, −0.05700] | 3.540 | 0.01021 | 0.026 | 1 of 5 | −0.07441 | KILL |
+
+- **X−A gate (C, D).** C−A −0.00506 [−0.00685, −0.00327], power 0.99995, 0 of 5 folds > 0; per-market lower bound
+  > 0 in san-francisco and seattle. D−A +0.06044 [+0.04529, +0.07559], power 0.102, 5 of 5 folds > 0; per-market
+  lower bound > 0 in 8 markets; D's per-market X−S CI lies above 0 in san-francisco.
+- **Conditions fired.** A, B: no crossing and no failure-to-show condition. C: crossing "a per-market X-A 95% lower
+  bound (wide) > 0". D: crossings "a per-market X-S 95% CI (wide) lies above 0", "X-A point >= -0.0005" and "a
+  per-market X-A 95% lower bound (wide) > 0"; failure-to-show (X−A) "X-A wide 95% upper bound >= 0" and "more than 1
+  of 5 folds have X-A d > 0". Holm rejected all four arms (thresholds 0.0125 / 0.0167 / 0.025 / 0.05).
+- **Disclosed flags (master: they do not change the verdict).**
+  - Prereg §8.4, method rule 16: realised X−S power is < 0.50 in all four arms, band "< 0.50 (rule-16 failure
+    flagged)". Pre-look projection (integrity report table 6.3): σ_eff 0.01872, MDE80 0.00261, power 0.99999.
+    Realised SE_wide 0.00398-0.01021 against the adequacy threshold 0.001707 (A's σ̂ 0.0995).
+  - The archive `INDEX.md` line rewrite for the C and D lines was accepted.
+- **Not built (descriptive only):** S_bound (§2), hours 07-12 vs the L6 stack (§4.4), fold 2026 / the V5.0 sliver.
+- **Records.** `claude/row28-yearround-history-20261102` @ `3e26cd2a8` (RUN_LOG); prereg sha256 `cb6d4e8da0ab5a144a185cf8dbaf777881402ea8a95db99f2a0e98f20a5e132b`;
+  runner v12 `9e97c892936842e79b3d6279aa88979da8cf79fb09bd3b269b4726b2dfd1025b`; score result `32932ebc58cfb3db469a3ed373847415ecfc4bca98f98480197c6f2994100f4b` + receipt `50cdadd1c028a55e04d307cf4c67298de889a912f180ded37af5c1edc1745430` @ `741174e5f`;
+  integrity gate `d8404064…` @ `95762ae89`; look gate `9611df77…` @ `774abff81`. Archive `C:\archive\ruled-out\row28-yearround-history-2026-11-02\`
+  (six stage receipts); register X104, X105.
+- **POST-HOC (gates nothing; master GO 2026-11-03; the verdict above is frozen and unchanged).** Branch
+  `claude/row28-posthoc-diag-20261103` @ `2a9cfcdf6`; script `POSTHOC_diag_v2.py` sha256 `b62c936f…`; output
+  `POSTHOC_diag_v2.json` sha256 `57663cf8…`. Reads only the stage-5 and stage-6 per-row score files (no refit) and
+  reproduces the committed pooled X−S point and SE of all four arms to 1e-12. Per-date means, US10, hours 13-16.
+  - **D1, X−S by month** (Dec n 30, Jan 93, Feb 113, Mar 116, Apr 150, May 155):
+
+    | Arm | Dec | Jan | Feb | Mar | Apr | May |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | A | −0.0775 | −0.1052 | −0.1360 | −0.1271 | −0.1598 | −0.1500 |
+    | B | −0.0546 | −0.1061 | −0.1396 | −0.1295 | −0.1631 | −0.1492 |
+    | C | −0.0941 | −0.1141 | −0.1427 | −0.1340 | −0.1620 | −0.1508 |
+    | D | +0.0985 | +0.0502 | −0.0473 | −0.0870 | −0.1411 | −0.1340 |
+
+  - **D1, X−S by fold** (2021 n 61, 2022 163, 2023 164, 2024 120, 2025 149): A −0.1492 / −0.1070 / −0.1321 /
+    −0.1633 / −0.1452; B −0.1486 / −0.1084 / −0.1307 / −0.1672 / −0.1455; C −0.1521 / −0.1119 / −0.1370 / −0.1680 /
+    −0.1518; D −0.1437 / +0.0036 / −0.0606 / −0.1401 / −0.0994. A−S share of the pooled point by month: Dec 0.026,
+    Jan 0.109, Feb 0.172, Mar 0.165, Apr 0.268, May 0.260.
+  - **D1, X−A by month** (Dec..May): B +0.0229 / −0.0010 / −0.0036 / −0.0024 / −0.0033 / +0.0008; C −0.0166 /
+    −0.0090 / −0.0067 / −0.0068 / −0.0021 / −0.0008; D +0.1760 / +0.1554 / +0.0887 / +0.0402 / +0.0188 / +0.0160.
+    By fold (2021..2025): B +0.0007 / −0.0014 / +0.0015 / −0.0039 / −0.0003; C −0.0029 / −0.0049 / −0.0049 /
+    −0.0047 / −0.0066; D +0.0056 / +0.1106 / +0.0715 / +0.0232 / +0.0458.
+  - **D1, own Brier** (pooled; Dec..May): S 0.6584; 0.5124 / 0.5527 / 0.6023 / 0.6817 / 0.7272 / 0.7069. A 0.5223;
+    0.4350 / 0.4475 / 0.4663 / 0.5546 / 0.5674 / 0.5569. S/A 1.178 / 1.235 / 1.292 / 1.229 / 1.282 / 1.269. By fold
+    (2021..2025): S 0.7246 / 0.6112 / 0.6471 / 0.6878 / 0.6717; A 0.5753 / 0.5042 / 0.5150 / 0.5245 / 0.5265.
+  - **D2, realised vs projected SE.** Projection: σ_eff 0.01872 = SD 0.016304 (row-109 receipt) × √1.318 (ρ 0.137);
+    SE_wide 0.000780 at n 660, power 0.99999. Realised, arm A: SD 0.07995, ρ 0.2155, κ_AR 1.549 (643 pairs),
+    κ_block3 1.419 (221 blocks), κ_wide 1.549, n_eff 424, SE_wide 0.00415 = 5.33× projected = SD ratio 4.904 ×
+    √(κ_wide/1.318) 1.084 × √(660/657) 1.002. Rows per date 40.0 (design 40). SD with month means removed 0.0769.
+    B: SD 0.0803, κ_AR 1.570, κ_block3 1.419, SE 5.39×; C: 0.0787, 1.469, 1.402, 5.11×; D: 0.1300, 3.540, 2.075,
+    13.10×. Arm A per fold (n, SD, within / between share of the sum of squares): 2021 61, 0.0696, 0.069 / 0.002;
+    2022 163, 0.0662, 0.169 / 0.033; 2023 164, 0.0790, 0.243 / 0.001; 2024 120, 0.0845, 0.203 / 0.021; 2025 149,
+    0.0851, 0.256 / 0.003. The projection input that was wrong is the per-date SD (method rule 19).
+  - **Master's reading (post-hoc, master's, 2026-11-03).** The "S scored out of season" hypothesis is not supported
+    in its simple form. X-S is negative in every month and every fold for arms A, B and C. D (KILL) is positive in
+    Dec (+0.099), Jan (+0.050) and fold 2022 (+0.004). The S/A Brier ratio is 1.18-1.29 in every month. It is still
+    a comparison to S, not to the market.
+
 ## Related
 
 - [FINDINGS_DIGEST.md](FINDINGS_DIGEST.md) — the one-screen digest of this file; read it first

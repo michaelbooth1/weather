@@ -88,6 +88,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - **The 88a recorder never held a full ladder (R28b, 2026-11-01):** books for <0.7 of 11 bands at any instant, no complete ladder 09-25..10-08, census 0/0/0: the C3 T+1 kill tier is closed untestable (a design gap, not a kill; A1 unchanged). The full-ladder T+1 recorder is the forward test. EF §10at; register X86.
 - **The dev warm NBM bias is not a v5.0 artefact (X36-v5, L47b, ledger row 111, 2026-11-01):** raw NBM 2026 Jan-May is +0.74°F warm pooled (Denver +1.86, LA +1.32) equally under v4.3 and v5.0, so X36's reopen condition is not met; it is a seasonal raw bias plus a 2026 shift. A trailing-window correction is distinct from X36 (K row 112). EF §10au.
 - **WS recorders died under a dead parent (2026-11-01 22:06-22:08Z):** all 10 at once, one dead parent; cause unverified. Long-lived recorders need a live, owned parent (L34 design). EF §10av.
+- **Row 28 year-round P3d_N refit (L59, ledger rows 114-118, 2026-11-03, history only, master verdict):** history survival A, B (SURVIVES-history: X−S A −0.1361 [−0.1438, −0.1285], B −0.1368 [−0.1445, −0.1291], n 657); C KILL and D KILL on prereg §8.2 crossing conditions (register X104, X105). §8.3 candidate B. **Survival is V4-scoped and is not an adoption.** Flags: realised X−S power < 0.50 in all four arms (§8.4, rule-16 failure; projected 0.99999); the archive INDEX line rewrite was accepted. EF §10aw.
 
 ## Evaluation and statistics rules that bind every claim
 

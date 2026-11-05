@@ -139,6 +139,64 @@ records, refusals = read_venue_labels("nyc", dates, read_through=date(2026, 9, 2
   rule: on 08-11..09-29 that rule disagrees with WU on 13 of 517 market-days
   and moves the band on 8, and the venue paid the WU band on all 8.
 
+## Forward-look labels
+
+Master ruling R24 (2026-11-01) owns how the forward looks get their post-cutover
+labels: MG-1, B/MG-2, L6_G, row 72, T+1 and F8-MH (PT-1 is not runnable and
+claims no date). The evening-fix read keeps its signed ledger labels. Module:
+`weather.backtesting.venue_label_audit`. It runs on the host only, 00:30-09:00
+under the shared workload lease, and it fetches from the network, so it runs
+directly, never through the workstation wrapper (like `venue_rule_labels`).
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.venue_label_audit refresh --through 2026-11-09
+.\venv\Scripts\python.exe -m weather.backtesting.venue_label_audit freeze --look mg1 --through 2026-11-29
+.\venv\Scripts\python.exe -m weather.backtesting.venue_label_audit audit [--run <utcRunId>]
+```
+
+- **`refresh --through D [--start 2026-10-22]`** refuses a `D` after today. It
+  creates a new `data/venue_rule_labels/runs/<utcRunId>/` (an existing folder is
+  refused, never reused) and copies `config/location_market_events.json` and
+  `config/venue_rule_stations.json` into it. It fetches routine-only IEM METAR
+  for every label station, serially and 5 s apart, into the run
+  (`<run>/<icao>/routine/`). The label stations are the 12 `BUILTIN_SPECS`
+  ICAOs, every built-in station in the station config (KDEN) and the
+  `resolutionSource` ICAO of built-in events only (`slug_prefix` match), so a
+  non-built-in city's station is never fetched. It builds all 12 markets from
+  the run and the snapshots into `<run>/labels/<market>/` and writes
+  `refresh_receipt.json` (`venue_label_refresh_receipt_v1`: shas and counts).
+  Then it runs the audit. A run that fails mid-fetch has no receipt; start a
+  new run.
+- **`freeze --look ID`** refreshes, then copies each market's CSV, manifest
+  and the WU daily summary its manifest names to
+  `data/venue_rule_labels/frozen/ID/<market>/` as `daily/daily_summary.csv`,
+  `manifest.json` and `wu/daily_summary.csv`, with `freeze_receipt.json`
+  (`venue_label_freeze_receipt_v1`). A look is frozen once; an existing `ID`
+  is refused. The layout is the reader's: a look reads only that copy, through
+  `read_venue_labels(..., label_root=frozen/ID,
+  wu_daily_summary=frozen/ID/<market>/wu/daily_summary.csv)`, inside its
+  registered entry point. Log the receipt's shas before the look starts.
+- **`audit`** (default: the newest finished run) prints counts only and writes
+  `audit.json` (`venue_label_audit_v1`). Per market: `label_source` counts,
+  skipped dates by reason, predicted reader refusals (with and without
+  `model_scoring`), thin rows (`row_count` below `COMPLETE_DAY_MIN_ROWS`),
+  `body`-basis rows, Denver KDEN/`config_override` rows and Denver fallback rows
+  (expected 0), pre-cutover pass-through mismatches against the WU summary,
+  and the station-config sha against the checked-in one. It reads manifests,
+  provenance columns and `row_count`. A label value is evaluated only to a
+  yes/no (present; same WU bucket) and is never printed. **`STATION_DRIFT`** (an
+  active built-in event dated from `--start` names an ICAO other than the
+  config station for that date, or the registry station when no entry
+  applies) exits 3. Rule it outcome-blind the same day; for a real station
+  change, add a dated `venue_rule_stations.json` entry.
+
+Embargo: before a look, master reads only stdout, receipts, manifests and the
+audit, never a CSV, a METAR file or a label value. The module never imports the
+reader, never passes `allow_reserved_window`, and never writes a label value,
+bucket or winner. `refresh` replaces the step-1 and step-2 CLI calls for the
+looks. It does not change Stage A, which stays on the WU rule (runbook step 4
+waits until after B).
+
 ## Known gap: ledger source fields
 
 A ledger row finalized with `--label-rule venue` still says

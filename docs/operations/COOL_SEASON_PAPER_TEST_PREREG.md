@@ -1,5 +1,7 @@
 # PT-1: cool-season paper test, pre-registration (DRAFT)
 
+> **Status 2026-11-03: NOT RUNNABLE (master ruling R21, landed on the 11-04 docs head).** With candidate C-PT, PT-1 fails method rules 4 and 6; it will not be bound and claims no date. See the [receipt](../research/pt1-not-runnable-2026-11-03/receipt.md) (raw sha256 `8c45c8d99dabf1e38b21ad3ebd6e1b015a723b54054dd73d72e2373686cf7c35`), [EXHAUSTION_REGISTER](EXHAUSTION_REGISTER.md) X106 and the DECISION_LOG R21 row. The draft below is unchanged (sha256 as ruled `7de9be949653a1513e5690f1c2a25fc9146946bc77f24e5ac3da252c46a16986`) and kept as the record. Reopen only under a new prereg.
+
 > **Repository copy, filed 2026-10-26 in the docs head.** Copied from the coordinator's draft (raw sha256
 > `e0c1063dd2fef01075ff236aea71e052481b14912f0c5c0d0f79e8596ea1ab59`). Changes: this note, and three literal tabs restored to the
 > backslash-t they stood for in Windows paths (`data\inbox\tapes-...`, `execution_tape\trades-*`), and the answers

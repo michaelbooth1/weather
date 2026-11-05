@@ -9,7 +9,8 @@ Fixture bytes only; no network.
 import hashlib
 import json
 import socket
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -383,3 +384,100 @@ def test_utc_labelled_series_across_fall_back_maps_correctly(tmp_path, style):
     assert by_utc["2021-11-07T06:00:00+00:00"]["valid_time_local"] == "2021-11-07T01:00:00-05:00"
     assert by_utc["2021-11-08T04:00:00+00:00"]["target_date"] == "2021-11-07"
     assert by_utc["2021-11-08T05:00:00+00:00"]["valid_time_local"] == "2021-11-08T00:00:00-05:00"
+
+# Retrieval-time independence (master 2026-11-03, L59 May-window refusal): the provider labels a whole
+# response with the zone's offset at retrieval, so the same request retrieved under EDT (-14400) and
+# under EST (-18000) carries different labels. Staging, materialize and the serve-path reader must map
+# both to the same UTC instants and the same local dates, hours and values.
+RETRIEVAL_OFFSETS = (-14400, -18000)
+_EPOCH = datetime(2021, 1, 1, tzinfo=timezone.utc)
+
+
+def _provider_labels(request, offset):
+    """The provider's labels for ``request`` at retrieval offset ``offset``, with each value a function of
+    the true UTC instant, so equal instants carry equal values whatever the labels say."""
+    start = date.fromisoformat(request["params"]["start_date"])
+    end = date.fromisoformat(request["params"]["end_date"])
+    first = datetime.combine(start, datetime.min.time())
+    labels = [first + timedelta(hours=index) for index in range(((end - start).days + 1) * 24)]
+    instants = [(label - timedelta(seconds=offset)).replace(tzinfo=timezone.utc) for label in labels]
+    values = [float((instant - _EPOCH).total_seconds() // 3600 % 997) for instant in instants]
+    return [label.strftime("%Y-%m-%dT%H:%M") for label in labels], values
+
+
+def _materialize_at(tmp_path, offset, season_start, season_end, year):
+    root = tmp_path / str(-offset)
+    root.mkdir()
+    plan = build_plan(years=(year,), target_year=2026, market_ids=("nyc",), season_start=season_start,
+                      season_end=season_end, cutoff_hours=(7, 12), planned_at_utc="2026-11-03T00:00:00+00:00",
+                      source_fields=("temperature_2m",), pad_request_days=1)
+    path = root / "plan.json"
+    write_immutable_plan(path, plan)
+    request = plan["requests"][0]
+    labels, values = _provider_labels(request, offset)
+    body = json.loads(_body(request, labels, utc_offset_seconds=offset))
+    body["hourly"][request["variables"][0]["request_field"]] = values
+    stage_response(path, root / "staging", request["request_hash"], json.dumps(body).encode("utf-8"),
+                   http_status=200, retrieved_at_utc="2026-11-03T12:00:00Z",
+                   issue_evidence=fetch.issue_evidence_for(request))
+    manifest = materialize_corpus(path, root / "staging", root / "publish")
+    hourly = [(r["target_date"], r["valid_time_utc"], r["valid_time_local"], r["values"]["target_temp_native"])
+              for r in _rows(manifest, "forecast_hourly.jsonl")]
+    daily = [(r["target_date"], r["cutoff_hour_local"], r["feature_as_of_utc"], r["forecast_high_native"])
+             for r in _rows(manifest, "forecast_daily.jsonl")]
+    return request, sorted(hourly), sorted(daily)
+
+
+@pytest.mark.parametrize("season_start,season_end,year,dst_date,hours", [
+    ((10, 25), (11, 12), 2021, "2021-11-07", 25),  # fall-back inside the window
+    ((3, 5), (3, 20), 2022, "2022-03-13", 23),  # spring-forward inside the window
+    ((5, 10), (5, 26), 2022, None, 24),  # an all-EDT window (the L59 refusal's shape), padded
+])
+def test_same_instants_under_either_retrieval_offset(tmp_path, season_start, season_end, year, dst_date, hours):
+    results = [_materialize_at(tmp_path, offset, season_start, season_end, year) for offset in RETRIEVAL_OFFSETS]
+    (request, hourly_edt, daily_edt), (_, hourly_est, daily_est) = results
+    assert hourly_edt == hourly_est and daily_edt == daily_est
+    dates = sorted({row[0] for row in hourly_edt})
+    assert dates == request["expected_local_dates"]
+    per_date = {day: sum(row[0] == day for row in hourly_edt) for day in dates}
+    if dst_date:
+        assert per_date.pop(dst_date) == hours
+    assert set(per_date.values()) == {24}
+    for _day, utc, local, value in hourly_edt:  # every value is the one the provider gave that instant
+        instant = datetime.fromisoformat(utc)
+        assert datetime.fromisoformat(local).astimezone(timezone.utc) == instant
+        assert value == float((instant - _EPOCH).total_seconds() // 3600 % 997)
+
+
+@pytest.mark.parametrize("offset", RETRIEVAL_OFFSETS)
+def test_serve_reader_maps_both_retrieval_offsets_to_the_staging_instants(offset):
+    from weather.time import provider_hourly_local_times
+
+    request = {"params": {"start_date": "2021-11-05", "end_date": "2021-11-09"}}
+    labels, _values = _provider_labels(request, offset)
+    staged, mode, errors = resolve_provider_times(labels, "America/New_York", offset)
+    served = provider_hourly_local_times(labels, ZoneInfo("America/New_York"), offset)
+    assert mode == "fixed_offset" and errors == []
+    expected = [(datetime.fromisoformat(label) - timedelta(seconds=offset)).replace(tzinfo=timezone.utc)
+                for label in labels]
+    assert [value.astimezone(timezone.utc) for value in staged] == expected
+    assert [value.astimezone(timezone.utc) for value in served] == expected
+    assert [value.utcoffset() for value in staged] == [value.utcoffset() for value in served]
+
+
+def test_unpadded_all_edt_window_retrieved_under_est_fails_closed_and_under_edt_passes(tmp_path):
+    plan, path = _plan(tmp_path, (5, 10), (5, 26), year=2022)
+    request = plan["requests"][0]
+    labels, values = _provider_labels(request, -18000)
+    body = json.loads(_body(request, labels, utc_offset_seconds=-18000))
+    body["hourly"][request["variables"][0]["request_field"]] = values
+    with pytest.raises(StagingValidationError, match="row_outside_request_window:2022-05-27"):
+        stage_response(path, tmp_path / "staging", request["request_hash"], json.dumps(body).encode("utf-8"),
+                       http_status=200, retrieved_at_utc="2026-11-03T12:00:00Z",
+                       issue_evidence=fetch.issue_evidence_for(request))
+    labels, values = _provider_labels(request, -14400)
+    body = json.loads(_body(request, labels, utc_offset_seconds=-14400))
+    body["hourly"][request["variables"][0]["request_field"]] = values
+    stage_response(path, tmp_path / "staging", request["request_hash"], json.dumps(body).encode("utf-8"),
+                   http_status=200, retrieved_at_utc="2026-10-03T12:00:00Z",
+                   issue_evidence=fetch.issue_evidence_for(request))
