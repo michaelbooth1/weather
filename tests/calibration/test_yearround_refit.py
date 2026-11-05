@@ -735,8 +735,12 @@ def _imports(path):
 
 def test_no_capture_loop_or_product_module_imports_the_module():
     importer = re.compile(r"calibration\.yearround_refit\b|\bimport\s+yearround_refit\b|yearround_refit\s+import\b")
+    # Exact-path exemption (master 2026-11-05 343b landing ruling): row-28b invariance compare (master 2026-11-04 Q6):
+    # lazy, research-only, read-only use of the emitter; its own import refuses on production packages and the
+    # capture host. Any other importer still fails.
+    allowed = {ROOT / "src" / "weather" / "calibration" / "r28b_inputs.py"}
     hits = [str(p.relative_to(ROOT)) for base in ("src", "app") for p in (ROOT / base).rglob("*.py")
-            if p != MODULE_FILE and "schema_families" not in p.parts
+            if p != MODULE_FILE and "schema_families" not in p.parts and p not in allowed
             and importer.search(p.read_text(encoding="utf-8"))]
     assert hits == []
 
