@@ -5,23 +5,23 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-04T18:22:43.142169+00:00
+Generated: 2026-11-05T10:58:16.692821+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 333 |
-| Active items | 16 |
-| OPEN | 4 |
+| Items | 336 |
+| Active items | 19 |
+| OPEN | 7 |
 | PARTIAL | 12 |
 | COMPLETE | 289 |
 | DORMANT | 28 |
-| Active, no disposition within 45 days of 2026-11-03 | 11 |
-| ROADMAP rows | 333 |
-| ROADMAP primary rows | 333 |
-| Metadata manifest rows | 333 |
+| Active, no disposition within 45 days of 2026-11-05 | 11 |
+| ROADMAP rows | 336 |
+| ROADMAP primary rows | 336 |
+| Metadata manifest rows | 336 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -41,9 +41,12 @@ Status: `OK`
 | 333 | PARTIAL | - | - | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 | 336 | PARTIAL | 2026-10-08 | LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
 | 337 | OPEN | 2026-10-08 | OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
-| 340 | OPEN | 2026-11-01 | R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD | [Open-Meteo DST Fix For Training And Backfill Readers](items/item-340-open-meteo-dst-training-readers.md) |
+| 340 | OPEN | 2026-11-05 | LANDED bad845b50; ACTIVATION CHECKS PENDING | [Open-Meteo DST Fix For Training And Backfill Readers](items/item-340-open-meteo-dst-training-readers.md) |
 | 342 | OPEN | 2026-11-03 | MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math](items/item-342-feb29-bound-centre-lookup-crash.md) |
 | 343 | OPEN | 2026-11-03 | MASTER OPTION 1 SPLIT: 343a SCORER ALLOWLIST LINE; 343b MODULE DEFERRED | [Offline Year-Round Refit Module And Workstation Allowlist Line](items/item-343-offline-year-round-refit-module-allowlist.md) |
+| 344 | OPEN | 2026-11-05 | MASTER RULING; FIX AT THE NEXT RETRAIN OR MODEL CHANGE, PIN NOW | [Trainer Keeps A Null Last Pre-Cutoff Temperature That Serve And Replay Skip](items/item-344-trainer-null-last-pre-cutoff-temperature.md) |
+| 345 | OPEN | 2026-11-05 | WS RUN LESSON, NOT STARTED | [Isolated Queue Root For The Workstation Pre-Gate Script Test](items/item-345-pregate-script-test-isolated-queue-root.md) |
+| 346 | OPEN | 2026-11-05 | WS BACKLOG; DRY-RUN LIST TO MASTER FIRST | [Scripted Daytime Sweep Of Old Workstation Worktrees](items/item-346-ws-worktree-sweep.md) |
 
 ## Active Items Without A Disposition In 45 Days
 
@@ -52,16 +55,16 @@ disposition or mark the item `DORMANT YYYY-MM-DD - reason`.
 
 | Item | Status | Date | Days | File |
 | :--- | :--- | :--- | :--- | :--- |
-| 67 | PARTIAL | 2026-08-30 | 65 | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
-| 224 | PARTIAL | 2026-07-11 | 115 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
-| 309 | PARTIAL | 2026-08-19 | 76 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
-| 323 | PARTIAL | 2026-07-15 | 111 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
-| 324 | PARTIAL | 2026-08-22 | 73 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 325 | PARTIAL | 2026-09-13 | 51 | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
-| 326 | PARTIAL | 2026-08-15 | 80 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
-| 330 | PARTIAL | 2026-09-05 | 59 | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
-| 331 | PARTIAL | 2026-09-12 | 52 | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
-| 332 | PARTIAL | 2026-09-12 | 52 | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
+| 67 | PARTIAL | 2026-08-30 | 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 224 | PARTIAL | 2026-07-11 | 117 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 309 | PARTIAL | 2026-08-19 | 78 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 323 | PARTIAL | 2026-07-15 | 113 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 324 | PARTIAL | 2026-08-22 | 75 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
+| 325 | PARTIAL | 2026-09-13 | 53 | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 326 | PARTIAL | 2026-08-15 | 82 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 330 | PARTIAL | 2026-09-05 | 61 | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
+| 331 | PARTIAL | 2026-09-12 | 54 | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
+| 332 | PARTIAL | 2026-09-12 | 54 | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 | 333 | PARTIAL | - | undated | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 
 ## Dormant Items

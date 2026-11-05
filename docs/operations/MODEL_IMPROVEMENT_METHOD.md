@@ -228,12 +228,33 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
       runner's own rulings report would withhold under the guard, so the run would HALT on its own ruling; fixed in
       v12 by rewording plus a sentinel over the rulings dict. Lesson: guard-scanned outputs must not quote
       guard-matching literals, including in rulings/docstrings."
+      Instance (E1, ledger row 119, 2026-11-04): the labels stage HALTed (rc 10) because the stage config's
+      second-GO string carried ISO date literals, and the v12 report guard (`row28_run_v12.py`:3474-3483) withheld
+      it. Config strings that a guarded report echoes must not carry guard-matching literals either. The halted
+      attempt's outputs were kept as evidence.
 19. **A projection's SD input matches the tested contrast** (master, 2026-11-03, after ledger rows 114-117, verbatim):
     "A power projection's SD input must come from a contrast of the same kind and distance as the one tested, never a
     near-twin, or from a stated conservative bound. After the look, report the realised/projected SD ratio."
     Instances: row 28 (lever-inventory row 28, ledger rows 114-117; EF §10aw): the projection took per-date SD
     0.016304 from the row-109 Aug-Sep near-twin receipt; realised X−S SD 0.0799 / 0.0803 / 0.0787 / 0.1300 (arms
     A-D), a realised/projected SD ratio of 4.90 / 4.93 / 4.83 / 7.97 (POST-HOC D2, `2a9cfcdf6`).
+20. **Name every dependence factor's unit** (master, 2026-11-04, after ledger row 119). A prereg names each factor
+    with its unit:
+    - κ_* is a variance ratio (it multiplies SE²);
+    - r_* is an SE ratio (it multiplies SE).
+
+    Write VIF only in variance units, VIF = max(1, κ_AR, κ_block3), or square only a named SE ratio. The
+    runner's output keys and the prereg's symbols must match.
+
+    Instance (E1, EF §10ax):
+    - E3 condition 2 wrote VIF = max(1, (1+ρ)/(1−ρ), κ_block3²).
+    - v12 `contrast_stats` computes κ_block3 as a variance ratio (`row28_run_v12.py`:2066-2068) and uses it
+      unsquared (:2069-2071).
+    - The row-28b prereg draft uses both units: κ_block3 1.419, and "block3 ratio" 1.191, its square root.
+    - Neither rule 16 nor `extension_0712_feasibility.md` defined the unit.
+
+    Master kept E3 as written; the frozen form is conservative toward DON'T ADD. The row-28b forward prereg fixes
+    the unit (VIF in variance units) at its freeze.
 
 ## Update this file when
 

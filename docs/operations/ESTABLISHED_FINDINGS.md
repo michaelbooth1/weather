@@ -136,6 +136,10 @@ sequence numbers, not calendar dates.
 | 10at | R28b: 88a never held a complete 11-band ladder 09-25..10-08 (census 0/0/0); C3 T+1 kill tier closed untestable, a design gap not a kill; row 100 note, register X86 |
 | 10au | X36-v5: raw NBM 2026 Jan-May warm +0.74°F pooled equally under v4.3 and v5.0; the dev warm bias is seasonal plus a 2026 shift, not a v5.0 artefact; row 111 (C), register X36 |
 | 10av | WS 2026-11-01 22:06-22:08Z: all 10 recorders died together under one dead parent; 4 of 7 capture workers had dead parent PIDs; cause unverified; L34 live-parent design |
+| 10aw | Row 28 year-round P3d_N refit, history only (L59, ledger rows 114-118, 2026-11-03): A and B SURVIVE-history, C and D KILL; candidate B; not an adoption |
+| 10ax | E1 (L59, ledger row 119 D, 2026-11-04): at 07-12 the served stack beats B (d̄ +0.0028); E3 DON'T ADD; 4a OFF, 4b B-arm CLOSED; no live S lever from the season-2026 fetches |
+| 10ay | Known defect (master 2026-11-05): a rare train/serve mismatch, the trainer keeps a null last pre-cutoff temperature that serve and replay skip (2 of 28,936 keys); not fixed, not a lever; item 344 |
+| 10az | Climatology window and floor defects (leap reference, no year wrap, spring-forward row-count floor; master 2026-11-05): lever UNTESTABLE (SD bound 0.080, power about 0.10); fix = retrain + edge gates; register X108 |
 
 ---
 
@@ -5006,6 +5010,106 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
     in its simple form. X-S is negative in every month and every fold for arms A, B and C. D (KILL) is positive in
     Dec (+0.099), Jan (+0.050) and fold 2022 (+0.004). The S/A Brier ratio is 1.18-1.29 in every month. It is still
     a comparison to S, not to the market.
+
+### 10ax. E1: at 07-12 the served stack beats B; the year-round refit's gain is a post-13 result: lane L59, ledger row 119 (D), 2026-11-04
+
+- **Verdict (E3, as written; master accepted 2026-11-04 as POST-HOC-FILLED DESCRIPTIVE).** **DON'T ADD.** No 07-12
+  B − S arm joins the row-28b forward test. 4a is OFF. The 4b B-arm is CLOSED by master ruling, not a kill, because
+  nothing was frozen.
+- **Contrast.** d = Brier_B − Brier_S per date, over US10 rows at hours 07-12, then the mean over dates. B is the
+  row-28 season-matched P3d_N_fix refit. S is the served pre-13 stack, L6 over MG-1, on own-observation N built from
+  IEM at h:30, with LOYO ex2021 and ex2022 states for Dec 17-31 rows. The folds are season-years 2021-25 pooled.
+- **Population.** 657 dates and 39,280 rows, after 320 of 39,600 grid rows were dropped: no_built_row 180,
+  no_07z_by_cutoff 138, missing_F_or_current_temp 2. The drop and imputation cap FLAGs are both false. The drop mix
+  leans to the early hours (no_07z_by_cutoff falls from 44 at h07 to 3 at h12). This is outcome-blind.
+- **Result.**
+  - d̄ +0.0028359: B is worse than S.
+  - Date-clustered 95% [+0.00022, +0.00545]; block-3 95% [−0.00007, +0.00574].
+  - σ_d 0.03422, ρ 0.1826, κ_AR 1.4469, κ_block3 1.2334.
+  - E3 condition 1 (d̄ ≤ −2 × SE_cons = −0.00297) is false.
+  - E3 condition 2 (power at N 45 ≥ 0.8) is false: power 0.0178.
+- **Descriptive power** (amendment 2, `a7a69db86`; two-sided α 0.05 from `extension_0712_feasibility.md` (b)).
+  - At N 45/80/100: 0.0178/0.0159/0.0150 with VIF 1.5213 (κ_block3² as written), and 0.0177/0.0157/0.0148 with
+    VIF 1.4469 (κ_block3 unsquared).
+  - The frozen form is conservative toward DON'T ADD, and the verdict is the same under both. On the κ unit, see
+    method rule 20.
+- **Reading.** Row 28's B − S gain is a 13-16 result (EF §10aw: −0.1368). It does not carry to the morning, where
+  the served own-observation stack already beats B across five seasons.
+- **Disclosed run facts.**
+  - Labels attempt 1 HALTed (rc 10). The v12 report guard (`row28_run_v12.py`:3474-3483) withheld the config's
+    second-GO string, which carried ISO date literals (method rule 18(g)).
+  - It had already read the labels and written its label frame, which is byte-identical to attempt 2's. Nothing was
+    scored. Its outputs are kept.
+  - Master accepted it and the run proceeded.
+- **No live lever for S at 07-12 from the season-2026 fetches (master accepted 2026-11-04; answer only, no
+  build).**
+  - The fetches are NBM 07Z 2025-12-17..2026-05-26 (manifest `620d0a2470f1ea07cf26423870551cf0e320cd18552f72fad25b5e4ea2f0b19c`) and Open-Meteo GFS lead-1 (manifest `d3cf59aa8587846e66b2714c7cf1664c172fc8f2fe6f9f4644bb91772b171868`).
+  - An S-vs-market w screen would hit register X21 and X106:
+    - X21's reopen ("unblended R within ~0.05 of 1") is not met; the best composite 07-12 R is 1.159 (X28).
+    - X106's coverage leg (training coverage through the last forward date) cannot be met by a history screen.
+  - It would also face the rule-6 power killer and row 113's label-integrity killer (WU partial days 2.82% > the 2%
+    cap on the same 2025-12..2026-05 population).
+  - The fetched data is kept on disk under both manifests as history evidence.
+  - K112 (ledger row 112) stays PARKED: its input half is plausibly met, but its power killer (~0.14) stands.
+- **Records.**
+  - Spec `spec_e1_0712_descriptive.md` `0496eaa9…`; amendments 1 `00c10814…` and 2 `6cbf41df…`, on
+    `claude/row28b-wstep-feasibility-20261103` @ `a7a69db86`.
+  - Runner v13 `d23980b5…` under `workstation_heavy` (allowlist `fabffed2d`).
+  - Stage reports: build `8f184305…` (payload 264/264 equal to row 28), integrity `e5565e3c…`, labels `ff750558…`
+    (attempt 1 `d236ae65…`), score `a1ca2779…`.
+  - Power outputs `b3c54c35…` (verdict, `e1_power_v1.py` `cac15a1f…`) and `1ed644a8…` (descriptive, v2 `3e78d0a2…`).
+  - Archive `C:\archive\ruled-out\e1-0712-dont-add-20261104\`; register X107.
+
+### 10ay. Known defect: a RARE TRAIN/SERVE MISMATCH in the last pre-cutoff temperature (trainer keeps a null row, serve and replay skip it); not fixed, not a lever: master ruling, 2026-11-05
+
+This is a mismatch, not parity: do not describe the current state as parity-preserving.
+
+- **Trainer.** `feature_store.build_historical_feature_record` (`src/weather/model/feature_store.py:1194`, default
+  `strict=False` at `:1215`) takes the last row at or before the cutoff whatever its temperature:
+  `obs_before` at `:1226-1230`, `current_obs = obs_before[-1]` at `:1233`, then
+  `current_temp = row_temp_native(current_obs)` at `:1258`. With `strict=False` (`:1259`) a null temperature on that
+  row is carried as a null `current_temp`, while `high_so_far` skips it (`:1234`).
+- **Serve and replay.** Each takes the latest row with a NON-null temperature: `mg_serve_core.observations_at_cutoff`
+  (`src/weather/model/mg_serve_core.py:108`; the null skip at `:119-121`, latest at `:128-129`);
+  `r0_ols_floor_challenger.observations_at_cutoff` (`src/weather/calibration/r0_ols_floor_challenger.py:572`; skip
+  `:583-585`, latest `:592-593`), which the B-bound `mg2_p3d_n._observations` reaches at `mg2_p3d_n.py:361` (cited
+  only); and `pooled_residual_model.scan_replay_n` (`src/weather/calibration/pooled_residual_model.py:1101`), which
+  calls the helper at `:1128`. All three docstrings claim the trainer's semantics; the null row is where they differ.
+- **History rate.** 2 of 28,936 (market, date, hour) keys: nyc 2024-03-13 h13 and san-francisco 2022-03-17 h13. The
+  column is `x_current_temp`; the reference fit carried the NaN into the HGB through sklearn's native missing-value
+  handling.
+- **Trainer-side users of the builder:** `model_features.find_analog_days` (`src/weather/model/model_features.py:1777`,
+  call `:1807`), `pooled_feature_assembly.build_market_records`
+  (`src/weather/calibration/pooled_feature_assembly.py:774`, call `:906`), and the parity scorecard's
+  `train_serve_feature_parity._base_training_record`
+  (`src/weather/reporting/scorecards/train_serve_feature_parity.py:512`, call `:521`). Because the parity gate builds
+  its training side with the trainer builder, it was blind to this case. (`feature_model.build_feature_records_for_model`
+  at `src/weather/calibration/feature_model.py:952`, call `:987`, is a further caller.)
+- **State: not fixed.** Fixing either side moves a frozen or pinned state: the trainer change moves MG-1 and row-28b,
+  and a serve-only fix is forbidden. It is **not a lever**: too rare to power. The work is
+  [item 344](../roadmap/items/item-344-trainer-null-last-pre-cutoff-temperature.md); row-28b discloses it in its
+  prereg draft.
+
+### 10az. Climatology window and floor defects: three defects, the lever is UNTESTABLE (SD bound 0.080, power about 0.10): master ruling, 2026-11-05
+
+Any fix means a retrain plus the edge gates; there is no serve-only fix. Line numbers verified at `cb6678f35`.
+
+- **(a) Leap reference.** The served history window measures day distance in reference year 2000, a leap year
+  (`src/weather/model/model_climatology.py:113`, `target_reference` at `:114`, `local_date.replace(year=reference_year)` at
+  `:123`, the `> HISTORY_WINDOW_DAYS` test at `:124`, `HISTORY_WINDOW_DAYS = 7` at `model_constants.py:25`), while
+  the training window `pooled_residual_model.window_days` (`pooled_residual_model.py:181-186`) counts calendar days in
+  the target year. The two disagree across Feb 29 for targets about Feb 22-Mar 7, and this causes the 1-Mar grid
+  holes.
+- **(b) No year wrap.** The same reference-year distance does not wrap the year, so targets Dec 25-Jan 7 get a
+  half-width window on Dec 31 and Jan 1. It touches the served stack only.
+- **(c) Spring-forward floor.** A daily summary row with `row_count < HISTORY_MIN_ROW_COUNT` is dropped
+  (`model_climatology.py:126-127`; `HISTORY_MIN_ROW_COUNT = 20` at `model_constants.py:24`). The same floor is applied
+  in `_fallback_prior_buckets` (`model_climatology.py:226`, floor at `:236`) and passed as `min_row_count` at
+  `src/weather/model/model_sources.py:1350`. Served and training paths both use it, so parity holds here; the floor
+  drops US spring-forward Sundays.
+- **Evidence (343b grid holes).** 81 holes = 33 leap + 48 `row_count < 20` (44 spring-forward plus 4 Denver).
+- **Lever verdict: UNTESTABLE.** SD bound 0.080, power about 0.10; register X108.
+
 
 ## Related
 

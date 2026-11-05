@@ -329,3 +329,6 @@ The twelve other PIT corpora on the WS have no rows on any of the three dates; t
     for C2's window trace and C3).
 - **Limits kept.** No model, test suite or heavy command was run. Nothing under `C:\t\l2\p2`, no panel store and
   nothing dated 2026-09-30 or later was opened.
+
+Status (2026-11-05, closeout): P2 and P5 (L58 tests-only lane, member `fc8f3c551`) **landed, activation checks
+pending**, in combo C, master `984d783e6`, 2026-11-05 01:42. The B-bound fix itself still waits for the B look.

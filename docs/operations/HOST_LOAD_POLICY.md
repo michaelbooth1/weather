@@ -234,6 +234,11 @@ below applies: no exemption, no queue state, the same windows and the same bound
   with an empty hold and no ticket (pre-gate receipt `lease_mode` `inherited_from_exclusive_holder`,
   `exclusive_holder` pid and start; PG-NEST-1). A dead or reused holder pid grants nothing; everyone else
   queues as before.
+- *Never force-kill a wrapper (WS lesson 2026-11-04).* Force-killing a `workstation_heavy.ps1` wrapper process
+  left a stale slot-3 poison marker that blocked that slot. To stop wrapped work, kill its python child and let the
+  wrapper tear down. The only designed recovery for a stale slot marker is an un-nested
+  `scripts\ops\workstation_pregate.ps1` run, whose exclusive lease reclaims dead slot holders under the stale rules
+  above; that recovered slot 3 on 2026-11-04. Do not delete poison or lock files by hand.
 - *Thread cap.* Every `workstation_heavy.ps1` job sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and
   `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
   value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`
