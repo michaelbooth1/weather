@@ -73,6 +73,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_maker_shadow_ops_scripts.py",
             "tests/operations/test_maker_evidence_torn_quarantine_script.py",
             "tests/operations/test_register_maker_evidence_torn_quarantine.py",
+            "tests/operations/test_register_b_price_coverage.py",
             "tests/calibration/test_mg2_input_export.py",
             "tests/calibration/test_r28b_input_trim.py",
             "tests/operations/test_frozen_binding_guard_script.py",
