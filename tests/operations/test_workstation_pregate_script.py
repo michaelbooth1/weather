@@ -12,7 +12,8 @@ every head bound for a host landing night in exactly the host suite's mode:
 * a head with a failing test yields FAIL; the receipt's log SHA-256 matches the
   log; the detached worktree and per-chunk basetemps are removed;
 * nested ("inherited" lease) mode still proves this is the assigned non-capture
-  workstation, because the capture host's heavy lease uses the same mutex name;
+  workstation, because the capture host's heavy lease uses the same mutex name as
+  the workstation's (here the fixture's private name stands in for it);
 * a nested pre-gate under an outer exclusive pre-gate (its own ancestor) is
   admitted at once as ``inherited_from_exclusive_holder`` and passes, instead of
   queueing behind its ancestor until timeout (PG-NEST-1);
@@ -186,7 +187,9 @@ class _HeldWorkstationMutex:
         self.handle = kernel32.CreateMutexW(None, False, self.name)
         assert self.handle, ctypes.get_last_error()
         self.owned = kernel32.WaitForSingleObject(self.handle, 0) in (0, 0x80)
-        assert self.owned, "a private fixture mutex is already held"
+        if not self.owned:
+            kernel32.CloseHandle(self.handle)
+            raise AssertionError("a private fixture mutex is already held")
         return self
 
     def __exit__(self, *exc):
@@ -199,6 +202,8 @@ class _HeldWorkstationMutex:
 # fixture-local state root (so the queue and the exclusive holder record live
 # under tmp_path), plus no residual-process or memory veto. The production
 # script honours no redirect of any kind; only these copies are rewritten.
+# Intentional coverage trade: the residual-process and memory stubs, and the
+# bypassed ACL-checked state-root resolver, are not exercised by these tests.
 ISOLATED_ADMISSION_OVERRIDES = r"""
 # TEST-ONLY: FIXTURE-LOCAL STATE, NO RESIDUAL-PROCESS OR MEMORY VETO
 function Get-WeatherHeavyWorkloadPoisonPath {
@@ -214,12 +219,57 @@ function Get-WeatherWorkstationMemoryReading {
 """
 
 
-def _isolated_admission_text(state_root: Path, mutex_name: str) -> str:
-    text = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
+OVERRIDDEN_FUNCTIONS = (
+    "Get-WeatherHeavyWorkloadPoisonPath",
+    "Get-WeatherActiveWorkstationHeavyProcess",
+    "Get-WeatherWorkstationMemoryReading",
+)
+# Ways a script could reach the host's common data root other than the one
+# overridden function; matched case-insensitively.
+HOST_STATE_ROOT_TOKENS = ("CommonApplicationData", "ProgramData", "ALLUSERSPROFILE", "GetFolderPath", "SpecialFolder")
+
+
+def _function_span(text: str, name: str) -> tuple[int, int]:
+    start = text.index(f"function {name} {{")
+    following = text.find("\nfunction ", start + 1)
+    return start, (len(text) if following < 0 else following)
+
+
+def _assert_overrides_bind(text: str) -> None:
+    """Refuse BEFORE any fixture write if the appended overrides could be dead code.
+
+    The overrides are appended function definitions, so a renamed production
+    function, or a second state path not derived from the poison path, would
+    silently send fixture tickets, holder records and slot files to the real
+    host-global state (Opus review of 3e91dbb8d, MAJOR 1).
+    """
+    for name in OVERRIDDEN_FUNCTIONS:
+        assert text.count(f"function {name} {{") == 1, f"{name} is not defined exactly once in production"
+    start, end = _function_span(text, "Get-WeatherHeavyWorkloadPoisonPath")
+    lowered = text.lower()
+    for token in HOST_STATE_ROOT_TOKENS:
+        total = lowered.count(token.lower())
+        inside = lowered[start:end].count(token.lower())
+        assert total == inside, f"{token} is used outside Get-WeatherHeavyWorkloadPoisonPath"
+    assert lowered[start:end].count("commonapplicationdata") == 1
+    for name in COPIED_SCRIPTS:
+        if name == "workload_admission.ps1":
+            continue
+        other = (OPS / name).read_text(encoding="utf-8-sig").lower()
+        assert not any(token.lower() in other for token in HOST_STATE_ROOT_TOKENS), name
+
+
+def _isolated_admission_text(state_root: Path, mutex_name: str, production_text: str | None = None) -> str:
+    """Pure string work: it fails closed before anything is written or any admission code runs."""
+    text = production_text
+    if text is None:
+        text = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
+    _assert_overrides_bind(text)
     assert MUTEX_NAME in text
     isolated = text.replace(MUTEX_NAME, mutex_name)
     assert MUTEX_NAME not in isolated
-    return isolated + ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", str(state_root))
+    quoted = str(state_root).replace("'", "''")  # pasted into a single-quoted PowerShell string
+    return isolated + ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", quoted)
 
 
 def _isolate_admission(repo: Path, state_root: Path) -> str:
@@ -231,11 +281,33 @@ def _isolate_admission(repo: Path, state_root: Path) -> str:
     return mutex_name
 
 
+# Read-only: no -CreateIfMissing, so even a dead override creates nothing.
+RESOLUTION_PROBE = r"""
+$ErrorActionPreference = 'Stop'
+. $env:PG_ADMISSION
+ConvertTo-Json -Compress -InputObject ([ordered]@{
+    queue_root = (Get-WeatherHeavyWorkloadQueueRoot)
+    holder = (Get-WeatherHeavyWorkloadExclusiveHolderPath)
+    slot_state = @(1..8 | ForEach-Object { Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $_ })
+    exclusive_mutex = (Get-WeatherHeavyWorkloadExclusiveMutexName)
+})
+"""
+
+
 def _copy_isolated_scripts(repo: Path, state_root: Path) -> str:
     (repo / "scripts" / "ops").mkdir(parents=True)
     for name in COPIED_SCRIPTS:
         shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
-    return _isolate_admission(repo, state_root)
+    mutex_name = _isolate_admission(repo, state_root)
+    env = {**os.environ, "PG_ADMISSION": str(repo / "scripts" / "ops" / "workload_admission.ps1")}
+    result = _run([*POWERSHELL, "-Command", RESOLUTION_PROBE], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+    resolved = json.loads(result.stdout)
+    root = state_root.resolve()
+    for value in [resolved["queue_root"], resolved["holder"], *resolved["slot_state"]]:
+        assert Path(value).resolve().is_relative_to(root), value
+    assert resolved["exclusive_mutex"].startswith(mutex_name)
+    return mutex_name
 
 
 def _nested_env() -> dict[str, str]:
@@ -422,6 +494,41 @@ def test_fixture_admission_uses_a_temp_queue_root_and_private_mutexes(tmp_path):
     assert all(m.startswith(mutex_name) for m in observed["mutexes"])
     assert MUTEX_NAME not in observed["mutexes"]
     assert not any(m.startswith("Global\\") for m in observed["mutexes"])
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("renamed_override_target", "Get-WeatherHeavyWorkloadPoisonPath is not defined exactly once"),
+        ("second_common_data_use", "CommonApplicationData is used outside Get-WeatherHeavyWorkloadPoisonPath"),
+    ],
+)
+def test_isolation_fails_closed_at_setup_when_an_override_would_not_bind(tmp_path, monkeypatch, mutation, message):
+    # Opus review of 3e91dbb8d, MAJOR 1: the overrides are appended function
+    # definitions, so a renamed production target or a second host-state path
+    # would leave them dead and send fixture state to the real host-global root.
+    # Setup must abort first: pure string checks, before any file is written and
+    # before any PowerShell (so no admission code) is started.
+    production = (OPS / "workload_admission.ps1").read_text(encoding="utf-8-sig")
+    if mutation == "renamed_override_target":
+        mutated = production.replace(
+            "function Get-WeatherHeavyWorkloadPoisonPath {", "function Get-WeatherHeavyWorkloadStatePath {"
+        )
+    else:
+        mutated = production + (
+            "\nfunction Get-WeatherHeavyWorkloadSecondStateRoot {\n"
+            "    [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)\n}\n"
+        )
+    assert mutated != production
+
+    def admission_code_started(*args, **kwargs):
+        raise RuntimeError("a process was started during isolation setup")
+
+    monkeypatch.setattr(subprocess, "run", admission_code_started)
+    monkeypatch.setattr(subprocess, "Popen", admission_code_started)
+    with pytest.raises(AssertionError, match=message):
+        _isolated_admission_text(tmp_path / "host-state", "Local\\WeatherPgFixture-" + uuid.uuid4().hex, mutated)
+    assert list(tmp_path.iterdir()) == []
 
 
 # ------------------------------------------------------------------ chunk plan
@@ -645,8 +752,9 @@ def test_driver_refuses_a_drifted_host_suite(tmp_path):
     ],
 )
 def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstation(tmp_path, identity, reason):
-    # The capture host's heavy lease uses the same mutex name, so a held mutex
-    # plus WEATHER_WORKSTATION_WRAPPER_ACTIVE=1 must not stand in for the host proof.
+    # The capture host's heavy lease uses the same mutex name as the workstation's
+    # (the fixture's private name stands in for it here), so a held mutex plus
+    # WEATHER_WORKSTATION_WRAPPER_ACTIVE=1 must not stand in for the host proof.
     repo = tmp_path / "repo"
     mutex_name = _copy_isolated_scripts(repo, tmp_path / "host-state")
     (repo / "venv" / "Scripts").mkdir(parents=True)
@@ -688,7 +796,8 @@ $ErrorActionPreference = 'Continue'
     -OutputDirectory '{out}' -ReceiptPath '{receipt}' -WorktreeParent '{worktrees}' -QueueTimeoutSeconds 60 *> '{log}'
 $nestedExit = $LASTEXITCODE
 $ErrorActionPreference = 'Stop'
-[IO.File]::WriteAllText('{outer}', ([ordered]@{{ pid = $PID; nested_exit = $nestedExit; seconds = $clock.Elapsed.TotalSeconds }} |
+$outerStart = [Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToString('o')
+[IO.File]::WriteAllText('{outer}', ([ordered]@{{ pid = $PID; start = $outerStart; nested_exit = $nestedExit; seconds = $clock.Elapsed.TotalSeconds }} |
     ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
 Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
 Exit-WeatherHeavyWorkloadLease -Lease $lease
@@ -723,6 +832,7 @@ def test_a_nested_pregate_under_an_outer_exclusive_pregate_is_admitted_and_passe
     assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
     assert receipt["workstation_exclusive"] is True
     assert receipt["exclusive_holder"]["pid"] == outer["pid"]
+    assert receipt["exclusive_holder"]["owner_process_start_utc"] == outer["start"]
     assert receipt["exclusive_holder"]["workload"] == "WorkstationOffline-pytest-pregate-outer"
     events = [
         json.loads(line)
