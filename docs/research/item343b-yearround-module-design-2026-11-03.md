@@ -434,7 +434,7 @@ they land. Item status: [item 343](../roadmap/items/item-343-offline-year-round-
   `nbm_absent_dates`.
 - **Data finding.** 2022-01-06 has an all-market NBM gap at h13-16: these are the 44 imputed keys (11 markets × 4
   hours). It falls inside the Dec 25-Jan 7 year-wrap span, but it is a DATA gap, not a climatology defect (the
-  climatology defects are [EF §10ay](../operations/ESTABLISHED_FINDINGS.md)).
+  climatology defects are [EF §10az](../operations/ESTABLISHED_FINDINGS.md)).
 - **Run-procedure lesson.** Before any fit launches, list and read every report-only check in the (A) report
   (`training_source_checks.*`). A non-empty one blocks the launch.
 - **Disclosure: the reanalysis CSV is loaded but unused.** `reanalysis_synoptic_features.csv` is loaded but unused
@@ -445,3 +445,11 @@ they land. Item status: [item 343](../roadmap/items/item-343-offline-year-round-
   and the daily refresh does not rebuild it. A rebuild would move records, and the sha-bound fit would refuse. The
   CSVs on the WS and the host were last written 2026-06-23 and match byte for byte (master check 11-05).
 - **Fit pin.** The 343b fit pin `0e5c4f729e8b…` is SUPERSEDED (its module sha changed); see item 343.
+- **343b LANDING rule refinement (master 2026-11-05).** It REPLACES "no commit after the fit":
+  - after the fit, only a merge of origin/master is allowed on the 343b branch;
+  - that merge's diff against `84b50a173` must touch NO file in the fit closure (the 74 loaded files plus the 16
+    pins);
+  - verify by recomputing `module_source_sha256`, `helper_source_sha256` and `upstream_sha256` on the new tip; each
+    must EQUAL the fit state's provenance;
+  - the host landing suite runs on that exact tip;
+  - any closure file touched means the fit is void.

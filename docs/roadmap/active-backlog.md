@@ -5,7 +5,7 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-05T10:51:37.737176+00:00
+Generated: 2026-11-05T10:58:16.692821+00:00
 Status: `OK`
 
 ## Summary
@@ -41,7 +41,7 @@ Status: `OK`
 | 333 | PARTIAL | - | - | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 | 336 | PARTIAL | 2026-10-08 | LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN | [Landing Preflight](items/item-336-landing-preflight.md) |
 | 337 | OPEN | 2026-10-08 | OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY | [No-METAR Observed-Floor Gap](items/item-337-no-metar-observed-floor-gap.md) |
-| 340 | OPEN | 2026-11-01 | R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD | [Open-Meteo DST Fix For Training And Backfill Readers](items/item-340-open-meteo-dst-training-readers.md) |
+| 340 | OPEN | 2026-11-05 | LANDED bad845b50; ACTIVATION CHECKS PENDING | [Open-Meteo DST Fix For Training And Backfill Readers](items/item-340-open-meteo-dst-training-readers.md) |
 | 342 | OPEN | 2026-11-03 | MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math](items/item-342-feb29-bound-centre-lookup-crash.md) |
 | 343 | OPEN | 2026-11-03 | MASTER OPTION 1 SPLIT: 343a SCORER ALLOWLIST LINE; 343b MODULE DEFERRED | [Offline Year-Round Refit Module And Workstation Allowlist Line](items/item-343-offline-year-round-refit-module-allowlist.md) |
 | 344 | OPEN | 2026-11-05 | MASTER RULING; FIX AT THE NEXT RETRAIN OR MODEL CHANGE, PIN NOW | [Trainer Keeps A Null Last Pre-Cutoff Temperature That Serve And Replay Skip](items/item-344-trainer-null-last-pre-cutoff-temperature.md) |

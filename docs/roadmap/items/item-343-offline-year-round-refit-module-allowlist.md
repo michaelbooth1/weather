@@ -94,6 +94,9 @@ Acceptance:
 - Train/serve parity, probability mass and release binding are unchanged: the module is offline research and
   serves nothing.
 
+Status 343a (2026-11-05, closeout): **landed, activation checks pending**, in combo C (member `97c2bb824`),
+master `984d783e6`, 2026-11-05 01:42.
+
 Status 343b (2026-11-05, WS docs head; status only):
 
 - In progress on the WS at landing tip `84b50a173` (branch `claude/item343b-yearround-module-20261103`: the merge

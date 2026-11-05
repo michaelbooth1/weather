@@ -8,7 +8,7 @@ Owner/package: `weather.model` (`feature_store.build_historical_feature_record`)
 landing and any retrain.
 
 Source: master ruling 2026-11-05 (relayed by the WS coordinator). Finding and file:line cites:
-[EF §10ax](../../operations/ESTABLISHED_FINDINGS.md).
+[EF §10ay](../../operations/ESTABLISHED_FINDINGS.md).
 
 Why this matters: the trainer takes the last row at or before the cutoff even when its temperature is null, while
 serve and replay take the latest non-null row. History rate 2 of 28,936 (market, date, hour) keys. The parity gate
@@ -18,7 +18,7 @@ moves MG-1 and row-28b, and a serve-only fix is forbidden.
 
 Checklist:
 
-- [ ] Until the fix: a test that pins today's mismatch, citing this item and EF §10ax (trainer `current_temp` null,
+- [ ] Until the fix: a test that pins today's mismatch, citing this item and EF §10ay (trainer `current_temp` null,
   serve helper returns the latest non-null row, on the same rows). Tests-only; no B-bound file edited.
 - [ ] A parity-gate fixture with a null-temperature last pre-cutoff row, so the gate compares the serve helper with
   the trainer on that case instead of the trainer with itself.

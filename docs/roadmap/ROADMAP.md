@@ -60,7 +60,7 @@ infrastructure work remains.
 | 9 | [Analog Search [COMPLETE]](items/item-09-analog-search.md) |
 | 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]](items/item-337-no-metar-observed-floor-gap.md) |
 | 339 | [EDGE-1 Model-Edge Pre-Registration Family [DORMANT 2026-10-23 - POSTPONED BY THE OWNER (DECISION_LOG 2026-10-23), FORWARD TEST B REPLACED IT; WAS OPEN 2026-10-21 - OWNER APPROVED, NEVER SIGNED]](items/item-339-edge1-model-edge-preregistration.md) |
-| 340 | [Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-11-01 - R26 RE-TIP BUILT; LANDS ROLL-SENSITIVE AS ITS OWN SUITE HEAD]](items/item-340-open-meteo-dst-training-readers.md) |
+| 340 | [Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-11-05 - LANDED bad845b50; ACTIVATION CHECKS PENDING]](items/item-340-open-meteo-dst-training-readers.md) |
 | 342 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math [OPEN 2026-11-03 - MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29]](items/item-342-feb29-bound-centre-lookup-crash.md) |
 | 343 | [Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - MASTER OPTION 1 SPLIT: 343a SCORER ALLOWLIST LINE; 343b MODULE DEFERRED]](items/item-343-offline-year-round-refit-module-allowlist.md) |
 | 344 | [Trainer Keeps A Null Last Pre-Cutoff Temperature That Serve And Replay Skip [OPEN 2026-11-05 - MASTER RULING; FIX AT THE NEXT RETRAIN OR MODEL CHANGE, PIN NOW]](items/item-344-trainer-null-last-pre-cutoff-temperature.md) |

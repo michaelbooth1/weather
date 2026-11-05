@@ -89,6 +89,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - **The dev warm NBM bias is not a v5.0 artefact (X36-v5, L47b, ledger row 111, 2026-11-01):** raw NBM 2026 Jan-May is +0.74°F warm pooled (Denver +1.86, LA +1.32) equally under v4.3 and v5.0, so X36's reopen condition is not met; it is a seasonal raw bias plus a 2026 shift. A trailing-window correction is distinct from X36 (K row 112). EF §10au.
 - **WS recorders died under a dead parent (2026-11-01 22:06-22:08Z):** all 10 at once, one dead parent; cause unverified. Long-lived recorders need a live, owned parent (L34 design). EF §10av.
 - **Row 28 year-round P3d_N refit (L59, ledger rows 114-118, 2026-11-03, history only, master verdict):** history survival A, B (SURVIVES-history: X−S A −0.1361 [−0.1438, −0.1285], B −0.1368 [−0.1445, −0.1291], n 657); C KILL and D KILL on prereg §8.2 crossing conditions (register X104, X105). §8.3 candidate B. **Survival is V4-scoped and is not an adoption.** Flags: realised X−S power < 0.50 in all four arms (§8.4, rule-16 failure; projected 0.99999); the archive INDEX line rewrite was accepted. EF §10aw.
+- **E1: at 07-12 the served stack beats B; the year-round refit's gain is a post-13 result (L59, ledger row 119 D, 2026-11-04, POST-HOC-FILLED DESCRIPTIVE):** d̄ (B − S) +0.0028 [date-clustered +0.0002, +0.0055], 657 dates; E3 DON'T ADD (both conditions false; power 0.018 at N 45). 4a OFF; 4b B-arm CLOSED (master, not a kill). The season-2026 fetches serve no live S lever (X21 reopen not met; X106 coverage leg unmeetable). EF §10ax.
 
 ## Evaluation and statistics rules that bind every claim
 
@@ -182,7 +183,7 @@ never pooled across the 2026-07-31 provenance boundary.
 - Every numpy import commits ~756 MiB of private memory through OpenBLAS per-thread buffers (17 MiB with `OPENBLAS_NUM_THREADS=1`), about 2.9 GiB across the four numpy capture workers on the host (2026-10-15); workers started by `supervisor.launch_detached` now get a one-thread cap; the short-lived `ensure` processes do not. EF §10s.
 - Open-Meteo `gfs_seamless` is HRRR over the US inside HRRR's horizon (provider design; the 2-day capture keeps target hours inside it), so multimodel "GFS" and "HRRR" are one source: row 78's K is effectively 16 (no verdict change), and Previous Runs history is GFS-only before about 2024-01 and HRRR-blended after, while the served model's Historical Forecast best_match shows no break 2021-26; the regime change touches research refits only (R0, L5 arm B, L4). EF §10an; register X63 and the §6 scope note.
 - The served GEFS "ensemble mean" `day_max` is the GEFS control run, not the member mean (parity holds; name wrong). EF §10s.
-- **Known train/serve mismatch (rare):** the trainer keeps a null last pre-cutoff temperature, serve and replay take the latest non-null row; 2 of 28,936 history keys; not fixed (either side moves a frozen state), not a lever. EF §10ax; item 344.
+- **Known defects, not levers (master 11-05):** (1) a rare train/serve mismatch: the trainer keeps a null last pre-cutoff temperature, serve and replay take the latest non-null row; 2 of 28,936 history keys; not fixed (either side moves a frozen state). EF §10ay; item 344. (2) Climatology window and floor fixes (leap reference, no year wrap, spring-forward row-count floor) are UNTESTABLE as a lever (SD bound 0.080, power about 0.10); any fix is a retrain plus the edge gates, never serve-only. EF §10az; register X108.
 - `last_good_sources.json` (~36 MB per US station) is rewritten whole on every snapshot pass, even unchanged: ~53 GiB/day of writes on the host. EF §10s.
 - Raw L2 deltas (VR-2 input) run ≈3.1 GB/day for the T+0 exec-tape universe and ≈7.0 GB/day with T+1; a p95 per-(token, hour) budget (~1.8-1.9 MB) drops 26-45% of bytes. One night, US daytime unsampled, post-gzip not measured. EF §10s.
 - Master does not describe everything production ran: the 2026-09-06 live test and other lanes executed from unmerged code. EF §10f; current reconciliation in [STATE_OF_PLAY.md](STATE_OF_PLAY.md).
@@ -216,7 +217,6 @@ never pooled across the 2026-07-31 provenance boundary.
 | HRRR 3x3 neighbourhood spread as a width signal, any hour | R-Z (00-06, 07-12) and R-U (13-16) CLOSED at P0: pooled ρ below 0.05 | EF §10al; register §6 X38, X39 |
 | MOS/NBE day-max as an SM-H h13-15 input | R-V (b) pre-registered KILL, −0.0007 [−0.0185, +0.0164] | EF §10al; register §6 X42 |
 | Dead-bucket NO buying (US and Toronto) | Under capture-time dating US r4 $0.03/day [0.00, 0.09], Toronto $0.00; NOT WORTH PURSUING | EF §10ad; RF "Dead-bucket stage A" |
-| Climatology window and floor fixes (leap reference, no year wrap, spring-forward row-count floor) as a lever | UNTESTABLE: SD bound 0.080, power about 0.10; any fix is a retrain plus the edge gates, never serve-only | EF §10ay |
 
 ## Retracted numbers — never cite
 
