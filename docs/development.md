@@ -233,10 +233,11 @@ without running its script. The pre-gate cannot reproduce two host properties:
 - the host's machine-level environment.
 
 The pre-gate removes the agent-harness and Python override variables the host task would not carry, and
-lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`. That test uses the real
-`%ProgramData%` heavy-workload queue (`test_workstation_pregate_script.py:362`), so it needs an isolated queue root
+lists them in the receipt. Tests: `tests/operations/test_workstation_pregate_script.py`. Every fixture copy of
+`workload_admission.ps1` in that test uses a private mutex family and a temporary state root, so its queue, slot
+state and exclusive-holder record live under the test's temporary directory and never the real `%ProgramData%` queue
 ([item 345](roadmap/items/item-345-pregate-script-test-isolated-queue-root.md)); two of its fixtures skip below 55 GiB
-free (`:285-286`, `:671-672`), so a run on a fuller disk does not exercise them.
+free (the `fixture_repo` fixture and the nested-exclusive test), so a run on a fuller disk does not exercise them.
 
 **Run lessons (WS, 2026-11-04/05).**
 
