@@ -74,11 +74,20 @@ python -m weather.backtesting.venue_rule_labels build --market nyc
 `data/venue_rule_labels/metar/<icao>/routine/`; run it only where downloads are
 approved. `build` writes `data/venue_rule_labels/<market>/daily/daily_summary.csv`
 and a `manifest.json` (input hashes, station config hash, counts, skipped dates
-with reasons). The CSV keeps the shared daily columns (`max_temp`,
+with reasons, `label_dates`). The CSV keeps the shared daily columns (`max_temp`,
 `max_temp_bucket`, `row_count`, `max_temp_times`) and adds `label_source`,
 `label_station`, `label_station_basis`, `label_event_station`,
 `label_rule_version`, `label_cutover_date`, `label_value_basis` and report
 counts. `row_count` is the routine report count.
+
+`label_dates` is the sorted ISO `local_date` of every row written, taken from
+the build's in-memory rows (keys only, never a label value). Before writing the
+CSV or the manifest, the build checks `len(label_dates) ==
+sum(label_source_counts)` and that `label_dates` is disjoint from
+`skipped_dates`; a violation raises `LabelKeyInvariantError` and writes
+nothing. The field is additive (the manifest schema is unchanged): a consumer
+that needs it refuses by name when it is absent and never falls back to the
+CSV.
 
 - Ledger: `python -m weather.market.market_day_labels finalize --label-rule venue`
   finalizes each market's folders dated on or after the cutover against its
@@ -171,11 +180,45 @@ directly, never through the workstation wrapper (like `venue_rule_labels`).
   and the WU daily summary its manifest names to
   `data/venue_rule_labels/frozen/ID/<market>/` as `daily/daily_summary.csv`,
   `manifest.json` and `wu/daily_summary.csv`, with `freeze_receipt.json`
-  (`venue_label_freeze_receipt_v1`). A look is frozen once; an existing `ID`
-  is refused. The layout is the reader's: a look reads only that copy, through
+  (`venue_label_freeze_receipt_v1`). Each market's receipt entry also copies
+  the manifest's `label_dates` and `skipped_dates`. These are keys only, taken
+  from the manifest and never from the CSV, and a manifest without them is
+  refused by name before any folder is made. A look's pre-stamp label check
+  reads them. A look is frozen once; an existing `ID` is refused. The layout is the reader's: a look reads only that copy, through
   `read_venue_labels(..., label_root=frozen/ID,
   wu_daily_summary=frozen/ID/<market>/wu/daily_summary.csv)`, inside its
   registered entry point. Log the receipt's shas before the look starts.
+  Master's rulings of 2026-11-03 (module `weather.backtesting.venue_label_freeze`):
+  - **OK only.** Unless the run's audit status is `OK`, the freeze refuses
+    before any folder under `frozen/` is made. On `STATION_DRIFT` it exits 3
+    and freezes nothing. Rule the drift outcome-blind, then freeze again.
+  - **Atomic.** The copy is built in `frozen/ID.tmp-<utc>-<pid>/`, and the
+    receipt is written there. The freeze re-reads the receipt and re-hashes
+    every file. Only when every sha is present, matches the bytes, and the CSV
+    and WU summary match their manifest is the folder renamed to `frozen/ID`.
+    A crash or a failed check leaves only the tmp folder. A later freeze lists
+    it in `ignored_partial_dirs` and ignores it.
+  - **Through.** The freeze does not know a look's scored markets, so the look
+    checks `through`. For MG-1 it is FREEZE_THROUGH: the latest date that has
+    ended in every scored market at the freeze. `mg1_look` holds on any other
+    value, and first on one before the 45th date.
+  - **Recovery:**
+
+    ```powershell
+    .\venv\Scripts\python.exe -m weather.backtesting.venue_label_audit freeze --recover <ID> --ruling <file>
+    ```
+
+    It moves a `frozen/ID` that has no readable receipt, or a null sha, to
+    `frozen/ID.void-<utc>/`, and writes `recovery_record.json` there
+    (`venue_label_freeze_recovery_v1`). Nothing is deleted.
+    - It runs only while the look has no stamp or receipt: for `mg1`,
+      `data/mg1_look/started-*` and `receipt-*`; for `b`,
+      `data/b_look/consumed-*`. Any other id is refused.
+    - It needs master's dated, outcome-blind ruling file
+      (`venue_label_freeze_recovery_ruling_v1`), with `dated`,
+      `outcome_blind: true`, `look_id` and `reason`.
+    - A re-freeze after it is outcome-blind, because the freeze copies bytes
+      and reads no label value.
 - **`audit`** (default: the newest finished run) prints counts only and writes
   `audit.json` (`venue_label_audit_v1`). Per market: `label_source` counts,
   skipped dates by reason, predicted reader refusals (with and without

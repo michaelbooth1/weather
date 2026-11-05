@@ -380,6 +380,8 @@ def test_build_market_labels_is_read_by_ledger_and_training_readers(tmp_path):
         out=out, manifest=tmp_path / "labels" / "manifest.json",
     )
     assert payload["label_source_counts"] == {"metar_routine": 1, "wu_history": 1}
+    assert payload["label_dates"] == ["2026-10-22", "2026-10-23"]  # keys only, from the in-memory rows
+    assert json.loads((tmp_path / "labels" / "manifest.json").read_text(encoding="utf-8")) == payload
     assert payload["metar_inputs"][0]["station"] == "KLGA"
 
     ledger_index = settlement_ledger.load_daily_summary(out)
@@ -418,3 +420,30 @@ def test_fetch_adds_report_type_and_raw_text_only_when_asked(monkeypatch):
     assert ("report_type", 3) not in default and ("data", "metar") not in default
     assert ("report_type", 3) in routine and ("data", "metar") in routine
     assert [item for item in routine if item[0] == "report_type"] == [("report_type", 3)]
+
+
+@pytest.mark.parametrize("bad,match", [
+    ("duplicate", "2 label rows carry 1 distinct dates"),
+    ("overlap", "both labelled and skipped"),
+])
+def test_a_label_key_violation_raises_before_anything_is_written(tmp_path, monkeypatch, bad, match):
+    """R24 freeze keys (master 2026-11-03): both invariants are checked before the CSV or the manifest is written."""
+    row = {"local_date": "2026-10-22", "label_source": vrl.LABEL_SOURCE_WU}
+    rows = [row, dict(row)] if bad == "duplicate" else [row]
+    skipped = {"2026-10-22": "no_wu_row_before_cutover"} if bad == "overlap" else {}
+    monkeypatch.setattr(vrl, "build_label_rows", lambda *args, **kwargs: (rows, skipped))
+    wu = tmp_path / "wu.csv"
+    pd.DataFrame([{"local_date": "2026-10-22", "row_count": 24, "max_temp": 79, "max_temp_bucket": 79}]).to_csv(
+        wu, index=False)
+    out, manifest = tmp_path / "labels" / "daily_summary.csv", tmp_path / "labels" / "manifest.json"
+    with pytest.raises(vrl.LabelKeyInvariantError, match=match):
+        vrl.build_market_labels(NYC, wu_daily_summary=wu, metar_root=tmp_path / "metar",
+                                station_config_path=REPO_STATION_CONFIG, out=out, manifest=manifest)
+    assert not out.exists() and not manifest.exists() and not (tmp_path / "labels").exists()
+
+
+def test_label_keys_are_sorted_distinct_dates_and_source_counts():
+    rows = [{"local_date": "2026-10-24", "label_source": "metar_routine"},
+            {"local_date": "2026-10-22", "label_source": "wu_history"}]
+    assert vrl.label_keys(rows, {"2026-10-23": "x"}) == (["2026-10-22", "2026-10-24"],
+                                                         {"metar_routine": 1, "wu_history": 1})

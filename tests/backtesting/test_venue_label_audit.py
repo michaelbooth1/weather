@@ -318,8 +318,11 @@ def test_module_never_imports_the_reader_or_opens_the_reserved_window():
             imported |= {alias.name for alias in node.names}
     assert not any("venue_label_reader" in name for name in imported)
     assert {name for name in imported if name.startswith("weather")} <= {
-        "weather.backtesting.settlement_ledger", "weather.backtesting.venue_rule_labels",
+        "weather.backtesting", "weather.backtesting.settlement_ledger", "weather.backtesting.venue_rule_labels",
         "weather.market.market_registry", "weather.paths", "weather.schema_families", "weather.sources.daily_summary"}
+    # the only name taken from the package is the split-out freeze module (master 2026-11-03)
+    assert {alias.name for node in ast.walk(ast.parse(source)) if isinstance(node, ast.ImportFrom)
+            and node.module == "weather.backtesting" for alias in node.names} == {"venue_label_freeze"}
 
 
 def test_module_size_schema_and_docs():
@@ -336,3 +339,38 @@ def test_module_size_schema_and_docs():
     section = doc.split("## Forward-look labels", 1)[1].split("\n## ", 1)[0]
     for needle in ("-m weather.backtesting.venue_label_audit", "refresh", "freeze", "audit", "STATION_DRIFT"):
         assert needle in section
+
+
+def test_the_freeze_copies_the_manifest_key_lists_keys_only(world):
+    """R24 freeze keys (master 2026-11-03): label_dates and skipped_dates come from the sha-verified frozen
+    manifest only, and equal it."""
+    look_dir, receipt, _ = vla.freeze("mg1", THROUGH, **world["kwargs"])
+    for market_id, entry in receipt["markets"].items():
+        manifest_path = Path(entry["manifest"]["path"])
+        assert vrl._sha256(manifest_path) == entry["manifest"]["sha256"]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert entry["label_dates"] == manifest["label_dates"] == sorted(manifest["label_dates"])
+        assert entry["skipped_dates"] == manifest["skipped_dates"]
+        assert len(entry["label_dates"]) == sum(manifest["label_source_counts"].values())
+        assert all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) for day in entry["label_dates"])
+    nyc = receipt["markets"]["nyc"]
+    with open(nyc["label_csv"]["path"], encoding="utf-8", newline="") as handle:
+        assert nyc["label_dates"] == sorted(row["local_date"] for row in csv.DictReader(handle))
+    _assert_no_label_values(receipt)
+    on_disk = (look_dir / "freeze_receipt.json").read_text(encoding="utf-8")
+    assert not any(canary in on_disk for canary in CANARY_TEXT) and "max_temp" not in on_disk
+
+
+def test_a_manifest_without_the_key_lists_is_refused_by_name_before_any_folder(world, monkeypatch):
+    real = vrl.build_market_labels
+
+    def legacy(*args, **kwargs):
+        payload = real(*args, **kwargs)
+        payload.pop("label_dates")
+        Path(kwargs["manifest"]).write_text(json.dumps(payload), encoding="utf-8")
+        return payload
+
+    monkeypatch.setattr(vla, "build_market_labels", legacy)
+    with pytest.raises(vla.AuditRefused, match="build manifest has no label_dates"):
+        vla.freeze("mg1", THROUGH, **world["kwargs"])
+    assert not (world["kwargs"]["label_root"] / "frozen" / "mg1").exists()

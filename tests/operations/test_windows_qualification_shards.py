@@ -82,6 +82,7 @@ EXPECTED_SHARDS = {
             "tests/calibration/test_mg1_look_record.py",
             "tests/calibration/test_mg1_market.py",
             "tests/calibration/test_mg1_look_check_keys.py",
+            "tests/backtesting/test_venue_label_freeze.py",
         ],
     ),
     "launch": (
