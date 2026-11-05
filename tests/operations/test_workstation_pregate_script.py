@@ -35,6 +35,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import shutil
 import site
 import subprocess
@@ -503,20 +504,27 @@ def test_fixture_admission_uses_a_temp_queue_root_and_private_mutexes(tmp_path):
     assert not any(m.startswith("Global\\") for m in observed["mutexes"])
 
 
-def _host_state_snapshot() -> list[tuple[str, int, int]]:
-    """Names, LastWriteTimeUtc (ns) and length under the real host-global state root. Metadata only."""
+# Concurrent outer wrappers rewrite queue tickets, the slot state files (with their
+# .tmp/.bak siblings) and every mtime on each admission and release, so only the
+# stable part is compared: every other name, and whether the holder record exists.
+CHURNING_HOST_STATE = re.compile(
+    r"^(?:heavy_workload_queue_v1[\\/]ticket-\d{12}\.json|heavy_workload_v1(?:\.slot\d+)?\.poison|.*\.(?:tmp|bak))$",
+    re.IGNORECASE,
+)
+
+
+def _host_state_snapshot() -> dict:
+    """Stable view of the real host-global state root: names (recursive) and holder presence. Metadata only."""
     root = Path(os.environ["ProgramData"]) / "WeatherProject"
-    if not root.exists():
-        return []
-    rows = []
-    for directory, names, files in os.walk(root):
-        for name in [*names, *files]:
-            item = Path(directory) / name
-            info = item.stat()
-            rows.append((str(item.relative_to(root)), info.st_mtime_ns, info.st_size if item.is_file() else -1))
-    info = root.stat()
-    rows.append((".", info.st_mtime_ns, -1))
-    return sorted(rows)
+    names = []
+    if root.exists():
+        for directory, dirs, files in os.walk(root):
+            for name in [*dirs, *files]:
+                relative = str((Path(directory) / name).relative_to(root))
+                if not CHURNING_HOST_STATE.match(relative):
+                    names.append(relative)
+    holder = root / "heavy_workload_queue_v1" / "exclusive_holder_v1.json"
+    return {"names": sorted(names), "exclusive_holder_present": holder.exists()}
 
 
 def _rename_definition(name: str):
@@ -568,7 +576,7 @@ def test_isolation_fails_closed_at_setup_when_an_override_would_not_bind(tmp_pat
     # would leave them dead and send fixture state to the real host-global root.
     # The real setup path must abort first: before any file is written, before
     # any PowerShell (so no admission code) starts, and with the real host-global
-    # state root unchanged (names, LastWriteTimeUtc, length; metadata only).
+    # state root's stable view unchanged (names and holder presence; metadata only).
     mutate, message = NOT_BINDING_MUTATIONS[mutation]
     production = _production_scripts()
     mutated = mutate(production)
