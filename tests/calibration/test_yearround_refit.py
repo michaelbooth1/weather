@@ -1024,16 +1024,138 @@ def test_wu_hourly_presence_needs_each_named_column():
     nan = float("nan")
     frame = pd.DataFrame([{"market": "atlanta", "target_date": "2023-01-05", "hour": h, "F": 60.0,
                            "x_high_so_far": 60.0, "x_current_temp": nan, "fh": 62.0} for h in (13, 14)])
-    with pytest.raises(yr.SourceAbsent, match="'wu_hourly' .*2 \\(market, date, hour\\).*atlanta 2023-01-05 13"):
+    with pytest.raises(yr.SourceAbsent, match="class nan_feature .* on 2 undeclared \\(market, date, hour\\) of 2: "
+                                              "atlanta 2023-01-05 13 \\[x_current_temp\\]"):
         yr.refuse_absent_training_sources(frame, "B")
     frame.loc[frame.hour == 14, "x_current_temp"] = 58.0  # hour grain: hour 13 still lacks the column
-    with pytest.raises(yr.SourceAbsent, match="for 1 \\(market, date, hour\\) of 2: atlanta 2023-01-05 13"):
+    with pytest.raises(yr.SourceAbsent, match="on 1 undeclared \\(market, date, hour\\) of 2: atlanta 2023-01-05 13 "
+                                              "\\[x_current_temp\\]$"):
         yr.refuse_absent_training_sources(frame, "B")
     frame = pd.concat([frame, frame.assign(x_current_temp=58.0)], ignore_index=True)  # a finite row at each hour
     out = yr.refuse_absent_training_sources(frame, "B")
     assert out["rows_missing_any_wu_hourly_value"] == 1 and out["wu_hourly_market_date_hours"] == 2
+    assert out["wu_hourly_absent"] == 0 and out["wu_hourly_nan_feature"] == 0
     checks = yr.training_source_checks(frame.iloc[[0, 1]].assign(nbm_cycle="07"), "B", {}, prm)  # mirrored
-    assert "(market, date, hour)" in checks["source_presence"]["refused"]
+    assert "class nan_feature" in checks["source_presence"]["refused"]
+    assert checks["source_presence"]["wu_hourly_classes"] == {
+        "keys": 2, "absent": 0, "absent_names": [], "nan_feature": 1,
+        "nan_feature_names": ["atlanta 2023-01-05 13 [x_current_temp]"]}
+
+
+# ----------------------------------------------------------------------------- amended F3(a) (master 2026-11-04)
+
+def _wu_frame(cells):
+    """One row per (market, date, hour) with the three wu_hourly columns finite unless named in ``cells``."""
+    nan = float("nan")
+    rows = []
+    for (m, d, h), bad in cells.items():
+        row = {"market": m, "target_date": d, "hour": h, "F": 60.0, "x_high_so_far": 60.0, "x_current_temp": 58.0,
+               "fh": 62.0}
+        row.update({c: nan for c in bad})
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _nan_key(market, day, hour, columns):
+    return {"market": market, "target_date": day, "hour": hour, "columns": list(columns), "reason": "nan_feature",
+            "cause": "src/weather/model/feature_store.py:1233,1258", "ruling": "master 2026-11-04"}
+
+
+def _declared_v2(tmp_path, nan_keys, name="declared_v2.json", records=None, extra=None):
+    body = {"schema": yr.DECLARED_ABSENT_SCHEMA_V2, "records": records or [_rec("denver", "2023-01-15")],
+            "nan_feature_keys": nan_keys} | (extra or {})
+    path = tmp_path / name
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return yr.load_declared_absent(path, _sha(path))
+
+
+def test_amended_f3a_all_nan_still_refuses_as_absent(tmp_path):
+    every = ("F", "x_current_temp", "x_high_so_far")
+    frame = _wu_frame({("nyc", "2024-03-13", 13): every, ("nyc", "2024-03-13", 14): ()})
+    declared = _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])])
+    for decl in (None, declared):  # a declaration never turns an absent key into a pass
+        with pytest.raises(yr.SourceAbsent, match="'wu_hourly' is absent or empty for 1 \\(market, date, hour\\) of 2: "
+                                                  "nyc 2024-03-13 13$"):
+            yr.refuse_absent_training_sources(frame, "B", declared=decl)
+    assert yr.wu_hourly_class_report(frame, "B")["absent_names"] == ["nyc 2024-03-13 13"]
+
+
+def test_amended_f3a_undeclared_partial_refuses_and_names_the_columns():
+    frame = _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",),
+                       ("san-francisco", "2022-03-17", 13): ("F", "x_high_so_far")})
+    with pytest.raises(yr.SourceAbsent, match="class nan_feature .* on 2 undeclared .* of 2: nyc 2024-03-13 13 "
+                                              "\\[x_current_temp\\], san-francisco 2022-03-17 13 \\[F,x_high_so_far\\]"):
+        yr.refuse_absent_training_sources(frame, "B")
+
+
+def test_amended_f3a_declared_exact_match_passes_and_the_rows_are_untouched(tmp_path):
+    cells = {("nyc", "2024-03-13", 13): ("x_current_temp",), ("san-francisco", "2022-03-17", 13): ("x_current_temp",),
+             ("nyc", "2024-03-13", 14): ()}
+    frame = _wu_frame(cells)
+    before = frame.copy()
+    declared = _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"]),
+                                       _nan_key("san-francisco", "2022-03-17", 13, ["x_current_temp"])])
+    out = yr.refuse_absent_training_sources(frame, "B", declared=declared)
+    pd.testing.assert_frame_equal(frame, before)  # refuse-only: nothing filtered, filled or altered
+    assert out["wu_hourly_absent"] == 0 and out["wu_hourly_nan_feature"] == 2
+    assert out["nan_feature_declared"] == {"keys": 2, "sha256": declared["sha256"], "names": [
+        "nyc 2024-03-13 13 [x_current_temp]", "san-francisco 2022-03-17 13 [x_current_temp]"]}
+
+
+def test_amended_f3a_an_extra_declared_key_refuses(tmp_path):
+    frame = _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",), ("nyc", "2024-03-13", 14): ()})
+    declared = _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"]),
+                                       _nan_key("nyc", "2024-03-13", 14, ["x_current_temp"])])
+    with pytest.raises(yr.YearroundRefused, match="1 declared nan_feature key\\(s\\) are not nan_feature keys on the "
+                                                  "frame: nyc 2024-03-13 14 \\[x_current_temp\\]"):
+        yr.refuse_absent_training_sources(frame, "B", declared=declared)
+
+
+def test_amended_f3a_a_missing_or_mismatched_declared_key_refuses(tmp_path):
+    frame = _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",),
+                       ("san-francisco", "2022-03-17", 13): ("x_current_temp",)})
+    one = _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])], "one.json")
+    with pytest.raises(yr.SourceAbsent, match="on 1 undeclared .*: san-francisco 2022-03-17 13 \\[x_current_temp\\]$"):
+        yr.refuse_absent_training_sources(frame, "B", declared=one)
+    wrong = _declared_v2(tmp_path, [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"]),
+                                    _nan_key("san-francisco", "2022-03-17", 13, ["F"])], "wrong.json")
+    with pytest.raises(yr.SourceAbsent, match="on 1 undeclared .*: san-francisco 2022-03-17 13 \\[x_current_temp\\]$"):
+        yr.refuse_absent_training_sources(frame, "B", declared=wrong)  # the column set is part of the key
+
+
+def test_declared_absent_v1_loads_with_an_empty_nan_section_and_v2_is_strict(tmp_path):
+    v1 = yr.load_declared_absent(*_declared(tmp_path, [_rec("denver", "2023-01-15")]))
+    assert v1["nan_feature_keys"] == set() and v1["records"] == {("denver", "2023-01-15")}
+    frame = _wu_frame({("nyc", "2024-03-13", 13): ("x_current_temp",)})
+    with pytest.raises(yr.SourceAbsent, match="class nan_feature"):
+        yr.refuse_absent_training_sources(frame, "B", declared=v1)  # a v1 file declares no nan_feature key
+    path = tmp_path / "v1_extra.json"
+    path.write_text(json.dumps({"schema": yr.DECLARED_ABSENT_SCHEMA, "records": [_rec("denver", "2023-01-15")],
+                                "nan_feature_keys": [_nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])]}),
+                    encoding="utf-8")
+    with pytest.raises(yr.YearroundRefused, match="holds only schema and records"):
+        yr.load_declared_absent(path, _sha(path))
+    good = _nan_key("nyc", "2024-03-13", 13, ["x_current_temp"])
+    for i, (bad, match) in enumerate([
+            ([], "non-empty nan_feature_keys"),
+            ([good, dict(good, columns=["F"])], "twice"),
+            ([dict(good, reason="source_absent_final")], "nan_feature"),
+            ([dict(good, market="toronto")], "training market"),
+            ([dict(good, cause="")], "cause cite"),
+            ([dict(good, hour=12)], "hour must be"),
+            ([dict(good, hour="13")], "hour must be"),
+            ([dict(good, columns=[])], "proper subset"),
+            ([dict(good, columns=["x_current_temp", "F"])], "sorted"),
+            ([dict(good, columns=["F", "x_current_temp", "x_high_so_far"])], "proper subset"),
+            ([dict(good, columns=["fh"])], "proper subset"),
+            ([dict(good, value=1)], "keys")]):
+        with pytest.raises(yr.YearroundRefused, match=match):
+            _declared_v2(tmp_path, bad, f"bad_v2_{i}.json")
+    with pytest.raises(yr.YearroundRefused, match="needs exactly schema, records"):
+        _declared_v2(tmp_path, [good], "extra_top.json", extra={"note": "x"})
+    v2 = _declared_v2(tmp_path, [good], "ok.json")
+    assert v2["nan_feature_keys"] == {(("nyc", "2024-03-13", 13), ("x_current_temp",))}
+    assert v2["records"] == {("denver", "2023-01-15")}  # the grid-hole section is unchanged
 
 
 def test_training_calendar_grid_refuses_a_hole_by_name():

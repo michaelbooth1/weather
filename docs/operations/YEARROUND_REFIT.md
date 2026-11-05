@@ -27,8 +27,12 @@ inside any checkout (any ancestor holding `.git`, the checkout root included), i
 `frozen_records_lists`; the retired keys `frozen_records_list` and `frozen_records_list_sha256` refuse by name.
 
 `fit` refuses by name, and never filters or alters the bound training set:
-- a (market, date, scored hour) with rows on which any of F, x_high_so_far and x_current_temp has no finite
-  value (WU hourly; the hour grain, because each scored hour is a separate fit);
+- a (market, date, scored hour) with rows on which EVERY one of F, x_high_so_far and x_current_temp has no
+  finite value (WU hourly `absent`; the hour grain, because each scored hour is a separate fit);
+- a (market, date, scored hour) on which at least one of those columns is finite and at least one is not (class
+  `nan_feature`, amended F3(a), master 2026-11-04), unless the declared-absent file names it exactly (below). The
+  message names the class, the key and the non-finite columns. The check is refuse-only: rows and NaNs are carried
+  into the fit exactly as before;
 - a date with no NBM mean for any market (a per-market NBM gap stays the section 3.3b imputation; the pooled
   per-month cap refuses, and per-(market, month) counts are reported in the manifest only);
 - a hole in the calendar grid: an expected (market, date) of the record windows with no scored-hour row.
@@ -70,6 +74,15 @@ serving uses `usable_v2_mean` at capture time.
   and `ruling`. A declared record that is not a real hole refuses, and an undeclared hole still refuses. The
   manifest's `source_presence.calendar_grid.declared_absent` names them with the file's sha. The forward freeze is
   13-16 only.
+- Schema `yearround_refit_declared_absent/2` holds exactly `schema`, `records` (the grid holes, as above) and a
+  non-empty `nan_feature_keys` list. Each key holds `market`, `target_date`, `hour` (13-16), `columns` (the sorted
+  non-finite column names the check printed; a proper subset of the three), `reason` (`nan_feature`), `cause` and
+  `ruling`. Every `nan_feature` key on the frame must be declared with exactly its columns, and every declared key
+  must be one; either way a mismatch refuses. A `/1` file loads with an empty `nan_feature_keys` section, so any
+  `nan_feature` key still refuses with it; a `/1` file holding any other top-level key refuses. The manifest's
+  `source_presence.nan_feature_declared` names them with the file's sha.
+- The equivalence report's `training_source_checks.source_presence.wu_hourly_classes` counts and names the
+  `absent` and `nan_feature` keys (report-only).
 - Copies the state and sidecar to `C:\archive\row28b-forward-state\<fit_id>\` and verifies them sha-equal
   BEFORE `fit_manifest.json` is written (a refused archive leaves no manifest), then adds the manifest to the
   same archive directory, verified too. Record that

@@ -66,6 +66,10 @@ Second fix (L16 re-review and master rulings, 2026-11-03):
   value on every (market, date); (b) every (market, date) of the record windows' calendar grid needs a scored-hour
   row; (c) the pooled per-month cap stays the refusing rule and per-(market, month) counts are reported only;
   (d) ``emit`` writes a named hole record (with a reason) for each batch (market, date) that emitted 0 rows.
+* Amended F3(a), hour grain (master 2026-11-04, refuse-only: rows, NaNs and the fit path are unchanged): a
+  (market, date, scored hour) on which EVERY named WU-hourly column is non-finite is ``absent`` and refuses; one on
+  which some are finite and some are not is class ``nan_feature`` and refuses unless the declared-absent file's
+  ``nan_feature_keys`` section (schema ``/2``) names exactly it and its sorted non-finite columns, both ways.
 * F6: a snapshot ``target_date`` outside :data:`SNAPSHOT_TARGET_DATE_TYPES` refuses by name. F7: a records root
   inside any checkout (an ancestor holding ``.git``) refuses. F8: ``source_presence`` goes into the fit manifest
   and the emit receipt.
@@ -173,7 +177,10 @@ EMIT_RECEIPT = "emit_receipt.json"
 EQUIVALENCE_REPORT = "equivalence_report.json"
 GRID_HOLES_SCHEMA = "yearround_refit_grid_holes/1"
 DECLARED_ABSENT_SCHEMA = "yearround_refit_declared_absent/1"
+DECLARED_ABSENT_SCHEMA_V2 = "yearround_refit_declared_absent/2"  # adds nan_feature_keys (amended F3(a), 11-04)
+DECLARED_ABSENT_SCHEMAS = (DECLARED_ABSENT_SCHEMA, DECLARED_ABSENT_SCHEMA_V2)
 DECLARED_ABSENT_REASON = "source_absent_final"
+NAN_FEATURE_REASON = "nan_feature"
 GRID_HOLE_CLASSES = ("march_1", "us_spring_forward_sunday", "other")
 # WU-store booleans in grid-holes (master Option A, 2026-11-04): the store's writer puts local_date second
 # (wu_history.write_daily_summary); nothing dated on or after the cutoff is ever handed to a parser
@@ -850,17 +857,9 @@ def _refuse_absent(source, keys, n_dates, grain="(market, date)"):
                        f"{n_dates}: {shown}{' ...' if len(keys) > 5 else ''}")
 
 
-def refuse_absent_training_sources(frame, arm):
-    """Refuse by name a (market, date) of the fit's training rows whose source is entirely missing.
-
-    The fit's rows are ``arm_rows`` for the scored hours (any fold). ``wu_hourly`` is absent for a (market, date)
-    and scored hour when any one of F, x_high_so_far and x_current_temp has no finite value on it (F3(a), hour
-    grain). ``nbm`` is absent for a DATE when no
-    market has an NBM mean on it: per-(market, date) NBM gaps stay the pre-registered section 3.3b imputation,
-    counted and capped by ``imputation_shares`` / IMPUTE_CAP. A pure precondition: it raises or returns counts.
-    """
-    import numpy as np
-
+def _training_source_rows(frame, arm):
+    """The rows the source checks read (scored hours, at or before LAST_TRAIN, B: Dec-May) and the wu_hourly
+    columns, or refuse by name. Read-only: the frame is never altered."""
     days = frame["target_date"].astype(str).str[:10]
     mask = frame["hour"].isin(SCORED_HOURS) & (days <= LAST_TRAIN.isoformat())
     if arm == "B":
@@ -868,27 +867,93 @@ def refuse_absent_training_sources(frame, arm):
     rows = frame[mask].assign(_d=days[mask])
     if rows.empty:
         raise SourceAbsent("the fit has no training rows at all")
-    groups = rows.groupby(["market", "_d"], sort=True)
     cols = [c for c in TRAIN_SOURCE_COLUMNS["wu_hourly"] if c in rows]
     if len(cols) != len(TRAIN_SOURCE_COLUMNS["wu_hourly"]):
         raise SourceAbsent(f"input source 'wu_hourly' columns are absent from the frame: "
                            f"{sorted(set(TRAIN_SOURCE_COLUMNS['wu_hourly']) - set(cols))}")
+    return rows, cols
+
+
+def wu_hourly_classes(rows, cols):
+    """Amended F3(a) (master 2026-11-04): per (market, date, scored hour) with rows, which named wu_hourly columns
+    have a finite value on at least one row. Returns (n_keys, absent, nan_feature): ``absent`` lists the keys on
+    which NO named column is finite; ``nan_feature`` maps each key on which at least one named column is finite and
+    at least one is not to its sorted tuple of non-finite columns. Counts and names only; nothing is altered."""
+    import numpy as np
+
     finite = rows[cols].apply(lambda c: np.isfinite(c.to_numpy(float)))
-    # F3(a), hour grain (master 2026-11-04): the h13-16 fits are separate models, so EACH named column needs a
-    # finite value on every (market, date, scored hour) that has rows; one finite column or hour is not enough
-    wu = finite.groupby([rows["market"], rows["_d"], rows["hour"].astype(int)]).any().all(axis=1)
-    missing = [k for k, ok in wu.items() if not ok]
-    if missing:
-        _refuse_absent("wu_hourly", missing, int(len(wu)), grain="(market, date, hour)")
+    per_key = finite.groupby([rows["market"], rows["_d"], rows["hour"].astype(int)]).any()
+    absent, nan_feature = [], {}
+    for key, flags in per_key.iterrows():
+        bad = tuple(sorted(c for c in cols if not bool(flags[c])))
+        if len(bad) == len(cols):
+            absent.append(tuple(key))
+        elif bad:
+            nan_feature[tuple(key)] = bad
+    return int(len(per_key)), absent, nan_feature
+
+
+def _nan_feature_names(keys):
+    return [f"{m} {d} {h} [{','.join(c)}]" for (m, d, h), c in sorted(keys)]
+
+
+def refuse_absent_training_sources(frame, arm, declared=None):
+    """Refuse by name a (market, date) of the fit's training rows whose source is entirely missing.
+
+    The fit's rows are ``arm_rows`` for the scored hours (any fold). Amended F3(a), hour grain (master
+    2026-11-04; a refuse-only change: rows, NaNs and the fit path are untouched): ``wu_hourly`` is ABSENT for a
+    (market, date, scored hour) when EVERY one of F, x_high_so_far and x_current_temp has no finite value on it,
+    and refuses as before. It is class ``nan_feature`` when at least one named column is finite and at least one is
+    not: that refuses unless ``declared`` (``load_declared_absent``) names exactly that (market, date, hour, sorted
+    non-finite column set); a declared key that is not such a key on the frame refuses too. ``nbm`` is absent for a
+    DATE when no market has an NBM mean on it: per-(market, date) NBM gaps stay the pre-registered section 3.3b
+    imputation, counted and capped by ``imputation_shares`` / IMPUTE_CAP. A pure precondition: it raises or
+    returns counts.
+    """
+    import numpy as np
+
+    rows, cols = _training_source_rows(frame, arm)
+    groups = rows.groupby(["market", "_d"], sort=True)
+    n_keys, absent, nan_feature = wu_hourly_classes(rows, cols)
+    if absent:
+        _refuse_absent("wu_hourly", absent, n_keys, grain="(market, date, hour)")
+    found = {(k, c) for k, c in nan_feature.items()}
+    named = set() if declared is None else set(declared.get("nan_feature_keys") or ())
+    undeclared = sorted(found - named)
+    if undeclared:
+        shown = _nan_feature_names(undeclared)
+        raise SourceAbsent(f"input source 'wu_hourly' has class nan_feature (a named column non-finite while "
+                           f"another is finite) on {len(undeclared)} undeclared (market, date, hour) of {n_keys}: "
+                           f"{', '.join(shown[:20])}{' ...' if len(shown) > 20 else ''}")
+    extra = sorted(named - found)
+    if extra:
+        raise YearroundRefused(f"{len(extra)} declared nan_feature key(s) are not nan_feature keys on the frame: "
+                               f"{', '.join(_nan_feature_names(extra)[:20])}")
     fh_ok = np.isfinite(rows["fh"].to_numpy(float))
     by_date = pd_series(fh_ok, rows["_d"]).groupby(level=0).any()
     missing = [("all markets", d) for d, ok in by_date.items() if not ok]
     if missing:
         _refuse_absent("nbm", missing, len(by_date))
-    return {"wu_hourly_market_dates": int(groups.ngroups), "wu_hourly_market_date_hours": int(len(wu)),
-            "nbm_dates": int(len(by_date)),
-            "rows_missing_any_wu_hourly_value": int((~rows[cols].apply(
-                lambda c: np.isfinite(c.to_numpy(float))).all(axis=1)).sum())}
+    out = {"wu_hourly_market_dates": int(groups.ngroups), "wu_hourly_market_date_hours": n_keys,
+           "wu_hourly_absent": 0, "wu_hourly_nan_feature": len(found), "nbm_dates": int(len(by_date)),
+           "rows_missing_any_wu_hourly_value": int((~rows[cols].apply(
+               lambda c: np.isfinite(c.to_numpy(float))).all(axis=1)).sum())}
+    if found:
+        out["nan_feature_declared"] = {"keys": len(found), "sha256": declared["sha256"],
+                                       "names": _nan_feature_names(found)}
+    return out
+
+
+def wu_hourly_class_report(frame, arm):
+    """Equivalence-side counts of the amended F3(a) classes (names and column names only; never refuses on a
+    class: a refusal of the row selection itself is reported as ``refused``)."""
+    try:
+        rows, cols = _training_source_rows(frame, arm)
+    except SourceAbsent as exc:
+        return {"refused": str(exc)}
+    n_keys, absent, nan_feature = wu_hourly_classes(rows, cols)
+    return {"keys": n_keys, "absent": len(absent), "absent_names": [" ".join(str(x) for x in k) for k in absent],
+            "nan_feature": len(nan_feature), "nan_feature_names": _nan_feature_names(nan_feature.items())}
 
 
 def expected_training_grid(prm, covered_years, arm, markets=None):
@@ -951,8 +1016,11 @@ def load_declared_absent(path, sha):
     unknown market, class or reason, or a record without a cause or ruling refuses.
     """
     body = json.loads(_read_verified(path, sha, "declared-absent records"))
-    if body.get("schema") != DECLARED_ABSENT_SCHEMA or not isinstance(body.get("records"), list) or not body["records"]:
-        raise YearroundRefused(f"declared-absent records need schema {DECLARED_ABSENT_SCHEMA} and a non-empty list")
+    if body.get("schema") not in DECLARED_ABSENT_SCHEMAS or not isinstance(body.get("records"), list) \
+            or not body["records"]:
+        raise YearroundRefused(f"declared-absent records need a schema in {DECLARED_ABSENT_SCHEMAS} and a non-empty "
+                               "list")
+    nan_keys = _declared_nan_feature_keys(body)
     keys = []
     for rec in body["records"]:
         if set(rec) != {"market", "target_date", "reason", "class", "cause", "ruling"}:
@@ -967,7 +1035,46 @@ def load_declared_absent(path, sha):
     if len(set(keys)) != len(keys):
         raise YearroundRefused("declared-absent records name a (market, date) twice")
     return {"records": set(keys), "sha256": sha, "by_class": dict(sorted(Counter(r["class"] for r in body["records"])
-                                                                           .items()))}
+                                                                           .items())),
+            "nan_feature_keys": nan_keys}
+
+
+def _declared_nan_feature_keys(body):
+    """The ``nan_feature_keys`` section (amended F3(a), master 2026-11-04) as a set of ((market, date, hour),
+    sorted non-finite columns), or refuse by name. Schema /1 (grid holes only) has NO such section and loads with
+    an empty set (so every nan_feature key refuses); schema /2 needs exactly the keys schema, records and
+    nan_feature_keys, with a non-empty section."""
+    if body["schema"] == DECLARED_ABSENT_SCHEMA:
+        if set(body) != {"schema", "records"}:
+            raise YearroundRefused(f"declared-absent schema {DECLARED_ABSENT_SCHEMA} holds only schema and records, "
+                                   f"not {sorted(set(body) - {'schema', 'records'})}")
+        return set()
+    if set(body) != {"schema", "records", "nan_feature_keys"} or not isinstance(body["nan_feature_keys"], list) \
+            or not body["nan_feature_keys"]:
+        raise YearroundRefused(f"declared-absent schema {DECLARED_ABSENT_SCHEMA_V2} needs exactly schema, records and "
+                               "a non-empty nan_feature_keys list")
+    wu = TRAIN_SOURCE_COLUMNS["wu_hourly"]
+    keys = []
+    for rec in body["nan_feature_keys"]:
+        if not isinstance(rec, dict) or set(rec) != {"market", "target_date", "hour", "columns", "reason", "cause",
+                                                     "ruling"}:
+            raise YearroundRefused(f"declared nan_feature key has keys {sorted(rec) if isinstance(rec, dict) else rec}")
+        name = f"{rec['market']} {rec['target_date']} {rec['hour']}"
+        cols = rec["columns"]
+        if rec["reason"] != NAN_FEATURE_REASON or rec["market"] not in TRAINING_MARKETS \
+                or not str(rec["cause"]).strip() or not str(rec["ruling"]).strip():
+            raise YearroundRefused(f"declared nan_feature key {name}: reason must be {NAN_FEATURE_REASON!r}, with a "
+                                   "training market, a cause cite and a ruling")
+        if type(rec["hour"]) is not int or rec["hour"] not in SCORED_HOURS:
+            raise YearroundRefused(f"declared nan_feature key {name}: hour must be one of {SCORED_HOURS}")
+        if not isinstance(cols, list) or not cols or not all(isinstance(c, str) for c in cols) \
+                or cols != sorted(set(cols)) or not set(cols) < set(wu):
+            raise YearroundRefused(f"declared nan_feature key {name}: columns must be a sorted, duplicate-free, "
+                                   f"proper subset of {wu} (all of them is absent, never nan_feature)")
+        keys.append(((rec["market"], as_date(rec["target_date"]).isoformat(), rec["hour"]), tuple(cols)))
+    if len({k for k, _ in keys}) != len(keys):
+        raise YearroundRefused("declared nan_feature keys name a (market, date, hour) twice")
+    return set(keys)
 
 
 def refuse_training_grid_holes(frame, expected, declared=None):
@@ -1047,6 +1154,7 @@ def training_source_checks(frame, arm, covered_years, prm, holes_path=None):
         out["source_presence"] = refuse_absent_training_sources(frame, arm)
     except SourceAbsent as exc:
         out["source_presence"] = {"refused": str(exc)}
+    out["source_presence"]["wu_hourly_classes"] = wu_hourly_class_report(frame, arm)  # amended F3(a), 11-04
     expected = expected_training_grid(prm, covered_years, arm)
     holes = training_grid_holes(frame, expected)
     out["calendar_grid"] = {"expected_market_dates": len(expected), "empty": not expected, "holes": len(holes),
@@ -1210,7 +1318,7 @@ def _fit_in(cfg, arm, now, fit_id, out, records_root, declared=None):
     refuse_records_not_frozen({n: e["payload_sha256"] for n, e in records_manifest["files"].items()},
                               frozen_records_union(cfg, mods.prm))
     frame, payload_buckets, build_report = training_frame(cfg, mods, files, out / "work_nbm")
-    source_presence = refuse_absent_training_sources(frame, arm)
+    source_presence = refuse_absent_training_sources(frame, arm, declared=declared)
     source_presence["calendar_grid"] = refuse_training_grid_holes(  # the check path only: rows and state unchanged
         frame, expected_training_grid(mods.prm, records_manifest.get("covered_years"), arm), declared=declared)
     by_market_month = imputation_by_market_month(frame, arm)
