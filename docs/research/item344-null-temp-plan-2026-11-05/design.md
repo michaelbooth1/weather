@@ -37,18 +37,53 @@ binding ([item 344](../../roadmap/items/item-344-trainer-null-last-pre-cutoff-te
 - **History rate.** 2 of 28,936 (market, date, hour) keys: nyc 2024-03-13 h13 and san-francisco 2022-03-17 h13
   (EF §10ay). The reference fit carried the NaN into the HGB through sklearn's native missing-value handling.
 
+## 1a. Field-by-field proof: what each serve/replay helper does with a null last row (master Q1, 2026-11-05)
+
+- **`mg_serve_core.observations_at_cutoff`** (`src/weather/model/mg_serve_core.py:108-129`):
+  - `:119-121`: `temp = row.get("temp_native")`, then `if temp is None: continue`. The row is dropped **before** its
+    instant is parsed (`:122`). It never enters `kept`, the instant-keyed dict of `float(temp)` at `:125`.
+  - `:128-129`: `latest = max(kept)` is the latest NON-null instant. It returns `kept[latest]`, `max(kept.values())`
+    and `len(kept)`.
+  - So the null row is skipped as a **whole row**. It is excluded from `current_temp`, from `high_so_far` and from
+    the count `n`. The helper returns no dewpoint, pressure, wind, cloud or humidity at all. Its only consumer,
+    `state_features` (`:531-552`), builds the serve vector from `high_so_far` and `current_temp` only (`:548`).
+- **`r0_ols_floor_challenger.observations_at_cutoff`** (`src/weather/calibration/r0_ols_floor_challenger.py:572-593`):
+  - It has the same body, line for line: skip at `:583-585`, `kept` at `:589`, latest at `:592-593`.
+  - It too returns only `(current_temp, high_so_far, n)`. So it is also a whole-row skip with no non-temperature
+    field. Its callers keep those three values only: `scan_replay_observations` `:628-632`, and `mg2_p3d_n.py:361`
+    (cite only), which keeps `current` and `n`.
+- **`pooled_residual_model.scan_replay_n`** (`src/weather/calibration/pooled_residual_model.py:1101-1133`):
+  - It has no row logic of its own. It calls the injected helper (L3's, `:1190`) at `:1128`.
+  - It emits `current_temp`, `main_high_so_far` and `n_rows` from that helper. Its `high_so_far` comes instead from
+    `observed_running_max.running_max_since_midnight(..., metar_only=True)` (`:1129-1130`).
+  - It emits no non-temperature field (`:1131-1132`).
+- **Do the helpers differ? No.** The two `observations_at_cutoff` bodies are identical (mg_serve_core's copy is pinned
+  equal to its source, `mg_serve_core.py:13`), and `scan_replay_n` adds no null handling of its own. The one
+  difference is the source of `scan_replay_n`'s own `high_so_far` (`running_max`, not the helper). That is outside
+  item 344, because the trainer's `high_so_far` already skips nulls (`feature_store.py:1234`).
+- **Consequence for scope.** Master's condition for temperature-only was that serve keeps the other fields from the
+  null-temperature row. It is NOT met. No helper keeps anything from that row; each drops it whole.
+  - The field-by-field match is therefore a **whole-row** skip. `current_obs` becomes the latest row at or before
+    the cutoff whose temperature is non-null, and every field read from `current_obs` follows it.
+  - The helpers expose no non-temperature fields. So whole-row is the only reading consistent with them, not a
+    measured parity for those fields.
+  - Side note, no change asked: the parity scorecard's own WU serving surface takes `latest = rows[-1]`
+    (`train_serve_feature_parity.py:546`). That surface is not one of the three helpers.
+
 ## 2. The change, at the next retrain (not before)
 
 - **Semantics.** In `build_historical_feature_record`, `current_temp` becomes the temperature of the latest row at or
   before the cutoff whose temperature is non-null. This is what all three serve/replay helpers already do.
-  - Concretely, `current_temp = temps_before[-1]` in row order. `temps_before` is already computed at `:1234`, and
-    the function already returns `None` when it is empty (`:1235-1236`).
-- **Scope: temperature only (recommended).** The at-print `live_reading` (`:1243`) and the derived `rise_from_7am` /
-  `warming_rate_2h` follow `current_temp`.
-  - The other row fields read from `current_obs` (dewpoint `:1290`, pressure `:1293`, wind and cloud groups
-    `:1314-1337`, humidity and wind speed `:1388-1392`) stay on `current_obs`.
-  - The serve helpers carry only temperature, so moving the other fields would be a separate parity question.
-  - **Open for master:** temperature only, or move `current_obs` to the latest non-null-temperature row as a whole.
+- **Scope: whole row (master Q1, 2026-11-05, decided by the §1a proof).** `current_obs` becomes the latest row in
+  `obs_before` whose temperature is non-null. This matches the helpers' `continue` before parsing, which drops the
+  null row whole. Every field read from `current_obs` follows it:
+  - `current_temp` (`:1258`) and the at-print `live_reading` (`:1243`), and so `rise_from_7am` and `warming_rate_2h`
+    (`:1263-1275`);
+  - dewpoint `:1290`, pressure `:1293`, the wind and cloud groups `:1314-1337`, and humidity and wind `:1388-1392`.
+
+  `temps_before` (`:1234`) is non-empty exactly when such a row exists, so the existing `return None` at
+  `:1235-1236` covers the empty case. The earlier temperature-only proposal is withdrawn: the proof shows serve keeps
+  nothing from the null-temperature row.
 - **Gate.** The change lands only with a retrain or model change:
   - the parity gate first (the null-last-row fixture below must then show agreement);
   - then the retrain and edge gates and the release binding.
@@ -76,8 +111,8 @@ the last row at or before 13:00 has a null temperature.
 - **Parity-gate null-last-row fixture.** The gate's own comparator, `compare_feature_records`, is fed the trainer
   record and the serve helper's value on the same case, and reports the `current_temp` missingness finding. It
   compares the serve helper with the trainer instead of the trainer with itself.
-- **Not done (needs a source edit, so it goes to master first).** A null-temperature case kind inside the gate's
-  manifest runner. The runner builds its serving surface with `float(row["temp_native"])` over every row
+- **Not done now (master Q2, 2026-11-05: no source edit now; it is a retrain-time step in item 344).** A
+  null-temperature case kind inside the gate's manifest runner. The runner builds its serving surface with `float(row["temp_native"])` over every row
   (`train_serve_feature_parity.py`, `_wu_sources` `:539`, the `float` at `:547`), so a null row cannot be expressed in a manifest
   fixture without changing the scorecard.
 - **At the fix,** the trainer pin flips to assert `current_temp == LAST_NON_NULL`, and the gate fixture to assert no
