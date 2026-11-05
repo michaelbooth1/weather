@@ -18,12 +18,24 @@ moves MG-1 and row-28b, and a serve-only fix is forbidden.
 
 Checklist:
 
-- [ ] Until the fix: a test that pins today's mismatch, citing this item and EF §10ay (trainer `current_temp` null,
+- [x] Until the fix: a test that pins today's mismatch, citing this item and EF §10ay (trainer `current_temp` null,
   serve helper returns the latest non-null row, on the same rows). Tests-only; no B-bound file edited.
+  Done in `tests/model/test_item344_null_last_pre_cutoff_temp_pin.py`; plan in
+  [the design note](../../research/item344-null-temp-plan-2026-11-05/design.md).
 - [ ] A parity-gate fixture with a null-temperature last pre-cutoff row, so the gate compares the serve helper with
-  the trainer on that case instead of the trainer with itself.
+  the trainer on that case instead of the trainer with itself. Comparator level done (same test file, through
+  `compare_feature_records`). The manifest case kind is a retrain-time step (next box; master Q2, 2026-11-05).
 - [ ] At the next retrain or model change (not before; master): the trainer adopts the serve semantics (latest
-  non-null row), with the pin test flipped to assert agreement, through the retrain and edge gates.
+  non-null row), with the pin test flipped to assert agreement, through the retrain and edge gates. Retrain-time steps:
+  - The whole-row skip: `current_obs` moves to the latest non-null-temperature row, and every field read from it
+    follows. This is master Q1, 2026-11-05, decided by the field-by-field proof in
+    [the design note](../../research/item344-null-temp-plan-2026-11-05/design.md) §1a.
+  - The parity scorecard's manifest gets a null-last-row case kind. This needs the serving surface
+    `train_serve_feature_parity._wu_sources` (`:539`), which calls `float(row["temp_native"])` on every row (`:547`),
+    to accept a null temperature. It is a source edit, so it lands only with the retrain (master Q2, 2026-11-05).
+  - The same WU serving surface takes `latest = dict(rows[-1])` (`train_serve_feature_parity.py:546`), which can be a
+    null-temperature row. At the retrain it must follow the whole-row rule (the latest non-null-temperature row), as
+    a source edit next to the `:539`/`:547` step (master, 2026-11-05).
 
 Acceptance:
 
