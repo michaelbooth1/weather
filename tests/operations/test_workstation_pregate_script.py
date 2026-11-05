@@ -24,9 +24,12 @@ The end-to-end tests run the real pre-gate and the real host suite against a
 small fixture repository whose ``venv`` reuses this interpreter's packages, in
 "inherited" lease mode on the fixture's own isolated lease: every copied
 ``workload_admission.ps1`` uses a private mutex family and a temp state root, so
-the queue, slot state and exclusive-holder record live under tmp_path and the
-real workstation queue is never read or written, also when this module runs
-nested inside ``workstation_heavy.ps1`` or an outer pre-gate (item 345).
+the queue, slot state and exclusive-holder record live under tmp_path, also
+when this module runs nested inside ``workstation_heavy.ps1`` or an outer
+pre-gate (item 345). No host-global state is read or written. The only contact
+with the live state root is the negative test listing names under it (metadata,
+no file opened) as supporting evidence; the proof is that setup fails closed
+before any write and before any process starts.
 """
 
 from __future__ import annotations
@@ -274,7 +277,8 @@ def _isolated_admission_text(state_root: Path, mutex_name: str, scripts: dict[st
     """Pure string work: it fails closed before anything is written or any admission code runs."""
     scripts = _production_scripts() if scripts is None else scripts
     _assert_overrides_bind(scripts)
-    text = _script_text(scripts["workload_admission.ps1"])
+    # LF only, so a CRLF checkout cannot yield \r\r\n in the written copy.
+    text = _script_text(scripts["workload_admission.ps1"]).replace("\r\n", "\n")
     assert MUTEX_NAME in text
     isolated = text.replace(MUTEX_NAME, mutex_name)
     assert MUTEX_NAME not in isolated
@@ -306,7 +310,7 @@ def _copy_isolated_scripts(repo: Path, state_root: Path, scripts: dict[str, byte
     for name, raw in scripts.items():
         if name != "workload_admission.ps1":
             (repo / "scripts" / "ops" / name).write_bytes(raw)
-    (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(admission, encoding="utf-8")
+    (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(admission, encoding="utf-8", newline="")
     env = {**os.environ, "PG_ADMISSION": str(repo / "scripts" / "ops" / "workload_admission.ps1")}
     result = _run([*POWERSHELL, "-Command", RESOLUTION_PROBE], env=env, timeout=120)
     assert result.returncode == 0, result.stderr

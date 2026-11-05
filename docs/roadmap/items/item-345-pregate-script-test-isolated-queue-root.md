@@ -29,11 +29,21 @@ Checklist:
   state-root resolver, are not exercised by this test.
 - [x] `test_fixture_admission_uses_a_temp_queue_root_and_private_mutexes` asserts the queue root, holder record,
   slot state files and mutex names all resolve to the temporary root and private names, none under the host's common
-  application-data root; the end-to-end receipts assert the queue directory under the temporary root. The test file no
-  longer names the real queue path.
+  application-data root; the end-to-end receipts assert the queue directory under the temporary root. No host-global
+  state is read or written; the only contact with the live root is the negative test listing names under it (metadata,
+  no file opened).
+- [x] Fail-closed setup, added after review: `test_isolation_fails_closed_at_setup_when_an_override_would_not_bind`
+  runs 5 cases through `_copy_isolated_scripts` (each of the three override targets renamed, a second
+  `CommonApplicationData` use, `$env:ProgramData` in another copied script); each aborts before any write and before any
+  process starts. Its supporting snapshot is the set of names under the live root (minus queue tickets, slot state
+  files and `.tmp`/`.bak` siblings) plus whether the exclusive-holder record exists. The rewritten admission text is
+  asserted to name no `Global\` object, and the 7 other copied scripts are checked for any host-state-root token.
 - [ ] The 55 GiB skips are reported in the suite receipt when they fire.
 - [ ] Open follow-up (delta review of `be1beced9`, findings 1-2): take the overridden function's span from the
   PowerShell parser AST instead of a text scan to the next `function`, and check that no top-level statement of the
   production admission script reaches host state outside the overridden functions.
+- [ ] Open follow-up: minors 2, 3, 5 and 6 of the delta review of `be1beced9..4e2e64cde`.
 
-Acceptance: the test passes with no read or write under the real `%ProgramData%\WeatherProject` queue directory.
+Acceptance: the test passes with no state read or write under the real `%ProgramData%\WeatherProject` root; the
+negative test only lists names there (metadata, no file opened). That listing is supporting evidence; the proof is
+setup failing closed before any write and before any process starts.
