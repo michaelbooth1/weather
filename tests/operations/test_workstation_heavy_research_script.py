@@ -107,6 +107,10 @@ SHIPPED_ENTRIES = [
      "sha256": "481a71cd044d37af3cda41b1f630bd7aa0a6aac1150ea9d5e4ebf0b9c02ca757"},
     {"path": "C:\\t\\ws3\\projection\\scripts\\ws3_projection_v2.py",
      "sha256": "2bc440dabd40716bb28561a94da56fd9d2634ba1072e4ce51b2689712db9bfba"},
+    {"path": "C:\\t\\ws3\\emit\\ws3_asof_emit.py",
+     "sha256": "d3cd2dbffdc191713c6bcd58f822906aeb2d92008b9356b19e71fb3d50db0018"},
+    {"path": "C:\\t\\ws3\\read\\scripts\\ws3_read_inputs.py",
+     "sha256": "15a061698143ffed2feebf65210bd688913b55d89665065be4e4a063aab10c04"},
 ]
 
 

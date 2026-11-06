@@ -700,6 +700,16 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\ws3\projection\scripts\ws3_projection_v2.py'
             sha256 = '2bc440dabd40716bb28561a94da56fd9d2634ba1072e4ce51b2689712db9bfba'
         }
+        # WS-3 step 5 as-of MG-2 emit adapter (C14 Clarification 4); master 2026-11-06 11:5x.
+        @{
+            path = 'C:\t\ws3\emit\ws3_asof_emit.py'
+            sha256 = 'd3cd2dbffdc191713c6bcd58f822906aeb2d92008b9356b19e71fb3d50db0018'
+        }
+        # WS-3 step 5 read-input build (receive, build); master 2026-11-06 11:3x.
+        @{
+            path = 'C:\t\ws3\read\scripts\ws3_read_inputs.py'
+            sha256 = '15a061698143ffed2feebf65210bd688913b55d89665065be4e4a063aab10c04'
+        }
     )
 }
 
