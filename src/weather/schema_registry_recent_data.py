@@ -1390,6 +1390,10 @@ RECENT_REGISTERED_SCHEMAS = (
         "Descriptive pilot fill and markout summary; never a decision gate by itself.",
     ),
     SchemaSpec(
+        "lfc_venue_settlement", "lfc_venue_settlement_v0.1", "weather.market.lfc_settlement_record", "active",
+        "Create-only venue resolution and token reference evidence, with raw response hashes; no local labels.",
+    ),
+    SchemaSpec(
         "lfc_session_driver_pack", "lfc_session_driver_pack_v0.1", "weather.market.lfc_session_driver", "active",
         "Owner session-driver evidence pack: steps, stop reason, runbook section 8 fields, codes and hashes only.",
     ),

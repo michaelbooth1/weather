@@ -10,6 +10,22 @@ controls the campaign risk gates. The recording-only checkpoint preserves the
 pinned money and session constants. A cap below committed L refuses at start.
 The compatibility name `BUDGET_PUSD` is not a ledger identity setting.
 
+## Venue settlement
+
+Run `python -m weather.market.lfc_settlement_record --condition <condition-id>`
+from the analysis lane after resolution; repeat while pending. `--condition`
+is repeatable; `--root` overrides the normal pilot root. No ledger or local
+settlement labels are read. The public Data API v2 resolution and token
+reference responses are retained verbatim with SHA256 and observation time.
+Payout slots identify the winner; prices are ignored. Split payouts have no
+invented binary winner. Missing resolution remains unknown.
+
+Pending reads go to `settlement/pending/<condition>/<timestamp>.json`;
+terminal reads create `settlement/<condition>.json` once. An existing final
+file refuses before a network read. Analysis `--settlement` now accepts this
+directory; legacy winner maps are refused. The reader verifies response hashes,
+condition scope and the derived winner before admitting evidence.
+
 ## Update when
 
 Update with recorder commands, evidence formats, provenance validation or cadence.

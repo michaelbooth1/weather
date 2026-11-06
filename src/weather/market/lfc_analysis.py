@@ -6,7 +6,7 @@ Inputs are normalized JSONL files (one object per line):
              (extract_legs builds these from the session journals)
   prints     {token_id, price, size, at_utc}            public prints (88a `last_trade_price` events, normalize_88a_print)
   mids       {token_id, at_utc, mid}                     88a two-sided mids
-  settlement {condition_id: winning_token_id}            JSON object (the settlement ledger's winner)
+  settlement directory of create-only venue recorder files (weather.market.lfc_settlement_record)
 
 Outputs: N_at, N_thr, c_at, c_thr, queue-ahead-conditioned c_at, own-fill markouts at 1/5/30 min and settlement, the
 share-weighted mean markout, and f_hat. For our resting BUY at p on token T, a print on T at p is "at price" and a
@@ -132,6 +132,8 @@ def analyze(legs, prints, mids, settlement, *, allow_reserved=False):
     for leg in legs:
         stamps += [leg['placed_at_utc'], leg['ended_at_utc']] + [f['at_utc'] for f in leg['fills']]
     reserved = check_dates([s for s in stamps if s], allow_reserved=allow_reserved)
+    from weather.market.lfc_settlement_record import load_settlements
+    settlement = load_settlements(settlement, [leg['condition_id'] for leg in legs])
     mid_index = {}
     for m in mids:
         mid_index.setdefault(str(m['token_id']), []).append((utc(m['at_utc']), _d(m['mid'])))
@@ -206,12 +208,12 @@ def main(argv=None):
     parser.add_argument('--legs', type=Path, required=True)
     parser.add_argument('--prints', type=Path, required=True)
     parser.add_argument('--mids', type=Path, required=True)
-    parser.add_argument('--settlement', type=Path, required=True)
+    parser.add_argument('--settlement', type=Path, required=True, help='venue recorder settlement directory')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--allow-reserved-dates', action='store_true',
                         help='explicit override: read inputs dated 2026-09-30..2026-10-15 (default: refuse)')
     args = parser.parse_args(argv)
-    result = analyze(_jsonl(args.legs), _jsonl(args.prints), _jsonl(args.mids), json.loads(args.settlement.read_bytes()),
+    result = analyze(_jsonl(args.legs), _jsonl(args.prints), _jsonl(args.mids), args.settlement,
                      allow_reserved=args.allow_reserved_dates)
     write_new(args.output, result)
     print(canonical_bytes({k: result[k] for k in ('N_at', 'N_thr', 'c_at', 'c_thr', 'fills', 'f_hat')}).decode().strip())
