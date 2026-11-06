@@ -688,7 +688,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # T003 B010 dev-only streaming scan; master GO required before execution.
         @{
             path = 'C:\t\codex\T003\out\scan_stream_v3.py'
-            sha256 = 'f66d7ff2a5b47e349952d8149ae4210b28cf4401623bb844a70b487c6f59d597'
+            sha256 = 'b59dcce9cd53609860d3fb8338e2e3ba71ce2de827365ee1bb53d1206d8c9fc3'
         }
     )
 }

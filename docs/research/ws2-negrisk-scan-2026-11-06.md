@@ -43,6 +43,8 @@ Nonlinear fee costs therefore use conservative/optimistic bounds when walking de
 A missing walk is unresolved. Capacity at best and an all-depth ceiling are reported;
 neither establishes profitability at untested quantities. Adapter fee zero is an
 optimistic screen, conditional on later group identity and feeBips verification.
+Outputs expose buy cost, sell proceeds, signed transformation cash and per-leg
+VWAP/fee bounds, depth and source timestamps for the selected route.
 
 The capture timestamp is assigned before fetching books. Source-book windows of
 1/5/30/60 seconds are sensitivity screens, not measured simultaneity. Route optimization
