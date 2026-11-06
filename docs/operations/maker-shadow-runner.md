@@ -22,12 +22,17 @@ what it **would** quote. It never places, cancels or signs anything:
   route are unreachable. No proxy, no credential, no `.env`, no SDK.
   Trade reads require a v2 `{data, pagination}` envelope, repeat the condition filter
   on every opaque cursor page, and return rows only after the final page. The page
-  budget is `public_feed.MAX_TRADES_PAGES`; exhaustion, repeated cursors, malformed
-  rows (including missing size), or any non-200 response fail the whole poll. Snake
-  case wire fields are normalized to the existing paper/recorder row interface.
+  budget is `public_feed.MAX_TRADES_PAGES`; the entire walk also shares the existing
+  `public_feed.MAX_REPLY_BYTES` reply cap. Exhaustion, repeated cursors, duplicate
+  JSON keys, invalid timestamps, malformed execution fields (including missing
+  size), or any non-200 response fail the whole poll. Snake case wire fields are
+  normalized to the existing paper/recorder row interface.
   The v2 condition feed serves the venue's fixed three-year history; it does not
-  honor time bounds. This reader does not claim a time-window query. The venue's
-  minimum trade-size filter still applies, so these prints do not prove every fill.
+  honor time bounds. This reader does not claim a time-window query. The request
+  pins `taker_only=true` so a row's side describes the aggressor, and pins the
+  documented token-size floor with `filter_type=TOKENS` and
+  `filter_amount=public_feed.TRADES_FILTER_AMOUNT`. Zero does not disable that
+  venue floor; these prints describe the served feed, not every on-chain fill.
   Wire contract: [official v2 OpenAPI](https://data-api.polymarket.com/v2/openapi.json).
 - **No order client exists.** The runner (`maker_core.shadow.runner`) imports no
   venue module; reads, the guard book, fair value and the clock are injected.

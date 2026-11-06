@@ -11,6 +11,7 @@ Contract: docs/operations/maker-shadow-runner.md.
 import json
 import math
 import re
+from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
@@ -18,6 +19,7 @@ CLOB_HOST = "clob.polymarket.com"
 GAMMA_HOST = "gamma-api.polymarket.com"
 DATA_HOST = "data-api.polymarket.com"
 TRADES_LIMIT = 500
+TRADES_FILTER_AMOUNT = "0.01"
 MAX_TRADES_PAGES = 20
 MAX_CURSOR_LENGTH = 4096
 MAX_REPLY_BYTES = 2_000_000
@@ -40,7 +42,8 @@ def events_url(slugs):
 
 
 def trades_url(condition_id, cursor=None):
-    query = [("condition", condition_id), ("limit", TRADES_LIMIT)]
+    query = [("condition", condition_id), ("limit", TRADES_LIMIT), ("taker_only", "true"),
+             ("filter_type", "TOKENS"), ("filter_amount", TRADES_FILTER_AMOUNT)]
     if cursor is not None:
         query.append(("cursor", cursor))
     return f"https://{DATA_HOST}/v2/trades?" + urlencode(query)
@@ -65,11 +68,12 @@ def public_url(url):
     if (clean and parts.hostname == GAMMA_HOST and parts.path == "/events" and 0 < len(query) <= MAX_SLUGS
             and all(key == "slug" and SLUG.fullmatch(value) for key, value in query)):
         return url
-    if (clean and parts.hostname == DATA_HOST and parts.path == "/v2/trades" and len(query) in (2, 3)
+    if (clean and parts.hostname == DATA_HOST and parts.path == "/v2/trades" and len(query) in (5, 6)
             and query[0][0] == "condition" and CONDITION.fullmatch(query[0][1])
-            and query[1] == ("limit", str(TRADES_LIMIT))
-            and (len(query) == 2 or (query[2][0] == "cursor" and 0 < len(query[2][1]) <= MAX_CURSOR_LENGTH
-                                    and all(32 < ord(c) < 127 for c in query[2][1])))):
+            and query[1:5] == [("limit", str(TRADES_LIMIT)), ("taker_only", "true"),
+                               ("filter_type", "TOKENS"), ("filter_amount", TRADES_FILTER_AMOUNT)]
+            and (len(query) == 5 or (query[5][0] == "cursor" and 0 < len(query[5][1]) <= MAX_CURSOR_LENGTH
+                                    and all(32 < ord(c) < 127 for c in query[5][1])))):
         return url
     raise ValueError("not_an_allowlisted_public_read")
 
@@ -117,6 +121,19 @@ class FixtureTransport:
         return value if isinstance(value, bytes) else json.dumps(value).encode("utf-8")
 
 
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("trades_duplicate_json_field")
+        result[key] = value
+    return result
+
+
+def _invalid_json_constant(value):
+    raise ValueError("trades_non_json_numeric_constant")
+
+
 class PublicFeed:
     """Parsed public reads over an injected transport. It has no mutation method by construction."""
 
@@ -150,14 +167,21 @@ class PublicFeed:
         return rows[0] if rows else None
 
     def trades(self, condition_id):
-        """Most recent public prints of one condition (no account filter)."""
+        """Complete served trade feed of one condition, within page and aggregate byte budgets."""
         condition_id = str(condition_id).lower()
         if not CONDITION.fullmatch(condition_id):
             raise ValueError("invalid_condition_id")
-        rows, seen, cursor = [], set(), None
+        rows, seen, cursor, total_bytes = [], set(), None, 0
         for _ in range(MAX_TRADES_PAGES):
-            value = self._json(trades_url(condition_id, cursor))
-            if not isinstance(value, dict) or not isinstance(value.get("data"), list):
+            raw = self.transport.get(trades_url(condition_id, cursor))
+            if not isinstance(raw, bytes):
+                raise ValueError("trades_reply_refused")
+            total_bytes += len(raw)
+            if total_bytes > MAX_REPLY_BYTES:
+                raise ValueError("trades_reply_bytes_exhausted")
+            value = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_invalid_json_constant)
+            if (not isinstance(value, dict) or "error" in value
+                    or not isinstance(value.get("data"), list)):
                 raise ValueError("trades_reply_refused")
             page, pagination = value["data"], value.get("pagination")
             if not isinstance(pagination, dict) or type(pagination.get("has_more")) is not bool:
@@ -174,12 +198,20 @@ class PublicFeed:
                         or not ASSET.fullmatch(row["token_id"])
                         or not isinstance(row.get("transaction_hash"), str)
                         or not row["transaction_hash"]
-                        or row.get("side") not in {"BUY", "SELL"}
+                        or row.get("side") not in ("BUY", "SELL")
                         or type(row.get("timestamp")) is not int or row["timestamp"] <= 0):
                     raise ValueError("trades_row_refused")
+                try:
+                    datetime.fromtimestamp(row["timestamp"], tz=timezone.utc)
+                except (OverflowError, OSError, ValueError) as exc:
+                    raise ValueError("trades_timestamp_refused") from exc
                 for field in ("size", "price"):
                     number = row.get(field)
-                    if type(number) not in (int, float) or not math.isfinite(number):
+                    try:
+                        invalid = type(number) not in (int, float) or not math.isfinite(number)
+                    except OverflowError:
+                        invalid = True
+                    if invalid:
                         raise ValueError("trades_numeric_field_refused")
                 if row["size"] <= 0 or not 0 <= row["price"] <= 1:
                     raise ValueError("trades_numeric_field_refused")

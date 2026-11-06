@@ -35,7 +35,8 @@ def test_cursor_walk_preserves_public_filter_and_paper_identity():
     assert [p[1] for p in prints] == ["123", "124"]
     assert str(prints[0][3]) == "2.5"
     query = parse_qs(urlsplit(transport.requests[1]).query)
-    assert query == {"condition": [cid], "limit": ["500"], "cursor": ["opaque+/="]}
+    assert query == {"condition": [cid], "limit": ["500"], "cursor": ["opaque+/="],
+                     "taker_only": ["true"], "filter_type": ["TOKENS"], "filter_amount": ["0.01"]}
 
 
 @pytest.mark.parametrize("status", [201, 400, 410, 429, 500])
@@ -176,3 +177,64 @@ def test_hex_condition_case_preserves_the_exact_condition_scope():
     rows = public.PublicFeed(public.FixtureTransport({public.trades_url(cid): payload})).trades(cid)
     assert len(rows) == 1 and rows[0]["conditionId"] == cid
     assert len(parse_prints(rows, cid)) == 1
+
+
+@pytest.mark.parametrize("raw", [
+    b'{"data":[{}],"data":[],"pagination":{"has_more":false,"next_cursor":null}}',
+    b'{"data":[],"pagination":{"has_more":true,"has_more":false,"next_cursor":null}}',
+    b'{"data":[],"pagination":{"has_more":false,"next_cursor":null},"unused":NaN}',
+    b'{"data":[],"pagination":{"has_more":false,"next_cursor":null},"unused":Infinity}',
+    b'{',
+])
+def test_ambiguous_or_non_json_wire_reply_never_proves_an_empty_feed(raw):
+    cid = page()["data"][0]["condition_id"]
+    transport = public.FixtureTransport({public.trades_url(cid): raw})
+    with pytest.raises(ValueError):
+        public.PublicFeed(transport).trades(cid)
+
+
+def test_error_bearing_success_body_is_refused():
+    payload = page()
+    cid = payload["data"][0]["condition_id"]
+    payload.update(data=[], error="unavailable")
+    with pytest.raises(ValueError):
+        public.PublicFeed(public.FixtureTransport({public.trades_url(cid): payload})).trades(cid)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("timestamp", True), ("timestamp", 0), ("timestamp", -1),
+    ("timestamp", 253402300800), ("timestamp", 10 ** 100),
+    ("side", []), ("size", 10 ** 1000),
+])
+def test_unusable_print_fields_are_refused_before_the_recorder(field, value):
+    payload = page()
+    cid = payload["data"][0]["condition_id"]
+    payload["data"][0][field] = value
+    with pytest.raises(ValueError):
+        public.PublicFeed(public.FixtureTransport({public.trades_url(cid): payload})).trades(cid)
+
+
+def test_complete_cursor_walk_shares_the_original_reply_byte_budget(monkeypatch):
+    first = page()
+    cid = first["data"][0]["condition_id"]
+    last = page()
+    first["pagination"].update(has_more=True, next_cursor="next")
+    first_size, last_size = (len(json.dumps(p).encode()) for p in (first, last))
+    replies = {public.trades_url(cid): first, public.trades_url(cid, "next"): last}
+    monkeypatch.setattr(public, "MAX_REPLY_BYTES", first_size + last_size)
+    assert len(public.PublicFeed(public.FixtureTransport(replies)).trades(cid)) == 2
+    monkeypatch.setattr(public, "MAX_REPLY_BYTES", first_size + last_size - 1)
+    assert max(first_size, last_size) <= public.MAX_REPLY_BYTES
+    transport = public.FixtureTransport(replies)
+    with pytest.raises(ValueError, match="bytes_exhausted"):
+        public.PublicFeed(transport).trades(cid)
+    assert transport.requests == [public.trades_url(cid), public.trades_url(cid, "next")]
+
+
+@pytest.mark.parametrize("old,new", [("taker_only=true", "taker_only=false"),
+                                     ("filter_type=TOKENS", "filter_type=CASH"),
+                                     ("filter_amount=0.01", "filter_amount=0")])
+def test_print_role_and_size_filters_cannot_change_mid_walk(old, new):
+    cid = page()["data"][0]["condition_id"]
+    with pytest.raises(ValueError):
+        public.public_url(public.trades_url(cid, "next").replace(old, new))
