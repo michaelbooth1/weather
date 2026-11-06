@@ -111,3 +111,29 @@ prereg, rule.md, code, git history, and column or key **names** of the read-wind
 - **Coverage, PIT and replay** apply exactly as in rule.md.
 - **Dev projection (step 4) disclosure:** the dev outcome-blind pass is "vectors for both arms" (SPEC §4). It does not
   re-apply the coverage, PIT and replay checks, so its countable population may run slightly above the real read's.
+
+### Clarification 2: NUL-torn book lines (master rulings 11:06 and 11:08 ET, 2026-11-06; append-only)
+
+Written 2026-11-06T11:12:24 local, before step 5. The only ≥ 09-30 data opened was the book NUL scan, which read bytes and
+recorded line counts and file shas only. No field value or price was read.
+
+- **Why:** some captured `order_books_summary.csv` files hold a line with a NUL-filled field, most likely an
+  unclean-shutdown preallocation. Python's `csv` refuses a field over 131072 characters, and the pinned module
+  (`t2_taker_rule.py` `aaf60a43…`, unchanged) stopped the dev projection on 2026-09-03.
+- **Scan:** `C:\t\ws3\scan\book_nul_scan.py` sha256 `481a71cd044d37af3cda41b1f630bd7aa0a6aac1150ea9d5e4ebf0b9c02ca757`,
+  output `scan.json` `432f42ac4614ba26c88ba6391a9fd85462fe5cd40a84b2698253a5e95c9880e0`.
+  - Dev 08-15..09-29: 460 files. 10 files have one NUL line each, on 09-02 and 09-03. 6 of those lines are over the
+    limit. `over_limit_without_nul` = 0.
+  - Read 09-30..10-14: 149 files (Austin 10-03 not opened). 0 NUL lines and 0 over-limit lines.
+- **Rule:** before the module, every book in the read's `--books-list` passes through the shared filter
+  `C:\t\ws3\filter\book_nul_filter.py`, sha256 `d8008f72875219011d024e8a516e49f89c2f2c1ffb5e5a58134aa4b3824ea62a`.
+  - It drops a line if and only if the line contains a 0x00 byte. Nothing else is dropped, and kept lines are
+    byte-exact.
+  - A file with nothing dropped is used in place. A file with something dropped is written once, create-only.
+  - The CLI form writes the module's books list and a per-file report with the source sha, the used sha, the dropped
+    count and the dropped line numbers. That report's totals and per-file drops go into the read's receipt.
+  - The dev projection adapter (`ws3_projection_v2.py`) imports the same file after checking the same sha.
+- **Stops:** any other module refusal means stop and report to master. A dropped header line also stops, because the
+  module then refuses.
+- The pinned module, the command line (Amendment 1) and every other prereg rule are unchanged. Given the scan, the
+  rule is expected to drop 0 read-window lines; the receipt records the actual count.
