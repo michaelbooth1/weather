@@ -70,7 +70,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Ordered critical path
 
-0. **Maker pilot (LFC) session 1, MON 2026-11-09** (owner 11-06 ~13:07, DL; supersedes the 10-30 postponement): budget $300, needs both money yeses, a new pin, pregate PASS, signed Clarification F and the t24 baseline; gap list with master.
+0. **Maker pilot (LFC) session 1, MON 2026-11-09** (owner 11-06 ~13:07, DL; supersedes the 10-30 postponement): budget $300 grown by breadth (more bands and markets, size unchanged; owner ~13:1x, DL), needs both money yeses, a new pin, pregate PASS, signed Clarification F and the t24 baseline; gap list with master.
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
 2. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72 and F8-MH accrue blind; L6_G emitting (first emission vectors d1e09134, runs.jsonl 6842d139).
 3. **MG-1 look after 11-28**, then B 12-13; **PT-1 NOT RUNNABLE** (R21, rules 4/6; claims no date; [receipt](../research/pt1-not-runnable-2026-11-03/receipt.md), [erratum-1](../research/pt1-not-runnable-2026-11-03/erratum-1.md) `c29eee7a…`, verdict unchanged); F8-MH >= 01-27.
