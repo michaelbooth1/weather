@@ -201,6 +201,14 @@ def test_error_bearing_success_body_is_refused():
         public.PublicFeed(public.FixtureTransport({public.trades_url(cid): payload})).trades(cid)
 
 
+def test_nullable_extra_metadata_does_not_invalidate_a_complete_feed():
+    payload = page()
+    cid = payload["data"][0]["condition_id"]
+    payload["error"] = None
+    rows = public.PublicFeed(public.FixtureTransport({public.trades_url(cid): payload})).trades(cid)
+    assert len(rows) == 1 and rows[0]["size"] == payload["data"][0]["size"]
+
+
 @pytest.mark.parametrize("field,value", [
     ("timestamp", True), ("timestamp", 0), ("timestamp", -1),
     ("timestamp", 253402300800), ("timestamp", 10 ** 100),

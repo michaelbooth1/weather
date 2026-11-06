@@ -180,7 +180,7 @@ class PublicFeed:
             if total_bytes > MAX_REPLY_BYTES:
                 raise ValueError("trades_reply_bytes_exhausted")
             value = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_invalid_json_constant)
-            if (not isinstance(value, dict) or "error" in value
+            if (not isinstance(value, dict) or value.get("error") is not None
                     or not isinstance(value.get("data"), list)):
                 raise ValueError("trades_reply_refused")
             page, pagination = value["data"], value.get("pagination")
