@@ -113,7 +113,7 @@ a separate explicit diff, review and pin before freeze; it cannot be silently ca
 - Proposed fixed paper bankroll: **4,803.75 pUSD = 45 x 106.75**, allocated to 45 segregated date budgets.
   No borrowing, leverage, reinvestment or recycling of payouts is needed. Unused date budgets remain cash.
   This is an explicit proposal, **not an assertion that the owner's real capital limit is this amount**.
-  The $100 live-pilot cap is not approval for it. If the owner requires $100 total, this unchanged policy
+  The $300 live-pilot cap is not approval for it. If the owner requires $100 total, this unchanged policy
   cannot claim a PASS under a larger simulated bankroll; a cost-inclusive chronological cash adapter must be
   specified and pinned before freeze instead. No such adapter is authorised or implemented here.
 - All portfolio cash usage and simultaneous principal plus costs must fit the approved bankroll, even when
