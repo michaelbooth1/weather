@@ -37,7 +37,9 @@ def test_clarification_e_values_are_exactly_the_ruling():
 
 
 def test_every_other_signed_limit_is_unchanged():
-    assert LFC.BUDGET_PUSD == Decimal('100') and LFC.MAX_SESSIONS == 8 and LFC.SESSION_SECONDS == 21600
+    assert LFC.GENESIS_BUDGET_PUSD == Decimal('100')
+    assert LFC.CAP_PUSD == Decimal('100')
+    assert LFC.MAX_SESSIONS == 8 and LFC.SESSION_SECONDS == 21600
     assert (LFC.PER_LEG_PRICE_FLOOR, LFC.PER_LEG_PRICE_CEILING) == (Decimal('.17'), Decimal('.80'))
     assert LFC.MIN_FEASIBLE_LEG_SUM == Decimal('.96') and LFC.MIN_FEASIBLE_RESERVE == Decimal('19.2')
     assert LFC.EARLIEST_START_UTC == datetime(2026, 10, 15, tzinfo=timezone.utc)

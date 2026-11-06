@@ -310,6 +310,8 @@ class Session:
     def sample(self, name, fn):
         try:
             return self.call(name, fn)
+        except HoldEnd:
+            raise
         except Exception as exc:
             self.evidence_failed = True
             self.journal.record('missing_sample', sample=name, exception_type=type(exc).__name__)
@@ -325,6 +327,8 @@ class Session:
             if (not isinstance(scoring, dict) or set(scoring) != set(ids) or
                     any(type(value) is not bool for value in scoring.values())):
                 raise ValueError('scoring_shape')
+        except HoldEnd:
+            raise
         except Exception as exc:
             self.evidence_failed = True
             self.journal.record('scoring_missed', band=self.condition, order_ids=ids,

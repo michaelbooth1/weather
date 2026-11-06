@@ -183,7 +183,9 @@ def test_twenty_share_constant_is_a_declared_deviation_from_75():
     assert 'DECLARED DEVIATION' in source and 'live-fill-calibration-preregistration-2026-10-09.md' in source
     assert PilotProfile().SIZES == (Decimal('20'),) and PilotProfile().venue_ceiling(20) == (Decimal('15.80'),
                                                                                             Decimal('19.60'))
-    assert LFC.MAX_SESSIONS == 8 and LFC.SESSION_SECONDS == 360 * 60 and LFC.BUDGET_PUSD == 100
+    assert LFC.GENESIS_BUDGET_PUSD == 100
+    assert LFC.CAP_PUSD == 100
+    assert LFC.MAX_SESSIONS == 8 and LFC.SESSION_SECONDS == 360 * 60
     assert LFC.MIN_FEASIBLE_RESERVE == Decimal('19.2')
     for other in (40, 75):
         with pytest.raises(RuntimeError):

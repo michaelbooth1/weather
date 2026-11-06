@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 from types import SimpleNamespace
@@ -16,7 +18,7 @@ from types import SimpleNamespace
 from weather.market.lfc_settlement_record import condition_id, envelope, public_get, response_bytes, retained
 from weather.market.mm_stage2_hold import utc, write_new
 from weather.market.re1_payout_evidence import ReadJournal, collect_accruals, normalize_earnings
-from weather.market.wallet_reader_security import CLOB
+from weather.market.wallet_reader_security import ADDRESS, CLOB, SecretGuard
 from weather.market.wallet_reader_transport import ReadTransport
 
 REWARDS_SCHEMA = 'lfc_rewards_record_v0.1'
@@ -25,6 +27,27 @@ MAX_PAGES = 50
 MAX_ROWS = 2048
 MAX_ACTIVITY_BYTES = 4_000_000
 MAX_RECORD_BYTES = 32_000_000
+MAX_RECORD_ATTEMPTS = 999
+
+
+def load_reward_credentials():
+    """Owner-provided existing L2 process settings only; no dotenv, reader token or private key."""
+    names = ('API_KEY', 'API_SECRET', 'API_PASSPHRASE', 'WALLET_ADDRESS', 'FUNDER_ADDRESS')
+    fields = {name: os.environ.get('POLYMM_' + name) for name in names}
+    if any(not isinstance(value, str) or not value or any(ord(c) < 32 for c in value)
+           for value in fields.values()):
+        raise ValueError('reward_credential_fields_missing')
+    if any(not ADDRESS.fullmatch(fields[name]) for name in ('WALLET_ADDRESS', 'FUNDER_ADDRESS')):
+        raise ValueError('reward_wallet_address_invalid')
+    try:
+        if not base64.b64decode(fields['API_SECRET'], altchars=b'-_', validate=True):
+            raise ValueError
+    except ValueError:
+        raise ValueError('reward_secret_encoding_invalid') from None
+    if (os.environ.get('POLYMM_CLOB_HOST', CLOB) != CLOB or
+            os.environ.get('POLYMM_CHAIN_ID', '137') != '137'):
+        raise ValueError('reward_credential_topology_refused')
+    return fields, SecretGuard(fields[name] for name in ('API_KEY', 'API_SECRET', 'API_PASSPHRASE'))
 
 
 def clob_earnings(rows, *, total=False):
@@ -162,11 +185,43 @@ def rebate_path(root, day, lag):
     return Path(root) / 'rewards' / f'{day}{suffix}.json'
 
 
+def record_complete(row):
+    if row['kind'] == 'lfc_rewards_record':
+        return row['distributions']['pagination_complete'] and all(a['source']['complete'] for a in row['accruals'])
+    return row['activity']['pagination_complete'] and not any(f['flag'] == 'rebate_amount_unreadable' for f in row['flags'])
+
+
+def latest_record(base, **scope):
+    """Read the latest immutable attempt, refusing corrupt newer evidence rather than skipping it."""
+    base = Path(base)
+    paths = [(0, base)] if base.exists() else []
+    for path in base.parent.glob(base.stem + '-retry-*.json'):
+        match = re.fullmatch(re.escape(base.stem) + r'-retry-([0-9]{3})\.json', path.name)
+        if match:
+            paths.append((int(match[1]), path))
+        if len(paths) > MAX_RECORD_ATTEMPTS + 1:
+            raise ValueError('recording_attempt_budget')
+    if not paths:
+        return None, base, -1
+    number, path = max(paths, key=lambda item: item[0])
+    return load_record(path, **scope), path, number
+
+
+def next_record(base, *, cutoff, **scope):
+    previous, path, number = latest_record(base, **scope)
+    if previous is not None and record_complete(previous):
+        raise FileExistsError('rewards_record_exists')
+    if number >= MAX_RECORD_ATTEMPTS:
+        raise ValueError('recording_attempt_budget')
+    target = Path(base) if number < 0 else Path(base).with_name(f'{Path(base).stem}-retry-{number + 1:03d}.json')
+    return target, utc(previous['query_end_utc']) if previous else cutoff
+
+
 def record_rebates(root, day, *, maker, conditions, clock, get=public_get, as_of=None):
     start, cutoff, lag = recording_period(day, as_of or clock())
-    target = rebate_path(root, day, lag)
-    if target.exists():
-        raise FileExistsError('rebate_record_exists')
+    conditions = sorted({condition_id(c) for c in conditions})
+    target, cutoff = next_record(rebate_path(root, day, lag), cutoff=cutoff, kind='lfc_rebate_record',
+                                  day=day, maker=maker, conditions=conditions, lag=lag)
     try:
         evidence = read_activity(maker, 'MAKER_REBATE', start, cutoff, get=get)
     except Exception as exc:
@@ -203,12 +258,11 @@ def rebate_flags(evidence, conditions):
 
 def record_rewards(root, day, *, maker, conditions, venue, journal, clock, get=public_get, as_of=None):
     start, cutoff, lag = recording_period(day, as_of or clock())
-    target = Path(root) / 'rewards' / f'{day}-d{lag}.json'
-    if target.exists():
-        raise FileExistsError('rewards_record_exists')
     conditions = sorted({condition_id(c) for c in conditions})
     if not conditions:
         raise ValueError('no_session_conditions')
+    target, cutoff = next_record(Path(root) / 'rewards' / f'{day}-d{lag}.json', cutoff=cutoff,
+        kind='lfc_rewards_record', day=day, maker=maker, conditions=conditions, lag=lag)
     end = start + timedelta(days=1)
     accruals = []
     for condition in conditions:
@@ -303,37 +357,59 @@ def run_rewards_record(args):
     """Owner invocation only. The agent never calls this during implementation or verification."""
     from weather.market.lfc_ledger import Ledger, ledger_path
     from weather.market.lfc_pilot import pilot_root
-    from weather.market.wallet_reader_security import load_owner_credentials
     root = args.root or pilot_root()
     clock = lambda: datetime.now(timezone.utc)
-    start, observed, lag = recording_period(args.date, clock())
-    rewards_path = Path(root) / 'rewards' / f'{args.date}-d{lag}.json'
-    rebate_target = rebate_path(root, args.date, lag)
-    if rewards_path.exists() and rebate_target.exists():
-        raise FileExistsError('rewards_record_exists')
+    parsed = date.fromisoformat(args.date)
+    if parsed.isoformat() != args.date:
+        raise ValueError('recording_date')
+    start, observed = utc(args.date + 'T00:00:00Z'), utc(clock())
     ledger = Ledger.open(ledger_path(root), clock=clock)
     maker = ledger.rows[0]['maker_address'].lower()
     conditions = sorted({condition_id(s['start']['condition_id']) for s in ledger.sessions.values()
                          if s['legs'] and utc(s['start']['recorded_at_utc']).date() == start.date()})
     if not conditions:
         raise ValueError('no_session_conditions')
-    reward = (load_record(rewards_path, kind='lfc_rewards_record', day=args.date, maker=maker,
-                          conditions=conditions, lag=lag) if rewards_path.exists() else None)
-    rebate = (load_record(rebate_target, kind='lfc_rebate_record', day=args.date, maker=maker,
-                          conditions=conditions, lag=lag) if rebate_target.exists() else None)
+    pending = None
+    for candidate in (1, 2):
+        reward_state = latest_record(Path(root) / 'rewards' / f'{args.date}-d{candidate}.json',
+            kind='lfc_rewards_record', day=args.date, maker=maker, conditions=conditions, lag=candidate)
+        rebate_state = latest_record(rebate_path(root, args.date, candidate), kind='lfc_rebate_record',
+            day=args.date, maker=maker, conditions=conditions, lag=candidate)
+        reward, rebate = reward_state[0], rebate_state[0]
+        if (reward or rebate) and not (reward and rebate and record_complete(reward) and record_complete(rebate)):
+            pending = candidate, reward_state, rebate_state
+            break
+    if pending is None:
+        _, _, lag = recording_period(args.date, observed)
+        reward_state = latest_record(Path(root) / 'rewards' / f'{args.date}-d{lag}.json',
+            kind='lfc_rewards_record', day=args.date, maker=maker, conditions=conditions, lag=lag)
+        rebate_state = latest_record(rebate_path(root, args.date, lag), kind='lfc_rebate_record',
+            day=args.date, maker=maker, conditions=conditions, lag=lag)
+    else:
+        lag, reward_state, rebate_state = pending
+    reward, rewards_path = reward_state[:2]
+    rebate, rebate_target = rebate_state[:2]
+    if reward and rebate and record_complete(reward) and record_complete(rebate):
+        raise FileExistsError('rewards_record_exists')
     cutoff = utc((reward or rebate)['query_end_utc']) if reward or rebate else observed
-    if reward is None:
-        fields, guard = load_owner_credentials()  # L2-only selection: no private key or signing SDK
+    if cutoff > observed:
+        raise ValueError('recording_record_time')
+    if reward is None or not record_complete(reward):
+        fields, guard = load_reward_credentials()
         if fields['FUNDER_ADDRESS'].lower() != maker:
             raise ValueError('rewards_account_changed')
         journal = ReadJournal(guard, clock)
         client = AccrualClient(AccrualTransport(fields, guard, journal), args.signature_type)
         reward = record_rewards(root, args.date, maker=maker, conditions=conditions,
                                 venue=SimpleNamespace(client=client), journal=journal, clock=clock, as_of=cutoff)
-    if rebate is None:
+        _, rewards_path, _ = latest_record(Path(root) / 'rewards' / f'{args.date}-d{lag}.json',
+            kind='lfc_rewards_record', day=args.date, maker=maker, conditions=conditions, lag=lag)
+    if rebate is None or not record_complete(rebate):
         rebate = record_rebates(root, args.date, maker=maker, conditions=conditions, clock=clock, as_of=cutoff)
-    complete = (reward['distributions']['pagination_complete'] and
-                all(a['source']['complete'] for a in reward['accruals']) and rebate['activity']['pagination_complete'])
+        _, rebate_target, _ = latest_record(rebate_path(root, args.date, lag), kind='lfc_rebate_record',
+            day=args.date, maker=maker, conditions=conditions, lag=lag)
+    complete = record_complete(reward) and record_complete(rebate)
     print(json.dumps({'rewards_record': str(rewards_path), 'rebate_record': str(rebate_target),
-                      'complete': complete, 'rebate_flags': rebate['flags']}))
+                      'pass': lag, 'complete': complete, 'rebate_flags': rebate['flags'],
+                      'current_pass_due': complete and lag == 1 and (observed.date() - parsed).days == 2}))
     return 0 if complete else 2
