@@ -39,6 +39,9 @@ def test_rates_markouts_and_f_hat(tmp_path):
     assert Decimal(markout['markout_60s']) == Decimal('.01') and markout['markout_300s'] is None
     assert Decimal(markout['markout_1800s']) == Decimal('-.05') and Decimal(markout['markout_settlement']) == Decimal('-.40')
     assert Decimal(result['f_hat']) == 1 and result['descriptive_only'] is True
+    upper = analyze([dict(LEG, condition_id=CONDITION.upper().replace('0X', '0x'))], PRINTS, MIDS,
+                    tmp_path / 'settlement')
+    assert upper['markouts'][0]['markout_settlement'] == result['markouts'][0]['markout_settlement']
 
 
 def test_reserved_dates_refused_without_override(tmp_path):

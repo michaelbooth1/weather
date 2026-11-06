@@ -41,7 +41,7 @@ def accrual_fixture(monkeypatch):
             assert method == 'GET' and path in {'/rewards/user', '/rewards/user/total'}
             result = {'data': earnings, 'next_cursor': 'LTE='} if path.endswith('/user') else totals
             from weather.market.lfc_settlement_record import retained
-            journal.record('sdk_response', path=path, **retained(json.dumps(result).encode()))
+            journal.record('sdk_response', path=path, status=200, **retained(json.dumps(result).encode()))
             return result
     monkeypatch.setattr(re1_transport, 'condition_configurations', lambda condition, journal: [])
     return SimpleNamespace(client=recorder.AccrualClient(Transport(), 2)), journal, clock
@@ -181,11 +181,10 @@ def test_interrupted_pass_finishes_rebate_without_loading_credentials(tmp_path, 
     ledger.record('session_start', session_id='one', counted=True, condition_id=CONDITION)
     ledger.intent(session_id='one', intent_key='one:0', token_id='111', condition_id=CONDITION,
                   price='.4', size='20', fee_rate_bps='0')
+    venue, journal, clock = accrual_fixture(monkeypatch)
+    recorder.record_rewards(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+                            venue=venue, journal=journal, clock=clock, get=lambda *a: page())
     rewards = tmp_path / 'rewards'
-    rewards.mkdir()
-    (rewards / '2026-09-20-d1.json').write_text(json.dumps(dict(schema_version=recorder.REWARDS_SCHEMA,
-        maker_address=MAKER, date='2026-09-20', conditions=[CONDITION], **{'pass': 1},
-        distributions={'pagination_complete': True}, accruals=[{'source': {'complete': True}}])))
     original = recorder.record_rebates
     monkeypatch.setattr(recorder, 'record_rebates', lambda *a, **kwargs: original(*a, **kwargs, get=lambda *a: page()))
     args = parser().parse_args(['rewards-record', '--date', '2026-09-20', '--root', str(tmp_path)])
@@ -223,3 +222,115 @@ def test_accrual_transport_get_only_and_retains_exact_raw_response(tmp_path):
         with pytest.raises(ValueError, match='accrual_endpoint_refused'):
             transport.request(method, CLOB, path)
     assert len(requests) == 1
+
+
+def test_activity_partial_second_and_empty_terminal_cursor():
+    start = START + timedelta(microseconds=250_000)
+    end = START + timedelta(days=2, microseconds=500_000)
+    calls = []
+    def get(path, params):
+        calls.append(params)
+        return json.dumps({'data': [dict(activity(), timestamp=int(end.timestamp()))],
+                           'pagination': {'has_more': False, 'next_cursor': ''}}).encode()
+    row = recorder.read_activity(MAKER, 'REWARD', start, end, get=get)
+    assert row['pagination_complete'] is True and len(row['rows']) == 1
+    assert calls[0]['start'] == int(START.timestamp()) + 1
+    assert calls[0]['end'] == int(end.timestamp())
+    with pytest.raises(ValueError, match='activity_pagination'):
+        recorder.read_activity(MAKER, 'REWARD', START, end,
+            get=lambda *a: b'{"data":[],"pagination":{"has_more":false,"next_cursor":false}}')
+
+
+def test_midnight_does_not_split_pass_files(tmp_path, monkeypatch):
+    venue, journal, _ = accrual_fixture(monkeypatch)
+    cutoff = START + timedelta(days=2, microseconds=-100_000)
+    clock = lambda: START + timedelta(days=2, seconds=1)
+    reward = recorder.record_rewards(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        venue=venue, journal=journal, clock=clock, as_of=cutoff, get=lambda *a: page())
+    rebate = recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        clock=clock, as_of=cutoff, get=lambda *a: page())
+    assert reward['pass'] == rebate['pass'] == 1
+    assert reward['query_end_utc'] == rebate['query_end_utc'] == cutoff.isoformat()
+    assert reward['observed_at_utc'] == rebate['observed_at_utc'] == clock().isoformat()
+    assert (tmp_path / 'rewards' / '2026-09-20-d1.json').exists()
+    assert (tmp_path / 'rewards' / '2026-09-20-rebate.json').exists()
+    assert not (tmp_path / 'rewards' / '2026-09-20-d2-rebate.json').exists()
+
+
+@pytest.mark.parametrize('mutation,reason', [('receipt', 'recording_response_hash'),
+                                           ('amount', 'recording_accrual_mismatch'),
+                                           ('activity', 'recording_activity_mismatch')])
+def test_resume_rejects_corrupt_receipt_or_derived_values(tmp_path, monkeypatch, mutation, reason):
+    venue, journal, clock = accrual_fixture(monkeypatch)
+    row = recorder.record_rewards(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        venue=venue, journal=journal, clock=clock, get=lambda *a: page())
+    path = tmp_path / 'rewards' / '2026-09-20-d1.json'
+    assert recorder.load_record(path, kind='lfc_rewards_record', day='2026-09-20', maker=MAKER,
+                                conditions=[CONDITION], lag=1) == row
+    if mutation == 'receipt':
+        row['wire_journal'][0]['raw_response'] += ' '
+    elif mutation == 'amount':
+        row['accruals'][0]['accruals'][0]['amount'] = '999'
+    else:
+        row['distributions']['rows'] = [activity()]
+    path.write_text(json.dumps(row))
+    with pytest.raises(ValueError, match=reason):
+        recorder.load_record(path, kind='lfc_rewards_record', day='2026-09-20', maker=MAKER,
+                             conditions=[CONDITION], lag=1)
+
+
+def test_resume_rejects_removed_nonzero_rebate_flag(tmp_path):
+    row = recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        clock=lambda: START + timedelta(days=1, hours=2), get=lambda *a: page([activity('MAKER_REBATE', 2)]))
+    path = tmp_path / 'rewards' / '2026-09-20-rebate.json'
+    row['flags'] = []
+    path.write_text(json.dumps(row))
+    with pytest.raises(ValueError, match='recording_rebate_flags'):
+        recorder.load_record(path, kind='lfc_rebate_record', day='2026-09-20', maker=MAKER,
+                             conditions=[CONDITION], lag=1)
+
+
+def test_activity_byte_budget_keeps_raw_prefix(monkeypatch):
+    monkeypatch.setattr(recorder, 'MAX_ACTIVITY_BYTES', 1)
+    with pytest.raises(recorder.ActivityReadFailed, match='activity_byte_budget') as error:
+        recorder.read_activity(MAKER, 'REWARD', START, START + timedelta(days=2), get=lambda *a: page())
+    assert len(error.value.evidence['pages']) == 1
+
+
+def test_absent_asset_totals_are_not_completed_zero(tmp_path, monkeypatch):
+    venue, journal, clock = accrual_fixture(monkeypatch)
+    venue.client.list_user_earnings_for_day = lambda **kwargs: iter([SimpleNamespace(items=[], has_more=False, next_cursor=None)])
+    def totals(**kwargs):
+        from weather.market.lfc_settlement_record import retained
+        journal.record('sdk_response', path='/rewards/user/total', status=200, **retained(b'[]'))
+        return []
+    venue.client.get_total_earnings_for_user_for_day = totals
+    row = recorder.record_rewards(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        venue=venue, journal=journal, clock=clock, get=lambda *a: page())
+    assert row['accruals'][0]['source']['complete'] is False
+    assert row['accruals'][0]['source']['reason'] == 'asset_total_missing'
+    assert row['accruals'][0]['accruals'] == []
+
+
+def test_numeric_clob_earnings_use_sdk_decimal_semantics(tmp_path, monkeypatch):
+    clock = lambda: START + timedelta(days=1, hours=2)
+    journal = ReadJournal(SecretGuard(), clock)
+    rows = [dict(asset_address=asset, maker_address=MAKER, asset_rate=1, date=START.isoformat(),
+                 condition_id=condition, earnings=value)
+            for asset in ASSET_MARKERS for condition, value in ((CONDITION, .1), ('0x' + 'd' * 64, .2))]
+    totals = [dict(asset_address=asset, maker_address=MAKER, asset_rate=1, date=START.isoformat(), earnings=.3)
+              for asset in ASSET_MARKERS]
+    class RawTransport:
+        def request(self, method, host, path, params):
+            from weather.market.lfc_settlement_record import retained
+            payload = {'data': rows, 'next_cursor': 'LTE='} if path == '/rewards/user' else totals
+            journal.record('sdk_response', status=200, path=path, **retained(json.dumps(payload).encode()))
+            return payload
+    monkeypatch.setattr(re1_transport, 'condition_configurations', lambda condition, journal: [])
+    row = recorder.record_rewards(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        venue=SimpleNamespace(client=recorder.AccrualClient(RawTransport(), 2)), journal=journal,
+        clock=clock, get=lambda *a: page())
+    assert row['accruals'][0]['source']['complete'] is True
+    assert {r['venue_amount'] for r in row['accruals'][0]['accruals']} == {'0.1', '0.2'}
+    assert recorder.load_record(tmp_path / 'rewards' / '2026-09-20-d1.json', kind='lfc_rewards_record',
+        day='2026-09-20', maker=MAKER, conditions=[CONDITION], lag=1) == row

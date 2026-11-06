@@ -8,7 +8,8 @@ owns the execution gates.
 The ledger genesis is bound to `GENESIS_BUDGET_PUSD`; `CAP_PUSD` independently
 controls the campaign risk gates. The recording-only checkpoint preserves the
 pinned money and session constants. A cap below committed L refuses at start.
-The compatibility name `BUDGET_PUSD` is not a ledger identity setting.
+The compatibility name `BUDGET_PUSD` is not a ledger identity setting. An
+explicit session cap can lower the campaign cap and cannot raise it.
 
 ## Venue settlement
 
@@ -40,6 +41,8 @@ The command derives the maker and traded conditions from the verified LFC
 ledger. It uses the existing accrual collector through the reader's L2-only
 GET transport, without constructing a private-key SDK client. This reuses
 transport code and does not call or reconfigure the running wallet reader.
+The pinned SDK reward models normalize decimal and date fields before the
+existing accrual collector sees them.
 
 Create-only `rewards/<D>-d1.json` and `-d2.json` retain per-condition accruals,
 response hashes and raw evidence, and cursor-paginated public v2 REWARD cash
@@ -61,8 +64,13 @@ The D+1 file is `rewards/<D>-rebate.json`; D+2 uses `<D>-d2-rebate.json`
 so both observations survive without overwriting. If an interrupted command
 left one of the reward/rebate files, rerun it to record only the missing file;
 existing evidence must match the ledger account, conditions, date and pass.
+Raw response hashes, completed activity walks, derived accrual amounts and
+rebate flags are verified before a partial pass resumes. A single UTC cutoff
+binds both files even when reads cross midnight; observation times follow the
+reads. Activity request bounds and bounded response sizes are retained.
 Both files present refuses before credentials load. Incomplete reads are saved
 and the command returns 2; they cannot be silently replaced with a later read.
+The command prints the output paths, completeness and rebate flags.
 
 ## Scoring
 

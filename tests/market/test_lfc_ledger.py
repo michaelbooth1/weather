@@ -46,6 +46,17 @@ def test_second_stale_writer_refused(tmp_path):
     assert list(Ledger.open(first.path, clock=lambda: NOW).sessions) == ['one']
 
 
+def test_explicit_cap_can_only_lower_campaign_cap(tmp_path):
+    ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: NOW, maker_address=MAKER)
+    assert ledger.headroom(cap='300') == LFC.CAP_PUSD
+    assert ledger.headroom(cap='99') == Decimal('99')
+    assert ledger.post_gate(reserve=LFC.CAP_PUSD, cap='300') == 0
+    with pytest.raises(LedgerCap, match='l_budget_refused'):
+        ledger.post_gate(reserve=LFC.CAP_PUSD + Decimal('.01'), cap='300')
+    with pytest.raises(LedgerCap, match='l_budget_refused'):
+        ledger.post_gate(reserve='99.01', cap='99')
+
+
 class Clock:
     def __init__(self):
         self.value = NOW

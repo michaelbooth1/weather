@@ -2,7 +2,7 @@
 
 Guards: F2 R1 create-only venue settlement, pending re-reads and price/label independence.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 
@@ -71,6 +71,20 @@ def test_resolved_lifecycle_without_payouts_stays_pending(tmp_path):
         get=lambda path, params: json.dumps(raw).encode() if path.endswith('resolutions') else tokens())
     assert row['terminal'] is False and row['winning_token_id'] is None
     assert not (tmp_path / 'settlement' / (CONDITION + '.json')).exists()
+
+
+def test_settlement_observed_after_response_and_hash_checked(tmp_path):
+    current = [NOW]
+    def get(path, params):
+        current[0] += timedelta(seconds=1)
+        return resolution() if path.endswith('resolutions') else tokens()
+    row = record_settlement(tmp_path, CONDITION, clock=lambda: current[0], get=get)
+    assert row['observed_at_utc'] == (NOW + timedelta(seconds=2)).isoformat()
+    target = tmp_path / 'settlement' / (CONDITION + '.json')
+    row['resolution']['raw_response'] += ' '
+    target.write_text(json.dumps(row))
+    with pytest.raises(ValueError, match='recording_response_hash'):
+        load_settlements(tmp_path / 'settlement', [CONDITION])
 
 
 def test_ambiguous_token_mapping_and_wrong_condition_refused():

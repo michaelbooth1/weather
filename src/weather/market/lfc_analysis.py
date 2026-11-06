@@ -172,7 +172,7 @@ def analyze(legs, prints, mids, settlement, *, allow_reserved=False):
     markouts = []
     for leg in legs:
         price = _d(leg['price'])
-        winner = settlement.get(leg['condition_id'])
+        winner = settlement.get(leg['condition_id'].lower())
         for fill in leg['fills']:
             at = utc(fill['at_utc'])
             row = {'order_id': leg['order_id'], 'token_id': leg['token_id'], 'size': fill['size'], 'price': str(price)}

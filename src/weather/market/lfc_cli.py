@@ -8,6 +8,7 @@ Governed by the owner-signed pre-registration and session-0 spec (2026-10-09, re
                                     non-zero with any open order on the account (S0-4)
     live [--session0 --run R]       one unattended session (the owner types `go <6 hex>`, then may leave)
     verify                          read-only: our open orders vs foreign ones, L figures, sessions, unresolved legs
+    rewards-record --date D         owner-run D+1/D+2 reward and rebate evidence (read-only, create-only files)
     wallet-verify [--since EPOCH]   read-only S0-1/S0-6 through the production-side wallet reader
                                     (weather.market.wallet_reader_client; no venue credential): zero open orders,
                                     L recomputed from venue fills of our order ids vs l_ledger.json to 0.01 pUSD, and

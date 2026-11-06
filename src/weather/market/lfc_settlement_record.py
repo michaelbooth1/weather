@@ -54,6 +54,13 @@ def retained(raw):
     return {'raw_response': raw.decode('utf-8'), 'sha256': hashlib.sha256(raw).hexdigest()}
 
 
+def response_bytes(receipt):
+    raw = receipt['raw_response'].encode('utf-8')
+    if hashlib.sha256(raw).hexdigest() != receipt['sha256']:
+        raise ValueError('recording_response_hash')
+    return raw
+
+
 def resolution_result(condition, resolution_raw, tokens_raw):
     """Use on-chain payout slots and reference ids only, never final_price or price."""
     rows = envelope(resolution_raw)['data']
@@ -91,12 +98,13 @@ def record_settlement(root, condition, *, clock=None, get=public_get):
     target = directory / (condition + '.json')
     if target.exists():
         raise FileExistsError('settlement_exists')
-    observed = utc(clock()).isoformat()
     resolution_raw = get('/v2/resolutions', {'condition': condition})
     rows = envelope(resolution_raw)['data']
     tokens_raw = (get('/v2/tokens', {'condition': condition})
-                  if rows and rows[0].get('status') == 'resolved' else b'{"data":[]}')
+                  if rows and rows[0].get('status') == 'resolved' and rows[0].get('payouts') is not None
+                  else b'{"data":[]}')
     terminal, winner = resolution_result(condition, resolution_raw, tokens_raw)
+    observed = utc(clock()).isoformat()
     result = {'schema_version': SETTLEMENT_SCHEMA, 'kind': 'lfc_venue_settlement',
               'condition_id': condition, 'observed_at_utc': observed, 'terminal': terminal,
               'winning_token_id': winner, 'resolution': retained(resolution_raw), 'tokens': retained(tokens_raw)}
@@ -120,15 +128,16 @@ def load_settlements(directory, conditions):
         path = directory / (condition + '.json')
         if not path.exists():
             continue
-        row = json.loads(path.read_bytes())
+        with path.open('rb') as handle:
+            raw = handle.read(MAX_BYTES * 6 + 1)
+        if len(raw) > MAX_BYTES * 6:
+            raise ValueError('settlement_file_budget')
+        row = json.loads(raw)
         if row.get('schema_version') != SETTLEMENT_SCHEMA or row.get('condition_id') != condition:
             raise ValueError('settlement_record_scope')
         raws = []
         for key in ('resolution', 'tokens'):
-            raw = row[key]['raw_response'].encode('utf-8')
-            if hashlib.sha256(raw).hexdigest() != row[key]['sha256']:
-                raise ValueError('settlement_response_hash')
-            raws.append(raw)
+            raws.append(response_bytes(row[key]))
         terminal, winner = resolution_result(condition, *raws)
         if row.get('terminal') is not terminal or row.get('winning_token_id') != winner:
             raise ValueError('settlement_record_mismatch')

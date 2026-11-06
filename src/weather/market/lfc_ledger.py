@@ -235,7 +235,12 @@ class Ledger:
         return self.figures()['L_resting']
 
     def headroom(self, cap=None):
-        return max(Decimal(0), _decimal(LFC.CAP_PUSD if cap is None else cap) - self.L())
+        return max(Decimal(0), self.effective_cap(cap) - self.L())
+
+    @staticmethod
+    def effective_cap(cap=None):
+        """A per-session limit can lower the campaign cap, never raise it."""
+        return min(LFC.CAP_PUSD, _decimal(LFC.CAP_PUSD if cap is None else cap))
 
     def stop_reason(self, cap=None):
         """Why the campaign has stopped for good (None = not stopped): a mismatch, a halt, or stop-at-100."""
@@ -243,7 +248,7 @@ class Ledger:
             return 'l_reconciliation_mismatch'
         if self.halted:
             return 'ledger_halted'
-        if self.L_filled() + LFC.MIN_FEASIBLE_RESERVE > _decimal(LFC.CAP_PUSD if cap is None else cap):
+        if self.L_filled() + LFC.MIN_FEASIBLE_RESERVE > self.effective_cap(cap):
             return 'l_stop_at_cap'
         return None
 
@@ -258,7 +263,7 @@ class Ledger:
         if stopped:
             raise LedgerCap(stopped)
         base = self.L() - _decimal(own_resting)
-        if base + _decimal(reserve) > _decimal(LFC.CAP_PUSD if cap is None else cap):
+        if base + _decimal(reserve) > self.effective_cap(cap):
             raise LedgerCap('l_budget_refused')
         return base
 
