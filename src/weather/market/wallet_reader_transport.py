@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
+import re
 import threading
 import time
 from urllib.error import HTTPError
@@ -31,13 +32,14 @@ ALLOWED = {
     (CLOB, "/book"): {"token_id"},
     # Data API v2 is cursor-only: ``offset`` is a 400 upstream and is refused here.
     (DATA, "/v2/positions"): {"user", "limit", "cursor", "status", "include_archived", "filter_type",
-                              "filter_amount"},
+                              "filter_amount", "sort_by", "sort_direction"},
     (DATA, "/v2/trades"): {"user", "limit", "taker_only"},
     (DATA, "/v2/activity"): {"user", "limit", "cursor", "start", "sort_by", "sort_direction"},
     (GAMMA, "/markets"): {"condition_ids", "limit"},
 }
 AUTH_PATHS = frozenset(p for (h, p) in ALLOWED if h == CLOB and p != "/book")
 MAX_BODY = 2_000_000
+CURSOR = re.compile(r"[A-Za-z0-9_=+/-]{1,2048}")  # url-safe or standard base64 alphabet
 SUCCESS_TTL = 30
 FAILURE_TTL = 10
 COMPOSITE_SECONDS = 16
@@ -56,6 +58,10 @@ def check_request(method, host, path, params):
     for key, value in params.items():
         if host == GAMMA and path == "/markets" and key == "condition_ids" and isinstance(value, (list, tuple)):
             if not 1 <= len(value) <= 500 or any(not isinstance(v, str) or not CONDITION.fullmatch(v) for v in value):
+                raise ReaderError("upstream_query_refused")
+        elif key == "cursor" and host == DATA:
+            # v2 cursors are opaque and measured at ~390-490 chars; bounded and charset-pinned (v2.1 F1).
+            if not isinstance(value, str) or not CURSOR.fullmatch(value):
                 raise ReaderError("upstream_query_refused")
         elif (not isinstance(value, (str, int)) or isinstance(value, bool) or len(str(value)) > 256
               or any(ord(c) < 32 for c in str(value))):

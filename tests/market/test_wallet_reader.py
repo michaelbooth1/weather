@@ -92,14 +92,14 @@ def v2_page(items, query, tag="page"):
     """Serve ``items`` as v2 cursor pages. The opaque fixture cursor carries tag, position and size."""
     assert "offset" not in query, "Data API v2 is cursor-only"
     if "cursor" in query:
-        name, start, size = query["cursor"][0].split(":")
-        assert name == tag and "limit" not in query and "sort_direction" not in query and "status" not in query
+        name, start, size = query["cursor"][0].rsplit("-", 2)
+        assert name == tag and "limit" not in query and "status" not in query
         start, size = int(start), int(size)
     else:
         start, size = 0, int(query["limit"][0])
     more = start + size < len(items)
     return {"data": items[start:start + size], "pagination": dict(
-        has_more=more, limit=size, offset=start, next_cursor=f"{tag}:{start + size}:{size}" if more else None)}
+        has_more=more, limit=size, offset=start, next_cursor=f"{tag}-{start + size}-{size}" if more else None)}
 
 
 def lost(row):
@@ -110,7 +110,7 @@ def positions_page(holdings, query):
     """OPEN serves every holding except redeemable losers, which REDEEMABLE_LOST serves."""
     assert query["user"] == [FUNDER] and query["include_archived"] == ["true"]
     assert query["filter_type"] == ["TOKENS"] and query["filter_amount"] == ["0"]
-    status = query["cursor"][0].split(":")[0] if "cursor" in query else query["status"][0]
+    status = query["cursor"][0].rsplit("-", 2)[0] if "cursor" in query else query["status"][0]
     assert status in {"OPEN", "REDEEMABLE_LOST"}
     chosen = [p for p in holdings if lost(p) is (status == "REDEEMABLE_LOST")]
     return v2_page([v2(p, position=True) for p in chosen], query, status)
@@ -667,17 +667,18 @@ def test_position_identity_fails_closed(tmp_path, guard, endpoint_fixtures, fiel
 
 def test_v2_positions_walk_both_statuses_by_cursor(tmp_path, guard):
     holdings = [dict(proxyWallet=FUNDER, asset=str(i + 1), conditionId="0x" + f"{i + 1:064x}", size=1, avgPrice=.4,
-                     curPrice=0 if i >= 250 else 1, redeemable=True) for i in range(370)]
+                     curPrice=0 if i >= 1050 else 1, redeemable=True) for i in range(1200)]
     t = wire(tmp_path, guard, FakeOpener(lambda req: positions_page(holdings, parse_qs(urlsplit(req.full_url).query))))
     result = core.WalletReader(t, signature_type=2)._position_rows()
     assert [r["asset"] for r in result] == [p["asset"] for p in holdings]
     assert all(r["size"] == 1 and r["conditionId"] == p["conditionId"] and r["proxyWallet"] == FUNDER
                and "token_id" not in r and "current_size" not in r for r, p in zip(result, holdings))
     queries = [parse_qs(urlsplit(req.full_url).query) for req, _ in t.opener.calls]
-    filters = dict(user=[FUNDER], include_archived=["true"], filter_type=["TOKENS"], filter_amount=["0"])
-    assert queries == [dict(filters, status=["OPEN"], limit=["100"]), dict(filters, cursor=["OPEN:100:100"]),
-                       dict(filters, cursor=["OPEN:200:100"]), dict(filters, status=["REDEEMABLE_LOST"], limit=["100"]),
-                       dict(filters, cursor=["REDEEMABLE_LOST:100:100"])]
+    filters = dict(user=[FUNDER], include_archived=["true"], filter_type=["TOKENS"], filter_amount=["0"],
+                   sort_by=["TOKENS"], sort_direction=["DESC"])
+    # v2.1: limit 500 and the sort pair go on the first page and are resent with every cursor (probed accepted).
+    assert queries == [dict(filters, status=["OPEN"], limit=["500"]), dict(filters, cursor=["OPEN-500-500"]),
+                       dict(filters, cursor=["OPEN-1000-500"]), dict(filters, status=["REDEEMABLE_LOST"], limit=["500"])]
     assert {urlsplit(req.full_url).path for req, _ in t.opener.calls} == {"/v2/positions"}
 
 
@@ -739,7 +740,7 @@ def test_missing_current_size_is_refused_never_zero(tmp_path, guard, endpoint_fi
     assert summary["campaign_pnl_pusd"] is None and summary["cash_pusd"] == "70"
 
 
-@pytest.mark.parametrize("failure", ["http_410", "v1_list", "no_pagination", "has_more_without_cursor"])
+@pytest.mark.parametrize("failure", ["http_410", "http_400", "v1_list", "no_pagination", "has_more_without_cursor"])
 def test_retired_v1_or_malformed_positions_fail_closed_in_summary(tmp_path, guard, endpoint_fixtures, failure):
     base = serve(endpoint_fixtures)
     def respond(req):
@@ -747,6 +748,8 @@ def test_retired_v1_or_malformed_positions_fail_closed_in_summary(tmp_path, guar
             return base(req)
         if failure == "http_410":
             raise HTTPError(req.full_url, 410, "Gone", {}, io.BytesIO(b"fixture retired"))
+        if failure == "http_400":
+            raise HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(b"fixture bad request"))
         if failure == "v1_list":
             return endpoint_fixtures["/v2/positions"]
         page = base(req)
@@ -904,7 +907,7 @@ def test_103_redeemable_positions_leave_one_gamma_condition(tmp_path, guard):
     assert len(result["resolved_positions"]) == 103 and len(result["positions"]) == 1
     assert result["positions"][0]["mid"] == "0.5" and result["positions"][0]["errors"] == []
     assert result["unclassified_positions"] == [] and result["errors"] == {}
-    assert result["plan"]["used_gets"] == 8
+    assert result["plan"]["used_gets"] == 7  # v2.1: 104 rows fit one 500-row OPEN page
 
 
 def test_45_non_redeemable_positions_use_three_gamma_chunks(tmp_path, guard):
@@ -953,7 +956,7 @@ def test_all_redeemable_positions_need_no_gamma_or_book_calls(tmp_path, guard):
     result = core.WalletReader(t, signature_type=2).positions(include_resolved=True)
     assert len(result["resolved_positions"]) == 104 and result["positions"] == []
     assert result["status"] == "OBSERVED"
-    assert [urlsplit(req.full_url).path for req, _ in t.opener.calls] == ["/v2/positions"] * 3
+    assert [urlsplit(req.full_url).path for req, _ in t.opener.calls] == ["/v2/positions"] * 2  # v2.1: one 500-row page per status
 
 
 def test_overflow_prioritizes_value_and_returns_partial_inventory(tmp_path, guard):
@@ -1098,7 +1101,7 @@ def test_100e_one_live_103_resolved_pnl_split(tmp_path, guard, capital, campaign
         assert result["mark_basis"] == "live_two_sided_mid"
         assert ("resolved_positions" in result) is include_resolved
         assert result["plan"]["deferred_live_positions"] == 0
-    assert len(t.opener.calls) == 10  # Two bounded activity pages prove historical acquisition; visibility is cached.
+    assert len(t.opener.calls) == 9  # v2.1 one OPEN page; two bounded activity pages prove historical acquisition; visibility is cached.
     assert sum(urlsplit(req.full_url).path == "/book" for req, _ in t.opener.calls) == 1
 
 
@@ -1468,3 +1471,123 @@ def test_pre_3_11_2_fp_none_http_error_keeps_safe_reason_codes(tmp_path, guard):
     with pytest.raises(client.ClientError) as caught:
         client.read_account("summary", config=config, opener=FakeOpener(failed))
     assert caught.value.reason == "http_503"
+
+
+# --- reader v2.1 (2026-11-06): live cursor length, isolated extras, zero/dust rows, in-status duplicates ---
+LIVE_CURSOR = base64.b64encode(hashlib.sha256(b"fixture").digest() * 12).decode()[:479]  # live cursors ~390-490
+
+
+def position_row(token, size, **extra):
+    return dict(proxy_wallet=FUNDER, token_id=token, condition_id=CONDITION, current_size=size, avg_price=.4,
+                current_price=.5, redeemable=False, **extra)
+
+
+def test_realistic_live_length_cursor_is_walked(tmp_path, guard):
+    assert len(LIVE_CURSOR) == 479 and len(LIVE_CURSOR) > 256
+    def respond(req):
+        query = parse_qs(urlsplit(req.full_url).query)
+        if query.get("status") == ["OPEN"]:
+            return {"data": [position_row("1", 3)], "pagination": dict(has_more=True, next_cursor=LIVE_CURSOR)}
+        if "cursor" in query:
+            assert query["cursor"] == [LIVE_CURSOR] and query["sort_by"] == ["TOKENS"]
+            return {"data": [position_row("2", 4)], "pagination": dict(has_more=False, next_cursor="")}
+        return {"data": [], "pagination": dict(has_more=False)}  # next_cursor key absent on the last page
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    assert sorted(r["asset"] for r in core.WalletReader(t, signature_type=2)._position_rows()) == ["1", "2"]
+    assert len(t.opener.calls) == 3
+
+
+@pytest.mark.parametrize("cursor", ["x" * 2049, "has space", "pct%2F", "semi;colon", "", 7])
+def test_malformed_or_oversized_cursor_refused_before_socket(tmp_path, guard, cursor):
+    t = wire(tmp_path, guard)
+    with pytest.raises(security.ReaderError, match="upstream_query_refused"):
+        t.request("GET", security.DATA, "/v2/positions", {"user": FUNDER, "cursor": cursor})
+    assert not t.opener.calls
+    t.request("GET", security.DATA, "/v2/positions", {"user": FUNDER, "cursor": "x" * 2048})  # bound is inclusive
+
+
+def test_cursor_exemption_is_data_api_only(tmp_path, guard):
+    t = wire(tmp_path, guard)
+    with pytest.raises(security.ReaderError):
+        t.request("GET", security.CLOB, "/data/trades", {"next_cursor": "x" * 300})
+    assert not t.opener.calls
+
+
+def test_empty_account_reads_complete(tmp_path, guard):
+    t = wire(tmp_path, guard, FakeOpener(lambda req: {"data": [], "pagination": dict(has_more=False, next_cursor=None)}))
+    reader = core.WalletReader(t, signature_type=2)
+    value = reader.positions(include_resolved=True)
+    assert value["errors"] == {} and value["resolved_positions"] == [] and reader.zero_size_positions_dropped == 0
+
+
+def test_zero_size_rows_dropped_and_dust_kept(tmp_path, guard):
+    rows = [position_row("1", 0), position_row("2", "0.05"), position_row("3", 0.0), position_row("4", 12)]
+    t = wire(tmp_path, guard, FakeOpener(lambda req: v2_page(rows if parse_qs(urlsplit(req.full_url).query).get(
+        "status") == ["OPEN"] else [], parse_qs(urlsplit(req.full_url).query))))
+    reader = core.WalletReader(t, signature_type=2)
+    result = reader._position_rows()
+    assert [r["asset"] for r in result] == ["2", "4"] and reader.zero_size_positions_dropped == 2
+
+
+def test_duplicate_token_within_one_status_is_conflict(tmp_path, guard):
+    rows = [position_row("1", 5), position_row("1", 5)]
+    t = wire(tmp_path, guard, FakeOpener(lambda req: v2_page(rows if parse_qs(urlsplit(req.full_url).query).get(
+        "status") == ["OPEN"] else [], parse_qs(urlsplit(req.full_url).query))))
+    with pytest.raises(security.ReaderError, match="position_conflict"):
+        core.WalletReader(t, signature_type=2)._position_rows()
+
+
+@pytest.mark.parametrize("lost_size", [0, 2])
+def test_zero_in_one_status_nonzero_in_other_is_conflict(tmp_path, guard, lost_size):
+    def respond(req):
+        query = parse_qs(urlsplit(req.full_url).query)
+        return v2_page([position_row("1", 0 if query["status"] == ["OPEN"] else lost_size)], query)
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    reader = core.WalletReader(t, signature_type=2)
+    if lost_size == 0:
+        assert reader._position_rows() == [] and reader.zero_size_positions_dropped == 1
+    else:
+        with pytest.raises(security.ReaderError, match="position_conflict"):
+            reader._position_rows()
+
+
+@pytest.mark.parametrize("broken", ["/v2/trades", "/v2/activity", "both"])
+def test_public_extras_failure_never_fails_fills(tmp_path, guard, endpoint_fixtures, broken):
+    base = serve(endpoint_fixtures)
+    def respond(req):
+        path = urlsplit(req.full_url).path
+        if path == broken or (broken == "both" and path in {"/v2/trades", "/v2/activity"}):
+            raise HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(b"fixture bad request"))
+        return base(req)
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    trades = core.WalletReader(t, signature_type=3).trades("123")
+    assert trades["fills"] == [{"price": ".43", "size": "75"}]
+    expected = {"/v2/trades": ["recent_public_trades"], "/v2/activity": ["recent_activity"],
+                "both": ["recent_public_trades", "recent_activity"]}[broken]
+    assert trades["extras_errors"] == expected
+    assert (trades["recent_public_trades"] is None) is ("recent_public_trades" in expected)
+    assert (trades["recent_activity"] is None) is ("recent_activity" in expected)
+
+
+def test_trades_extras_errors_empty_when_all_succeed(tmp_path, guard, endpoint_fixtures):
+    t = wire(tmp_path, guard, FakeOpener(serve(endpoint_fixtures)))
+    assert core.WalletReader(t, signature_type=3).trades("123")["extras_errors"] == []
+
+
+def test_base64_cursor_is_percent_encoded_on_the_wire_and_journaled(tmp_path, guard):
+    cursor = "ab+cd/ef" + "x" * 300 + "=="  # '+' must never reach the venue raw (it would decode to a space)
+    def respond(req):
+        query = parse_qs(urlsplit(req.full_url).query)
+        if query.get("status") == ["OPEN"]:
+            return {"data": [position_row("1", 3)], "pagination": dict(has_more=True, next_cursor=cursor)}
+        assert "cursor" not in query or query["cursor"] == [cursor]  # decodes back exactly
+        return {"data": [], "pagination": dict(has_more=False, next_cursor=None)}
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    assert [r["asset"] for r in core.WalletReader(t, signature_type=2)._position_rows()] == ["1"]
+    second = urlsplit(t.opener.calls[1][0].full_url).query
+    assert "cursor=ab%2Bcd%2Fef" + "x" * 300 + "%3D%3D" in second
+    assert "+" not in second and "/" not in second
+    journal = [json.loads(line) for f in (tmp_path / "journal").glob("*.jsonl")
+               for line in f.read_text(encoding="utf-8").splitlines()]
+    assert len(journal) == 2 * len(t.opener.calls) and all("cursor" not in json.dumps(r) for r in journal)
+    assert all(r["path"] == "/v2/positions" for r in journal)

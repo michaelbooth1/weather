@@ -22,7 +22,9 @@ GAMMA_CHUNK_SIZE = 20
 # OPEN is the superset (it includes settled-but-unredeemed winners) and REDEEMABLE_LOST is listed apart; CLOSED
 # is excluded. The 0 token floor replaces v1 sizeThreshold=0 (the v2 default drops holdings under 0.1 share).
 POSITION_STATUSES = ("OPEN", "REDEEMABLE_LOST")
-POSITION_FILTERS = dict(include_archived="true", filter_type="TOKENS", filter_amount=0)
+POSITION_FILTERS = dict(include_archived="true", filter_type="TOKENS", filter_amount=0, sort_by="TOKENS",
+                        sort_direction="DESC")  # a stable page order (v2.1 F3)
+POSITION_PAGE = 500  # ~1.3 KB rows against the 2 MB body cap; one page for ordinary accounts (v2.1 F1)
 DATA_PAGES = 5
 # v2 snake_case names -> the v1 names the rest of the reader (and maker_core adapt_archive) reads.
 V1_NAMES = dict(token_id="asset", condition_id="conditionId", proxy_wallet="proxyWallet", avg_price="avgPrice",
@@ -188,7 +190,7 @@ class WalletReader:
         raise ReaderError("pagination_incomplete")
 
     def data_pages(self, path, first, *, resend=("user",), limit=DATA_PAGES, found=None):
-        """Walk one Data API v2 cursor chain into ``found``; return whether it reached ``next_cursor: null``.
+        """Walk one Data API v2 cursor chain into ``found``; return whether it reached the end (null/""/absent cursor).
 
         Later pages send only ``cursor`` plus the ``resend`` filters the cursor does not carry (never
         ``offset``). A non-envelope body (including a v1 list) or a bad cursor fails closed.
@@ -202,6 +204,8 @@ class WalletReader:
                 raise ReaderError("page_unreadable")
             found.extend(rows(page.get("data")))
             cursor = pagination.get("next_cursor")
+            if cursor == "":
+                cursor = None  # the venue ends a walk with null, "" or no key at all (v2.1 F5)
             if pagination.get("has_more") is not (cursor is not None):
                 raise ReaderError("cursor_unreadable")
             if cursor is None:
@@ -209,14 +213,14 @@ class WalletReader:
             if not isinstance(cursor, str) or not cursor or cursor in seen:
                 raise ReaderError("cursor_unreadable")
             seen.add(cursor)
-            params = {**{k: first[k] for k in resend}, "cursor": cursor}
+            params = {**{k: first[k] for k in resend if k in first}, "cursor": cursor}
         return False
 
     def activity(self, *, pages=DATA_PAGES, **params):
         """Bounded v2 activity walk in v1 row names; returns (rows, complete)."""
         found = []
         complete = self.data_pages("/v2/activity", dict(user=self.funder, limit=100, sort_by="TIMESTAMP", **params),
-                                   resend=("user", "start"), limit=pages, found=found)
+                                   resend=("user", "start", "sort_by", "sort_direction"), limit=pages, found=found)
         return [v1_row(r, "size") for r in found], complete
 
     def balance(self):
@@ -239,10 +243,10 @@ class WalletReader:
 
     def _position_rows(self):
         """Both v2 statuses, cursor-walked and de-duplicated on token; one token, two sizes refuses."""
-        result = {}
+        result, seen, self.zero_size_positions_dropped = {}, {}, 0
         for status in POSITION_STATUSES:
-            chunk = []
-            if not self.data_pages("/v2/positions", dict(user=self.funder, status=status, limit=100,
+            chunk, in_status = [], set()
+            if not self.data_pages("/v2/positions", dict(user=self.funder, status=status, limit=POSITION_PAGE,
                                                          **POSITION_FILTERS),
                                    resend=("user", *POSITION_FILTERS), found=chunk):
                 raise ReaderError("positions_incomplete")
@@ -257,11 +261,18 @@ class WalletReader:
                     raise ReaderError("position_identity_unreadable")
                 if number(row.get("size")) < 0 or not 0 <= number(row.get("avgPrice")) <= 1:
                     raise ReaderError("position_numeric_data_unreadable")
-                if token not in result:
-                    result[token] = row
-                elif (number(result[token]["size"]) != number(row["size"])
-                      or result[token]["conditionId"].lower() != condition.lower()):
-                    raise ReaderError("position_conflict")
+                if token in in_status:
+                    raise ReaderError("position_conflict")  # one token twice within one status (v2.1 F6)
+                in_status.add(token)
+                if token in seen:
+                    if seen[token] != (number(row["size"]), condition.lower()):
+                        raise ReaderError("position_conflict")
+                    continue
+                seen[token] = (number(row["size"]), condition.lower())
+                if number(row["size"]) == 0:
+                    self.zero_size_positions_dropped += 1  # zero shares are no holding (v2.1 F4)
+                    continue
+                result[token] = row
         return list(result.values())
 
     @staticmethod
@@ -418,10 +429,22 @@ class WalletReader:
         # Authenticated fills are exhaustive within the bounded cursor walk.
         # Public trades/activity are explicitly recent pages, never a P&L ledger.
         fills, public = self.pages("/data/trades", maker_address=self.funder, after=since), []
-        self.data_pages("/v2/trades", dict(user=self.funder, limit=100, taker_only="false"), limit=1, found=public)
-        return {"fills": fills, "recent_public_trades": [v1_row(r, "size") for r in public],
-                "recent_activity": self.activity(start=since, sort_direction="DESC", pages=1)[0],
-                "public_history_scope": "latest_100_not_complete_history"}
+        # The public extras are optional context: a failure of either must never fail the fills (v2.1 F2).
+        extras_errors = []
+        try:
+            self.data_pages("/v2/trades", dict(user=self.funder, limit=100, taker_only="false"), limit=1,
+                            found=public)
+            recent_public = [v1_row(r, "size") for r in public]
+        except ReaderError:
+            recent_public = None
+            extras_errors.append("recent_public_trades")
+        try:
+            recent_activity = self.activity(start=since, sort_direction="DESC", pages=1)[0]
+        except ReaderError:
+            recent_activity = None
+            extras_errors.append("recent_activity")
+        return {"fills": fills, "recent_public_trades": recent_public, "recent_activity": recent_activity,
+                "extras_errors": extras_errors, "public_history_scope": "latest_100_not_complete_history"}
 
     def rewards(self, day):
         valid_date(day)

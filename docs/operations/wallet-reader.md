@@ -278,20 +278,28 @@ LAN request. No network polling runs by itself.
 Data API v1 (`/positions`, `/trades`, `/activity`) was retired by the venue on
 2026-11-02 and now answers HTTP 410; the reader reads only `/v2/positions`,
 `/v2/activity` and `/v2/trades`. v2 answers a `{data, pagination}` envelope and is
-cursor-only: the first page sends the filters and `limit=100`, later pages send
-`cursor=<next_cursor>` with `user` and the filters the cursor does not carry, and the
-walk stops at `next_cursor: null`. `offset` is never sent (it is a 400 upstream and
+cursor-only: the first page sends the filters and `limit=100` (`limit=500` for
+positions), later pages send `cursor=<next_cursor>` with `user` and the filters
+(positions and activity also resend their sort pair, which the venue accepts), and the
+walk stops at `next_cursor` null, empty or absent. Live cursors are opaque base64 of
+roughly 390-490 characters, so a Data API `cursor` is exempt from the generic
+256-character query bound and is instead pinned to the base64 alphabet and at most
+2,048 characters (reader v2.1; the v2 bound refused every second page). `offset` is never sent (it is a 400 upstream and
 is not in the allowlist). A non-envelope body (including a v1 list), a `has_more`
 that disagrees with `next_cursor`, or a repeated cursor fails closed. Positions walk
 two statuses, `OPEN` (the superset, including settled-but-unredeemed winners) and
 `REDEEMABLE_LOST`, each with `include_archived=true`, `filter_type=TOKENS` and
-`filter_amount=0` (the v2 default floor drops holdings under 0.1 share); `CLOSED` is
-excluded. Rows are de-duplicated on `token_id`; one token with two different
-`current_size` values, or a row without `current_size`, makes positions unavailable
-rather than defaulting to zero. Each v2 row is renamed to the v1 field names the
+`filter_amount=0` and `sort_by=TOKENS`/`sort_direction=DESC`; `CLOSED` is excluded.
+Probed 2026-11-06, `filter_amount=0` does not lower the venue's 0.1-share floor, so
+holdings under 0.1 share may be absent (an accepted fallback deviation); dust rows the
+venue does return are kept. Zero-size rows are dropped (counted on the reader as
+`zero_size_positions_dropped`, not in responses). Rows are de-duplicated on `token_id` across the two
+statuses; one token twice within one status, one token with two different
+`current_size` values (zero included), or a row without `current_size`, makes positions
+unavailable rather than defaulting to zero. Each v2 row is renamed to the v1 field names the
 reader always used (`asset`, `conditionId`, `size`, `avgPrice`, `curPrice`, ...),
 so response shapes are unchanged. Discovery therefore costs at least two position
-GETs (one per status) plus one per further 100 rows of a status.
+GETs (one per status) plus one per further 500 rows of a status.
 
 Summary reads cash and orders first. Inventory discovery uses bounded pages and
 Gamma only for holdings not already redeemable, in batches of at most 20 distinct
@@ -346,7 +354,10 @@ When a baseline instant and positive resolved lots exist, summary attempts a
 bounded complete `/v2/activity` walk over full history (`start=1`), oldest first,
 at most five 100-row cursor pages within the existing 24-GET/16-second composite budget. It runs after
 live marking and uses the existing cache, GET allowlist and journal. The latest
-100 rows from `/v2/trades` (`taker_only=false`) are never treated as complete history. Only account- and
+100 rows from `/v2/trades` (`taker_only=false`) are never treated as complete history.
+In `/trades`, those public extras (`recent_public_trades`, `recent_activity`) are
+optional context: if either upstream read fails, its field is `null` and its name is
+listed in `extras_errors`, while the authenticated fills are still returned. Only account- and
 token-matched trade history whose buys minus sells reconcile exactly to the held
 quantity can establish age. Every acquisition in the remaining inventory must
 fall on the same side of the baseline (strictly after is campaign); mixed-age
