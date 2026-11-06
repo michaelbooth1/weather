@@ -690,6 +690,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\codex\T003\out\scan_stream_v3.py'
             sha256 = 'b59dcce9cd53609860d3fb8338e2e3ba71ce2de827365ee1bb53d1206d8c9fc3'
         }
+        # T003 B012 output-only replan; separate master review and GO required.
+        @{
+            path = 'C:\t\codex\T003\out\scan_stream_v4.py'
+            sha256 = 'b42a25f7d1fe4fc708059f1e2116607360a895a63b02f65e563435147cbf26cf'
+        }
     )
 }
 
