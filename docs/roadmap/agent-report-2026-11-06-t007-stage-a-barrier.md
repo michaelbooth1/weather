@@ -19,6 +19,16 @@ calls; it imports no weather modules and reads no runtime evidence.
   from economics, scoring infrastructure or date mismatch. Do not relax it.
   An actual implementation error in a returned blocker would be class (a), but
   no such root defect is established from the supplied facts.
+- **Economics is an active dependency, not a retired maker alarm.** The current
+  state and economics runbook record earlier missing-proof failures and a later
+  successful collection, with acceptance/barrier unverified. Check this
+  dependency first, without assuming it is the actual blocker. Collection rc 0
+  does not accept a baseline. If current proof or reviewed acceptance is absent,
+  that is class (c); a reproduced collector implementation failure is class (a).
+  Healthy drift requires a passing current gate, a reviewed baseline and
+  `rescore_required: false`. Manual acceptance requires the runbook's review and
+  owner decision, not a gate edit or automatic acceptance. Maker work reopening
+  does not permit retiring this alarm with the held legacy learning outputs.
 - **Old target: unresolved host-state question.** A normal new Stage-A run pins
   Toronto yesterday once at start. The registrar does not pin October 7. An
   October-7 receipt in November therefore requires checking its run timestamp,
@@ -158,6 +168,12 @@ blocker fields without opening embargoed predictions, prices or label values.
 6. `data/backtest/exchange_economics_drift.json`,
    `exchange_economics_snapshot.json`, `exchange_economics_accepted_snapshot.json`:
    metadata/current gate, refresh error, hashes and acceptance, not price rows.
+   Also `data/logs/exchange_economics_refresh_status.json` and
+   `data/logs/exchange_economics_refresh_history.jsonl`: correlate started time
+   with the 06:50 task run, terminal status, exit code and bounded output_tail.
+   RUNNING beyond its limit or a receipt older than LastRunTime distinguishes
+   a killed run from a launch/parameter failure. See the economics runbook;
+   collection and reviewed baseline acceptance are separate actions.
 7. `data/backtest/settlement_source_revision_audit.json`,
    `replay_status_backfill.json`, `observed_floor_safety_monitor.json`,
    `hourly_model_performance.json`, `ten_minute_model_performance.json`,
@@ -176,7 +192,8 @@ blocker fields without opening embargoed predictions, prices or label values.
    `data/alerts/staleness_sweep.jsonl`: KNOWN rows, expiry and task_results.
 10. Master should read actual Task Scheduler action/trigger/Enabled/last-run/result
     for WeatherDailySettlementPromotionRefresh, WeatherEveningEvidenceRefresh
-    and WeatherTrainingWindow; repository definitions do not prove host adoption.
+    and WeatherTrainingWindow, plus WeatherExchangeEconomicsSnapshotRefresh;
+    repository definitions do not prove host adoption.
 
 ## Open questions / adoption
 
