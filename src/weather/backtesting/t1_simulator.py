@@ -68,7 +68,8 @@ def replay(payload, config: ReplayConfig):
     books, terms, active, orders, fills = {}, {}, {}, {}, []
     used, rewards = defaultdict(lambda: ZERO), defaultdict(lambda: ZERO)
     rewarded_seconds = defaultdict(lambda: ZERO)
-    spent, payouts, rebate_weight = ZERO, ZERO, defaultdict(lambda: ZERO)
+    spent, payouts, cash_paid, rebate_weight = ZERO, ZERO, ZERO, defaultdict(lambda: ZERO)
+    settlement_values, redeemed = {}, defaultdict(lambda: ZERO)
     reasons, rejected, settled = set(), [], set()
     if payload.get('account_scope_complete') is not True:
         reasons.add('incomplete_account_incentive_scope')
@@ -105,7 +106,7 @@ def replay(payload, config: ReplayConfig):
                     raise ValueError('conflicting duplicate trade')
                 continue
             trade_ids[key] = event
-        priority = {'book': 0, 'terms': 1, 'trade': 2, 'settlement': 6}.get(event['kind'])
+        priority = {'book': 0, 'terms': 1, 'trade': 2, 'settlement': 6, 'redemption': 7}.get(event['kind'])
         if priority is None:
             raise ValueError('unknown event kind')
         if at < start or at > end:
@@ -213,9 +214,10 @@ def replay(payload, config: ReplayConfig):
                 continue
             reserve = p * size
             resting_cash = sum((r['price'] * r['remaining'] for r in active.values()), ZERO)
+            funding_cash = number(config.total_cap) - spent + cash_paid * (ONE - number(config.informed_fraction))
             if (used[cid] + reserve > number(config.per_market_cap)
                     or sum(used.values(), ZERO) + reserve > number(config.total_cap)
-                    or resting_cash + reserve > number(config.total_cap) - spent + payouts):
+                    or resting_cash + reserve > funding_cash):
                 rejected.append({'id': event['id'], 'reason': 'capital_cap'})
                 continue
             if any(r['condition_id'] == cid and r['outcome'] == outcome for r in active.values()):
@@ -277,11 +279,19 @@ def replay(payload, config: ReplayConfig):
             payout = number(event['yes_payout'], maximum=ONE)
             if any(r['condition_id'] == cid for r in active.values()):
                 reasons.add('orders_open_at_settlement')
-            payouts += sum((r['size'] * (payout if r['outcome'] == 'YES' else ONE - payout)
-                            for r in fills if r['condition_id'] == cid), ZERO)
+            value = sum((r['size'] * (payout if r['outcome'] == 'YES' else ONE - payout)
+                         for r in fills if r['condition_id'] == cid), ZERO)
+            payouts += value
+            settlement_values[cid] = value
             used[cid] = ZERO
             active = {oid: r for oid, r in active.items() if r['condition_id'] != cid}
             settled.add(cid)
+        elif kind == 'redemption':
+            fraction = number(event['fraction'], maximum=ONE)
+            if cid not in settled or event['source'] != 'venue' or redeemed[cid] + fraction > ONE:
+                raise ValueError('unsettled or duplicate cash redemption')
+            redeemed[cid] += fraction
+            cash_paid += settlement_values[cid] * fraction
     if any(r['condition_id'] not in settled for r in fills):
         reasons.add('unsettled_inventory')
     if active:
@@ -341,6 +351,9 @@ def replay(payload, config: ReplayConfig):
             'reward_accrued': reward_total, 'rebate_accrued': rebates,
             'reward_payable': reward_paid, 'rebate_payable': rebate_paid,
             'cost': spent, 'venue_payout': payouts, 'raw_net_pnl': raw_pnl,
+            'cash_redemptions_pusd': cash_paid, 'unredeemed_venue_value': payouts - cash_paid,
+            'funding_cash_under_stress': number(config.total_cap) - spent
+                                         + cash_paid * (ONE - number(config.informed_fraction)),
             'spread_capture_pusd': reference_value - spent if references_complete else None,
             'inventory_move_pusd': payouts - reference_value if references_complete else None,
             'maker_fees_pusd': ZERO,

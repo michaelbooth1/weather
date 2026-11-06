@@ -34,6 +34,9 @@ The engine takes a bounded session export with:
   size, receipt `at` and exchange `traded_at`; explicit `settlement` rows with
   venue YES payout fraction and source hash. No Gamma display prices or
   reconstructed weather labels can substitute for these inputs.
+  Optional `redemption` events release a captured fraction of that condition's
+  settled venue value into spendable cash, with venue source hash. Resolution
+  value alone never finances another order; fractions cannot exceed one in total.
 - `commands`: post-only native BUY YES/NO proposals (`id`, condition, outcome,
   observed time, price, size), or cancellation of an ID. Arrival is observation
   plus declared latency. An explicitly supplied arrival cannot precede it.
@@ -71,7 +74,8 @@ Unknown aggressors, mirrored prints without identity reconciliation and
 ambiguous mint/merge executions must not be silently counted as own fills.
 
 Resting reservations and filled cost both consume per-market and total capital;
-settlement releases the reservation. Global cash cannot be reused after a loss.
+settlement releases the risk reservation. Spendable cash releases only through
+an explicit redemption event. Global cash cannot be reused after a loss.
 Incentive accrual cannot finance orders before payment. The strategy holds native
 tokens to venue settlement; it has no taker exit. `fee` implements the charter's
 taker fee for accounting consumers; the maker pays zero. Adding a taker strategy
@@ -112,6 +116,8 @@ Raw settlement P&L is reported separately from the declared informed-flow stress
 settlement and a worst-case zero payout on fraction f of filled shares. This
 does not estimate f, alter queue fills, invent information or add a markout loss
 on top of the same settlement loss. Inventory stays capital-bound until settlement.
+Redeemed proceeds finance later orders only after the same f haircut; the
+capital trace cannot recycle the un-stressed payout while charging stressed P&L.
 The raw trading component is also decomposed into entry-mid spread capture and
 subsequent inventory movement to venue payout, with maker fees shown separately.
 Markouts are share-weighted native-token midpoint minus entry at the fixed

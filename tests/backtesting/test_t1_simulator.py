@@ -249,3 +249,30 @@ def test_full_account_day_threshold_uses_external_incentives_without_crediting_t
     assert report['raw_net_pnl'] == D('5.1') + report['reward_payable'] + report['rebate_payable']
     p['account_scope_complete'] = False
     assert 'incomplete_account_incentive_scope' in replay(p, config())['reasons']
+
+
+def test_resolution_value_is_not_available_cash_until_explicit_redemption():
+    p = payload()
+    p['end'] = at(610)
+    p['conditions']['c1']['coverage_end'] = at(610)
+    p['conditions']['c2'] = {**p['conditions']['c1'], 'token_ids': ['yes2', 'no2']}
+    p['events'][-1]['at'] = at(6)
+    p['events'].append(book(8, condition='c2'))
+    p['events'].append({**p['events'][1], 'at': at(8), 'condition_id': 'c2', 'valid_until': at(611)})
+    p['reward_epochs']['2026-10-12']['c2'] = dict(p['reward_epochs']['2026-10-12']['c1'])
+    p['commands'].append({**p['commands'][0], 'id': 'o2', 'condition_id': 'c2', 'observed_at': at(8)})
+    p['commands'].append({'kind': 'cancel', 'id': 'o2', 'observed_at': at(11)})
+    before = replay(p, config(per_market_cap='5', total_cap='5', informed_fraction='0'))
+    assert before['rejected'] == [{'id': 'o2', 'reason': 'capital_cap'}]
+    assert before['cash_redemptions_pusd'] == 0
+    p['events'].append({'kind': 'redemption', 'condition_id': 'c1', 'at': at(7),
+                        'fraction': '1', 'source': 'venue', 'source_sha256': 'c' * 64})
+    after = replay(p, config(per_market_cap='5', total_cap='5', informed_fraction='0'))
+    assert after['rejected'] == []
+    assert after['cash_redemptions_pusd'] == 10
+    assert after['unredeemed_venue_value'] == 0
+    assert replay(p, config(per_market_cap='5', total_cap='5'))['rejected'] == [
+        {'id': 'o2', 'reason': 'capital_cap'}]
+    p['events'].append(dict(p['events'][-1]))
+    with pytest.raises(ValueError, match='duplicate cash redemption'):
+        replay(p, config(per_market_cap='5', total_cap='5', informed_fraction='0'))
