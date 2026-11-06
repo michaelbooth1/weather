@@ -70,3 +70,44 @@ python -m weather.backtesting.t2_taker_rule --vectors C:\t\ws3\inputs\vectors.cs
 
 - The pinned module already accepts `--projection-receipt`. It records the receipt's path and sha256, and copies the receipt's top-level `projected` object into `summary.json`. This is how prereg §6's "realised vs projected population and SD" is reported. The step 4 projection receipt therefore carries a top-level `projected` object.
 - The dev projection uses its own `--out` folder (never `C:\t\ws3\run`) and its own window ≤ 09-29.
+
+### Clarification 1: the parser check in the outcome-blind pass (master ruling 10:59 ET, 2026-11-06; append-only)
+
+Written 2026-11-06T11:00:42 local, before step 5 and before any value for a local target date ≥ 2026-09-30 was read. Only the
+prereg, rule.md, code, git history, and column or key **names** of the read-window inputs were used.
+
+- **Why:** rule.md :251 and :271-272 fail the parser check when a layout does not expose the parser version, and
+  `mg2_composite.outcome_blind_checks` (:1096, :1118-1122) sets `parser_pass` false when `v2_parser_version` is absent.
+  Applied to inputs with no such column, every date would fail, which would make WS-3 UNTESTABLE by construction. The
+  check is not waived. It is decided from provenance.
+- **Branch applied: (i), the emitter re-parses the raw NBM text.** In the bound path, the MG-2 arm's v2 NBM fields come
+  from `mg2_inputs.build`.
+  - `bulletin_index` and `parse_bulletins` read the national NBP bulletins from `forecast_payload_cas`
+    (binding-plan F5). They parse them through `_PinnedV2`, which wraps
+    `guidance_extract_parser.PinnedParser`.
+  - That parser declares `parser_version = 2`. `build` refuses any other version and stamps
+    `v2_parser_version = 2` on every layout row.
+  - `PinnedParser` runs `parse_nbp_station_tmax(..., parser_version=2)` from a detached worktree.
+    `verify_pinned_worktree` requires that worktree's HEAD to be `PINNED_PARSER_COMMIT`, which is
+    `2e17ce0eba891b028a968ac45895d3c203ea7dda` (2026-09-21T12:58:27-04:00, "Finalize 83b parser verification and
+    accepted parity receipt").
+  - Pinned files, at origin/master as of this note, last changed in `5ca7ca09a` (2026-10-25T02:12:34-04:00):
+    `mg2_inputs.py` sha256 `546fe5d72a3a48115375ff8196846eaf15cc44c68ab20cfb8fa9b5a1314f4d39`, and
+    `guidance_extract_parser.py` sha256 `afcbb5d262aa57eea53217aaa064d449a4b99424b0aabbdd48a65ea0aa2b0e06`.
+  - **Rule for the read:** a date's parser check PASSES if its MG-2 as-of layout was built by that pinned builder with
+    the pinned parser. The layout manifest's `parser.parser_version` must be 2 and its worktree must be at
+    `2e17ce0eb`. The rows' `v2_parser_version` must equal 2, which `outcome_blind_checks` then confirms. A date
+    whose layout was not built that way FAILS and is non-countable. Branch (ii), production capture time, does not
+    apply, because the arm does not use production's parsed NBM fields.
+- **Inputs gap, for step 2 (names only):** the read-window re-copy (`ws3-inputs-0929-1014`) holds per-event
+  `snapshots.jsonl`, `replay_inputs.jsonl`, `features_long.csv` and `settlement.json`.
+  - It holds no `snapshots_long.csv`, no `forecast_payloads.jsonl` and no `forecast_payload_cas` bulletins. Those are
+    the builder's `BUILD_READS` and F5 inputs.
+  - `replay_inputs.jsonl` carries a key `sources.nbm_probabilistic_tmax.data.raw_station_block`, but that is not the
+    national bulletin that the builder parses.
+  - Under prereg step 2 ("If the as-of emitter needs any other file, this step names it and master tops it up before
+    the read"), these files are named for top-up. Without them, the layout cannot be built by the pinned builder, and
+    branch (i) would fail every date.
+- **Coverage, PIT and replay** apply exactly as in rule.md.
+- **Dev projection (step 4) disclosure:** the dev outcome-blind pass is "vectors for both arms" (SPEC §4). It does not
+  re-apply the coverage, PIT and replay checks, so its countable population may run slightly above the real read's.
