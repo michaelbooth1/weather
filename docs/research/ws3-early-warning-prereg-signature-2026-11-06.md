@@ -233,3 +233,19 @@ closed three points on the reviewed draft `acc32925…`).
 - The non-as-of `post_records` and `compose` still run, in `emit()`'s order, and are not written. Neither writes
   to disk.
 - Its line-by-line diff against `emit()` lines 1002-1090 went to master with the audit.
+
+### Clarification 5: Austin 2026-10-03 inputs, ruling times and the final adapter sha (master, 11:43 ET 2026-11-06; append-only)
+
+- **Austin 2026-10-03 (ruling accepted):** the exclusion (DL:117) is for that market-day's outcome: its settlement
+  band was seen on 10-05. Its inputs are not contaminated. The bound `build`, `concat`, `captured_nowcast` and
+  adapter may process its model-input rows unchanged, since the allowlist strips labels, settlement and prices.
+  Its observations may also feed Austin 10-04 as `prev_day`, because they were known as-of inputs at that
+  decision time. Austin 10-03 is never written to `vectors.csv` and is never listed for books, settlements or the
+  outcome-blind pass. It is also excluded with the module's `--exclude-slug`.
+- **Time correction:** the times in the Clarification 3 and 4 headers were hand-stamped and are wrong. By the
+  host log, master sent the receive ruling (a) at about 11:27 ET and the D0 ruling (A) at about 11:31 ET. The
+  headers above are not edited. The adapter keeps its "11:5x" comment as committed, with no amend.
+- **Adapter sha update:** the adapter named in Clarification 4 (`dc08b0e9…`) was superseded before any run by
+  `d3cd2dbffdc191713c6bcd58f822906aeb2d92008b9356b19e71fb3d50db0018`. That version adds `outcome_blind_by_date`
+  to the summary, using the bound `outcome_blind_checks` with no new reads. Master approved it at 11:43 ET,
+  together with the step 5 SPEC `631e64c2…` and the build script `15a06169…`.
