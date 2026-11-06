@@ -59,3 +59,14 @@ python -m weather.backtesting.t2_taker_rule --vectors C:\t\ws3\inputs\vectors.cs
 - The books and settlement lists are built for events 09-30..10-14 only. 09-29 files are emitter inputs only.
 - If unmatched_vector_bands_total, winner_unmatched_total or label_collision_events is > 0 on the dev projection, stop and report to master.
 - The module lands on master later, through a night sequencer after a full suite. WS-3 and T2 run this exact sha, and it is never edited.
+
+### Amendment 1 to the pin note (master 10:45 ET, 2026-11-06; append-only)
+
+The exact WS-3 command line above gains one argument, and this line supersedes it:
+
+```
+python -m weather.backtesting.t2_taker_rule --vectors C:\t\ws3\inputs\vectors.csv --books-list C:\t\ws3\inputs\books.txt --settlements-list C:\t\ws3\inputs\settlements.txt --outcome-blind-pass C:\t\ws3\inputs\outcome_blind_pass.txt --window-start 2026-09-30 --window-end 2026-10-14 --arms mg2 served --exclude-slug highest-temperature-in-austin-on-october-3-2026 --latency-s 30 --projection-receipt C:\t\ws3\projection\receipt.json --out C:\t\ws3\run
+```
+
+- The pinned module already accepts `--projection-receipt`. It records the receipt's path and sha256, and copies the receipt's top-level `projected` object into `summary.json`. This is how prereg §6's "realised vs projected population and SD" is reported. The step 4 projection receipt therefore carries a top-level `projected` object.
+- The dev projection uses its own `--out` folder (never `C:\t\ws3\run`) and its own window ≤ 09-29.
