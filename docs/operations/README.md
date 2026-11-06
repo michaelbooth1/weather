@@ -14,6 +14,9 @@ If you add a file, link it here in the same change.
 
 ## Start here
 
+For LFC venue settlement, scoring and owner-run incentives, read
+[LFC recording evidence](lfc-recording.md).
+
 | Document | Read when |
 | --- | --- |
 | **[STATE_OF_PLAY.md](STATE_OF_PLAY.md)** | **Always, first.** The only file that says what is happening now, what is decided, and what is already answered. Rewritten, not appended. |

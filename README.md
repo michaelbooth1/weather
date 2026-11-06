@@ -237,6 +237,12 @@ placed: `python -m weather.market.maker_shadow run --config <json> [--offline-fi
 `python -m weather.market.maker_shadow score --day <closed UTC day> --maker-evidence-root <dir>`
 writes diagnostics against sealed 88a capture and refuses embargoed panel days. No task is registered.
 
+The [LFC recording guide](docs/operations/lfc-recording.md) owns venue settlement
+and owner-run reward/rebate evidence. Use
+`python -m weather.market.lfc_settlement_record --condition <condition-id>` for
+venue settlement and `python -m weather.market.lfc_cli rewards-record --date YYYY-MM-DD`
+for the D+1/D+2 incentive reads.
+
 The [manual order journal](docs/operations/manual-order-journal.md) records the owner's manual
 resting orders read-only with
 `python -m weather.market.order_journal record --out data\manual_order_journal` and reports

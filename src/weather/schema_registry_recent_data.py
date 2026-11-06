@@ -1398,6 +1398,10 @@ RECENT_REGISTERED_SCHEMAS = (
         "Owner-run D+1/D+2 accrual and public v2 activity evidence; paid linkage is never assumed.",
     ),
     SchemaSpec(
+        "lfc_rebate_record", "lfc_rebate_record_v0.1", "weather.market.lfc_rewards_record", "active",
+        "Create-only maker rebate activity evidence; nonzero amounts flagged, never netted against losses.",
+    ),
+    SchemaSpec(
         "lfc_session_driver_pack", "lfc_session_driver_pack_v0.1", "weather.market.lfc_session_driver", "active",
         "Owner session-driver evidence pack: steps, stop reason, runbook section 8 fields, codes and hashes only.",
     ),

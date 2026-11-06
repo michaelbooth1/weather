@@ -84,3 +84,5 @@ def test_tampered_or_legacy_settlement_refused(tmp_path):
     target.write_text(json.dumps({CONDITION: '111'}))
     with pytest.raises(ValueError, match='settlement_record_scope'):
         load_settlements(tmp_path / 'settlement', [CONDITION])
+    with pytest.raises(ValueError, match='settlement_directory_required'):
+        load_settlements(target, [CONDITION])

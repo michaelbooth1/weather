@@ -110,7 +110,116 @@ def test_failed_reads_retained_as_failure_not_zero(tmp_path, monkeypatch):
     assert 'rows' not in row['distributions'] and row['payment_verified'] is False
 
 
-def test_cli_existing_file_refuses_before_credential_loader(tmp_path):
+def test_cli_parser_selects_readonly_recorder(tmp_path):
     from weather.market.lfc_cli import parser
     args = parser().parse_args(['rewards-record', '--date', '2026-09-20', '--root', str(tmp_path)])
     assert args.signature_type == 2
+
+
+def test_rebates_flagged_never_netted_and_both_passes_immutable(tmp_path):
+    calls = []
+    def get(path, params):
+        calls.append((path, params))
+        return page([activity('MAKER_REBATE', 2), activity('MAKER_REBATE', 0)])
+    row = recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        clock=lambda: START + timedelta(days=1, hours=2), get=get)
+    assert row['activity']['rows'][0]['usdc_size'] == 2
+    assert row['flags'] == [{'row': 0, 'flag': 'nonzero_maker_rebate', 'amount': '2', 'pilot_condition': True}]
+    assert row['netted_against_loss'] is False and row['earned_period_verified'] is False
+    assert calls[0][1]['type'] == 'MAKER_REBATE' and calls[0][1]['start'] == int(START.timestamp())
+    target = tmp_path / 'rewards' / '2026-09-20-rebate.json'
+    before = target.read_bytes()
+    with pytest.raises(FileExistsError):
+        recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+            clock=lambda: START + timedelta(days=1, hours=2), get=lambda *a: pytest.fail('overwrite GET'))
+    assert target.read_bytes() == before
+    recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        clock=lambda: START + timedelta(days=2, hours=2), get=get)
+    assert (tmp_path / 'rewards' / '2026-09-20-d2-rebate.json').exists()
+
+
+@pytest.mark.parametrize('amount', ['NaN', 'Infinity', None, True])
+def test_unreadable_rebate_amount_flagged(tmp_path, amount):
+    row = recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        clock=lambda: START + timedelta(days=1, hours=2), get=lambda *a: page([activity('MAKER_REBATE', amount)]))
+    assert row['flags'] == [{'row': 0, 'flag': 'rebate_amount_unreadable'}]
+    assert row['netted_against_loss'] is False
+
+
+def test_zero_rebate_is_observed_not_reward_credit(tmp_path):
+    row = recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        clock=lambda: START + timedelta(days=1, hours=2), get=lambda *a: page())
+    assert row['flags'] == [] and row['activity']['rows'] == []
+    assert row['activity']['pagination_complete'] is True and row['netted_against_loss'] is False
+
+
+def test_partial_activity_failure_preserves_raw_prefix_and_flags_rebate(tmp_path):
+    def get(path, params):
+        if 'cursor' in params:
+            raise TimeoutError()
+        return page([activity('MAKER_REBATE', 2)], 'next')
+    row = recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        clock=lambda: START + timedelta(days=1, hours=2), get=get)
+    assert row['activity']['pagination_complete'] is False
+    assert len(row['activity']['pages']) == 1 and len(row['activity']['partial_rows']) == 1
+    assert {f['flag'] for f in row['flags']} == {'rebate_read_incomplete', 'nonzero_maker_rebate'}
+
+
+def test_interrupted_pass_finishes_rebate_without_loading_credentials(tmp_path, monkeypatch):
+    from weather.market.lfc_cli import parser
+    from weather.market.lfc_ledger import Ledger
+    from weather.market import wallet_reader_security
+    now = START + timedelta(days=1, hours=2)
+    class FrozenDatetime:
+        @staticmethod
+        def now(zone):
+            return now
+    monkeypatch.setattr(recorder, 'datetime', FrozenDatetime)
+    monkeypatch.setattr(wallet_reader_security, 'load_owner_credentials',
+                        lambda: pytest.fail('credentials must not load on public-only resume'))
+    ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: START, maker_address=MAKER)
+    ledger.record('session_start', session_id='one', counted=True, condition_id=CONDITION)
+    ledger.intent(session_id='one', intent_key='one:0', token_id='111', condition_id=CONDITION,
+                  price='.4', size='20', fee_rate_bps='0')
+    rewards = tmp_path / 'rewards'
+    rewards.mkdir()
+    (rewards / '2026-09-20-d1.json').write_text(json.dumps(dict(schema_version=recorder.REWARDS_SCHEMA,
+        maker_address=MAKER, date='2026-09-20', conditions=[CONDITION], **{'pass': 1},
+        distributions={'pagination_complete': True}, accruals=[{'source': {'complete': True}}])))
+    original = recorder.record_rebates
+    monkeypatch.setattr(recorder, 'record_rebates', lambda *a, **kwargs: original(*a, **kwargs, get=lambda *a: page()))
+    args = parser().parse_args(['rewards-record', '--date', '2026-09-20', '--root', str(tmp_path)])
+    assert recorder.run_rewards_record(args) == 0
+    assert (rewards / '2026-09-20-rebate.json').exists()
+    with pytest.raises(FileExistsError):
+        recorder.run_rewards_record(args)
+
+
+def test_accrual_transport_get_only_and_retains_exact_raw_response(tmp_path):
+    import hashlib
+    from io import BytesIO
+    from weather.market.wallet_reader_security import CLOB
+    raw = b'{"data": [], "next_cursor": "LTE="}\n'
+    requests = []
+    class Reply(BytesIO):
+        status = 200
+        def geturl(self):
+            return requests[-1].full_url
+    class ClosedOpener:
+        def open(self, request, timeout):
+            assert request.get_method() == 'GET' and request.data is None
+            requests.append(request)
+            return Reply(raw)
+    fields = dict(WALLET_ADDRESS=MAKER, FUNDER_ADDRESS=MAKER, API_KEY='synthetic-key',
+                  API_SECRET='c3ludGhldGlj', API_PASSPHRASE='synthetic-passphrase')
+    journal = ReadJournal(SecretGuard(), lambda: START)
+    transport = recorder.AccrualTransport(fields, SecretGuard(), journal, opener=ClosedOpener(), journal_root=tmp_path)
+    client = recorder.AccrualClient(transport, 2)
+    pages = list(client.list_user_earnings_for_day(date='2026-09-20'))
+    assert len(pages) == 1 and pages[0].items == [] and pages[0].has_more is False
+    retained = [r for r in journal.records if r['event'] == 'sdk_response'][0]
+    assert retained['raw_response'].encode() == raw and retained['sha256'] == hashlib.sha256(raw).hexdigest()
+    for method, path in [('POST', '/rewards/user'), ('GET', '/balance-allowance/update'), ('GET', '/data/orders')]:
+        with pytest.raises(ValueError, match='accrual_endpoint_refused'):
+            transport.request(method, CLOB, path)
+    assert len(requests) == 1

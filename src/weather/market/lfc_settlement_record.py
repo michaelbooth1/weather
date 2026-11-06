@@ -13,9 +13,10 @@ import json
 from pathlib import Path
 import re
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from weather.market.mm_stage2_hold import utc, write_new
+from weather.market.wallet_reader_transport import direct_opener
 
 SETTLEMENT_SCHEMA = 'lfc_venue_settlement_v0.1'
 API = 'https://data-api.polymarket.com'
@@ -33,8 +34,8 @@ def public_get(path, params):
     if path not in {'/v2/resolutions', '/v2/tokens', '/v2/activity'}:
         raise ValueError('recording_endpoint_refused')
     request = Request(API + path + '?' + urlencode(params), method='GET', headers={'Accept': 'application/json'})
-    with urlopen(request, timeout=15) as response:
-        if response.status != 200 or response.geturl().split('?')[0] != API + path:
+    with direct_opener().open(request, timeout=15) as response:
+        if response.status != 200 or response.geturl() != request.full_url:
             raise ValueError('recording_response_refused')
         raw = response.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
@@ -107,10 +108,13 @@ def record_settlement(root, condition, *, clock=None, get=public_get):
 
 def load_settlements(directory, conditions):
     """Only recorder files are admitted; absent/nonterminal evidence stays unknown."""
+    directory = Path(directory)
+    if directory.exists() and not directory.is_dir():
+        raise ValueError('settlement_directory_required')
     result = {}
     for condition in sorted(set(conditions)):
         condition = condition_id(condition)
-        path = Path(directory) / (condition + '.json')
+        path = directory / (condition + '.json')
         if not path.exists():
             continue
         row = json.loads(path.read_bytes())

@@ -48,6 +48,21 @@ payment. Incomplete reads retain failure evidence rather than completed zero.
 The account must match the ledger genesis. Existing outputs refuse before
 credentials load; dates outside D+1/D+2 refuse. No record nets credits against L.
 
+## Rebates
+
+The same owner command records public v2 `MAKER_REBATE` activity from UTC D
+through the observation time. Rows are account-wide candidates; condition
+membership is recorded, never treated as earned-period proof. Every nonzero
+`usdc_size` is flagged; unreadable amounts and failed reads are flagged too.
+No rebate is netted against L, realised loss or reward accruals.
+
+The D+1 file is `rewards/<D>-rebate.json`; D+2 uses `<D>-d2-rebate.json`
+so both observations survive without overwriting. If an interrupted command
+left one of the reward/rebate files, rerun it to record only the missing file;
+existing evidence must match the ledger account, conditions, date and pass.
+Both files present refuses before credentials load. Incomplete reads are saved
+and the command returns 2; they cannot be silently replaced with a later read.
+
 ## Scoring
 
 The attended controller makes one batched scoring read each minute, before
