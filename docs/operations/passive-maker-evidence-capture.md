@@ -335,6 +335,13 @@ loss 2026-11-02, five `reward-*.jsonl` journals, about six hours dark.
 Never truncate, repair or rewrite a journal, and never touch a sealed segment.
 Quarantined files are retained evidence: never delete them.
 
+The same failure mode also reaches the order-book tapes. Each of four 2026-09-03 `order_books_summary.csv` files
+(austin, dallas and houston at line 1432, nyc at line 6712) has one row whose `capture_id` is a NUL-filled run of
+about 205-212 K characters. The row's other 51 columns are intact, and the bytes are as captured (they match the
+2026-11-06 re-copy's batch 1 sha256 values). This is likely an unclean-shutdown preallocation. Python's `csv` module
+refuses such a row (field limit 131072), which stopped the WS-3 dev projection on 2026-11-06. The workstation
+book NUL scan adds the totals.
+
 ## Commands and registration
 
 From an integrated checkout with the pinned dependencies installed:
