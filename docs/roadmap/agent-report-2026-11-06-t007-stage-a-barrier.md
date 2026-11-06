@@ -1,5 +1,8 @@
 # T007: Stage-A rc 2 and settled-day barrier
 
+**Verdict: Stage-B staleness is independent of the Stage-A barrier; the exact
+host blocker still needs its receipt. A monitoring gap is repaired.**
+
 Code-side handback; no production connection, runtime-data read, Scheduler change,
 scoring, promotion or merge. Base: `22b3dd835e72f69d9e9fee5744a5c570c7f9a5eb`
 (freshly fetched `origin/master`). Binding brief: `C:\t\codex\COMMON.md`.
