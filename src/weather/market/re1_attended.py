@@ -315,6 +315,27 @@ class Session:
             self.journal.record('missing_sample', sample=name, exception_type=type(exc).__name__)
             return None
 
+    def sample_scoring(self):
+        """One batched minute read; a missed read is evidence loss, never a session stop."""
+        ids = list(self.active)
+        if not ids:
+            return
+        try:
+            scoring = self.call('scoring', lambda: self.venue.scoring(ids))
+            if (not isinstance(scoring, dict) or set(scoring) != set(ids) or
+                    any(type(value) is not bool for value in scoring.values())):
+                raise ValueError('scoring_shape')
+        except Exception as exc:
+            self.evidence_failed = True
+            self.journal.record('scoring_missed', band=self.condition, order_ids=ids,
+                                observed_at_utc=utc(self.clock.now()).isoformat(), exception_type=type(exc).__name__)
+            return
+        self.scoring_seen |= len(ids) == 2 and all(scoring.values())
+        observed = utc(self.clock.now()).isoformat()
+        for oid in ids:
+            self.journal.record('scoring', band=self.condition, order_id=oid,
+                                scoring=scoring[oid], observed_at_utc=observed)
+
     def opening_check(self):
         # Both legs against one fresh book before the first post: a leg that would cross ends the
         # session with nothing posted, so it does not consume a session (owner 2026-09-23).
@@ -648,6 +669,7 @@ class Session:
                 self.control()
                 if self.clock.monotonic() >= next_minute:
                     next_minute = max(next_minute + 60, self.clock.monotonic() + 1)
+                    self.sample_scoring()
                     try:
                         snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
                     except Exception as exc:
@@ -666,8 +688,6 @@ class Session:
                     self.minute_extra(snapshot)
                     self.control()
                     if self.clock.monotonic() >= next_accrual:
-                        scoring = self.sample('scoring', lambda: self.venue.scoring(list(self.active)))
-                        self.scoring_seen |= scoring is not None and len(scoring) == 2 and all(v is True for v in scoring.values())
                         self.sample('accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
                         next_accrual = self.clock.monotonic() + 1800
                         self.control()

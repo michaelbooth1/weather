@@ -29,3 +29,13 @@ condition scope and the derived winner before admitting evidence.
 ## Update when
 
 Update with recorder commands, evidence formats, provenance validation or cadence.
+
+## Scoring
+
+The attended controller makes one batched scoring read each minute, before
+the public snapshot, for all active order IDs. Each order gets a `scoring` row
+with `band` (the condition ID), `order_id`, a boolean and `observed_at_utc`.
+An exception or incomplete response records `scoring_missed` and marks evidence
+incomplete while the session continues. Accrual stays on its separate
+half-hour cadence. Immediate post-time scoring reads keep their existing
+request/response journal shape.
