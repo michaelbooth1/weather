@@ -2,7 +2,10 @@
 from dataclasses import asdict
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -62,3 +65,18 @@ def test_cli_bounds_input_size_before_reading(tmp_path):
     with pytest.raises(SystemExit) as error:
         t1_cli.main(['simulate', *args])
     assert error.value.code == 2
+
+
+@pytest.mark.spawns
+def test_canonical_module_process_binds_shared_interpreter_to_worktree(tmp_path):
+    from weather.paths import REPO_ROOT
+
+    args, output = inputs(tmp_path)
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join((str(REPO_ROOT), str(REPO_ROOT / 'src')))}
+    child = subprocess.run([sys.executable, '-m', 'weather.backtesting.t1_cli', 'accuracy', *args],
+                           cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=30)
+    assert child.returncode == 0, child.stderr
+    report = json.loads(output.read_bytes())
+    assert report['result']['status'] == 'PASS'
+    assert report['code']['source_sha256']['maker_core.quoting.book'] == hashlib.sha256(
+        (REPO_ROOT / 'src/maker_core/quoting/book.py').read_bytes()).hexdigest()

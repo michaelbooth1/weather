@@ -242,6 +242,14 @@ the separately streamed journal is capped at 2 GiB with 1 MiB per record.
 Large tape streaming/export and resumable cross-session state are separate work.
 Module admission does not authorize a read of trial dates or a live action.
 
+When using another checkout's shared interpreter, set the invoking process's
+`PYTHONPATH` to `<worktree>;<worktree>\src` before starting the wrapper. The root
+selects that checkout's existing bootstrap, and `src` selects its packages.
+`-RepoRoot` chooses the child's working directory; it does not replace an editable
+install. The CLI refuses a maker dependency from another checkout. Keep that
+refusal enabled and verify the source hashes; do not change interpreter installs
+or persistent environment settings to run this task.
+
 ## Values proposed for owner/master review
 
 These are proposals only; they are not runtime defaults or a preregistration.
