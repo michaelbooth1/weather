@@ -16,7 +16,7 @@ handover notes". The deploy is done and verified (below).
 | Item | State | Where | Exact refs |
 | --- | --- | --- | --- |
 | LFC F0 positions-v2 fix | FINAL; pregate PASS 15:44 ET; Codex T004 merges it with F2 | branch `claude/lfc-f0-positions-v2-20261106`, worktree `C:\wt\lfc-f0` | head `f531395522d0b0a37495185b2750164008fe586a`; receipt `C:\Users\Michael\Documents\github\weather\data\pregate\pg-f531395522d0-20261106T143255-53296\receipt.json`, sha256 `b363876e36960e5aec3b330cfd900cd309ad2171bed7c8f48f1d08b93cd6dc99` |
-| Locked F0 execution worktree | created and `git worktree lock`ed; G13 client check (b) waits for the owner's config copy | `C:\Users\Michael\Documents\github\weather-lfc-f0-f5313955` | detached at `f5313955`; non-zero token map 147 tokens, sha256 `9b0f7c6e2a167794e9789e3f86193acc2935b0ba8e7a3774258e4cba683cd58b`, equal to the host reader v2.1 read |
+| Locked F0 execution worktree | created and `git worktree lock`ed; client config copied 16:54 ET (see below); G13 client check (b) PASS 16:55 ET | `C:\Users\Michael\Documents\github\weather-lfc-f0-f5313955` | detached at `f5313955`; non-zero token map 147 tokens, sha256 `9b0f7c6e2a167794e9789e3f86193acc2935b0ba8e7a3774258e4cba683cd58b`, equal to the host reader v2.1 read |
 | Wallet reader v2.1 | DEPLOYED by the owner ~15:58 ET; host read PASS 15:59 | branch `claude/wallet-reader-v2-20261106` (`C:\wt\wallet-reader-v2`); live worktree `C:\Users\Michael\Documents\github\weather-wallet-reader-107cafaf` | `107cafaf9aa32f2130cb3beba12a7bee8a75eeba`; task `WeatherWalletReader` S4U, serve `--bind 192.168.1.106 --port 8765 --signature-type 2`; journal `<worktree>\data\wallet_reader\` |
 | Reader rollback | kept, not running | `...\weather-wallet-reader-06bda67e` (v2, cursor bug), `...\weather-wallet-reader-a1014eda` (v1 Data API, now 410) | re-register from either worktree with the same elevated block |
 | Probe evidence | read-only, done | `C:\t\pilot1109\f0\probe-20261106.json` | dust probe: `filter_amount=0` keeps the 0.1-share floor |
@@ -28,21 +28,50 @@ Low items, not for Monday (master's v2.1 review): surface
 `zero_size_positions_dropped` in `payload["plan"]`; tidy the F5 code tag and the
 doc line "one per further 500 rows".
 
-## Open decisions (owner's, in the WS chat and the master chat)
+## Owner approvals, 2026-11-06 (closed)
 
-1. **Money re-yes for session 1.** It names F0
-   `f531395522d0b0a37495185b2750164008fe586a`, the 10-26 terms (20 shares per
-   leg, one band, Toronto and Denver, $100 L ledger, $25 per day, stop at $50
-   realised; go 11:00 EST, latest legal go 12:50 EST) and the dust deviation
-   (holdings under 0.1 share are invisible to `/v2/positions`, so the closing
-   check cannot see them). Needed in both chats; a relay is not approval.
-2. **G13 config copy.** The owner copies `wallet_reader_client.json` into
-   `C:\Users\Michael\Documents\github\weather-lfc-f0-f5313955\config\local\`.
-   No agent opens it. Then check (b) runs `read_account` summary, positions,
-   trades-since and open-orders, reporting status and shape only.
-3. **Session-1 rewards reads on D+1 and D+2.** The owner reads them, or the WS
-   reads them with the read-only client if the owner says yes in the WS chat
-   (master ruling 9, DL 2026-11-06). Master ruling 11 (2026-11-06 ~16:4x;
+Master ruled ~16:5x ET that the two quotes below together are a valid session-1
+money re-yes and a valid yes for the ruling-11(a) reward reads. Master adds the
+decision-log row.
+
+- **The WS ask, posted ~15:47 ET in the WS chat.** It gave the owner this wording
+  to send, verbatim: "I approve the Monday 11-09 live MM session 1 on F0 head
+  f531395522d0b0a37495185b2750164008fe586a (pregate PASS), on the 10-26 terms:
+  20 shares per leg, one band, TOR+DEN; $100 L ledger, $25/day, stop at $50
+  realised; GO 11:00 EST, latest go 12:50 EST. I accept the dust deviation:
+  holdings under 0.1 share are invisible to /v2/positions, so the closing check
+  cannot see them."
+- **The follow-up ask, posted ~16:37 ET in the WS chat.** It asked for the
+  ruling-11(a) reads on Tue 11-10 and Wed 11-11 ~12:00 ET, and the client config
+  copy into the locked F0 worktree. It closed: "Still waiting on you as well: the
+  money re-yes for Monday, in both chats."
+- **Owner, WS chat, ~16:54 ET, verbatim:** "approval all, why can't you copy it
+  yourself".
+- **Owner, master chat, 16:52 ET, verbatim:** "confirmed".
+
+**G13 copy.** The owner's second clause directed the WS Claude to make the copy.
+At 16:54 ET it copied an existing local `wallet_reader_client.json` byte for byte
+into `C:\Users\Michael\Documents\github\weather-lfc-f0-f5313955\config\local\`.
+Three local copies had identical hashes. The contents were never read or printed,
+and the copy was checked by hash only. The target is git-ignored, and the
+worktree stays clean.
+
+Master reads that clause as letting agents copy local credential-config files
+the same way: by hash, unread, and never into a tracked path.
+
+**Check (b), 16:55 ET, PASS:**
+- `summary`, `positions` and `trades` (since now-24 h) each returned a well-formed
+  object with no client error.
+- `open-orders` returned an empty list.
+
+Master: Monday's prerequisites are complete, apart from the owner's Sun 12:00
+t24 step and the Mon 10:20 console.
+
+## Open items
+
+1. **Session-1 rewards reads on D+1 and D+2.** Approved (above). Originally the
+   owner was to read them, or the WS with the read-only client on the owner's
+   WS-chat yes (master ruling 9, DL 2026-11-06). Master ruling 11 (2026-11-06 ~16:4x;
    master adds the DL row) sets the path:
    - (a) **Primary record, must not slip:** on the owner's yes in the WS chat
      and a confirm in the master chat, the WS runs the deployed v2.1
@@ -53,8 +82,8 @@ doc line "one per further 500 rows".
      WS Claude if its session is open, otherwise a Codex task from master)
      does exactly that and nothing else. How long the venue keeps per-date
      accruals is unknown, which is why these reads are the primary record.
-     The client needs the owner's `config\local\wallet_reader_client.json`
-     (the G13 copy).
+     The client config is in place in the locked F0 worktree (the G13 copy);
+     run the client from there.
    - (b) REWARD distributions and MAKER_REBATE for 11-09 are taken on or after
      11-11 from the F2 R3/R4 recording-only pin (D7), from the append-only
      `/v2/activity` history.
