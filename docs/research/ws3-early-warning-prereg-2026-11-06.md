@@ -22,10 +22,10 @@ for any local target date on or after 2026-09-30 was read to write it. Supersede
 | Markets | B's 10 (B_FORWARD_TEST_DESIGN.md:103-104). Denver and Toronto are excluded. |
 | Dates | Local target dates 2026-09-30..2026-10-14; **Austin 2026-10-03 excluded** (DL:292, C7). At most 149 market-days. No local target date ≥ 10-15 (C5). |
 | Decision instants | Every captured snapshot s with local hour **07-16** carrying a vector for **both** arms; t = `captured_at_utc(s)`. |
-| Books | `order_books_summary.csv(.gz)` of export 2 set D (export2-submanifest §2), top-of-book columns only: `best_ask`, `ask_size_at_best`, `ask_count`, `min_order_size`, `captured_at_utc`, `book_time_utc`. Receipt bound R = `captured_at_utc` + 15 s (COOL_SEASON_PAPER_TEST_PREREG.md:130, origin/master). |
+| Books | `order_books_summary.csv(.gz)` of export 2 set D (export2-submanifest §2), whose sources are the host per-event files re-copied as the 11-06 re-copy's events-0930-1014 set; top-of-book columns only: `best_ask`, `ask_size_at_best`, `ask_count`, `min_order_size`, `captured_at_utc`, `book_time_utc`. Receipt bound R = `captured_at_utc` + 15 s (COOL_SEASON_PAPER_TEST_PREREG.md:130, origin/master). |
 | Decision book | Per band token and side: the latest row with R ≤ t and `captured_at_utc` ≥ t − 120 s (PT-1:144). |
-| Fill book (latency ≥ 30 s) | The earliest row with t + 30 s ≤ `captured_at_utc` ≤ t + 150 s (PT-1:149). |
-| Settlement | **The venue's actual resolution** (charter §2.6): the latest revision's `polymarket_winning_band` in the exported settlements ledger (`settlement_ledger.py`:109). A market-day with no venue winner is non-countable; it is never filled from a WU or METAR label. |
+| Fill book (latency ≥ 30 s) | The earliest row with t + 30 s ≤ `captured_at_utc` ≤ t + 150 s (PT-1:149). **Latency note (master 11-06):** ≥ 30 s stands for this read even if our measured end-to-end p95 is longer (charter §2.2): an assumed latency shorter than the true one favours the arm, which is the conservative direction for a kill-only read. T2, which can PASS, uses max(30 s, measured p95) with a 120 s sensitivity. |
+| Settlement | **The venue's actual resolution** (charter §2.6): `polymarket_winning_band` in the per-event `data\snapshots\<slug>\settlement.json` (written by `settlement_ledger.py`:1100-1115), re-copied for B's 10 markets, events 09-29..10-14. **The settlements ledgers (`data\settlements\*\ledger.jsonl`) are never read and never copied to the workstation:** they hold B's rows ≥ 10-29, and B-1 Clarification 8's outcome-blind basis depends on nobody reading them. A market-day with no venue winner is non-countable; it is never filled from a WU or METAR label. |
 | Capture-gap rule (charter §2.7) | No decision row: no decision for that token at s. No fill row: no fill. Both are counted, never imputed. A market-day is countable only if both arms have vectors and the outcome-blind checks pass, ≥ 90% of its 07-16 snapshots have a decision row for every band token (PT-1:182-184 pattern), and a venue winner exists. The counts are fixed before any price or settlement value is read. |
 
 ## 2. T2's rule (one module)
@@ -80,31 +80,38 @@ sha on its dates. The sha is pinned in this file at signature and never edited.
   - The served arm uses served vectors. The MG-2 arm uses MG-2's dev control vectors, because C4 forbids the as-of path
     on dev rows.
   - Its SD comes from the same per-market-day contrast (rule 19), with κ in variance units (rule 20).
-  - It records the realised population per arm and the projected P(KILL) at a no-information loss, fee plus slippage
-    of about 2.25 c per share (PT-1:243-244).
+  - It records the realised population per arm.
   - Any adapter from 88a files to top of book is a separate projection script, with its own sha recorded; the module
     does not change.
-  - **Low power does not block the read**, by master's ruling (4).
-- **FLAG FOR MASTER:** rule 16's text does not demand a stop at low power. Two other texts do:
-  - rule 6 (:165-166): "no screen launched below power 0.5";
-  - STATE_OF_PLAY.md:60: "kill-only reads need power >= 0.5 at edge size".
-
-  Ruling (4) overrides both for this read. A dated master line recording that override is needed beside the signature.
+- **Edge size for this kill (declared now, master 11-06):** a mean net loss of **5 c per filled share** at this
+  prereg's sizing, expressed per market-day as Y_edge = −0.05 × (projected filled shares per countable market-day).
+- **Power gate (rule 6, MIM :165-166, "no screen launched below power 0.5"; STATE_OF_PLAY.md:60, "kill-only reads
+  need power >= 0.5 at edge size"; both stand, no override):** the dev projection must show **P(KILL) ≥ 0.5 for the
+  MG-2 arm at Y_edge on the wider bound**, with the full population rule (rule 16).
+  - If it does, the read runs (both arms; the served arm's power is reported).
+  - If it does not, **there is no read**: WS-3 closes **UNTESTABLE-by-design**, no 09-30..10-14 book, vector or
+    settlement value is opened, and T2 freezes as in the UNTESTABLE row of §6.
+  - Descriptive, deciding nothing: P(KILL) at the no-information loss, fee plus slippage of about 2.25 c per share
+    (PT-1:243-244).
 
 ## 4. Steps (in order, no step skipped)
 
 1. Master signs; module sha and this file's sha recorded; DEV_WINDOW_LEDGER row written before any computation.
 2. **Pre-read presence check (names and sha256 only; no file contents):**
-   - export 2 set D `order_books_summary` for the 149 market-days;
-   - MG-2's 09-29 input (D−1 for 09-30's L6 previous-day max);
-   - the replay inputs for 09-30..10-14 and the settlements ledgers.
-
-   **Set D and MG-2's 09-29 input are confirmed present before the read, or re-copied in the 11-06/07 host copy.**
-   The check also cites the export 2 batch2-rest receipt `753c1e421403a91ce6949e83792e72c846a11341fbf8a32444bdac92775ddb73`.
+   - set D: the re-copy's events-0930-1014 `order_books_summary` files for the 149 market-days, verified against the
+     export 2 batch2-rest SHA256SUMS staged in the re-copy's `singles\export2-receipts\` (batch2-rest receipt
+     `753c1e421403a91ce6949e83792e72c846a11341fbf8a32444bdac92775ddb73`); for a file gzip-tiered since then, the
+     gunzipped bytes are compared;
+   - MG-2's inputs: no 09-29 bundle exists in the host's `data\exports\mg2-inputs` (it holds 09-28 and 10-28..11-04),
+     so the re-copy carries per-event `snapshots.jsonl`, `replay_inputs.jsonl`, `features_long.csv` and
+     `settlement.json` for B's 10 markets, events 09-29..10-14 (09-29 is D−1 for 09-30's L6 previous-day max). If the
+     as-of emitter needs any other file, this step names it and master tops it up before the read;
+   - the per-event `settlement.json` files (never the settlements ledgers).
 3. Claimants (rule 9) cited: row 80's look receipt `C:\archive\ruled-out\row-80-rise-t3r3-replication\outputs\look\receipt.json`,
    sha256 `a91915e52cbbfebf12ab650d4ae07d95082415727c767120f52f757fd4e8feda` (atlas-rebase-rule-2026-10-31.md:66).
    The receipt is re-hashed equal before the read.
-4. Dev projection run and recorded (§3).
+4. Dev projection run and recorded (§3). **Power gate:** if P(KILL) < 0.5 for the MG-2 arm at the declared edge size,
+   stop here: WS-3 closes UNTESTABLE-by-design and steps 5-6 never run.
 5. MG-2 as-of vectors emitted by the bound code; their parquet sha256 is recorded before any join to books or
    settlements.
 6. One run of the module, under `workstation_heavy.ps1` if it is heavy. It writes a create-only receipt with a
@@ -119,6 +126,8 @@ sha on its dates. The sha is pinned in this file at signature and never edited.
 - From the books: mids, `p_market_yes`, last trade, `buy_vwap_*`, depth bands, and the deeper levels in
   `order_books.jsonl`.
 - `execution_tape`, reward files, maker_shadow, and any 88a file other than the dev-projection books ≤ 09-29.
+- The settlements ledgers (`data\settlements\*\ledger.jsonl`): never read and never copied to the workstation (they
+  hold B's rows ≥ 10-29; B-1 Clarification 8's outcome-blind basis depends on nobody reading them).
 - `C:\t\l2\p2`, panel stores, the sealed panel and credentials.
 - No per-hour, per-market or θ cut decides anything or tunes T2. Those cuts are reported as descriptive only.
 
@@ -136,11 +145,10 @@ The workstation records its own result (rule 11).
 | Result | Consequence |
 | --- | --- |
 | **MG-2 KILL** | T2 is **not frozen**. EXHAUSTION_REGISTER §6 row, and a copy (never a move) of this prereg, the module sha, raw outputs, receipts and logs to `C:\archive\ruled-out\ws3-mg2-early-warning-20261106\`, with INDEX rebuilt by `build_index.py` (rule 13; charter §3.7). B continues as bound. |
-| **MG-2 NOT KILLED or UNTESTABLE** | T2 freezes with the **same module sha**. Outputs are kept and reported; nothing is deleted. |
+| **MG-2 NOT KILLED, UNTESTABLE, or UNTESTABLE-by-design (power gate)** | T2 freezes with the **same module sha**. Outputs (or, by design, the projection) are kept and reported; nothing is deleted. |
 | **Served arm (any result)** | Descriptive only; triggers nothing. |
 
 ## Still unresolved
 
-- **Latency vs charter §2.2.** The charter requires decision time to be at least our measured end-to-end latency
-  (p95 or worse). This prereg uses the fixed ≥ 30 s of master's spec. If the measured p95 exceeds 30 s, master names
-  the value before signature.
+- None. Latency is settled by master's 11-06 note in §1 (≥ 30 s for this read; T2 uses max(30 s, measured p95) with a
+  120 s sensitivity).
