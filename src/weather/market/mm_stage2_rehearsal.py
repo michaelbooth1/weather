@@ -8,12 +8,12 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from urllib.parse import urlencode
 import json
 
 from weather.market.mm_geographic_eligibility import PHYSICAL_LOCATION_CONFIRMATION, check_geographic_eligibility
 from weather.market.mm_live_envelope import STAGE2_HOLD_V1 as PROFILE
 from weather.market.mm_live_lifecycle_probe import _validate_bootstrap_binding
+from weather.market.mm_official_adapter import current_positions_request_urls
 from weather.market.mm_stage2_hold import CONFIRMATION, SCHEMA_VERSION, digest, run_hold_session, utc, write_new
 from weather.market.mm_stage2_selection import PublicBooks, validate_selection
 from weather.market.reward_quote import _decimal
@@ -116,8 +116,8 @@ class MemoryAdapter:
     def position_evidence(self, rows):
         return {'status': 'OBSERVED', 'query_scope': 'exact_maker_condition', 'maker_address': MAKER,
             'condition_id': self.condition_id, 'rows': list(rows), 'http_status': 200, 'response_sha256': digest(rows),
-            'request_url': 'https://data-api.polymarket.com/positions?' + urlencode(
-                {'user': MAKER, 'market': self.condition_id, 'sizeThreshold': 0, 'limit': 500, 'offset': 0})}
+            'request_url': current_positions_request_urls(MAKER, self.condition_id)[0],
+            'request_urls': current_positions_request_urls(MAKER, self.condition_id)}
     def refresh_balance_allowance(self): return {'balance': '50000000', 'allowances': {'inert': '100000000'}}
     def refresh_market_rules(self): return deepcopy(self.client.public_input['rules'][self.token_id])
 

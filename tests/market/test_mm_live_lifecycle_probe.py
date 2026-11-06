@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from weather.market import mm_geographic_eligibility as geography
+from weather.market.mm_official_adapter import current_positions_request_urls
 from weather.market.mm_live_lifecycle_probe import (
     BOOTSTRAP_SCHEMA_VERSION,
     CONFIRMATION,
@@ -319,12 +320,8 @@ class FakeAdapter:
             "condition_id": self.condition_id,
             "rows": list(positions or []),
             "response_sha256": "c" * 64,
-            "request_url": (
-                "https://data-api.polymarket.com/positions?"
-                "user=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&market="
-                f"{CONDITION_ID}"
-                "&sizeThreshold=0&limit=500&offset=0"
-            ),
+            "request_url": current_positions_request_urls(self.maker_address, CONDITION_ID)[0],
+            "request_urls": current_positions_request_urls(self.maker_address, CONDITION_ID),
             "http_status": 200,
         }
 

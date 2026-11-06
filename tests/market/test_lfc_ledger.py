@@ -318,6 +318,7 @@ def _v2_opener(pages_by_status, seen):
         assert 'offset' not in query and 'sizeThreshold' not in query
         assert query['include_archived'] == 'true' and query['filter_type'] == 'TOKENS'
         assert query['filter_amount'] == '0' and query['user'] == MAKER
+        assert query['sort_by'] == 'TOKENS' and query['sort_direction'] == 'DESC'
         if 'cursor' in query:
             status, index = query['cursor'].split(':')
             index = int(index)
@@ -337,10 +338,31 @@ def test_positions_reader_walks_v2_cursors_without_credentials():
     rows = ledger_module.fetch_account_positions(MAKER, opener=_v2_opener(pages, seen), page_size=2,
                                                  status_counts=counts)
     assert all(url.startswith('https://data-api.polymarket.com/v2/positions?') for url in seen)
-    assert len(seen) == 3 and 'cursor=OPEN%3A1' in seen[1] and 'status=REDEEMABLE_LOST' in seen[2]
+    # OPEN takes two pages, so it is walked twice and must agree; REDEEMABLE_LOST fits on one page
+    assert len(seen) == 5 and 'cursor=OPEN%3A1' in seen[1] and 'status=OPEN' in seen[2]
+    assert 'status=REDEEMABLE_LOST' in seen[4] and 'limit=2' in seen[0]
     assert counts == {'OPEN': 3, 'REDEEMABLE_LOST': 2}
     assert normalize_positions(rows) == {'1': '1', '2': '1.5', '7': '3'}
     assert position_conditions(rows) == ['0xc1', '0xc7']
+
+
+def test_positions_reader_default_page_is_the_spec_maximum():
+    seen = []
+    ledger_module.fetch_account_positions(MAKER, opener=_v2_opener({'OPEN': [[]], 'REDEEMABLE_LOST': [[]]}, seen))
+    assert len(seen) == 2 and all('limit=1000' in url for url in seen)
+
+
+def test_positions_reader_refuses_multi_page_walks_that_differ():
+    calls = []
+    pages = {'OPEN': [[_v2_row('1', 1)], [_v2_row('2', 1)]], 'REDEEMABLE_LOST': [[]]}
+    inner = _v2_opener(pages, calls)
+
+    def opener(request, timeout):
+        if len(calls) == 2:          # the second walk sees a different first page
+            pages['OPEN'][0] = [_v2_row('3', 1)]
+        return inner(request, timeout)
+    with pytest.raises(RuntimeError, match='positions_walks_differ'):
+        ledger_module.fetch_account_positions(MAKER, opener=opener, page_size=1)
 
 
 def test_positions_reader_refuses_conflicting_sizes():
@@ -372,16 +394,38 @@ def test_positions_reader_refuses_unreadable_rows(row):
     _Response({'data': [], 'pagination': {'next_cursor': 7}}),
     _Response({'pagination': {'next_cursor': None}}),
     _Response(b'not json'),
+    _Response(b'{"data": [], "pagination": {"has_more": NaN, "next_cursor": null}}'),
+    _Response({'data': [], 'pagination': {'has_more': True, 'next_cursor': None}}),   # has_more with no cursor
+    _Response({'data': [], 'pagination': {'has_more': True, 'next_cursor': ''}}),
+    _Response({'data': [], 'pagination': {'has_more': False, 'next_cursor': 'x'}}),
+    _Response({'data': [], 'pagination': {'next_cursor': None}}),                     # has_more missing
 ])
 def test_positions_reader_fails_closed_on_any_unreadable_page(response):
     with pytest.raises(RuntimeError, match='positions_unreadable'):
         ledger_module.fetch_account_positions(MAKER, opener=lambda request, timeout: response)
 
 
+def test_positions_reader_maps_http_errors_to_unreadable():
+    from urllib.error import HTTPError, URLError
+
+    def gone(request, timeout):
+        raise HTTPError(request.full_url, 410, 'Gone', {}, None)
+    for opener in (gone, lambda request, timeout: (_ for _ in ()).throw(URLError('down'))):
+        with pytest.raises(RuntimeError, match='positions_unreadable'):
+            ledger_module.fetch_account_positions(MAKER, opener=opener)
+
+
+def test_positions_reader_refuses_a_json_nan_size():
+    body = ('{"data": [{"proxy_wallet": "%s", "token_id": "1", "condition_id": "0xc1", "current_size": NaN}],'
+            ' "pagination": {"has_more": false, "next_cursor": null}}' % MAKER).encode()
+    with pytest.raises(RuntimeError, match='positions_unreadable'):
+        ledger_module.fetch_account_positions(MAKER, opener=lambda request, timeout: _Response(body))
+
+
 def test_positions_reader_page_budget():
     pages = {'OPEN': [[_v2_row(str(i), 1)] for i in range(5)], 'REDEEMABLE_LOST': [[]]}
     with pytest.raises(RuntimeError, match='positions_page_budget'):
-        ledger_module.fetch_account_positions(MAKER, opener=_v2_opener(pages, []), max_pages=3)
+        ledger_module.fetch_account_positions(MAKER, opener=_v2_opener(pages, []), page_size=1, max_pages=3)
 
 
 def test_baseline_records_v2_status_counts():

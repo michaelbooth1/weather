@@ -3,13 +3,13 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
-from urllib.parse import urlencode
 
 from weather.market.mm_geographic_eligibility import (
     PHYSICAL_LOCATION_CONFIRMATION, check_geographic_eligibility,
 )
 from weather.market.mm_live_envelope import STAGE2_HOLD_V1, GRANT_PREFIX, GRANT_KEY
 from weather.market.mm_official_adapter import OfficialPolymarketGlobalAdapter
+from weather.market.mm_official_adapter import current_positions_request_urls
 
 
 MAKER = "0x" + "a" * 40
@@ -180,11 +180,10 @@ class Venue:
 
     def positions(self):
         rows = []
-        url = "https://data-api.polymarket.com/positions?" + urlencode(
-            {"user": MAKER, "market": CONDITION, "sizeThreshold": 0, "limit": 500, "offset": 0})
+        urls = current_positions_request_urls(MAKER, CONDITION)
         return {"status": "OBSERVED", "query_scope": "exact_maker_condition", "maker_address": MAKER,
                 "condition_id": CONDITION, "http_status": 200, "response_sha256": "a" * 64,
-                "request_url": url, "rows": rows}
+                "request_url": urls[0], "request_urls": urls, "rows": rows}
 
 
 def adapters_and_gates(root, clock, venue):

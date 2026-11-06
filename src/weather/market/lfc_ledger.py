@@ -31,6 +31,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -51,7 +52,10 @@ SNAPSHOT_FILE = 'l_ledger.json'
 # separately. The 0 token floor replaces v1 sizeThreshold=0 (the v2 default drops holdings under 0.1 share).
 POSITIONS_URL = 'https://data-api.polymarket.com/v2/positions'
 POSITIONS_STATUSES = ('OPEN', 'REDEEMABLE_LOST')
-POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filter_amount': '0'}
+# sort_by=TOKENS: the keyset cursor must not page on a key that moves with prices (the default CURRENT_VALUE does),
+# or a row could cross the cursor between pages and be skipped (F0 review finding 1).
+POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filter_amount': '0', 'sort_by': 'TOKENS',
+                     'sort_direction': 'DESC'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
            'halt', 'mismatch'}
 
@@ -416,8 +420,11 @@ def ledger_path(root):
 
 # ----- wallet baselines -----------------------------------------------------------------------------------------
 def _positions_page(query, *, opener, timeout):
-    response = (opener or urlopen)(Request(POSITIONS_URL + '?' + urlencode(query), headers={
-        'Accept': 'application/json', 'User-Agent': 'weather-lfc-baseline/2'}), timeout=timeout)
+    try:
+        response = (opener or urlopen)(Request(POSITIONS_URL + '?' + urlencode(query), headers={
+            'Accept': 'application/json', 'User-Agent': 'weather-lfc-baseline/2'}), timeout=timeout)
+    except URLError:  # HTTPError (4xx/5xx, e.g. the v1 410) included
+        raise RuntimeError('positions_unreadable') from None
     try:
         status = getattr(response, 'status', 200)
         raw = response.read(5_000_001)
@@ -432,8 +439,9 @@ def _positions_page(query, *, opener, timeout):
     if (not isinstance(payload, dict) or not isinstance(payload.get('data'), list)
             or not isinstance(payload.get('pagination'), dict)):
         raise RuntimeError('positions_unreadable')
-    cursor = payload['pagination'].get('next_cursor')
-    if cursor is not None and not isinstance(cursor, str):
+    cursor, more = payload['pagination'].get('next_cursor'), payload['pagination'].get('has_more')
+    # has_more is exact in v2; it must agree with the cursor, or a page could be lost silently (review finding 2).
+    if (cursor is not None and not isinstance(cursor, str)) or not isinstance(more, bool) or more != bool(cursor):
         raise RuntimeError('positions_unreadable')
     return payload['data'], cursor or None
 
@@ -457,36 +465,50 @@ def _position_row(row, maker_address, status):
             'requested_status': status}
 
 
-def fetch_account_positions(maker_address, *, opener=None, timeout=5, page_size=100, max_pages=20,
+def fetch_account_positions(maker_address, *, opener=None, timeout=5, page_size=1000, max_pages=20,
                             status_counts=None):
     """Account-wide public current positions from Data API v2 (no credential). Raises on any incomplete read.
 
-    Walks every status in POSITIONS_STATUSES by cursor until next_cursor is null, de-duplicates on token_id and
-    refuses (positions_conflict) when one token carries two different sizes. ``status_counts``, when a dict, is
-    filled with the row count per requested status for the baseline evidence.
+    Walks every status in POSITIONS_STATUSES by cursor (sorted by TOKENS) until next_cursor is null, de-duplicates
+    on token_id and refuses (positions_conflict) when one token carries two different sizes. A status that needs more
+    than one page is walked twice and must agree (positions_walks_differ). ``status_counts``, when a dict, is filled
+    with the row count per requested status for the baseline evidence.
     """
     merged, counts = {}, {}
     for status in POSITIONS_STATUSES:
-        counts[status], cursor = 0, None
-        for _ in range(max_pages):
-            query = {'user': maker_address, **POSITIONS_FILTERS}
-            query.update({'cursor': cursor} if cursor else {'status': status, 'limit': page_size})
-            page, cursor = _positions_page(query, opener=opener, timeout=timeout)
-            for raw in page:
-                row = _position_row(raw, maker_address, status)
-                counts[status] += 1
-                seen = merged.get(row['asset'])
-                if seen is None:
-                    merged[row['asset']] = row
-                elif Decimal(seen['size']) != Decimal(row['size']):
-                    raise RuntimeError('positions_conflict')
-            if cursor is None:
+        for walk in (1, 2):
+            pages, rows = _walk_status(maker_address, status, opener=opener, timeout=timeout,
+                                       page_size=page_size, max_pages=max_pages)
+            if pages == 1:
                 break
-        else:
-            raise RuntimeError('positions_page_budget')
+            if walk == 1:
+                first = rows
+            elif {r['asset']: Decimal(r['size']) for r in rows} != {r['asset']: Decimal(r['size']) for r in first}:
+                raise RuntimeError('positions_walks_differ')  # multi-page walks must agree (review finding 1)
+        counts[status] = len(rows)
+        for row in rows:
+            seen = merged.get(row['asset'])
+            if seen is None:
+                merged[row['asset']] = row
+            elif Decimal(seen['size']) != Decimal(row['size']):
+                raise RuntimeError('positions_conflict')
     if status_counts is not None:
         status_counts.update(counts)
     return [merged[token] for token in sorted(merged)]
+
+
+def _walk_status(maker_address, status, *, opener, timeout, page_size, max_pages):
+    rows, cursor = [], None
+    for page_number in range(1, max_pages + 1):
+        query = {'user': maker_address, **POSITIONS_FILTERS}
+        query.update({'cursor': cursor} if cursor else {'status': status, 'limit': page_size})
+        page, cursor = _positions_page(query, opener=opener, timeout=timeout)
+        rows.extend(_position_row(raw, maker_address, status) for raw in page)
+        if cursor is None:
+            if len({r['asset'] for r in rows}) != len(rows):
+                raise RuntimeError('positions_conflict')  # one status listing a token twice
+            return page_number, rows
+    raise RuntimeError('positions_page_budget')
 
 
 def normalize_positions(rows):

@@ -29,7 +29,32 @@ OFFICIAL_CLOB_DISTRIBUTION = "polymarket-client"
 OFFICIAL_CLOB_VERSION = "0.6.0"
 MAX_STAGE1_ORDER_NOTIONAL = Decimal(STAGE1_V1.per_order_pusd)
 CURRENT_REBATES_URL = "https://clob.polymarket.com/rebates/current"
-CURRENT_POSITIONS_URL = "https://data-api.polymarket.com/positions"
+# Data API v1 was retired by the venue on 2026-11-02 (HTTP 410). The v2 exact maker/condition read walks OPEN (the
+# superset, incl. settled-but-unredeemed winners) and REDEEMABLE_LOST, each in one page (F0, master ruling 2026-11-06).
+CURRENT_POSITIONS_URL = "https://data-api.polymarket.com/v2/positions"
+CURRENT_POSITIONS_STATUSES = ("OPEN", "REDEEMABLE_LOST")
+CURRENT_POSITIONS_PAGE = 1000
+
+
+def current_positions_request_urls(maker_address, condition_id):
+    """The exact v2 request URLs fetch_current_positions sends (one per status), for evidence and fixtures."""
+    maker, condition = str(maker_address).strip(), str(condition_id).strip().lower()
+    return [f"{CURRENT_POSITIONS_URL}?{urlencode(_current_positions_query(maker, condition, status))}"
+            for status in CURRENT_POSITIONS_STATUSES]
+
+
+def _current_positions_query(maker, condition, status):
+    return {
+        "user": maker,
+        "condition": condition,
+        "status": status,
+        "include_archived": "true",
+        "filter_type": "TOKENS",
+        "filter_amount": "0",
+        "sort_by": "TOKENS",
+        "sort_direction": "DESC",
+        "limit": CURRENT_POSITIONS_PAGE,
+    }
 PUSD_COLLATERAL_PROXY_ADDRESS = "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb"
 EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 EVM_SIGNATURE_RE = re.compile(r"^0x[0-9a-fA-F]{130}$")
@@ -93,21 +118,21 @@ def exact_current_positions_evidence(
         query = parse_qs(parsed.query, keep_blank_values=True)
     except (TypeError, ValueError):
         return False
-    expected_query = {
-        "user": [maker],
-        "market": [condition],
-        "sizeThreshold": ["0"],
-        "limit": ["500"],
-        "offset": ["0"],
-    }
-    observed_query = {
-        key: [str(value).lower() for value in values]
-        for key, values in query.items()
-    }
-    expected_query = {
-        key: [str(value).lower() for value in values]
-        for key, values in expected_query.items()
-    }
+
+    def normalized(items):
+        return {key: [str(value).lower() for value in values] for key, values in items.items()}
+
+    expected = [
+        normalized({key: [value] for key, value in _current_positions_query(maker, condition, status).items()})
+        for status in CURRENT_POSITIONS_STATUSES
+    ]
+    urls = evidence.get("request_urls")
+    try:
+        observed = [urlsplit(str(url)) for url in urls] if isinstance(urls, list) else []
+        observed_queries = [normalized(parse_qs(item.query, keep_blank_values=True)) for item in observed]
+    except (TypeError, ValueError):
+        return False
+    observed_query = normalized(query)
     return all((
         EVM_ADDRESS_RE.fullmatch(maker) is not None,
         CONDITION_ID_RE.fullmatch(condition) is not None,
@@ -121,9 +146,14 @@ def exact_current_positions_evidence(
         rows is None or evidence.get("rows") == rows,
         parsed.scheme.lower() == "https",
         parsed.netloc.lower() == "data-api.polymarket.com",
-        parsed.path == "/positions",
+        parsed.path == "/v2/positions",
         not parsed.fragment,
-        observed_query == expected_query,
+        observed_query == expected[0],
+        len(observed) == len(expected),
+        str(urls[0] if isinstance(urls, list) and urls else "") == str(evidence.get("request_url") or ""),
+        all(item.scheme.lower() == "https" and item.netloc.lower() == "data-api.polymarket.com"
+            and item.path == "/v2/positions" and not item.fragment for item in observed),
+        observed_queries == expected,
     ))
 
 
@@ -432,76 +462,93 @@ def fetch_current_positions(
         raise ValueError("maker_address must be a 20-byte EVM address")
     if not CONDITION_ID_RE.fullmatch(condition_text):
         raise ValueError("condition_id must be a 32-byte condition identifier")
-    query = urlencode({
-        "user": maker_text,
-        "market": condition_text,
-        "sizeThreshold": 0,
-        "limit": 500,
-        "offset": 0,
-    })
-    request = Request(
-        f"{CURRENT_POSITIONS_URL}?{query}",
-        headers={"Accept": "application/json", "User-Agent": "weather-mm-live-probe/1"},
-    )
-    response = (opener or urlopen)(request, timeout=float(timeout_seconds))
-    try:
-        status = getattr(response, "status", None)
-        if status is None and hasattr(response, "getcode"):
-            status = response.getcode()
-        status = 200 if status is None else int(status)
-        raw = response.read()
-    finally:
-        close = getattr(response, "close", None)
-        if close is not None:
-            close()
-    if status != 200:
-        raise RuntimeError(f"current-position endpoint returned HTTP {status}")
-    if len(raw) > 5_000_000:
-        raise RuntimeError("current-position response exceeded the 5 MB safety limit")
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("current-position endpoint returned invalid JSON") from exc
-    if not isinstance(payload, list):
-        raise RuntimeError("current-position endpoint did not return a list")
-    rows = []
-    for row in payload:
-        if not isinstance(row, dict):
-            raise RuntimeError("current-position response contains a non-object row")
-        observed_maker = str(row.get("proxyWallet") or "").strip().lower()
-        observed_condition = str(row.get("conditionId") or "").strip().lower()
-        asset = str(row.get("asset") or "").strip()
+    urls, raws, rows, sizes = [], [], [], {}
+    for position_status in CURRENT_POSITIONS_STATUSES:
+        query = urlencode(_current_positions_query(maker_text, condition_text, position_status))
+        request = Request(
+            f"{CURRENT_POSITIONS_URL}?{query}",
+            headers={"Accept": "application/json", "User-Agent": "weather-mm-live-probe/2"},
+        )
+        response = (opener or urlopen)(request, timeout=float(timeout_seconds))
         try:
-            size = Decimal(str(row.get("size")))
-        except (InvalidOperation, TypeError, ValueError) as exc:
-            raise RuntimeError("current-position row size is not numeric") from exc
-        if observed_maker != maker_text.lower() or observed_condition != condition_text:
-            raise RuntimeError("current-position row scope does not match the exact query")
-        if not asset or not size.is_finite() or size < 0:
-            raise RuntimeError("current-position row has invalid asset or size")
-        rows.append({
-            "proxyWallet": observed_maker,
-            "conditionId": observed_condition,
-            "asset": asset,
-            "size": str(size),
-            "avgPrice": row.get("avgPrice"),
-            "currentValue": row.get("currentValue"),
-            "cashPnl": row.get("cashPnl"),
-            "realizedPnl": row.get("realizedPnl"),
-            "redeemable": row.get("redeemable"),
-            "mergeable": row.get("mergeable"),
-        })
+            status = getattr(response, "status", None)
+            if status is None and hasattr(response, "getcode"):
+                status = response.getcode()
+            status = 200 if status is None else int(status)
+            raw = response.read()
+        finally:
+            close = getattr(response, "close", None)
+            if close is not None:
+                close()
+        if status != 200:
+            raise RuntimeError(f"current-position endpoint returned HTTP {status}")
+        if len(raw) > 5_000_000:
+            raise RuntimeError("current-position response exceeded the 5 MB safety limit")
+        try:
+            payload = json.loads(raw.decode("utf-8"), parse_float=Decimal)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("current-position endpoint returned invalid JSON") from exc
+        if (not isinstance(payload, dict) or not isinstance(payload.get("data"), list)
+                or not isinstance(payload.get("pagination"), dict)):
+            raise RuntimeError("current-position endpoint did not return the v2 envelope")
+        pagination = payload["pagination"]
+        # One exact condition holds at most a handful of tokens: anything needing a second page is refused.
+        if pagination.get("has_more") is not False or pagination.get("next_cursor") is not None:
+            raise RuntimeError("current-position response is not a single complete page")
+        urls.append(request.full_url)
+        raws.append(raw)
+        for row in payload["data"]:
+            if not isinstance(row, dict):
+                raise RuntimeError("current-position response contains a non-object row")
+            observed_maker = str(row.get("proxy_wallet") or "").strip().lower()
+            observed_condition = str(row.get("condition_id") or "").strip().lower()
+            asset = str(row.get("token_id") or "").strip()
+            value = row.get("current_size")
+            try:
+                if value is None or isinstance(value, bool):
+                    raise TypeError("current_size missing")
+                size = Decimal(str(value))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise RuntimeError("current-position row size is not numeric") from exc
+            if observed_maker != maker_text.lower() or observed_condition != condition_text:
+                raise RuntimeError("current-position row scope does not match the exact query")
+            if not asset or not size.is_finite() or size < 0:
+                raise RuntimeError("current-position row has invalid asset or size")
+            if asset in sizes:
+                if sizes[asset] != size:
+                    raise RuntimeError("current-position statuses disagree on a token size")
+                continue
+            sizes[asset] = size
+            rows.append({
+                "proxyWallet": observed_maker,
+                "conditionId": observed_condition,
+                "asset": asset,
+                "size": str(size),
+                "avgPrice": _plain(row.get("avg_price")),
+                "currentValue": _plain(row.get("current_value")),
+                "cashPnl": _plain(row.get("unrealized_pnl")),
+                "realizedPnl": _plain(row.get("realized_pnl")),
+                "redeemable": row.get("redeemable"),
+                "mergeable": row.get("mergeable"),
+            })
     return {
         "status": "OBSERVED",
         "query_scope": "exact_maker_condition",
         "maker_address": maker_text.lower(),
         "condition_id": condition_text,
-        "request_url": request.full_url,
-        "http_status": status,
-        "response_sha256": hashlib.sha256(raw).hexdigest(),
+        "request_url": urls[0],
+        "request_urls": urls,
+        "http_status": 200,
+        "response_sha256": hashlib.sha256(b"\n".join(raws)).hexdigest(),
+        "response_sha256s": [hashlib.sha256(raw).hexdigest() for raw in raws],
         "row_count": len(rows),
         "rows": rows,
     }
+
+
+def _plain(value):
+    """A Decimal parsed from the v2 body, back to the plain JSON number type the v1 rows carried."""
+    return float(value) if isinstance(value, Decimal) else value
 
 
 def installed_official_clob_version():
@@ -1001,6 +1048,7 @@ class OfficialPolymarketGlobalAdapter:
             "rows": rows,
             "response_sha256": evidence.get("response_sha256") if observed else None,
             "request_url": evidence.get("request_url") if observed else None,
+            "request_urls": list(evidence.get("request_urls") or []) if observed else None,
             "http_status": evidence.get("http_status") if observed else None,
         }
 

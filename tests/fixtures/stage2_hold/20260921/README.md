@@ -27,3 +27,9 @@ Use a new output directory each time. The same command accepts
 `--scenario fill_first` or `--scenario reject_second` for fake transport faults.
 Omitting `--public-capture` fetches a new complete public selection and may
 correctly refuse this formerly eligible condition. Selection rules never change.
+
+**2026-11-06 (F0):** the venue retired Data API v1 on 2026-11-02, so the fake
+exchange's exact position evidence now carries the v2 `/v2/positions` request
+URLs (OPEN and REDEEMABLE_LOST). The three journals, and the `journal_sha256`
+in each prediction and bundle, were regenerated with the command above. Every
+other prediction field is byte-identical to the 2026-09-21 retained output.
