@@ -189,6 +189,10 @@ Environment variables used by operator-facing code:
 
 ## Core Commands
 
+Independent public pilot evidence: `python -m weather.market.pilot_validation_evidence public-capture`
+records all specified bands and both tokens; `account-flow` exports public wallet
+pages. See the [capture limits and operator commands](docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md#independent-public-pilot-evidence).
+
 The owner-started [read-only wallet LAN API](docs/operations/wallet-reader.md)
 provides account summaries, positions, open orders, trades, reward and settlement reads via
 `python -m weather.market.wallet_reader_client`; its runbook owns startup,

@@ -16,6 +16,7 @@ does not make a blocked gate pass and it never authorizes Polymarket US.
 | Section | Read when |
 | --- | --- |
 | Purpose and claim boundary | You need what a lifecycle probe can and cannot claim. |
+| Independent public pilot evidence | You need credential-free all-band capture or public account-flow export. |
 | Current production disposition | Always, first: who owns authority and history, what ran on 2026-09-06, why it is spent, the geography record. |
 | Immutable pilot envelope | Any change touching caps, order type, TTL, wallet or session shape. These ceilings may be lowered, never raised, without a new dated owner decision. |
 | Prerequisites (1–10) | Preparing or reviewing a session. Item 9 is geographic eligibility and the tunnel-down preflight line; item 10 is the Git for Windows layout check. |
@@ -27,6 +28,89 @@ does not make a blocked gate pass and it never authorizes Polymarket US.
 | SDK decision record | Touching the pinned client, heartbeat transport or wallet topology. |
 | Stop conditions | Any live-path change; these may be added to, never weakened. A future `maker_core` runtime enforces pause and bleed limit through the [maker trading guard](maker-trading-guard.md). |
 | Decision after the pilot | Interpreting a pass or a fail. |
+
+## Independent public pilot evidence
+
+`python -m weather.market.pilot_validation_evidence public-capture` is a separate,
+credential-free recorder. It discovers every band of the specified built-in
+city/date events, latches both outcome tokens even if metadata later removes a
+band, records full REST baseline/reconciliation books, raw market websocket
+frames (including duplicate-looking frames), Gamma rules, CLOB reward pages,
+`/clob-markets/<condition>` fee terms, per-token `/fee-rate`, and timed `/time`
+responses. Every raw body has receipt UTC, monotonic nanoseconds, source clock
+fields and a checksum; request/response brackets and parameters are retained.
+No SDK, key loader, auth, order/cancel/signing route, or live/heavy mutex is used.
+
+The hard ceilings are two public REST starts per second without bursts,
+256 MiB RSS and 1,536 MiB compressed output (including a final-receipt reserve).
+Socket handshakes also share the rate gate. HTTP 429/5xx and transport errors
+defer the whole HTTP budget with exponential back-off, honoring Retry-After.
+Websocket changes carry the continuous path; REST reconciles it. The requested
+5/15/60-second cadences are per-job targets: the request limit takes precedence.
+`rest_cadence_lag`, stale source clocks, missing baselines, reconnects and caps
+are explicit gaps, never silently qualified marks. Four events can exceed the
+term/fee request budget; inspect those gaps before using any interval.
+
+Each output directory must be new. Minute/four-MiB raw chunks are sealed as
+`chunk-*.jsonl.gz` with exclusive checksum receipts; sealed files are never
+rewritten. A crash may leave an unsealed `.partial` chunk. Only `health.json`
+is replaced; it contains counts, gaps, timing and resource totals, no prices.
+RSS is sampled at control/read checkpoints; response/frame bounds also limit
+allocations. A cap stops capture and records the uncovered tail. Anonymous
+books cannot prove native execution IDs, sequence numbers, exact competing
+maker census, fee denominators or a complete change history of polled terms.
+
+For the Monday evidence run, WS Claude owns launch coordination and the owner
+holds a separate console, independent of F0 and its cleanup. Launch the waiting
+process before the Sunday freeze; retain its manifest PID, console exit code
+and final health receipt. Keep that console/process and host available through
+the end; no Scheduler, host-setting change, supervisor or in-freeze restart is
+part of this command. Verify health before Monday 07:45 Toronto. Start is Sun
+2026-11-08 18:55 Toronto = 23:55Z; stop is automatic Tue 2026-11-10 00:45Z
+(Mon 19:45 Toronto). F0's frozen `HARD_STOP_UTC` is 23:50Z, so this leaves 55
+minutes, exceeding the 30-minute fill tail plus uncertainty/delay allowance.
+Recheck the stop against the actual reviewed F0 schedule before pinning; extend
+`--end-utc` if that schedule moves later.
+
+```powershell
+Set-Location -LiteralPath 'C:\wt\codex-monday-evidence-20261109'
+$Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
+& $Python -B -m weather.market.pilot_validation_evidence public-capture --market denver --market toronto --event-date 2026-11-10 --event-date 2026-11-11 --all-bands --both-tokens --start-utc 2026-11-08T23:55:00Z --end-utc 2026-11-10T00:45:00Z --raw-market-stream --rest-book-seconds 5 --terms-seconds 15 --metadata-seconds 60 --time-sample-seconds 60 --max-age-seconds 30 --max-mark-delay-seconds 30 --max-rest-rps 2 --max-rss-mib 256 --max-output-mib 1536 --output 'C:\t\pilot1109\public-capture'
+$LASTEXITCODE
+```
+
+The `--end-utc` above is the normal stop command. If the process remains after
+00:45Z (or an operator must stop early), this requests a clean stop at the next
+checkpoint, journals the gap, seals the current chunk and writes final health:
+
+```powershell
+New-Item -ItemType File -Path 'C:\t\pilot1109\public-capture\STOP' -ErrorAction Stop
+```
+
+`account-flow` is a public Data API supplement, run later into a fresh directory
+with the already known public funder address. It walks raw v2 trades including
+maker rows, all default activity types with deposits/withdrawals enabled, a
+separate opt-in TIP walk, and OPEN/REDEEMABLE/REDEEMABLE_LOST/CLOSED positions
+at zero token threshold (archived markets included where supported). It retains
+every opaque cursor, filter, page body and receipt; missing/repeated cursors or
+page caps produce an incomplete result. No redemption or venue write occurs.
+
+```powershell
+& $Python -B -m weather.market.pilot_validation_evidence account-flow --wallet $PublicFunderAddress --from-utc 2026-11-09T00:00:00Z --max-rest-rps 2 --output 'C:\t\pilot1109\account-flow-first'
+```
+
+Omit `--from-utc` for all indexed history (`start=1`); the default end is frozen
+at invocation, or pass `--through-utc`. Position walks stay unbounded by time to
+retain rows without a native activity clock. Repeat into new directories after
+confirmation, resolution and redemption. Cursor exhaustion proves traversal of
+the requested public API scope, not private fill finality, an atomic inventory
+snapshot or complete chain cash reconciliation. Public trade filters retain an
+explicit tiny positive floor; inactive positions may be absent. Overlapping
+position statuses and raw rows are retained, never summed into a cash proof.
+The [Data API v2 contract](https://data-api.polymarket.com/v2/openapi.json) and
+[market stream contract](https://docs.polymarket.com/market-data/realtime-data)
+own the upstream pagination and frame semantics. Update this section when the
+public allowlist, capture limits, output format or operator lifecycle changes.
 
 ## Purpose and claim boundary
 
