@@ -228,6 +228,13 @@ placed: `python -m weather.market.maker_shadow run --config <json> [--offline-fi
 `python -m weather.market.maker_shadow score --day <closed UTC day> --maker-evidence-root <dir>`
 writes diagnostics against sealed 88a capture and refuses embargoed panel days. No task is registered.
 
+The [T1 maker simulator and accuracy gate](docs/operations/t1-simulator.md) replay
+bounded captured inputs and compare saved pilot receipts offline. The command
+`python -m weather.backtesting.t1_cli simulate` requires `--inputs`, `--config`,
+`--latency-evidence` and `--output`; `accuracy` additionally requires `--journal`,
+`--receipts` and `--tolerance`. Run it through the workstation heavy wrapper.
+It writes code/input hashes and comparisons; it never freezes or passes a trial.
+
 The [manual order journal](docs/operations/manual-order-journal.md) records the owner's manual
 resting orders read-only with
 `python -m weather.market.order_journal record --out data\manual_order_journal` and reports

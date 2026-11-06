@@ -32,6 +32,7 @@ If you add a file, link it here in the same change.
 | [portfolio-ledger.md](portfolio-ledger.md) | Rebuilding one-wallet campaign books, FIFO lots and reconciliation from recorded account reads. |
 | [maker-trading-guard.md](maker-trading-guard.md) | Building a maker runtime or placement port; pausing, halting or clearing it; the bleed-limit guard. |
 | [maker-shadow-runner.md](maker-shadow-runner.md) | Running the public-reads-only maker shadow (Phase 3), its per-minute quotes tape, nightly 88a diagnostics and evidence embargo. |
+| [t1-simulator.md](t1-simulator.md) | Preparing offline T1 maker simulation inputs or comparing pinned pilot receipts through the accuracy gate. |
 
 ## Accumulated knowledge
 

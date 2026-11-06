@@ -11,6 +11,18 @@ Owner, 2026-10-17 ~09:18 EDT (relayed by master-agent; DECISION_LOG rows):
 - Host Python cutover C did not run 10-17; the next C night is 10-19 into 10-20. N11 lands 10-17/18
   without C. Neither changes a build's scope.
 
+## T1 captured-input simulator and accuracy-gate contract
+
+The canonical offline implementation is `weather.backtesting.t1_simulator`,
+with saved-input adapters in `t1_capture`, the pinned-journal receipt comparison
+in `t1_accuracy`, and the create-only `t1_cli` report interface. Input/export
+contracts, limits and proposals for owner review live in the
+[T1 simulator runbook](../../operations/t1-simulator.md).
+Anonymous L2 reward bounds, measured latency, rebate denominators and pilot
+accuracy remain explicit qualification dependencies; synthetic agreement is
+development evidence only. The [edge trial charter](../../operations/EDGE_TRIAL_CHARTER.md)
+owns freeze and PASS. This implementation grants no live authority.
+
 ## October 16 counterfactual tape exporter for build 2 (built; host run pending)
 
 Build 2 (the toxicity table) fits on COUNTERFACTUAL minutes and fills dated on

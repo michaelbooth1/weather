@@ -62,6 +62,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.backtesting.replay_backtest",
         "weather.backtesting.snapshot_analytics",
         "weather.backtesting.tape_scoring",
+        "weather.backtesting.t1_cli",
         "weather.calibration.b_look_per_date",
         "weather.calibration.b_look_wrapper",
         "weather.calibration.b_post_look_serial",

@@ -1,0 +1,321 @@
+"""Deterministic, offline T1 post-only maker replay against explicit captured inputs.
+
+No source discovery, network, credentials, wall clock, model, or trial verdict.
+BUY YES/NO only. Settlement releases locked capital; rewards do not fund new
+orders before payment. All unknowns remain non-countable in report reasons.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import timedelta
+from decimal import Decimal as D
+
+from weather.backtesting.t1_rewards import reward_share
+from weather.backtesting.t1_types import (ONE, ZERO, ReplayConfig, book_valid, decimal_context, digest,
+                                         fee, levels, number, source_hash, utc)
+
+
+@decimal_context
+def market_centred_quote(book, *, condition_id, observed_at, size, distance_cents, tick):
+    """Pure policy proposal from the captured YES mid; both legs are native buys."""
+    from decimal import ROUND_CEILING, ROUND_FLOOR
+
+    size, tick = number(size), number(tick)
+    if size <= ZERO or tick <= ZERO:
+        raise ValueError('invalid quote size or tick')
+    book_valid(book, now=utc(observed_at), max_age=ZERO)
+    mid = (max(r['price'] for r in levels(book['YES']['bids']))
+           + min(r['price'] for r in levels(book['YES']['asks']))) / 2
+    distance = number(distance_cents) / 100
+    bid = ((mid - distance) / tick).to_integral_value(rounding=ROUND_FLOOR) * tick
+    ask = ((mid + distance) / tick).to_integral_value(rounding=ROUND_CEILING) * tick
+    if not ZERO < bid < ask < ONE:
+        raise ValueError('quote outside probability range')
+    return [{'kind': 'post', 'id': f'{condition_id}:{observed_at}:{outcome}', 'condition_id': condition_id,
+             'outcome': outcome, 'observed_at': observed_at, 'price': str(price), 'size': str(size)}
+            for outcome, price in (('YES', bid), ('NO', ONE - ask))]
+
+
+@decimal_context
+def replay(payload, config: ReplayConfig):
+    """Replay normalized full snapshots and execution-time trades, never Gamma prices.
+
+    events: book, terms, trade, settlement. Each has at (availability UTC).
+    Trades additionally require traded_at and aggressor. Public print latency
+    does not move execution time forward: matching uses traded_at, while quote
+    decisions always use observed_at plus declared end-to-end latency.
+    coverage is a declared complete book/trade interval per condition.
+    """
+    start, end = utc(payload['start']), utc(payload['end'])
+    if start >= end:
+        raise ValueError('invalid replay interval')
+    conditions = payload['conditions']
+    if not conditions:
+        raise ValueError('empty universe')
+    if len(payload['events']) + len(payload['commands']) > 50000:
+        raise ValueError('bounded replay limit exceeded; export a smaller session')
+    for cid, meta in conditions.items():
+        if (meta['venue'] != 'international_polymarket' or len(set(meta['token_ids'])) != 2
+                or not meta['event_date'] or not meta['native_unit']):
+            raise ValueError('condition mapping or venue missing')
+        if utc(meta['coverage_start']) > start or utc(meta['coverage_end']) < end:
+            raise ValueError('incomplete capture coverage')
+        number(meta['tick'], minimum=D('.000001'))
+        number(meta['min_order_size'], minimum=D('.000001'))
+    max_age = number(config.max_book_age_seconds)
+    latency = timedelta(seconds=float(number(config.latency_seconds)))
+    books, terms, active, orders, fills = {}, {}, {}, {}, []
+    used, rewards = defaultdict(lambda: ZERO), defaultdict(lambda: ZERO)
+    spent, payouts, rebate_weight = ZERO, ZERO, defaultdict(lambda: ZERO)
+    reasons, rejected, settled = set(), [], set()
+    schedule = []
+    midnight = (start + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    while midnight < end:
+        schedule.append((midnight, 8, 0, {'kind': 'boundary'}))
+        midnight += timedelta(days=1)
+    trade_ids = {}
+    for i, event in enumerate(payload['events']):
+        source_hash(event['source_sha256'])
+        cid = event['condition_id']
+        if cid not in conditions:
+            raise ValueError('unknown condition')
+        available = utc(event['at'])
+        at = utc(event['traded_at']) if event['kind'] == 'trade' else available
+        if event['kind'] == 'trade':
+            if at > available:
+                raise ValueError('trade precedes availability incorrectly')
+            key = (cid, event['id'])
+            if key in trade_ids:
+                prior = trade_ids[key]
+                economic_keys = ('traded_at', 'outcome', 'aggressor')
+                if (any(prior[k] != event[k] for k in economic_keys)
+                        or number(prior['price']) != number(event['price'])
+                        or number(prior['size']) != number(event['size'])):
+                    raise ValueError('conflicting duplicate trade')
+                continue
+            trade_ids[key] = event
+        priority = {'book': 0, 'terms': 1, 'trade': 2, 'settlement': 6}.get(event['kind'])
+        if priority is None:
+            raise ValueError('unknown event kind')
+        if at < start or at > end:
+            raise ValueError('event outside declared interval')
+        schedule.append((at, priority, i, event))
+    for i, command in enumerate(payload['commands']):
+        if command['kind'] not in ('post', 'cancel'):
+            raise ValueError('only post/cancel simulation commands supported')
+        observed = utc(command['observed_at'])
+        # Pilot replays can specify acknowledged arrival; never before measured latency.
+        at = utc(command['arrival_at']) if command.get('arrival_at') else observed + latency
+        if at < observed + latency or observed < start or at > end:
+            raise ValueError('command violates declared latency or interval')
+        schedule.append((at, 3 if command['kind'] == 'cancel' else 4, i, command))
+    schedule.append((end, 9, 0, {'kind': 'end'}))
+
+    def accrue(left, right):
+        for cid in conditions:
+            resting = [r for r in active.values() if r['condition_id'] == cid and r['remaining'] > ZERO]
+            if not resting:
+                continue
+            book, term = books.get(cid), terms.get(cid)
+            if book is None or term is None:
+                reasons.add('missing_book_or_terms')
+                continue
+            safe_end = min(right, utc(book['at']) + timedelta(seconds=float(max_age)), utc(term['valid_until']))
+            if safe_end < right:
+                reasons.add('capture_or_terms_gap')
+            if safe_end <= left:
+                continue
+            try:
+                share = reward_share(book, resting, term, config.competition_rule)
+            except ValueError as exc:
+                reasons.add(str(exc))
+                continue
+            duration = D(str((safe_end - left).total_seconds()))
+            day = left.date().isoformat()
+            if safe_end.date() != left.date() and safe_end.time().isoformat() != '00:00:00':
+                raise ValueError('split reward interval at UTC day boundary')
+            rewards[(cid, day)] += share * number(term['rate_per_day']) * duration / D(86400)
+
+    previous = start
+    for at, _, _, event in sorted(schedule, key=lambda x: x[:3]):
+        if at < previous:
+            raise ValueError('replay clock regressed')
+        accrue(previous, at)
+        previous = at
+        kind = event['kind']
+        if kind == 'end':
+            break
+        if kind == 'boundary':
+            continue
+        if kind == 'cancel':
+            order = active.pop(event['id'], None)
+            if order:
+                used[order['condition_id']] -= order['price'] * order['remaining']
+            continue
+        cid = event['condition_id']
+        if kind == 'book':
+            book_valid(event, now=at, max_age=max_age)
+            books[cid] = event
+        elif kind == 'terms':
+            if (utc(event['valid_until']) <= at or not event['source_sha256']
+                    or event.get('substitute_rule') not in (None, 'none')):
+                raise ValueError('terms missing provenance or undeclared substitute')
+            number(event['rate_per_day'])
+            number(event['min_size'], minimum=D('.000001'))
+            number(event['max_spread_cents'], minimum=D('.000001'))
+            terms[cid] = event
+        elif kind == 'post':
+            if event['id'] in orders or cid in settled:
+                raise ValueError('duplicate order or already settled market')
+            outcome = event['outcome']
+            if outcome not in ('YES', 'NO'):
+                raise ValueError('invalid outcome')
+            p, size = number(event['price'], maximum=ONE), number(event['size'])
+            meta = conditions[cid]
+            if not ZERO < p < ONE or p % number(meta['tick']) or size < number(meta['min_order_size']):
+                raise ValueError('order violates captured market rules')
+            book = books.get(cid)
+            if book is None:
+                reasons.add('missing_arrival_book')
+                rejected.append({'id': event['id'], 'reason': 'missing_arrival_book'})
+                continue
+            try:
+                book_valid(book, now=at, max_age=max_age)
+            except ValueError:
+                reasons.add('stale_arrival_book')
+                rejected.append({'id': event['id'], 'reason': 'stale_arrival_book'})
+                continue
+            if p >= min(r['price'] for r in levels(book[outcome]['asks'])):
+                rejected.append({'id': event['id'], 'reason': 'post_only_cross'})
+                continue
+            reserve = p * size
+            resting_cash = sum((r['price'] * r['remaining'] for r in active.values()), ZERO)
+            if (used[cid] + reserve > number(config.per_market_cap)
+                    or sum(used.values(), ZERO) + reserve > number(config.total_cap)
+                    or resting_cash + reserve > number(config.total_cap) - spent + payouts):
+                rejected.append({'id': event['id'], 'reason': 'capital_cap'})
+                continue
+            if any(r['condition_id'] == cid and r['outcome'] == outcome for r in active.values()):
+                rejected.append({'id': event['id'], 'reason': 'one_order_per_outcome'})
+                continue
+            # Better prices execute first, then every displayed share at our price.
+            # No cancellation credit, and no reset when later snapshots shrink.
+            ahead = sum((r['size'] for r in levels(book[outcome]['bids']) if r['price'] >= p), ZERO)
+            order = {**event, 'price': p, 'size': size, 'remaining': size, 'queue_ahead': ahead, 'at': at}
+            orders[event['id']] = order
+            active[event['id']] = order
+            used[cid] += reserve
+        elif kind == 'trade':
+            if event['outcome'] not in ('YES', 'NO') or event['aggressor'] not in ('BUY', 'SELL'):
+                raise ValueError('unknown trade side or outcome')
+            p, volume = number(event['price'], maximum=ONE), number(event['size'])
+            if p <= ZERO or p >= ONE or volume <= ZERO:
+                raise ValueError('invalid trade')
+            if event['aggressor'] != 'SELL':
+                continue
+            candidates = sorted((r for r in active.values() if r['condition_id'] == cid
+                                 and r['outcome'] == event['outcome'] and p <= r['price']),
+                                key=lambda r: (-r['price'], r['at'], r['id']))
+            # T1 permits one live order per native outcome. A physical print
+            # therefore never supplies residual volume to multiple own orders.
+            for order in candidates:
+                consumed = min(volume, order['queue_ahead'])
+                order['queue_ahead'] -= consumed
+                executable = volume - consumed
+                if config.queue_rule == 'back_strict_through' and p == order['price']:
+                    continue
+                quantity = min(order['remaining'], executable)
+                if quantity <= ZERO:
+                    continue
+                order['remaining'] -= quantity
+                cost = quantity * order['price']
+                spent += cost
+                weight = fee(quantity, order['price'], config.fee_coefficient)
+                rebate_weight[at.date().isoformat()] += weight
+                reference_mid = None
+                current = books.get(cid)
+                try:
+                    if current is None:
+                        raise ValueError('missing fill book')
+                    book_valid(current, now=at, max_age=max_age)
+                    side = current[order['outcome']]
+                    reference_mid = (max(r['price'] for r in levels(side['bids']))
+                                     + min(r['price'] for r in levels(side['asks']))) / 2
+                except ValueError:
+                    reasons.add('missing_fill_reference_mid')
+                fills.append({'order_id': order['id'], 'condition_id': cid, 'outcome': order['outcome'],
+                              'at': at, 'trade_id': event['id'], 'price': order['price'], 'size': quantity,
+                              'fee_weight': weight, 'maker_fee': ZERO, 'entry_mid': reference_mid})
+                if order['remaining'] == ZERO:
+                    active.pop(order['id'])
+        elif kind == 'settlement':
+            if cid in settled or event['source'] != 'venue' or not event['source_sha256']:
+                raise ValueError('unverified or duplicate venue settlement')
+            payout = number(event['yes_payout'], maximum=ONE)
+            if any(r['condition_id'] == cid for r in active.values()):
+                reasons.add('orders_open_at_settlement')
+            payouts += sum((r['size'] * (payout if r['outcome'] == 'YES' else ONE - payout)
+                            for r in fills if r['condition_id'] == cid), ZERO)
+            used[cid] = ZERO
+            active = {oid: r for oid, r in active.items() if r['condition_id'] != cid}
+            settled.add(cid)
+    if any(r['condition_id'] not in settled for r in fills):
+        reasons.add('unsettled_inventory')
+    if active:
+        reasons.add('open_orders_at_end')
+    # Markouts use the first captured two-sided book at/after the fixed horizon.
+    # They are diagnostics, never available to quoting or fill decisions.
+    for fill in fills:
+        due = fill['at'] + timedelta(seconds=config.markout_seconds)
+        marks = sorted((e for e in payload['events'] if e['kind'] == 'book'
+                        and e['condition_id'] == fill['condition_id'] and utc(e['at']) >= due),
+                       key=lambda e: utc(e['at']))
+        if not marks or D(str((utc(marks[0]['at']) - due).total_seconds())) > number(config.mark_max_delay_seconds):
+            fill['markout_per_share'] = None
+            reasons.add('missing_markout')
+        else:
+            side = marks[0][fill['outcome']]
+            mid = (max(r['price'] for r in levels(side['bids']))
+                   + min(r['price'] for r in levels(side['asks']))) / 2
+            fill['markout_per_share'] = mid - fill['price']
+    rebates = ZERO
+    rebate_paid = ZERO
+    for day, weight in rebate_weight.items():
+        pool = payload.get('rebate_pools', {}).get(day)
+        if pool is None:
+            reasons.add('missing_rebate_pool')
+            continue
+        if pool['category'] != 'weather' or not pool['source_sha256'] or pool['complete'] is not True:
+            raise ValueError('incomplete rebate pool')
+        source_hash(pool['source_sha256'])
+        denominator = number(pool['total_maker_fee_weight'])
+        fees = number(pool['total_taker_fees'])
+        if denominator <= ZERO or weight > denominator:
+            raise ValueError('invalid rebate denominator')
+        daily_rebate = number(config.rebate_fraction) * fees * weight / denominator
+        rebates += daily_rebate
+        rebate_paid += daily_rebate if daily_rebate >= ONE else ZERO
+    reward_total = sum(rewards.values(), ZERO)
+    daily_rewards = defaultdict(lambda: ZERO)
+    for (_, day), amount in rewards.items():
+        daily_rewards[day] += amount
+    reward_paid = sum((r for r in daily_rewards.values() if r >= ONE), ZERO)
+    raw_pnl = payouts - spent + reward_paid + rebate_paid
+    stress = number(config.informed_fraction) * payouts
+    references_complete = all(r['entry_mid'] is not None for r in fills)
+    reference_value = sum((r['entry_mid'] * r['size'] for r in fills), ZERO) if references_complete else None
+    return {'config': config.projection(), 'config_sha256': digest(config.projection()),
+            'input_sha256': digest(payload), 'fills': fills, 'rejected': rejected,
+            'source_hashes': sorted({e['source_sha256'] for e in payload['events']}),
+            'rewards': [{'condition_id': cid, 'day': day, 'accrued': amount}
+                        for (cid, day), amount in sorted(rewards.items())],
+            'reward_accrued': reward_total, 'rebate_accrued': rebates,
+            'reward_payable': reward_paid, 'rebate_payable': rebate_paid,
+            'cost': spent, 'venue_payout': payouts, 'raw_net_pnl': raw_pnl,
+            'spread_capture_pusd': reference_value - spent if references_complete else None,
+            'inventory_move_pusd': payouts - reference_value if references_complete else None,
+            'maker_fees_pusd': ZERO,
+            'informed_stress_cost': stress, 'stressed_net_pnl': raw_pnl - stress,
+            'competition_estimate': config.competition_rule,
+            'qualification': 'ACCURACY_GATE_REQUIRED' if not reasons else 'INCOMPLETE',
+            'reasons': sorted(reasons), 'trial_can_pass': False}
