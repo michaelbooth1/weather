@@ -76,3 +76,5 @@ arbitrage result. No T3 preregistration has been drafted or frozen.
 Pre-scan pins: script SHA-256 `f6db2b96e3b662d6ca8212ffa4ced3b2a8b8f4066d6a06b65483d84957c0e35f`; rule SHA-256 `86d85b4a418ba0d83965da975cbb93d1c844f72803b0ae66e1bf24aad854f058`. `out\preflight_receipt.json` records the real UTC clock and control command.
 
 The canonical wrapper was attempted and refused before heavy admission: `research script has no single allowlist entry: C:\t\codex\T003\out\scan.py` (exit 1). No book payload was scanned. This is a repository workload-gate refusal, not an automatic approval-review rejection.
+
+Publication blocker: HTTPS branch pushes fail because this session has no usable GitHub credentials; a per-command GitHub CLI credential-helper retry also failed. SSH with BatchMode and strict host-key verification refused because GitHub's host key is not already trusted. No credential file was opened or changed, no signing/hook was bypassed, and no host-trust setting was changed. An offline Git bundle of the task commits is retained in `out\T003.bundle` for handoff. The branch remains local until authenticated push is available.
