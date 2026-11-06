@@ -57,12 +57,15 @@ class ReplayConfig:
 
     informed_fraction: str
     latency_seconds: str
+    order_latency_seconds: str
     latency_source_sha256: str
     measured_p95_seconds: str
+    measured_order_p95_seconds: str
     per_market_cap: str
     total_cap: str
     queue_rule: str
     competition_rule: str
+    reward_epoch_rule: str
     max_book_age_seconds: str
     markout_seconds: int
     mark_max_delay_seconds: str
@@ -72,11 +75,15 @@ class ReplayConfig:
     def __post_init__(self):
         for name in ("informed_fraction", "rebate_fraction"):
             number(getattr(self, name), maximum=ONE)
-        for name in ("latency_seconds", "measured_p95_seconds", "per_market_cap", "total_cap",
+        for name in ("latency_seconds", "order_latency_seconds", "measured_p95_seconds",
+                     "measured_order_p95_seconds", "per_market_cap", "total_cap",
                      "max_book_age_seconds", "mark_max_delay_seconds", "fee_coefficient"):
             number(getattr(self, name))
         if (number(self.latency_seconds) < number(self.measured_p95_seconds)
-                or number(self.per_market_cap) > number(self.total_cap)
+                or number(self.order_latency_seconds) < number(self.measured_order_p95_seconds)
+                or number(self.latency_seconds) < number(self.order_latency_seconds)):
+            raise ValueError("latency is below measured bound or transport latency")
+        if (number(self.per_market_cap) > number(self.total_cap)
                 or number(self.max_book_age_seconds) <= 0 or number(self.total_cap) <= 0
                 or type(self.markout_seconds) is not int or self.markout_seconds <= 0):
             raise ValueError("invalid replay limits")
@@ -84,6 +91,10 @@ class ReplayConfig:
             raise ValueError("unsupported queue rule")
         if self.competition_rule not in ("maker_grouped", "aggregate_upper_bound"):
             raise ValueError("unsupported competition rule")
+        if self.reward_epoch_rule not in ('captured_active', 'full_day_upper_bound'):
+            raise ValueError('unsupported reward epoch rule')
+        if number(self.fee_coefficient) != D('.05') or number(self.rebate_fraction) != D('.25'):
+            raise ValueError('T1 weather economics differ from the charter')
         source_hash(self.latency_source_sha256)
 
     def projection(self):
@@ -101,9 +112,12 @@ def levels(rows):
 
 
 def book_valid(book, *, now, max_age):
-    if not ZERO <= D(str((now - utc(book["at"])).total_seconds())) <= max_age:
+    available, observed = utc(book['at']), utc(book['observed_at'])
+    if observed > available or available > now or not ZERO <= D(str((now - observed).total_seconds())) <= max_age:
         raise ValueError("stale or future book")
     for outcome in ("YES", "NO"):
+        number(book[outcome]['tick'], minimum=D('.000001'), maximum=ONE)
+        number(book[outcome]['min_order_size'], minimum=D('.000001'))
         bids, asks = levels(book[outcome]["bids"]), levels(book[outcome]["asks"])
         if not bids or not asks or max(r["price"] for r in bids) >= min(r["price"] for r in asks):
             raise ValueError("incomplete or crossed book")

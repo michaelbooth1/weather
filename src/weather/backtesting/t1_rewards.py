@@ -1,8 +1,9 @@
-"""Decimal venue reward scoring, including complementary books and own midpoint impact.
+"""Venue Q_min on unique native orders, or an explicit anonymous-book lower bound.
 
-Grouped orders permit exact Q_min aggregation. Anonymous L2 supports only an
-explicit denominator upper bound: sum of both sides' scores >= sum Q_min.
-The latter is a conservative reward estimate, never an exact maker share.
+Displayed complementary levels are not independent orders. Exact mode requires
+a complete unique native-order census, reconciled to both displayed books.
+Public L2 mode uses sum(side scores)/2 >= sum(maker Q_min) as a denominator
+upper bound; duplicated mirror levels only make that estimate more conservative.
 """
 from collections import defaultdict
 from decimal import Decimal as D
@@ -24,50 +25,71 @@ def q_min(one, two, mid):
     return max(both, max(one, two) / D(3)) if D('.10') <= mid <= D('.90') else both
 
 
+def level_map(book, outcome, side):
+    out = defaultdict(lambda: ZERO)
+    for row in levels(book[outcome][side]):
+        out[row['price']] += row['size']
+    return dict(out)
+
+
+def native_competitor_score(book, mid, spread, minimum):
+    if book.get('reward_orders_complete') is not True or 'reward_orders' not in book:
+        raise ValueError('exact rewards require a complete native-order census')
+    grouped, seen = defaultdict(lambda: [ZERO, ZERO]), set()
+    reconstructed = {(outcome, side): defaultdict(lambda: ZERO)
+                     for outcome in ('YES', 'NO') for side in ('bids', 'asks')}
+    for order in book['reward_orders']:
+        oid, maker = order.get('order_id'), order.get('maker_id')
+        outcome, side = order['outcome'], order['side']
+        if not oid or oid in seen or not maker or outcome not in ('YES', 'NO') or side not in ('BUY', 'SELL'):
+            raise ValueError('invalid or anonymous native reward order')
+        seen.add(oid)
+        p, size = number(order['price'], maximum=ONE), number(order['size'])
+        if not ZERO < p < ONE or size <= ZERO:
+            raise ValueError('invalid native reward price or size')
+        index = 0 if (outcome, side) in (('YES', 'BUY'), ('NO', 'SELL')) else 1
+        yes_price = p if outcome == 'YES' else ONE - p
+        grouped[maker][index] += order_score(size, abs(yes_price - mid) * 100, spread, minimum)
+        native_side, mirror_side = ('bids', 'asks') if side == 'BUY' else ('asks', 'bids')
+        complement = 'NO' if outcome == 'YES' else 'YES'
+        reconstructed[(outcome, native_side)][p] += size
+        reconstructed[(complement, mirror_side)][ONE - p] += size
+    for (outcome, side), expected in reconstructed.items():
+        if dict(expected) != level_map(book, outcome, side):
+            raise ValueError('native reward census differs from captured book')
+    return sum((q_min(*scores, mid) for scores in grouped.values()), ZERO)
+
+
 @decimal_context
 def reward_share(book, resting, terms, rule):
-    """Expected random-minute sample share, for this captured condition only.
-
-    Book excludes our orders; adapter must remove them for actual pilot replay.
-    An own YES bid also contributes a NO ask to the displayed midpoint book.
-    Both outcome books remain distinct venue books; no inferred execution asks.
-    """
-    minimum = number(terms['min_size'])
-    spread = number(terms['max_spread_cents'])
+    minimum, spread = number(terms['min_size']), number(terms['max_spread_cents'])
     if minimum <= ZERO or spread <= ZERO:
         raise ValueError('invalid captured reward terms')
-    def merged(outcome, side):
-        sizes = defaultdict(lambda: ZERO)
-        for row in levels(book[outcome][side]):
-            sizes[row['price']] += row['size']
-        return tuple(sorted(sizes.items()))
-
-    public = Book(utc(book['at']), merged('YES', 'bids'), merged('YES', 'asks'),
-                  merged('NO', 'bids'), merged('NO', 'asks'))
+    public = Book(utc(book['at']), tuple(level_map(book, 'YES', 'bids').items()),
+                  tuple(level_map(book, 'YES', 'asks').items()), tuple(level_map(book, 'NO', 'bids').items()),
+                  tuple(level_map(book, 'NO', 'asks').items()))
     display = compose_book(public, tuple(QuoteLeg(r['outcome'], r['price'], r['remaining']) for r in resting))
-    bids = [p for p, s in display.yes_bids if s >= minimum]
-    asks = [p for p, s in display.yes_asks if s >= minimum]
+    bids = [p for p, size in display.yes_bids if size >= minimum]
+    asks = [p for p, size in display.yes_asks if size >= minimum]
     if not bids or not asks or max(bids) >= min(asks):
         raise ValueError('no qualified midpoint')
-    mid = (max(bids) + min(asks)) / D(2)
+    mid = (max(bids) + min(asks)) / 2
     own = [ZERO, ZERO]
     for order in resting:
         p = order['price'] if order['outcome'] == 'YES' else ONE - order['price']
-        # Venue side equations include a native bid and its complement ask.
-        # Score own displayed legs on the same four-book basis as competitors.
-        own[0 if order['outcome'] == 'YES' else 1] += D(2) * order_score(
+        own[0 if order['outcome'] == 'YES' else 1] += order_score(
             order['remaining'], abs(p - mid) * 100, spread, minimum)
-    grouped = defaultdict(lambda: [ZERO, ZERO])
-    for outcome in ('YES', 'NO'):
-        for side in ('bids', 'asks'):
-            index = 0 if (outcome, side) in (('YES', 'bids'), ('NO', 'asks')) else 1
-            for row in levels(book[outcome][side]):
-                if rule == 'maker_grouped' and not row.get('maker_id'):
-                    raise ValueError('anonymous competition cannot be exact')
-                key = row.get('maker_id', 'anonymous')
-                p = row['price'] if outcome == 'YES' else ONE - row['price']
-                grouped[key][index] += order_score(row['size'], abs(p - mid) * 100, spread, minimum)
-    competing = (sum((q_min(*scores, mid) for scores in grouped.values()), ZERO)
-                 if rule == 'maker_grouped' else sum((sum(s, ZERO) for s in grouped.values()), ZERO))
+    if rule == 'maker_grouped':
+        competing = native_competitor_score(book, mid, spread, minimum)
+    elif rule == 'aggregate_upper_bound':
+        total = ZERO
+        for outcome in ('YES', 'NO'):
+            for side in ('bids', 'asks'):
+                for row in levels(book[outcome][side]):
+                    p = row['price'] if outcome == 'YES' else ONE - row['price']
+                    total += order_score(row['size'], abs(p - mid) * 100, spread, minimum)
+        competing = total / 2
+    else:
+        raise ValueError('unknown competition rule')
     own_q = q_min(*own, mid)
     return ZERO if own_q <= ZERO else own_q / (own_q + competing)

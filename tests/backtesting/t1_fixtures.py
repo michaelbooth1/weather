@@ -15,14 +15,21 @@ def at(seconds):
 
 def book(seconds=0, bid='.49', ask='.51', size='20', condition='c1'):
     side = {'bids': [{'price': bid, 'size': size, 'maker_id': 'competitor'}],
-            'asks': [{'price': ask, 'size': size, 'maker_id': 'competitor'}]}
-    return {'kind': 'book', 'condition_id': condition, 'at': at(seconds), 'source_sha256': 'e' * 64,
-            'YES': side, 'NO': {'bids': [dict(side['bids'][0])], 'asks': [dict(side['asks'][0])]}}
+            'asks': [{'price': ask, 'size': size, 'maker_id': 'competitor'}], 'tick': '.01', 'min_order_size': '5'}
+    return {'kind': 'book', 'condition_id': condition, 'at': at(seconds), 'observed_at': at(seconds),
+            'source_sha256': 'e' * 64, 'reward_orders_complete': True,
+            'reward_orders': [{'order_id': f'comp-{outcome}-{seconds}', 'maker_id': 'competitor', 'outcome': outcome,
+                               'side': 'BUY', 'price': p, 'size': size}
+                              for outcome, p in (('YES', bid), ('NO', str(1 - D(ask))))],
+            'YES': side, 'NO': {'bids': [{'price': str(1 - D(ask)), 'size': size}],
+                               'asks': [{'price': str(1 - D(bid)), 'size': size}],
+                               'tick': '.01', 'min_order_size': '5'}}
 
 
 def config(**changes):
-    values = dict(informed_fraction='.75', latency_seconds='2', latency_source_sha256='a' * 64,
-                  measured_p95_seconds='2', per_market_cap='50', total_cap='100',
+    values = dict(informed_fraction='.75', latency_seconds='2', order_latency_seconds='1',
+                  latency_source_sha256='a' * 64, measured_p95_seconds='2', measured_order_p95_seconds='1',
+                  per_market_cap='50', total_cap='100', reward_epoch_rule='captured_active',
                   queue_rule='back_strict_through', competition_rule='maker_grouped',
                   max_book_age_seconds='600', markout_seconds=300, mark_max_delay_seconds='1',
                   fee_coefficient='.05', rebate_fraction='.25')
@@ -41,11 +48,11 @@ def payload():
                     'outcome': 'YES', 'aggressor': 'SELL', 'price': '.48', 'size': '25', 'source_sha256': 'f' * 64},
                    {'kind': 'trade', 'condition_id': 'c1', 'at': at(5), 'traded_at': at(5), 'id': 't2',
                     'outcome': 'YES', 'aggressor': 'SELL', 'price': '.48', 'size': '5', 'source_sha256': 'f' * 64},
-                   book(304, '.45', '.47'), book(305, '.45', '.47'),
+                   book(304, '.45', '.47'), book(305, '.45', '.47'), book(306, '.45', '.47'),
                    {'kind': 'settlement', 'condition_id': 'c1', 'at': at(306), 'yes_payout': '1',
                     'source': 'venue', 'source_sha256': 'c' * 64}],
         'commands': [{'kind': 'post', 'id': 'o1', 'condition_id': 'c1', 'outcome': 'YES',
-                      'observed_at': at(0), 'price': '.49', 'size': '10'}],
+                      'observed_at': at(0), 'decided_at': at(0), 'expires_at': at(60), 'price': '.49', 'size': '10'}],
         'rebate_pools': {'2026-10-12': {'category': 'weather', 'complete': True,
                                        'source_sha256': 'd' * 64, 'total_taker_fees': '10',
                                        'total_maker_fee_weight': '10'}},
@@ -55,12 +62,13 @@ def payload():
 
 def journal_bytes(events=None):
     if events is None:
-        events = [(0, 'opened', {'scope': {'condition_id': 'c1', 'token_ids': ['yes1', 'no1']},
+        events = [(0, 'opened', {'scope': {'condition_id': 'c1', 'token_ids': ['yes1', 'no1'],
+                                         'maker_address': 'synthetic-account', 'session_id': 'synthetic-session'},
                                   'mode': 'replay', 'profile_sha256': 'e' * 64}),
                   (0, 'submit_market_snapshot', {'snapshot': {'condition_id': 'c1',
                       'token_ids': ['yes1', 'no1'], 'observed_at_utc': at(0)}}),
                   (1, 'submit_request', {'request': {'token_id': 'yes1', 'side': 'BUY',
-                      'price': '.49', 'size': '10', 'post_only': True, 'expiration': 0}}),
+                      'price': '.49', 'size': '10', 'post_only': True, 'expiration': int((BASE + timedelta(seconds=60)).timestamp())}}),
                   (2, 'submit_response', {'response': {'orderID': 'o1', 'success': True, 'status': 'live'}}),
                   (2, 'lfc_queue_ahead', {'phase': 'placement', 'order_id': 'o1', 'leg': 0,
                       'token_id': 'yes1', 'price': '.49', 'own_size': '10', 'visible_at_price': '20',
@@ -84,7 +92,8 @@ def receipts(raw):
     rebate = D(0)  # accrued .0312375 is below the venue's $1 daily payout floor
     scope = {'condition_id': 'c1', 'account_id': 'synthetic-account', 'session_id': 'synthetic-session',
              'reward_day': '2026-10-12'}
-    return {'scope': scope, 'journal_pin': '124603578', 'journal_sha256': hashlib.sha256(raw).hexdigest(),
+    return {'scope': scope, 'journal_pin': '124603578f393827fa1b67bd978f6e3b02048ae9',
+            'journal_sha256': hashlib.sha256(raw).hexdigest(),
             'lfc_ledger': {'schema_version': 'lfc_l_ledger_v0.1', 'kind': 'lfc_l_ledger',
                            'history_file': 'ledger.jsonl', 'history_rows': 7, 'history_last_sha256': 'a' * 64,
                            'recorded_at_utc': at(6), 'budget_pusd': '100', 'L': '4.9', 'L_filled': '4.9',
@@ -95,11 +104,15 @@ def receipts(raw):
                                'size_matched': '10'}]},
             'clob': {'endpoint': 'https://clob.polymarket.com/data/trades', 'complete': True,
                      'next_cursor': 'LTE=', 'rows': [
-                         {'id': key, 'market': 'c1', 'status': 'CONFIRMED', 'match_time': at(t), 'asset_id': 'yes1',
+                         {'id': key, 'market': 'c1', 'status': 'CONFIRMED', 'match_time': at(t),
+                          'match_time_precision_seconds': '0', 'asset_id': 'yes1',
                           'maker_orders': [{'order_id': 'o1', 'asset_id': 'yes1', 'side': 'BUY',
+                                            'maker_address': scope['account_id'],
                                             'price': '.49', 'matched_amount': '5'}]}
                          for key, t in [('actual1', 4), ('actual2', 5)]]},
             'wallet': {'account_id': scope['account_id'], 'session_id': scope['session_id'], 'complete': True,
+                       'settlement_complete': True, 'settlement_value': '10',
+                       'settlement_source_sha256': 'c' * 64,
                        'start_as_of_utc': at(0), 'as_of_utc': '2026-10-14T10:00:00+00:00',
                        'unattributed_cashflows': [], 'other_attributed_cashflows': [], 'fills': [
                            {'order_id': 'o1', 'price': '.49', 'size': '10'}],

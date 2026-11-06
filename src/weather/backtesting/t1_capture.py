@@ -7,7 +7,7 @@ from acknowledged orders, terminal cancels and confirmed CLOB maker fills.
 from weather.backtesting.t1_types import ONE, ZERO, digest, levels, number, source_hash, utc
 
 
-def captured_book(raw_books, *, condition_id, token_ids, captured_at, source_sha256, own=()):
+def captured_book(raw_books, *, condition_id, token_ids, captured_at, observed_at, source_sha256, own=()):
     """Two raw /book replies -> normalized book excluding actual own liquidity.
 
     own entries are outcome/price/remaining. Each native bid is mirrored on the
@@ -17,13 +17,16 @@ def captured_book(raw_books, *, condition_id, token_ids, captured_at, source_sha
     if len(token_ids) != 2 or len(set(token_ids)) != 2 or not source_sha256:
         raise ValueError('book source or token mapping missing')
     source_hash(source_sha256)
-    utc(captured_at)
-    out = {'kind': 'book', 'condition_id': condition_id, 'at': captured_at, 'source_sha256': source_sha256}
+    if utc(observed_at) > utc(captured_at):
+        raise ValueError('book observation follows its availability')
+    out = {'kind': 'book', 'condition_id': condition_id, 'at': captured_at, 'observed_at': observed_at,
+           'source_sha256': source_sha256}
     for outcome, token in zip(('YES', 'NO'), token_ids):
         raw = raw_books[token]
-        if str(raw['asset_id']) != token:
+        if str(raw['asset_id']) != token or raw['market'] != condition_id:
             raise ValueError('captured book token mismatch')
         out[outcome] = {side: levels(raw[side]) for side in ('bids', 'asks')}
+        out[outcome].update(tick=raw['tick_size'], min_order_size=raw['min_order_size'])
     for order in own:
         outcome = order['outcome']
         if outcome not in ('YES', 'NO'):
@@ -43,22 +46,25 @@ def captured_book(raw_books, *, condition_id, token_ids, captured_at, source_sha
     return out
 
 
-def pin_snapshot(snapshot, *, valid_until, own=()):
+def pin_snapshot(snapshot, *, available_at, valid_until, own=()):
     """Pin RE-1/LFC public snapshot -> captured book and captured reward terms.
 
     Source hashes bind the whole snapshot, including rule/fee fields. valid_until
     is the predeclared freshness bound, not an assertion of future venue terms.
     """
-    at = snapshot['observed_at_utc']
-    if utc(valid_until) <= utc(at):
+    observed = snapshot['observed_at_utc']  # the pin records batch START, before HTTP reads
+    if utc(valid_until) <= utc(available_at) or utc(available_at) < utc(observed):
         raise ValueError('invalid snapshot validity')
     tokens, values = snapshot['token_ids'], snapshot['quote_inputs']
-    raw = {token: {'asset_id': token, 'bids': values[prefix + '_bids'], 'asks': values[prefix + '_asks']}
+    raw = {token: {'asset_id': token, 'market': snapshot['condition_id'],
+                   'bids': values[prefix + '_bids'], 'asks': values[prefix + '_asks'],
+                   'tick_size': snapshot['rules'][token]['tick_size'],
+                   'min_order_size': snapshot['rules'][token]['min_order_size']}
            for prefix, token in zip(('yes', 'no'), tokens)}
     source = digest(snapshot)
     book = captured_book(raw, condition_id=snapshot['condition_id'], token_ids=tokens,
-                         captured_at=at, source_sha256=source, own=own)
-    terms = {'kind': 'terms', 'condition_id': snapshot['condition_id'], 'at': at, 'valid_until': valid_until,
+                         captured_at=available_at, observed_at=observed, source_sha256=source, own=own)
+    terms = {'kind': 'terms', 'condition_id': snapshot['condition_id'], 'at': available_at, 'valid_until': valid_until,
              'min_size': values['reward_min_size'], 'max_spread_cents': values['reward_max_spread_cents'],
              'rate_per_day': values['reward_rate_per_day'], 'source_sha256': source}
     return book, terms

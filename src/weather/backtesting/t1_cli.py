@@ -51,30 +51,34 @@ def main(argv=None):
         parser.error('accuracy requires --journal, --receipts and --tolerance')
     files = {name: path for name, path in vars(args).items() if isinstance(path, Path) and name != 'output'}
     # This command accepts bounded session exports, never whole capture tapes.
-    if sum(path.stat().st_size for path in files.values()) > 16 * 1024 * 1024:
+    if sum(path.stat().st_size for name, path in files.items() if name != 'journal') > 16 * 1024 * 1024:
         parser.error('input files exceed 16 MiB; export a bounded session')
-    raw = {name: path.read_bytes() for name, path in files.items()}
+    raw = {name: path.read_bytes() for name, path in files.items() if name != 'journal'}
     config = ReplayConfig(**json.loads(raw['config']))
     latency = json.loads(raw['latency_evidence'])
-    durations = []
+    durations, order_durations = [], []
     for sample in latency['samples']:
         observed, decided, acknowledged = (utc(sample[k]) for k in ('observed_at', 'decided_at', 'acknowledged_at'))
         if not observed <= decided <= acknowledged:
             parser.error('latency sample clock regressed')
         durations.append(number((acknowledged - observed).total_seconds()))
+        order_durations.append(number((acknowledged - decided).total_seconds()))
     durations.sort()
+    order_durations.sort()
     # Nearest-rank empirical p95, including the full observation-to-ACK path.
     p95 = durations[(95 * len(durations) + 99) // 100 - 1] if durations else None
+    order_p95 = order_durations[(95 * len(order_durations) + 99) // 100 - 1] if order_durations else None
     if (hashlib.sha256(raw['latency_evidence']).hexdigest() != config.latency_source_sha256
             or latency['kind'] != 'observation_to_order_ack'
             or p95 != number(config.measured_p95_seconds)
+            or order_p95 != number(config.measured_order_p95_seconds)
             or latency['sample_count'] != len(durations) or not durations):
         parser.error('latency measurement does not bind to config')
     payload = json.loads(raw['inputs'])
     if args.mode == 'simulate':
         result = replay(payload, config)
     else:
-        result = accuracy_gate(payload, config, raw['journal'], json.loads(raw['receipts']),
+        result = accuracy_gate(payload, config, args.journal, json.loads(raw['receipts']),
                                Tolerance(**json.loads(raw['tolerance'])))
     from weather.schema_families import schema_version
 
@@ -83,6 +87,8 @@ def main(argv=None):
               'synthetic': latency['synthetic'] or result.get('synthetic', False),
               'inputs': {name: {'path': str(files[name].resolve()), 'sha256': hashlib.sha256(data).hexdigest()}
                          for name, data in raw.items()}}
+    if args.mode == 'accuracy':
+        report['inputs']['journal'] = {'path': str(args.journal.resolve()), 'sha256': result['journal_sha256']}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('xb') as handle:
         handle.write(canonical(report))

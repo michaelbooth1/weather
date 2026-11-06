@@ -25,8 +25,8 @@ def test_queue_partial_fill_rebate_settlement_and_stress_arithmetic():
     assert result['rebate_accrued'] == D('.0312375')
     assert result['reward_accrued'] == pytest.approx(D(20) / 7 + D(10) / 13)
     assert result['rebate_payable'] == 0
-    assert result['informed_stress_cost'] == D('7.5')
-    assert result['stressed_net_pnl'] == result['raw_net_pnl'] - D('7.5')
+    assert result['informed_stress_cost'] == D('3.675')
+    assert result['stressed_net_pnl'] == result['raw_net_pnl'] - D('3.675')
     assert [f['markout_per_share'] for f in result['fills']] == [D('-.03')] * 2
     assert result['reasons'] == []
     assert result['trial_can_pass'] is False
@@ -40,9 +40,8 @@ def test_venue_scoring_uses_complements_and_per_maker_groups():
     terms = {'min_size': '20', 'max_spread_cents': '3'}
     assert reward_share(b, own, terms, 'maker_grouped') == D('.5')
     assert abs(reward_share(b, own, terms, 'aggregate_upper_bound') - D(1) / 3) < D('1e-25')
-    for outcome in ('YES', 'NO'):
-        for side in ('bids', 'asks'):
-            b[outcome][side][0].pop('maker_id')
+    for order in b['reward_orders']:
+        order.pop('maker_id')
     with pytest.raises(ValueError, match='anonymous'):
         reward_share(b, own, terms, 'maker_grouped')
     assert abs(reward_share(b, own, terms, 'aggregate_upper_bound') - D(1) / 3) < D('1e-25')
@@ -112,7 +111,7 @@ def test_arrival_book_changes_post_only_result_and_later_latency():
 
 def test_market_and_total_capital_bind_resting_and_inventory():
     p = payload()
-    p['commands'].append({**p['commands'][0], 'id': 'o2', 'observed_at': at(3)})
+    p['commands'].append({**p['commands'][0], 'id': 'o2', 'observed_at': at(3), 'decided_at': at(3)})
     result = replay(p, config(per_market_cap='5'))
     assert result['rejected'] == [{'id': 'o2', 'reason': 'capital_cap'}]
     result = replay(p, config(per_market_cap='5', total_cap='5'))
@@ -130,7 +129,7 @@ def test_two_own_orders_do_not_reuse_public_volume():
 
 def test_cancel_race_trade_first_and_cancel_releases_only_unfilled_reserve():
     p = payload()
-    p['commands'].append({'kind': 'cancel', 'id': 'o1', 'observed_at': at(2)})
+    p['commands'].append({'kind': 'cancel', 'id': 'o1', 'observed_at': at(2), 'decided_at': at(2)})
     result = replay(p, config())
     assert [r['size'] for r in result['fills']] == [D(5)]
 
@@ -157,7 +156,8 @@ def test_missing_mark_and_nonvenue_settlement_fail_closed():
 
 def test_policy_native_buys_and_fee_symmetry():
     quotes = market_centred_quote(book(), condition_id='c1', observed_at=at(0),
-                                  size='20', distance_cents='1.5', tick='.01')
+                                  size='20', distance_cents='1.5', tick='.01',
+                                  expires_at=at(60), max_book_age_seconds='30')
     assert [(q['outcome'], q['price']) for q in quotes] == [('YES', '0.48'), ('NO', '0.48')]
     assert fee(100, '.5', '.05') == D('1.25')
     assert fee(100, '.3', '.05') == fee(100, '.7', '.05')
@@ -181,7 +181,8 @@ def test_settlement_loss_does_not_replenish_global_cash_for_another_market():
     p['events'][-1].update(at=at(6), yes_payout='0')
     p['events'].append(book(307, condition='c2'))
     p['events'].append({**p['events'][1], 'at': at(307), 'condition_id': 'c2', 'valid_until': at(611)})
-    p['commands'].append({**p['commands'][0], 'id': 'o2', 'condition_id': 'c2', 'observed_at': at(308)})
+    p['commands'].append({**p['commands'][0], 'id': 'o2', 'condition_id': 'c2',
+                          'observed_at': at(308), 'decided_at': at(308), 'expires_at': at(600)})
     result = replay(p, config(per_market_cap='5', total_cap='5'))
     assert result['venue_payout'] == 0
     assert result['rejected'] == [{'id': 'o2', 'reason': 'capital_cap'}]
@@ -200,12 +201,13 @@ def test_rewards_split_at_utc_midnight_before_daily_payout_floor():
         for key in ('coverage_start', 'coverage_end'):
             condition[key] = shifted(condition[key])
     for row in p['events'] + p['commands']:
-        for key in ('at', 'traded_at', 'valid_until', 'observed_at'):
+        for key in ('at', 'traded_at', 'valid_until', 'observed_at', 'decided_at', 'expires_at'):
             if key in row:
                 row[key] = shifted(row[key])
     p['rebate_pools']['2026-10-13'] = p['rebate_pools']['2026-10-12']
     p['reward_epochs']['2026-10-13'] = p['reward_epochs']['2026-10-12']
-    result = replay(p, config(latency_seconds='0', measured_p95_seconds='0'))
+    result = replay(p, config(latency_seconds='0', measured_p95_seconds='0',
+                              order_latency_seconds='0', measured_order_p95_seconds='0'))
     assert {r['day'] for r in result['rewards']} == {'2026-10-12', '2026-10-13'}
     assert result['reward_payable'] == result['reward_accrued']
     assert result['reward_accrued'] == pytest.approx(D(40) / 7 + D(10) / 13)
@@ -260,8 +262,9 @@ def test_resolution_value_is_not_available_cash_until_explicit_redemption():
     p['events'].append(book(8, condition='c2'))
     p['events'].append({**p['events'][1], 'at': at(8), 'condition_id': 'c2', 'valid_until': at(611)})
     p['reward_epochs']['2026-10-12']['c2'] = dict(p['reward_epochs']['2026-10-12']['c1'])
-    p['commands'].append({**p['commands'][0], 'id': 'o2', 'condition_id': 'c2', 'observed_at': at(8)})
-    p['commands'].append({'kind': 'cancel', 'id': 'o2', 'observed_at': at(11)})
+    p['commands'].append({**p['commands'][0], 'id': 'o2', 'condition_id': 'c2',
+                          'observed_at': at(8), 'decided_at': at(8)})
+    p['commands'].append({'kind': 'cancel', 'id': 'o2', 'observed_at': at(11), 'decided_at': at(11)})
     before = replay(p, config(per_market_cap='5', total_cap='5', informed_fraction='0'))
     assert before['rejected'] == [{'id': 'o2', 'reason': 'capital_cap'}]
     assert before['cash_redemptions_pusd'] == 0
@@ -271,8 +274,87 @@ def test_resolution_value_is_not_available_cash_until_explicit_redemption():
     assert after['rejected'] == []
     assert after['cash_redemptions_pusd'] == 10
     assert after['unredeemed_venue_value'] == 0
-    assert replay(p, config(per_market_cap='5', total_cap='5'))['rejected'] == [
-        {'id': 'o2', 'reason': 'capital_cap'}]
+    assert replay(p, config(per_market_cap='5', total_cap='5'))['rejected'] == []
     p['events'].append(dict(p['events'][-1]))
     with pytest.raises(ValueError, match='duplicate cash redemption'):
         replay(p, config(per_market_cap='5', total_cap='5', informed_fraction='0'))
+
+
+def test_native_order_identity_changes_reward_share_without_changing_l2():
+    b = book()
+    own = [{'outcome': 'YES', 'price': D('.49'), 'remaining': D(20)},
+           {'outcome': 'NO', 'price': D('.49'), 'remaining': D(20)}]
+    terms = {'min_size': '20', 'max_spread_cents': '3'}
+    assert reward_share(b, own, terms, 'maker_grouped') == D('.5')
+    b['reward_orders'][1]['maker_id'] = 'another-maker'
+    assert abs(reward_share(b, own, terms, 'maker_grouped') - D('.6')) < D('1e-25')
+    b['reward_orders'].append(dict(b['reward_orders'][0]))
+    with pytest.raises(ValueError, match='native reward order'):
+        reward_share(b, own, terms, 'maker_grouped')
+    b.pop('reward_orders')
+    with pytest.raises(ValueError, match='native-order census'):
+        reward_share(b, own, terms, 'maker_grouped')
+
+
+def test_intent_and_transport_latency_prevent_backdated_arrival():
+    p = payload()
+    p['commands'][0]['decided_at'] = at(5)
+    result = replay(p, config())
+    assert result['fills'] == []  # arrival 6, after both public prints
+    p['commands'][0]['arrival_at'] = at(2)
+    with pytest.raises(ValueError, match='latency'):
+        replay(p, config())
+
+
+def test_expiry_precedes_same_instant_trade_and_cannot_be_omitted():
+    p = payload()
+    p['commands'][0]['expires_at'] = at(4)
+    assert replay(p, config())['fills'] == []
+    p['commands'][0].pop('expires_at')
+    with pytest.raises(KeyError):
+        replay(p, config())
+
+
+def test_arrival_uses_captured_native_rules_and_oldest_observation_age():
+    p = payload()
+    changed = book(1)
+    changed['YES']['tick'] = '.02'
+    p['events'].append(changed)
+    assert replay(p, config())['rejected'] == [{'id': 'o1', 'reason': 'arrival_market_rules'}]
+    p = payload()
+    delayed = book(2)
+    delayed['observed_at'] = at(0)
+    p['events'] = [e for e in p['events'] if e['kind'] != 'book' or e['at'] != at(0)]
+    p['events'].append(delayed)
+    assert replay(p, config(max_book_age_seconds='1'))['rejected'] == [
+        {'id': 'o1', 'reason': 'stale_arrival_book'}]
+
+
+def test_f_cost_reserve_does_not_change_settlement_or_use_the_winner_as_an_oracle():
+    p = payload()
+    winning = replay(p, config())
+    p['events'][-1]['yes_payout'] = '0'
+    losing = replay(p, config())
+    assert winning['venue_payout'] == 10 and losing['venue_payout'] == 0
+    assert winning['informed_stress_cost'] == losing['informed_stress_cost'] == D('3.675')
+    assert winning['stress_rule'] == 'incremental_fill_cost_reserve'
+
+
+def test_shared_tokens_across_conditions_and_early_cancels_refuse():
+    p = payload()
+    p['conditions']['c2'] = dict(p['conditions']['c1'])
+    with pytest.raises(ValueError, match='token across conditions'):
+        replay(p, config())
+    p = payload()
+    p['commands'].append({'kind': 'cancel', 'id': 'unknown', 'observed_at': at(0), 'decided_at': at(0)})
+    with pytest.raises(ValueError, match='lacks its submitted'):
+        replay(p, config())
+
+
+def test_explicit_full_day_epoch_bound_requires_no_invented_active_sample_count():
+    p = payload()
+    baseline = replay(p, config())
+    p['reward_epochs'] = {}
+    bound = replay(p, config(reward_epoch_rule='full_day_upper_bound'))
+    assert bound['reward_accrued'] == baseline['reward_accrued']
+    assert 'missing_reward_epoch' not in bound['reasons']
