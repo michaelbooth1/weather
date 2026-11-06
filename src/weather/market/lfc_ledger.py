@@ -96,14 +96,14 @@ class Ledger:
 
     # ----- construction -------------------------------------------------------------------------------------
     @classmethod
-    def create(cls, path, *, clock, maker_address, budget=LFC.BUDGET_PUSD):
+    def create(cls, path, *, clock, maker_address, budget=LFC.GENESIS_BUDGET_PUSD):
         path = Path(path)
         if path.exists():
             raise LedgerUnavailable('ledger_exists')
-        if _decimal(budget) != LFC.BUDGET_PUSD:
+        if _decimal(budget) != LFC.GENESIS_BUDGET_PUSD:
             raise LedgerUnavailable('ledger_budget_differs')
         path.parent.mkdir(parents=True, exist_ok=True)
-        row = cls._row(0, None, clock, 'genesis', {'budget_pusd': str(LFC.BUDGET_PUSD), 'maker_address': maker_address,
+        row = cls._row(0, None, clock, 'genesis', {'budget_pusd': str(LFC.GENESIS_BUDGET_PUSD), 'maker_address': maker_address,
                                                    'pilot_size': str(LFC.PILOT_SIZE), 'protocol': LFC.PROTOCOL})
         raw = canonical_bytes(row)
         with path.open('xb') as handle:
@@ -123,7 +123,7 @@ class Ledger:
             raise LedgerUnavailable('ledger_missing') from None
         rows = cls._verify(raw)
         genesis = rows[0]
-        if _decimal(genesis['budget_pusd']) != LFC.BUDGET_PUSD:
+        if _decimal(genesis['budget_pusd']) != LFC.GENESIS_BUDGET_PUSD:
             raise LedgerUnavailable('ledger_budget_differs')
         if maker_address is not None and str(genesis['maker_address']).lower() != str(maker_address).lower():
             raise LedgerUnavailable('ledger_account_differs')
@@ -225,31 +225,31 @@ class Ledger:
     def L_resting(self):
         return self.figures()['L_resting']
 
-    def headroom(self, cap=LFC.BUDGET_PUSD):
-        return max(Decimal(0), _decimal(cap) - self.L())
+    def headroom(self, cap=None):
+        return max(Decimal(0), _decimal(LFC.CAP_PUSD if cap is None else cap) - self.L())
 
-    def stop_reason(self, cap=LFC.BUDGET_PUSD):
+    def stop_reason(self, cap=None):
         """Why the campaign has stopped for good (None = not stopped): a mismatch, a halt, or stop-at-100."""
         if self.mismatches:
             return 'l_reconciliation_mismatch'
         if self.halted:
             return 'ledger_halted'
-        if self.L_filled() + LFC.MIN_FEASIBLE_RESERVE > _decimal(cap):
+        if self.L_filled() + LFC.MIN_FEASIBLE_RESERVE > _decimal(LFC.CAP_PUSD if cap is None else cap):
             return 'l_stop_at_cap'
         return None
 
-    def post_gate(self, *, reserve, own_resting=Decimal(0), cap=LFC.BUDGET_PUSD):
+    def post_gate(self, *, reserve, own_resting=Decimal(0), cap=None):
         """Signed gate: L_after_cancel_of_replaced_leg + reserve <= cap (raises LedgerCap).
 
         reserve is size x (p_yes + p_no) of the band being posted or requoted; own_resting is the resting cost of
         that band's own legs still counted in L, which the reserve already covers (a replaced leg is cancelled and
         terminal before its replacement is gated, so it is no longer in L).
         """
-        stopped = self.stop_reason(LFC.BUDGET_PUSD)
+        stopped = self.stop_reason(LFC.CAP_PUSD)
         if stopped:
             raise LedgerCap(stopped)
         base = self.L() - _decimal(own_resting)
-        if base + _decimal(reserve) > _decimal(cap):
+        if base + _decimal(reserve) > _decimal(LFC.CAP_PUSD if cap is None else cap):
             raise LedgerCap('l_budget_refused')
         return base
 
@@ -303,7 +303,7 @@ class Ledger:
         figures = self.figures()
         return {'schema_version': SNAPSHOT_SCHEMA, 'kind': 'lfc_l_ledger', 'history_file': self.path.name,
                 'history_rows': len(self.rows), 'history_last_sha256': self.previous,
-                'recorded_at_utc': self.rows[-1]['recorded_at_utc'], 'budget_pusd': str(LFC.BUDGET_PUSD),
+                'recorded_at_utc': self.rows[-1]['recorded_at_utc'], 'budget_pusd': str(LFC.CAP_PUSD),
                 **{k: str(v) for k, v in figures.items()}, 'halted': self.halted,
                 'mismatches': len(self.mismatches), 'stop_reason': self.stop_reason(),
                 'our_order_ids': sorted(self.by_order),

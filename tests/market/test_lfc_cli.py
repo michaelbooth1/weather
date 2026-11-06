@@ -98,6 +98,17 @@ def gates(ledger, tmp_path, *, now=NOW, profile=None, open_orders=(), positions=
                        open_orders=list(open_orders), positions=list(positions))
 
 
+def test_cap_must_cover_committed_l(tmp_path, monkeypatch):
+    ledger = ledger_with_baselines(tmp_path)
+    pass_all_session0(ledger, tmp_path)
+    ledger.record('session_start', session_id='committed', counted=True)
+    ledger.intent(session_id='committed', intent_key='committed:0', token_id='t', condition_id='c',
+                  price='.5', size='20', fee_rate_bps='0')
+    for cap, refused in (('10', False), ('9.99', True), ('300', False)):
+        monkeypatch.setattr(LFC, 'CAP_PUSD', Decimal(cap))
+        assert ('cap_below_committed_l' in gates(ledger, tmp_path)) is refused
+
+
 def counted(ledger, sid, *, local_date, matched='0'):
     ledger.record('session_start', session_id=sid, counted=True, owner_local_date=local_date)
     ledger.intent(session_id=sid, intent_key=sid + ':1', token_id='1', condition_id='c', price='.5', size='1',

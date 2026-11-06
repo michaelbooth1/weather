@@ -281,6 +281,8 @@ def session0_passed(ledger, *, root):
 def start_gates(*, ledger, now, profile, root, maker_address, open_orders, positions):
     """Every refusal that must hold before selection; an empty list means the session may proceed."""
     refusals = list(start_refusals(now, session0=profile.session0, seconds=profile.seconds))
+    if LFC.CAP_PUSD < ledger.L():
+        refusals.append('cap_below_committed_l')
     stopped = ledger.stop_reason()
     if stopped:
         refusals.append(stopped)
@@ -541,7 +543,7 @@ def confirmation(table, guard, *, profile, ledger, reader=input):
     guard.print({'condition': selected['condition_id'], 'event_slug': selected.get('event_slug'),
                  'quote': selected['quote'], 'selection_sha256': digest(table), 'size': selected['quote']['size'],
                  'session0': profile.session0, 'run': profile.run, 'minutes': profile.seconds // 60,
-                 **{k: str(v) for k, v in ledger.figures().items()}, 'budget_pusd': str(LFC.BUDGET_PUSD),
+                 **{k: str(v) for k, v in ledger.figures().items()}, 'budget_pusd': str(LFC.CAP_PUSD),
                  'available_collateral': table.get('available_collateral')})
     guard.print('Unattended after this phrase: every hard limit cancels all orders on the account and reconciles; '
                 'the exchange dead-man cancels everything if this process hangs or dies. Leave no other order.')

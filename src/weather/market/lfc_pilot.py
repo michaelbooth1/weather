@@ -233,7 +233,7 @@ def session0_candidate(candidate, *, now, excluded_conditions, held_conditions, 
         row['depth_within_3c'] = str(depth)
         quote = session0_quote(snapshot, size=max(sizes))
         row['quote'] = quote
-        if number(ledger['L']) + number(quote['reserve_pusd']) > LFC.BUDGET_PUSD:
+        if number(ledger['L']) + number(quote['reserve_pusd']) > LFC.CAP_PUSD:
             raise QuoteRefused('l_budget_refused')
         row['eligible'] = True
     except (QuoteRefused, ValueError, KeyError, TypeError) as exc:
@@ -409,7 +409,7 @@ class PilotSession(Session):
     PROTOCOL = LFC.PROTOCOL
     MAX_SESSIONS = LFC.MAX_SESSIONS
 
-    def __init__(self, *, ledger, session_id, profile, root=None, exclusion=None, cap=LFC.BUDGET_PUSD,
+    def __init__(self, *, ledger, session_id, profile, root=None, exclusion=None, cap=LFC.CAP_PUSD,
                  baselines=None, **kwargs):
         # Hooks run inside Session.__init__, so campaign state is set first.
         self.ledger, self.session_id, self.profile = ledger, session_id, profile
@@ -450,7 +450,7 @@ class PilotSession(Session):
             self.venue.trades_after = str(int(utc(ledger.rows[0]['recorded_at_utc']).timestamp()))
             self.venue.trades_seconds = LFC.TRADE_READ_SECONDS
         self.scope.update(session_id=session_id, session0=profile.session0, session0_run=profile.run,
-                          pilot_size=str(profile.size), budget_pusd=str(LFC.BUDGET_PUSD))
+                          pilot_size=str(profile.size), budget_pusd=str(LFC.CAP_PUSD))
 
     # profile hooks ------------------------------------------------------------------------------------------
     def session_seconds(self, realtime_rehearsal):

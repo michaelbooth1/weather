@@ -24,6 +24,28 @@ MAKER = '0x' + 'a' * 40
 NOW = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
 
 
+def test_genesis_identity_independent_of_cap(tmp_path, monkeypatch):
+    ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: NOW, maker_address=MAKER)
+    original = ledger.path.read_bytes()
+    monkeypatch.setattr(LFC, 'CAP_PUSD', Decimal('300'))
+    reopened = Ledger.open(ledger.path, clock=lambda: NOW, maker_address=MAKER)
+    assert reopened.rows[0]['budget_pusd'] == '100'
+    assert reopened.path.read_bytes() == original
+    assert reopened.headroom() == Decimal('300')
+    assert reopened.post_gate(reserve='200') == 0
+    with pytest.raises(LedgerUnavailable, match='ledger_budget_differs'):
+        Ledger.create(tmp_path / 'wrong.jsonl', clock=lambda: NOW, maker_address=MAKER, budget='300')
+
+
+def test_second_stale_writer_refused(tmp_path):
+    first = Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: NOW, maker_address=MAKER)
+    second = Ledger.open(first.path, clock=lambda: NOW)
+    first.record('session_start', session_id='one', counted=True)
+    with pytest.raises(LedgerUnavailable, match='ledger_changed_underneath'):
+        second.record('session_start', session_id='two', counted=True)
+    assert list(Ledger.open(first.path, clock=lambda: NOW).sessions) == ['one']
+
+
 class Clock:
     def __init__(self):
         self.value = NOW

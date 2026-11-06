@@ -85,7 +85,7 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
                 quote = (sized_quote(band['snapshot'], available_collateral) if treatment is None else
                          pilot_quote(band['snapshot'], size=LFC.PILOT_SIZE, l_total=ledger['L'],
                                      l_resting=ledger['L_resting'], available_collateral=available_collateral,
-                                     budget=LFC.BUDGET_PUSD, share_range=LFC.SHARE_MANY_RANGE,
+                                     budget=LFC.CAP_PUSD, share_range=LFC.SHARE_MANY_RANGE,
                                      leg_range=(LFC.PER_LEG_PRICE_FLOOR, LFC.PER_LEG_PRICE_CEILING)))
                 # Clarification E: a leg costing more than the 15.80 order cap (a .80 leg at 20 = 16.00) would end
                 # the session on capital_cap at submit, after session_start; refuse it here. LFC only; RE-1 unchanged.
