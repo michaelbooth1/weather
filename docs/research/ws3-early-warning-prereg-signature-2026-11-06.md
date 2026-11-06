@@ -137,3 +137,46 @@ recorded line counts and file shas only. No field value or price was read.
   module then refuses.
 - The pinned module, the command line (Amendment 1) and every other prereg rule are unchanged. Given the scan, the
   rule is expected to drop 0 read-window lines; the receipt records the actual count.
+
+### Step 4 projection result (2026-11-06; append-only)
+
+Run through `workstation_heavy.ps1 -Kind research_script` from the allowlist head `35994a052`. Script
+`ws3_projection_v2.py` sha256 `2bc440dabd40716bb28561a94da56fd9d2634ba1072e4ce51b2689712db9bfba`. SPEC
+`1e3ca6ed0741dfabcee2806e99d6d83b19e7886362c59330c7a5c59637dc16dd`. Pinned module `aaf60a43…` at `edc11c56b`.
+
+- **Receipt:** `C:\t\ws3\projection\receipt.json`, sha256
+  `eae74af8be008b647197abeea5bee3ae6f4fb1cd0cb4d56d5a12b675ca1f591b`. Its top-level `projected` is what the read's
+  `--projection-receipt` copies.
+- **Dev dates:** 43 run, 08-15..09-29 minus 08-16, 09-01 and 09-02 (no layout vectors). The first run, which stopped
+  at 09-03, is kept as evidence in `inputs\` and `run\`.
+- **Stop counters, summed over the 43 runs:** `unmatched_vector_bands_total` 0, `winner_unmatched_total` 0,
+  `label_collision_events` 0, `unusable_vector_bands_total` 0, `no_venue_winner_total` 0, `book_time_missing` 0.
+  `book_rows_unusable` is 918; the module counts these and does not refuse.
+- **Book filter (`d8008f72…`):** 430 files, 7 lines dropped, all on 09-03 (atlanta L6976, austin L1432, chicago
+  L1718, dallas L1432, houston L1432, miami L6756, nyc L6712).
+- **as_served:** true. The captured `model_probability` (09-25..09-29) was compared with the v3layout `p_served`
+  on 98,472 rows; maximum absolute difference 0.0.
+- **Realised dev population:** 43 countable dates and 430 countable market-days in each arm. MG-2: 1,278 fills,
+  11,638.92 filled shares. Served: 1,287 fills, 12,062.70 filled shares.
+
+| Per arm | MG-2 | served |
+| --- | --- | --- |
+| M, pUSD per market-day | −0.5410 | −1.2296 |
+| SD per market-day (rule 19) | 6.7261 | 5.4189 |
+| κ, variance units (rule 20) | 0.8448 | 1.2473 |
+| Filled shares per countable market-day | 27.067 | 28.053 |
+| Y_edge = −0.05 × filled shares per market-day | −1.3534 | −1.4026 |
+| At −5 c per share (the edge): P(KILL) / P(UNTESTABLE) / P(NOT_KILLED) | 0.708 / 0.000 / 0.292 | 0.743 / 0.000 / 0.257 |
+| Median U at the edge | −0.3119 | −0.4266 |
+| At −2.25 c per share (descriptive): P(KILL) / P(UNTESTABLE) / P(NOT_KILLED) | 0.209 / 0.000 / 0.791 | 0.307 / 0.000 / 0.693 |
+
+- **Monte Carlo:** 1,000 draws with seed 20261106. Each draw resamples 15 dates and drops Austin in slot 3. The mean
+  realised population per draw is 15.0 dates and 149.0 market-days, with about 443 fills (MG-2) and 446 (served).
+  The rule 16 floors are met in every draw.
+- **Gate ruling (master, 11:3x ET 2026-11-06):** the power gate PASSES (MG-2 P(KILL) at the edge is 0.708 ≥ 0.5),
+  and step 5 is open under master's conditions. Those are: all 16 MG-2 bundles for 09-29..10-14 verified, with an
+  unverified date non-countable and never imputed; one reviewed read-input build script; and step 6 as the exact
+  Amendment 1 command, run once.
+- **Descriptive dev read, not a trial result, not for the digest:** the dev net per filled share is −2.00 c for MG-2
+  and −4.38 c for served. These come from dev dates that were already counted in the reuse ledger (row 120). They
+  decide nothing and are not evidence for or against an edge.
