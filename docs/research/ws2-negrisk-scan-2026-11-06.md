@@ -78,3 +78,9 @@ Pre-scan pins: script SHA-256 `f6db2b96e3b662d6ca8212ffa4ced3b2a8b8f4066d6a06b65
 The canonical wrapper was attempted and refused before heavy admission: `research script has no single allowlist entry: C:\t\codex\T003\out\scan.py` (exit 1). No book payload was scanned. This is a repository workload-gate refusal, not an automatic approval-review rejection.
 
 Publication blocker: HTTPS branch pushes fail because this session has no usable GitHub credentials; a per-command GitHub CLI credential-helper retry also failed. SSH with BatchMode and strict host-key verification refused because GitHub's host key is not already trusted. No credential file was opened or changed, no signing/hook was bypassed, and no host-trust setting was changed. An offline Git bundle of the task commits is retained in `out\T003.bundle` for handoff. The branch remains local until authenticated push is available.
+
+## B002 continuation
+
+The master changed publication to local commits plus verified Git bundles; failed pushes are historical evidence, not an outstanding publishing requirement. No further push or credential changes will be attempted. `HOLD_HEAVY` is present, so no heavy invocation has started. Polling continues as instructed.
+
+A standard-library streaming replacement, `out\scan_stream_v2.py`, processes one capture group at a time and streams its aggregation. Its expanded synthetic controls pass; observed peak working set was below 24 MiB. Script SHA-256: `07bcbe488540b2687c292562eae9bc5a4ff456ff180da294c17e126629f3cf78`. `out\proposed_stream_allowlist_entry.txt` contains its exact pin for review. The old script and receipt remain archived; neither script has scanned real book payloads. The B002 rule supplement describes the compact output and optimized-route fee bounds.
