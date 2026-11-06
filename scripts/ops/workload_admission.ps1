@@ -685,6 +685,12 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
             sha256 = 'd23980b5123761ef0cfe46afa60274063aee66c84eb58169a55cb283a847f61d'
         }
+        # T002 dev-only maker study; staged for master review under COMMON.md.
+        # This entry alone is not GO; HOLD_HEAVY and resource admission still bind.
+        @{
+            path = 'C:\t\codex\T002\out\study_stream_v2.py'
+            sha256 = 'e200b0c91f059fb3adf0aeb32d74ac09e8b99b3523dbccd2ef1dddefad8ee772'
+        }
     )
 }
 
