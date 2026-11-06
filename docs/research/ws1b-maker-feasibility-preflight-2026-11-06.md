@@ -116,6 +116,13 @@ polling master. There is no supported city growth ranking. First use pilot
 receipts to calibrate rewards, fills and markouts, then rank designs; do not
 substitute the old passive-selection reward estimates.
 
+The branch push also failed: Git could not obtain a GitHub username in the
+noninteractive executor, and `gh auth status` reported the existing account's
+authentication invalid. No credential or token was opened or printed, and no
+login or machine configuration was changed. The local commit is retained; a
+prerequisite-bound Git bundle in the output archive provides a handback path
+for the master. The branch has not been published or merged.
+
 ## Receipts
 
 The workstation-only archive is `C:\t\codex\T002\out\`. It contains the
