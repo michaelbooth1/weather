@@ -685,6 +685,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
             sha256 = 'd23980b5123761ef0cfe46afa60274063aee66c84eb58169a55cb283a847f61d'
         }
+        # WS-3 step 4 dev projection; master 2026-11-06.
+        @{
+            path = 'C:\t\ws3\projection\scripts\ws3_projection.py'
+            sha256 = '9edf93c173d4978cf4a00420d038ff69fecb63034fec9fa2feec3051b5946740'
+        }
     )
 }
 
