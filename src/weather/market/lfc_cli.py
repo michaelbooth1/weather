@@ -575,12 +575,15 @@ def run_baseline(label):
     try:
         root = pilot_root()
         ledger = Ledger.open(ledger_path(root), clock=_now, maker_address=fields['FUNDER_ADDRESS'])
+        counts = {}
+        positions = fetch_account_positions(fields['FUNDER_ADDRESS'], status_counts=counts)
         baseline = take_baseline(label=label, now=_now(), maker_address=fields['FUNDER_ADDRESS'],
-                                 positions=fetch_account_positions(fields['FUNDER_ADDRESS']),
-                                 open_orders=venue.open_orders(),
-                                 available_collateral=venue.balances()['available_collateral'])
+                                 positions=positions, open_orders=venue.open_orders(),
+                                 available_collateral=venue.balances()['available_collateral'],
+                                 position_status_counts=counts)
         name, sha = write_baseline(root, baseline, ledger)
         guard.print({'baseline': name, 'sha256': sha, 'positions': len(baseline['positions']),
+                     'position_status_counts': counts,
                      'open_orders': len(baseline['open_order_ids']), 'status': 'PASS'
                      if not baseline['open_order_ids'] else 'FAIL_FOREIGN_OPEN_ORDERS'})
         return 0 if not baseline['open_order_ids'] else 1

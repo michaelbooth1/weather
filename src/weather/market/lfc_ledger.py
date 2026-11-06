@@ -46,7 +46,12 @@ BASELINE_SCHEMA = 'lfc_baseline_v0.1'
 SNAPSHOT_SCHEMA = 'lfc_l_ledger_v0.1'
 LEDGER_FILE = 'ledger.jsonl'
 SNAPSHOT_FILE = 'l_ledger.json'
-POSITIONS_URL = 'https://data-api.polymarket.com/positions'
+# Data API v1 was retired by the venue on 2026-11-02 (HTTP 410 from 22:30Z). v2 (F0, master ruling 2026-11-06):
+# OPEN is the superset of held positions (it includes settled-but-unredeemed winners); REDEEMABLE_LOST is listed
+# separately. The 0 token floor replaces v1 sizeThreshold=0 (the v2 default drops holdings under 0.1 share).
+POSITIONS_URL = 'https://data-api.polymarket.com/v2/positions'
+POSITIONS_STATUSES = ('OPEN', 'REDEEMABLE_LOST')
+POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filter_amount': '0'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
            'halt', 'mismatch'}
 
@@ -410,27 +415,78 @@ def ledger_path(root):
 
 
 # ----- wallet baselines -----------------------------------------------------------------------------------------
-def fetch_account_positions(maker_address, *, opener=None, timeout=5, page_size=500, max_pages=20):
-    """Account-wide public current positions (no credential). Raises on any incomplete read."""
-    rows = []
-    for page in range(max_pages):
-        query = urlencode({'user': maker_address, 'sizeThreshold': 0, 'limit': page_size, 'offset': page * page_size})
-        response = (opener or urlopen)(Request(POSITIONS_URL + '?' + query, headers={
-            'Accept': 'application/json', 'User-Agent': 'weather-lfc-baseline/1'}), timeout=timeout)
-        try:
-            status = getattr(response, 'status', 200)
-            raw = response.read(5_000_001)
-        finally:
-            response.close()
-        if status != 200 or len(raw) > 5_000_000:
-            raise RuntimeError('positions_unreadable')
-        payload = json.loads(raw)
-        if not isinstance(payload, list):
-            raise RuntimeError('positions_unreadable')
-        rows.extend(payload)
-        if len(payload) < page_size:
-            return rows
-    raise RuntimeError('positions_page_budget')
+def _positions_page(query, *, opener, timeout):
+    response = (opener or urlopen)(Request(POSITIONS_URL + '?' + urlencode(query), headers={
+        'Accept': 'application/json', 'User-Agent': 'weather-lfc-baseline/2'}), timeout=timeout)
+    try:
+        status = getattr(response, 'status', 200)
+        raw = response.read(5_000_001)
+    finally:
+        response.close()
+    if status != 200 or len(raw) > 5_000_000:
+        raise RuntimeError('positions_unreadable')
+    try:
+        payload = json.loads(raw, parse_float=Decimal)
+    except ValueError:
+        raise RuntimeError('positions_unreadable') from None
+    if (not isinstance(payload, dict) or not isinstance(payload.get('data'), list)
+            or not isinstance(payload.get('pagination'), dict)):
+        raise RuntimeError('positions_unreadable')
+    cursor = payload['pagination'].get('next_cursor')
+    if cursor is not None and not isinstance(cursor, str):
+        raise RuntimeError('positions_unreadable')
+    return payload['data'], cursor or None
+
+
+def _position_row(row, maker_address, status):
+    """One v2 row in the v1 shape every caller reads (asset, size, conditionId). Never defaults a missing size."""
+    if not isinstance(row, dict):
+        raise RuntimeError('positions_unreadable')
+    token, condition, size = row.get('token_id'), row.get('condition_id'), row.get('current_size')
+    if (str(row.get('proxy_wallet', '')).lower() != str(maker_address).lower()
+            or not isinstance(token, str) or not token.isdigit() or not isinstance(condition, str) or not condition
+            or size is None or isinstance(size, bool)):
+        raise RuntimeError('positions_unreadable')
+    try:
+        amount = _decimal(size)
+    except QuoteRefused:
+        raise RuntimeError('positions_unreadable') from None
+    if amount < 0:
+        raise RuntimeError('positions_unreadable')
+    return {'asset': token, 'size': str(amount), 'conditionId': condition, 'status': str(row.get('status', '')),
+            'requested_status': status}
+
+
+def fetch_account_positions(maker_address, *, opener=None, timeout=5, page_size=100, max_pages=20,
+                            status_counts=None):
+    """Account-wide public current positions from Data API v2 (no credential). Raises on any incomplete read.
+
+    Walks every status in POSITIONS_STATUSES by cursor until next_cursor is null, de-duplicates on token_id and
+    refuses (positions_conflict) when one token carries two different sizes. ``status_counts``, when a dict, is
+    filled with the row count per requested status for the baseline evidence.
+    """
+    merged, counts = {}, {}
+    for status in POSITIONS_STATUSES:
+        counts[status], cursor = 0, None
+        for _ in range(max_pages):
+            query = {'user': maker_address, **POSITIONS_FILTERS}
+            query.update({'cursor': cursor} if cursor else {'status': status, 'limit': page_size})
+            page, cursor = _positions_page(query, opener=opener, timeout=timeout)
+            for raw in page:
+                row = _position_row(raw, maker_address, status)
+                counts[status] += 1
+                seen = merged.get(row['asset'])
+                if seen is None:
+                    merged[row['asset']] = row
+                elif Decimal(seen['size']) != Decimal(row['size']):
+                    raise RuntimeError('positions_conflict')
+            if cursor is None:
+                break
+        else:
+            raise RuntimeError('positions_page_budget')
+    if status_counts is not None:
+        status_counts.update(counts)
+    return [merged[token] for token in sorted(merged)]
 
 
 def normalize_positions(rows):
@@ -457,10 +513,14 @@ def position_conditions(rows):
     return sorted(held)
 
 
-def take_baseline(*, label, now, maker_address, positions, open_orders, available_collateral):
+def take_baseline(*, label, now, maker_address, positions, open_orders, available_collateral,
+                  position_status_counts=None):
     if label not in {'t24', 't40'}:
         raise ValueError('baseline_label')
-    return {'schema_version': BASELINE_SCHEMA, 'kind': 'lfc_baseline', 'label': label, 'at_utc': utc(now).isoformat(),
+    extra = {} if position_status_counts is None else {
+        'positions_source': POSITIONS_URL, 'position_status_counts': dict(sorted(position_status_counts.items()))}
+    return {**extra, 'schema_version': BASELINE_SCHEMA, 'kind': 'lfc_baseline', 'label': label,
+            'at_utc': utc(now).isoformat(),
             'maker_address': maker_address, 'positions': normalize_positions(positions),
             'position_conditions': position_conditions(positions),
             'open_order_ids': sorted(str(r.get('id') or r.get('order_id') or '') for r in open_orders),
