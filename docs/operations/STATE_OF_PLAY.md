@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-06 America/Toronto (night 11-05/06: 343b and C10 LANDED, origin/master `4f01448e6`, torn-journal Stage 2 registered (master); owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
+**Last updated: 2026-11-06 America/Toronto (owner 11-06 ~13:07: maker pilot session 1 targeted MON 11-09, budget $300, top priority; night 11-05/06: 343b and C10 LANDED, origin/master `4f01448e6`, torn-journal Stage 2 registered (master); owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -17,8 +17,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Headline
 
-- **Free public data looks already priced:** every free source scored on dev is null or harmful ([register](EXHAUSTION_REGISTER.md) §6 X44-X103).
-- **The model adds nothing against the market yet:** MG-1 w ≈ 0.008 (EF §10ad); gap about 1.5 out of sample (EF §10ao); no strong lever left.
+- **Free public data looks already priced:** every free source scored on dev is null or harmful ([register](EXHAUSTION_REGISTER.md) §6 X44-X103). **The model adds nothing against the market yet:** MG-1 w ≈ 0.008 (EF §10ad); gap about 1.5 out of sample (EF §10ao); no strong lever left.
 
 ## Current authority
 
@@ -71,6 +70,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Ordered critical path
 
+0. **Maker pilot (LFC) session 1, MON 2026-11-09** (owner 11-06 ~13:07, DL; supersedes the 10-30 postponement): budget $300, needs both money yeses, a new pin, pregate PASS, signed Clarification F and the t24 baseline; gap list with master.
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
 2. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72 and F8-MH accrue blind; L6_G emitting (first emission vectors d1e09134, runs.jsonl 6842d139).
 3. **MG-1 look after 11-28**, then B 12-13; **PT-1 NOT RUNNABLE** (R21, rules 4/6; claims no date; [receipt](../research/pt1-not-runnable-2026-11-03/receipt.md), [erratum-1](../research/pt1-not-runnable-2026-11-03/erratum-1.md) `c29eee7a…`, verdict unchanged); F8-MH >= 01-27.
