@@ -24,6 +24,10 @@ The engine takes a bounded session export with:
   `token_ids`, `event_date`, `native_unit`, captured `tick`/`min_order_size` and
   complete `coverage_start`/`coverage_end`. Cash units are pUSD; shares and prices
   are decimal strings. Temperature units are retained, never converted.
+- `account_scope_complete=true`: the export covers the account-day incentive
+  scope. Optional `external_incentives` rows declare captured, complete other
+  reward/rebate accruals and source hashes. These affect only the account's
+  payment threshold; they are never credited as this strategy's income.
 - `events`: full two-token `book` snapshots at availability time; captured `terms`
   with `rate_per_day`, `min_size`, `max_spread_cents`, `valid_until` and source
   hash; `trade` rows with stable execution ID, native outcome, aggressor, price,
@@ -135,6 +139,14 @@ reward day), `journal_pin`, `journal_sha256`, and:
   account/session identity, complete attributed order fills, reward/rebate/
   redemption credits and an empty unattributed-cashflow list. It must agree
   with CLOB fills and the cash identity. Ending snapshot follows D+2 evidence.
+  `other_attributed_cashflows` may contain independently sourced signed amounts
+  from other sessions, each with a unique ID, other session ID and source hash;
+  these reconcile whole-wallet cash without becoming this session's income.
+- `lfc_ledger`: the pin's actual `Ledger.snapshot()` JSON, including history tail,
+  cost figures and terminal legs. The reader independently checks L_filled,
+  L_resting, L, session/order/token/price identities and matched quantities
+  against the journal and CLOB fills. This cap ledger is not a cash balance;
+  retain its verified history alongside the snapshot and wallet cash evidence.
 - `rewards`: exact-scope D+1 and D+2 completed venue reads with source hashes,
   reward day, account/session/condition identity, paid amount and an explicit
   assertion that this session exclusively owns the attributed scope. Shared

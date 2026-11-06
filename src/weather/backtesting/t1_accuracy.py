@@ -13,11 +13,13 @@ import hashlib
 import json
 
 from weather.backtesting.t1_simulator import replay
-from weather.backtesting.t1_types import ZERO, canonical, decimal_context, digest, levels, number, utc
+from weather.backtesting.t1_types import (ONE, ZERO, canonical, decimal_context, digest, levels,
+                                         number, source_hash, utc)
 
 LFC_PIN = '124603578'
 # Wire identifier from schema_registry_data.py at LFC_PIN; do not import live code.
 PIN_JOURNAL_VERSION = 'mm_stage2_hold_v0.1'
+PIN_LEDGER_VERSION = 'lfc_l_ledger_v0.1'
 
 
 def clob_time(value):
@@ -230,6 +232,46 @@ def observed_markouts(fills, events, config):
     return {oid: total / size for oid, (total, size) in values.items()}
 
 
+def ledger_snapshot_fills(snapshot, known, tokens, *, session_id, minimum_at, epsilon):
+    """Read pin Ledger.snapshot() directly; its L is cost-at-risk, not wallet cash."""
+    if (snapshot['schema_version'] != PIN_LEDGER_VERSION or snapshot['kind'] != 'lfc_l_ledger'
+            or snapshot['mismatches'] != 0 or snapshot['history_rows'] < 1
+            or utc(snapshot['recorded_at_utc']) < utc(minimum_at)):
+        raise ValueError('incomplete pinned ledger snapshot')
+    source_hash(snapshot['history_last_sha256'])
+    filled_cost, resting_cost, quantities, seen = ZERO, ZERO, {}, set()
+    for leg in snapshot['legs']:
+        p, size = number(leg['price'], maximum=ONE), number(leg['size'])
+        matched = number(leg['size_matched'], maximum=size)
+        if leg['status'] == 'terminal':
+            filled_cost += p * matched
+        elif leg['status'] in ('intent', 'open'):
+            resting_cost += p * size
+        else:
+            raise ValueError('unknown pinned ledger leg status')
+        oid = leg['order_id']
+        if oid is not None:
+            if oid in seen:
+                raise ValueError('duplicate pinned ledger order')
+            seen.add(oid)
+        if leg['session_id'] != session_id:
+            if oid in known:
+                raise ValueError('foreign ledger session for own order')
+            continue
+        command = known.get(oid)
+        if (command is None or leg['status'] != 'terminal' or leg['condition_id'] != command['condition_id']
+                or leg['token_id'] != tokens[0 if command['outcome'] == 'YES' else 1]
+                or p != number(command['price']) or size != number(command['size'])):
+            raise ValueError('pinned ledger leg does not match journal')
+        quantities[oid] = matched
+    if set(quantities) != set(known) or set(snapshot['our_order_ids']) != seen:
+        raise ValueError('pinned ledger order identities incomplete')
+    for key, expected in (('L_filled', filled_cost), ('L_resting', resting_cost), ('L', filled_cost + resting_cost)):
+        if abs(number(snapshot[key]) - expected) > epsilon:
+            raise ValueError('pinned ledger cost identity fails')
+    return quantities
+
+
 def compare(predicted, actual, absolute, relative=ZERO):
     error = abs(predicted - actual)
     limit = max(number(absolute), number(relative) * abs(actual))
@@ -273,6 +315,13 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
     eps = number(tolerance.receipt_reconciliation_absolute)
     if any(abs(actual_sizes[oid] - wallet_sizes[oid]) > eps for oid in set(actual_sizes) | set(wallet_sizes)):
         raise ValueError('wallet and CLOB fills disagree')
+    ledger_sizes = ledger_snapshot_fills(receipts['lfc_ledger'], known, rows[0]['scope']['token_ids'],
+                                         session_id=scope['session_id'],
+                                         minimum_at=max((f['at'] for f in fills),
+                                                        default=utc(rows[0]['recorded_at_utc'])),
+                                         epsilon=eps)
+    if any(abs(ledger_sizes[oid] - actual_sizes[oid]) > eps for oid in known):
+        raise ValueError('pinned ledger and CLOB fills disagree')
     reward_reads = receipts['rewards']
     if len(reward_reads) != 2:
         raise ValueError('both D+1 and D+2 rewards required')
@@ -290,8 +339,15 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
             or abs(number(wallet['reward_credit']) - actual_reward) > eps):
         raise ValueError('reward reads or wallet credit disagree')
     cost = sum((f['size'] * f['price'] for f in fills), ZERO)
+    outside_cash, cash_ids = ZERO, set()
+    for flow in wallet['other_attributed_cashflows']:
+        if not flow['id'] or flow['id'] in cash_ids or flow['session_id'] == scope['session_id']:
+            raise ValueError('invalid external wallet cashflow identity')
+        source_hash(flow['source_sha256'])
+        cash_ids.add(flow['id'])
+        outside_cash += number(flow['amount'], minimum=None)
     expected_end_cash = (number(wallet['start_cash']) - cost + actual_reward + number(wallet['rebate_credit'])
-                         + number(wallet['redemption_credit']))
+                         + number(wallet['redemption_credit']) + outside_cash)
     if abs(number(wallet['end_cash']) - expected_end_cash) > eps:
         raise ValueError('wallet cash identity fails')
     predicted_sizes = defaultdict(lambda: ZERO)

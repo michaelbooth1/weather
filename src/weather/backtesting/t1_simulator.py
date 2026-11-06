@@ -70,6 +70,15 @@ def replay(payload, config: ReplayConfig):
     rewarded_seconds = defaultdict(lambda: ZERO)
     spent, payouts, rebate_weight = ZERO, ZERO, defaultdict(lambda: ZERO)
     reasons, rejected, settled = set(), [], set()
+    if payload.get('account_scope_complete') is not True:
+        reasons.add('incomplete_account_incentive_scope')
+    external = payload.get('external_incentives', {})
+    for row in external.values():
+        if row['complete'] is not True:
+            raise ValueError('incomplete external account incentives')
+        source_hash(row['source_sha256'])
+        number(row['reward_accrued'])
+        number(row['rebate_accrued'])
     schedule = []
     midnight = (start + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     while midnight < end:
@@ -308,12 +317,14 @@ def replay(payload, config: ReplayConfig):
             raise ValueError('invalid rebate denominator')
         daily_rebate = number(config.rebate_fraction) * fees * weight / denominator
         rebates += daily_rebate
-        rebate_paid += daily_rebate if daily_rebate >= ONE else ZERO
+        outside_rebate = number(external.get(day, {}).get('rebate_accrued', '0'))
+        rebate_paid += daily_rebate if daily_rebate + outside_rebate >= ONE else ZERO
     reward_total = sum(rewards.values(), ZERO)
     daily_rewards = defaultdict(lambda: ZERO)
     for (_, day), amount in rewards.items():
         daily_rewards[day] += amount
-    reward_paid = sum((r for r in daily_rewards.values() if r >= ONE), ZERO)
+    reward_paid = sum((r for day, r in daily_rewards.items()
+                       if r + number(external.get(day, {}).get('reward_accrued', '0')) >= ONE), ZERO)
     raw_pnl = payouts - spent + reward_paid + rebate_paid
     stress = number(config.informed_fraction) * payouts
     references_complete = all(r['entry_mid'] is not None for r in fills)
@@ -324,7 +335,7 @@ def replay(payload, config: ReplayConfig):
             'source_hashes': sorted({e['source_sha256'] for e in payload['events']}
                                     | {p['source_sha256'] for p in payload.get('rebate_pools', {}).values()}
                                     | {p['source_sha256'] for day in payload.get('reward_epochs', {}).values()
-                                       for p in day.values()}),
+                                       for p in day.values()} | {p['source_sha256'] for p in external.values()}),
             'rewards': [{'condition_id': cid, 'day': day, 'accrued': amount}
                         for (cid, day), amount in sorted(rewards.items())],
             'reward_accrued': reward_total, 'rebate_accrued': rebates,

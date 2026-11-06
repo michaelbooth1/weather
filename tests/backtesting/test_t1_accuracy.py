@@ -64,6 +64,7 @@ def test_pin_hash_chain_and_completion_required(mutation):
     ('pages', 'pagination'), ('wallet', 'wallet and CLOB'), ('reward', 'wallet credit'),
     ('cash', 'cash identity'), ('scope', 'scope mismatch'), ('exclusive', 'unattributed'),
     ('maturity', 'immature'), ('token', 'token mismatch'),
+    ('ledger_quantity', 'ledger and CLOB'), ('ledger_cost', 'ledger cost identity'),
 ])
 def test_independent_receipt_refusals(mutation, reason):
     raw = journal_bytes()
@@ -82,6 +83,11 @@ def test_independent_receipt_refusals(mutation, reason):
         receipt['rewards'][0]['session_exclusive'] = False
     elif mutation == 'maturity':
         receipt['rewards'][1]['as_of_utc'] = at(7)
+    elif mutation == 'ledger_quantity':
+        receipt['lfc_ledger']['legs'][0]['size_matched'] = '9'
+        receipt['lfc_ledger']['L'] = receipt['lfc_ledger']['L_filled'] = '4.41'
+    elif mutation == 'ledger_cost':
+        receipt['lfc_ledger']['L_filled'] = '0'
     else:
         receipt['clob']['rows'][0]['maker_orders'][0]['asset_id'] = 'no1'
     with pytest.raises(ValueError, match=reason):
@@ -153,3 +159,16 @@ def test_pinned_journal_exports_full_end_to_end_latency_samples():
     assert evidence['samples'] == [{'observed_at': at(0), 'decided_at': at(1), 'acknowledged_at': at(2)}]
     assert evidence['sample_count'] == 1
     assert evidence['synthetic'] is True
+
+
+def test_independently_attributed_other_wallet_cashflows_reconcile_but_do_not_change_session_rewards():
+    from decimal import Decimal as D
+
+    raw = journal_bytes()
+    receipt = receipts(raw)
+    receipt['wallet']['other_attributed_cashflows'] = [{'id': 'external-1', 'session_id': 'other-session',
+                                                       'amount': '-2', 'source_sha256': 'b' * 64}]
+    receipt['wallet']['end_cash'] = str(D(receipt['wallet']['end_cash']) - 2)
+    report = accuracy_gate(payload(), config(), raw, receipt, tolerance())
+    assert report['status'] == 'PASS'
+    assert report['rewards']['actual'] == D(receipt['rewards'][1]['paid_reward'])

@@ -30,7 +30,7 @@ def config(**changes):
 
 
 def payload():
-    return {'start': at(0), 'end': at(306), 'conditions': {'c1': {
+    return {'start': at(0), 'end': at(306), 'account_scope_complete': True, 'conditions': {'c1': {
         'venue': 'international_polymarket', 'token_ids': ['yes1', 'no1'], 'event_date': '2026-10-12',
         'native_unit': 'C', 'tick': '.01', 'min_order_size': '5',
         'coverage_start': at(0), 'coverage_end': at(306)}},
@@ -85,6 +85,14 @@ def receipts(raw):
     scope = {'condition_id': 'c1', 'account_id': 'synthetic-account', 'session_id': 'synthetic-session',
              'reward_day': '2026-10-12'}
     return {'scope': scope, 'journal_pin': '124603578', 'journal_sha256': hashlib.sha256(raw).hexdigest(),
+            'lfc_ledger': {'schema_version': 'lfc_l_ledger_v0.1', 'kind': 'lfc_l_ledger',
+                           'history_file': 'ledger.jsonl', 'history_rows': 7, 'history_last_sha256': 'a' * 64,
+                           'recorded_at_utc': at(6), 'budget_pusd': '100', 'L': '4.9', 'L_filled': '4.9',
+                           'L_resting': '0', 'halted': False, 'mismatches': 0, 'stop_reason': None,
+                           'our_order_ids': ['o1'], 'legs': [{'session_id': scope['session_id'],
+                               'intent_key': 'synthetic-session:1', 'order_id': 'o1', 'token_id': 'yes1',
+                               'condition_id': 'c1', 'price': '.49', 'size': '10', 'status': 'terminal',
+                               'size_matched': '10'}]},
             'clob': {'endpoint': 'https://clob.polymarket.com/data/trades', 'complete': True,
                      'next_cursor': 'LTE=', 'rows': [
                          {'id': key, 'market': 'c1', 'status': 'CONFIRMED', 'match_time': at(t), 'asset_id': 'yes1',
@@ -93,7 +101,7 @@ def receipts(raw):
                          for key, t in [('actual1', 4), ('actual2', 5)]]},
             'wallet': {'account_id': scope['account_id'], 'session_id': scope['session_id'], 'complete': True,
                        'start_as_of_utc': at(0), 'as_of_utc': '2026-10-14T10:00:00+00:00',
-                       'unattributed_cashflows': [], 'fills': [
+                       'unattributed_cashflows': [], 'other_attributed_cashflows': [], 'fills': [
                            {'order_id': 'o1', 'price': '.49', 'size': '10'}],
                        'start_cash': '100', 'end_cash': str(D('105.1') + reward + rebate),
                        'reward_credit': str(reward), 'rebate_credit': str(rebate), 'redemption_credit': '10'},

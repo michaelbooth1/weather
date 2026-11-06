@@ -24,7 +24,8 @@ def decimal_context(function):
 
 def number(value, *, minimum=ZERO, maximum=None):
     result = D(str(value))
-    if not result.is_finite() or result < minimum or maximum is not None and result > maximum:
+    if (not result.is_finite() or minimum is not None and result < minimum
+            or maximum is not None and result > maximum):
         raise ValueError("invalid numeric input")
     return result
 

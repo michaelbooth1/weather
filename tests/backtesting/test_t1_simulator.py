@@ -236,3 +236,16 @@ def test_reward_epoch_uses_active_sample_normalization_and_requires_complete_den
     report = replay(p, config())
     assert 'missing_reward_epoch' in report['reasons']
     assert report['reward_accrued'] == 0
+
+
+def test_full_account_day_threshold_uses_external_incentives_without_crediting_their_income():
+    p = payload()
+    p['events'][1]['rate_per_day'] = '8640'
+    p['external_incentives'] = {'2026-10-12': {'reward_accrued': '2', 'rebate_accrued': '2',
+                                               'complete': True, 'source_sha256': 'b' * 64}}
+    report = replay(p, config())
+    assert report['reward_payable'] == report['reward_accrued'] < 1
+    assert report['rebate_payable'] == D('.0312375')
+    assert report['raw_net_pnl'] == D('5.1') + report['reward_payable'] + report['rebate_payable']
+    p['account_scope_complete'] = False
+    assert 'incomplete_account_incentive_scope' in replay(p, config())['reasons']

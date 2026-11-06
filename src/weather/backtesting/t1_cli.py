@@ -17,7 +17,10 @@ def source_binding():
     from weather.paths import REPO_ROOT
 
     result = {}
-    for path in sorted(Path(__file__).parent.glob('t1_*.py')):
+    source_dir = REPO_ROOT / 'src' / 'weather' / 'backtesting'
+    if Path(__file__).resolve().parent != source_dir.resolve():
+        raise ValueError('T1 CLI imported outside the bound worktree')
+    for path in sorted(source_dir.glob('t1_*.py')):
         result[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     from maker_core.quoting import book, policy
 
