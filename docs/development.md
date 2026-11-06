@@ -427,6 +427,19 @@ must not resume with `continue`, or a run that was never stopped exits with that
 `SetShouldExit` sets the host's exit code, so it also ends an interactive or line-by-line session that ran
 the script in-process: start these scripts with `powershell.exe -File` or from a fresh shell.
 
+**PowerShell variable names are case-insensitive.** A loop `$d` or `$p` silently overwrites a path `$D`
+or `$P` (2026-11-06: a host re-copy script died twice on this and copied zero rows). Before launching a new
+ops script, scan its AST for case-clashing variable names and run it once in its list-only or plan mode
+(rule: [scripts/ops/AGENTS.md](../scripts/ops/AGENTS.md)).
+
+**Writing scripts from Git Bash collapses backslashes.** On the workstation, a Git Bash heredoc or `sed`
+edit that writes a `.ps1` or `.py` file can turn a UNC prefix `\\host\share` into `\host\share` and a
+Python literal `'\\'` into `'\'` (2026-11-06: two re-copy pulls copied zero files; a verify helper failed to
+parse). Write such files from PowerShell with `[IO.File]::WriteAllText` and a no-BOM `UTF8Encoding`, or
+avoid backslash literals (`chr(92)`, `os.sep`); then read the written line back before launching. The same
+no-BOM rule applies to commit-message files passed to `git commit -F`: Windows PowerShell 5.1
+`Set-Content`/`Out-File -Encoding utf8` prepends a BOM that git keeps in the subject.
+
 ### Affected-test selection
 
 `python -m weather.operations.affected_tests` lists the test files a change can reach through the static

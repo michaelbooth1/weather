@@ -1,0 +1,77 @@
+# WS Claude handover, 2026-11-06
+
+Written by the workstation (WS) Claude coordinator on the 32 GB non-capture PC
+before it goes idle. Codex now owns WS implementation work. This note is a dated
+snapshot; [the state of play](../operations/STATE_OF_PLAY.md) and the
+[decision log](../operations/DECISION_LOG.md) stay the owners of current state
+and decisions.
+
+## Owner instruction recorded here
+
+Owner, in the WS chat, 2026-11-06, verbatim: "Deploy the wallet, include it in
+handover notes". The deploy is done and verified (below).
+
+## In-flight items
+
+| Item | State | Where | Exact refs |
+| --- | --- | --- | --- |
+| LFC F0 positions-v2 fix | FINAL; pregate PASS 15:44 ET; Codex T004 merges it with F2 | branch `claude/lfc-f0-positions-v2-20261106`, worktree `C:\wt\lfc-f0` | head `f531395522d0b0a37495185b2750164008fe586a`; receipt `C:\Users\Michael\Documents\github\weather\data\pregate\pg-f531395522d0-20261106T143255-53296\receipt.json`, sha256 `b363876e36960e5aec3b330cfd900cd309ad2171bed7c8f48f1d08b93cd6dc99` |
+| Locked F0 execution worktree | created and `git worktree lock`ed; G13 client check (b) waits for the owner's config copy | `C:\Users\Michael\Documents\github\weather-lfc-f0-f5313955` | detached at `f5313955`; non-zero token map 147 tokens, sha256 `9b0f7c6e2a167794e9789e3f86193acc2935b0ba8e7a3774258e4cba683cd58b`, equal to the host reader v2.1 read |
+| Wallet reader v2.1 | DEPLOYED by the owner ~15:58 ET; host read PASS 15:59 | branch `claude/wallet-reader-v2-20261106` (`C:\wt\wallet-reader-v2`); live worktree `C:\Users\Michael\Documents\github\weather-wallet-reader-107cafaf` | `107cafaf9aa32f2130cb3beba12a7bee8a75eeba`; task `WeatherWalletReader` S4U, serve `--bind 192.168.1.106 --port 8765 --signature-type 2`; journal `<worktree>\data\wallet_reader\` |
+| Reader rollback | kept, not running | `...\weather-wallet-reader-06bda67e` (v2, cursor bug), `...\weather-wallet-reader-a1014eda` (v1 Data API, now 410) | re-register from either worktree with the same elevated block |
+| Probe evidence | read-only, done | `C:\t\pilot1109\f0\probe-20261106.json` | dust probe: `filter_amount=0` keeps the 0.1-share floor |
+| F2 design | committed on this docs head | [maker-pilot-f2-design-2026-11-06.md](../research/maker-pilot-f2-design-2026-11-06.md) | `1a7edb0a5` |
+| re1_payout_evidence port | handed to Codex T012 | `C:\t\codex\T012*` | off `f5313955` |
+| WS-3 receive | Sat 11-07 AM after master's count, only if it fits by 12:00; otherwise Codex | master decides | none |
+
+Low items, not for Monday (master's v2.1 review): surface
+`zero_size_positions_dropped` in `payload["plan"]`; tidy the F5 code tag and the
+doc line "one per further 500 rows".
+
+## Open decisions (owner's, in the WS chat and the master chat)
+
+1. **Money re-yes for session 1.** It names F0
+   `f531395522d0b0a37495185b2750164008fe586a`, the 10-26 terms (20 shares per
+   leg, one band, Toronto and Denver, $100 L ledger, $25 per day, stop at $50
+   realised; go 11:00 EST, latest legal go 12:50 EST) and the dust deviation
+   (holdings under 0.1 share are invisible to `/v2/positions`, so the closing
+   check cannot see them). Needed in both chats; a relay is not approval.
+2. **G13 config copy.** The owner copies `wallet_reader_client.json` into
+   `C:\Users\Michael\Documents\github\weather-lfc-f0-f5313955\config\local\`.
+   No agent opens it. Then check (b) runs `read_account` summary, positions,
+   trades-since and open-orders, reporting status and shape only.
+3. **Session-1 rewards reads on D+1 and D+2.** The owner reads them, or the WS
+   reads them with the read-only client if the owner says yes in the WS chat
+   (master ruling 9, DL 2026-11-06).
+
+## Owner's steps
+
+- **Sunday 11-08, t24 (about 12:00 EST).** The session-0 runbook's T - 24 h
+  step: `Save-OwnerSnapshot t24`, then `& $python -m weather.market.lfc_cli baseline --label t24`
+  from the locked F0 worktree. It must fall 20-30 h before the go (latest about
+  14:20 EST for an 11:00 Monday go, per master). No reader restart or WS reboot
+  from Sun 11:45 (WS freeze, master ruling 10).
+- **Monday 11-09, console 10:20-11:00 EST.** The T - 40 min step at 10:20:
+  `Save-OwnerSnapshot t40`, `shadow-scope-union`, then `baseline --label t40`
+  and the session-start baseline; first preflight and go at 11:00 EST. Dry run
+  08:15-09:00; end by 17:00. WS freeze Mon 08:00-18:00.
+
+The commands are in
+[the session-0 runbook](../research/live-fill-calibration-session0-runbook-2026-10-09.md)
+(T - 24 h and T - 40 min rows) as amended by Clarification E and the 10-28
+errata; master owns the session-1 timetable.
+
+## Where Codex works
+
+Codex tasks T000-T012 and their briefs live in `C:\t\codex\` (standing brief
+`C:\t\codex\COMMON.md`), on `codex/*` branches and `C:\wt\codex-*` worktrees.
+`C:\t\codex\HOLD_HEAVY` was released after the F0 pregate (moved to
+`C:\t\pending-owner-delete\`, not deleted).
+
+## WS Claude going idle
+
+The WS Claude closes its subagents and starts nothing new after this docs head.
+It stays available as the owner's guide in the WS chat. Its private checkpoint
+`C:\t\WS-CHECKPOINT.md` and running log
+`C:\wt\workstation-chat\l-data\WORKSTATION_STATE.md` are aids, not project
+truth.
