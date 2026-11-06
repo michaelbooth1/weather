@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-05 America/Toronto (owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
+**Last updated: 2026-11-05 America/Toronto (owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -10,10 +10,10 @@ Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any resea
 Precondition: protect capture and settlement evidence. **PROJECT DEADLINE (owner 11-05 ~21:04, DL), verbatim: "I have made
 a decision, if no edge found by end of year the project is over."** It supersedes the 10-25 Q2 rule and the 11-01 CONTINUE/STOP 2027-01-31 reset review (DL).
 **EDGE (owner 11-05 ~21:50, DL) = profit in an accurately simulated environment in a fair trial**; market making and simulated reward profit count. As many tests as needed (frozen before any read, multiplicity split pre-declared); **market making REOPENED**; MG-2 early-warning kill-only read on 09-30..10-14 allowed.
-Master writes the trial charter next; the plan goes to the owner first. No frozen prereg, look rule or date moves yet; B's single look stays 12-13.
+**Plan approved** (owner ~22:05, DL: "approved full plan"): the [edge trial charter](EDGE_TRIAL_CHARTER.md) (master ruling) sets the simulator and fair-trial minimums and the family T1 maker, T2 MG-2 paper taker, T3 negRisk, T4+ model candidates (Holm at 12-28; G1 11-12). B and MG-1 stay as bound and are diagnostics; B's look 12-13 at the earliest, expected 12-14 or later ([B-1 Clarification 8](../research/b1-clarification-8-countability-look-safety-2026-11-05.md)).
 Owner, 11-01 (relayed): "maybe we never find any edge, but this is serving as my real first long term project... I want to keep
 trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill on history and dev in days; rules in
-[MODEL_IMPROVEMENT_METHOD](MODEL_IMPROVEMENT_METHOD.md) §5 (rule 17 added 11-02; **rule 20, name every dependence factor's unit: κ_* is a variance ratio, r_* an SE ratio**, master 11-04 after E1); rule 8's "arms on B's dates are screens" no longer binds a test frozen before any read with a pre-declared multiplicity split (owner 11-05, DL). Bundle B, plugin core and YouTube stay paused; 88a's scope comes with the charter.
+[MODEL_IMPROVEMENT_METHOD](MODEL_IMPROVEMENT_METHOD.md) §5 (rule 17 added 11-02; **rule 20, name every dependence factor's unit: κ_* is a variance ratio, r_* an SE ratio**, master 11-04 after E1); rule 8's "arms on B's dates are screens" no longer binds a test frozen before any read with a pre-declared multiplicity split (owner 11-05, DL). Bundle B, plugin core and YouTube stay paused; 88a maker evidence is dev-only ≤ 09-26 (master trial hygiene 11-05).
 
 ## Headline
 
@@ -22,7 +22,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Current authority
 
-- **Market making REOPENED** (owner 11-05, DL; supersedes the 10-23 maker pause and the 10-30 pilot postponement); scope and any live session await master's charter and the owner's yes. No agent places, cancels or signs orders; other live trading paused (owner 09-25).
+- **Market making REOPENED** (owner 11-05, DL; supersedes the 10-23 maker pause and the 10-30 pilot postponement); scope is the charter's T1; live sessions are owner-started only. No agent places, cancels or signs orders; other live trading paused (owner 09-25).
 - Capture host: suites and other heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges 01:00-04:00; roll-free merges 00:30-12:00 (QWM); docs-only before 12:00; never 12:00-00:30.
 - **Weather data:** paid only per DECISION_LOG-approved source (10-23); free official data needs no ask; ask for packages, logins, payment (10-24).
 - **Other venues' public prices** (S31, owner 10-30, DL): read-only structured API endpoints with field allowlists; no account, key or trading; same embargo. International Polymarket stays the only trading venue.
