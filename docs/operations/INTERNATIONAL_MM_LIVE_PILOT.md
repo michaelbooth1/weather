@@ -2075,7 +2075,9 @@ The collector follows the official Data API v2 `data`/`pagination` envelope,
 repeats the same filters on every opaque cursor request, and requires a
 terminal cursor within its page and row budgets. Missing required fields,
 conflicting duplicate transactions, malformed envelopes, non-200 statuses,
-and transport failures leave payment evidence incomplete. Identical repeated
+and transport failures leave payment evidence incomplete. Numeric amounts
+retain decimal precision; duplicate JSON keys and nonstandard nonfinite
+numbers are refused. Identical repeated
 rows are counted once. `MAKER_REBATE`, `TRADE` and `REDEEM` are separate
 activity types and cannot prove this liquidity reward. The wire journal
 retains raw envelopes and hashes; the distribution source adds `request_urls`

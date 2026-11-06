@@ -199,6 +199,40 @@ def collect_accruals(venue, scope, journal, clock):
         return src, [], retained
 
 
+def read_activity_page(query, journal):
+    """Read public activity without rounding money or accepting ambiguous JSON."""
+    assert_no_ambient_proxy_configuration()
+    request = Request(ACTIVITY_URL + '?' + urlencode(query), method='GET',
+        headers={'Accept': 'application/json', 'User-Agent': re1_transport.re1_user_agent()})
+    raw_request = b'GET\n' + request.selector.encode() + b'\n'
+    journal.record('wire_request', method='GET', url=request.full_url, sha256=sha(raw_request),
+        hash_basis='method_LF_raw_path_LF_body', body_sha256=sha(b''))
+    # OSError (including HTTPError/URLError/timeouts) and HTTPException on open,
+    # read or close propagate to the collector's fail-closed Exception handler.
+    with urlopen(request, timeout=2) as response:
+        raw = response.read(MAX_BYTES + 1)
+        require(type(response.status) is int and response.status == 200
+            and response.geturl() == request.full_url and len(raw) <= MAX_BYTES, 'activity_public_read')
+
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'activity_duplicate_json_field')
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError('activity_nonfinite_json_number')
+
+    payload = json.loads(raw.decode('utf-8'), parse_float=Decimal,
+        parse_constant=reject_constant, object_pairs_hook=unique_fields)
+    # Preserve the existing decoded-JSON journal shape. Validation and candidate
+    # amounts use the exact Decimal parse; the hash always binds the wire bytes.
+    journal.record('sdk_response', method='GET', path='/v2/activity', status=200,
+        length=len(raw), sha256=sha(raw), response=json.loads(raw))
+    return payload
+
+
 def read_reward_activity(scope, start, end, journal):
     """Walk the public v2 feed; preserve the former SDK RewardActivity shape.
 
@@ -212,7 +246,7 @@ def read_reward_activity(scope, start, end, journal):
         'side', 'title', 'slug', 'icon', 'event_slug', 'outcome', 'name', 'pseudonym',
         'bio', 'profile_image', 'profile_image_optimized')
     for _ in range(ACTIVITY_PAGE_BUDGET):
-        payload = re1_transport.json_read(ACTIVITY_URL + '?' + urlencode(query), journal=journal)
+        payload = read_activity_page(query, journal)
         require(isinstance(payload, dict) and isinstance(payload.get('data'), list)
             and isinstance(payload.get('pagination'), dict), 'activity_envelope')
         page = payload['pagination']
@@ -233,7 +267,7 @@ def read_reward_activity(scope, start, end, journal):
                 'activity_required_fields')
             for key in ('size', 'usdc_size', 'price'):
                 value = raw.get(key)
-                require(type(value) in (int, float) and Decimal(str(value)).is_finite() and value >= 0,
+                require(type(value) in (int, Decimal) and Decimal(value).is_finite() and value >= 0,
                     'activity_numeric_field')
             require(raw['proxy_wallet'].lower() == scope['maker_address'] and raw['type'] == 'REWARD',
                 'activity_scope')
@@ -246,7 +280,8 @@ def read_reward_activity(scope, start, end, journal):
             seen[transaction] = raw
             row = {k: raw[k] for k in ('type', 'transaction_hash', 'name', 'pseudonym',
                 'bio', 'profile_image', 'profile_image_optimized')}
-            row.update(wallet=raw['proxy_wallet'], timestamp=stamp.isoformat(), amount=str(raw['usdc_size']))
+            row.update(wallet=raw['proxy_wallet'], timestamp=stamp.isoformat().replace('+00:00', 'Z'),
+                amount=str(raw['usdc_size']))
             rows.append((row, provenance))
         if not more:
             return rows

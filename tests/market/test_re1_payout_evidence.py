@@ -87,6 +87,7 @@ def sdk_venue(*, fail=None, guard=None, activity_pages=None, activity_status=200
                 return super().read(size)
         return Reply(reply.content)
     patcher.setattr(transport, 'urlopen', public_open)
+    patcher.setattr(collector, 'urlopen', public_open)
     patcher.setattr(transport, 're1_user_agent', lambda: 'weather-re1-attended/123456789')
     class ReadsOnly:
         _ctx = ctx
@@ -604,6 +605,16 @@ def test_v2_recorded_empty_page_proves_completed_zero_only_with_closed_cash_cove
     assert outcome(evidence)['verdict'] == 'NOT_PAID'
 
 
+def test_v2_distinct_candidates_are_retained_from_every_nonempty_page():
+    tx2 = '0x' + '3' * 64
+    pages = [activity_page([activity()], cursor='next', more=True), activity_page([activity(tx2)])]
+    evidence, _ = collect(activity_pages=pages,
+        rpc=RpcFixture(transfers=[transfer(), transfer(tx=tx2)]))
+    assert evidence['sources']['distributions']['candidate_pagination_complete']
+    assert [r['transaction_hash'] for r in evidence['distribution_candidates']] == [TX, tx2]
+    assert outcome(evidence)['paid'] is None
+
+
 @pytest.mark.parametrize('status', [201, 204, 301, 400, 410, 429, 500, 503])
 def test_v2_non_200_with_plausible_empty_body_never_proves_zero(status):
     evidence, _ = collect(activity_status=status, activities=[], rpc=RpcFixture(transfers=[]))
@@ -645,6 +656,46 @@ def test_v2_later_page_failure_discards_partial_candidates():
     evidence, _ = collect(activity_pages=[activity_page([activity()], cursor='next', more=True), []])
     assert_activity_failed(evidence)
     assert not evidence['distribution_candidates'] and not evidence['distributions']
+
+
+def test_v2_preserves_exact_numeric_amount_before_normalization():
+    raw = json.dumps(activity_page([activity()])).encode().replace(b'1.25', b'1.2500000000000000001')
+    evidence, calls = collect(activity_raw=raw)
+    assert evidence['distribution_candidates'][0]['amount'] == '1.2500000000000000001'
+    assert outcome(evidence)['verdict'] == 'PAID_AS_MODELLED'
+    response = next(r for r in evidence['wire_journal']
+                    if r['event'] == 'sdk_response' and r['path'] == ACTIVITY_PATH)
+    assert response['sha256'] == hashlib.sha256(raw).hexdigest()
+
+
+def test_v2_normalized_candidate_preserves_former_sdk_reward_shape():
+    from polymarket.models.data.activity import parse_activity
+    former = collector.plain_sdk_value(parse_activity(dict(proxyWallet=MAKER,
+        timestamp=int((START + timedelta(days=2)).timestamp()), transactionHash=TX,
+        type='REWARD', usdcSize=1.25, name='', pseudonym='', bio='',
+        profileImage='', profileImageOptimized='')))
+    evidence, _ = collect()
+    actual = evidence['distribution_candidates'][0]
+    assert {k: actual[k] for k in former} == former
+    assert set(actual) == set(former) | {'source_record_sha256', 'join_status', 'matching_credit_ids'}
+
+
+def test_v2_duplicate_amount_conflict_is_not_hidden_by_float_rounding():
+    raw = json.dumps(activity_page([activity(), activity()])).encode()
+    raw = raw.replace(b'1.25', b'1.2500000000000000001', 1)
+    # Both amounts would round to the same float; the Decimal reader must refuse.
+    evidence, _ = collect(activity_raw=raw)
+    assert_activity_failed(evidence)
+
+
+@pytest.mark.parametrize('raw', [
+    b'{"data":[null],"data":[],"pagination":{"limit":500,"offset":0,"has_more":false,"next_cursor":null}}',
+    b'{"data":[],"pagination":{"limit":500,"offset":0,"has_more":true,"has_more":false,"next_cursor":null}}',
+    b'{"data":[],"pagination":{"limit":500,"offset":0,"has_more":false,"next_cursor":null},"extra":NaN}',
+])
+def test_v2_ambiguous_or_nonstandard_json_never_proves_zero(raw):
+    evidence, _ = collect(activity_raw=raw, rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
 
 
 def test_payout_request_guard_refuses_retired_v1_activity():
