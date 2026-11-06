@@ -1,0 +1,16 @@
+﻿{
+    "schema":  "t008_b007_validation/1",
+    "recorded_at":  "2026-11-06T14:35:05.1820971-05:00",
+    "rule_sha256":  "6e5b5a515f2952abd99e8edd5690c68d885f192fe00528475d0cbbe8fb1f1016",
+    "prereg_check":  "PASS",
+    "ledger_rule_pin":  "MATCH",
+    "relative_links":  "PASS",
+    "heavy_hold":  true,
+    "full_agent_docs_audit":  "DEFERRED while HOLD_HEAVY exists; no bulk audit launched",
+    "runtime_data_read":  false,
+    "source_archive_copy":  "16 files verified byte-for-byte; original indexes retained",
+    "permanent_archive":  "C:\\archive\\ruled-out\\t4-screens-intake-20261106",
+    "archive_index_sha256":  "98c0b001bfa2c75b1c86ef5db061ae3e882b366f3fd3f804a0eb3bddfd40fb45",
+    "archive_build_index":  "PASS, 19 files",
+    "S1":  "NOT RUN; awaits master landing confirmation"
+}
