@@ -42,7 +42,29 @@ doc line "one per further 500 rows".
    trades-since and open-orders, reporting status and shape only.
 3. **Session-1 rewards reads on D+1 and D+2.** The owner reads them, or the WS
    reads them with the read-only client if the owner says yes in the WS chat
-   (master ruling 9, DL 2026-11-06).
+   (master ruling 9, DL 2026-11-06). Master ruling 11 (2026-11-06 ~16:4x;
+   master adds the DL row) sets the path:
+   - (a) **Primary record, must not slip:** on the owner's yes in the WS chat
+     and a confirm in the master chat, the WS runs the deployed v2.1
+     read-only client `rewards --date 2026-11-09` once on Tue 11-10 ~12:00 ET
+     (D+1) and once on Wed 11-11 ~12:00 ET (D+2). Outputs go create-only to
+     `C:\t\pilot1109\rewards\2026-11-09-d1.json` and `-d2.json`, each with a
+     sha256 sidecar. No new pin, no Scheduler, no code. Whoever runs it (the
+     WS Claude if its session is open, otherwise a Codex task from master)
+     does exactly that and nothing else. How long the venue keeps per-date
+     accruals is unknown, which is why these reads are the primary record.
+     The client needs the owner's `config\local\wallet_reader_client.json`
+     (the G13 copy).
+   - (b) REWARD distributions and MAKER_REBATE for 11-09 are taken on or after
+     11-11 from the F2 R3/R4 recording-only pin (D7), from the append-only
+     `/v2/activity` history.
+   - (c) Held as a fallback only: if (a) fails, master brings the cross-check
+     use of the host journal's pilot-condition `/rewards` rows to the owner
+     (DL 2026-11-05 row on the manual order journal is the owner's).
+
+   On F0, no LFC module reads rewards or rebates (`lfc_cli.py:88-119` modes;
+   `lfc_fees.py:181-199` records only the fee-schedule `rebateRate`), and the
+   RE-1 payout verdict (`re1_payout_evidence.py`) is not on the LFC path.
 
 ## Owner's steps
 
