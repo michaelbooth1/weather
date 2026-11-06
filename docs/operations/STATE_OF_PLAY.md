@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-05 America/Toronto (night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
+**Last updated: 2026-11-05 America/Toronto (owner 11-05 ~21:04: project ends if no edge by end of year; night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -8,9 +8,9 @@ Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any resea
 ## Objectives (owner 10-23 hard directive, sharpened by option B 10-25 and 10-30)
 
 Precondition: protect capture and settlement evidence. **The goal is model improvement**: exhaust the model levers and run one
-minimal forward edge test (B) against market prices (owner 10-25). **B's single look on 12-13 stays the edge test; a B FAIL ends
-this candidate's edge claim, not the project** (owner Q2 10-25, DL); work continues down the [lever inventory](LEVER_INVENTORY_2026-10-26.md).
-**CONTINUE/STOP after B** (owner deferred 11-01; master ruling, DL): a successor needs all six criteria; checkpoint, not a kill: no candidate meeting 1-2 by 2027-01-31 → research pauses for an owner reset review; ABORTED → no auto-retry.
+minimal forward edge test (B) against market prices (owner 10-25). **PROJECT DEADLINE (owner 11-05 ~21:04, DL), verbatim: "I have made
+a decision, if no edge found by end of year the project is over."** It supersedes the 10-25 Q2 rule and the 11-01 CONTINUE/STOP 2027-01-31 reset review (DL).
+B's single look on 12-13 stays the edge test; no frozen prereg, look rule or date changes. **OPEN owner question: what counts as "edge" for the 12-31 decision.**
 Owner, 11-01 (relayed): "maybe we never find any edge, but this is serving as my real first long term project... I want to keep
 trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill on history and dev in days; rules in
 [MODEL_IMPROVEMENT_METHOD](MODEL_IMPROVEMENT_METHOD.md) §5 (rule 17 added 11-02; **rule 20, name every dependence factor's unit: κ_* is a variance ratio, r_* an SE ratio**, master 11-04 after E1). 88a, bundle B, plugin core and YouTube stay paused.
@@ -81,6 +81,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | PT-1 NOT RUNNABLE (R21; rules 4/6): receipt + register row X106; F8-MH Cl. 2; T+1 dated clause | master (rule-11 receipt audit) + WS L59 | 11-04 docs head | receipt sha; DL row |
 | MG-1/B rulings DONE 11-03 (MG-1 Cl. 2, B-1 Cl. 5); A1/A5/A12 decided 11-04 (MG-1 Cl. 3, DL); mg1_look scoring head; b_transfer T1/T3/T4 + B label loader; scorer and writer reviews | master; WS heads | constants recorded before the look; head 11-12/13; 11-20; 12-01 | DL 11-03 row; head tips |
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
+| Define "edge" for the owner's 12-31 project decision (DL 11-05) | owner | open | DL row |
 | Evening-fix Stage 2: gap read after the MG-1 look receipt (Clarification 1 s5); H2 then needs a market-arm replay (owner question) | master + WS | after 11-28 | MG-1 look receipt; Stage 2 receipt |
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
 | Economics refresh and rc 2 barrier fixed | production | before maker work | accepted snapshot |
