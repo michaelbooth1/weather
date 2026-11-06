@@ -101,6 +101,11 @@ def parser():
         mode.add_argument('--shadow-scope', type=Path,
                           help='session 0 only: the shadow-panel scope (JSON list of condition ids; may be [])')
     modes.add_parser('verify')
+    rewards = modes.add_parser('rewards-record', help='owner-run D+1/D+2 read-only incentive evidence')
+    rewards.add_argument('--date', required=True, help='session UTC date YYYY-MM-DD')
+    rewards.add_argument('--root', type=Path, help='pilot root (default: normal campaign root)')
+    rewards.add_argument('--signature-type', type=int, choices=(2, 3), default=2,
+                         help='L2 account signature type; default 2, use 3 for a deposit wallet')
     wallet = modes.add_parser('wallet-verify')
     wallet.add_argument('--since', type=int,
                         help='Unix seconds for the trades read (default: the ledger genesis, before any of our orders)')
@@ -1169,6 +1174,9 @@ def main(argv=None):
             return run_live(args)
         if args.mode == 'verify':
             return run_verify()
+        if args.mode == 'rewards-record':
+            from weather.market.lfc_rewards_record import run_rewards_record
+            return run_rewards_record(args)
         if args.mode == 'wallet-verify':
             return run_wallet_verify(args)
         if args.mode == 'reconcile':

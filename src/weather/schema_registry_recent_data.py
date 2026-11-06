@@ -1394,6 +1394,10 @@ RECENT_REGISTERED_SCHEMAS = (
         "Create-only venue resolution and token reference evidence, with raw response hashes; no local labels.",
     ),
     SchemaSpec(
+        "lfc_rewards_record", "lfc_rewards_record_v0.1", "weather.market.lfc_rewards_record", "active",
+        "Owner-run D+1/D+2 accrual and public v2 activity evidence; paid linkage is never assumed.",
+    ),
+    SchemaSpec(
         "lfc_session_driver_pack", "lfc_session_driver_pack_v0.1", "weather.market.lfc_session_driver", "active",
         "Owner session-driver evidence pack: steps, stop reason, runbook section 8 fields, codes and hashes only.",
     ),

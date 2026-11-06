@@ -30,6 +30,24 @@ condition scope and the derived winner before admitting evidence.
 
 Update with recorder commands, evidence formats, provenance validation or cadence.
 
+## Reward reads
+
+The owner runs `python -m weather.market.lfc_cli rewards-record --date YYYY-MM-DD`
+on UTC D+1 and again D+2; no Scheduler task is installed. `--root` overrides
+the pilot root; `--signature-type 3` selects a deposit wallet (default 2).
+The command derives the maker and traded conditions from the verified LFC
+ledger. It uses the existing accrual collector through the reader's L2-only
+GET transport, without constructing a private-key SDK client. This reuses
+transport code and does not call or reconfigure the running wallet reader.
+
+Create-only `rewards/<D>-d1.json` and `-d2.json` retain per-condition accruals,
+response hashes and raw evidence, and cursor-paginated public v2 REWARD cash
+candidates from D+1 to the observation time. Cash credits have no official
+earned-period reference; neither candidates nor accruals are labelled verified
+payment. Incomplete reads retain failure evidence rather than completed zero.
+The account must match the ledger genesis. Existing outputs refuse before
+credentials load; dates outside D+1/D+2 refuse. No record nets credits against L.
+
 ## Scoring
 
 The attended controller makes one batched scoring read each minute, before
