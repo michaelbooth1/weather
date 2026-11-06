@@ -462,7 +462,7 @@ def fetch_current_positions(
         raise ValueError("maker_address must be a 20-byte EVM address")
     if not CONDITION_ID_RE.fullmatch(condition_text):
         raise ValueError("condition_id must be a 32-byte condition identifier")
-    urls, raws, rows, sizes = [], [], [], {}
+    urls, raws, rows, sizes, zero_rows = [], [], [], {}, 0
     for position_status in CURRENT_POSITIONS_STATUSES:
         query = urlencode(_current_positions_query(maker_text, condition_text, position_status))
         request = Request(
@@ -493,7 +493,7 @@ def fetch_current_positions(
             raise RuntimeError("current-position endpoint did not return the v2 envelope")
         pagination = payload["pagination"]
         # One exact condition holds at most a handful of tokens: anything needing a second page is refused.
-        if pagination.get("has_more") is not False or pagination.get("next_cursor") is not None:
+        if pagination.get("has_more") is not False or pagination.get("next_cursor") not in (None, ""):
             raise RuntimeError("current-position response is not a single complete page")
         urls.append(request.full_url)
         raws.append(raw)
@@ -519,6 +519,11 @@ def fetch_current_positions(
                     raise RuntimeError("current-position statuses disagree on a token size")
                 continue
             sizes[asset] = size
+            if size == 0:
+                # include_archived/filter_amount=0 may surface fully closed tokens; zero shares are no exposure
+                # and must not read as an initial position or a fill (review finding 3). Counted in evidence.
+                zero_rows += 1
+                continue
             rows.append({
                 "proxyWallet": observed_maker,
                 "conditionId": observed_condition,
@@ -542,6 +547,7 @@ def fetch_current_positions(
         "response_sha256": hashlib.sha256(b"\n".join(raws)).hexdigest(),
         "response_sha256s": [hashlib.sha256(raw).hexdigest() for raw in raws],
         "row_count": len(rows),
+        "zero_size_rows_dropped": zero_rows,
         "rows": rows,
     }
 

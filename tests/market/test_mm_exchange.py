@@ -330,6 +330,92 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(evidence["queried_at_utc"], "2026-08-14T01:00:00+00:00")
         self.assertEqual(len(evidence["response_sha256"]), 64)
 
+    def test_public_position_reader_drops_zero_size_rows_and_accepts_empty_end_cursor(self):
+        maker_address = "0x" + "a" * 40
+        condition_id = "0x" + "b" * 64
+        bodies = [
+            {"data": [{"proxy_wallet": maker_address, "condition_id": condition_id, "token_id": "11",
+                       "current_size": 0, "status": "OPEN"},
+                      {"proxy_wallet": maker_address, "condition_id": condition_id, "token_id": "12",
+                       "current_size": 5, "status": "OPEN"}],
+             "pagination": {"has_more": False, "next_cursor": ""}},
+            {"data": [], "pagination": {"has_more": False, "next_cursor": None}},
+        ]
+
+        class Response:
+            status = 200
+
+            def __init__(self, body):
+                self.body = body
+
+            def read(self):
+                return json.dumps(self.body).encode()
+
+            def close(self):
+                pass
+
+        evidence = fetch_current_positions(
+            maker_address, condition_id, opener=lambda request, timeout: Response(bodies.pop(0)))
+        self.assertEqual([row["asset"] for row in evidence["rows"]], ["12"])
+        self.assertEqual(evidence["zero_size_rows_dropped"], 1)
+        self.assertTrue(exact_current_positions_evidence(
+            evidence, maker_address=maker_address, condition_id=condition_id, rows=evidence["rows"]))
+
+    def test_public_position_reader_fails_closed_on_bad_v2_pages(self):
+        from urllib.error import HTTPError
+        maker_address = "0x" + "a" * 40
+        condition_id = "0x" + "b" * 64
+        end = {"has_more": False, "next_cursor": None}
+
+        def row(**overrides):
+            base = {"proxy_wallet": maker_address, "condition_id": condition_id, "token_id": "11",
+                    "current_size": 5, "status": "OPEN"}
+            base.update(overrides)
+            return {key: value for key, value in base.items() if value is not ...}
+
+        def envelope(rows, pagination=end):
+            return json.dumps({"data": rows, "pagination": pagination}).encode()
+
+        cases = {
+            "zero_vs_nonzero": [envelope([row(current_size=0)]), envelope([row(current_size=5)])],
+            "sizes_disagree": [envelope([row(current_size=5)]), envelope([row(current_size=4)])],
+            "has_more_true": [envelope([], {"has_more": True, "next_cursor": "c1"})],
+            "cursor_without_has_more": [envelope([], {"has_more": False, "next_cursor": "c1"})],
+            "missing_size": [envelope([row(current_size=...)])],
+            "null_size": [envelope([row(current_size=None)])],
+            "missing_token": [envelope([row(token_id=...)])],
+            "wrong_wallet": [envelope([row(proxy_wallet="0x" + "c" * 40)])],
+            "wrong_condition": [envelope([row(condition_id="0x" + "d" * 64)])],
+            "nan_size": [b'{"data": [{"proxy_wallet": "' + maker_address.encode() + b'", "condition_id": "'
+                         + condition_id.encode() + b'", "token_id": "11", "current_size": NaN}],'
+                         b' "pagination": {"has_more": false, "next_cursor": null}}'],
+            "v1_list": [b"[]"],
+            "no_pagination": [b'{"data": []}'],
+            "http_400": [400],
+            "http_410": [410],
+        }
+        for name, bodies in cases.items():
+            with self.subTest(name):
+                queue = list(bodies)
+
+                class Response:
+                    def __init__(self, body):
+                        self.body, self.status = body, 200
+
+                    def read(self):
+                        return self.body
+
+                    def close(self):
+                        pass
+
+                def opener(request, timeout):
+                    body = queue.pop(0) if queue else envelope([])
+                    if isinstance(body, int):
+                        raise HTTPError(request.full_url, body, "refused", {}, None)
+                    return Response(body)
+                with self.assertRaises((RuntimeError, HTTPError)):
+                    fetch_current_positions(maker_address, condition_id, opener=opener)
+
     def test_public_position_reader_binds_empty_result_to_exact_scope(self):
         maker_address = "0x" + "a" * 40
         condition_id = "0x" + "b" * 64
