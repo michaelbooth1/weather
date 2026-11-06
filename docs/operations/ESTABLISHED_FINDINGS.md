@@ -140,6 +140,7 @@ sequence numbers, not calendar dates.
 | 10ax | E1 (L59, ledger row 119 D, 2026-11-04): at 07-12 the served stack beats B (d̄ +0.0028); E3 DON'T ADD; 4a OFF, 4b B-arm CLOSED; no live S lever from the season-2026 fetches |
 | 10ay | Known defect (master 2026-11-05): a rare train/serve mismatch, the trainer keeps a null last pre-cutoff temperature that serve and replay skip (2 of 28,936 keys); not fixed, not a lever; item 344 |
 | 10az | Climatology window and floor defects (leap reference, no year wrap, spring-forward row-count floor; master 2026-11-05): lever UNTESTABLE (SD bound 0.080, power about 0.10); fix = retrain + edge gates; register X108 |
+| 10ba | WS-1(b) dev maker study: the supplied per-event tapes leave pre-event fills unobserved; reward opportunities do not identify net P&L or year-end power |
 
 ---
 
@@ -3202,6 +3203,12 @@ the sources' own.
 
 ### 10a. The configured liquidity-reward pool is about 2,800 per day same-day, not about 16
 
+**SUPERSEDED CAVEATS (WS-1(b) scope clarification, 2026-11-06):** the no-paid-epoch/unit caveat
+below was superseded by the paid reward evidence in section 10m. The 10 pUSD cap argument
+is conditional on that historical cap; it does not rule out the separately studied
+19.60 band / 15.80 order cap policy in section 10ba. The pool census itself remains
+historical evidence, not an income estimate or a current configuration.
+
 | | Configured pool per day |
 | --- | ---: |
 | Same-day events (12 events, 35–46 rewarded bands; 200 per event, 400 for NYC and Los Angeles) | **about 2,800** |
@@ -5110,6 +5117,41 @@ Any fix means a retrain plus the edge gates; there is no serve-only fix. Line nu
 - **Evidence (343b grid holes).** 81 holes = 33 leap + 48 `row_count < 20` (44 spring-forward plus 4 Denver).
 - **Lever verdict: UNTESTABLE.** SD bound 0.080, power about 0.10; register X108.
 
+
+### 10ba. The supplied per-event tapes cannot identify pre-event maker economics: WS-1(b), dev only, 2026-11-06
+
+The [detailed study](../research/ws1b-maker-feasibility-power-2026-11-06.md) processes twenty UTC days of paired books and
+as-of condition reward records, twelve built-in cities, and 240 quoted event execution tapes
+(event dates 2026-09-25..10-14). The supplied roots and names-only checks of the older named snapshot
+roots contain no international dev event directories. Larger execution-only histories cannot supply
+the missing paired L2/reward inputs. No later event economics, maker shadow or sealed store was read.
+
+The policy is paired post-only 20-share quotes with 19.60 band / 15.80 order caps and a 300 total
+budget. Fifty- and hundred-share quotes are reward-opportunity comparators outside those caps.
+A 100-share reward minimum excludes the actual paired policy. The old 10-cap result is not carried
+over to this budget. Rewards use the venue scoring and captured terms, with 0.10x planning and 1.0x
+optimistic sensitivities; maker ownership, complete epochs, reaction to our quotes, unknown fill
+stops and paid reward thresholds prevent calling opportunity accrual expected cash income.
+
+Per-event tapes begin at local midnight. T+1/T+2 therefore remain reward-only: fills, spread,
+inventory P&L, net, variance, N and power are unset. A print-bracket proxy with no gap above 300 s
+admits 175 of 2134 band/local-DTE cohorts. Unknown live windows invalidate the whole
+cohort rather than restarting from zero inventory. Complete pooled date clusters for 1/2/4 bands
+are 0/0/0 including October 14 and 0/0/0 excluding that truncated date. These are coverage
+counts, not a profitability verdict. All per-city f=.10/.25/.50 stress cases, actual-settlement
+counterfactuals, both reward multipliers and truncation sensitivities are in the archived outputs.
+
+At 0.10x all covered f-stress design means are nonpositive. The nominal 1.0x lead is NYC two
+bands at f=.25: mean 0.93475, SD planning upper 3.82388, N95=46 and N80=104, from only two dates.
+This is a coverage-selected normal planning result, not population power or a G1 verdict.
+No four-band design has a complete selected date.
+
+The calendar ceiling through December 27 is 74 distinct dates, not independent city/band counts.
+Conditional normal planning omits serial, sequential and Holm penalties; full bankroll paths and
+the own-pilot accuracy gate are unvalidated. This study cannot certify a T1 PASS or a universal G1
+kill. Missing execution is not no edge. Matched executions/uptime for the chosen policy and own-pilot
+calibration are needed before a year-end feasibility or power-per-capital growth claim. The report retains
+the B012 disclosures; no unreviewed revision of the pinned raw-input source was run.
 
 ## Related
 
