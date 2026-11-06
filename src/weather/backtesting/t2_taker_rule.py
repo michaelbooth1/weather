@@ -12,11 +12,12 @@ Every input row must belong to B's 10 markets (``B10``) and to the ``--window-st
 dates, with its local hour and target date matching ``captured_at_utc`` in the market's zone; anything else is a
 refusal before the single-look marker, never a silent drop.
 
-Order of work in one run: validate arguments and paths, then load and validate every input (prices are parsed
-here but nothing reads them until step 4) -> create-only single-look marker -> (1) coverage counts from
-timestamps and token ids only -> (2) winner exists / matches one band, as status strings -> (3) input manifest
-with the counts and the countable set -> (4) entries, fills and caps -> (5) settle -> kill statistic -> outputs
-and receipt, all create-only. A second run into the same output folder refuses.
+Order of work in one run: validate arguments and paths, load and validate vectors and books (prices are parsed
+here but nothing reads them until step 4) -> (1) coverage counts from timestamps and token ids only -> only then
+read and validate the in-scope settlement files -> create-only single-look marker -> (2) winner exists / matches
+one band, as status strings -> (3) input manifest with the counts and the countable set -> (4) entries, fills
+and caps -> (5) settle -> kill statistic -> outputs and receipt, all create-only. A second run into the same
+output folder refuses. Two raw labels that clean to one band make the event non-countable (label_collision).
 
 Rulings (a)-(i), accepted by master 2026-11-06 (PT-1 §3.2-3.3):
   (a) an entry that does not fill is not an entry: the band may be tried again at a later snapshot;
@@ -221,6 +222,9 @@ class Books:
     unusable_rows: int = 0
     rows_read: int = 0
     excluded_rows: int = 0
+    book_time_missing: int = 0
+    raw_label: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    collisions: set[str] = field(default_factory=set)
 
     def times_of(self) -> dict[str, list[datetime]]:
         return {token: book.times for token, book in self.tokens.items()}
@@ -259,7 +263,17 @@ def load_books(paths: list[Path], scope: Scope) -> Books:
                 if rec["outcome"] not in SIDES:
                     raise RuleError(f"{path}: outcome {rec['outcome']!r}")
                 books.rows_read += 1
+                key = (rec["event_slug"], clean_temperature_label(rec["range_label"]), rec["outcome"])
+                token = rec["clob_token_id"]
+                if (books.token_of.setdefault(key, token) != token
+                        or books.raw_label.setdefault(key, rec["range_label"]) != rec["range_label"]):
+                    books.collisions.add(rec["event_slug"])  # R4: the event is non-countable; no band recorded
+                    continue
+                book = books.tokens.setdefault(token, TokenBook())
                 captured = parse_utc(rec["captured_at_utc"])
+                if rec["book_time_utc"].strip() == "":
+                    books.book_time_missing += 1  # R2: unusable, never imputed
+                    continue
                 try:
                     if parse_utc(rec["book_time_utc"]) > captured + timedelta(seconds=RECEIPT_GAP_S):
                         raise _Unusable
@@ -268,11 +282,7 @@ def load_books(paths: list[Path], scope: Scope) -> Books:
                 except _Unusable:
                     books.unusable_rows += 1
                     continue
-                key = (rec["event_slug"], clean_temperature_label(rec["range_label"]), rec["outcome"])
-                token = rec["clob_token_id"]
-                if books.token_of.setdefault(key, token) != token:
-                    raise RuleError(f"two token ids for {key}")
-                books.tokens.setdefault(token, TokenBook()).rows.append(row)
+                book.rows.append(row)
     for book in books.tokens.values():
         book.finalize()
     return books
@@ -287,9 +297,12 @@ class Snapshot:
 
 
 def load_vectors(path: Path, arms: tuple[str, str], scope: Scope):
-    """Return ({arm: {Snapshot: {band: q}}}, row counts). Hours and dates are recomputed and must agree."""
+    """Return ({arm: {Snapshot: {band: q}}}, row counts, label-collision events). Window and B10 are checked on
+    every row before arms are selected; hours and dates are recomputed and must agree."""
     out: dict[str, dict[Snapshot, dict[str, float]]] = {arm: defaultdict(dict) for arm in arms}
     counts = {"rows": 0, "other_arm": 0, "excluded_slug": 0, "outside_decision_hours": 0}
+    raw_of: dict[tuple[str, Snapshot, str], str] = {}
+    collisions: set[str] = set()
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         missing = [name for name in VECTOR_COLUMNS if name not in (reader.fieldnames or [])]
@@ -297,11 +310,12 @@ def load_vectors(path: Path, arms: tuple[str, str], scope: Scope):
             raise RuleError(f"{path}: missing columns {missing}")
         for rec in reader:
             counts["rows"] += 1
+            slug = rec["event_slug"]
+            in_scope = scope.check(slug)  # R3: refuses a non-B10 or out-of-window row of ANY arm
             if rec["arm"] not in out:
                 counts["other_arm"] += 1
                 continue
-            slug = rec["event_slug"]
-            if not scope.check(slug):
+            if not in_scope:
                 counts["excluded_slug"] += 1
                 continue
             market, slug_day = slug_parts(slug)
@@ -316,12 +330,16 @@ def load_vectors(path: Path, arms: tuple[str, str], scope: Scope):
             q = float(rec["q"])
             if not (math.isfinite(q) and 0.0 <= q <= 1.0):
                 raise RuleError(f"q outside [0, 1]: {rec}")
-            bands = out[rec["arm"]][Snapshot(slug, day, t, hour)]
+            snap = Snapshot(slug, day, t, hour)
             band = clean_temperature_label(rec["range_label"])
-            if band in bands:
-                raise RuleError(f"duplicate vector entry after label cleaning: {rec}")
-            bands[band] = q
-    return {arm: dict(snaps) for arm, snaps in out.items()}, counts
+            raw = raw_of.setdefault((rec["arm"], snap, band), rec["range_label"])
+            if band in out[rec["arm"]][snap]:
+                if raw == rec["range_label"]:
+                    raise RuleError(f"duplicate vector entry: {rec}")
+                collisions.add(slug)  # R4: two raw labels clean to one band
+                continue
+            out[rec["arm"]][snap][band] = q
+    return {arm: dict(snaps) for arm, snaps in out.items()}, counts, collisions
 
 
 def snapshot_bands(vectors) -> dict[Snapshot, set[str]]:
@@ -334,9 +352,11 @@ def snapshot_bands(vectors) -> dict[Snapshot, set[str]]:
 
 def coverage(snaps: dict[Snapshot, set[str]], token_of: dict[tuple[str, str, str], str],
              token_times: dict[str, list[datetime]]) -> dict[str, dict[str, int]]:
-    """Step 1, timestamps and ids only: per event, 07-16 snapshots, covered ones and unmatched vector bands."""
-    counts: dict[str, dict[str, int]] = defaultdict(lambda: {"snapshots": 0, "covered": 0, "unmatched_bands": 0})
-    unmatched: dict[str, set[str]] = defaultdict(set)
+    """Step 1, timestamps and ids only: per event, 07-16 snapshots, covered ones, vector bands with no book token
+    (unmatched_bands) and vector bands with a token whose rows are all unusable (unusable_bands)."""
+    counts: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"snapshots": 0, "covered": 0, "unmatched_bands": 0, "unusable_bands": 0})
+    gaps: dict[str, dict[str, set[str]]] = defaultdict(lambda: {"unmatched_bands": set(), "unusable_bands": set()})
     for snap, bands in snaps.items():
         counts[snap.slug]["snapshots"] += 1
         ok = True
@@ -344,12 +364,15 @@ def coverage(snaps: dict[Snapshot, set[str]], token_of: dict[tuple[str, str, str
             for side in SIDES:
                 token = token_of.get((snap.slug, band, side))
                 if token is None:
-                    unmatched[snap.slug].add(band)
+                    gaps[snap.slug]["unmatched_bands"].add(band)
+                elif not token_times.get(token):
+                    gaps[snap.slug]["unusable_bands"].add(band)
                 if token is None or decision_index(token_times.get(token, []), snap.t) is None:
                     ok = False
         counts[snap.slug]["covered"] += int(ok)
-    for slug, bands in unmatched.items():
-        counts[slug]["unmatched_bands"] = len(bands)
+    for slug, kinds in gaps.items():
+        for kind, bands in kinds.items():
+            counts[slug][kind] = len(bands)
     return dict(counts)
 
 
@@ -364,7 +387,7 @@ def winner_status(winners: dict[str, str], event_bands: dict[str, set[str]]) -> 
 
 
 def countable_events(arm_events: dict[str, set[str]], cov: dict[str, dict[str, int]], outcome_blind_pass: set[str],
-                     winners_ok: dict[str, str]) -> dict[str, str]:
+                     winners_ok: dict[str, str], label_collisions: set[str]) -> dict[str, str]:
     """Event -> '' if countable, else the first failing reason. Ids, counts and status strings only."""
     events = set().union(*arm_events.values())
     reasons = {}
@@ -373,6 +396,8 @@ def countable_events(arm_events: dict[str, set[str]], cov: dict[str, dict[str, i
         status = winners_ok.get(slug, "missing")
         if not all(slug in found for found in arm_events.values()):
             reasons[slug] = "arm_vector_missing"
+        elif slug in label_collisions:
+            reasons[slug] = "label_collision"
         elif slug not in outcome_blind_pass:
             reasons[slug] = "outcome_blind_check_not_passed"
         elif c["snapshots"] == 0 or c["covered"] / c["snapshots"] < COVERAGE_MIN:
@@ -657,10 +682,11 @@ def main(argv: list[str] | None = None) -> int:
         if (args.out / MARKER_NAME).exists() or any((args.out / name).exists() for name in OUTPUT_NAMES):
             print(f"refused: single look already taken in {args.out}", file=sys.stderr)
             return 3
-        vectors, vector_counts = load_vectors(args.vectors, arms, scope)
+        vectors, vector_counts, vector_collisions = load_vectors(args.vectors, arms, scope)
         slugs = {snap.slug for snaps in vectors.values() for snap in snaps}
         day_of = {snap.slug: snap.target_date for snaps in vectors.values() for snap in snaps}
         books = load_books(book_paths, scope)
+        cov = coverage(snapshot_bands(vectors), books.token_of, books.times_of())  # step 1, before any settlement
         winners = load_winners(settlement_paths, scope, slugs)
         passed = {line.strip() for line in args.outcome_blind_pass.read_text(encoding="utf-8").splitlines()
                   if line.strip()}
@@ -668,7 +694,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.projection_receipt:
             projection = {"path": str(args.projection_receipt), "sha256": _sha256(args.projection_receipt),
                           "projected": json.loads(args.projection_receipt.read_text(encoding="utf-8")).get("projected")}
-        hashes = {str(p): _sha256(p) for p in inputs}
+        in_scope = [p for p in settlement_paths if p.parent.name in winners]  # out-of-scope files are never read
+        hashes = {str(p): _sha256(p) for p in [*lists, *book_paths, *in_scope]}
     except (ValueError, OSError, KeyError, IndexError, StopIteration, csv.Error) as exc:
         print(f"refused before the single look: {exc}", file=sys.stderr)
         return 2
@@ -677,15 +704,19 @@ def main(argv: list[str] | None = None) -> int:
     _write_new(args.out / MARKER_NAME, json.dumps({"started": started, "argv": sys.argv[1:] if argv is None else argv})
                + "\n")
     module_sha = _sha256(Path(__file__))
-    cov = coverage(snapshot_bands(vectors), books.token_of, books.times_of())  # step 1
     status = winner_status(winners, books.event_bands())  # step 2
-    countable = countable_events({arm: {s.slug for s in vectors[arm]} for arm in arms}, cov, passed, status)
+    collisions = books.collisions | vector_collisions
+    countable = countable_events({arm: {s.slug for s in vectors[arm]} for arm in arms}, cov, passed, status,
+                                 collisions)
     manifest = {"schema_version": schema_version("t2_taker_rule_input_manifest"), "module_sha256": module_sha,
                 "arms": list(arms), "window": [args.window_start.isoformat(), args.window_end.isoformat()],
                 "excluded_slugs": sorted(args.exclude_slug), "latency_s": args.latency_s, "inputs": hashes,
                 "vector_rows": vector_counts, "book_rows_read": books.rows_read,
                 "book_rows_unusable": books.unusable_rows, "book_rows_excluded": books.excluded_rows,
+                "book_time_missing": books.book_time_missing, "label_collision_events": len(collisions),
+                "settlement_files_skipped_out_of_scope": len(settlement_paths) - len(in_scope),
                 "coverage": cov, "unmatched_vector_bands_total": sum(c["unmatched_bands"] for c in cov.values()),
+                "unusable_vector_bands_total": sum(c["unusable_bands"] for c in cov.values()),
                 "winner_unmatched_total": sum(v == "unmatched" for v in status.values()),
                 "no_venue_winner_total": sum(status.get(s, "missing") == "missing" for s in slugs),
                 "countable": countable}

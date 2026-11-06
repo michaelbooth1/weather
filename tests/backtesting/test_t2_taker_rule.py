@@ -85,9 +85,11 @@ def test_load_books_unusable_rows_exactly_15s_nan_and_allowlist(tmp_path):
     path = _books(tmp_path / "order_books_summary.csv", [
         _row(T0, "Yes", 0.5, lag=-15), _row(T0 + 5 * S, "Yes", 0.5, lag=-15.001),
         _row(T0 + 6 * S, "Yes", "nan"), _row(T0 + 7 * S, "Yes", 0.5, size="inf"),
-        _row(T0 + 8 * S, "Yes", 0.5, mos="nan"), _row(T0 + 9 * S, "Yes", 0.5, count="nan")])
+        _row(T0 + 8 * S, "Yes", 0.5, mos="nan"), _row(T0 + 9 * S, "Yes", 0.5, count="nan"),
+        {**_row(T0 + 10 * S, "Yes", 0.5), "book_time_utc": ""}])
     books = t2.load_books([path], _scope())
-    assert books.rows_read == 6 and books.unusable_rows == 5
+    assert books.rows_read == 7 and books.unusable_rows == 5 and books.book_time_missing == 1
+    assert len(books.tokens[f"{SLUG}|{BAND}|Yes"].rows) == 1 and not books.collisions
     assert books.token_of == {(SLUG, BAND, "Yes"): f"{SLUG}|{BAND}|Yes"}  # the degree sign is cleaned
     assert set(t2.BookRow.__dataclass_fields__) == {"captured", "best_ask", "ask_size", "ask_count", "min_order_size"}
     with pytest.raises(t2.RuleError, match="not an order_books_summary"):
@@ -196,19 +198,21 @@ def test_latency_must_be_finite_and_at_least_30_s(latency):
 def test_coverage_and_countability_take_timestamps_ids_and_status_only():
     assert list(inspect.signature(t2.coverage).parameters) == ["snaps", "token_of", "token_times"]
     assert list(inspect.signature(t2.countable_events).parameters) == ["arm_events", "cov", "outcome_blind_pass",
-                                                                       "winners_ok"]
-    token_of = {(SLUG, BAND, side): side for side in t2.SIDES}
-    times = {side: [T0 - 20 * S] for side in t2.SIDES}
-    snaps = {_snap(): {BAND}, _snap(slug=OTHER): {BAND}, _snap(T0 + 3600 * S): {BAND, "72-73 F"}}
+                                                                       "winners_ok", "label_collisions"]
+    token_of = {**{(SLUG, BAND, side): side for side in t2.SIDES}, (SLUG, "74-75 F", "Yes"): "dead"}
+    times = {**{side: [T0 - 20 * S] for side in t2.SIDES}, "dead": []}
+    snaps = {_snap(): {BAND}, _snap(slug=OTHER): {BAND}, _snap(T0 + 3600 * S): {BAND, "72-73 F", "74-75 F"}}
     cov = t2.coverage(snaps, token_of, times)
-    assert cov[SLUG] == {"snapshots": 2, "covered": 1, "unmatched_bands": 1}
-    assert cov[OTHER] == {"snapshots": 1, "covered": 0, "unmatched_bands": 1}
+    assert cov[SLUG] == {"snapshots": 2, "covered": 1, "unmatched_bands": 2, "unusable_bands": 1}
+    assert cov[OTHER] == {"snapshots": 1, "covered": 0, "unmatched_bands": 1, "unusable_bands": 0}
     cov = t2.coverage({_snap(): {BAND}}, token_of, times)
     arms = {"mg2": {SLUG, OTHER}, "served": {SLUG}}
-    assert t2.countable_events(arms, cov, {SLUG, OTHER}, {SLUG: "matched"}) == {SLUG: "", OTHER: "arm_vector_missing"}
-    assert t2.countable_events(arms, cov, set(), {SLUG: "matched"})[SLUG] == "outcome_blind_check_not_passed"
-    assert t2.countable_events(arms, cov, {SLUG}, {SLUG: "missing"})[SLUG] == "no_venue_winner"
-    assert t2.countable_events(arms, cov, {SLUG}, {SLUG: "unmatched"})[SLUG] == "winner_unmatched"
+    ok = {SLUG: "matched"}
+    assert t2.countable_events(arms, cov, {SLUG, OTHER}, ok, set()) == {SLUG: "", OTHER: "arm_vector_missing"}
+    assert t2.countable_events(arms, cov, set(), ok, set())[SLUG] == "outcome_blind_check_not_passed"
+    assert t2.countable_events(arms, cov, {SLUG}, {SLUG: "missing"}, set())[SLUG] == "no_venue_winner"
+    assert t2.countable_events(arms, cov, {SLUG}, {SLUG: "unmatched"}, set())[SLUG] == "winner_unmatched"
+    assert t2.countable_events(arms, cov, {SLUG}, ok, {SLUG})[SLUG] == "label_collision"
 
 
 def test_winner_status_cleans_labels_and_never_returns_the_band():
@@ -224,7 +228,13 @@ def test_bootstrap_golden_values_on_a_tiny_fixture():
     values = {f"e{i}": v for i, v in enumerate([-1.0, 0.5, -2.0, 0.0, 1.0, -0.5, -1.5, 0.25])}
     bounds = t2.bootstrap_bounds(values, day_of)
     assert bounds == t2.bootstrap_bounds(values, day_of)
-    assert sum(values.values()) / 8 == pytest.approx(-0.40625)
+    trades = {arm: [t2.Trade(arm, slug, day_of[slug], T0, BAND, "Yes", 0.5, 0.5, 0.5, 1.0, pnl=v)
+                    for slug, v in values.items()] for arm in ("a", "b")}
+    counts = {arm: {} for arm in ("a", "b")}
+    summary, _ = t2.evaluate(("a", "b"), trades, {slug: "" for slug in values}, day_of, counts)
+    assert summary["arms"]["a"]["M"] == pytest.approx(-0.40625, abs=1e-12)
+    assert summary["arms"]["a"]["U"] == pytest.approx(GOLDEN["date_cluster_upper"], abs=1e-12)
+    assert summary["arms"]["a"]["bounds"] == bounds and summary["countable_dates"] == 4
     assert bounds["date_cluster"]["upper"] == pytest.approx(GOLDEN["date_cluster_upper"], abs=1e-12)
     assert bounds["block3"]["upper"] == pytest.approx(GOLDEN["block3_upper"], abs=1e-12)
     assert bounds["date_cluster"]["lower"] == pytest.approx(GOLDEN["date_cluster_lower"], abs=1e-12)
@@ -261,9 +271,9 @@ def _vrow(arm="mg2", slug=SLUG, t=T0, hour=11, day="2026-10-01", band=RAW_BAND, 
 
 def test_vector_hours_6_7_16_17_and_label_cleaning(tmp_path):
     rows = [_vrow(t=datetime(2026, 10, 1, h + 4, 30, tzinfo=UTC), hour=h) for h in (6, 7, 16, 17)]
-    vectors, counts = t2.load_vectors(_vectors(tmp_path / "v.csv", rows), ("mg2", "served"), _scope())
+    vectors, counts, collisions = t2.load_vectors(_vectors(tmp_path / "v.csv", rows), ("mg2", "served"), _scope())
     assert sorted(s.local_hour for s in vectors["mg2"]) == [7, 16] and counts["outside_decision_hours"] == 2
-    assert all(set(b) == {BAND} for b in vectors["mg2"].values())
+    assert all(set(b) == {BAND} for b in vectors["mg2"].values()) and not collisions
 
 
 @pytest.mark.parametrize("row,match", [
@@ -273,6 +283,8 @@ def test_vector_hours_6_7_16_17_and_label_cleaning(tmp_path):
     (_vrow(slug="highest-temperature-in-nyc-on-october-15-2026", day="2026-10-15", t=T0 + 14 * 86400 * S),
      "outside the window"),
     (_vrow(q="nan"), "q outside"),
+    (_vrow(arm="third", slug="highest-temperature-in-denver-on-october-1-2026"), "outside B's 10"),
+    (_vrow(arm="third", slug="highest-temperature-in-nyc-on-october-15-2026", day="2026-10-15"), "outside the window"),
 ])
 def test_vector_refusals(tmp_path, row, match):
     path = _vectors(tmp_path / "v.csv", [row])
@@ -331,7 +343,8 @@ def test_cli_degree_sign_book_and_cleaned_winner_settle_and_the_look_is_single(t
     assert mg2["outcome"] == served["outcome"] == "UNTESTABLE" and summary["countable_market_days"] == 1
     assert summary["projection_receipt"]["projected"] == {"mg2": {"fills": 40}}
     manifest = _manifest(tmp_path)
-    assert manifest["coverage"][SLUG] == {"snapshots": 1, "covered": 1, "unmatched_bands": 0}
+    assert manifest["coverage"][SLUG] == {"snapshots": 1, "covered": 1, "unmatched_bands": 0, "unusable_bands": 0}
+    assert manifest["settlement_files_skipped_out_of_scope"] == 1 and manifest["label_collision_events"] == 0
     assert manifest["vector_rows"]["outside_decision_hours"] == 1 and manifest["winner_unmatched_total"] == 0
     assert manifest["schema_version"] == schema_version("t2_taker_rule_input_manifest")
     assert "70-71" not in json.dumps(manifest)  # the manifest never carries a band or winner value
@@ -365,6 +378,28 @@ def test_cli_exclude_slug_skips_rows_without_parsing_its_settlement(tmp_path):
     manifest = _manifest(tmp_path)
     assert manifest["vector_rows"]["excluded_slug"] == 3 and manifest["book_rows_excluded"] == 4
     assert manifest["countable"] == {} and manifest["excluded_slugs"] == [SLUG]
+
+
+def test_coverage_is_counted_before_any_settlement_is_read(tmp_path, monkeypatch):
+    calls = []
+    for name in ("coverage", "load_winners"):
+        real = getattr(t2, name)
+        monkeypatch.setattr(t2, name, lambda *a, _real=real, _name=name, **k: calls.append(_name) or _real(*a, **k))
+    assert t2.main(_cli_inputs(tmp_path)) == 0 and calls == ["coverage", "load_winners"]
+
+
+@pytest.mark.parametrize("where", ["books", "vectors"])
+def test_two_raw_labels_cleaning_to_one_band_make_the_event_non_countable(tmp_path, where):
+    extra = [_vrow("mg2", band=BAND)] if where == "vectors" else []
+    argv = _cli_inputs(tmp_path, extra_vectors=extra)
+    if where == "books":
+        books = tmp_path / "order_books_summary.csv"
+        with books.open("a", encoding="utf-8", newline="") as handle:
+            csv.DictWriter(handle, HEADER).writerow({**_row(T0, "Yes", 0.6, band=BAND), "clob_token_id": "other"})
+    assert t2.main(argv) == 0
+    manifest = _manifest(tmp_path)
+    assert manifest["countable"] == {SLUG: "label_collision"} and manifest["label_collision_events"] == 1
+    assert "70-71" not in json.dumps(manifest)
 
 
 @pytest.mark.parametrize("change", ["window", "denver", "same_arms", "latency", "parse_error", "hour"])
