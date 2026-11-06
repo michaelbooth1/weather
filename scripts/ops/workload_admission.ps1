@@ -690,6 +690,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\ws3\projection\scripts\ws3_projection.py'
             sha256 = '9edf93c173d4978cf4a00420d038ff69fecb63034fec9fa2feec3051b5946740'
         }
+        # WS-3 book NUL scan (byte-level, no values); master 2026-11-06 11:06.
+        @{
+            path = 'C:\t\ws3\scan\book_nul_scan.py'
+            sha256 = '481a71cd044d37af3cda41b1f630bd7aa0a6aac1150ea9d5e4ebf0b9c02ca757'
+        }
     )
 }
 
