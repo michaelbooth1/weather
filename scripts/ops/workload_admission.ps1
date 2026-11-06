@@ -688,7 +688,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # T003 dev-only streaming structural scan; exact-pin review receipt under its out/.
         @{
             path = 'C:\t\codex\T003\out\scan_stream_v2.py'
-            sha256 = '7b8b84ac60950dd847af8363bb5e71b71344dd8299e9cd34136a4808728a74b6'
+            sha256 = '68a4cbec8e9bc3f15a1d37f1834c041b97c1fe8eaf309b916aefaa8246dcc2b9'
         }
     )
 }
