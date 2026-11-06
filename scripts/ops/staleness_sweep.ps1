@@ -112,29 +112,50 @@ function Get-WeatherStageABarrierFinding {
     # Completion and success are separate contracts: a contained barrier error
     # publishes COMPLETED with payload_status=critical so learning can continue.
     param([string]$ManifestPath)
+    function Get-BarrierProperty($Object, [string]$Name) {
+        if ($null -eq $Object) { return $null }
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -ne $property) { return ,$property.Value }
+        return $null
+    }
     try {
-        $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        if ($null -eq $manifest -or -not $manifest.status) { throw 'manifest status missing' }
+        $raw = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 -ErrorAction Stop
+        # Pipeline enumeration can unwrap a one-element JSON array on some
+        # PowerShell versions; require an object before deserializing it.
+        if ($raw -isnot [string] -or -not $raw.TrimStart().StartsWith('{')) { throw 'manifest root is not an object' }
+        $manifest = $raw | ConvertFrom-Json -ErrorAction Stop
+        $manifestStatus = Get-BarrierProperty $manifest 'status'
+        if ($manifestStatus -isnot [string] -or -not $manifestStatus) { throw 'manifest status missing or invalid' }
     } catch {
         return [pscustomobject]@{ severity = 'CRITICAL'; detail = 'Stage-A barrier unavailable: manifest missing or unreadable' }
     }
-    if ([string]$manifest.status -eq 'RUNNING') {
+    if ($manifestStatus -ceq 'RUNNING') {
         return [pscustomobject]@{ severity = 'WARN'; detail = 'Stage-A barrier pending; see the independent chain completion check' }
     }
-    $barrier = $manifest.barrier
-    $target = [string]$manifest.target_date
-    $barrierTarget = [string]$barrier.target_date
+    $barrier = Get-BarrierProperty $manifest 'barrier'
+    $payloadStatus = Get-BarrierProperty $manifest 'payload_status'
+    $target = Get-BarrierProperty $manifest 'target_date'
+    $barrierTarget = Get-BarrierProperty $barrier 'target_date'
+    $barrierStatus = Get-BarrierProperty $barrier 'status'
+    $barrierStepStatus = Get-BarrierProperty $barrier 'step_status'
+    $blockerCount = Get-BarrierProperty $barrier 'blocker_count'
+    $parsedTarget = [datetime]::MinValue
+    $validTarget = $target -is [string] -and [datetime]::TryParseExact($target, 'yyyy-MM-dd',
+        [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsedTarget)
+    $stringFields = $payloadStatus -is [string] -and $barrierTarget -is [string] -and
+        $barrierStatus -is [string] -and $barrierStepStatus -is [string]
+    $noBlockers = ($blockerCount -is [int] -or $blockerCount -is [long]) -and $blockerCount -eq 0
     $severity = 'CRITICAL'
     # Later rollup freshness may mark the parent critical while Stage B is
     # held. This check owns only the barrier, not the aggregate pipeline.
-    if ([string]$manifest.status -eq 'COMPLETED' -and
-        [string]$manifest.payload_status -in @('ok', 'critical') -and
-        [string]$barrier.status -eq 'PASS' -and [string]$barrier.step_status -eq 'ok' -and
-        $target -match '^\d{4}-\d{2}-\d{2}$' -and $barrierTarget -ceq $target) {
+    if ($manifestStatus -ceq 'COMPLETED' -and $stringFields -and
+        $payloadStatus -cin @('ok', 'critical') -and
+        $barrierStatus -ceq 'PASS' -and $barrierStepStatus -ceq 'ok' -and
+        $validTarget -and $barrierTarget -ceq $target -and $noBlockers) {
         $severity = 'OK'
     }
     $detail = 'Stage-A target {0}: manifest={1}, payload={2}, barrier={3}, barrier target={4}, blockers={5}; inspect data/backtest/settled_day_analysis_barrier.json and daily_refresh_status.json' -f `
-        $target, $manifest.status, $manifest.payload_status, $barrier.status, $barrierTarget, $barrier.blocker_count
+        $target, $manifestStatus, $payloadStatus, $barrierStatus, $barrierTarget, $blockerCount
     return [pscustomobject]@{ severity = $severity; detail = $detail }
 }
 

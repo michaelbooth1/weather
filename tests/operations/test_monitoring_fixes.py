@@ -164,7 +164,10 @@ STAGE_A_CASES = {
 @pytest.mark.parametrize("case", [
     "pass", "blocked", "diagnostic", "critical_payload", "missing_barrier",
     "mismatch", "missing_target", "error_step", "error_manifest", "running",
-    "missing", "malformed",
+    "missing", "malformed", "empty_object", "scalar", "array", "single_element_array", "null_root",
+    "missing_payload", "invalid_target", "null_barrier", "missing_step_status",
+    "missing_count", "negative_count", "count_contradiction", "boolean_count", "string_count",
+    "nested_barrier_array", "status_array", "payload_array", "target_array", "count_array",
 ])
 def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path):
     manifest = dict(
@@ -190,12 +193,51 @@ def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path
         manifest["status"] = "ERROR"
     elif case == "running":
         manifest.update(status="RUNNING", payload_status="running")
+    elif case == "empty_object":
+        manifest = {}
+    elif case == "scalar":
+        manifest = "COMPLETED"
+    elif case == "array":
+        manifest = [manifest, manifest]
+    elif case == "single_element_array":
+        manifest = [manifest]
+    elif case == "null_root":
+        manifest = None
+    elif case == "missing_payload":
+        del manifest["payload_status"]
+    elif case == "invalid_target":
+        manifest["target_date"] = manifest["barrier"]["target_date"] = "2026-99-99"
+    elif case == "null_barrier":
+        manifest["barrier"] = None
+    elif case == "missing_step_status":
+        del manifest["barrier"]["step_status"]
+    elif case == "missing_count":
+        del manifest["barrier"]["blocker_count"]
+    elif case == "negative_count":
+        manifest["barrier"]["blocker_count"] = -1
+    elif case == "count_contradiction":
+        manifest["barrier"]["blocker_count"] = 1
+    elif case == "boolean_count":
+        manifest["barrier"]["blocker_count"] = False
+    elif case == "string_count":
+        manifest["barrier"]["blocker_count"] = "0"
+    elif case == "nested_barrier_array":
+        manifest["barrier"] = [manifest["barrier"]]
+    elif case == "status_array":
+        manifest["status"] = [manifest["status"]]
+    elif case == "payload_array":
+        manifest["payload_status"] = [manifest["payload_status"]]
+    elif case == "target_array":
+        manifest["target_date"] = [manifest["target_date"]]
+    elif case == "count_array":
+        manifest["barrier"]["blocker_count"] = [0]
     if case != "missing":
         (tmp_path / "stage_a.json").write_text(
             "{broken" if case == "malformed" else json.dumps(manifest), encoding="utf-8",
         )
     result = ps(
         "staleness_sweep.ps1", ["Get-WeatherStageABarrierFinding"],
+        "Set-StrictMode -Version Latest; "
         "Get-WeatherStageABarrierFinding -ManifestPath (Join-Path $root 'stage_a.json') | ConvertTo-Json -Compress",
         tmp_path,
     )
