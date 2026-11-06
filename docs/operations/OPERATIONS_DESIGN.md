@@ -610,9 +610,12 @@ is OK only for a `COMPLETED` status, falling back to the report (failing on
 `Status: **running**`) only when the manifest is missing or unreadable.
 Completion does not prove success: a contained barrier error can publish
 `COMPLETED` with `payload_status: critical`. The independent
-`chain/stage_a_verdict` check requires an `ok` completed payload and an `ok`,
+`chain/settled_day_barrier` check requires a completed payload and an `ok`,
 `PASS` barrier bound to the manifest target; it reports missing or negative
-verdicts as CRITICAL and an in-progress verdict as WARN. The completion check
+barriers as CRITICAL and an in-progress barrier as WARN. It accepts both `ok`
+and `critical` completed payloads: later rollup freshness can make the aggregate
+critical independently of the barrier. A passing barrier does not certify
+aggregate pipeline health or promotion readiness. The completion check
 continues to detect stale or abandoned running manifests. Neither check is
 covered by the held Stage-B learning alarms.
 

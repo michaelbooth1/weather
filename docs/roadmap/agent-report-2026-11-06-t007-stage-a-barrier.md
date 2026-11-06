@@ -48,9 +48,11 @@ calls; it imports no weather modules and reads no runtime evidence.
 - **False silence in monitoring: class (a), patched.** Stage A deliberately
   publishes COMPLETED for a terminal critical run. The existing sweep completion
   check accepts it without reading `payload_status` or `barrier`. The added
-  `chain/stage_a_verdict` check independently requires completed/ok plus an
-  ok/PASS target-matching barrier. Missing/negative verdicts remain CRITICAL;
-  RUNNING is WARN alongside the independent abandoned/stale-run check.
+  `chain/settled_day_barrier` check independently requires a completed payload
+  plus an ok/PASS target-matching barrier. Missing/negative barriers remain
+  CRITICAL; RUNNING is WARN alongside the abandoned/stale-run check. It accepts
+  both ok and critical completed payloads so a held later learning rollup does
+  not become a second barrier alarm. It certifies only the barrier.
 
 ## Wrapper and every Stage-A step
 
@@ -125,7 +127,7 @@ unexpired, at most 60 days, and renewal needs its own dated decision. KNOWN is
 retained in JSONL and Markdown; missing/enabled producers, malformed rows and
 expiry restore CRITICAL plus lapsed/malformed diagnostics. Do not change age
 limits, forge refreshed outputs, disable the sweep, or run Stage B before B's
-release to clear an alarm. The new Stage-A verdict check is outside those holds.
+release to clear an alarm. The new Stage-A barrier check is outside those holds.
 
 If master wants a green *settlement-only operational* exit while Stage B is
 parked, propose an explicit stage/producer-scoped status contract separating

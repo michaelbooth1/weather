@@ -108,7 +108,7 @@ function Get-WeatherStageAChainFinding {
         detail = ('Stage-A manifest unreadable; report is {0:N1}d old and not a running checkpoint' -f $age) }
 }
 
-function Get-WeatherStageAVerdictFinding {
+function Get-WeatherStageABarrierFinding {
     # Completion and success are separate contracts: a contained barrier error
     # publishes COMPLETED with payload_status=critical so learning can continue.
     param([string]$ManifestPath)
@@ -116,17 +116,19 @@ function Get-WeatherStageAVerdictFinding {
         $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         if ($null -eq $manifest -or -not $manifest.status) { throw 'manifest status missing' }
     } catch {
-        return [pscustomobject]@{ severity = 'CRITICAL'; detail = 'Stage-A verdict unavailable: manifest missing or unreadable' }
+        return [pscustomobject]@{ severity = 'CRITICAL'; detail = 'Stage-A barrier unavailable: manifest missing or unreadable' }
     }
     if ([string]$manifest.status -eq 'RUNNING') {
-        return [pscustomobject]@{ severity = 'WARN'; detail = 'Stage-A verdict pending; see the independent chain completion check' }
+        return [pscustomobject]@{ severity = 'WARN'; detail = 'Stage-A barrier pending; see the independent chain completion check' }
     }
     $barrier = $manifest.barrier
     $target = [string]$manifest.target_date
     $barrierTarget = [string]$barrier.target_date
     $severity = 'CRITICAL'
+    # Later rollup freshness may mark the parent critical while Stage B is
+    # held. This check owns only the barrier, not the aggregate pipeline.
     if ([string]$manifest.status -eq 'COMPLETED' -and
-        [string]$manifest.payload_status -eq 'ok' -and
+        [string]$manifest.payload_status -in @('ok', 'critical') -and
         [string]$barrier.status -eq 'PASS' -and [string]$barrier.step_status -eq 'ok' -and
         $target -match '^\d{4}-\d{2}-\d{2}$' -and $barrierTarget -ceq $target) {
         $severity = 'OK'
@@ -457,10 +459,10 @@ $stageA = Get-WeatherStageAChainFinding `
 Add-Finding "chain/daily_refresh_report" $stageA.severity $stageA.detail `
     "the chain's own completion record; per-step checkpoints keep the report fresh even when the chain is killed, so only a COMPLETED Stage-A manifest proves the chain completed" `
     $stageA.age_days 1
-$stageAVerdict = Get-WeatherStageAVerdictFinding `
+$stageABarrier = Get-WeatherStageABarrierFinding `
     -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json")
-Add-Finding "chain/stage_a_verdict" $stageAVerdict.severity $stageAVerdict.detail `
-    "COMPLETED proves termination, not promotion readiness; a critical payload or blocked, missing or target-mismatched barrier must remain visible independently of held Stage-B learning alarms" $null $null
+Add-Finding "chain/settled_day_barrier" $stageABarrier.severity $stageABarrier.detail `
+    "COMPLETED proves termination; the settlement barrier must be visible independently of held Stage-B learning alarms. A passing barrier does not certify the aggregate pipeline or promotion readiness" $null $null
 
 # ---- 3. serving artifacts ----
 # Not a bug on its own -- but an artifact serving a season it never trained on is (see 4b/2).

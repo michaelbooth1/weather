@@ -166,7 +166,7 @@ STAGE_A_CASES = {
     "mismatch", "missing_target", "error_step", "error_manifest", "running",
     "missing", "malformed",
 ])
-def test_stage_a_verdict_does_not_confuse_completion_with_success(case, tmp_path):
+def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path):
     manifest = dict(
         status="COMPLETED", payload_status="ok", target_date="2026-10-07",
         barrier=dict(status="PASS", step_status="ok", target_date="2026-10-07", blocker_count=0),
@@ -195,13 +195,15 @@ def test_stage_a_verdict_does_not_confuse_completion_with_success(case, tmp_path
             "{broken" if case == "malformed" else json.dumps(manifest), encoding="utf-8",
         )
     result = ps(
-        "staleness_sweep.ps1", ["Get-WeatherStageAVerdictFinding"],
-        "Get-WeatherStageAVerdictFinding -ManifestPath (Join-Path $root 'stage_a.json') | ConvertTo-Json -Compress",
+        "staleness_sweep.ps1", ["Get-WeatherStageABarrierFinding"],
+        "Get-WeatherStageABarrierFinding -ManifestPath (Join-Path $root 'stage_a.json') | ConvertTo-Json -Compress",
         tmp_path,
     )
     assert result.returncode == 0, result.stderr
     finding = json.loads(result.stdout)
-    assert finding["severity"] == {"pass": "OK", "running": "WARN"}.get(case, "CRITICAL")
+    # A held Stage-B rollup can make the parent critical after a passing barrier.
+    # This check owns the barrier, not that separate aggregate verdict.
+    assert finding["severity"] == {"pass": "OK", "critical_payload": "OK", "running": "WARN"}.get(case, "CRITICAL")
     if case == "blocked":
         assert "2026-10-07" in finding["detail"]
         assert "barrier=BLOCK" in finding["detail"]
@@ -524,13 +526,13 @@ def test_an_unheld_known_critical_stays_critical_and_adds_a_lapsed_row(tmp_path)
 def test_held_learning_alarms_do_not_hide_stage_a_failure(tmp_path):
     result, md, record, flags = _sweep_report(
         tmp_path, HELD,
-        extra_finding="Add-Finding 'chain/stage_a_verdict' 'CRITICAL' 'barrier=BLOCK' 'verdict why' $null $null",
+        extra_finding="Add-Finding 'chain/settled_day_barrier' 'CRITICAL' 'barrier=BLOCK' 'barrier why' $null $null",
     )
     assert result.returncode == 2, result.stdout + result.stderr
     assert record["known_count"] == 2
     assert record["critical_count"] == 1
-    assert "| **CRITICAL** | `chain/stage_a_verdict` |" in md
-    assert len(flags) == 1 and "chain/stage_a_verdict" in flags[0]
+    assert "| **CRITICAL** | `chain/settled_day_barrier` |" in md
+    assert len(flags) == 1 and "chain/settled_day_barrier" in flags[0]
 
 
 def test_learning_why_texts_name_stage_b_and_carry_no_dates():
