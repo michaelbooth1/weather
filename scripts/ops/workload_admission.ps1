@@ -685,10 +685,10 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
             sha256 = 'd23980b5123761ef0cfe46afa60274063aee66c84eb58169a55cb283a847f61d'
         }
-        # T003 dev-only streaming structural scan; exact-pin review receipt under its out/.
+        # T003 B010 dev-only streaming scan; master GO required before execution.
         @{
-            path = 'C:\t\codex\T003\out\scan_stream_v2.py'
-            sha256 = '68a4cbec8e9bc3f15a1d37f1834c041b97c1fe8eaf309b916aefaa8246dcc2b9'
+            path = 'C:\t\codex\T003\out\scan_stream_v3.py'
+            sha256 = 'f66d7ff2a5b47e349952d8149ae4210b28cf4401623bb844a70b487c6f59d597'
         }
     )
 }
