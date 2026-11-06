@@ -37,7 +37,8 @@ def config(**changes):
 
 
 def payload():
-    return {'start': at(0), 'end': at(306), 'account_scope_complete': True, 'conditions': {'c1': {
+    return {'start': at(0), 'end': at(306), 'opening_state': 'flat',
+            'account_scope_complete': True, 'conditions': {'c1': {
         'venue': 'international_polymarket', 'token_ids': ['yes1', 'no1'], 'event_date': '2026-10-12',
         'native_unit': 'C', 'tick': '.01', 'min_order_size': '5',
         'coverage_start': at(0), 'coverage_end': at(306)}},

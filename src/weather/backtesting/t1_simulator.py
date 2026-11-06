@@ -55,6 +55,8 @@ def replay(payload, config: ReplayConfig):
     start, end = utc(payload['start']), utc(payload['end'])
     if start >= end:
         raise ValueError('invalid replay interval')
+    if payload.get('opening_state') != 'flat':
+        raise ValueError('explicit flat opening state required; inventory state carry is unsupported')
     conditions = payload['conditions']
     if not conditions:
         raise ValueError('empty universe')

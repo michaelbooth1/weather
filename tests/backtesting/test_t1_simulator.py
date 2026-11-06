@@ -358,3 +358,14 @@ def test_explicit_full_day_epoch_bound_requires_no_invented_active_sample_count(
     bound = replay(p, config(reward_epoch_rule='full_day_upper_bound'))
     assert bound['reward_accrued'] == baseline['reward_accrued']
     assert 'missing_reward_epoch' not in bound['reasons']
+
+
+@pytest.mark.parametrize('opening_state', [None, 'inventory'])
+def test_opening_inventory_cannot_be_silently_reset(opening_state):
+    p = payload()
+    if opening_state is None:
+        p.pop('opening_state')
+    else:
+        p['opening_state'] = opening_state
+    with pytest.raises(ValueError, match='explicit flat opening state'):
+        replay(p, config())

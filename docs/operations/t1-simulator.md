@@ -20,6 +20,10 @@ They read no runtime data and are development evidence only.
 
 The engine takes a bounded session export with:
 
+- `opening_state=flat`: an explicit declaration that this simulated capital
+  period begins with no resting orders or inventory. Missing or other opening
+  states refuse; this kernel cannot resume unsettled inventory. Do not reset
+  capital by splitting overlapping unsettled periods into independent inputs.
 - `start`/`end` UTC; `conditions` mapping IDs to International venue, YES/NO
   `token_ids`, `event_date`, `native_unit`, captured `tick`/`min_order_size` and
   complete `coverage_start`/`coverage_end`. Cash units are pUSD; shares and prices
