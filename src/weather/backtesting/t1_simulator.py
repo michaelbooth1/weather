@@ -7,6 +7,7 @@ orders before payment. All unknowns remain non-countable in report reasons.
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal as D
 
@@ -66,6 +67,7 @@ def replay(payload, config: ReplayConfig):
     latency = timedelta(seconds=float(number(config.latency_seconds)))
     books, terms, active, orders, fills = {}, {}, {}, {}, []
     used, rewards = defaultdict(lambda: ZERO), defaultdict(lambda: ZERO)
+    rewarded_seconds = defaultdict(lambda: ZERO)
     spent, payouts, rebate_weight = ZERO, ZERO, defaultdict(lambda: ZERO)
     reasons, rejected, settled = set(), [], set()
     schedule = []
@@ -134,7 +136,19 @@ def replay(payload, config: ReplayConfig):
             day = left.date().isoformat()
             if safe_end.date() != left.date() and safe_end.time().isoformat() != '00:00:00':
                 raise ValueError('split reward interval at UTC day boundary')
-            rewards[(cid, day)] += share * number(term['rate_per_day']) * duration / D(86400)
+            epoch = payload.get('reward_epochs', {}).get(day, {}).get(cid)
+            if epoch is None:
+                reasons.add('missing_reward_epoch')
+                continue
+            if epoch['complete'] is not True:
+                raise ValueError('incomplete reward epoch denominator')
+            source_hash(epoch['source_sha256'])
+            active_seconds = number(epoch['active_seconds'], minimum=D('.000001'), maximum=D(86400))
+            if share > ZERO:
+                rewarded_seconds[(cid, day)] += duration
+                if rewarded_seconds[(cid, day)] > active_seconds:
+                    raise ValueError('reward epoch shorter than own eligible duration')
+            rewards[(cid, day)] += share * number(term['rate_per_day']) * duration / active_seconds
 
     previous = start
     for at, _, _, event in sorted(schedule, key=lambda x: x[:3]):
@@ -305,8 +319,12 @@ def replay(payload, config: ReplayConfig):
     references_complete = all(r['entry_mid'] is not None for r in fills)
     reference_value = sum((r['entry_mid'] * r['size'] for r in fills), ZERO) if references_complete else None
     return {'config': config.projection(), 'config_sha256': digest(config.projection()),
+            'conditions': deepcopy(conditions),
             'input_sha256': digest(payload), 'fills': fills, 'rejected': rejected,
-            'source_hashes': sorted({e['source_sha256'] for e in payload['events']}),
+            'source_hashes': sorted({e['source_sha256'] for e in payload['events']}
+                                    | {p['source_sha256'] for p in payload.get('rebate_pools', {}).values()}
+                                    | {p['source_sha256'] for day in payload.get('reward_epochs', {}).values()
+                                       for p in day.values()}),
             'rewards': [{'condition_id': cid, 'day': day, 'accrued': amount}
                         for (cid, day), amount in sorted(rewards.items())],
             'reward_accrued': reward_total, 'rebate_accrued': rebates,

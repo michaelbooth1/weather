@@ -39,6 +39,11 @@ The engine takes a bounded session export with:
   total maker fee-weight denominator, with source hash. The denominator includes
   all category fills, not only this condition or our orders. A missing pool is
   incomplete evidence, not a zero rebate assumption.
+- `reward_epochs`: per UTC day and condition, complete captured normalization
+  `active_seconds` and source hash. This is 60 times the number of active venue
+  minute samples, or the captured full-day expectation under the declared sample
+  rule. Include counterfactual own-liquidity activation. It cannot be shorter
+  than the replay's own eligible duration. A missing denominator is incomplete.
 
 Exporting is not a licence to inspect trial dates: preserve the embargo and
 freeze-before-read rules of the task and charter. Do not point this tool at
@@ -76,6 +81,9 @@ own outstanding sizes removed by `t1_capture`, then simulated sizes are added.
 Every book/terms/fill/cancel boundary updates the reward estimate; selection-time
 share is never held for the session. Continuous integration is the expectation
 of the venue's random minute sampling, not an assertion about its realized offset.
+The epoch divisor is supplied explicitly: a condition with no scoring liquidity
+for part of the day must not silently use 1,440 active samples. The full-day
+normalization/export needs its own captured coverage, even for a short pilot.
 Stale book/terms intervals are omitted and explicitly make the report incomplete.
 No missing-configuration substitute ships: export captured settings or obtain
 a preregistered substitute implementation before freezing.
@@ -162,6 +170,8 @@ accuracy comparison exits 2. There is no freeze command or trial look command.
 `sample_count` and `synthetic`. The CLI recomputes nearest-rank empirical p95;
 configured latency must be at least that p95. Synthetic evidence is explicitly
 labelled and cannot become live accuracy evidence merely by passing arithmetic.
+`t1_accuracy.pin_latency_evidence` exports those samples directly from a verified
+pin-format journal; its projection retains the raw journal hash and live/replay mode.
 The report records Git HEAD, worktree cleanliness and hashes of all T1 modules.
 Freeze authority requires a clean committed source and retained input manifests.
 

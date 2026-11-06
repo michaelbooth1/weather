@@ -76,7 +76,8 @@ def main(argv=None):
     from weather.schema_families import schema_version
 
     report = {'schema_version': schema_version('t1_simulator_report'),
-              'result': result, 'code': source_binding(), 'synthetic': latency['synthetic'],
+              'result': result, 'code': source_binding(),
+              'synthetic': latency['synthetic'] or result.get('synthetic', False),
               'inputs': {name: {'path': str(files[name].resolve()), 'sha256': hashlib.sha256(data).hexdigest()}
                          for name, data in raw.items()}}
     args.output.parent.mkdir(parents=True, exist_ok=True)

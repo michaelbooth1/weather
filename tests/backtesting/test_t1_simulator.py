@@ -204,6 +204,7 @@ def test_rewards_split_at_utc_midnight_before_daily_payout_floor():
             if key in row:
                 row[key] = shifted(row[key])
     p['rebate_pools']['2026-10-13'] = p['rebate_pools']['2026-10-12']
+    p['reward_epochs']['2026-10-13'] = p['reward_epochs']['2026-10-12']
     result = replay(p, config(latency_seconds='0', measured_p95_seconds='0'))
     assert {r['day'] for r in result['rewards']} == {'2026-10-12', '2026-10-13'}
     assert result['reward_payable'] == result['reward_accrued']
@@ -221,3 +222,17 @@ def test_replay_decimal_context_is_pinned():
     with localcontext() as context:
         context.prec = 8
         assert replay(payload(), config()) == expected
+
+
+def test_reward_epoch_uses_active_sample_normalization_and_requires_complete_denominator():
+    p = payload()
+    baseline = replay(p, config())['reward_accrued']
+    p['reward_epochs']['2026-10-12']['c1']['active_seconds'] = '43200'
+    assert abs(replay(p, config())['reward_accrued'] - baseline * 2) < D('1e-25')
+    p['reward_epochs']['2026-10-12']['c1']['active_seconds'] = '1'
+    with pytest.raises(ValueError, match='shorter than own eligible'):
+        replay(p, config())
+    p['reward_epochs'] = {}
+    report = replay(p, config())
+    assert 'missing_reward_epoch' in report['reasons']
+    assert report['reward_accrued'] == 0

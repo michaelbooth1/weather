@@ -70,6 +70,34 @@ def read_pin_journal(raw):
     return rows
 
 
+def pin_latency_evidence(raw):
+    """Retain observation -> decision -> ACK samples from the pinned writer format.
+
+    The file hash of this returned projection becomes latency_source_sha256.
+    This is measurement/export only: it does not choose the frozen latency.
+    """
+    rows = read_pin_journal(raw)
+    snapshot, request, samples = None, None, []
+    for row in rows:
+        if row['event'] == 'submit_market_snapshot':
+            snapshot = row['snapshot']['observed_at_utc']
+        elif row['event'] == 'submit_request':
+            if request is not None or snapshot is None:
+                raise ValueError('unpaired latency request')
+            request = row['recorded_at_utc']
+        elif row['event'] == 'submit_response':
+            if request is None or not utc(snapshot) <= utc(request) <= utc(row['recorded_at_utc']):
+                raise ValueError('unpaired or regressed latency sample')
+            samples.append({'observed_at': snapshot, 'decided_at': request,
+                            'acknowledged_at': row['recorded_at_utc']})
+            request = None
+    if request is not None or not samples:
+        raise ValueError('complete latency samples required')
+    return {'kind': 'observation_to_order_ack', 'sample_count': len(samples), 'samples': samples,
+            'synthetic': rows[0]['mode'] != 'live', 'journal_sha256': hashlib.sha256(raw).hexdigest(),
+            'journal_pin': LFC_PIN}
+
+
 def pin_commands(rows, condition_id):
     """Adapt pin's real submit_request/response and acknowledged cancel lifecycle.
 
@@ -293,6 +321,7 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
     metrics_pass = (complete and reward_metric['pass'] and all(m['pass'] for m in fill_metrics.values())
                     and all(m['pass'] for m in mark_metrics.values()))
     return {'status': 'PASS' if passed else ('INSUFFICIENT_EVIDENCE' if not evidence_sufficient else 'FAIL'),
+            'synthetic': rows[0]['mode'] != 'live',
             'rewards': reward_metric, 'fills': fill_metrics, 'markouts_per_share': mark_metrics,
             'evidence_sufficient': evidence_sufficient, 'simulator_complete': complete,
             'metrics_pass': metrics_pass, 'actual_filled_orders': len(actual_marks),
@@ -325,6 +354,7 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
     return {'status': 'PASS' if enough and all(r['metrics_pass'] for r in reports)
             else ('INSUFFICIENT_EVIDENCE' if not enough else 'FAIL'),
             'sessions': len(reports), 'actual_filled_orders': filled, 'paid_rewards': paid,
+            'synthetic': any(r['synthetic'] for r in reports),
             'config_sha256': reports[0]['config_sha256'], 'tolerance_sha256': reports[0]['tolerance_sha256'],
             'session_report_sha256': [digest(r) for r in reports],
             'qualification': 'ACCURACY_ONLY_REQUIRES_CODE_AND_PREREG_BINDING', 'trial_can_pass': False}

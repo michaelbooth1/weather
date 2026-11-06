@@ -48,7 +48,9 @@ def payload():
                       'observed_at': at(0), 'price': '.49', 'size': '10'}],
         'rebate_pools': {'2026-10-12': {'category': 'weather', 'complete': True,
                                        'source_sha256': 'd' * 64, 'total_taker_fees': '10',
-                                       'total_maker_fee_weight': '10'}}}
+                                       'total_maker_fee_weight': '10'}},
+        'reward_epochs': {'2026-10-12': {'c1': {'active_seconds': '86400', 'complete': True,
+                                              'source_sha256': 'a' * 64}}}}
 
 
 def journal_bytes(events=None):

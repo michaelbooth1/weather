@@ -7,7 +7,7 @@ import pytest
 
 from tests.backtesting.t1_fixtures import at, config, journal_bytes, payload, receipts, tolerance
 from weather.backtesting.t1_accuracy import (accuracy_gate, clob_fills, combine_session_gates,
-                                             pin_commands, read_pin_journal)
+                                             pin_commands, pin_latency_evidence, read_pin_journal)
 
 
 def test_synthetic_session_passes_independent_reward_fill_and_markout_arithmetic():
@@ -18,6 +18,7 @@ def test_synthetic_session_passes_independent_reward_fill_and_markout_arithmetic
     assert report['fills']['o1']['absolute_error'] == 0
     assert report['markouts_per_share']['o1']['absolute_error'] == 0
     assert report['trial_can_pass'] is False
+    assert report['synthetic'] is True
     assert len(report['config_sha256']) == 64
 
 
@@ -145,3 +146,10 @@ def test_clob_wire_unix_seconds_and_nonfinal_fills():
     clob['rows'][0]['status'] = 'MATCHED'
     with pytest.raises(ValueError, match='unknown own trade status'):
         clob_fills(clob, known, ['yes1', 'no1'])
+
+
+def test_pinned_journal_exports_full_end_to_end_latency_samples():
+    evidence = pin_latency_evidence(journal_bytes())
+    assert evidence['samples'] == [{'observed_at': at(0), 'decided_at': at(1), 'acknowledged_at': at(2)}]
+    assert evidence['sample_count'] == 1
+    assert evidence['synthetic'] is True
