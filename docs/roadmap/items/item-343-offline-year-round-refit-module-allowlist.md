@@ -1,4 +1,4 @@
-# 343. Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - MASTER OPTION 1 SPLIT: 343a SCORER ALLOWLIST LINE; 343b MODULE DEFERRED]
+# 343. Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - 343a SCORER ALLOWLIST LINE; 343b MODULE BUILT, EQUIVALENCE RUN PENDING]
 
 Goal: give the lever-inventory row 28 year-round P3d_N refit (and later year-round history runs) a packaged
 offline module under `src/weather/` and one line in the workstation offline-module allowlist, so that they run
@@ -33,8 +33,8 @@ reviewed runner file by sha, is REJECTED as a file-path loader in disguise. The 
 and 343b (deferred, design (A)). **Until 343b lands, row 28's remaining stages stay on launcher v6 under the one-off
 exception.**
 
-The module name `weather.calibration.yearround_refit` is reserved here only. No allowlist line and no hook-mirror
-entry exists for it, and no test pins it as admitted: an admitted name with no module behind it is a slot that
+The module name `weather.calibration.yearround_refit` is reserved here only. Until 343b no allowlist line and no hook-mirror
+entry existed for it, and no test pinned it as admitted: an admitted name with no module behind it is a slot that
 anything could fill. Its line lands with its module in 343b.
 
 Checklist:
@@ -54,18 +54,20 @@ Checklist:
   guard-parse evidence: the guard script parses the edited `workload_admission.ps1` cleanly and classifies the
   scorer as offline.
 
-343b (DEFERRED; design (A)):
+343b (BUILD GO, master 2026-11-03; branch `claude/item343b-yearround-module-20261103`, stacked on 343a; design (A),
+fit_kind "forward" for row 28 candidate B; runbook [YEARROUND_REFIT.md](../../operations/YEARROUND_REFIT.md)):
 
-- [ ] The durable offline year-round refit module `weather.calibration.yearround_refit` under
+- [x] The durable offline year-round refit module `weather.calibration.yearround_refit` under
   `src/weather/calibration/`, research-only and history-only: the stages, the arms and the output guard as a library,
   repo paths through `weather.paths` and config-driven roots, with no live, order or promotion path and no B-bound
   file edited (it may import them read-only).
 - [ ] Its own review, and a real-data equivalence re-run against the frozen row-28 run's stages.
-- [ ] Its allowlist line and hook-mirror entry, landing with the module, with its own admission test; the B-look
+- [x] Its allowlist line and hook-mirror entry, landing with the module, with its own admission test; the B-look
   argument refusal stays in force for it.
-- [ ] `README.md` and the owning runbook for the new command in the same change.
-- **Trigger (master 2026-11-03):** a second approved year-round lever, OR the next row-28 stage that needs the
-  wrapper. Until then nothing in 343b is built.
+- [x] `README.md` and the owning runbook for the new command in the same change.
+- [ ] The real-data equivalence run on the WS under a new records root (STATE-SHA mode), after review; not
+  yet run.
+- Trigger (fired 2026-11-03): master's BUILD GO for the row 28 B forward refit.
 
 Evidence (343a):
 

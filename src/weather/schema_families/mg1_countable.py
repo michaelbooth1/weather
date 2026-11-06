@@ -1,0 +1,20 @@
+"""Schema records for MG-1 countability, counts-only: ``weather.calibration.mg1_countable`` (R11 Head 2).
+
+A family module (Data Layer v2 PL-2): it imports only ``weather.schema_registry_types``
+and no capture loop imports it, so these schemas stay out of the frozen core. The final list it writes is
+``mg1_countable/1``, registered by the ``mg1_look`` family (its reader and writer).
+"""
+
+from weather.schema_registry_types import SchemaSpec
+
+SCHEMAS = (
+    SchemaSpec(
+        "mg1_countable_report",
+        "mg1_countable_report/1",
+        "weather.calibration.mg1_countable",
+        "active",
+        "MG-1 countability report mode (R11 P1/P2), printed to stdout: per calendar date from D0 its status only "
+        "(countable, non_countable, pending), the required MG1_LAST, whether the recorded MG1_LAST must move, "
+        "each market ledger's sha256 and the run time. Nothing per market; no label, price or settlement value.",
+    ),
+)

@@ -124,7 +124,9 @@ lane does all of the following.
 - [ ] **Evidence cutoff and embargo windows.** Never read an outcome, price or label dated after the
       cutoff that [STATE_OF_PLAY](STATE_OF_PLAY.md) names (2026-09-29 when this method was written).
       Never read the reserved MG-1 window that [the reserved confirmation window](reserved-confirmation-window.md)
-      defines. Name both in the rule.
+      defines. Name both in the rule. *Stale-rule note 2026-11-05 (master reading, A20): the MG-1 window
+      rule binds NBM-guidance-reading candidates only; a no-model maker or taker trial frozen under the
+      [edge trial charter](EDGE_TRIAL_CHARTER.md) is outside it.*
 - [ ] **No oracle.** No input built from the outcome, from the settled band, or from data received after
       the row's capture time (§3, rung 3).
 - [ ] **Dated Clarifications, never edits to a frozen rule.** A Clarification is a new dated section with
