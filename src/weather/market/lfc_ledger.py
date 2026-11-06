@@ -31,7 +31,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from urllib.error import URLError
+from http.client import HTTPException
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -423,11 +423,13 @@ def _positions_page(query, *, opener, timeout):
     try:
         response = (opener or urlopen)(Request(POSITIONS_URL + '?' + urlencode(query), headers={
             'Accept': 'application/json', 'User-Agent': 'weather-lfc-baseline/2'}), timeout=timeout)
-    except URLError:  # HTTPError (4xx/5xx, e.g. the v1 410) included
+    except (OSError, HTTPException):  # URLError/HTTPError (e.g. the v1 410), timeouts, resets
         raise RuntimeError('positions_unreadable') from None
     try:
         status = getattr(response, 'status', 200)
         raw = response.read(5_000_001)
+    except (OSError, HTTPException):  # a timeout, reset or IncompleteRead mid-body
+        raise RuntimeError('positions_unreadable') from None
     finally:
         response.close()
     if status != 200 or len(raw) > 5_000_000:

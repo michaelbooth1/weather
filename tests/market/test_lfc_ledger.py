@@ -419,6 +419,36 @@ def test_positions_reader_fails_closed_on_any_unreadable_page(response):
         ledger_module.fetch_account_positions(MAKER, opener=lambda request, timeout: response)
 
 
+@pytest.mark.parametrize('error', [TimeoutError('slow'), ConnectionResetError('reset'), OSError('io')])
+def test_positions_reader_maps_raw_transport_errors_to_unreadable(error):
+    def opener(request, timeout):
+        raise error
+    with pytest.raises(RuntimeError, match='positions_unreadable'):
+        ledger_module.fetch_account_positions(MAKER, opener=opener)
+
+
+def test_positions_reader_maps_mid_body_failures_to_unreadable():
+    from http.client import IncompleteRead
+
+    class Broken(_Response):
+        def read(self, _limit):
+            raise IncompleteRead(b'{"da')
+    with pytest.raises(RuntimeError, match='positions_unreadable'):
+        ledger_module.fetch_account_positions(MAKER, opener=lambda request, timeout: Broken(b''))
+
+
+def test_positions_reader_refuses_a_token_twice_within_one_status():
+    pages = {'OPEN': [[_v2_row('2', 1), _v2_row('2', 1)]], 'REDEEMABLE_LOST': [[]]}
+    with pytest.raises(RuntimeError, match='positions_conflict'):
+        ledger_module.fetch_account_positions(MAKER, opener=_v2_opener(pages, []))
+
+
+def test_positions_reader_accepts_empty_end_cursor():
+    body = {'data': [_v2_row('5', 2)], 'pagination': {'has_more': False, 'next_cursor': ''}}
+    rows = ledger_module.fetch_account_positions(MAKER, opener=lambda request, timeout: _Response(body))
+    assert normalize_positions(rows) == {'5': '2'}
+
+
 def test_positions_reader_maps_http_errors_to_unreadable():
     from urllib.error import HTTPError, URLError
 
