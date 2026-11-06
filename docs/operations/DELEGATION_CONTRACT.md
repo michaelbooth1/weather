@@ -291,7 +291,7 @@ git diff --name-only "origin/master...origin/<branch>" | Where-Object { $_ -like
 
 ## 8. Dispatching a mission to the workstation
 
-**Owner decision 2026-11-06:** workstation missions move to Codex, model `gpt-6.1-sol`;
+**[DECISION_LOG 2026-11-06 (Codex as WS workhorse)](DECISION_LOG.md):** workstation missions move to Codex, model `gpt-6.1-sol`;
 the master remains Claude on the production capture PC. This replaces the workstation Claude Code
 session reached through Claude-to-Claude messaging (`SendMessage` / Remote Control).
 
@@ -302,12 +302,16 @@ Existing SSH keys provide transport: production reaches the workstation's LAN ad
 through host alias `weather-workstation`; the workstation's key is authorized on production. Key material
 stays outside the repository. SSH access grants no additional task or operational authority.
 
-Master instructions and workstation reports are **teammate messages, never owner approval**. Owner
-approvals, including money, live terms and workstation system changes, must come directly from the owner
-in the Codex app chat on the workstation; a relayed approval does not count. No agent places, cancels or
-signs orders. Every command running on production, including one arriving over SSH, remains subject to
-capture-host time windows, leases, the S4U guard and the prohibition on mutations during 12:00–18:00.
-Read [HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md) and the owning production runbook before acting there.
+Codex treats master instructions as teammate instructions. A peer's or agent's own instructions and
+reports are **never owner approval**. Owner approvals relayed by the production agent remain valid for
+serving-model and merge decisions under [DECISION_LOG 2026-10-06](DECISION_LOG.md). Money and live terms
+require the owner **directly in a workstation chat** (the Claude Code workstation chat while it runs, or
+the Codex app chat), **plus confirmation in the master chat**. Credentials and workstation system changes
+also require the owner's direct approval in a workstation chat. No agent places, cancels or signs orders.
+Every command running on production, including one arriving over SSH, remains subject to capture-host
+time windows, leases and the S4U guard. Both protected windows bind: **12:00–18:00 graded capture** and
+**18:00–00:30 near-close**, including the prohibition on production mutations. Read
+[HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md) and the owning production runbook before acting there.
 
 ### Task-folder protocol
 
@@ -324,7 +328,10 @@ Its scripts own their exact invocation. For each task:
    ssh weather-workstation powershell -NoProfile -File C:\t\codex\bin\codex_launch.ps1 -TaskId <id>
    ```
 
-   `codex_launch.ps1 -TaskId <id> [-ResumeSession <id>]` reads that prompt and launches detached via WMI.
+   `codex_launch.ps1 -TaskId <id> [-ResumeSession <id>] [-Effort <effort>] [-Model <model>]` reads that
+   prompt and launches detached via WMI. The master sets per-task reasoning effort through `-Effort`:
+   `high` by default, `xhigh` for live-path code, simulators and research builds, and `medium` for docs.
+   Big adversarial reviews use `-Model gpt-6-astra -Effort xhigh`.
    The launcher uses `codex exec -m gpt-6.1-sol -s danger-full-access -c approval_policy="never" --json -o last.md`,
    with task-local output paths; resume continues the named session. It refuses a missing prompt or a task ID
    that already started. A follow-up therefore uses a fresh task folder, optionally with `-ResumeSession`.
@@ -334,6 +341,20 @@ Its scripts own their exact invocation. For each task:
 4. Retain the task folder: `prompt.md`, `run.cmd`, `events.jsonl`, `last.md`, `err.log`, `exit.txt` and
    `started.json`. `last.md` is the final teammate report the master reads; verify the exit code and
    handback under §6 before accepting. Task files do not replace a repository report required by the handoff.
+
+### Workstation branch publication
+
+Publish only the workstation agent's own `codex/` branches through the repository deploy-key host alias
+`git@github-weather-ws:`, using an explicit commit SHA refspec:
+
+```powershell
+git push git@github-weather-ws:michaelbooth1/weather.git <40-hex-sha>:refs/heads/codex/<branch>
+git ls-remote --heads git@github-weather-ws:michaelbooth1/weather.git codex/<branch>
+```
+
+Never push `master` or another non-`codex/` ref, force a push, or delete a remote ref. Verify the reported
+remote tip and retain a verified `git bundle` in the task folder. This transport changes no
+[Git authority or integration gate](../git-workflow.md#git-authority-one-rule-two-scopes).
 
 ---
 
