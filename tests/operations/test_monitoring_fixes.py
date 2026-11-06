@@ -1,4 +1,7 @@
-"""Exercise monitor helpers against synthetic evidence, never the live host scripts."""
+"""Exercise monitor helpers against synthetic evidence, never the live host scripts.
+
+Guards: Stage-A completion must not hide a failed settlement/promotion verdict.
+"""
 import hashlib
 import json
 import os
@@ -155,6 +158,54 @@ STAGE_A_CASES = {
     "malformed_manifest_running_report": ("malformed", 1, "Status: **running**", 1, "CRITICAL", "report"),
     "missing_both": (None, 0, None, 0, "CRITICAL", "none"),
 }
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", [
+    "pass", "blocked", "diagnostic", "critical_payload", "missing_barrier",
+    "mismatch", "missing_target", "error_step", "error_manifest", "running",
+    "missing", "malformed",
+])
+def test_stage_a_verdict_does_not_confuse_completion_with_success(case, tmp_path):
+    manifest = dict(
+        status="COMPLETED", payload_status="ok", target_date="2026-10-07",
+        barrier=dict(status="PASS", step_status="ok", target_date="2026-10-07", blocker_count=0),
+    )
+    if case == "blocked":
+        manifest["barrier"].update(status="BLOCK", step_status="error", blocker_count=1)
+        manifest["payload_status"] = "critical"
+    elif case == "diagnostic":
+        manifest["barrier"]["status"] = "DIAGNOSTIC_ONLY"
+    elif case == "critical_payload":
+        manifest["payload_status"] = "critical"
+    elif case == "missing_barrier":
+        del manifest["barrier"]
+    elif case == "mismatch":
+        manifest["barrier"]["target_date"] = "2026-10-06"
+    elif case == "missing_target":
+        del manifest["target_date"]
+    elif case == "error_step":
+        manifest["barrier"]["step_status"] = "error"
+    elif case == "error_manifest":
+        manifest["status"] = "ERROR"
+    elif case == "running":
+        manifest.update(status="RUNNING", payload_status="running")
+    if case != "missing":
+        (tmp_path / "stage_a.json").write_text(
+            "{broken" if case == "malformed" else json.dumps(manifest), encoding="utf-8",
+        )
+    result = ps(
+        "staleness_sweep.ps1", ["Get-WeatherStageAVerdictFinding"],
+        "Get-WeatherStageAVerdictFinding -ManifestPath (Join-Path $root 'stage_a.json') | ConvertTo-Json -Compress",
+        tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    finding = json.loads(result.stdout)
+    assert finding["severity"] == {"pass": "OK", "running": "WARN"}.get(case, "CRITICAL")
+    if case == "blocked":
+        assert "2026-10-07" in finding["detail"]
+        assert "barrier=BLOCK" in finding["detail"]
+        assert "blockers=1" in finding["detail"]
 
 
 @pytest.mark.spawns
@@ -404,7 +455,7 @@ Get-WeatherTaskResults -ConfigPath (Join-Path $root 'tasks.json') -ExtraNames @(
     assert "Get-WinEvent" not in text and "Get-EventLog" not in text
 
 
-def _sweep_report(tmp_path, states, failures=()):
+def _sweep_report(tmp_path, states, failures=(), extra_finding=""):
     """Run the shipped post-pass and report block on synthetic findings; parse it with status.ps1."""
     text = SWEEP.read_text(encoding="utf-8-sig")
     (tmp_path / "block.ps1").write_text(text[text.index("# ---- 12. task last-run snapshot"):], encoding="utf-8")
@@ -419,6 +470,7 @@ Add-Finding 'learning/daily_learning' 'CRITICAL' 'data\\backtest\\daily_learning
 Add-Finding 'learning/market_beating_scoreboard' 'CRITICAL' 'data\\backtest\\market_beating_objective_scoreboard.json is 80.0d old' 'scoreboard why' 80.0 2
 Add-Finding 'docs/unreachable' 'WARN' '1 of 9 unreachable' 'why' $null $null
 Add-Finding 'settlement/latest' 'OK' 'fresh' 'why' 1 2
+{extra_finding}
 $repo=$root; $now=[datetime]'2026-11-10T08:10:00'
 $JsonOut=Join-Path $root 'sweep.jsonl'; $MarkdownOut=Join-Path $root 'sweep.md'
 $ErrorActionPreference='Continue'
@@ -466,6 +518,19 @@ def test_an_unheld_known_critical_stays_critical_and_adds_a_lapsed_row(tmp_path)
     assert any("learning/daily_learning: producer WeatherTrainingWindow is Ready, not Disabled" in f for f in flags)
     assert (record["critical_count"], record["warn_count"], record["known_count"]) == (2, 2, 1)
     assert {f["check"]: f["severity"] for f in record["findings"]}["tasks/task_results"] == "WARN"
+
+
+@pytest.mark.spawns
+def test_held_learning_alarms_do_not_hide_stage_a_failure(tmp_path):
+    result, md, record, flags = _sweep_report(
+        tmp_path, HELD,
+        extra_finding="Add-Finding 'chain/stage_a_verdict' 'CRITICAL' 'barrier=BLOCK' 'verdict why' $null $null",
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert record["known_count"] == 2
+    assert record["critical_count"] == 1
+    assert "| **CRITICAL** | `chain/stage_a_verdict` |" in md
+    assert len(flags) == 1 and "chain/stage_a_verdict" in flags[0]
 
 
 def test_learning_why_texts_name_stage_b_and_carry_no_dates():

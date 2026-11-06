@@ -108,6 +108,34 @@ function Get-WeatherStageAChainFinding {
         detail = ('Stage-A manifest unreadable; report is {0:N1}d old and not a running checkpoint' -f $age) }
 }
 
+function Get-WeatherStageAVerdictFinding {
+    # Completion and success are separate contracts: a contained barrier error
+    # publishes COMPLETED with payload_status=critical so learning can continue.
+    param([string]$ManifestPath)
+    try {
+        $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $manifest -or -not $manifest.status) { throw 'manifest status missing' }
+    } catch {
+        return [pscustomobject]@{ severity = 'CRITICAL'; detail = 'Stage-A verdict unavailable: manifest missing or unreadable' }
+    }
+    if ([string]$manifest.status -eq 'RUNNING') {
+        return [pscustomobject]@{ severity = 'WARN'; detail = 'Stage-A verdict pending; see the independent chain completion check' }
+    }
+    $barrier = $manifest.barrier
+    $target = [string]$manifest.target_date
+    $barrierTarget = [string]$barrier.target_date
+    $severity = 'CRITICAL'
+    if ([string]$manifest.status -eq 'COMPLETED' -and
+        [string]$manifest.payload_status -eq 'ok' -and
+        [string]$barrier.status -eq 'PASS' -and [string]$barrier.step_status -eq 'ok' -and
+        $target -match '^\d{4}-\d{2}-\d{2}$' -and $barrierTarget -ceq $target) {
+        $severity = 'OK'
+    }
+    $detail = 'Stage-A target {0}: manifest={1}, payload={2}, barrier={3}, barrier target={4}, blockers={5}; inspect data/backtest/settled_day_analysis_barrier.json and daily_refresh_status.json' -f `
+        $target, $manifest.status, $manifest.payload_status, $barrier.status, $barrierTarget, $barrier.blocker_count
+    return [pscustomobject]@{ severity = $severity; detail = $detail }
+}
+
 function Get-WeatherRewardCaptureFinding {
     param([string]$Root, [object]$Task, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
     $detail = 'no producer registered (WeatherMakerEvidenceCapture)'
@@ -429,6 +457,10 @@ $stageA = Get-WeatherStageAChainFinding `
 Add-Finding "chain/daily_refresh_report" $stageA.severity $stageA.detail `
     "the chain's own completion record; per-step checkpoints keep the report fresh even when the chain is killed, so only a COMPLETED Stage-A manifest proves the chain completed" `
     $stageA.age_days 1
+$stageAVerdict = Get-WeatherStageAVerdictFinding `
+    -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json")
+Add-Finding "chain/stage_a_verdict" $stageAVerdict.severity $stageAVerdict.detail `
+    "COMPLETED proves termination, not promotion readiness; a critical payload or blocked, missing or target-mismatched barrier must remain visible independently of held Stage-B learning alarms" $null $null
 
 # ---- 3. serving artifacts ----
 # Not a bug on its own -- but an artifact serving a season it never trained on is (see 4b/2).
