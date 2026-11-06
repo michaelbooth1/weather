@@ -1,19 +1,19 @@
 # State of play
 
-**Last updated: 2026-11-05 America/Toronto (night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
+**Last updated: 2026-11-06 America/Toronto (night 11-05/06: 343b and C10 LANDED, origin/master `4f01448e6`, torn-journal Stage 2 registered (master); owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
 
-## Objectives (owner 10-23 hard directive, sharpened by option B 10-25 and 10-30)
+## Objectives (owner 11-05 deadline and edge definition; earlier 10-23 directive, option B 10-25 and 10-30)
 
-Precondition: protect capture and settlement evidence. **The goal is model improvement**: exhaust the model levers and run one
-minimal forward edge test (B) against market prices (owner 10-25). **B's single look on 12-13 stays the edge test; a B FAIL ends
-this candidate's edge claim, not the project** (owner Q2 10-25, DL); work continues down the [lever inventory](LEVER_INVENTORY_2026-10-26.md).
-**CONTINUE/STOP after B** (owner deferred 11-01; master ruling, DL): a successor needs all six criteria; checkpoint, not a kill: no candidate meeting 1-2 by 2027-01-31 → research pauses for an owner reset review; ABORTED → no auto-retry.
+Precondition: protect capture and settlement evidence. **PROJECT DEADLINE (owner 11-05 ~21:04, DL), verbatim: "I have made
+a decision, if no edge found by end of year the project is over."** It supersedes the 10-25 Q2 rule and the 11-01 CONTINUE/STOP 2027-01-31 reset review (DL).
+**EDGE (owner 11-05 ~21:50, DL) = profit in an accurately simulated environment in a fair trial**; market making and simulated reward profit count. As many tests as needed (frozen before any read, multiplicity split pre-declared); **market making REOPENED**; MG-2 early-warning kill-only read on 09-30..10-14 allowed.
+**Plan approved** (owner ~22:03, DL: "approved full plan"): the [edge trial charter](EDGE_TRIAL_CHARTER.md) (master ruling) sets the simulator and fair-trial minimums and the family T1 maker, T2 MG-2 paper taker, T3 negRisk, T4+ model candidates (Holm at 12-28; G1 11-12). B and MG-1 stay as bound and are diagnostics; B's look 12-13 at the earliest, expected 12-14 or later ([B-1 Clarification 8](../research/b1-clarification-8-countability-look-safety-2026-11-05.md)).
 Owner, 11-01 (relayed): "maybe we never find any edge, but this is serving as my real first long term project... I want to keep
 trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill on history and dev in days; rules in
-[MODEL_IMPROVEMENT_METHOD](MODEL_IMPROVEMENT_METHOD.md) §5 (rule 17 added 11-02; **rule 20, name every dependence factor's unit: κ_* is a variance ratio, r_* an SE ratio**, master 11-04 after E1). 88a, bundle B, plugin core and YouTube stay paused.
+[MODEL_IMPROVEMENT_METHOD](MODEL_IMPROVEMENT_METHOD.md) §5 (rule 17 added 11-02; **rule 20, name every dependence factor's unit: κ_* is a variance ratio, r_* an SE ratio**, master 11-04 after E1); rule 8's "arms on B's dates are screens" no longer binds a test frozen before any read with a pre-declared multiplicity split (owner 11-05, DL). Bundle B, plugin core and YouTube stay paused; 88a maker evidence is dev-only ≤ 10-14 UTC; 10-15+ unread for T1; maker-shadow tapes embargoed to 11-13 (master trial hygiene 11-05); the owner's manual order journal 09-29..10-14 is T1 dev for simulator checks and sizing only, never trial data or campaign results (owner 11-05, DL).
 
 ## Headline
 
@@ -22,7 +22,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Current authority
 
-- **Live maker pilot POSTPONED** (owner 10-30, DL); no agent places, cancels or signs orders; other live trading paused (owner 09-25).
+- **Market making REOPENED** (owner 11-05, DL; supersedes the 10-23 maker pause and the 10-30 pilot postponement); scope is the charter's T1; live sessions are owner-started only. No agent places, cancels or signs orders; other live trading paused (owner 09-25).
 - Capture host: suites and other heavy work 00:30-09:00 under the lease ([host load policy](HOST_LOAD_POLICY.md)); roll-sensitive merges 01:00-04:00; roll-free merges 00:30-12:00 (QWM); docs-only before 12:00; never 12:00-00:30.
 - **Weather data:** paid only per DECISION_LOG-approved source (10-23); free official data needs no ask; ask for packages, logins, payment (10-24).
 - **Other venues' public prices** (S31, owner 10-30, DL): read-only structured API endpoints with field allowlists; no account, key or trading; same embargo. International Polymarket stays the only trading venue.
@@ -36,11 +36,12 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 ## Current truth
 
 - **Production source:** read `origin/master` with git.
-  **Night 11-04/05 LANDED (master):** combo C `984d783e6`, item 340s `bad845b50` (Open-Meteo/reanalysis DST readers; capture recovered) and combo Ds `cb6678f35`, each with a host suite 26/26 and the post-merge guard checks passed; origin/master = `cb6678f35`.
-- **343b (year-round refit module) IN PROGRESS on the WS** at landing tip `84b50a173` (merge of master plus a test-only exemption); (A), fit, (B) and the suite pending; not landed. Fit pin `0e5c4f72…` SUPERSEDED (module sha changed; archive kept). Landing rule (master 11-05): after the fit only a merge of origin/master, touching no fit-closure file, provenance shas recomputed equal, host suite on that exact tip; else the fit is void. Amended F3(a) refuse-only and the pre-imputation NBM check: [design Clarification 1](../research/item343b-yearround-module-design-2026-11-03.md), [item 343](../roadmap/items/item-343-offline-year-round-refit-module-allowlist.md).
+  **Night 11-04/05 LANDED (master):** combo C `984d783e6`, item 340s `bad845b50` (Open-Meteo/reanalysis DST readers; capture recovered) and combo Ds `cb6678f35`, each with a host suite 26/26 and the post-merge guard checks passed.
+  **Night 11-05/06 LANDED (master):** 343b `ab76c7cd3` → `d0769b2fe` (01:43; pre-merge drift `78c5d31c1`; guard (a)-(e) PASS) and C10 `d1da40c78` → `4f01448e6` (03:02; host suite 27/27; `mg1_look.py` sha `3884c9cc…` = pin); origin/master = `4f01448e6`; capture 10/10. Torn-journal Stage 2 task registered 03:02 (DL 11-06).
+- **343b (year-round refit module) LANDED** (master, DL 11-06): landing tip `ab76c7cd3` → origin/master `d0769b2fe`. Amended F3(a) refuse-only and the pre-imputation NBM check: [design Clarification 1](../research/item343b-yearround-module-design-2026-11-03.md), [item 343](../roadmap/items/item-343-offline-year-round-refit-module-allowlist.md).
 - **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev.
   **09-30..10-14 released once for weather kill-only/atlas reads** (owner 10-30, DL): local target date; Austin 10-03 out; MG-2/B
-  outputs out; **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17). **>= 12-17: row-28b B forward line** (owner 11-04, DL).
+  outputs out except the MG-2 early-warning kill-only read (owner 11-05, DL); **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17). **>= 12-17: row-28b B forward line** (owner 11-04, DL).
 - **WS `data\` is a paused mirror** (master 11-02): mirror paused 2026-08-12; last complete WU day in it = 2026-08-10 (manifest `last_date`, all 12 markets); a WS lane needing Aug+ WU uses labels or a host bounded extract and checks store coverage (max date >= need) before use.
 - **Market price reliability by bin CLOSED (row 106, X92, EF §10aq):** KILL at edge size on US11 dev (08-01..09-29; ECE 0.0067,
   slope 1.030 [1.014, 1.045]; all three arms below 0.2236): not an exploitable lever, silent on the overround. **Row 113** (3a history tier) UNTESTABLE at its 2% label cap (2.82%), frozen 11-02, no successor (X93).
@@ -60,7 +61,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 - **Kill scopes (master):** R-I maps only; R-G/R-J Aug-Sep only; kill-only reads need power >= 0.5 at edge size on the wider of date-clustered and block-3 bounds, projected on the full population rule (method rule 16).
 - **Labels (master 10-25):** WU before 10-23, venue rule (routine METAR, WU fallback) from it. **Denver >= 10-23: KDEN, out of MG-2 and B.** **R24 first host run 11-03 (master; DL):** venue-rule labels are built for 10-23..11-02 on all 12; under the R24 ruling's paragraphs (3) and (5), a look reads only its look-morning frozen copy, through `read_venue_labels` inside its registered entry point, and Stage A stays `wu` (runbook step 4 waits until after B). Fetch 13/13, build 12/12, 0 skipped; shas in the [runbook](venue-rule-labels.md) receipt; no label value read.
 - **Denver 107-miss (B2 finding): OPEN INVESTIGATION, cause unexplained** (contiguous hour runs 10-22/25/27/28). Comparer v5 `scratch-transport/denver_miss_names_v5.py` sha256 `8067c8d995fd311cd485e82500d4b6a538d2f730a5914122ae0df64ab9366c6d` @ `ce7abacb55e8d1952e38c25cbac60007633a3672` (transport branch), armed for the host 11-04 about 04:30, `--features-only`; it copies only features.jsonl and replay_inputs.jsonl.
-- **After-B list** (after 12-13 and an MG-2 export byte-identity check): fix 10 (high_so_far parity; defect measured, 53.8% of dev 00-12), fix 11 (no SPECI in the floor from 10-23), `claude/ops-freshness-utc-mg2-after-b` @ `3957b9728`.
+- **After-B list** (after 12-13 and an MG-2 export byte-identity check; PT-1's record = the R21 receipt, so it waits only for B's release record, C11 in [config inventory](config-inventory.md)): fix 10 (high_so_far parity; defect measured, 53.8% of dev 00-12), fix 11 (no SPECI in the floor from 10-23), `claude/ops-freshness-utc-mg2-after-b` @ `3957b9728`.
 - **Windows Update (owner 11-01, DL):** host pause to 12-02T12:00Z stays, no patch night; master brings a notify-only / no-auto-restart option before 12-02 if it cannot be extended. **WS pause EXPIRED 10-30T13:58:48Z** (not covering 12-13); owner decides in the WS chat.
 - **WS forward recorders:** ENS, GEM and IEM MOS logon tasks plus the 15-min keepalive (owner yes 10-30). All 10 died at once 11-01 22:06-22:08Z under one dead parent (cause unverified, EF §10av); L34 [live-parent design](../research/recorder-live-parent-design-2026-11-01/design.md).
 - **Exchange economics refresh:** failed daily since at least 10-08; rc 0 11-01 06:50, accepted snapshot and barrier unverified; fix before any maker work ([runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
@@ -85,7 +86,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
 | Economics refresh and rc 2 barrier fixed | production | before maker work | accepted snapshot |
 | Host hardening: Ethernet (host on Wi-Fi; owner 11-02 "Ethernet cord is coming"); Wi-Fi stays connected with it (DL 11-02) | owner | OPEN until the cable is in | Get-NetAdapter Up |
-| Torn-journal Stage 1 lands RF on a CLEAN review; then master registers Stage 2 on the host | master | open | registration receipt |
+| Torn-journal Stage 2 REGISTERED 11-06 03:02 (`\WeatherMakerEvidenceTornQuarantine`, readback exact; DL 11-06); first boot run pending | master | next host startup | quarantine receipt |
 | Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run DONE 11-03 (rc 0, runbook receipt); Mondays; module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
 
 ## Update this file when

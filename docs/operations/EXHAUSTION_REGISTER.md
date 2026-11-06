@@ -308,6 +308,8 @@ The US multimodel feed (GFS seamless, HRRR, NBM, NAM) feeds diagnostics only.
   - maker replay v2 (signature 10-22..23, look by 11-15);
   - forward paper shadow active 24/7;
   - LFC session 0 on Fri 10-16 (DL 2026-10-13 row; SOP).
+  - *Stale-rule note 2026-11-05 (master, A20):* this critical path (replay v2 look by 11-15; LFC session 0 10-16) is
+    stale; the maker route is now T1 in the [edge trial charter](EDGE_TRIAL_CHARTER.md) (gate G1 11-12).
 - **Kill rules (FP):**
   - **K1:** the best pull policy's net value per band-day has a date-clustered upper bound below zero -> stop the
     maker build, keep capture.
