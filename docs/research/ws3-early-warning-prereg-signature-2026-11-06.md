@@ -180,3 +180,56 @@ Run through `workstation_heavy.ps1 -Kind research_script` from the allowlist hea
 - **Descriptive dev read, not a trial result, not for the digest:** the dev net per filled share is −2.00 c for MG-2
   and −4.38 c for served. These come from dev dates that were already counted in the reuse ledger (row 120). They
   decide nothing and are not evidence for or against an edge.
+
+### Clarification 3: receiving the MG-2 back-export bundles (master ruling (a), 11:4x ET 2026-11-06; append-only)
+
+`mg2_inputs receive` applies B's deadline (00:00 local on D+2) before `verify_bundle`, so every WS-3 back-export
+for 09-29..10-14 is late by construction. Master ruled (a): `--now` is never used and B's receiver is not changed.
+
+- **Separate inbox and ledger:** under `C:\t\ws3\mg2in`. B's ledger `C:\t\mg2\forward\input_receipts.jsonl` is
+  never written or read for WS-3.
+- **Verification:** the bound `verify_bundle`, unchanged. A refused bundle is quarantined the way `receive` does it.
+- **Each WS-3 receipt records:**
+  - `status` "verified";
+  - the real `recorded_at`;
+  - `deadline_applied` false, with the reason "WS-3 back-export, not a B forward receipt";
+  - the name, sha256 and time of the bundle's own `_runs` export receipt.
+- **Build:** from `verified\` only, through the pinned parser at `2e17ce0eb`.
+- **Emit inputs:** frozen named artifacts only, each with its path and sha256 in the step 5 SPEC. If any one is
+  missing, the build stops. Nothing is substituted or rebuilt.
+
+### Clarification 4: the D0 gate and the leakage audit (master ruling (A), 11:5x ET 2026-11-06; append-only)
+
+The bound forward `emit` refuses `first < d0`, and the rule's `d0` is 2026-10-29. The WS-3 read window is
+09-30..10-14. Master ruled (A): a WS-3 adapter may run the forward branch with only that refusal omitted, on
+condition that a leakage audit passes. A failed audit closes the MG-2 arm UNTESTABLE-by-construction (B).
+Option (C) was rejected.
+
+**Audit rule:** every artifact the forward branch loads must have fit or update data ending on or before 2026-09-29,
+with the date's source named. A forward state updated with any date ≥ D0 fails. A release retrained with data
+≥ 09-30 fails. An end date that cannot be determined fails.
+
+**Audit result: PASS** (code at the allowlist head `35994a052`; `verify_release` matches 15 of 15 release files).
+
+| Artifact (loader) | sha256 | Data end | Source of the date |
+| --- | --- | --- | --- |
+| Rule (`read_rule`) | `e761cc4e…` | config only; `d0` 2026-10-29 | the rule block |
+| Release binding (`verify_release`) | `4e4dd97d…` | hashes only; built at `a0443c2bf` (2026-10-28) | git |
+| L6 coefficients part (`load_part`), file `C:\t\mg2\freeze_cap\mg2_coefficients.json` `4bc51e03…` | part `07a67425…` | 2026-09-29 | the part's `trained_through`; rule.md §L6 stack, "fitted once on every dev snapshot through 2026-09-29" |
+| P3d_N state (`load_state`, forward), `C:\t\l2\forward\state\p3d_n_state.pkl` | `c6cc39f7…` | 2025-12-16 (Aug-Dec 2021-25) | the state's provenance and sidecar `f5409444…` (train_years 2021-2025, fit_kind forward, commit `73675b782`); the file bytes equal the bound sha, so the state was never updated forward |
+| L6 own state (`load_l6_state`, via the nowcasts manifest), `C:\t\l3\sml6\final\l6_own_state_octdec.pkl` | `800072c7…` | 2025-12-31 | sidecar `497bdfec…` (train 2021-10-01..2025-12-31, months 10-12) |
+| L6 station selection and obs (`upstream_obs_screen.load`; only the selection is used) | `a23f4cba…`, `37d97195…` | local 2026-09-29 | the obs manifest window and parquet statistics; not a fit on this path |
+| MG-1 base, L6 stack predict, P3d_N `emit_rows`, `compose`, `observed_running_max` | release files; function `8cc4d8ec…` | none | code: zero-parameter or no state change |
+| Nowcasts, layout and replay roots | recorded in the step 5 SPEC | inputs, not fits | built from verified bundles and captured replay; the nowcasts are served by the L6 state above |
+
+**Adapter:** `C:\t\ws3\emit\ws3_asof_emit.py`, sha256
+`dc08b0e93afbef2e091beb2e4384bf4c8a8acf8bb43abef9e4be36e8882657d2` (the final bytes, after master's review
+closed three points on the reviewed draft `acc32925…`).
+- It uses the bound functions only, in forward-branch order. It omits only `first < d0`; D0 must still be set.
+- It asserts every audited sha before it emits.
+- It writes only three files, each create-only, into a new WS-3 folder: `mg2_vectors_asof_capture.parquet`,
+  its sha256 file and `mg2_asof_emit_summary.json`.
+- `verify_release` is called with its own `root` parameter, set to the pinned worktree.
+- The non-as-of `post_records` and `compose` still run, in `emit()`'s order, and are not written. Neither writes
+  to disk.
+- Its line-by-line diff against `emit()` lines 1002-1090 went to master with the audit.
