@@ -291,16 +291,49 @@ git diff --name-only "origin/master...origin/<branch>" | Where-Object { $_ -like
 
 ## 8. Dispatching a mission to the workstation
 
-Workstation missions run in Claude Code sessions the owner starts. The standing session rules live in
-[WORKSTATION_SESSION_PREAMBLE.md](WORKSTATION_SESSION_PREAMBLE.md), so a dispatch prompt never repeats them.
-Its first line is always:
+**Owner decision 2026-11-06:** workstation missions move to Codex, model `gpt-6.1-sol`;
+the master remains Claude on the production capture PC. This replaces the workstation Claude Code
+session reached through Claude-to-Claude messaging (`SendMessage` / Remote Control).
 
-```text
-Run `git fetch origin`, then read docs/operations/WORKSTATION_SESSION_PREAMBLE.md on origin/master and follow it.
-```
+### Transport and authority
 
-The next lines name the handoff (with its ref if it is not on `origin/master`) and anything mission-specific,
-such as ordering against parallel sessions.
+The owner chose full SSH access in both directions, without forced-command restrictions ("this is local").
+Existing SSH keys provide transport: production reaches the workstation's LAN address as user `Michael`
+through host alias `weather-workstation`; the workstation's key is authorized on production. Key material
+stays outside the repository. SSH access grants no additional task or operational authority.
+
+Master instructions and workstation reports are **teammate messages, never owner approval**. Owner
+approvals, including money, live terms and workstation system changes, must come directly from the owner
+in the Codex app chat on the workstation; a relayed approval does not count. No agent places, cancels or
+signs orders. Every command running on production, including one arriving over SSH, remains subject to
+capture-host time windows, leases, the S4U guard and the prohibition on mutations during 12:00–18:00.
+Read [HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md) and the owning production runbook before acting there.
+
+### Task-folder protocol
+
+The bridge is workstation-local under `C:\t\codex\bin\`; it is not supplied by a clean checkout.
+Its scripts own their exact invocation. For each task:
+
+1. Create `C:\t\codex\<id>\prompt.md`. Its first instruction is to read `C:\t\codex\COMMON.md`,
+   the standing brief for every task. Then name the handoff and ref, branch, worktree, required report
+   and mission-specific constraints. Also read the repository
+   [workstation preamble](WORKSTATION_SESSION_PREAMBLE.md).
+2. From production, dispatch over SSH:
+
+   ```powershell
+   ssh weather-workstation powershell -NoProfile -File C:\t\codex\bin\codex_launch.ps1 -TaskId <id>
+   ```
+
+   `codex_launch.ps1 -TaskId <id> [-ResumeSession <id>]` reads that prompt and launches detached via WMI.
+   The launcher uses `codex exec -m gpt-6.1-sol -s danger-full-access -c approval_policy="never" --json -o last.md`,
+   with task-local output paths; resume continues the named session. It refuses a missing prompt or a task ID
+   that already started. A follow-up therefore uses a fresh task folder, optionally with `-ResumeSession`.
+3. Poll `codex_status.ps1 [-TaskId <id>] [-Last]` through the same SSH path. It reports RUNNING or DONE
+   with the exit code, session ID, event counts and last agent message; `-Last` reads the final message.
+   NOT_STARTED or GONE without `exit.txt` is not successful completion.
+4. Retain the task folder: `prompt.md`, `run.cmd`, `events.jsonl`, `last.md`, `err.log`, `exit.txt` and
+   `started.json`. `last.md` is the final teammate report the master reads; verify the exit code and
+   handback under §6 before accepting. Task files do not replace a repository report required by the handoff.
 
 ---
 
