@@ -1,0 +1,35 @@
+{
+  "source": "https://data-api.polymarket.com/v2/openapi.json",
+  "note": "Official wire shapes; fictional values, not account or market evidence.",
+  "trades": {
+    "data": [
+      {
+        "proxy_wallet": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "condition_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "token_id": "123",
+        "title": "",
+        "slug": "",
+        "icon": "",
+        "event_slug": "",
+        "outcome": "Yes",
+        "outcome_index": 0,
+        "name": "",
+        "pseudonym": "",
+        "bio": "",
+        "profile_image": "",
+        "profile_image_optimized": "",
+        "side": "SELL",
+        "size": 2.5,
+        "price": 0.4,
+        "timestamp": 1750000000,
+        "transaction_hash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ],
+    "pagination": {
+      "limit": 500,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  }
+}

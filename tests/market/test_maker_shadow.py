@@ -66,7 +66,10 @@ def setup(tmp_path, *, bleed_limit="5", prints=()):
     replies = {public_feed.events_url(slugs): [event], public_feed.book_url(YES): public_book(YES),
                public_feed.book_url(NO): public_book(NO, bids=(("0.49", "100"),), asks=(("0.51", "100"),)),
                public_feed.rewards_url(CONDITION): {"data": [reward_record()], "next_cursor": "LTE="},
-               public_feed.trades_url(CONDITION): list(prints)}
+               public_feed.trades_url(CONDITION): {
+                   "data": [dict(p, condition_id=p["conditionId"], token_id=p["asset"],
+                                 transaction_hash=p["transactionHash"]) for p in prints],
+                   "pagination": {"has_more": False, "next_cursor": None}}}
     fixture = {"schema_version": maker_shadow.FIXTURE_SCHEMA, "clock_start_utc": NOW.isoformat(), "replies": replies}
     return write(tmp_path / "config.json", config), write(tmp_path / "fixture.json", fixture)
 
@@ -532,7 +535,7 @@ def add_bands(config_path, fixture_path, bands):
             public_feed.book_url(yes): public_book(yes, condition=cid),
             public_feed.book_url(no): public_book(no, condition=cid, bids=(("0.49", "100"),), asks=(("0.51", "100"),)),
             public_feed.rewards_url(cid): {"data": [reward_record(cid)], "next_cursor": "LTE="},
-            public_feed.trades_url(cid): []})
+            public_feed.trades_url(cid): {"data": [], "pagination": {"has_more": False, "next_cursor": None}}})
         conditions.append(cid)
     write(Path(config_path), config)
     write(Path(fixture_path), fixture)

@@ -16,10 +16,19 @@ what it **would** quote. It never places, cancels or signs anything:
 
 - **Public reads only.** `maker_core.venue.public_feed` has exactly four GET
   reads: CLOB `/book?token_id=`, CLOB `/rewards/markets/<condition>`, Gamma
-  `/events?slug=` and data-api `/trades?market=<condition>&limit=500` (public
+  `/events?slug=` and data-api `/v2/trades?condition=<condition>&limit=500` (public
   prints of one condition; a `user` filter is refused). Any other host, path, query, port, user-info, scheme or
   redirect is refused, so Polymarket US hosts and every order, auth or account
   route are unreachable. No proxy, no credential, no `.env`, no SDK.
+  Trade reads require a v2 `{data, pagination}` envelope, repeat the condition filter
+  on every opaque cursor page, and return rows only after the final page. The page
+  budget is `public_feed.MAX_TRADES_PAGES`; exhaustion, repeated cursors, malformed
+  rows (including missing size), or any non-200 response fail the whole poll. Snake
+  case wire fields are normalized to the existing paper/recorder row interface.
+  The v2 condition feed serves the venue's fixed three-year history; it does not
+  honor time bounds. This reader does not claim a time-window query. The venue's
+  minimum trade-size filter still applies, so these prints do not prove every fill.
+  Wire contract: [official v2 OpenAPI](https://data-api.polymarket.com/v2/openapi.json).
 - **No order client exists.** The runner (`maker_core.shadow.runner`) imports no
   venue module; reads, the guard book, fair value and the clock are injected.
   Tests assert the CLI import closure loads no order, credential, SDK or wallet

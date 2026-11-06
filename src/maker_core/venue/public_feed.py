@@ -2,13 +2,14 @@
 
 Four reads exist: a CLOB order book by asset, the CLOB reward record of one
 condition, Gamma events by slug, and the public data-api trade prints of one
-condition (``/trades?market=``; never a ``user`` filter). There is no order, cancel, signing,
+condition (``/v2/trades?condition=``; never a ``user`` filter). There is no order, cancel, signing,
 account, heartbeat or authenticated route here, and no reader takes a
 credential. Polymarket US hosts, redirects, ambient proxies, query strings
 outside the allowlist and oversized replies are refused.
 Contract: docs/operations/maker-shadow-runner.md.
 """
 import json
+import math
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -17,6 +18,8 @@ CLOB_HOST = "clob.polymarket.com"
 GAMMA_HOST = "gamma-api.polymarket.com"
 DATA_HOST = "data-api.polymarket.com"
 TRADES_LIMIT = 500
+MAX_TRADES_PAGES = 20
+MAX_CURSOR_LENGTH = 4096
 MAX_REPLY_BYTES = 2_000_000
 MAX_SLUGS = 20
 CONDITION = re.compile(r"0x[0-9a-f]{64}\Z")
@@ -36,12 +39,15 @@ def events_url(slugs):
     return f"https://{GAMMA_HOST}/events?" + urlencode([("slug", s) for s in sorted(slugs)])
 
 
-def trades_url(condition_id):
-    return f"https://{DATA_HOST}/trades?" + urlencode([("market", condition_id), ("limit", TRADES_LIMIT)])
+def trades_url(condition_id, cursor=None):
+    query = [("condition", condition_id), ("limit", TRADES_LIMIT)]
+    if cursor is not None:
+        query.append(("cursor", cursor))
+    return f"https://{DATA_HOST}/v2/trades?" + urlencode(query)
 
 
 def public_url(url):
-    """Return ``url`` unchanged when it is one of the three allowlisted reads, else raise."""
+    """Return ``url`` unchanged when it is one of the four allowlisted reads, else raise."""
     try:
         parts = urlsplit(url)
         query = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True) if parts.query else []
@@ -59,9 +65,11 @@ def public_url(url):
     if (clean and parts.hostname == GAMMA_HOST and parts.path == "/events" and 0 < len(query) <= MAX_SLUGS
             and all(key == "slug" and SLUG.fullmatch(value) for key, value in query)):
         return url
-    if (clean and parts.hostname == DATA_HOST and parts.path == "/trades" and len(query) == 2
-            and query[0][0] == "market" and CONDITION.fullmatch(query[0][1])
-            and query[1] == ("limit", str(TRADES_LIMIT))):
+    if (clean and parts.hostname == DATA_HOST and parts.path == "/v2/trades" and len(query) in (2, 3)
+            and query[0][0] == "condition" and CONDITION.fullmatch(query[0][1])
+            and query[1] == ("limit", str(TRADES_LIMIT))
+            and (len(query) == 2 or (query[2][0] == "cursor" and 0 < len(query[2][1]) <= MAX_CURSOR_LENGTH
+                                    and all(32 < ord(c) < 127 for c in query[2][1])))):
         return url
     raise ValueError("not_an_allowlisted_public_read")
 
@@ -146,10 +154,47 @@ class PublicFeed:
         condition_id = str(condition_id).lower()
         if not CONDITION.fullmatch(condition_id):
             raise ValueError("invalid_condition_id")
-        value = self._json(trades_url(condition_id))
-        if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
-            raise ValueError("trades_reply_refused")
-        return value
+        rows, seen, cursor = [], set(), None
+        for _ in range(MAX_TRADES_PAGES):
+            value = self._json(trades_url(condition_id, cursor))
+            if not isinstance(value, dict) or not isinstance(value.get("data"), list):
+                raise ValueError("trades_reply_refused")
+            page, pagination = value["data"], value.get("pagination")
+            if not isinstance(pagination, dict) or type(pagination.get("has_more")) is not bool:
+                raise ValueError("trades_pagination_refused")
+            if "next_cursor" not in pagination or len(page) > TRADES_LIMIT:
+                raise ValueError("trades_pagination_refused")
+            for row in page:
+                if not isinstance(row, dict):
+                    raise ValueError("trades_row_refused")
+                # v2 wire fields -> the existing PublicReads / paper / recorder interface.
+                if (not isinstance(row.get("condition_id"), str)
+                        or row["condition_id"].lower() != condition_id
+                        or not isinstance(row.get("token_id"), str)
+                        or not ASSET.fullmatch(row["token_id"])
+                        or not isinstance(row.get("transaction_hash"), str)
+                        or not row["transaction_hash"]
+                        or row.get("side") not in {"BUY", "SELL"}
+                        or type(row.get("timestamp")) is not int or row["timestamp"] <= 0):
+                    raise ValueError("trades_row_refused")
+                for field in ("size", "price"):
+                    number = row.get(field)
+                    if type(number) not in (int, float) or not math.isfinite(number):
+                        raise ValueError("trades_numeric_field_refused")
+                if row["size"] <= 0 or not 0 <= row["price"] <= 1:
+                    raise ValueError("trades_numeric_field_refused")
+                rows.append(dict(row, conditionId=condition_id, asset=row["token_id"],
+                                 transactionHash=row["transaction_hash"]))
+            cursor = pagination["next_cursor"]
+            if not pagination["has_more"]:
+                if cursor is not None:
+                    raise ValueError("trades_pagination_refused")
+                return rows
+            if (not isinstance(cursor, str) or not 0 < len(cursor) <= MAX_CURSOR_LENGTH
+                    or cursor in seen or not page or not all(32 < ord(c) < 127 for c in cursor)):
+                raise ValueError("trades_cursor_refused")
+            seen.add(cursor)
+        raise ValueError("trades_page_budget_exhausted")
 
     def events(self, slugs):
         slugs = sorted(set(slugs))
