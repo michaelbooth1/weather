@@ -74,7 +74,9 @@ def sdk_venue(*, fail=None, guard=None, activity_pages=None, activity_status=200
     sdk = SecureClient(ctx=ctx, _create_token=_CREATE_TOKEN)
     patcher = pytest.MonkeyPatch()
     def public_open(request, *, timeout):
-        assert (request.full_url == collector.HOST + CONFIG_PATH or request.full_url.startswith(collector.ACTIVITY_URL + '?')) and timeout == 2
+        is_activity = request.full_url.startswith(collector.ACTIVITY_URL + '?')
+        assert request.full_url == collector.HOST + CONFIG_PATH or is_activity
+        assert timeout == (10 if is_activity else 2)
         assert request.get_method() == 'GET' and request.data is None
         reply = handle(httpx.Request('GET', request.full_url, headers=dict(request.header_items())))
         class Reply(BytesIO):
@@ -220,6 +222,9 @@ def test_actual_sdk_and_rpc_sources_link_under_reviewed_rule_and_hash_real_bytes
     activity_req = next(req for req, _ in calls if req.url.path == ACTIVITY_PATH)
     assert activity_req.url.params['user'] == MAKER
     assert activity_req.url.params['type'] == 'REWARD'
+    assert activity_req.url.params['sort_by'] == 'TIMESTAMP'
+    assert activity_req.url.params['sort_direction'] == 'ASC'
+    assert activity_req.url.params['limit'] == '500'
     assert activity_req.url.params['start'] == str(int((START + timedelta(days=1)).timestamp()))
     assert 'market' not in activity_req.url.params
     assert activity_req.url.params['end'] == str(int((START + timedelta(days=3)).timestamp()) - 1)
@@ -390,7 +395,7 @@ def test_collect_payout_prints_hash_of_exact_input_bytes(tmp_path, monkeypatch, 
 
 def activity(tx=TX, *, amount='1.25', at=START + timedelta(days=2), kind='REWARD'):
     return dict(ACTIVITY_FIXTURE['reward'], proxy_wallet=MAKER, timestamp=int(at.timestamp()),
-                transaction_hash=tx, type=kind, usdc_size=float(amount))
+                transaction_hash=tx, type=kind, size=float(amount), usdc_size=float(amount))
 
 
 def transfer(units=1250000, *, tx=TX, index=0, asset=INCENTIVE_CASH_ASSET['asset_address']):
@@ -580,10 +585,12 @@ def activity_page(rows, *, cursor=None, more=False):
     return dict(data=rows, pagination=dict(limit=500, offset=0, has_more=more, next_cursor=cursor))
 
 
-@pytest.mark.parametrize('terminal', [None, ''])
+@pytest.mark.parametrize('terminal', [None, '', 'omitted'])
 def test_v2_cursor_walk_repeats_filters_and_records_every_url_and_page_hash(terminal):
     pages = [activity_page([], cursor='opaque+/=cursor', more=True),
              activity_page([activity()], cursor=terminal)]
+    if terminal == 'omitted':
+        del pages[-1]['pagination']['next_cursor']
     evidence, calls = collect(activity_pages=pages)
     requests = [r for r, _ in calls if r.url.path == ACTIVITY_PATH]
     assert len(requests) == 2 and 'cursor' not in requests[0].url.params
@@ -591,9 +598,11 @@ def test_v2_cursor_walk_repeats_filters_and_records_every_url_and_page_hash(term
     first, second = dict(requests[0].url.params), dict(requests[1].url.params)
     second.pop('cursor')
     assert first == second and 'offset' not in first and 'condition' not in first
+    assert first['sort_by'] == 'TIMESTAMP' and first['sort_direction'] == 'ASC' and first['limit'] == '500'
     src = evidence['sources']['distributions']
     assert src['request_urls'] == [str(r.url) for r in requests]
     assert src['candidate_endpoint'] == collector.ACTIVITY_URL and src['candidate_pagination_complete']
+    assert src['request_count'] == src['response_count'] == 2
     responses = [r for r in evidence['wire_journal'] if r['event'] == 'sdk_response' and r['path'] == ACTIVITY_PATH]
     assert evidence['distribution_candidates'][0]['source_record_sha256'] == responses[1]['sha256']
     assert outcome(evidence)['verdict'] == 'PAID_AS_MODELLED'
@@ -603,6 +612,36 @@ def test_v2_recorded_empty_page_proves_completed_zero_only_with_closed_cash_cove
     evidence, _ = collect(activity_pages=[ACTIVITY_FIXTURE['empty']], rpc=RpcFixture(transfers=[]))
     assert evidence['sources']['distributions']['candidate_pagination_complete']
     assert outcome(evidence)['verdict'] == 'NOT_PAID'
+
+
+def test_v2_recorded_public_reward_row_replays_with_exact_wire_hash(monkeypatch):
+    from io import BytesIO
+    raw = (Path(__file__).parents[1] / 'fixtures/re1_activity_v2_reward_response.json').read_bytes()
+    recorded = json.loads(raw)
+    row = recorded['data'][0]
+    assert row == ACTIVITY_FIXTURE['reward']
+    assert row['size'] == row['usdc_size'] and row['price'] == 0.0
+    assert hashlib.sha256(raw).hexdigest() == ACTIVITY_FIXTURE['provenance']['reward_response_sha256']
+    replies = iter([raw, json.dumps(activity_page([])).encode()])
+    requests = []
+    def public_open(request, *, timeout):
+        assert request.get_method() == 'GET' and request.data is None and timeout == 10
+        requests.append(request.full_url)
+        class Reply(BytesIO):
+            status = 200
+            def geturl(self): return request.full_url
+        return Reply(next(replies))
+    monkeypatch.setattr(collector, 'urlopen', public_open)
+    monkeypatch.setattr(collector.re1_transport, 're1_user_agent', lambda: 'synthetic-readonly-test')
+    journal = collector.ReadJournal(SecretGuard(), lambda: NOW)
+    journal.kind = 'distributions'
+    rows = collector.read_reward_activity(dict(maker_address=row['proxy_wallet']),
+        utc('2024-01-01T00:00:00Z'), utc('2026-09-30T00:00:00Z'), journal)
+    assert len(requests) == 2 and len(rows) == 1
+    normalized, provenance = rows[0]
+    assert normalized['wallet'] == row['proxy_wallet'] and normalized['amount'] == '132.1518'
+    assert provenance == hashlib.sha256(raw).hexdigest()
+    assert journal.summary('distributions')['response_count'] == 2
 
 
 def test_v2_distinct_candidates_are_retained_from_every_nonempty_page():
@@ -617,8 +656,14 @@ def test_v2_distinct_candidates_are_retained_from_every_nonempty_page():
 
 @pytest.mark.parametrize('status', [201, 204, 301, 400, 410, 429, 500, 503])
 def test_v2_non_200_with_plausible_empty_body_never_proves_zero(status):
-    evidence, _ = collect(activity_status=status, activities=[], rpc=RpcFixture(transfers=[]))
+    evidence, calls = collect(activity_status=status, activities=[], rpc=RpcFixture(transfers=[]))
     assert_activity_failed(evidence)
+    response = next(r for r in evidence['wire_journal'] if r['event'] == 'wire_response')
+    raw = next(raw for req, raw in calls if req.url.path == ACTIVITY_PATH)
+    assert response['status'] == status and response['length'] == len(raw)
+    assert response['sha256'] == hashlib.sha256(raw).hexdigest() and response['body_complete']
+    assert evidence['sources']['distributions']['response_count'] == 1
+    assert evidence['sources']['distributions']['failure_reason'] == 'activity_public_read'
 
 
 def assert_activity_failed(evidence):
@@ -637,6 +682,30 @@ def test_v2_transport_failures_never_prove_zero(kind):
     evidence, _ = collect(activity_error=error, rpc=RpcFixture(transfers=[]))
     assert_activity_failed(evidence)
     assert evidence['sources']['distributions']['request_urls']
+
+
+@pytest.mark.parametrize('status', [200, 400, 410])
+def test_v2_http_error_body_is_retained_before_refusal(status):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    raw = b'{"error":"retired","code":"gone"}'
+    error = HTTPError(collector.ACTIVITY_URL, status, 'synthetic HTTP failure', {}, BytesIO(raw))
+    evidence, _ = collect(activity_error=error)
+    assert_activity_failed(evidence)
+    response = next(r for r in evidence['wire_journal'] if r['event'] == 'wire_response')
+    assert response['status'] == status and response['length'] == len(raw)
+    assert response['sha256'] == hashlib.sha256(raw).hexdigest()
+    assert evidence['sources']['distributions']['response_count'] == 1
+    assert evidence['sources']['distributions']['failure_type'] == 'HTTPError'
+    assert evidence['sources']['distributions']['failure_reason'] == str(error)
+
+
+def test_v2_failure_reason_is_retained_without_losing_class():
+    evidence, _ = collect(activity_error=OSError('synthetic connection reset'))
+    source = evidence['sources']['distributions']
+    assert_activity_failed(evidence)
+    assert source['failure_type'] == 'OSError'
+    assert source['failure_reason'] == 'synthetic connection reset'
 
 
 @pytest.mark.parametrize('kind', ['os', 'incomplete'])
@@ -672,8 +741,10 @@ def test_v2_normalized_candidate_preserves_former_sdk_reward_shape():
     from polymarket.models.data.activity import parse_activity
     former = collector.plain_sdk_value(parse_activity(dict(proxyWallet=MAKER,
         timestamp=int((START + timedelta(days=2)).timestamp()), transactionHash=TX,
-        type='REWARD', usdcSize=1.25, name='', pseudonym='', bio='',
-        profileImage='', profileImageOptimized='')))
+        type='REWARD', usdcSize=1.25,
+        **{k: ACTIVITY_FIXTURE['reward'][k] for k in ('name', 'pseudonym', 'bio')},
+        profileImage=ACTIVITY_FIXTURE['reward']['profile_image'],
+        profileImageOptimized=ACTIVITY_FIXTURE['reward']['profile_image_optimized'])))
     evidence, _ = collect()
     actual = evidence['distribution_candidates'][0]
     assert {k: actual[k] for k in former} == former
@@ -682,7 +753,7 @@ def test_v2_normalized_candidate_preserves_former_sdk_reward_shape():
 
 def test_v2_duplicate_amount_conflict_is_not_hidden_by_float_rounding():
     raw = json.dumps(activity_page([activity(), activity()])).encode()
-    raw = raw.replace(b'1.25', b'1.2500000000000000001', 1)
+    raw = raw.replace(b'"usdc_size": 1.25', b'"usdc_size": 1.2500000000000000001', 1)
     # Both amounts would round to the same float; the Decimal reader must refuse.
     evidence, _ = collect(activity_raw=raw)
     assert_activity_failed(evidence)
@@ -710,6 +781,19 @@ def test_payout_request_guard_refuses_retired_v1_activity():
 def test_v2_malformed_envelope_never_proves_zero(raw):
     evidence, _ = collect(activity_raw=raw, rpc=RpcFixture(transfers=[]))
     assert_activity_failed(evidence)
+    response = next(r for r in evidence['wire_journal'] if r['event'] == 'wire_response')
+    assert response['status'] == 200 and response['length'] == len(raw)
+    assert response['sha256'] == hashlib.sha256(raw).hexdigest()
+
+
+def test_v2_oversized_response_hash_is_labelled_as_bounded_prefix():
+    raw = b' ' * (collector.MAX_BYTES + 2)
+    evidence, _ = collect(activity_raw=raw)
+    assert_activity_failed(evidence)
+    response = next(r for r in evidence['wire_journal'] if r['event'] == 'wire_response')
+    assert response['length'] == collector.MAX_BYTES + 1 and not response['body_complete']
+    assert response['hash_basis'] == 'bounded_response_prefix'
+    assert response['sha256'] == hashlib.sha256(raw[:collector.MAX_BYTES + 1]).hexdigest()
 
 
 @pytest.mark.parametrize('change', [
@@ -725,9 +809,20 @@ def test_v2_malformed_pagination_never_proves_zero(change):
 
 
 @pytest.mark.parametrize('field', ['next_cursor', 'has_more', 'limit', 'offset'])
-def test_v2_missing_pagination_fields_fail_closed(field):
+def test_v2_missing_pagination_fields_follow_required_schema(field):
     page = activity_page([])
     del page['pagination'][field]
+    evidence, _ = collect(activity_pages=[page], rpc=RpcFixture(transfers=[]))
+    if field == 'next_cursor':
+        assert evidence['sources']['distributions']['complete']
+        assert outcome(evidence)['verdict'] == 'NOT_PAID'
+    else:
+        assert_activity_failed(evidence)
+
+
+def test_v2_more_pages_without_cursor_fails_closed():
+    page = activity_page([], more=True)
+    del page['pagination']['next_cursor']
     evidence, _ = collect(activity_pages=[page], rpc=RpcFixture(transfers=[]))
     assert_activity_failed(evidence)
 

@@ -2083,6 +2083,12 @@ activity types and cannot prove this liquidity reward. The wire journal
 retains raw envelopes and hashes; the distribution source adds `request_urls`
 and identifies the v2 `candidate_endpoint`. Normalized reward candidates,
 the public collector interface, linkage rule and evidence schema stay the same.
+An omitted `next_cursor` is accepted only when `has_more` is false. Response
+status, captured body length and hash are retained as `wire_response` before
+status or payload validation; an oversized body's hash is labelled as a
+bounded prefix. Source summaries count each wire response once. Refused
+activity reads retain both `failure_type` and `failure_reason` for diagnosis,
+subject to the existing secret guard.
 Each activity transaction must have exactly one confirmed pUSD Transfer in
 the cash window. Exactly one joined credit must be within one micro-unit of
 `A`. The distribution retains `linkage_basis`, `activity_sha256`,

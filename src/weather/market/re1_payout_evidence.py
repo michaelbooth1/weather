@@ -11,6 +11,7 @@ import json
 import re
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
+from urllib.error import HTTPError
 
 from weather.market.mm_exchange_reports import INCENTIVE_CASH_ASSET, PAID_INCENTIVE_EVIDENCE_SCHEMA
 from weather.market.mm_official_adapter import plain_sdk_value
@@ -101,7 +102,9 @@ class ReadJournal:
 
     def summary(self, kind):
         requests = [r['sha256'] for r in self.records if r['source'] == kind and r['event'] in {'wire_request', 'rpc_request'}]
-        responses = [r['sha256'] for r in self.records if r['source'] == kind and r['event'] in {'sdk_response', 'rpc_response'}]
+        response_event = 'wire_response' if any(r['source'] == kind and r['event'] == 'wire_response'
+            for r in self.records) else 'sdk_response'
+        responses = [r['sha256'] for r in self.records if r['source'] == kind and r['event'] in {response_event, 'rpc_response'}]
         return dict(request_sha256=digest(requests), response_sha256=digest(responses),
             hash_basis='canonical_json_ordered_message_sha256_list', request_count=len(requests), response_count=len(responses))
 
@@ -209,8 +212,17 @@ def read_activity_page(query, journal):
         hash_basis='method_LF_raw_path_LF_body', body_sha256=sha(b''))
     # OSError (including HTTPError/URLError/timeouts) and HTTPException on open,
     # read or close propagate to the collector's fail-closed Exception handler.
-    with urlopen(request, timeout=2) as response:
+    try:
+        response = urlopen(request, timeout=10)
+    except HTTPError as exc:
+        response = exc  # urllib exposes non-200 response bodies on the exception.
+    with response:
         raw = response.read(MAX_BYTES + 1)
+        journal.record('wire_response', method='GET', path='/v2/activity', status=response.status,
+            length=len(raw), sha256=sha(raw), body_complete=len(raw) <= MAX_BYTES,
+            hash_basis='response_body' if len(raw) <= MAX_BYTES else 'bounded_response_prefix')
+        if isinstance(response, HTTPError):
+            raise response  # Retain the original failure class/message after hashing its body.
         require(type(response.status) is int and response.status == 200
             and response.geturl() == request.full_url and len(raw) <= MAX_BYTES, 'activity_public_read')
 
@@ -250,8 +262,8 @@ def read_reward_activity(scope, start, end, journal):
         require(isinstance(payload, dict) and isinstance(payload.get('data'), list)
             and isinstance(payload.get('pagination'), dict), 'activity_envelope')
         page = payload['pagination']
-        require('next_cursor' in page and type(page.get('has_more')) is bool, 'activity_pagination')
-        cursor, more = page['next_cursor'], page['has_more']
+        require(type(page.get('has_more')) is bool, 'activity_pagination')
+        cursor, more = page.get('next_cursor'), page['has_more']
         require(cursor is None or isinstance(cursor, str), 'activity_cursor')
         require(more == (cursor not in (None, '')), 'activity_pagination')
         require(type(page.get('limit')) is int and 1 <= page['limit'] <= 1000
@@ -294,7 +306,7 @@ def read_reward_activity(scope, start, end, journal):
 def collect_distribution_candidates(venue, scope, journal, clock):
     """Retain REWARD candidates; the separate producer rule decides their day."""
     journal.kind = 'distributions'
-    rows, pagination, failure = [], False, None
+    rows, pagination, failure, failure_reason = [], False, None, None
     try:
         end = min(utc(scope['cash_end_utc']), utc(clock()))
         start = utc(scope['accrual_end_utc'])
@@ -303,6 +315,7 @@ def collect_distribution_candidates(venue, scope, journal, clock):
         pagination = True
     except Exception as exc:
         failure = type(exc).__name__
+        failure_reason = str(exc)
     src = source(scope, 'distributions', journal, clock, status='OBSERVED' if pagination else 'FAILED', pagination=pagination)
     src.update(reason='linkage_not_evaluated', linkage_basis=LINKAGE_BASIS,
         venue_earned_period_reference=False, activity_observed_at_utc=src['observed_at_utc'],
@@ -311,7 +324,7 @@ def collect_distribution_candidates(venue, scope, journal, clock):
         candidate_endpoint=ACTIVITY_URL, candidate_pagination_complete=pagination,
         request_urls=[r['url'] for r in journal.records
             if r['source'] == 'distributions' and r['event'] == 'wire_request'],
-        failure_type=failure)
+        failure_type=failure, failure_reason=failure_reason)
     return src, [dict(row, source_record_sha256=provenance) for row, provenance in rows]
 
 
