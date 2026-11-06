@@ -22,6 +22,8 @@ LOADS_PINNED_SOURCE = {
     # MG-2's P3d_N parity proof loads the L2 source FILE at a pinned sha256 (``_load_upstream``), never the
     # installed module; it is WS-only and refuses to import on the capture host (mg2_composite's guard).
     "src/weather/calibration/mg2_p3d_n.py": "MG-2 P3d_N: pinned-sha upstream source load for its parity proof",
+    # master 2026-11-05 suite ruling: roll_verdict proves the module FREE, in no live closure.
+    "src/weather/calibration/yearround_refit.py": "item 343b, shadow-only forward emitter, not a serving path",
 }
 
 

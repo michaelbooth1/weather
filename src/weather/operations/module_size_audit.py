@@ -233,6 +233,11 @@ OWNERSHIP_NOTES = {
         "boundary": "CLOB tape capture loops, tape audit, supervisor process lifecycle, status artifacts, compatibility exports, and CLI.",
         "next_split": "Extract tape audit and supervisor/process lifecycle behind the stable scheduled-task CLI, preserving lock, process, status, and audit behavior.",
     },
+    "src/weather/calibration/yearround_refit.py": {
+        "owner": "calibration",
+        "boundary": "Item 343b's offline year-round refit of row 28 candidate B: record and frame build through the bound helpers, the fail-closed source and calendar-grid checks, the forward fit, the shadow-only forward emitter, the frozen-runner equivalence, grid-holes and the K2 compare, and the CLI. Research and shadow only; not a serving path.",
+        "next_split": "Newly WARN on 2026-11-05 at about 2,500 lines (master 343b suite ruling). Its bytes are pinned by the row-28b forward freeze (emit refuses a changed module sha), so split only after the forward window closes: extract the equivalence and K2 compare into a yearround_refit_checks owner and the WU-store booleans into a grid-holes owner, neither importing the emitter; preserve every CLI, report schema and refusal message.",
+    },
 }
 
 
