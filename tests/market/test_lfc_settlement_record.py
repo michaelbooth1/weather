@@ -64,6 +64,15 @@ def test_split_payout_is_terminal_without_invented_winner():
     assert resolution_result(CONDITION, resolution(payouts=[500_000, 500_000]), tokens()) == (True, None)
 
 
+def test_resolved_lifecycle_without_payouts_stays_pending(tmp_path):
+    raw = json.loads(resolution())
+    raw['data'][0]['payouts'] = None
+    row = record_settlement(tmp_path, CONDITION,
+        get=lambda path, params: json.dumps(raw).encode() if path.endswith('resolutions') else tokens())
+    assert row['terminal'] is False and row['winning_token_id'] is None
+    assert not (tmp_path / 'settlement' / (CONDITION + '.json')).exists()
+
+
 def test_ambiguous_token_mapping_and_wrong_condition_refused():
     rows = json.loads(tokens())
     rows['data'].append(rows['data'][0])

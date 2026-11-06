@@ -62,6 +62,9 @@ def resolution_result(condition, resolution_raw, tokens_raw):
     if not rows or rows[0]['status'] != 'resolved':
         return False, None
     payouts = rows[0].get('payouts')
+    if payouts is None:
+        # UMA lifecycle can say resolved before terminal CTF payout evidence is served.
+        return False, None
     if (not isinstance(payouts, list) or len(payouts) != 2 or
             any(type(p) is not int or p < 0 for p in payouts) or sum(payouts) != 1_000_000):
         raise ValueError('resolution_payouts_unreadable')

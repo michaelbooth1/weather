@@ -18,7 +18,8 @@ is repeatable; `--root` overrides the normal pilot root. No ledger or local
 settlement labels are read. The public Data API v2 resolution and token
 reference responses are retained verbatim with SHA256 and observation time.
 Payout slots identify the winner; prices are ignored. Split payouts have no
-invented binary winner. Missing resolution remains unknown.
+invented binary winner. A resolved lifecycle without payout evidence remains
+pending; missing resolution remains unknown.
 
 Pending reads go to `settlement/pending/<condition>/<timestamp>.json`;
 terminal reads create `settlement/<condition>.json` once. An existing final
