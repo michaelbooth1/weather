@@ -91,9 +91,29 @@ calls; it imports no weather modules and reads no runtime evidence.
   rollup staleness from becoming a second barrier alarm. No gate was weakened.
 - Re-checked the footprint: source and synthetic fixtures only; no runtime
   outcomes, prices, labels or shadow tapes were read. No heavy run was active
-  when the master interrupted the previous session. Qualified tests remain
-  pending the priority hold release; light demonstrations are not test-suite
-  qualification evidence.
+  when the master interrupted the previous session. At this re-check no
+  qualified tests had run; final test/admission results are retained in the
+  task archive. Light demonstrations are not test-suite qualification evidence.
+
+## Rule-document discriminator
+
+The light `check_economics_rule_sources.py` check at
+`C:\t\codex\T007r1\out\` executed the collector's actual bounded text fetch and
+semantic-check functions, extracted by an explicit AST whitelist, against its
+six official Markdown rule documents. Every document returned HTTP 200 and
+every semantic check passed. This rules out a reproduced failure in that
+document-check path at the receipt time; it does not reproduce historical
+host conditions or qualify a complete snapshot. The inputs include the
+[official fee documentation](https://docs.polymarket.com/trading/fees),
+[maker-rebate documentation](https://docs.polymarket.com/programs/maker-rebates)
+and [contracts documentation](https://docs.polymarket.com/resources/contracts);
+the receipt lists every requested URL, content hash and per-check result.
+
+`economics-rule-source-receipt.json` binds the script and source hashes. No
+market, account, book, trade, reward or outcome API was called. No baseline
+was accepted. Gamma/reward API completeness and the host's accepted-baseline
+state remain unverified; the host refresh and drift receipts still decide
+the diagnosis. This is a source-only discriminator, not a chain test.
 
 ## Wrapper and every Stage-A step
 
