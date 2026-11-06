@@ -77,6 +77,58 @@ def wire(tmp_path, guard, opener=None, clock=lambda: 0):
                                    journal_root=tmp_path / "journal", clock=clock, wall_clock=lambda: 1700000000)
 
 
+# Fixtures keep the v1 key names the reader exposes; ``v2`` renames them to the Data API v2 wire names.
+V2_NAMES = dict(asset="token_id", conditionId="condition_id", proxyWallet="proxy_wallet", avgPrice="avg_price",
+                curPrice="current_price", endDate="end_date", eventSlug="event_slug",
+                transactionHash="transaction_hash", usdcSize="usdc_size")
+
+
+def v2(row, *, position=False):
+    names = dict(V2_NAMES, size="current_size") if position else V2_NAMES
+    return {names.get(k, k): v for k, v in row.items()}
+
+
+def v2_page(items, query, tag="page"):
+    """Serve ``items`` as v2 cursor pages. The opaque fixture cursor carries tag, position and size."""
+    assert "offset" not in query, "Data API v2 is cursor-only"
+    if "cursor" in query:
+        name, start, size = query["cursor"][0].split(":")
+        assert name == tag and "limit" not in query and "sort_direction" not in query and "status" not in query
+        start, size = int(start), int(size)
+    else:
+        start, size = 0, int(query["limit"][0])
+    more = start + size < len(items)
+    return {"data": items[start:start + size], "pagination": dict(
+        has_more=more, limit=size, offset=start, next_cursor=f"{tag}:{start + size}:{size}" if more else None)}
+
+
+def lost(row):
+    return row.get("redeemable") is True and row.get("curPrice") == 0
+
+
+def positions_page(holdings, query):
+    """OPEN serves every holding except redeemable losers, which REDEEMABLE_LOST serves."""
+    assert query["user"] == [FUNDER] and query["include_archived"] == ["true"]
+    assert query["filter_type"] == ["TOKENS"] and query["filter_amount"] == ["0"]
+    status = query["cursor"][0].split(":")[0] if "cursor" in query else query["status"][0]
+    assert status in {"OPEN", "REDEEMABLE_LOST"}
+    chosen = [p for p in holdings if lost(p) is (status == "REDEEMABLE_LOST")]
+    return v2_page([v2(p, position=True) for p in chosen], query, status)
+
+
+def serve(fixtures):
+    """Path-keyed fixtures; Data API v2 rows are wrapped in cursor envelopes on the wire."""
+    def respond(req):
+        parts = urlsplit(req.full_url)
+        query, value = parse_qs(parts.query), fixtures[parts.path]
+        if parts.path == "/v2/positions":
+            return positions_page(value, query)
+        if parts.path in {"/v2/trades", "/v2/activity"}:
+            return v2_page([v2(r) for r in value], query, parts.path)
+        return value
+    return respond
+
+
 @pytest.mark.parametrize("method", ["POST", "DELETE", "PUT", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT", "get", ""])
 def test_non_get_never_opens_socket(tmp_path, guard, method):
     t = wire(tmp_path, guard)
@@ -118,7 +170,7 @@ def test_allowed_routes_and_query_restriction(tmp_path, guard):
     with pytest.raises(security.ReaderError):
         t.request("GET", security.CLOB, "/book", {"redirect": "https://evil.test"})
     with pytest.raises(security.ReaderError):
-        t.request("GET", security.DATA, "/positions", {"user": SIGNER})
+        t.request("GET", security.DATA, "/v2/positions", {"user": SIGNER})
     assert len(t.opener.calls) == before
 
 
@@ -131,7 +183,7 @@ def test_hmac_headers_match_protocol_and_never_go_to_public(tmp_path, guard):
     assert req.get_header("Poly_address") == SIGNER
     assert req.data is None and req.get_method() == "GET" and timeout == 4
     for host, path in [(security.CLOB, "/book"), (security.CLOB, "/rewards/markets/" + CONDITION),
-                       (security.DATA, "/positions"), (security.GAMMA, "/markets")]:
+                       (security.DATA, "/v2/positions"), (security.GAMMA, "/markets")]:
         t.request("GET", host, path)
         assert not any(k.lower().startswith("poly_") for k in t.opener.calls[-1][0].headers)
     text = next(t.journal_root.glob("*.jsonl")).read_text()
@@ -261,7 +313,7 @@ def endpoint_fixtures():
     # Minimized documented response shapes; synthetic identifiers and amounts.
     return {"/balance-allowance": {"balance": "70000000", "allowances": {}},
             "/data/orders": {"data": [{"id": "resting", "maker_address": FUNDER, "owner": FIELDS["API_KEY"]}], "next_cursor": "LTE="},
-            "/positions": [{"proxyWallet": FUNDER, "asset": "123", "conditionId": CONDITION,
+            "/v2/positions": [{"proxyWallet": FUNDER, "asset": "123", "conditionId": CONDITION,
                             "size": 75, "avgPrice": .43, "title": "Fixture band", "outcome": "Yes"}],
             "/book": {"asset_id": "123", "market": CONDITION,
                       "bids": [{"price": ".25", "size": "5"}, {"price": ".31", "size": "10"}],
@@ -270,13 +322,13 @@ def endpoint_fixtures():
                           "rewardsMinSize": 100, "rewardsMaxSpread": 4.5}],
             "/rewards/markets/" + CONDITION: {"data": [{"rewards_daily_rate": "73"}], "next_cursor": "LTE="},
             "/data/trades": {"data": [{"price": ".43", "size": "75"}], "next_cursor": "LTE="},
-            "/trades": [{"price": .43}], "/activity": [{"type": "TRADE"}],
+            "/v2/trades": [{"price": .43}], "/v2/activity": [{"type": "TRADE"}],
             "/rewards/user": {"data": [{"earnings": "2.13"}], "next_cursor": "LTE="},
             "/rewards/user/total": [{"earnings": "2.13"}], "/rewards/user/percentages": {CONDITION: 0.38}}
 
 
 def test_endpoint_parsing_and_summary(tmp_path, guard, endpoint_fixtures):
-    t = wire(tmp_path, guard, FakeOpener(lambda r: endpoint_fixtures[urlsplit(r.full_url).path]))
+    t = wire(tmp_path, guard, FakeOpener(serve(endpoint_fixtures)))
     r = core.WalletReader(t, signature_type=3, campaign_capital="120")
     summary = r.summary()
     assert summary["cash_pusd"] == "70"
@@ -302,7 +354,7 @@ def test_bleed_boundaries(cash, capital, status, pnl):
 
 def test_incomplete_mark_does_not_invent_pnl(tmp_path, guard, endpoint_fixtures):
     endpoint_fixtures["/book"]["asks"] = []
-    t = wire(tmp_path, guard, FakeOpener(lambda r: endpoint_fixtures[urlsplit(r.full_url).path]))
+    t = wire(tmp_path, guard, FakeOpener(serve(endpoint_fixtures)))
     value = core.WalletReader(t, signature_type=2, campaign_capital=120).summary()
     assert value["campaign_pnl_pusd"] is None and value["status"] == "INCOMPLETE"
     assert value["positions"][0]["mark_value_pusd"] is None
@@ -606,11 +658,133 @@ def test_missing_credential_file_is_generic_and_parser_errors_silent(tmp_path, m
 
 @pytest.mark.parametrize("field,replacement", [("proxyWallet", SIGNER), ("conditionId", "bad"), ("asset", "../order")])
 def test_position_identity_fails_closed(tmp_path, guard, endpoint_fixtures, field, replacement):
-    endpoint_fixtures["/positions"][0][field] = replacement
-    t = wire(tmp_path, guard, FakeOpener(lambda r: endpoint_fixtures[urlsplit(r.full_url).path]))
+    endpoint_fixtures["/v2/positions"][0][field] = replacement
+    t = wire(tmp_path, guard, FakeOpener(serve(endpoint_fixtures)))
     value = core.WalletReader(t, signature_type=3).positions()
     assert value["errors"] == {"positions": "positions_unavailable"}
     assert value["positions"] == [] and value["status"] == "PARTIAL"
+
+
+def test_v2_positions_walk_both_statuses_by_cursor(tmp_path, guard):
+    holdings = [dict(proxyWallet=FUNDER, asset=str(i + 1), conditionId="0x" + f"{i + 1:064x}", size=1, avgPrice=.4,
+                     curPrice=0 if i >= 250 else 1, redeemable=True) for i in range(370)]
+    t = wire(tmp_path, guard, FakeOpener(lambda req: positions_page(holdings, parse_qs(urlsplit(req.full_url).query))))
+    result = core.WalletReader(t, signature_type=2)._position_rows()
+    assert [r["asset"] for r in result] == [p["asset"] for p in holdings]
+    assert all(r["size"] == 1 and r["conditionId"] == p["conditionId"] and r["proxyWallet"] == FUNDER
+               and "token_id" not in r and "current_size" not in r for r, p in zip(result, holdings))
+    queries = [parse_qs(urlsplit(req.full_url).query) for req, _ in t.opener.calls]
+    filters = dict(user=[FUNDER], include_archived=["true"], filter_type=["TOKENS"], filter_amount=["0"])
+    assert queries == [dict(filters, status=["OPEN"], limit=["100"]), dict(filters, cursor=["OPEN:100:100"]),
+                       dict(filters, cursor=["OPEN:200:100"]), dict(filters, status=["REDEEMABLE_LOST"], limit=["100"]),
+                       dict(filters, cursor=["REDEEMABLE_LOST:100:100"])]
+    assert {urlsplit(req.full_url).path for req, _ in t.opener.calls} == {"/v2/positions"}
+
+
+def test_v2_positions_page_bound_and_repeated_cursor_fail_closed(tmp_path, guard):
+    endless = lambda req: {"data": [], "pagination": dict(has_more=True, limit=100, offset=0,
+                                                          next_cursor=f"c{len(t.opener.calls)}")}
+    t = wire(tmp_path, guard, FakeOpener(endless))
+    with pytest.raises(security.ReaderError, match="positions_incomplete"):
+        core.WalletReader(t, signature_type=2)._position_rows()
+    assert len(t.opener.calls) == core.DATA_PAGES
+    repeat = lambda req: {"data": [], "pagination": dict(has_more=True, limit=100, offset=0, next_cursor="same")}
+    t = wire(tmp_path, guard, FakeOpener(repeat))
+    with pytest.raises(security.ReaderError, match="cursor_unreadable"):
+        core.WalletReader(t, signature_type=2)._position_rows()
+
+
+@pytest.mark.parametrize("lost_size", [5, 3])
+def test_token_in_both_statuses_dedupes_or_refuses_conflict(tmp_path, guard, lost_size):
+    row = dict(proxy_wallet=FUNDER, token_id="1", condition_id=CONDITION, current_size=5, avg_price=.4,
+               current_price=1, redeemable=True)
+    def respond(req):
+        parts = urlsplit(req.full_url)
+        assert parts.path == "/v2/positions"
+        query = parse_qs(parts.query)
+        return v2_page([row if query["status"] == ["OPEN"] else dict(row, current_size=lost_size)], query)
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    reader = core.WalletReader(t, signature_type=2)
+    value = reader.positions(include_resolved=True)
+    if lost_size == 5:
+        assert [p["token_id"] for p in value["resolved_positions"]] == ["1"] and value["errors"] == {}
+        assert value["resolved_positions"][0]["size"] == "5"
+    else:
+        assert value["errors"] == {"positions": "positions_unavailable"}
+        assert value["resolved_positions"] == [] and value["status"] == "PARTIAL"
+        with pytest.raises(security.ReaderError, match="position_conflict"):
+            reader._position_rows()
+
+
+@pytest.mark.parametrize("variant", ["absent", "null", "v1_name_only"])
+def test_missing_current_size_is_refused_never_zero(tmp_path, guard, endpoint_fixtures, variant):
+    base = serve(endpoint_fixtures)
+    def respond(req):
+        page = base(req)
+        if urlsplit(req.full_url).path == "/v2/positions":
+            for item in page["data"]:
+                size = item.pop("current_size")
+                if variant == "null":
+                    item["current_size"] = None
+                elif variant == "v1_name_only":
+                    item["size"] = size
+        return page
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    reader = core.WalletReader(t, signature_type=3, campaign_capital="120")
+    with pytest.raises(security.ReaderError, match="position_numeric_data_unreadable"):
+        reader._position_rows()
+    summary = reader.summary()
+    assert summary["errors"] == {"positions": "positions_unavailable"}
+    assert summary["positions"] == [] and summary["status"] == "INCOMPLETE"
+    assert summary["campaign_pnl_pusd"] is None and summary["cash_pusd"] == "70"
+
+
+@pytest.mark.parametrize("failure", ["http_410", "v1_list", "no_pagination", "has_more_without_cursor"])
+def test_retired_v1_or_malformed_positions_fail_closed_in_summary(tmp_path, guard, endpoint_fixtures, failure):
+    base = serve(endpoint_fixtures)
+    def respond(req):
+        if urlsplit(req.full_url).path != "/v2/positions":
+            return base(req)
+        if failure == "http_410":
+            raise HTTPError(req.full_url, 410, "Gone", {}, io.BytesIO(b"fixture retired"))
+        if failure == "v1_list":
+            return endpoint_fixtures["/v2/positions"]
+        page = base(req)
+        if failure == "no_pagination":
+            page.pop("pagination")
+        else:
+            page["pagination"]["has_more"] = True
+        return page
+    t = wire(tmp_path, guard, FakeOpener(respond))
+    summary = core.WalletReader(t, signature_type=3, campaign_capital="120").summary()
+    assert summary["errors"] == {"positions": "positions_unavailable"}
+    assert summary["positions"] == [] and summary["status"] == "INCOMPLETE"
+    assert summary["campaign_pnl_pusd"] is None and summary["cash_pusd"] == "70"
+    assert summary["open_orders"][0]["id"] == "resting"
+
+
+def test_data_api_never_sends_offset(tmp_path, guard, endpoint_fixtures):
+    for path in [p for h, p in transport.ALLOWED if h == security.DATA]:
+        t = wire(tmp_path, guard)
+        with pytest.raises(security.ReaderError, match="upstream_request_refused"):
+            t.request("GET", security.DATA, path, {"user": FUNDER, "offset": 0})
+        assert not t.opener.calls
+        assert "offset" not in transport.ALLOWED[(security.DATA, path)]
+    reader, _, activity = unredeemed_fixture(tmp_path, guard)
+    activity.extend(dict(activity[0], side="SELL", size=0.01, timestamp=CAMPAIGN_TIMESTAMP + 61 + i,
+                         transactionHash=f"fixture-sell-{i}") for i in range(150))
+    reader.summary()
+    t = wire(tmp_path, guard, FakeOpener(serve(endpoint_fixtures)))
+    trades = core.WalletReader(t, signature_type=3).trades("123")
+    assert trades["recent_activity"] == [{"type": "TRADE"}] and trades["recent_public_trades"] == [{"price": .43}]
+    data = [parse_qs(urlsplit(req.full_url).query) | {"path": [urlsplit(req.full_url).path]}
+            for req, _ in [*reader.transport.opener.calls, *t.opener.calls] if req.full_url.startswith(security.DATA)]
+    assert [q["path"][0] for q in data].count("/v2/activity") == 3  # Two ASC cursor pages, one recent DESC page.
+    assert any("cursor" in q for q in data)
+    assert not any("offset" in q for q in data)
+    assert {"user": [FUNDER], "limit": ["100"], "taker_only": ["false"], "path": ["/v2/trades"]} in data
+    assert {"user": [FUNDER], "limit": ["100"], "start": ["123"], "sort_by": ["TIMESTAMP"],
+            "sort_direction": ["DESC"], "path": ["/v2/activity"]} in data
 
 
 def test_other_funder_open_order_is_not_silently_dropped(tmp_path, guard):
@@ -626,9 +800,9 @@ def test_campaigns_summary_uses_neutral_ledger_without_single_wallet_bleed(tmp_p
             dict(id="initial", at_utc="2026-09-22T00:00:00Z", amount_pusd="102.25")], bleed_limit_pusd="40"),
         dict(id="owner-discretionary", start_utc="2026-09-22T00:00:00Z", contributions=[])],
         rules=[dict(condition_id=CONDITION, campaign="weather-maker")])
-    endpoint_fixtures["/activity"] = [dict(proxyWallet=FUNDER, type="TRADE", side="BUY", asset="123",
+    endpoint_fixtures["/v2/activity"] = [dict(proxyWallet=FUNDER, type="TRADE", side="BUY", asset="123",
         conditionId=CONDITION, transactionHash="fixture-tx", timestamp=1790244000, size=75, price=.43, fee_pusd="0")]
-    t = wire(tmp_path, guard, FakeOpener(lambda r: endpoint_fixtures[urlsplit(r.full_url).path]))
+    t = wire(tmp_path, guard, FakeOpener(serve(endpoint_fixtures)))
     reader = core.WalletReader(t, signature_type=2, campaign_capital="200", campaigns=config)
     code, value = server.dispatch(reader, guard, TOKEN, "192.168.1.5", "GET", "/summary",
                                  "192.168.1.5", {"Authorization": "Bearer " + TOKEN})
@@ -669,9 +843,8 @@ def inventory_fixture(live=4, resolved=100):
     def respond(req):
         parts = urlsplit(req.full_url)
         query = parse_qs(parts.query)
-        if parts.path == "/positions":
-            offset = int(query["offset"][0])
-            return holdings[offset:offset + 100]
+        if parts.path == "/v2/positions":
+            return positions_page(holdings, query)
         if parts.path == "/markets":
             requested = query["condition_ids"]
             assert 1 <= len(requested) <= 20
@@ -682,13 +855,13 @@ def inventory_fixture(live=4, resolved=100):
             return {"balance": "70000000"}
         if parts.path == "/data/orders":
             return {"data": [], "next_cursor": "LTE="}
-        if parts.path == "/activity":
-            assert query["start"] == ["0"] and query["sortDirection"] == ["ASC"]
-            offset = int(query["offset"][0])
-            return [dict(proxyWallet=FUNDER, asset=p["asset"], conditionId=p["conditionId"],
-                         type="TRADE", side="BUY", size=p["size"], timestamp=CAMPAIGN_TIMESTAMP - 86400,
-                         transactionHash="fixture-" + p["asset"]) for p in holdings[offset:offset + 100]
-                    if core.number(p["size"]) > 0]
+        if parts.path == "/v2/activity":
+            assert query["start"] == ["1"] and query["user"] == [FUNDER]
+            assert "cursor" in query or query["sort_direction"] == ["ASC"]
+            return v2_page([v2(dict(proxyWallet=FUNDER, asset=p["asset"], conditionId=p["conditionId"],
+                                    type="TRADE", side="BUY", size=p["size"], timestamp=CAMPAIGN_TIMESTAMP - 86400,
+                                    transactionHash="fixture-" + p["asset"]))
+                            for p in holdings if core.number(p["size"]) > 0], query, "activity")
         if parts.path == "/book":
             p = next(p for p in holdings if p["asset"] == query["token_id"][0])
             assert not p["redeemable"], "resolved position requested a book"
@@ -713,7 +886,7 @@ def test_104_positions_only_four_live_books_and_one_metadata_batch(tmp_path, gua
     assert result["plan"]["deferred_live_positions"] == 0
     paths = [urlsplit(req.full_url).path for req, _ in t.opener.calls]
     assert paths.count("/book") == 4 and paths.count("/markets") == 1
-    assert paths.count("/positions") == 2
+    assert paths.count("/v2/positions") == 2  # One OPEN page and one REDEEMABLE_LOST page.
     assert all(req.get_method() == "GET" for req, _ in t.opener.calls)
     hidden = reader.summary()
     assert "resolved_positions" not in hidden and hidden["resolved_count"] == 100
@@ -731,7 +904,7 @@ def test_103_redeemable_positions_leave_one_gamma_condition(tmp_path, guard):
     assert len(result["resolved_positions"]) == 103 and len(result["positions"]) == 1
     assert result["positions"][0]["mid"] == "0.5" and result["positions"][0]["errors"] == []
     assert result["unclassified_positions"] == [] and result["errors"] == {}
-    assert result["plan"]["used_gets"] == 7
+    assert result["plan"]["used_gets"] == 8
 
 
 def test_45_non_redeemable_positions_use_three_gamma_chunks(tmp_path, guard):
@@ -780,18 +953,19 @@ def test_all_redeemable_positions_need_no_gamma_or_book_calls(tmp_path, guard):
     result = core.WalletReader(t, signature_type=2).positions(include_resolved=True)
     assert len(result["resolved_positions"]) == 104 and result["positions"] == []
     assert result["status"] == "OBSERVED"
-    assert [urlsplit(req.full_url).path for req, _ in t.opener.calls] == ["/positions", "/positions"]
+    assert [urlsplit(req.full_url).path for req, _ in t.opener.calls] == ["/v2/positions"] * 3
 
 
 def test_overflow_prioritizes_value_and_returns_partial_inventory(tmp_path, guard):
     _, _, respond = inventory_fixture(live=20, resolved=0)
     t = wire(tmp_path, guard, FakeOpener(respond))
     result = core.WalletReader(t, signature_type=2, campaign_capital=200).summary()
-    assert result["plan"]["used_gets"] == 24
-    assert [p["token_id"] for p in result["positions"][:10]] == [str(i) for i in range(20, 10, -1)]
-    assert all(p["mid"] == "0.5" for p in result["positions"][:10])
-    assert all(p["errors"] == ["budget_deferred"] for p in result["positions"][10:])
-    assert result["plan"]["deferred_live_positions"] == 10
+    # Five discovery GETs (cash, orders, two position statuses, one Gamma chunk) leave 19: nine marks.
+    assert result["plan"]["used_gets"] == 23
+    assert [p["token_id"] for p in result["positions"][:9]] == [str(i) for i in range(20, 11, -1)]
+    assert all(p["mid"] == "0.5" for p in result["positions"][:9])
+    assert all(p["errors"] == ["budget_deferred"] for p in result["positions"][9:])
+    assert result["plan"]["deferred_live_positions"] == 11
     assert result["cash_pusd"] == "70" and result["open_orders"] == []
     assert result["campaign_pnl_pusd"] is None and result["status"] == "INCOMPLETE"
 
@@ -799,17 +973,17 @@ def test_overflow_prioritizes_value_and_returns_partial_inventory(tmp_path, guar
 def test_remaining_minute_budget_and_cached_reads_cost_zero(tmp_path, guard):
     _, _, respond = inventory_fixture(live=4, resolved=0)
     t = wire(tmp_path, guard, FakeOpener(respond))
-    # Prior attempts consume 24 of the minute allowance; two discovery calls
-    # leave room for the two highest-value positions only.
-    t.calls.extend([0] * 24)
+    # Prior attempts consume 23 of the minute allowance; three discovery calls
+    # (two position statuses, one Gamma chunk) leave room for the two highest-value positions only.
+    t.calls.extend([0] * 23)
     reader = core.WalletReader(t, signature_type=2)
     result = reader.positions()
-    assert result["plan"]["max_gets"] == result["plan"]["used_gets"] == 6
+    assert result["plan"]["max_gets"] == result["plan"]["used_gets"] == 7
     assert [p["token_id"] for p in result["positions"] if p["mid"]] == ["4", "3"]
     cached = reader.positions()
     assert cached["plan"]["used_gets"] == 0
     assert [p["token_id"] for p in cached["positions"] if p["mid"]] == ["4", "3"]
-    assert len(t.opener.calls) == 6
+    assert len(t.opener.calls) == 7
 
 
 def test_failed_book_does_not_poison_cash_or_orders_and_expires_at_ten(tmp_path, guard):
@@ -837,7 +1011,7 @@ def test_failed_book_does_not_poison_cash_or_orders_and_expires_at_ten(tmp_path,
 
 @pytest.mark.parametrize("failed_path,field,error", [
     ("/balance-allowance", "cash_pusd", "cash"), ("/data/orders", "open_orders", "open_orders"),
-    ("/positions", "positions", "positions")])
+    ("/v2/positions", "positions", "positions")])
 def test_summary_field_failures_preserve_other_results(tmp_path, guard, failed_path, field, error):
     _, _, respond = inventory_fixture(live=1, resolved=0)
     def endpoint(req):
@@ -924,7 +1098,7 @@ def test_100e_one_live_103_resolved_pnl_split(tmp_path, guard, capital, campaign
         assert result["mark_basis"] == "live_two_sided_mid"
         assert ("resolved_positions" in result) is include_resolved
         assert result["plan"]["deferred_live_positions"] == 0
-    assert len(t.opener.calls) == 9  # Two bounded activity pages prove historical acquisition; visibility is cached.
+    assert len(t.opener.calls) == 10  # Two bounded activity pages prove historical acquisition; visibility is cached.
     assert sum(urlsplit(req.full_url).path == "/book" for req, _ in t.opener.calls) == 1
 
 
@@ -967,7 +1141,7 @@ def test_gamma_closed_and_nonterminal_value_remain_explicit(tmp_path, guard):
     assert code == 200 and result["status"] == "PARTIAL" and result["positions"] == []
     assert result["resolved_positions"][0]["classification_basis"] == "gamma_closed"
     assert result["resolved_positions"][0]["errors"] == ["resolved_value_unavailable"]
-    assert len(t.opener.calls) == 2
+    assert len(t.opener.calls) == 3
 
 
 def test_missing_metadata_preserves_rows_without_speculative_books(tmp_path, guard):
@@ -1042,8 +1216,9 @@ def unredeemed_fixture(tmp_path, guard, *, terminal=1, size=5, timestamp=CAMPAIG
                              type="TRADE", side="BUY", size=size, timestamp=timestamp, transactionHash="fixture-buy")]
     def endpoint(req):
         path = urlsplit(req.full_url).path
-        if path == "/activity":
-            return default_activity if activity is None else activity
+        if path == "/v2/activity":
+            items = default_activity if activity is None else activity
+            return v2_page([v2(r) for r in items], parse_qs(urlsplit(req.full_url).query), "activity")
         if path == "/balance-allowance":
             return {"balance": cash}
         return respond(req)
@@ -1093,7 +1268,7 @@ def test_110f_redeemed_cash_is_not_counted_twice(tmp_path, guard):
     reader, _, _ = unredeemed_fixture(tmp_path, guard, size=0, cash="75000000", baseline=None)
     result = reader.summary()
     assert result["campaign_pnl_pusd"] == "-25" and result["unredeemed_positions"] == []
-    assert not any(urlsplit(r.full_url).path == "/activity" for r, _ in reader.transport.opener.calls)
+    assert not any(urlsplit(r.full_url).path == "/v2/activity" for r, _ in reader.transport.opener.calls)
 
 
 @pytest.mark.parametrize("failure", ["no_baseline", "empty", "missing_timestamp", "future", "quantity", "mixed",
@@ -1120,17 +1295,18 @@ def test_110f_unknown_acquisition_never_guessed(tmp_path, guard, failure):
     elif failure == "unknown_side":
         activity[0]["side"] = "OTHER"
     elif failure == "exhausted":
-        activity.extend(dict(activity[0], transactionHash=f"fixture-{i}") for i in range(99))
+        # More than the five-page cursor bound.
+        activity.extend(dict(activity[0], transactionHash=f"fixture-{i}") for i in range(599))
     elif failure == "failure":
         responder = reader.transport.opener.responder
         def fail(req):
-            if urlsplit(req.full_url).path == "/activity":
+            if urlsplit(req.full_url).path == "/v2/activity":
                 raise security.ReaderError("fixture_failure")
             return responder(req)
         reader.transport.opener.responder = fail
     elif failure == "budget":
         # Leave exactly enough budget for cash, orders and inventory, but no history.
-        reader.transport.calls.extend([0] * 27)
+        reader.transport.calls.extend([0] * 26)
     result = reader.summary()
     assert result["status"] == "INCOMPLETE" and result["campaign_pnl_pusd"] is None
     assert "unredeemed_acquisition_time_unknown" in result["incomplete_reasons"]

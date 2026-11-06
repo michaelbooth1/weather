@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from tests.market.test_wallet_reader import FIELDS, FUNDER, FakeOpener, wire
+from tests.market.test_wallet_reader import FIELDS, FUNDER, FakeOpener, positions_page, wire
 from weather.market import wallet_reader as core
 from weather.market import wallet_reader_client as client
 from weather.market import wallet_reader_security as security
@@ -55,8 +55,8 @@ FILLS = {"data": [{"market": C, "asset_id": "31", "match_time": "1790000000", "s
 def respond(req):
     parts = urlsplit(req.full_url)
     query = parse_qs(parts.query)
-    if parts.path == "/positions":
-        return POSITIONS if query["offset"] == ["0"] else []
+    if parts.path == "/v2/positions":
+        return positions_page(POSITIONS, query)
     if parts.path == "/data/trades":
         assert query["maker_address"] == [FUNDER] and query["after"] == ["1789000000"]
         return FILLS
@@ -105,7 +105,7 @@ def test_settlement_joins_venue_resolution_with_wu_proxy_and_flags(tmp_path, gua
     assert by[D]["resolution_state"] == "metadata_unavailable"
     assert result["flags"] == {"disagreements": [B], "unredeemed_winners": [A], "resolved_unreconciled": [B]}
     assert result["status"] == "PARTIAL" and result["counts"]["held_markets"] == 3
-    assert result["plan"]["used_gets"] == len(t.opener.calls) == 3
+    assert result["plan"]["used_gets"] == len(t.opener.calls) == 4  # Two position statuses, fills, Gamma.
     assert all(req.get_method() == "GET" for req, _ in t.opener.calls)
 
 

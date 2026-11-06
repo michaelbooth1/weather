@@ -29,9 +29,11 @@ ALLOWED = {
     (CLOB, "/rewards/user/total"): {"date", "signature_type"},
     (CLOB, "/rewards/user/percentages"): {"signature_type"},
     (CLOB, "/book"): {"token_id"},
-    (DATA, "/positions"): {"user", "limit", "offset", "sizeThreshold"},
-    (DATA, "/trades"): {"user", "limit", "offset", "takerOnly"},
-    (DATA, "/activity"): {"user", "limit", "offset", "start", "sortBy", "sortDirection"},
+    # Data API v2 is cursor-only: ``offset`` is a 400 upstream and is refused here.
+    (DATA, "/v2/positions"): {"user", "limit", "cursor", "status", "include_archived", "filter_type",
+                              "filter_amount"},
+    (DATA, "/v2/trades"): {"user", "limit", "taker_only"},
+    (DATA, "/v2/activity"): {"user", "limit", "cursor", "start", "sort_by", "sort_direction"},
     (GAMMA, "/markets"): {"condition_ids", "limit"},
 }
 AUTH_PATHS = frozenset(p for (h, p) in ALLOWED if h == CLOB and p != "/book")

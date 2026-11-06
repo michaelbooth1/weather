@@ -260,7 +260,7 @@ The sole upstream request gate in `wallet_reader_transport.py` owns the exact
 host/path/query allowlist. It permits GET only, including the read
 `/balance-allowance` but **not** the mutating GET `/balance-allowance/update`.
 It attaches L2 HMAC headers only to private CLOB read paths. Public CLOB books,
-market reward configuration, data-api positions/trades/activity and Gamma metadata
+market reward configuration, Data API v2 positions/trades/activity and Gamma metadata
 receive no auth headers. Redirects, proxies, arbitrary URLs and retries are absent.
 
 Each successful upstream read is cached for 30 seconds; failures for 10 seconds,
@@ -274,6 +274,24 @@ with a 16-second planning deadline; each socket timeout is clipped to the time
 remaining. No new socket opens after that deadline. This bounds fan-out, not
 an absolute wall-clock guarantee for DNS, a trickling body, disk I/O, or a queued
 LAN request. No network polling runs by itself.
+
+Data API v1 (`/positions`, `/trades`, `/activity`) was retired by the venue on
+2026-11-02 and now answers HTTP 410; the reader reads only `/v2/positions`,
+`/v2/activity` and `/v2/trades`. v2 answers a `{data, pagination}` envelope and is
+cursor-only: the first page sends the filters and `limit=100`, later pages send
+`cursor=<next_cursor>` with `user` and the filters the cursor does not carry, and the
+walk stops at `next_cursor: null`. `offset` is never sent (it is a 400 upstream and
+is not in the allowlist). A non-envelope body (including a v1 list), a `has_more`
+that disagrees with `next_cursor`, or a repeated cursor fails closed. Positions walk
+two statuses, `OPEN` (the superset, including settled-but-unredeemed winners) and
+`REDEEMABLE_LOST`, each with `include_archived=true`, `filter_type=TOKENS` and
+`filter_amount=0` (the v2 default floor drops holdings under 0.1 share); `CLOSED` is
+excluded. Rows are de-duplicated on `token_id`; one token with two different
+`current_size` values, or a row without `current_size`, makes positions unavailable
+rather than defaulting to zero. Each v2 row is renamed to the v1 field names the
+reader always used (`asset`, `conditionId`, `size`, `avgPrice`, `curPrice`, ...),
+so response shapes are unchanged. Discovery therefore costs at least two position
+GETs (one per status) plus one per further 100 rows of a status.
 
 Summary reads cash and orders first. Inventory discovery uses bounded pages and
 Gamma only for holdings not already redeemable, in batches of at most 20 distinct
@@ -295,7 +313,7 @@ residual secrets; the reader also strips other participants' `owner` API-key fie
 
 Summary cash is CLOB collateral balance divided by one million; it is not a
 fresh allowance update. Open orders must match the configured funder. Positions
-must match the funder and unique token IDs. A redeemable position or Gamma
+must match the funder, and a token listed twice must agree on size. A redeemable position or Gamma
 `closed=true` is resolved; Gamma `closed=false, active=true` establishes live.
 An expired end date or zero last price alone does not establish resolution.
 Uncertain rows remain in `unclassified_positions` and prevent live and campaign totals.
@@ -325,10 +343,10 @@ terminal prices or nonterminal prices leave its value unknown. `redeemable=false
 alone is not proof of redemption. Zero-size or absent lots add nothing to cash.
 
 When a baseline instant and positive resolved lots exist, summary attempts a
-bounded complete `/activity` walk from Unix zero, oldest first, at most five
-100-row pages within the existing 24-GET/16-second composite budget. It runs after
+bounded complete `/v2/activity` walk over full history (`start=1`), oldest first,
+at most five 100-row cursor pages within the existing 24-GET/16-second composite budget. It runs after
 live marking and uses the existing cache, GET allowlist and journal. The latest
-100 rows from `/trades` are never treated as complete history. Only account- and
+100 rows from `/v2/trades` (`taker_only=false`) are never treated as complete history. Only account- and
 token-matched trade history whose buys minus sells reconcile exactly to the held
 quantity can establish age. Every acquisition in the remaining inventory must
 fall on the same side of the baseline (strictly after is campaign); mixed-age
@@ -353,7 +371,7 @@ interpretation. Cash < 60 or known campaign P&L < -40 yields `BLEED_LIMIT`.
 Other missing campaign information yields `INCOMPLETE`, never a trading go-ahead.
 ## Settlement watcher (`/settlement`)
 
-`/settlement?since=<unix seconds>` covers every market currently held (data-api
+`/settlement?since=<unix seconds>` covers every market currently held (Data API v2
 positions) or filled since `since` (authenticated CLOB `/data/trades` for the funder),
 inside one 24-GET/16-second composite plan using only the allow-listed routes above:
 positions, fills, and Gamma `/markets` in chunks of at most 20 conditions. Per market:

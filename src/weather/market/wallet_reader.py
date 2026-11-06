@@ -18,6 +18,16 @@ from weather.market.wallet_reader_transport import ReadTransport
 from weather.paths import config_path, data_path
 
 GAMMA_CHUNK_SIZE = 20
+# Data API v1 was retired by the venue on 2026-11-02 (HTTP 410). v2 positions (master ruling 2026-11-06):
+# OPEN is the superset (it includes settled-but-unredeemed winners) and REDEEMABLE_LOST is listed apart; CLOSED
+# is excluded. The 0 token floor replaces v1 sizeThreshold=0 (the v2 default drops holdings under 0.1 share).
+POSITION_STATUSES = ("OPEN", "REDEEMABLE_LOST")
+POSITION_FILTERS = dict(include_archived="true", filter_type="TOKENS", filter_amount=0)
+DATA_PAGES = 5
+# v2 snake_case names -> the v1 names the rest of the reader (and maker_core adapt_archive) reads.
+V1_NAMES = dict(token_id="asset", condition_id="conditionId", proxy_wallet="proxyWallet", avg_price="avgPrice",
+                current_price="curPrice", end_date="endDate", event_slug="eventSlug",
+                transaction_hash="transactionHash", usdc_size="usdcSize")
 
 
 def number(value):
@@ -51,6 +61,12 @@ def rows(value):
     if not isinstance(value, list) or any(not isinstance(r, dict) for r in value):
         raise ReaderError("rows_unreadable")
     return value
+
+
+def v1_row(row, size_name):
+    """One v2 Data API row under v1 key names. A missing size stays missing; a stray v1 key is dropped."""
+    names = dict(V1_NAMES, **{size_name: "size"})
+    return {names.get(k, k): v for k, v in row.items() if k in names or k not in names.values()}
 
 
 def campaign_start(value):
@@ -171,6 +187,38 @@ class WalletReader:
             params["next_cursor"] = cursor
         raise ReaderError("pagination_incomplete")
 
+    def data_pages(self, path, first, *, resend=("user",), limit=DATA_PAGES, found=None):
+        """Walk one Data API v2 cursor chain into ``found``; return whether it reached ``next_cursor: null``.
+
+        Later pages send only ``cursor`` plus the ``resend`` filters the cursor does not carry (never
+        ``offset``). A non-envelope body (including a v1 list) or a bad cursor fails closed.
+        """
+        found = [] if found is None else found
+        params, seen = dict(first), set()
+        for _ in range(limit):
+            page = self.get(DATA, path, **params)
+            pagination = page.get("pagination") if isinstance(page, dict) else None
+            if not isinstance(pagination, dict):
+                raise ReaderError("page_unreadable")
+            found.extend(rows(page.get("data")))
+            cursor = pagination.get("next_cursor")
+            if pagination.get("has_more") is not (cursor is not None):
+                raise ReaderError("cursor_unreadable")
+            if cursor is None:
+                return True
+            if not isinstance(cursor, str) or not cursor or cursor in seen:
+                raise ReaderError("cursor_unreadable")
+            seen.add(cursor)
+            params = {**{k: first[k] for k in resend}, "cursor": cursor}
+        return False
+
+    def activity(self, *, pages=DATA_PAGES, **params):
+        """Bounded v2 activity walk in v1 row names; returns (rows, complete)."""
+        found = []
+        complete = self.data_pages("/v2/activity", dict(user=self.funder, limit=100, sort_by="TIMESTAMP", **params),
+                                   resend=("user", "start"), limit=pages, found=found)
+        return [v1_row(r, "size") for r in found], complete
+
     def balance(self):
         payload = self.get(CLOB, "/balance-allowance", asset_type="COLLATERAL",
                            signature_type=self.signature_type)
@@ -190,24 +238,31 @@ class WalletReader:
         return result
 
     def _position_rows(self):
-        result, tokens = [], set()
-        for page in range(5):
-            chunk = rows(self.get(DATA, "/positions", user=self.funder, sizeThreshold=0,
-                                  limit=100, offset=page * 100))
-            for row in chunk:
+        """Both v2 statuses, cursor-walked and de-duplicated on token; one token, two sizes refuses."""
+        result = {}
+        for status in POSITION_STATUSES:
+            chunk = []
+            if not self.data_pages("/v2/positions", dict(user=self.funder, status=status, limit=100,
+                                                         **POSITION_FILTERS),
+                                   resend=("user", *POSITION_FILTERS), found=chunk):
+                raise ReaderError("positions_incomplete")
+            for raw in chunk:
+                if raw.get("current_size") is None:
+                    raise ReaderError("position_numeric_data_unreadable")
+                row = v1_row(raw, "current_size")
                 token, condition = row.get("asset"), row.get("conditionId")
                 if (str(row.get("proxyWallet", "")).lower() != self.funder.lower()
                         or not isinstance(token, str) or not re.fullmatch(r"[0-9]{1,78}", token)
-                        or not isinstance(condition, str) or not CONDITION.fullmatch(condition)
-                        or token in tokens):
+                        or not isinstance(condition, str) or not CONDITION.fullmatch(condition)):
                     raise ReaderError("position_identity_unreadable")
-                tokens.add(token)
                 if number(row.get("size")) < 0 or not 0 <= number(row.get("avgPrice")) <= 1:
                     raise ReaderError("position_numeric_data_unreadable")
-                result.append(row)
-            if len(chunk) < 100:
-                return result
-        raise ReaderError("positions_incomplete")
+                if token not in result:
+                    result[token] = row
+                elif (number(result[token]["size"]) != number(row["size"])
+                      or result[token]["conditionId"].lower() != condition.lower()):
+                    raise ReaderError("position_conflict")
+        return list(result.values())
 
     @staticmethod
     def _position_shell(row):
@@ -362,11 +417,10 @@ class WalletReader:
         valid_since(since)
         # Authenticated fills are exhaustive within the bounded cursor walk.
         # Public trades/activity are explicitly recent pages, never a P&L ledger.
-        return {"fills": self.pages("/data/trades", maker_address=self.funder, after=since),
-                "recent_public_trades": rows(self.get(DATA, "/trades", user=self.funder, limit=100,
-                                                      offset=0, takerOnly="false")),
-                "recent_activity": rows(self.get(DATA, "/activity", user=self.funder, limit=100,
-                                                 offset=0, start=since, sortBy="TIMESTAMP", sortDirection="DESC")),
+        fills, public = self.pages("/data/trades", maker_address=self.funder, after=since), []
+        self.data_pages("/v2/trades", dict(user=self.funder, limit=100, taker_only="false"), limit=1, found=public)
+        return {"fills": fills, "recent_public_trades": [v1_row(r, "size") for r in public],
+                "recent_activity": self.activity(start=since, sort_direction="DESC", pages=1)[0],
                 "public_history_scope": "latest_100_not_complete_history"}
 
     def rewards(self, day):
@@ -399,14 +453,8 @@ class WalletReader:
         if not held or self.campaign_start is None:
             return held
         try:
-            history = []
-            for page in range(5):
-                chunk = rows(self.get(DATA, "/activity", user=self.funder, limit=100,
-                                      offset=100 * page, start=0, sortBy="TIMESTAMP", sortDirection="ASC"))
-                history.extend(chunk)
-                if len(chunk) < 100:
-                    break
-            else:
+            history, complete = self.activity(start=1, sort_direction="ASC")
+            if not complete:
                 raise ReaderError("activity_incomplete")
         except ReaderError:
             return held
@@ -457,13 +505,7 @@ class WalletReader:
         from maker_core.venue.account_read import adapt_archive
         history, complete = [], False
         try:
-            for page in range(5):
-                chunk = rows(self.get(DATA, "/activity", user=self.funder, limit=100,
-                                      offset=page * 100, start=0, sortBy="TIMESTAMP", sortDirection="ASC"))
-                history.extend(chunk)
-                if len(chunk) < 100:
-                    complete = True
-                    break
+            history, complete = self.activity(start=1, sort_direction="ASC")
         except ReaderError:
             pass
         snapshot = adapt_archive(dict(account_id=self.funder, captured_at_utc=summary["captured_at_utc"],
