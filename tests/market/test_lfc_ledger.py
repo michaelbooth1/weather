@@ -352,17 +352,31 @@ def test_positions_reader_default_page_is_the_spec_maximum():
     assert len(seen) == 2 and all('limit=1000' in url for url in seen)
 
 
-def test_positions_reader_refuses_multi_page_walks_that_differ():
+def test_positions_reader_refuses_multi_page_walks_that_never_agree():
     calls = []
     pages = {'OPEN': [[_v2_row('1', 1)], [_v2_row('2', 1)]], 'REDEEMABLE_LOST': [[]]}
     inner = _v2_opener(pages, calls)
 
     def opener(request, timeout):
-        if len(calls) == 2:          # the second walk sees a different first page
-            pages['OPEN'][0] = [_v2_row('3', 1)]
+        if len(calls) % 2 == 0:      # every walk sees a different first page
+            pages['OPEN'][0] = [_v2_row(str(100 + len(calls)), 1)]
         return inner(request, timeout)
     with pytest.raises(RuntimeError, match='positions_walks_differ'):
         ledger_module.fetch_account_positions(MAKER, opener=opener, page_size=1)
+    assert len(calls) == 6           # three two-page walks, then refuse
+
+
+def test_positions_reader_retries_once_when_a_fill_lands_between_walks():
+    calls = []
+    pages = {'OPEN': [[_v2_row('1', 1)], [_v2_row('2', 1)]], 'REDEEMABLE_LOST': [[]]}
+    inner = _v2_opener(pages, calls)
+
+    def opener(request, timeout):
+        if len(calls) == 2:          # a fill lands after the first walk; walks two and three agree
+            pages['OPEN'][0] = [_v2_row('3', 1)]
+        return inner(request, timeout)
+    rows = ledger_module.fetch_account_positions(MAKER, opener=opener, page_size=1)
+    assert normalize_positions(rows) == {'2': '1', '3': '1'} and len(calls) == 7
 
 
 def test_positions_reader_refuses_conflicting_sizes():

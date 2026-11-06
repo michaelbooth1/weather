@@ -330,6 +330,37 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(evidence["queried_at_utc"], "2026-08-14T01:00:00+00:00")
         self.assertEqual(len(evidence["response_sha256"]), 64)
 
+    def test_public_position_reader_drops_zero_size_rows_and_accepts_empty_end_cursor(self):
+        maker_address = "0x" + "a" * 40
+        condition_id = "0x" + "b" * 64
+        bodies = [
+            {"data": [{"proxy_wallet": maker_address, "condition_id": condition_id, "token_id": "11",
+                       "current_size": 0, "status": "OPEN"},
+                      {"proxy_wallet": maker_address, "condition_id": condition_id, "token_id": "12",
+                       "current_size": 5, "status": "OPEN"}],
+             "pagination": {"has_more": False, "next_cursor": ""}},
+            {"data": [], "pagination": {"has_more": False, "next_cursor": None}},
+        ]
+
+        class Response:
+            status = 200
+
+            def __init__(self, body):
+                self.body = body
+
+            def read(self):
+                return json.dumps(self.body).encode()
+
+            def close(self):
+                pass
+
+        evidence = fetch_current_positions(
+            maker_address, condition_id, opener=lambda request, timeout: Response(bodies.pop(0)))
+        self.assertEqual([row["asset"] for row in evidence["rows"]], ["12"])
+        self.assertEqual(evidence["zero_size_rows_dropped"], 1)
+        self.assertTrue(exact_current_positions_evidence(
+            evidence, maker_address=maker_address, condition_id=condition_id, rows=evidence["rows"]))
+
     def test_public_position_reader_binds_empty_result_to_exact_scope(self):
         maker_address = "0x" + "a" * 40
         condition_id = "0x" + "b" * 64

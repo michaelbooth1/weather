@@ -471,20 +471,24 @@ def fetch_account_positions(maker_address, *, opener=None, timeout=5, page_size=
 
     Walks every status in POSITIONS_STATUSES by cursor (sorted by TOKENS) until next_cursor is null, de-duplicates
     on token_id and refuses (positions_conflict) when one token carries two different sizes. A status that needs more
-    than one page is walked twice and must agree (positions_walks_differ). ``status_counts``, when a dict, is filled
+    than one page is walked until two consecutive walks agree, at most three walks (positions_walks_differ). ``status_counts``, when a dict, is filled
     with the row count per requested status for the baseline evidence.
     """
     merged, counts = {}, {}
     for status in POSITIONS_STATUSES:
-        for walk in (1, 2):
+        previous = None
+        for _walk in range(3):
             pages, rows = _walk_status(maker_address, status, opener=opener, timeout=timeout,
                                        page_size=page_size, max_pages=max_pages)
             if pages == 1:
                 break
-            if walk == 1:
-                first = rows
-            elif {r['asset']: Decimal(r['size']) for r in rows} != {r['asset']: Decimal(r['size']) for r in first}:
-                raise RuntimeError('positions_walks_differ')  # multi-page walks must agree (review finding 1)
+            observed = {r['asset']: Decimal(r['size']) for r in rows}
+            if observed == previous:
+                break  # two consecutive multi-page walks agree
+            previous = observed
+        else:
+            # A fill between walks may differ once; three walks with no consecutive agreement refuse.
+            raise RuntimeError('positions_walks_differ')
         counts[status] = len(rows)
         for row in rows:
             seen = merged.get(row['asset'])
