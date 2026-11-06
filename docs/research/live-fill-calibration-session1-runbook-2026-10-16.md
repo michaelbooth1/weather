@@ -169,6 +169,14 @@ addresses, printed at setup, differ from the driver's SF-1 spenders), `wrong_wor
 8. **~T+6 h, on the toast:** the driver finishes the after-run block by itself. Paste `summary.txt` to master. On
    `PANIC`, a stop after live, or any open order: RB §9 (`cancel-ours`, then `reconcile`, `verify`, `wallet-verify`).
 9. **If anything filled:** hold the lot to settlement, take the after-settlement snapshot, keep the pause.
+10. **Recording addendum (R1/R3/R4):** on UTC D+1 and D+2, the owner runs
+    `python -m weather.market.lfc_cli rewards-record --date D` from the reviewed recording branch worktree.
+    These read-only commands need no live-session pin. Check the printed pass, completeness and rebate flags;
+    retry incomplete reads, and repeat for D+2 if `current_pass_due` is true after an older pass finishes.
+    After venue resolution, record each session condition with
+    `python -m weather.market.lfc_settlement_record --condition <condition-id>`.
+    Preserve the create-only evidence. Credential selection, numbered retries and settlement token matching are
+    owned by [the recording guide](../operations/lfc-recording.md). M and R2 still require the live-session pin gates.
 
 There is no attest phrase in a counted session.
 

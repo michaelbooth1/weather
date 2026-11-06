@@ -1,0 +1,79 @@
+[
+    {
+        "endpoint":  "/v2/resolutions",
+        "method":  "GET",
+        "url":  "https://data-api.polymarket.com/v2/resolutions?condition=0xd461d5df262d1247450b11b4be29426a9996d384ae0b5d0a4be0fd3655484666",
+        "user_agent":  "weather-lfc-recording/1",
+        "status":  200,
+        "observed_at_utc":  "2026-11-06T21:49:23.2125454+00:00",
+        "sha256":  "7935adb90ecccbf0bb789ecbd37cca4797e06add88b10f9e08c999c455da5acd",
+        "root_keys":  [
+                          "data"
+                      ],
+        "row_count":  1,
+        "row_keys":  [
+                         "question_id",
+                         "condition_id",
+                         "status",
+                         "extended_review",
+                         "was_disputed",
+                         "new_version_q",
+                         "proposed_price",
+                         "reproposed_price",
+                         "price",
+                         "transaction_hash",
+                         "log_index",
+                         "last_update_timestamp"
+                     ]
+    },
+    {
+        "endpoint":  "/v2/tokens",
+        "method":  "GET",
+        "url":  "https://data-api.polymarket.com/v2/tokens?condition=0xd461d5df262d1247450b11b4be29426a9996d384ae0b5d0a4be0fd3655484666",
+        "user_agent":  "weather-lfc-recording/1",
+        "status":  200,
+        "observed_at_utc":  "2026-11-06T21:49:23.3887047+00:00",
+        "sha256":  "6891858ac6fe2a14904d95e8cff3f5d13330f9c4e832e14e8a2240bd56cc7c1c",
+        "root_keys":  [
+                          "data"
+                      ],
+        "row_count":  2,
+        "row_keys":  [
+                         "token_id",
+                         "condition_id",
+                         "structural_condition_id",
+                         "module",
+                         "outcome_index",
+                         "clob_index",
+                         "outcome",
+                         "opposite_token_id",
+                         "resolved",
+                         "final_price",
+                         "title",
+                         "market_slug",
+                         "closed",
+                         "neg_risk",
+                         "neg_risk_market_id",
+                         "question_index",
+                         "event_id",
+                         "event_slug"
+                     ]
+    },
+    {
+        "endpoint":  "/v2/activity",
+        "method":  "GET",
+        "url":  "https://data-api.polymarket.com/v2/activity?user=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u0026type=REWARD\u0026start=1789862400\u0026end=1789948799\u0026limit=1\u0026sort_direction=ASC",
+        "user_agent":  "weather-lfc-recording/1",
+        "status":  200,
+        "observed_at_utc":  "2026-11-06T21:49:23.5489795+00:00",
+        "sha256":  "a13e0f2e7ced381ebaacbcf1276ec2b5b27ddea2a31c122d576676f118a16728",
+        "root_keys":  [
+                          "data",
+                          "pagination"
+                      ],
+        "row_count":  0,
+        "row_keys":  [
+
+                     ]
+    }
+]

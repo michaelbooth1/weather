@@ -133,7 +133,10 @@ def analyze(legs, prints, mids, settlement, *, allow_reserved=False):
         stamps += [leg['placed_at_utc'], leg['ended_at_utc']] + [f['at_utc'] for f in leg['fills']]
     reserved = check_dates([s for s in stamps if s], allow_reserved=allow_reserved)
     from weather.market.lfc_settlement_record import load_settlements
-    settlement = load_settlements(settlement, [leg['condition_id'] for leg in legs])
+    token_scopes = {}
+    for leg in legs:
+        token_scopes.setdefault(leg['condition_id'].lower(), set()).add(str(leg['token_id']))
+    settlement = load_settlements(settlement, [leg['condition_id'] for leg in legs], tokens_by_condition=token_scopes)
     mid_index = {}
     for m in mids:
         mid_index.setdefault(str(m['token_id']), []).append((utc(m['at_utc']), _d(m['mid'])))

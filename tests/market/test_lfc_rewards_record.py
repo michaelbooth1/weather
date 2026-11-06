@@ -165,17 +165,17 @@ def test_partial_activity_failure_preserves_raw_prefix_and_flags_rebate(tmp_path
     assert {f['flag'] for f in row['flags']} == {'rebate_read_incomplete', 'nonzero_maker_rebate'}
 
 
-def test_interrupted_pass_finishes_rebate_without_loading_credentials(tmp_path, monkeypatch):
+@pytest.mark.parametrize('resume_lag', [1, 2, 3])
+def test_interrupted_pass_finishes_rebate_without_loading_credentials(tmp_path, monkeypatch, resume_lag):
     from weather.market.lfc_cli import parser
     from weather.market.lfc_ledger import Ledger
-    from weather.market import wallet_reader_security
-    now = START + timedelta(days=1, hours=2)
+    now = START + timedelta(days=resume_lag, hours=2)
     class FrozenDatetime:
         @staticmethod
         def now(zone):
             return now
     monkeypatch.setattr(recorder, 'datetime', FrozenDatetime)
-    monkeypatch.setattr(wallet_reader_security, 'load_owner_credentials',
+    monkeypatch.setattr(recorder, 'load_reward_credentials',
                         lambda: pytest.fail('credentials must not load on public-only resume'))
     ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: START, maker_address=MAKER)
     ledger.record('session_start', session_id='one', counted=True, condition_id=CONDITION)
@@ -190,8 +190,10 @@ def test_interrupted_pass_finishes_rebate_without_loading_credentials(tmp_path, 
     args = parser().parse_args(['rewards-record', '--date', '2026-09-20', '--root', str(tmp_path)])
     assert recorder.run_rewards_record(args) == 0
     assert (rewards / '2026-09-20-rebate.json').exists()
-    with pytest.raises(FileExistsError):
-        recorder.run_rewards_record(args)
+    assert not (rewards / '2026-09-20-d2-rebate.json').exists()
+    if resume_lag == 1:
+        with pytest.raises(FileExistsError):
+            recorder.run_rewards_record(args)
 
 
 def test_accrual_transport_get_only_and_retains_exact_raw_response(tmp_path):
@@ -334,3 +336,98 @@ def test_numeric_clob_earnings_use_sdk_decimal_semantics(tmp_path, monkeypatch):
     assert {r['venue_amount'] for r in row['accruals'][0]['accruals']} == {'0.1', '0.2'}
     assert recorder.load_record(tmp_path / 'rewards' / '2026-09-20-d1.json', kind='lfc_rewards_record',
         day='2026-09-20', maker=MAKER, conditions=[CONDITION], lag=1) == row
+
+
+def owner_command(tmp_path, monkeypatch, *, session=True, now=None):
+    from weather.market.lfc_cli import parser
+    from weather.market.lfc_ledger import Ledger
+    class FrozenDatetime:
+        @staticmethod
+        def now(zone):
+            return now or START + timedelta(days=1, hours=2)
+    monkeypatch.setattr(recorder, 'datetime', FrozenDatetime)
+    ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: START, maker_address=MAKER)
+    if session:
+        ledger.record('session_start', session_id='S1', counted=True, condition_id=CONDITION)
+        ledger.intent(session_id='S1', intent_key='S1:0', token_id='111', condition_id=CONDITION,
+                      price='.4', size='20', fee_rate_bps='0')
+    return parser().parse_args(['rewards-record', '--date', '2026-09-20', '--root', str(tmp_path)])
+
+
+def test_no_session_conditions_before_credentials(tmp_path, monkeypatch):
+    args = owner_command(tmp_path, monkeypatch, session=False)
+    monkeypatch.setattr(recorder, 'load_reward_credentials', lambda: pytest.fail('must not load credentials'))
+    with pytest.raises(ValueError, match='no_session_conditions'):
+        recorder.run_rewards_record(args)
+
+
+def test_rewards_account_changed_before_transport(tmp_path, monkeypatch):
+    args = owner_command(tmp_path, monkeypatch)
+    monkeypatch.setattr(recorder, 'load_reward_credentials',
+                        lambda: ({'FUNDER_ADDRESS': '0x' + 'b' * 40}, SecretGuard()))
+    monkeypatch.setattr(recorder, 'AccrualTransport', lambda *a: pytest.fail('must not construct transport'))
+    with pytest.raises(ValueError, match='rewards_account_changed'):
+        recorder.run_rewards_record(args)
+
+
+def test_reward_credentials_need_no_reader_token_or_dotenv(monkeypatch):
+    from pathlib import Path
+    values = dict(API_KEY='synthetic-key', API_SECRET='c3ludGhldGlj', API_PASSPHRASE='synthetic-passphrase',
+                  WALLET_ADDRESS='0x' + 'b' * 40, FUNDER_ADDRESS=MAKER)
+    requested = []
+    class Environment(dict):
+        def get(self, key, default=None):
+            requested.append(key)
+            return super().get(key, default)
+    monkeypatch.setattr(recorder.os, 'environ', Environment({'POLYMM_' + k: v for k, v in values.items()}))
+    monkeypatch.setattr(Path, 'open', lambda *a, **kw: pytest.fail('credential loader must not open files'))
+    fields, guard = recorder.load_reward_credentials()
+    assert fields == values
+    assert 'POLYMM_READER_TOKEN' not in requested and 'POLYMM_PRIVATE_KEY' not in requested
+
+
+def test_failed_d1_read_retries_create_only_and_keeps_pass_after_midnight(tmp_path, monkeypatch):
+    venue, journal, clock = accrual_fixture(monkeypatch)
+    def fail(*a):
+        raise TimeoutError()
+    initial = recorder.record_rewards(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION],
+        venue=venue, journal=journal, clock=clock, get=fail)
+    recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION], clock=clock, get=lambda *a: page())
+    base = tmp_path / 'rewards' / '2026-09-20-d1.json'
+    before = base.read_bytes()
+    assert recorder.record_complete(initial) is False
+    args = owner_command(tmp_path, monkeypatch, now=START + timedelta(days=2, hours=1))
+    monkeypatch.setattr(recorder, 'load_reward_credentials', lambda: ({'FUNDER_ADDRESS': MAKER}, SecretGuard()))
+    monkeypatch.setattr(recorder, 'AccrualTransport', lambda *a: None)
+    monkeypatch.setattr(recorder, 'AccrualClient', lambda *a: None)
+    original = recorder.record_rewards
+    def collect(*args, **kwargs):
+        kwargs.update(venue=venue, journal=journal, get=lambda *a: page())
+        return original(*args, **kwargs)
+    monkeypatch.setattr(recorder, 'record_rewards', collect)
+    assert recorder.run_rewards_record(args) == 0
+    assert base.read_bytes() == before
+    retry = tmp_path / 'rewards' / '2026-09-20-d1-retry-001.json'
+    row = json.loads(retry.read_bytes())
+    assert row['pass'] == 1 and recorder.record_complete(row) is True
+    assert not (tmp_path / 'rewards' / '2026-09-20-d2.json').exists()
+
+
+def test_failed_rebate_can_retry_without_overwriting(tmp_path):
+    clock = lambda: START + timedelta(days=1, hours=2)
+    def fail(*a):
+        raise TimeoutError()
+    recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION], clock=clock, get=fail)
+    base = tmp_path / 'rewards' / '2026-09-20-rebate.json'
+    before = base.read_bytes()
+    row = recorder.record_rebates(tmp_path, '2026-09-20', maker=MAKER, conditions=[CONDITION], clock=clock, get=lambda *a: page())
+    assert recorder.record_complete(row) is True and base.read_bytes() == before
+    assert (tmp_path / 'rewards' / '2026-09-20-rebate-retry-001.json').exists()
+
+
+def test_recorded_activity_empty_page_shape():
+    from pathlib import Path
+    raw = (Path(__file__).resolve().parents[1] / 'fixtures' / 'lfc_recording' /
+           'public_v2_20261106' / 'activity.json').read_bytes()
+    row = recorder.read_activity(MAKER, 'REWARD', START, START + timedelta(days=1), get=lambda *a: raw)
+    assert row['rows'] == [] and row['pagination_complete'] is True

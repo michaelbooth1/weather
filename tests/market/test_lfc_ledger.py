@@ -514,7 +514,8 @@ def test_baseline_records_v2_status_counts():
 
 
 def test_budget_constant_is_one_hundred():
-    assert LFC.BUDGET_PUSD == Decimal('100')
+    assert LFC.GENESIS_BUDGET_PUSD == Decimal('100')
+    assert LFC.CAP_PUSD == Decimal('100')
 
 
 def test_session0_compares_against_t40_only():

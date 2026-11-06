@@ -29,7 +29,7 @@ MIDS = [{'token_id': '111', 'at_utc': T(11, 30), 'mid': '.41'}, {'token_id': '11
 
 
 def test_rates_markouts_and_f_hat(tmp_path):
-    record_settlement(tmp_path, CONDITION, get=lambda path, params: resolution() if path.endswith('resolutions') else tokens())
+    record_settlement(tmp_path, CONDITION, traded_tokens=['111', '222'], get=lambda path, params: resolution() if path.endswith('resolutions') else tokens())
     result = analyze([LEG], PRINTS, MIDS, tmp_path / 'settlement')
     assert result['N_at'] == 2 and result['N_thr'] == 1
     assert Decimal(result['c_at']) == Decimal(10) / Decimal(50)  # 10 / (min(20,40) + min(50,30))
@@ -52,6 +52,13 @@ def test_reserved_dates_refused_without_override(tmp_path):
     assert check_dates(['2026-09-29T23:59:59+00:00', '2026-10-16T00:00:00+00:00']) == []
     with pytest.raises(ReservedDateRefused):
         check_dates(['2026-09-30T00:00:00+00:00'])
+
+
+def test_unrecorded_leg_token_is_refused_not_a_zero_payout(tmp_path):
+    record_settlement(tmp_path, CONDITION, traded_tokens=['111', '222'],
+        get=lambda path, params: resolution() if path.endswith('resolutions') else tokens())
+    with pytest.raises(ValueError, match='settlement_leg_token_outside_pair'):
+        analyze([dict(LEG, token_id='999')], [], [], tmp_path / 'settlement')
 
 
 def test_cli_refuses_reserved_inputs(tmp_path):

@@ -3,8 +3,10 @@
 Guards: F2 R2 batched 60-second scoring, 1800-second accrual and nonfatal missed reads.
 """
 import json
+import pytest
 
 from tests.market.test_re1_attended import setup
+from weather.market.re1_attended import HoldEnd
 
 
 def test_scoring_every_minute_accrual_independent_and_miss_nonfatal(tmp_path):
@@ -38,3 +40,18 @@ def test_incomplete_scoring_is_missed_and_can_recover(tmp_path):
     rows = [json.loads(line) for line in session.journal.path.read_bytes().splitlines()]
     assert len([row for row in rows if row['event'] == 'scoring_missed']) == 2
     assert result['reason'] == 'fixed_end' and not result['scoring_seen']
+
+
+def test_hold_end_is_never_swallowed_as_a_missed_sample(tmp_path):
+    session, venue, clock = setup(tmp_path)
+    def stop(*args):
+        raise HoldEnd('heartbeat_stale')
+    with pytest.raises(HoldEnd, match='heartbeat_stale'):
+        session.sample('probe', stop)
+    session.active = {'own': (0, session.prices[0])}
+    venue.scoring = stop
+    with pytest.raises(HoldEnd, match='heartbeat_stale'):
+        session.sample_scoring()
+    session.journal.close()
+    rows = [json.loads(line) for line in session.journal.path.read_bytes().splitlines()]
+    assert not any(row['event'] in {'missing_sample', 'scoring_missed'} for row in rows)

@@ -8,29 +8,29 @@ owns the execution gates.
 The ledger genesis is bound to `GENESIS_BUDGET_PUSD`; `CAP_PUSD` independently
 controls the campaign risk gates. The recording-only checkpoint preserves the
 pinned money and session constants. A cap below committed L refuses at start.
-The compatibility name `BUDGET_PUSD` is not a ledger identity setting. An
-explicit session cap can lower the campaign cap and cannot raise it.
+An explicit session cap can lower the campaign cap and cannot raise it.
 
 ## Venue settlement
 
 Run `python -m weather.market.lfc_settlement_record --condition <condition-id>`
 from the analysis lane after resolution; repeat while pending. `--condition`
-is repeatable; `--root` overrides the normal pilot root. No ledger or local
-settlement labels are read. The public Data API v2 resolution and token
+is repeatable; `--root` overrides the normal pilot root. The verified campaign
+ledger supplies leg-intent token identities; local settlement labels are never
+read. The public Data API v2 resolution and token
 reference responses are retained verbatim with SHA256 and observation time.
 Payout slots identify the winner; prices are ignored. Split payouts have no
 invented binary winner. A resolved lifecycle without payout evidence remains
 pending; missing resolution remains unknown.
+For migrated markets, only the reference pair containing the campaign's traded
+token IDs is selected. A failed match preserves the raw read under `pending/`
+with a reason code. Analysis refuses a leg outside the recorded pair and a
+missing settlement directory.
 
 Pending reads go to `settlement/pending/<condition>/<timestamp>.json`;
 terminal reads create `settlement/<condition>.json` once. An existing final
 file refuses before a network read. Analysis `--settlement` now accepts this
 directory; legacy winner maps are refused. The reader verifies response hashes,
 condition scope and the derived winner before admitting evidence.
-
-## Update when
-
-Update with recorder commands, evidence formats, provenance validation or cadence.
 
 ## Reward reads
 
@@ -43,14 +43,18 @@ GET transport, without constructing a private-key SDK client. This reuses
 transport code and does not call or reconfigure the running wallet reader.
 The pinned SDK reward models normalize decimal and date fields before the
 existing accrual collector sees them.
+R3 reads the owner's existing `POLYMM_API_KEY`, `POLYMM_API_SECRET`,
+`POLYMM_API_PASSPHRASE`, `POLYMM_WALLET_ADDRESS` and `POLYMM_FUNDER_ADDRESS`
+process settings. It opens no `.env` and needs no reader token or private key.
+The endpoint and chain are fixed; supplied host/chain settings must match.
 
 Create-only `rewards/<D>-d1.json` and `-d2.json` retain per-condition accruals,
 response hashes and raw evidence, and cursor-paginated public v2 REWARD cash
 candidates from D+1 to the observation time. Cash credits have no official
 earned-period reference; neither candidates nor accruals are labelled verified
 payment. Incomplete reads retain failure evidence rather than completed zero.
-The account must match the ledger genesis. Existing outputs refuse before
-credentials load; dates outside D+1/D+2 refuse. No record nets credits against L.
+The account must match the ledger genesis. New passes start only on D+1/D+2;
+an unfinished pass can resume after UTC midnight. No record nets credits against L.
 
 ## Rebates
 
@@ -68,9 +72,16 @@ Raw response hashes, completed activity walks, derived accrual amounts and
 rebate flags are verified before a partial pass resumes. A single UTC cutoff
 binds both files even when reads cross midnight; observation times follow the
 reads. Activity request bounds and bounded response sizes are retained.
-Both files present refuses before credentials load. Incomplete reads are saved
-and the command returns 2; they cannot be silently replaced with a later read.
-The command prints the output paths, completeness and rebate flags.
+Completed pairs refuse before credentials load. Failed reads remain immutable;
+reruns create `-retry-001.json`, `-retry-002.json`, etc., for the failed component.
+The latest attempt is validated rather than skipping corrupt newer evidence.
+The oldest unfinished pass retains its names and cutoff across midnight. If
+`current_pass_due` is true after that pass completes, run the command again for
+the current D+2 pass. Incomplete reads return 2. The command prints actual output
+paths, pass, completeness and rebate flags.
+
+R1/R3/R4 are read-only commands usable from a clean branch worktree without a
+live-session pin. M and R2 affect live-session code and retain its pin gates.
 
 ## Scoring
 
@@ -81,3 +92,7 @@ An exception or incomplete response records `scoring_missed` and marks evidence
 incomplete while the session continues. Accrual stays on its separate
 half-hour cadence. Immediate post-time scoring reads keep their existing
 request/response journal shape.
+
+## Update when
+
+Update with recorder commands, evidence formats, provenance validation or cadence.

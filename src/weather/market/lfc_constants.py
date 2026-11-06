@@ -48,7 +48,6 @@ PROTOCOL = 'LFC-live-fill-calibration-v1'
 # PR section 6: L ledger cap; at most 8 counted sessions of at most 360 minutes; GTD = end + 60 s (RE-1).
 GENESIS_BUDGET_PUSD = Decimal('100')  # ledger identity only; existing session-0 binding stays valid
 CAP_PUSD = Decimal('100')  # recording-only checkpoint; F2 money terms require a separately reviewed pin
-BUDGET_PUSD = CAP_PUSD  # compatibility for consumers of the pinned constants surface
 MAX_SESSIONS = 8
 SESSION_SECONDS = 21600
 PER_LEG_PRICE_FLOOR = Decimal('.17')
