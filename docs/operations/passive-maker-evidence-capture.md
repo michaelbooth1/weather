@@ -340,12 +340,8 @@ The same failure mode also reaches the order-book tapes. Each of four 2026-09-03
 about 205-212 K characters. The row's other 51 columns are intact, and the bytes are as captured (they match the
 2026-11-06 re-copy's batch 1 sha256 values). This is likely an unclean-shutdown preallocation. Python's `csv` module
 refuses such a row (field limit 131072), which stopped the WS-3 dev projection on 2026-11-06. The workstation's
-byte-level NUL scan (2026-11-06, `scan.json` `432f42ac…`) covered B's 10 markets:
-
-- 08-15..09-29: 460 files. 10 files have one NUL line each, all on 09-02 (los-angeles, san-francisco, seattle) and
-  09-03 (atlanta, austin, chicago, dallas, houston, miami, nyc). 6 of those lines exceed the csv limit, and no line
-  exceeds it without a NUL.
-- 09-30..10-14: 149 files, 0 NUL lines.
+byte-level NUL scan of B's 10 markets found NUL lines only on 2026-09-02 and 09-03; its scan hash and per-window
+counts are in [the dated scan report](../roadmap/agent-report-2026-11-06-order-book-nul-scan.md).
 
 WS-3 drops exactly the NUL lines through one pinned shared filter (C14 Clarification 2 in
 `docs/research/ws3-early-warning-prereg-signature-2026-11-06.md`). Never repair the tapes themselves.
