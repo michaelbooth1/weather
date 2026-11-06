@@ -5,7 +5,7 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-05T10:58:16.692821+00:00
+Generated: 2026-11-05T13:39:09.570857+00:00
 Status: `OK`
 
 ## Summary
@@ -45,7 +45,7 @@ Status: `OK`
 | 342 | OPEN | 2026-11-03 | MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math](items/item-342-feb29-bound-centre-lookup-crash.md) |
 | 343 | OPEN | 2026-11-03 | 343a SCORER ALLOWLIST LINE; 343b MODULE BUILT, EQUIVALENCE RUN PENDING | [Offline Year-Round Refit Module And Workstation Allowlist Line](items/item-343-offline-year-round-refit-module-allowlist.md) |
 | 344 | OPEN | 2026-11-05 | MASTER RULING; FIX AT THE NEXT RETRAIN OR MODEL CHANGE, PIN NOW | [Trainer Keeps A Null Last Pre-Cutoff Temperature That Serve And Replay Skip](items/item-344-trainer-null-last-pre-cutoff-temperature.md) |
-| 345 | OPEN | 2026-11-05 | WS RUN LESSON, NOT STARTED | [Isolated Queue Root For The Workstation Pre-Gate Script Test](items/item-345-pregate-script-test-isolated-queue-root.md) |
+| 345 | OPEN | 2026-11-05 | TEST-ONLY FIX BUILT, AWAITING REVIEW | [Isolated Queue Root For The Workstation Pre-Gate Script Test](items/item-345-pregate-script-test-isolated-queue-root.md) |
 | 346 | OPEN | 2026-11-05 | WS BACKLOG; DRY-RUN LIST TO MASTER FIRST | [Scripted Daytime Sweep Of Old Workstation Worktrees](items/item-346-ws-worktree-sweep.md) |
 
 ## Active Items Without A Disposition In 45 Days

@@ -12,8 +12,10 @@ post-cutover dates with the venue rule, and nothing produced those labels on the
   ``resolutionSource`` ICAO of built-in events only (``slug_prefix`` match). A ``D`` after today is refused.
 * ``freeze --look ID`` refreshes, then copies each market's CSV, manifest and the WU daily summary its
   manifest names to ``data/venue_rule_labels/frozen/ID/<market>/`` (``daily/daily_summary.csv``,
-  ``manifest.json``, ``wu/daily_summary.csv``) with ``freeze_receipt.json``. The layout is the label
-  reader's ``label_root`` layout, so a look reads the frozen copy with ``label_root=frozen/ID`` and
+  ``manifest.json``, ``wu/daily_summary.csv``) with ``freeze_receipt.json``. It refuses unless the run's audit
+  is OK, builds in a tmp folder and renames it only once verified; ``freeze --recover ID --ruling FILE`` moves a
+  defective freeze aside (``weather.backtesting.venue_label_freeze``, master rulings 2026-11-03). The layout is
+  the label reader's ``label_root`` layout, so a look reads the frozen copy with ``label_root=frozen/ID`` and
   ``wu_daily_summary=frozen/ID/<market>/wu/daily_summary.csv``.
 * ``audit [--run ID]`` reads the run's manifests, the CSV provenance columns and ``row_count``, and prints
   per-market counts only. It evaluates a label value only to a yes/no (is it present; does a pre-cutover
@@ -64,6 +66,8 @@ from weather.sources.daily_summary import native_bucket, native_high
 
 REFRESH_RECEIPT_SCHEMA = schema_version("venue_label_refresh_receipt")
 FREEZE_RECEIPT_SCHEMA = schema_version("venue_label_freeze_receipt")
+# The build-manifest key lists the freeze copies into each market's receipt entry (keys only, never the CSV).
+FREEZE_KEY_FIELDS = ("label_dates", "skipped_dates")
 AUDIT_SCHEMA = schema_version("venue_label_audit")
 
 DEFAULT_START = date(2026, 10, 22)
@@ -405,51 +409,11 @@ def refresh(
     return run_dir, receipt, audit
 
 
-def freeze(look_id, through, *, label_root=DEFAULT_LABEL_ROOT, **refresh_kwargs):
-    """Refresh, then copy each market's CSV, manifest and WU daily summary to ``frozen/<look_id>/<market>/``."""
+def freeze(look_id, through, **kwargs):
+    """``freeze --look ID``: ``weather.backtesting.venue_label_freeze.freeze`` (refuses unless OK; atomic)."""
+    from weather.backtesting import venue_label_freeze
 
-    if not _LOOK_ID.match(str(look_id)):
-        raise AuditRefused(f"--look {look_id!r} must match {_LOOK_ID.pattern}")
-    look_dir = Path(label_root) / FROZEN_DIRNAME / look_id
-    if look_dir.exists():
-        raise AuditRefused(f"{look_dir} exists: a look is frozen once")
-    run_dir, receipt, audit = refresh(through, label_root=label_root, **refresh_kwargs)
-    look_dir.mkdir(parents=True)
-    markets = {}
-    for spec in BUILTIN_SPECS:
-        labels = run_dir / LABELS_DIRNAME
-        manifest = json.loads(default_manifest_path(spec, labels).read_text(encoding="utf-8"))
-        copies = {
-            "label_csv": (default_label_path(spec, labels), default_label_path(spec, look_dir)),
-            "manifest": (default_manifest_path(spec, labels), default_manifest_path(spec, look_dir)),
-            "wu_daily_summary": (Path(manifest["wu_daily_summary"]), look_dir / spec.id / "wu" / "daily_summary.csv"),
-        }
-        entry = {}
-        for name, (source, target) in copies.items():
-            if not source.is_file():
-                entry[name] = {"path": str(target), "sha256": None, "missing_source": str(source)}
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
-            entry[name] = {"path": str(target), "sha256": _sha256(target), "source": str(source)}
-        entry["label_csv_matches_manifest"] = entry["label_csv"]["sha256"] == manifest.get("output_sha256")
-        entry["wu_daily_summary_matches_manifest"] = (
-            entry["wu_daily_summary"]["sha256"] == manifest.get("wu_daily_summary_sha256"))
-        markets[spec.id] = entry
-    freeze_receipt = {
-        "schema_version": FREEZE_RECEIPT_SCHEMA,
-        "look_id": look_id,
-        "run_id": receipt["run_id"],
-        "refresh_receipt_sha256": _sha256(run_dir / "refresh_receipt.json"),
-        "audit_sha256": _sha256(run_dir / "audit.json"),
-        "audit_status": audit["status"],
-        "through": receipt["through"],
-        "frozen_at_utc": datetime.now(timezone.utc).isoformat(),
-        "label_root": str(look_dir),
-        "markets": markets,
-    }
-    _write_json(look_dir / "freeze_receipt.json", freeze_receipt)
-    return look_dir, freeze_receipt, audit
+    return venue_label_freeze.freeze(look_id, through, **kwargs)
 
 
 def latest_run(label_root=DEFAULT_LABEL_ROOT):
@@ -471,10 +435,12 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("refresh", "freeze"):
         command = sub.add_parser(name, help="network: routine-only IEM fetches into a new run, then build and audit")
-        command.add_argument("--through", required=True, type=date.fromisoformat)
+        command.add_argument("--through", required=name == "refresh", type=date.fromisoformat)
         command.add_argument("--start", default=DEFAULT_START, type=date.fromisoformat)
         if name == "freeze":
-            command.add_argument("--look", required=True)
+            command.add_argument("--look", help="the look id to freeze (with --through)")
+            command.add_argument("--recover", metavar="LOOK", help="move a defective frozen/LOOK aside (no fetch)")
+            command.add_argument("--ruling", help="master's dated, outcome-blind recovery ruling (with --recover)")
     audit = sub.add_parser("audit", help="counts-only audit of a run (default: the latest)")
     audit.add_argument("--run", default="")
     return parser
@@ -490,9 +456,20 @@ def main(argv=None):
         if args.command == "refresh":
             run_dir, _, audit = refresh(args.through, start=args.start, label_root=args.label_root)
             extra = {"run_dir": str(run_dir)}
+        elif args.command == "freeze" and args.recover:
+            from weather.backtesting import venue_label_freeze
+
+            if not args.ruling or args.look or args.through:
+                raise AuditRefused("freeze --recover LOOK takes --ruling FILE and no --look or --through")
+            print(json.dumps(venue_label_freeze.recover(args.recover, args.ruling, label_root=args.label_root),
+                             indent=2, sort_keys=True))
+            return 0
         elif args.command == "freeze":
+            if not args.look or not args.through or args.ruling:
+                raise AuditRefused("freeze takes --look ID and --through D (--ruling only with --recover)")
             look_dir, receipt, audit = freeze(args.look, args.through, start=args.start, label_root=args.label_root)
             extra = {"look_dir": str(look_dir), "freeze_receipt_sha256": _sha256(look_dir / "freeze_receipt.json"),
+                     "ignored_partial_dirs": receipt["ignored_partial_dirs"],
                      "frozen_sha256": {market: {name: entry[name]["sha256"] for name in ("label_csv", "manifest",
                                                                                     "wu_daily_summary")}
                                        for market, entry in receipt["markets"].items()}}
@@ -502,7 +479,7 @@ def main(argv=None):
             extra = {"run_dir": str(run_dir)}
     except AuditRefused as exc:
         print(f"refused: {exc}", file=sys.stderr)
-        return 2
+        return getattr(exc, "exit_code", 2)
     print(json.dumps({**_summary(extra, audit), "audit": audit}, indent=2, sort_keys=True))
     return EXIT_STATION_DRIFT if audit["status"] == STATION_DRIFT else 0
 

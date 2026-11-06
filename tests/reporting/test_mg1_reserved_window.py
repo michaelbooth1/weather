@@ -481,3 +481,37 @@ def test_mutant_without_the_row_date_check_is_detected(tmp_path, monkeypatch):
     monkeypatch.setattr(item190, "resolve_outcome", _stop)
     assert item190.build_payload(tmp_path, folders=[undated])["mg1_reserved_window"][
         "folders_refused_by_own_target_date"] == 1
+
+
+# R11 (5): the 10-26 "ONLY permitted edit" sentence guards the entry sha, and B-1 expects MG1_LAST to move; no B
+# sha covers this module. This pin lets exactly those two lines change: any other edit of the module fails here
+# and must be reviewed, then re-pinned in the same commit.
+MG1_WINDOW_NORMALISED_SHA256 = "4e4c71d219072fcce6f82e1e14193096610a932e8593599924ca21cf0f50fe50"
+
+
+def _normalised_window_source():
+    text = Path(mg1.__file__).read_bytes().decode("utf-8").replace("\r\n", "\n")
+    text, n_last = re.subn(r"(?m)^MG1_LAST: date \| None = date\(\d{4}, \d{1,2}, \d{1,2}\)$",
+                           "MG1_LAST: date | None = date(<MG1_LAST>)", text)
+    text, n_entry = re.subn(r'(?m)^    "weather\.calibration\.mg1_look": "[0-9a-f]{64}",$',
+                            '    "weather.calibration.mg1_look": "<ENTRY_SHA256>",', text)
+    assert (n_last, n_entry) == (1, 1), "the MG1_LAST or entry-sha line no longer has its pinned shape"
+    return text
+
+
+def test_window_module_changes_only_mg1_last_and_the_entry_sha():
+    digest = hashlib.sha256(_normalised_window_source().encode("utf-8")).hexdigest()
+    assert digest == MG1_WINDOW_NORMALISED_SHA256
+
+
+def test_the_pin_ignores_mg1_last_and_entry_sha_but_not_other_edits(monkeypatch, tmp_path):
+    source = Path(mg1.__file__).read_bytes().decode("utf-8")
+    moved = re.sub(r"(?m)^MG1_LAST: date \| None = date\([^)]*\)$", "MG1_LAST: date | None = date(2026, 12, 9)",
+                   source)
+    moved = re.sub(r'(?m)^(    "weather\.calibration\.mg1_look": )"[0-9a-f]{64}",$', r'\1"' + "a" * 64 + '",', moved)
+    for text, same in ((moved, True), (moved.replace("MG1_RESERVED_COUNT = 45", "MG1_RESERVED_COUNT = 44"), False)):
+        fake = tmp_path / ("same.py" if same else "other.py")
+        fake.write_text(text, encoding="utf-8", newline="\n")
+        monkeypatch.setattr(mg1, "__file__", str(fake))
+        assert (hashlib.sha256(_normalised_window_source().encode("utf-8")).hexdigest()
+                == MG1_WINDOW_NORMALISED_SHA256) is same
