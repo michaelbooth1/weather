@@ -1,6 +1,6 @@
 # Edge trial charter
 
-Status: master ruling 2026-11-05 ~22:05 ET. Owner basis: DL 2026-11-05 ~21:04 (deadline) and ~21:50 (definition); plan approved ~22:05 ("approved full plan").
+Status: master ruling 2026-11-05 ~22:05 ET. Owner basis: DL 2026-11-05 ~21:04 (deadline) and ~21:50 (definition); plan approved ~22:03 ("approved full plan").
 
 ## 1. What counts as edge
 Edge is **positive net profit in an accurately simulated environment, shown by a fair trial** (owner, 11-05). Market making and simulated reward profit count. A Brier or log-score win (B, MG-1, any screen) is a diagnostic, never edge on its own.
