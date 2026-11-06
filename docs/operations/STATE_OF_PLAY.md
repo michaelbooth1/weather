@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-05 America/Toronto (owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
+**Last updated: 2026-11-06 America/Toronto (night 11-05/06: 343b and C10 LANDED, origin/master `4f01448e6`, torn-journal Stage 2 registered (master); owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -36,8 +36,9 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 ## Current truth
 
 - **Production source:** read `origin/master` with git.
-  **Night 11-04/05 LANDED (master):** combo C `984d783e6`, item 340s `bad845b50` (Open-Meteo/reanalysis DST readers; capture recovered) and combo Ds `cb6678f35`, each with a host suite 26/26 and the post-merge guard checks passed; origin/master = `cb6678f35`.
-- **343b (year-round refit module) IN PROGRESS on the WS** at landing tip `84b50a173` (merge of master plus a test-only exemption); (A), fit, (B) and the suite pending; not landed. Fit pin `0e5c4f72…` SUPERSEDED (module sha changed; archive kept). Landing rule (master 11-05): after the fit only a merge of origin/master, touching no fit-closure file, provenance shas recomputed equal, host suite on that exact tip; else the fit is void. Amended F3(a) refuse-only and the pre-imputation NBM check: [design Clarification 1](../research/item343b-yearround-module-design-2026-11-03.md), [item 343](../roadmap/items/item-343-offline-year-round-refit-module-allowlist.md).
+  **Night 11-04/05 LANDED (master):** combo C `984d783e6`, item 340s `bad845b50` (Open-Meteo/reanalysis DST readers; capture recovered) and combo Ds `cb6678f35`, each with a host suite 26/26 and the post-merge guard checks passed.
+  **Night 11-05/06 LANDED (master):** 343b `ab76c7cd3` → `d0769b2fe` (01:43; pre-merge drift `78c5d31c1`; guard (a)-(e) PASS) and C10 `d1da40c78` → `4f01448e6` (03:02; host suite 27/27; `mg1_look.py` sha `3884c9cc…` = pin); origin/master = `4f01448e6`; capture 10/10. Torn-journal Stage 2 task registered 03:02 (DL 11-06).
+- **343b (year-round refit module) LANDED** (master, DL 11-06): landing tip `ab76c7cd3` → origin/master `d0769b2fe`. Amended F3(a) refuse-only and the pre-imputation NBM check: [design Clarification 1](../research/item343b-yearround-module-design-2026-11-03.md), [item 343](../roadmap/items/item-343-offline-year-round-refit-module-allowlist.md).
 - **Outcome embargo:** no outcome, price or label read after 09-29 except under a named, owner-opened test. Dates <= 09-29 are dev.
   **09-30..10-14 released once for weather kill-only/atlas reads** (owner 10-30, DL): local target date; Austin 10-03 out; MG-2/B
   outputs out except the MG-2 early-warning kill-only read (owner 11-05, DL); **C1/C2 maker-economics reads stay closed**. 10-16..11-13 descriptive reads refused (10-17). **>= 12-17: row-28b B forward line** (owner 11-04, DL).
@@ -85,7 +86,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
 | Economics refresh and rc 2 barrier fixed | production | before maker work | accepted snapshot |
 | Host hardening: Ethernet (host on Wi-Fi; owner 11-02 "Ethernet cord is coming"); Wi-Fi stays connected with it (DL 11-02) | owner | OPEN until the cable is in | Get-NetAdapter Up |
-| Torn-journal Stage 1 lands RF on a CLEAN review; then master registers Stage 2 on the host | master | open | registration receipt |
+| Torn-journal Stage 2 REGISTERED 11-06 03:02 (`\WeatherMakerEvidenceTornQuarantine`, readback exact; DL 11-06); first boot run pending | master | next host startup | quarantine receipt |
 | Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run DONE 11-03 (rc 0, runbook receipt); Mondays; module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
 
 ## Update this file when
