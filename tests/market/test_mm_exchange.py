@@ -339,13 +339,14 @@ class TestMMExchange(unittest.TestCase):
             status = 200
 
             def read(self):
-                return b"[]"
+                return b'{"data": [], "pagination": {"has_more": false, "next_cursor": null}}'
 
             def close(self):
                 captured["closed"] = True
 
         def opener(request, timeout):
-            captured["url"] = request.full_url
+            captured.setdefault("urls", []).append(request.full_url)
+            captured["url"] = captured["urls"][0]
             captured["timeout"] = timeout
             return Response()
 
@@ -360,9 +361,13 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(evidence["rows"], [])
         self.assertEqual(len(evidence["response_sha256"]), 64)
         self.assertIn("user=0x", captured["url"])
-        self.assertIn("market=0x", captured["url"])
-        self.assertIn("limit=500", captured["url"])
-        self.assertIn("offset=0", captured["url"])
+        self.assertIn("condition=0x", captured["url"])
+        self.assertIn("limit=1000", captured["url"])
+        self.assertNotIn("offset", captured["url"])
+        self.assertTrue(captured["url"].startswith("https://data-api.polymarket.com/v2/positions?"))
+        self.assertEqual(len(captured["urls"]), 2)
+        self.assertIn("status=REDEEMABLE_LOST", captured["urls"][1])
+        self.assertEqual(evidence["request_urls"], captured["urls"])
         self.assertTrue(exact_current_positions_evidence(
             evidence,
             maker_address=maker_address,

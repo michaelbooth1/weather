@@ -12,7 +12,7 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 from weather.market.value_helpers import bool_value, maybe_float
-from weather.market.mm_official_adapter import PUSD_COLLATERAL_PROXY_ADDRESS
+from weather.market.mm_official_adapter import PUSD_COLLATERAL_PROXY_ADDRESS, exact_current_positions_evidence
 from weather.schema_registry import schema_version
 
 
@@ -489,7 +489,10 @@ def position_reconciliation(reconciliation):
     if len(str(evidence.get("response_sha256") or "")) != 64:
         blockers.append("position_response_hash_missing")
     position_url = str(evidence.get("request_url") or "")
-    if not _exact_query_url(
+    # Data API v1 (retired by the venue 2026-11-02) evidence stays valid for historical reports; new evidence is v2.
+    if not exact_current_positions_evidence(
+        evidence, maker_address=maker_address, condition_id=condition_id,
+    ) and not _exact_query_url(
         position_url,
         scheme="https",
         host="data-api.polymarket.com",

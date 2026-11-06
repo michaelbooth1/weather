@@ -10,6 +10,7 @@ from weather.market import mm_live_pilot_cli as cli
 from weather.market import mm_live_stage1_lifecycle_plan as lifecycle_plan
 from weather.market import mm_geographic_eligibility as geography
 from weather.market.mm_credentials import STAGE0_AUTHORIZATION
+from weather.market.mm_official_adapter import current_positions_request_urls
 from weather.market.mm_live_lifecycle_probe import CONFIRMATION as STAGE1_CONFIRMATION
 from tests.live_candidate_fixture import (
     build_live_candidate_payload,
@@ -131,10 +132,8 @@ class FakeAdapter:
             "query_scope": "exact_maker_condition",
             "maker_address": ADDRESS,
             "condition_id": CONDITION_ID,
-            "request_url": (
-                "https://data-api.polymarket.com/positions?"
-                f"user={ADDRESS}&market={CONDITION_ID}&sizeThreshold=0&limit=500&offset=0"
-            ),
+            "request_url": current_positions_request_urls(ADDRESS, CONDITION_ID)[0],
+            "request_urls": current_positions_request_urls(ADDRESS, CONDITION_ID),
             "http_status": 200,
             "response_sha256": "c" * 64,
             "rows": list(positions),

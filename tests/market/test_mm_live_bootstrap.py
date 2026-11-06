@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from weather.market import mm_geographic_eligibility as geography
+from weather.market.mm_official_adapter import current_positions_request_urls
 from weather.market import mm_live_bootstrap as bootstrap_module
 from weather.market.mm_live_bootstrap import (
     SCHEMA_VERSION,
@@ -586,11 +587,8 @@ def test_collector_requires_current_authentication_before_bootstrap_writes(
                 "rows": positions,
                 "http_status": 200,
                 "response_sha256": "d" * 64,
-                "request_url": (
-                    "https://data-api.polymarket.com/positions?"
-                    f"user={ADDRESS}&market={CONDITION_ID}&sizeThreshold=0"
-                    "&limit=500&offset=0"
-                ),
+                "request_url": current_positions_request_urls(ADDRESS, CONDITION_ID)[0],
+                "request_urls": current_positions_request_urls(ADDRESS, CONDITION_ID),
             }
 
         def closed_only_mode(self):

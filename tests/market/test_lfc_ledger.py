@@ -313,29 +313,149 @@ def test_baseline_file_tamper_and_missing_fail_closed(tmp_path):
         latest_baseline(tmp_path, ledger, 't24')
 
 
-def test_positions_reader_paginates_without_credentials():
-    pages = [[{'asset': str(i), 'size': '1'} for i in range(2)], [{'asset': '9', 'size': '0'}]]
-    seen = []
+class _Response:
+    def __init__(self, body, status=200):
+        self.body, self.status = body, status
 
-    class Response:
-        status = 200
+    def read(self, _limit):
+        return self.body if isinstance(self.body, bytes) else json.dumps(self.body).encode()
 
-        def __init__(self, body):
-            self.body = body
+    def close(self):
+        pass
 
-        def read(self, _limit):
-            return json.dumps(self.body).encode()
 
-        def close(self):
-            pass
+def _v2_row(token, size, condition='0xc1', status='OPEN', wallet=MAKER):
+    return {'proxy_wallet': wallet, 'token_id': token, 'condition_id': condition, 'current_size': size,
+            'status': status}
+
+
+def _v2_opener(pages_by_status, seen):
+    """pages_by_status: {status: [page rows, ...]}; cursors are '<status>:<n>'."""
+    from urllib.parse import parse_qs, urlsplit
 
     def opener(request, timeout):
         seen.append(request.full_url)
         assert 'Authorization' not in request.headers
-        return Response(pages[len(seen) - 1])
-    rows = ledger_module.fetch_account_positions(MAKER, opener=opener, page_size=2)
-    assert len(rows) == 3 and len(seen) == 2 and 'offset=2' in seen[1]
-    assert normalize_positions(rows) == {'0': '1', '1': '1'}
+        query = {k: v[0] for k, v in parse_qs(urlsplit(request.full_url).query).items()}
+        assert 'offset' not in query and 'sizeThreshold' not in query
+        assert query['include_archived'] == 'true' and query['filter_type'] == 'TOKENS'
+        assert query['filter_amount'] == '0' and query['user'] == MAKER
+        assert query['sort_by'] == 'TOKENS' and query['sort_direction'] == 'DESC'
+        if 'cursor' in query:
+            status, index = query['cursor'].split(':')
+            index = int(index)
+        else:
+            status, index = query['status'], 0
+        pages = pages_by_status[status]
+        cursor = f'{status}:{index + 1}' if index + 1 < len(pages) else None
+        return _Response({'data': pages[index], 'pagination': {'has_more': cursor is not None,
+                                                                'next_cursor': cursor}})
+    return opener
+
+
+def test_positions_reader_walks_v2_cursors_without_credentials():
+    seen, counts = [], {}
+    pages = {'OPEN': [[_v2_row('1', 1), _v2_row('2', 1.5)], [_v2_row('9', 0)]],
+             'REDEEMABLE_LOST': [[_v2_row('2', 1.5, status='REDEEMABLE'), _v2_row('7', 3, '0xc7')]]}
+    rows = ledger_module.fetch_account_positions(MAKER, opener=_v2_opener(pages, seen), page_size=2,
+                                                 status_counts=counts)
+    assert all(url.startswith('https://data-api.polymarket.com/v2/positions?') for url in seen)
+    # OPEN takes two pages, so it is walked twice and must agree; REDEEMABLE_LOST fits on one page
+    assert len(seen) == 5 and 'cursor=OPEN%3A1' in seen[1] and 'status=OPEN' in seen[2]
+    assert 'status=REDEEMABLE_LOST' in seen[4] and 'limit=2' in seen[0]
+    assert counts == {'OPEN': 3, 'REDEEMABLE_LOST': 2}
+    assert normalize_positions(rows) == {'1': '1', '2': '1.5', '7': '3'}
+    assert position_conditions(rows) == ['0xc1', '0xc7']
+
+
+def test_positions_reader_default_page_is_the_spec_maximum():
+    seen = []
+    ledger_module.fetch_account_positions(MAKER, opener=_v2_opener({'OPEN': [[]], 'REDEEMABLE_LOST': [[]]}, seen))
+    assert len(seen) == 2 and all('limit=1000' in url for url in seen)
+
+
+def test_positions_reader_refuses_multi_page_walks_that_differ():
+    calls = []
+    pages = {'OPEN': [[_v2_row('1', 1)], [_v2_row('2', 1)]], 'REDEEMABLE_LOST': [[]]}
+    inner = _v2_opener(pages, calls)
+
+    def opener(request, timeout):
+        if len(calls) == 2:          # the second walk sees a different first page
+            pages['OPEN'][0] = [_v2_row('3', 1)]
+        return inner(request, timeout)
+    with pytest.raises(RuntimeError, match='positions_walks_differ'):
+        ledger_module.fetch_account_positions(MAKER, opener=opener, page_size=1)
+
+
+def test_positions_reader_refuses_conflicting_sizes():
+    pages = {'OPEN': [[_v2_row('2', 1)]], 'REDEEMABLE_LOST': [[_v2_row('2', 2)]]}
+    with pytest.raises(RuntimeError, match='positions_conflict'):
+        ledger_module.fetch_account_positions(MAKER, opener=_v2_opener(pages, []))
+
+
+@pytest.mark.parametrize('row', [
+    {'proxy_wallet': MAKER, 'token_id': '1', 'condition_id': '0xc1'},              # no current_size: never 0
+    {'proxy_wallet': MAKER, 'token_id': '1', 'condition_id': '0xc1', 'size': 1},   # the v1 field name alone
+    {'proxy_wallet': MAKER, 'condition_id': '0xc1', 'current_size': 1},            # no token_id
+    {'proxy_wallet': MAKER, 'token_id': '1', 'current_size': 1},                   # no condition_id
+    {'proxy_wallet': '0x' + 'b' * 40, 'token_id': '1', 'condition_id': '0xc1', 'current_size': 1},
+    {'proxy_wallet': MAKER, 'token_id': '1', 'condition_id': '0xc1', 'current_size': -1},
+    {'proxy_wallet': MAKER, 'token_id': '1', 'condition_id': '0xc1', 'current_size': True},
+    {'proxy_wallet': MAKER, 'token_id': '1', 'condition_id': '0xc1', 'current_size': 'NaN'},
+])
+def test_positions_reader_refuses_unreadable_rows(row):
+    with pytest.raises(RuntimeError, match='positions_unreadable'):
+        ledger_module.fetch_account_positions(MAKER, opener=_v2_opener({'OPEN': [[row]],
+                                                                         'REDEEMABLE_LOST': [[]]}, []))
+
+
+@pytest.mark.parametrize('response', [
+    _Response({'error': 'Data API v1 has been retired'}, status=410),
+    _Response({'error': 'bad'}, status=400),
+    _Response([{'asset': '1', 'size': 1}]),                                  # the v1 list payload
+    _Response({'data': [], 'pagination': {'next_cursor': 7}}),
+    _Response({'pagination': {'next_cursor': None}}),
+    _Response(b'not json'),
+    _Response(b'{"data": [], "pagination": {"has_more": NaN, "next_cursor": null}}'),
+    _Response({'data': [], 'pagination': {'has_more': True, 'next_cursor': None}}),   # has_more with no cursor
+    _Response({'data': [], 'pagination': {'has_more': True, 'next_cursor': ''}}),
+    _Response({'data': [], 'pagination': {'has_more': False, 'next_cursor': 'x'}}),
+    _Response({'data': [], 'pagination': {'next_cursor': None}}),                     # has_more missing
+])
+def test_positions_reader_fails_closed_on_any_unreadable_page(response):
+    with pytest.raises(RuntimeError, match='positions_unreadable'):
+        ledger_module.fetch_account_positions(MAKER, opener=lambda request, timeout: response)
+
+
+def test_positions_reader_maps_http_errors_to_unreadable():
+    from urllib.error import HTTPError, URLError
+
+    def gone(request, timeout):
+        raise HTTPError(request.full_url, 410, 'Gone', {}, None)
+    for opener in (gone, lambda request, timeout: (_ for _ in ()).throw(URLError('down'))):
+        with pytest.raises(RuntimeError, match='positions_unreadable'):
+            ledger_module.fetch_account_positions(MAKER, opener=opener)
+
+
+def test_positions_reader_refuses_a_json_nan_size():
+    body = ('{"data": [{"proxy_wallet": "%s", "token_id": "1", "condition_id": "0xc1", "current_size": NaN}],'
+            ' "pagination": {"has_more": false, "next_cursor": null}}' % MAKER).encode()
+    with pytest.raises(RuntimeError, match='positions_unreadable'):
+        ledger_module.fetch_account_positions(MAKER, opener=lambda request, timeout: _Response(body))
+
+
+def test_positions_reader_page_budget():
+    pages = {'OPEN': [[_v2_row(str(i), 1)] for i in range(5)], 'REDEEMABLE_LOST': [[]]}
+    with pytest.raises(RuntimeError, match='positions_page_budget'):
+        ledger_module.fetch_account_positions(MAKER, opener=_v2_opener(pages, []), page_size=1, max_pages=3)
+
+
+def test_baseline_records_v2_status_counts():
+    value = ledger_module.take_baseline(label='t24', now=NOW, maker_address=MAKER, positions=[], open_orders=[],
+                                        available_collateral='1', position_status_counts={'REDEEMABLE_LOST': 0,
+                                                                                          'OPEN': 2})
+    assert value['position_status_counts'] == {'OPEN': 2, 'REDEEMABLE_LOST': 0}
+    assert value['positions_source'] == 'https://data-api.polymarket.com/v2/positions'
 
 
 def test_budget_constant_is_one_hundred():
