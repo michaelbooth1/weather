@@ -9,6 +9,7 @@ from decimal import Decimal
 import hashlib
 import json
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,8 @@ START = utc('2026-09-01T00:00:00Z')
 NOW = START + timedelta(days=3, hours=1)
 TX = '0x' + '1' * 64
 CONFIG_PATH = '/rewards/markets/' + CONDITION
+ACTIVITY_PATH = '/v2/activity'
+ACTIVITY_FIXTURE = json.loads((Path(__file__).parents[1] / 'fixtures/re1_activity_v2.json').read_text())
 
 
 def prediction():
@@ -36,7 +39,8 @@ def prediction():
         scope={'maker_address': MAKER}, reward_day='2026-09-01')
 
 
-def sdk_venue(*, fail=None, guard=None):
+def sdk_venue(*, fail=None, guard=None, activity_pages=None, activity_status=200,
+              activity_error=None, activity_raw=None, activity_read_error=None, activity_redirect=False):
     from io import BytesIO
     import httpx
     from weather.market import re1_transport as transport
@@ -47,17 +51,22 @@ def sdk_venue(*, fail=None, guard=None):
         '/rewards/user/total': [r.model_dump(mode='json') for r in totals],
         CONFIG_PATH: dict(data=[dict(condition_id=CONDITION, rewards_min_size=20,
             rewards_max_spread=3, rewards_daily_rate=100)], next_cursor='LTE=', count=1, limit=500),
-        '/activity': [dict(proxyWallet=MAKER, timestamp=int((START + timedelta(days=2)).timestamp()),
-            transactionHash=TX, type='REWARD', usdcSize=1.25)]}
+        ACTIVITY_PATH: dict(data=[activity()], pagination=deepcopy(ACTIVITY_FIXTURE['empty']['pagination']))}
     calls = []
     def handle(request):
         assert request.method == 'GET', 'venue write attempted'
         assert not any(k.lower().startswith('poly_') for k in request.headers)
         if request.url.path == fail:
             raise TimeoutError('synthetic read failure')
-        raw = json.dumps(payloads[request.url.path], indent=2).encode() + b'\n'
+        if request.url.path == ACTIVITY_PATH and activity_error is not None:
+            raise activity_error
+        payload = payloads[request.url.path]
+        if request.url.path == ACTIVITY_PATH and activity_pages is not None:
+            payload = activity_pages[len([r for r, _ in calls if r.url.path == ACTIVITY_PATH])]
+        raw = (activity_raw if request.url.path == ACTIVITY_PATH and activity_raw is not None
+               else json.dumps(payload, indent=2).encode() + b'\n')
         calls.append((request, raw))
-        return httpx.Response(200, content=raw)
+        return httpx.Response(activity_status if request.url.path == ACTIVITY_PATH else 200, content=raw)
     http = httpx.Client(base_url=collector.HOST, transport=httpx.MockTransport(handle))
     data_http = httpx.Client(base_url='https://data-api.polymarket.com', transport=httpx.MockTransport(handle))
     ctx = SimpleNamespace(secure_clob=SyncTransport(base_url=collector.HOST, client=http),
@@ -65,12 +74,17 @@ def sdk_venue(*, fail=None, guard=None):
     sdk = SecureClient(ctx=ctx, _create_token=_CREATE_TOKEN)
     patcher = pytest.MonkeyPatch()
     def public_open(request, *, timeout):
-        assert request.full_url == collector.HOST + CONFIG_PATH and timeout == 2
+        assert (request.full_url == collector.HOST + CONFIG_PATH or request.full_url.startswith(collector.ACTIVITY_URL + '?')) and timeout == 2
         assert request.get_method() == 'GET' and request.data is None
         reply = handle(httpx.Request('GET', request.full_url, headers=dict(request.header_items())))
         class Reply(BytesIO):
-            status = 200
-            def geturl(self): return request.full_url
+            status = reply.status_code
+            def geturl(self):
+                return request.full_url + '/redirected' if request.full_url.startswith(collector.ACTIVITY_URL) and activity_redirect else request.full_url
+            def read(self, size=-1):
+                if request.full_url.startswith(collector.ACTIVITY_URL) and activity_read_error is not None:
+                    raise activity_read_error
+                return super().read(size)
         return Reply(reply.content)
     patcher.setattr(transport, 'urlopen', public_open)
     patcher.setattr(transport, 're1_user_agent', lambda: 'weather-re1-attended/123456789')
@@ -78,7 +92,7 @@ def sdk_venue(*, fail=None, guard=None):
         _ctx = ctx
         def __getattr__(self, name):
             assert name in {'list_user_earnings_for_day',
-                'get_total_earnings_for_user_for_day', 'list_activity'}, 'non-read SDK method: ' + name
+                'get_total_earnings_for_user_for_day'}, 'non-read SDK method: ' + name
             return getattr(sdk, name)
         def close(self):
             patcher.undo()
@@ -142,9 +156,9 @@ class RpcFixture:
         return Reply()
 
 
-def collect(*, rpc=None, fail=None, now=NOW, activities=None, adjust=None):
-    venue, calls, payloads = sdk_venue(fail=fail)
-    if activities is not None: payloads['/activity'] = activities
+def collect(*, rpc=None, fail=None, now=NOW, activities=None, adjust=None, **activity_options):
+    venue, calls, payloads = sdk_venue(fail=fail, **activity_options)
+    if activities is not None: payloads[ACTIVITY_PATH]['data'] = activities
     if adjust is not None: adjust(payloads)
     try:
         result = collector.collect_evidence(venue, prediction(), clock=lambda: now, opener=rpc or RpcFixture())
@@ -202,7 +216,7 @@ def test_actual_sdk_and_rpc_sources_link_under_reviewed_rule_and_hash_real_bytes
     assert all(req.url.path != '/rewards/user/markets' for req, _ in calls)
     assert [r['sha256'] for r in journal if r['event'] == 'rpc_request'] == [hashlib.sha256(req).hexdigest() for req, _ in rpc.calls]
     assert [r['sha256'] for r in journal if r['event'] == 'rpc_response'] == [hashlib.sha256(raw).hexdigest() for _, raw in rpc.calls]
-    activity_req = next(req for req, _ in calls if req.url.path == '/activity')
+    activity_req = next(req for req, _ in calls if req.url.path == ACTIVITY_PATH)
     assert activity_req.url.params['user'] == MAKER
     assert activity_req.url.params['type'] == 'REWARD'
     assert activity_req.url.params['start'] == str(int((START + timedelta(days=1)).timestamp()))
@@ -298,7 +312,7 @@ def test_paginator_requires_terminal_page_and_refuses_repeated_cursor():
             collector.read_pages(pages, journal, '/rewards/user')
 
 
-@pytest.mark.parametrize('path', ['/rewards/user', CONFIG_PATH, '/rewards/user/total', '/activity'])
+@pytest.mark.parametrize('path', ['/rewards/user', CONFIG_PATH, '/rewards/user/total', ACTIVITY_PATH])
 def test_read_failure_is_retained_and_never_zero_payment(path):
     result, _ = collect(fail=path)
     assert not result['sources']['distributions']['complete']
@@ -374,7 +388,8 @@ def test_collect_payout_prints_hash_of_exact_input_bytes(tmp_path, monkeypatch, 
 
 
 def activity(tx=TX, *, amount='1.25', at=START + timedelta(days=2), kind='REWARD'):
-    return dict(proxyWallet=MAKER, timestamp=int(at.timestamp()), transactionHash=tx, type=kind, usdcSize=amount)
+    return dict(ACTIVITY_FIXTURE['reward'], proxy_wallet=MAKER, timestamp=int(at.timestamp()),
+                transaction_hash=tx, type=kind, usdc_size=float(amount))
 
 
 def transfer(units=1250000, *, tx=TX, index=0, asset=INCENTIVE_CASH_ASSET['asset_address']):
@@ -478,7 +493,7 @@ def test_half_even_quantization_preserves_venue_amount_and_exact_totals(native, 
     assert outcome(evidence)['verdict'] == 'PAID_AS_MODELLED'
 
 
-@pytest.mark.parametrize('fail', ['/activity', None])
+@pytest.mark.parametrize('fail', [ACTIVITY_PATH, None])
 def test_empty_but_incomplete_reads_never_prove_not_paid(fail):
     evidence, _ = collect(activities=[], fail=fail, rpc=RpcFixture(transfers=[], missing=None if fail else 2300))
     assert not evidence['sources']['distributions']['complete']
@@ -531,13 +546,16 @@ def test_guard_refuses_secret_in_payout_diagnostics(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('has_payment', [False, True])
-def test_activity_query_started_before_cash_end_cannot_claim_full_coverage_after_response(has_payment):
+def test_activity_query_started_before_cash_end_cannot_claim_full_coverage_after_response(has_payment, monkeypatch):
     venue, _, payloads = sdk_venue()
     clock = {'now': START + timedelta(days=3, seconds=-1)}
-    if not has_payment: payloads['/activity'] = []
-    def cross_deadline(response):
+    if not has_payment: payloads[ACTIVITY_PATH]['data'] = []
+    original = collector.read_reward_activity
+    def cross_deadline(*args):
+        result = original(*args)
         clock['now'] = NOW
-    venue.client._ctx.data._client.event_hooks['response'].append(cross_deadline)
+        return result
+    monkeypatch.setattr(collector, 'read_reward_activity', cross_deadline)
     try:
         evidence = collector.collect_evidence(venue, prediction(), clock=lambda: clock['now'],
             opener=RpcFixture() if has_payment else RpcFixture(transfers=[]))
@@ -555,3 +573,157 @@ def test_evidence_accepts_every_attempt_folder_up_to_the_cap():
     cap = collector.ATTEMPT_CAP
     assert all(collector.attempt_folder_ok(f'session-{n}') for n in (1, 6, 7, 10, 20, cap))
     assert not any(collector.attempt_folder_ok(name) for name in ('session-0', 'session-01', f'session-{cap + 1}', 'session-x', 'sessions-3'))
+
+
+def activity_page(rows, *, cursor=None, more=False):
+    return dict(data=rows, pagination=dict(limit=500, offset=0, has_more=more, next_cursor=cursor))
+
+
+@pytest.mark.parametrize('terminal', [None, ''])
+def test_v2_cursor_walk_repeats_filters_and_records_every_url_and_page_hash(terminal):
+    pages = [activity_page([], cursor='opaque+/=cursor', more=True),
+             activity_page([activity()], cursor=terminal)]
+    evidence, calls = collect(activity_pages=pages)
+    requests = [r for r, _ in calls if r.url.path == ACTIVITY_PATH]
+    assert len(requests) == 2 and 'cursor' not in requests[0].url.params
+    assert requests[1].url.params['cursor'] == 'opaque+/=cursor'
+    first, second = dict(requests[0].url.params), dict(requests[1].url.params)
+    second.pop('cursor')
+    assert first == second and 'offset' not in first and 'condition' not in first
+    src = evidence['sources']['distributions']
+    assert src['request_urls'] == [str(r.url) for r in requests]
+    assert src['candidate_endpoint'] == collector.ACTIVITY_URL and src['candidate_pagination_complete']
+    responses = [r for r in evidence['wire_journal'] if r['event'] == 'sdk_response' and r['path'] == ACTIVITY_PATH]
+    assert evidence['distribution_candidates'][0]['source_record_sha256'] == responses[1]['sha256']
+    assert outcome(evidence)['verdict'] == 'PAID_AS_MODELLED'
+
+
+def test_v2_recorded_empty_page_proves_completed_zero_only_with_closed_cash_coverage():
+    evidence, _ = collect(activity_pages=[ACTIVITY_FIXTURE['empty']], rpc=RpcFixture(transfers=[]))
+    assert evidence['sources']['distributions']['candidate_pagination_complete']
+    assert outcome(evidence)['verdict'] == 'NOT_PAID'
+
+
+@pytest.mark.parametrize('status', [201, 204, 301, 400, 410, 429, 500, 503])
+def test_v2_non_200_with_plausible_empty_body_never_proves_zero(status):
+    evidence, _ = collect(activity_status=status, activities=[], rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+
+
+def assert_activity_failed(evidence):
+    source = evidence['sources']['distributions']
+    assert source['status'] == 'FAILED' and not source['complete']
+    assert not source['candidate_pagination_complete'] and source['failure_type'] is not None
+    assert outcome(evidence)['verdict'] == 'INCONCLUSIVE' and outcome(evidence)['paid'] is None
+
+
+@pytest.mark.parametrize('kind', ['timeout', 'os', 'http', 'http_error'])
+def test_v2_transport_failures_never_prove_zero(kind):
+    from http.client import HTTPException
+    from urllib.error import HTTPError
+    error = dict(timeout=TimeoutError(), os=OSError(), http=HTTPException(),
+                 http_error=HTTPError(collector.ACTIVITY_URL, 410, 'gone', {}, None))[kind]
+    evidence, _ = collect(activity_error=error, rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+    assert evidence['sources']['distributions']['request_urls']
+
+
+@pytest.mark.parametrize('kind', ['os', 'incomplete'])
+def test_v2_mid_body_transport_failure_is_incomplete(kind):
+    from http.client import IncompleteRead
+    error = OSError('reset') if kind == 'os' else IncompleteRead(b'{"data":')
+    evidence, _ = collect(activity_read_error=error, rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+
+
+def test_v2_redirected_response_is_refused():
+    evidence, _ = collect(activity_redirect=True, rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+
+
+def test_v2_later_page_failure_discards_partial_candidates():
+    evidence, _ = collect(activity_pages=[activity_page([activity()], cursor='next', more=True), []])
+    assert_activity_failed(evidence)
+    assert not evidence['distribution_candidates'] and not evidence['distributions']
+
+
+def test_payout_request_guard_refuses_retired_v1_activity():
+    import httpx
+    journal = collector.ReadJournal(SecretGuard(), lambda: NOW)
+    with pytest.raises(ValueError, match='evidence_read_only_endpoint'):
+        journal.request(httpx.Request('GET', 'https://data-api.polymarket.com/activity'))
+
+
+@pytest.mark.parametrize('raw', [b'[]', b'null', b'{', b'{"data":[]}',
+    b'{"data":null,"pagination":{}}', b'{"data":[],"pagination":null}'])
+def test_v2_malformed_envelope_never_proves_zero(raw):
+    evidence, _ = collect(activity_raw=raw, rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+
+
+@pytest.mark.parametrize('change', [
+    {'has_more': None}, {'has_more': 0}, {'has_more': True, 'next_cursor': None},
+    {'has_more': False, 'next_cursor': 'more'}, {'next_cursor': 1}, {'limit': True},
+    {'offset': -1}, {'limit': 0}, {'limit': 1001},
+])
+def test_v2_malformed_pagination_never_proves_zero(change):
+    page = activity_page([])
+    page['pagination'].update(change)
+    evidence, _ = collect(activity_pages=[page], rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+
+
+@pytest.mark.parametrize('field', ['next_cursor', 'has_more', 'limit', 'offset'])
+def test_v2_missing_pagination_fields_fail_closed(field):
+    page = activity_page([])
+    del page['pagination'][field]
+    evidence, _ = collect(activity_pages=[page], rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+
+
+@pytest.mark.parametrize('field', ACTIVITY_FIXTURE['required_fields'])
+@pytest.mark.parametrize('missing', [True, False])
+def test_v2_missing_or_null_required_fields_fail_closed(field, missing):
+    row = activity()
+    if missing:
+        del row[field]
+    else:
+        row[field] = None
+    evidence, _ = collect(activities=[row])
+    assert_activity_failed(evidence)
+
+
+@pytest.mark.parametrize('field,value', [('usdc_size', True), ('usdc_size', '1.25'),
+    ('usdc_size', float('nan')), ('usdc_size', float('inf')), ('usdc_size', -1),
+    ('timestamp', True), ('timestamp', '1788393600'), ('transaction_hash', 'bad'),
+    ('proxy_wallet', '0x' + 'e' * 40), ('type', 'MAKER_REBATE'), ('type', 'TRADE'), ('type', 'REDEEM')])
+def test_v2_invalid_values_or_unrequested_types_fail_closed(field, value):
+    evidence, _ = collect(activities=[dict(activity(), **{field: value})])
+    assert_activity_failed(evidence)
+
+
+@pytest.mark.parametrize('conflict', [False, True])
+def test_v2_duplicate_transactions_deduplicate_only_identical_rows(conflict):
+    row = activity()
+    duplicate = dict(row, usdc_size=9) if conflict else deepcopy(row)
+    evidence, _ = collect(activity_pages=[activity_page([row], cursor='next', more=True),
+                                        activity_page([duplicate])])
+    if conflict:
+        assert_activity_failed(evidence)
+    else:
+        assert len(evidence['distribution_candidates']) == 1
+        assert outcome(evidence)['verdict'] == 'PAID_AS_MODELLED'
+
+
+@pytest.mark.parametrize('case', ['cycle', 'budget', 'rows'])
+def test_v2_budgets_and_cursor_cycles_fail_closed(case, monkeypatch):
+    if case == 'rows':
+        monkeypatch.setattr(collector, 'MAX_ROWS', 0)
+        pages = [activity_page([activity()])]
+    else:
+        monkeypatch.setattr(collector, 'ACTIVITY_PAGE_BUDGET', 2)
+        pages = [activity_page([], cursor='a', more=True),
+                 activity_page([], cursor='a' if case == 'cycle' else 'b', more=True)]
+    evidence, calls = collect(activity_pages=pages, rpc=RpcFixture(transfers=[]))
+    assert_activity_failed(evidence)
+    assert len([r for r, _ in calls if r.url.path == ACTIVITY_PATH]) <= 2

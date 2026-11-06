@@ -2069,8 +2069,18 @@ The tiny consumer tolerance is recorded as `rounding_tolerance_units: 1`:
 `A+1` is accepted as PAID, `A+2` is refused, and `A-1` remains PARTIALLY_PAID.
 Confirmed cash is never increased to match an accrual.
 
-The maker-scoped `/activity` query requests only `REWARD` rows over
+The maker-scoped public `/v2/activity` query requests only `REWARD` rows over
 `[D+1 00:00Z, min(D+3 00:00Z, observation))`, with complete pagination.
+The collector follows the official Data API v2 `data`/`pagination` envelope,
+repeats the same filters on every opaque cursor request, and requires a
+terminal cursor within its page and row budgets. Missing required fields,
+conflicting duplicate transactions, malformed envelopes, non-200 statuses,
+and transport failures leave payment evidence incomplete. Identical repeated
+rows are counted once. `MAKER_REBATE`, `TRADE` and `REDEEM` are separate
+activity types and cannot prove this liquidity reward. The wire journal
+retains raw envelopes and hashes; the distribution source adds `request_urls`
+and identifies the v2 `candidate_endpoint`. Normalized reward candidates,
+the public collector interface, linkage rule and evidence schema stay the same.
 Each activity transaction must have exactly one confirmed pUSD Transfer in
 the cash window. Exactly one joined credit must be within one micro-unit of
 `A`. The distribution retains `linkage_basis`, `activity_sha256`,

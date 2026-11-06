@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 
 from weather.market.mm_exchange_reports import INCENTIVE_CASH_ASSET, PAID_INCENTIVE_EVIDENCE_SCHEMA
 from weather.market.mm_official_adapter import plain_sdk_value
@@ -26,6 +27,8 @@ MAX_ROWS = 2048
 MAX_CALLS = 2048
 MAX_BYTES = 2_000_000
 LINKAGE_BASIS = 'exact_amount_single_condition_unique_credit_v0.1'
+ACTIVITY_URL = 'https://data-api.polymarket.com/v2/activity'
+ACTIVITY_PAGE_BUDGET = 50
 
 
 def now_utc():
@@ -90,7 +93,7 @@ class ReadJournal:
         require(request.method == 'GET' and request.url.scheme == 'https' and request.url.port in {None, 443}
             and (request.url.host, request.url.path) in {
             ('clob.polymarket.com', '/rewards/user'), ('clob.polymarket.com', '/rewards/user/markets'),
-            ('clob.polymarket.com', '/rewards/user/total'), ('data-api.polymarket.com', '/activity')},
+            ('clob.polymarket.com', '/rewards/user/total'), ('data-api.polymarket.com', '/v2/activity')},
             'evidence_read_only_endpoint')
         raw = request.method.encode() + b'\n' + request.url.raw_path + b'\n' + request.content
         self.record('wire_request', method=request.method, url=str(request.url),
@@ -196,6 +199,63 @@ def collect_accruals(venue, scope, journal, clock):
         return src, [], retained
 
 
+def read_reward_activity(scope, start, end, journal):
+    """Walk the public v2 feed; preserve the former SDK RewardActivity shape.
+
+    Filters must be repeated: activity cursors bind only anchor, size and sort.
+    The raw v2 envelopes and actual URLs remain in the wire journal.
+    """
+    query = dict(user=scope['maker_address'], type='REWARD', start=int(start.timestamp()),
+        end=int(end.timestamp()) - 1, sort_by='TIMESTAMP', sort_direction='ASC', limit=500)
+    rows, seen, cursors, count = [], {}, set(), 0
+    strings = ('proxy_wallet', 'condition_id', 'type', 'transaction_hash', 'token_id',
+        'side', 'title', 'slug', 'icon', 'event_slug', 'outcome', 'name', 'pseudonym',
+        'bio', 'profile_image', 'profile_image_optimized')
+    for _ in range(ACTIVITY_PAGE_BUDGET):
+        payload = re1_transport.json_read(ACTIVITY_URL + '?' + urlencode(query), journal=journal)
+        require(isinstance(payload, dict) and isinstance(payload.get('data'), list)
+            and isinstance(payload.get('pagination'), dict), 'activity_envelope')
+        page = payload['pagination']
+        require('next_cursor' in page and type(page.get('has_more')) is bool, 'activity_pagination')
+        cursor, more = page['next_cursor'], page['has_more']
+        require(cursor is None or isinstance(cursor, str), 'activity_cursor')
+        require(more == (cursor not in (None, '')), 'activity_pagination')
+        require(type(page.get('limit')) is int and 1 <= page['limit'] <= 1000
+            and type(page.get('offset')) is int and page['offset'] >= 0
+            and len(payload['data']) <= page['limit'], 'activity_page_shape')
+        provenance = journal.last_response_hash('/v2/activity')
+        count += len(payload['data'])
+        require(count <= MAX_ROWS, 'row_budget')
+        for raw in payload['data']:
+            require(isinstance(raw, dict) and all(isinstance(raw.get(k), str) for k in strings),
+                'activity_required_fields')
+            require(type(raw.get('timestamp')) is int and type(raw.get('outcome_index')) is int,
+                'activity_required_fields')
+            for key in ('size', 'usdc_size', 'price'):
+                value = raw.get(key)
+                require(type(value) in (int, float) and Decimal(str(value)).is_finite() and value >= 0,
+                    'activity_numeric_field')
+            require(raw['proxy_wallet'].lower() == scope['maker_address'] and raw['type'] == 'REWARD',
+                'activity_scope')
+            stamp = datetime.fromtimestamp(raw['timestamp'], timezone.utc)
+            require(start <= stamp < end, 'activity_time')
+            transaction = hex32(raw['transaction_hash'])
+            if transaction in seen:
+                require(seen[transaction] == raw, 'activity_conflicting_duplicate')
+                continue
+            seen[transaction] = raw
+            row = {k: raw[k] for k in ('type', 'transaction_hash', 'name', 'pseudonym',
+                'bio', 'profile_image', 'profile_image_optimized')}
+            row.update(wallet=raw['proxy_wallet'], timestamp=stamp.isoformat(), amount=str(raw['usdc_size']))
+            rows.append((row, provenance))
+        if not more:
+            return rows
+        require(cursor not in cursors, 'activity_pagination_cycle')
+        cursors.add(cursor)
+        query['cursor'] = cursor
+    raise ValueError('activity_pagination_budget')
+
+
 def collect_distribution_candidates(venue, scope, journal, clock):
     """Retain REWARD candidates; the separate producer rule decides their day."""
     journal.kind = 'distributions'
@@ -204,13 +264,7 @@ def collect_distribution_candidates(venue, scope, journal, clock):
         end = min(utc(scope['cash_end_utc']), utc(clock()))
         start = utc(scope['accrual_end_utc'])
         require(start < end, 'activity_window_not_open')
-        rows = read_pages(venue.client.list_activity(user=scope['maker_address'],
-            activity_types=['REWARD'], start=int(start.timestamp()),
-            end=int(end.timestamp()) - 1, sort_by='TIMESTAMP', sort_direction='ASC', page_size=500), journal, '/activity')
-        for row, _ in rows:
-            require(row['wallet'].lower() == scope['maker_address'] and row['type'] == 'REWARD', 'activity_scope')
-            require(start <= utc(row['timestamp']) < end, 'activity_time')
-            hex32(row['transaction_hash'])
+        rows = read_reward_activity(scope, start, end, journal)
         pagination = True
     except Exception as exc:
         failure = type(exc).__name__
@@ -219,7 +273,9 @@ def collect_distribution_candidates(venue, scope, journal, clock):
         venue_earned_period_reference=False, activity_observed_at_utc=src['observed_at_utc'],
         activity_request_scope=dict(maker_address=scope['maker_address'],
             period_start_utc=scope['accrual_end_utc'], period_end_utc=end.isoformat()),
-        candidate_endpoint='https://data-api.polymarket.com/activity', candidate_pagination_complete=pagination,
+        candidate_endpoint=ACTIVITY_URL, candidate_pagination_complete=pagination,
+        request_urls=[r['url'] for r in journal.records
+            if r['source'] == 'distributions' and r['event'] == 'wire_request'],
         failure_type=failure)
     return src, [dict(row, source_record_sha256=provenance) for row, provenance in rows]
 

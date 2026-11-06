@@ -1,0 +1,63 @@
+{
+  "provenance": {
+    "spec_url": "https://data-api.polymarket.com/v2/openapi.json",
+    "recorded_at": "2026-11-06T14:35:21-05:00",
+    "empty_request_url": "https://data-api.polymarket.com/v2/activity?user=0x0000000000000000000000000000000000000001&type=REWARD&start=1788220800&end=1788479999&limit=500&sort_by=TIMESTAMP&sort_direction=ASC",
+    "nonempty_rows": "Synthetic values; all required field names and types from the recorded official Activity schema. No account evidence."
+  },
+  "empty": {
+    "data": [],
+    "pagination": {
+      "limit": 500,
+      "offset": 0,
+      "has_more": false,
+      "next_cursor": null
+    }
+  },
+  "reward": {
+    "bio": "",
+    "condition_id": "",
+    "event_slug": "",
+    "icon": "",
+    "name": "",
+    "outcome": "",
+    "profile_image": "",
+    "profile_image_optimized": "",
+    "proxy_wallet": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pseudonym": "",
+    "side": "",
+    "slug": "",
+    "title": "",
+    "token_id": "",
+    "transaction_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "type": "REWARD",
+    "timestamp": 1788393600,
+    "size": 0,
+    "usdc_size": 1.25,
+    "price": 0,
+    "outcome_index": 999
+  },
+  "required_fields": [
+    "proxy_wallet",
+    "timestamp",
+    "condition_id",
+    "type",
+    "size",
+    "usdc_size",
+    "transaction_hash",
+    "price",
+    "token_id",
+    "side",
+    "outcome_index",
+    "title",
+    "slug",
+    "icon",
+    "event_slug",
+    "outcome",
+    "name",
+    "pseudonym",
+    "bio",
+    "profile_image",
+    "profile_image_optimized"
+  ]
+}
