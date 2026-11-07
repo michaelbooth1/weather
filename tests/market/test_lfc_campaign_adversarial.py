@@ -243,7 +243,8 @@ def test_acknowledged_terminal_read_outage_defers_then_finishes_without_adoption
 
 
 @pytest.mark.parametrize('faults', ['none', 'scoring', 'scoring_and_core'])
-def test_actual_inert_controller_produces_qualifiable_chained_private_evidence(tmp_path, faults):
+@pytest.mark.parametrize('seconds', [300, 21600])
+def test_actual_inert_controller_produces_qualifiable_chained_private_evidence(tmp_path, faults, seconds):
     from tests.market.test_lfc_pilot import counted_table, PILOT_SLUG, CONDITION, OTHER, REGISTRY
     from weather.market.lfc_campaign_runtime import ScheduledAuthority
     from weather.market.lfc_pilot import PilotSession
@@ -252,7 +253,9 @@ def test_actual_inert_controller_produces_qualifiable_chained_private_evidence(t
     from weather.market.lfc_campaign_proof import local_money_proof
     with account_lease(MAKER, backend=Mutexes()):
         runtime = runtime_at(tmp_path)
-        policy = parse_policy(policy_row())
+        row = policy_row()
+        row['max_session_seconds'] = row['entries'][0]['duration_seconds'] = seconds
+        policy = parse_policy(row)
         claim = runtime.state.claim(policy.entries[0], policy, NOW)
         runtime.lease = SimpleNamespace(check=lambda: None)
         ledger = runtime.state.ledger
@@ -265,7 +268,13 @@ def test_actual_inert_controller_produces_qualifiable_chained_private_evidence(t
         confirmation = authority.confirmation(table, ledger)
         directory = runtime.pilot_root / 'actual-private'
         venue = RehearsalVenue(table['rows'][0]['snapshot'], directory, clock=runtime.clock)
-        venue.balances = lambda: {'available_collateral': '500'}
+        reads = []
+        def delayed_balance():
+            if not reads:
+                runtime.clock.sleep(1)  # Realistic nonzero opening latency at the supported lower boundary.
+            reads.append(True)
+            return {'available_collateral': '500'}
+        venue.balances = delayed_balance
         venue.trades = lambda: []
         exclusion = {'event_slug': PILOT_SLUG, 'condition_ids': [CONDITION, OTHER],
                      'timezone_name': REGISTRY['denver'].timezone}
@@ -283,7 +292,7 @@ def test_actual_inert_controller_produces_qualifiable_chained_private_evidence(t
                 original_scoring()
                 session.evidence_failed = True  # An unrelated, unclassified core failure.
             session.sample_scoring = mixed_fault
-        session.deadline = runtime.clock.monotonic() + 1  # End only the synthetic controller loop early.
+        session.deadline = runtime.clock.monotonic() + 3  # End only the synthetic controller loop early.
         result = session.run()
         assert result['post_count'] == 2 and result['cleanup_ok'] == (faults == 'none'), result
         finish_session(ledger, 's', result)
@@ -339,3 +348,40 @@ def test_recovered_public_gap_remains_in_postcheck_quality_flags(tmp_path, monke
         monkeypatch.setattr(runtime, 'read_account', lambda: account_read(runtime))
         proof = runtime.postcheck(claim, runtime.saved_result(claim))
         assert proof['money_accounting_complete'] and not proof['research_evidence_complete']
+
+
+@pytest.mark.parametrize('seconds', [60, 120, 179, 180, 299])
+@pytest.mark.parametrize('field', ['max_session_seconds', 'duration_seconds'])
+def test_witness_advertised_short_duration_consumes_session_without_post(tmp_path, seconds, field):
+    from weather.market.lfc_campaign import CampaignCoordinator
+    from weather.market.lfc_campaign_policy import PolicyRefused
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        row = policy_row()
+        if field == 'max_session_seconds':
+            row[field] = seconds
+        else:
+            row['entries'][0][field] = seconds
+        coordinator = CampaignCoordinator(state=runtime.state, runtime=runtime, clock=runtime.clock,
+                                          control_root=tmp_path / 'control')
+        with pytest.raises(PolicyRefused):
+            coordinator.tick(lambda: parse_policy(row))
+        assert runtime.state.claims() == [] and runtime.state.skips() == []
+        assert not runtime.state.ledger.sessions
+
+
+def test_duration_support_matches_preclaim_boundary_and_keeps_default_terms(tmp_path):
+    from dataclasses import replace
+    from weather.market.lfc_campaign_policy import MIN_SESSION_SECONDS, PolicyRefused, parameter_support
+    row = policy_row()
+    assert parse_policy(row).entries[0].seconds == 21600
+    row['max_session_seconds'] = row['entries'][0]['duration_seconds'] = MIN_SESSION_SECONDS
+    policy = parse_policy(row)
+    assert policy.entries[0].permits(NOW)
+    assert parameter_support()['entries']['duration_min_seconds'] == 300
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        entry = replace(policy.entries[0], seconds=MIN_SESSION_SECONDS - 1)
+        with pytest.raises(PolicyRefused, match='unsupported_duration_seconds'):
+            runtime.state.claim(entry, policy, NOW)
+        assert runtime.state.claims() == [] and runtime.state.skips() == []

@@ -17,6 +17,7 @@ ZONE = ZoneInfo('America/Toronto')
 EARLIEST = datetime(2026, 11, 10, tzinfo=timezone.utc)
 ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
 SIDECAR_SUPPORTED = False  # B032 R3: whole-private-session interval coverage is not qualified.
+MIN_SESSION_SECONDS = 300  # 180 s pre-POST horizon plus 120 s opening-read headroom, fixture-qualified.
 
 
 class PolicyRefused(ValueError):
@@ -48,8 +49,10 @@ class Entry:
     fixed_end: datetime | None = None
 
     def permits(self, now):
+        if type(self.seconds) is not int or not MIN_SESSION_SECONDS <= self.seconds <= C.SESSION_SECONDS:
+            raise PolicyRefused('unsupported_duration_seconds')
         planned = self.session_end(now)
-        return (self.start <= now < self.end and planned - now >= timedelta(seconds=60) and
+        return (self.start <= now < self.end and planned - now >= timedelta(seconds=MIN_SESSION_SECONDS) and
                 (self.fixed_end is None or planned <= self.fixed_end) and
                 planned <= datetime.combine(now.date(), time(23, 50), tzinfo=timezone.utc))
 
@@ -140,7 +143,7 @@ def parse_policy(row):
             any(type(day) is not int or day not in (1, 2) for day in row['local_event_dte']) or
             row['local_event_dte'] != sorted(set(row['local_event_dte']))):
         raise PolicyRefused('unsupported_local_event_dte')
-    if type(row['max_session_seconds']) is not int or not 60 <= row['max_session_seconds'] <= C.SESSION_SECONDS:
+    if type(row['max_session_seconds']) is not int or not MIN_SESSION_SECONDS <= row['max_session_seconds'] <= C.SESSION_SECONDS:
         raise PolicyRefused('unsupported_max_session_seconds')
     if row['capital_mode'] != 'committed_cost_no_recycling':
         raise PolicyRefused('unsupported_capital_mode')
@@ -199,7 +202,7 @@ def parse_policy(row):
             raise PolicyRefused('entry_id')
         start, end = timestamp(item['window_start_utc']), timestamp(item['window_end_utc'])
         requested_seconds = item['duration_seconds']
-        if type(requested_seconds) is not int or not 60 <= requested_seconds <= C.SESSION_SECONDS:
+        if type(requested_seconds) is not int or not MIN_SESSION_SECONDS <= requested_seconds <= C.SESSION_SECONDS:
             raise PolicyRefused('entry_window_or_duration')
         seconds = min(requested_seconds, row['max_session_seconds'])
         local = start.astimezone(ZONE)
@@ -254,10 +257,11 @@ def parameter_support():
         'local_event_dte': {'sorted_nonempty_subset': [1, 2], 'checked': 'every_placement_and_requote'},
         **{key: {'values': [1]} for key in ('band_limit_session', 'band_limit_concurrent', 'bands_per_event',
                                            'max_sessions_per_day', 'concurrent_sessions')},
-        'max_session_seconds': {'min': 60, 'max': C.SESSION_SECONDS},
+        'max_session_seconds': {'min': MIN_SESSION_SECONDS, 'max': C.SESSION_SECONDS,
+                                'initial_read_headroom_seconds': 120, 'minimum_post_remaining_seconds': 180},
         'entries': {'min': 1, 'max': 32, 'earliest_utc': EARLIEST.isoformat(),
                     'window': 'half_open_explicit_UTC_Z', 'max_window_seconds': 7200,
-                    'duration_min_seconds': 60, 'duration_max_seconds': C.SESSION_SECONDS,
+                    'duration_min_seconds': MIN_SESSION_SECONDS, 'duration_max_seconds': C.SESSION_SECONDS,
                     'utc_hard_end': '23:50:00', 'unique_toronto_dates': True},
         'start_window_toronto': {'nullable': True, 'format': 'HH:MM:SS_pair_matches_each_UTC_entry'},
         'trading_end_toronto': {'nullable': True, 'format': 'HH:MM:SS_fixed_absolute_end',

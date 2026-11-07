@@ -26,7 +26,7 @@ choice is represented by a named field; the parser is the support contract:
 | `per_date_cap` | Prospective new money committed by session-start local date, including earlier sessions. It is not an actual settlement-day loss measurement. |
 | `daily_loss_cap`, `realised_stop` | Optional conservative prospective full-cost bounds, including carried/unknown inventory and the proposed full band reserve. No payout, profit, reward or rebate credit. Unknown settlement is full loss. |
 | `max_sessions`, `last_start_local_date` | Reductions within the qualified source limits; previous counted sessions still count. |
-| Entry UTC windows and `duration_seconds` | Finite half-open windows and bounded duration inside the parser's qualified range. The complete duration must fit before the UTC hard stop. |
+| Entry UTC windows and `duration_seconds` | Finite half-open windows and bounded duration inside the parser's qualified range (300 seconds minimum). The complete duration must fit before the UTC hard stop. |
 | `fill_retires`, `unknown_settlement` | Own band and full loss respectively; the one-band controller ends on a fill. |
 | `sidecar` | Only null/disabled is qualified. Enabling refuses before claim: whole-session interval coverage needs a reviewed adapter release. |
 | `policy_name`, `policy_revision` | Bound into each attempt's receipts, ledger rows, private journal and outcome; economic changes under one name require an increased revision. |
@@ -34,7 +34,7 @@ choice is represented by a named field; the parser is the support contract:
 | `band_limit_session`, `band_limit_concurrent`, `bands_per_event` | One each in this qualified controller, matching `k_max`. Unsupported expansion refuses. |
 | `start_window_toronto`, `trading_end_toronto` | Optional Toronto clock window must match each UTC entry. Full effective duration must fit by the absolute end even at the latest allowed start; incompatible windows refuse, never clip a late session. |
 | `max_sessions_per_day`, `concurrent_sessions` | One each; stable account/date claims and the account guard enforce both. |
-| `max_session_seconds` | Global maximum, combined with each entry's duration and optional fixed end; the effective end is recorded. |
+| `max_session_seconds` | Global maximum within the same qualified duration range, combined with each entry's duration and optional fixed end; the effective end is recorded. |
 | `learning_dates`, `confirmation_dates` | Empty, or an inclusive two-date range. Configured ranges must be disjoint, within qualification, and cover the entry. Receipts label the lane; this grants no scientific confirmation claim. |
 | `capital_mode` | `committed_cost_no_recycling` only. Principal recycling and `fixed_sleeve_redeemed_principal_only` refuse. |
 
@@ -45,6 +45,12 @@ admitted attempt uses its immutable snapshot. Changing campaign ID/revision or
 lowering a count does not reset account history. Enabling/disabling the campaign
 file and actual task are independent owner controls. A disabled task does not
 prove cancellation of an already running session.
+
+The minimum leaves 120 seconds for opening reads before the controller's existing
+180-second pre-POST horizon. The boundary is tested with nonzero opening latency;
+it is not a promise to place through an outage. Unsupported short durations refuse
+at policy parsing and the final preclaim predicate, before any claim or skip is
+written. Full duration must still fit at the actual go time; no late clipping.
 
 ## Claims, proof and recovery
 
