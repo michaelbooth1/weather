@@ -3,6 +3,7 @@ from pathlib import Path
 import uuid
 
 from weather.market.lfc_campaign_guard import account_key, require_account
+from weather.market.lfc_campaign_incidents import EvidenceArtifactError, latch_occurrence, occurrence_closed
 from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new
 from weather.market.mm_stage2_hold import digest
 from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
@@ -84,8 +85,8 @@ class AccountState:
 
     def require_history(self):
         from weather.market.lfc_campaign_history import history_refusals
+        artifact = 'history/identity.json'
         try:
-            refused = history_refusals(self.ledger, self.ledger.path.parent)
             if self.ledger.enrollment is not None:
                 identity = self.read(self.root / 'identity.json')
                 from weather.operations.live_path_security import validate_contained_regular_file
@@ -93,16 +94,19 @@ class AccountState:
                 if not isinstance(originals, dict):
                     raise ValueError('history_manifest')
                 for name, sha in originals.items():
+                    artifact = 'history/' + Path(name).as_posix()
                     if file_sha(validate_contained_regular_file(self.ledger.path.parent,
                             self.ledger.path.parent / name)) != sha:
                         raise ValueError('history_original_changed')
+            artifact = 'history/recovery-proof'
+            refused = history_refusals(self.ledger, self.ledger.path.parent)
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             if self.ledger.enrollment is not None:
-                self.evidence_fault('legacy-history')
+                self.evidence_fault('legacy-history', artifact=artifact)
             raise StateRefused('historical_recovery_evidence_fault') from None
         if refused:
             if self.ledger.enrollment is not None:
-                self.evidence_fault('legacy-history')
+                self.evidence_fault('legacy-history', artifact='history/money-proof')
             raise StateRefused('historical_money_ambiguity_requires_owner_recovery')
 
     def verify(self):
@@ -148,18 +152,9 @@ class AccountState:
                 raise StateRefused('closeout_ledger_continuity')
         return row
 
-    def evidence_fault(self, attempt):
+    def evidence_fault(self, attempt, *, artifact='private-evidence'):
         """Persist a sticky fault even when ordinary verification is now failing."""
-        from weather.market.lfc_campaign_policy import ZONE
-        fault = digest({'attempt': attempt, 'reason': 'private_evidence_fault'})[:32]
-        if any(r['attempt_id'] == fault for r in self.ledger.autostart_incidents):
-            return
-        path = 'incidents/' + fault + '.json'
-        if not (self.root / path).exists():
-            now = self.ledger.clock()
-            self.save(path, {'attempt_id': fault, 'source_attempt_id': attempt, 'reason': 'private_evidence_fault',
-                             'at_utc': now.isoformat(), 'local_date': now.astimezone(ZONE).date().isoformat()})
-        self.ledger.record('autostart_incident', attempt_id=fault, file_sha256=file_sha(self.root / path))
+        return latch_occurrence(self, attempt, 'private_evidence_fault', artifact, self.ledger.clock())
 
     def result_anchor(self, attempt):
         events = [r for r in self.ledger.autostart_results if r['attempt_id'] == attempt]
@@ -169,7 +164,7 @@ class AccountState:
                 raise ValueError('result_not_anchored')
             return self.read(path), events[0]['file_sha256']
         except (OSError, ValueError, RuntimeError):
-            self.evidence_fault(attempt)
+            self.evidence_fault(attempt, artifact='results/' + attempt + '.json')
             raise StateRefused('private_result_evidence_fault') from None
 
     def retained_result(self, claim):
@@ -186,8 +181,8 @@ class AccountState:
             if local.get('complete') is not True or local != result.get('local_money_proof'):
                 raise ValueError('private_evidence_changed')
             return result, sha, local
-        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
-            self.evidence_fault(claim['attempt_id'])
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+            self.evidence_fault(claim['attempt_id'], artifact=getattr(exc, 'artifact', 'private-proof'))
             raise StateRefused('retained_private_evidence_fault') from None
 
     def result_original_hashes(self, result, relative):
@@ -206,9 +201,14 @@ class AccountState:
         if any(hashes.get(name) != sha for name, sha in expected.items()):
             raise ValueError('private_original_hashes_conflict')
         for name, sha in hashes.items():
-            if Path(name).name != name or file_sha(validate_contained_regular_file(self.ledger.path.parent,
-                    self.ledger.path.parent / relative / name)) != sha:
-                raise ValueError('private_original_hash_changed')
+            if Path(name).name != name:
+                raise ValueError('private_original_name')
+            try:
+                if file_sha(validate_contained_regular_file(self.ledger.path.parent,
+                        self.ledger.path.parent / relative / name)) != sha:
+                    raise ValueError('private_original_hash_changed')
+            except (OSError, ValueError, RuntimeError):
+                raise EvidenceArtifactError('private/' + name) from None
         return hashes
 
     def require_retained_evidence(self):
@@ -225,7 +225,7 @@ class AccountState:
                     continue
                 _, sha, local = self.retained_result(claim)
                 if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
-                    self.evidence_fault(claim['attempt_id'])
+                    self.evidence_fault(claim['attempt_id'], artifact='closed/private-proof-binding')
                     raise StateRefused('closed_private_evidence_binding')
 
     def owner_result_binding(self, claim):
@@ -241,8 +241,8 @@ class AccountState:
             binding = owner_originals(self.ledger.path.parent / relative, ledger=self.ledger,
                                       session_id=result['session_id'], attempt_id=claim['attempt_id'], outcome=outcome)
             return {**binding, 'result_sha256': sha}
-        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
-            self.evidence_fault(claim['attempt_id'])
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+            self.evidence_fault(claim['attempt_id'], artifact=getattr(exc, 'artifact', 'owner/private-proof'))
             raise StateRefused('owner_original_evidence_fault') from None
 
     def owner_close_binding(self, claim, proof):
@@ -265,8 +265,10 @@ class AccountState:
                     closure['proof'].get('read_sha256') != digest(closure.get('account_read'))):
                 raise ValueError('owner_closure_binding')
             return binding
+        except StateRefused:
+            raise
         except (OSError, ValueError, KeyError, TypeError, RuntimeError):
-            self.evidence_fault(claim['attempt_id'])
+            self.evidence_fault(claim['attempt_id'], artifact='owner-closure/' + claim['attempt_id'])
             raise StateRefused('owner_closure_evidence_fault') from None
 
     def claims(self):
@@ -291,25 +293,14 @@ class AccountState:
         pending = []
         for path in sorted((self.root / 'incidents').glob('*.json')):
             row = self.read(path)
-            closure = self.root / 'owner-closures' / path.name
-            if not closure.exists():
+            if not occurrence_closed(self, path, row, file_sha(path)):
                 pending.append(row)
-                continue
-            closed = self.read(closure)
-            if closed.get('incident_sha256') != file_sha(path) or closed.get('authority') != 'owner_recovery':
-                raise StateRefused('incident_closure_invalid')
         return pending
 
     def latch(self, attempt, reason, now):
         # Safe reason codes only; never serialize exception messages/credentials.
         self.verify()
-        relative = f'incidents/{attempt}.json'
-        if not (self.root / relative).exists():
-            from weather.market.lfc_campaign_policy import ZONE
-            local_date = now.astimezone(ZONE).date().isoformat()
-            sha = self.save(relative, {'attempt_id': attempt, 'reason': reason, 'at_utc': now.isoformat(),
-                                       'local_date': local_date})
-            self.ledger.record('autostart_incident', attempt_id=attempt, file_sha256=sha, local_date=local_date)
+        return latch_occurrence(self, attempt, reason, 'attempt', now, initial_id=attempt)
 
     def claim(self, entry, policy, now, *, prepared=None):
         require_account(self.maker)

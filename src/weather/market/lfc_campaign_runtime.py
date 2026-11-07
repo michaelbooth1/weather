@@ -150,6 +150,8 @@ class ScheduledAuthority:
         self.runtime.state.require_history()
         self.runtime.state.require_retained_evidence()
         refused = []
+        if self.runtime.state.incidents():
+            refused.append('account_incident_latched')
         if ledger.enrollment is None or ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted:
             refused.append('unresolved_campaign_money')
         if open_orders != []:
@@ -587,7 +589,7 @@ class Runtime:
         ledger = self.reload_ledger()
         retained, result_sha, local = self.state.retained_result(claim)
         if retained != result:
-            self.state.evidence_fault(claim['attempt_id'])
+            self.state.evidence_fault(claim['attempt_id'], artifact='results/postcheck-binding')
             raise StateRefused('private_result_changed')
         if ledger.open_sessions() or ledger.unacknowledged_intents():
             # No adoption and no closing crashed sessions. Only owner recovery

@@ -223,6 +223,12 @@ the resolved identities and fresh account proof. Original failure flags remain
 unchanged. Automatic closeout cannot select this authority or create that receipt;
 later admission still revalidates originals and the owner decision. Missing or
 changed originals cannot be waived, including by a terminal confirmation.
+Each detected fault occurrence binds its source attempt, affected artifact and a
+ledger-backed detection sequence. Repeated observations deduplicate only while
+that occurrence is open. A later loss, including after recovery or reboot, creates
+a new immutable incident and needs its own owner decision. Prior incident and
+closure receipts and consumed dates remain intact; an old closure never clears a
+future occurrence or a different artifact. Final start gates check active incidents.
 
 ## Update when
 

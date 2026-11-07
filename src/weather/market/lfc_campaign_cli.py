@@ -75,6 +75,11 @@ def owner_recover(runtime, incident):
         raise StateRefused('owner_confirmation_refused')
     with runtime.admission():
         ledger = runtime.reload_ledger()
+        if not any(row['attempt_id'] == incident for row in runtime.state.incidents()):
+            raise StateRefused('incident_not_active')
+        if file_sha(path) != receipt_sha:
+            raise StateRefused('incident_confirmation_stale')
+        occurrence = runtime.state.read(path)
         if ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted:
             raise StateRefused('owner_money_repair_required')
         read = runtime.read_account()
@@ -90,9 +95,17 @@ def owner_recover(runtime, incident):
             bindings[claim['attempt_id']] = binding
             pending_proofs.append((claim, {**proof, 'result_sha256': binding['result_sha256'],
                                           'private_evidence_sha256': digest(binding)}))
+        source = occurrence.get('source_attempt_id', incident)
+        if source == 'legacy-history':
+            runtime.state.require_history()
+        for claim in runtime.state.claims():
+            if claim['attempt_id'] == source and source not in bindings:
+                bindings[source] = runtime.state.owner_result_binding(claim)
         closure_file = 'owner-closures/' + incident + '.json'
         closure_sha = runtime.state.save(closure_file, {
             'authority': 'owner_recovery', 'incident_sha256': receipt_sha, 'proof': proof,
+            'incident_id': incident, **{key: occurrence.get(key) for key in
+                                      ('source_attempt_id', 'artifact', 'detection_sequence')},
             'account_read': read, 'bindings': bindings,
             'local_date': runtime.clock.now().astimezone(ZONE).date().isoformat(),
             'closed_at_utc': runtime.clock.now().isoformat()})
@@ -185,6 +198,8 @@ def main(argv=None):
             if args.command == 'check':
                 state.require_history()
                 state.require_retained_evidence()
+                if state.incidents():
+                    raise StateRefused('account_incident_latched')
                 policy = load()
                 if args.require_enabled and not policy.raw['enabled']:
                     raise StateRefused('campaign_disabled')
