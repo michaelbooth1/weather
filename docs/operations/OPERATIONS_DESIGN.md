@@ -537,9 +537,10 @@ its last run on 2026-08-13 under the hold above. `daily_learning` and the
 `data/backtest/daily_learning.json` and
 `data/backtest/market_beating_objective_scoreboard.json` stop refreshing while
 Stage B is held, and `WeatherStalenessSweep` reports both CRITICAL and exits 2
-every day. That staleness is not caused by the Stage-A settled-day barrier,
-whatever the `staleness_sweep.ps1` why-text says; it clears only when Stage B
-runs again (state review 2026-11-01, item 18).
+when their producer holds do not apply. That staleness is not caused by the
+Stage-A settled-day barrier; refreshing requires a producer to run again.
+The sweep retains these findings as KNOWN only under its condition-bound
+holds described below (state review 2026-11-01, item 18).
 
 A stage manifest is a required publication, not optional reporting. Its
 single atomic write includes the Stage-A trigger disposition; any publication
@@ -607,6 +608,19 @@ report is rewritten after every step, its mtime no longer proves completion:
 `staleness_sweep.ps1` (`chain/daily_refresh_report`) reads the Stage-A manifest and
 is OK only for a `COMPLETED` status, falling back to the report (failing on
 `Status: **running**`) only when the manifest is missing or unreadable.
+Completion does not prove success: a contained barrier error can publish
+`COMPLETED` with `payload_status: critical`. The independent
+`chain/settled_day_barrier` check requires a completed payload and an `ok`
+barrier bound to the manifest's valid calendar target with an integer zero
+blocker count. With those checks satisfied, `PASS` is OK and
+`DIAGNOSTIC_ONLY` is WARN: partial settled labels do not block the chain.
+`SKIPPED`, missing, malformed, contradictory or negative barriers remain
+CRITICAL; an in-progress barrier is WARN. It accepts both `ok`
+and `critical` completed payloads: later rollup freshness can make the aggregate
+critical independently of the barrier. A passing barrier does not certify
+aggregate pipeline health or promotion readiness. The completion check
+continues to detect stale or abandoned running manifests. Neither check is
+covered by the held Stage-B learning alarms.
 
 The sweep's `$knownCriticals` table turns a listed CRITICAL into KNOWN (its
 Markdown `## Known` section and JSONL `known_count` only, never the CRITICAL
@@ -619,7 +633,7 @@ Task Scheduler `task_results` last-run snapshot that never reads the event log.
 ### Settlement in the chain: what it does and does not do
 
 The step order is `STEP_REGISTRY` in `src/weather/operations/daily_refresh_registry.py`; Stage A is every step
-through `fleet_observability`, Stage B starts at `promotion_refresh`. Facts that decide settlement evidence:
+through `STAGE_A_END_STEP`, Stage B starts at `promotion_refresh`. Facts that decide settlement evidence:
 
 - **Single shot.** Stage A has one daily 09:30 trigger with `StartWhenAvailable` and no restart or retry setting
   (`register_daily_refresh.ps1`). A run that is refused, deferred or killed is not retried inside its window. The

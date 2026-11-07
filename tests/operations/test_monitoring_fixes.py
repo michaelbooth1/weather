@@ -1,4 +1,7 @@
-"""Exercise monitor helpers against synthetic evidence, never the live host scripts."""
+"""Exercise monitor helpers against synthetic evidence, never the live host scripts.
+
+Guards: Stage-A completion must not hide a failed settlement/promotion verdict.
+"""
 import hashlib
 import json
 import os
@@ -155,6 +158,119 @@ STAGE_A_CASES = {
     "malformed_manifest_running_report": ("malformed", 1, "Status: **running**", 1, "CRITICAL", "report"),
     "missing_both": (None, 0, None, 0, "CRITICAL", "none"),
 }
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", [
+    "pass", "blocked", "skipped", "diagnostic", "critical_payload", "missing_barrier",
+    "diagnostic_critical_payload", "diagnostic_mismatch", "diagnostic_missing_count",
+    "diagnostic_count_contradiction", "diagnostic_negative_count", "diagnostic_error_step",
+    "diagnostic_invalid_target", "diagnostic_boolean_count", "diagnostic_missing_payload",
+    "mismatch", "missing_target", "error_step", "error_manifest", "running",
+    "missing", "malformed", "empty_object", "scalar", "array", "single_element_array", "null_root",
+    "missing_payload", "invalid_target", "null_barrier", "missing_step_status",
+    "missing_count", "negative_count", "count_contradiction", "boolean_count", "string_count",
+    "nested_barrier_array", "status_array", "payload_array", "target_array", "count_array",
+])
+def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path):
+    manifest = dict(
+        status="COMPLETED", payload_status="ok", target_date="2026-10-07",
+        barrier=dict(status="PASS", step_status="ok", target_date="2026-10-07", blocker_count=0),
+    )
+    fixture_case = case
+    if case.startswith("diagnostic_"):
+        manifest["barrier"]["status"] = "DIAGNOSTIC_ONLY"
+        fixture_case = case.removeprefix("diagnostic_")
+    if fixture_case == "blocked":
+        manifest["barrier"].update(status="BLOCK", step_status="error", blocker_count=1)
+        manifest["payload_status"] = "critical"
+    elif fixture_case == "skipped":
+        manifest["barrier"]["status"] = "SKIPPED"
+    elif fixture_case == "diagnostic":
+        manifest["barrier"]["status"] = "DIAGNOSTIC_ONLY"
+    elif fixture_case == "critical_payload":
+        manifest["payload_status"] = "critical"
+    elif case == "missing_barrier":
+        del manifest["barrier"]
+    elif fixture_case == "mismatch":
+        manifest["barrier"]["target_date"] = "2026-10-06"
+    elif case == "missing_target":
+        del manifest["target_date"]
+    elif fixture_case == "error_step":
+        manifest["barrier"]["step_status"] = "error"
+    elif case == "error_manifest":
+        manifest["status"] = "ERROR"
+    elif case == "running":
+        manifest.update(status="RUNNING", payload_status="running")
+    elif case == "empty_object":
+        manifest = {}
+    elif case == "scalar":
+        manifest = "COMPLETED"
+    elif case == "array":
+        manifest = [manifest, manifest]
+    elif case == "single_element_array":
+        manifest = [manifest]
+    elif case == "null_root":
+        manifest = None
+    elif fixture_case == "missing_payload":
+        del manifest["payload_status"]
+    elif fixture_case == "invalid_target":
+        manifest["target_date"] = manifest["barrier"]["target_date"] = "2026-99-99"
+    elif case == "null_barrier":
+        manifest["barrier"] = None
+    elif case == "missing_step_status":
+        del manifest["barrier"]["step_status"]
+    elif fixture_case == "missing_count":
+        del manifest["barrier"]["blocker_count"]
+    elif fixture_case == "negative_count":
+        manifest["barrier"]["blocker_count"] = -1
+    elif fixture_case == "count_contradiction":
+        manifest["barrier"]["blocker_count"] = 1
+    elif fixture_case == "boolean_count":
+        manifest["barrier"]["blocker_count"] = False
+    elif case == "string_count":
+        manifest["barrier"]["blocker_count"] = "0"
+    elif case == "nested_barrier_array":
+        manifest["barrier"] = [manifest["barrier"]]
+    elif case == "status_array":
+        manifest["status"] = [manifest["status"]]
+    elif case == "payload_array":
+        manifest["payload_status"] = [manifest["payload_status"]]
+    elif case == "target_array":
+        manifest["target_date"] = [manifest["target_date"]]
+    elif case == "count_array":
+        manifest["barrier"]["blocker_count"] = [0]
+    if case != "missing":
+        (tmp_path / "stage_a.json").write_text(
+            "{broken" if case == "malformed" else json.dumps(manifest), encoding="utf-8",
+        )
+    result = ps(
+        "staleness_sweep.ps1", ["Get-WeatherStageABarrierFinding"],
+        "Set-StrictMode -Version Latest; "
+        "Get-WeatherStageABarrierFinding -ManifestPath (Join-Path $root 'stage_a.json') | ConvertTo-Json -Compress",
+        tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    finding = json.loads(result.stdout)
+    # A held Stage-B rollup can make the parent critical after a passing barrier.
+    # This check owns the barrier, not that separate aggregate verdict.
+    assert finding["severity"] == {
+        "pass": "OK", "critical_payload": "OK", "running": "WARN",
+        "diagnostic": "WARN", "diagnostic_critical_payload": "WARN",
+    }.get(case, "CRITICAL")
+    if case == "blocked":
+        assert "2026-10-07" in finding["detail"]
+        assert "barrier=BLOCK" in finding["detail"]
+        assert "blockers=1" in finding["detail"]
+
+
+def test_stage_a_barrier_finding_is_wired_to_the_settlement_manifest():
+    source = (ROOT / "scripts/ops/staleness_sweep.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("$stageABarrier = Get-WeatherStageABarrierFinding")
+    end = source.index("# ---- 3. serving artifacts ----", start)
+    call_site = source[start:end]
+    assert r'-ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json")' in call_site
+    assert 'Add-Finding "chain/settled_day_barrier" $stageABarrier.severity $stageABarrier.detail' in call_site
 
 
 @pytest.mark.spawns
@@ -404,7 +520,7 @@ Get-WeatherTaskResults -ConfigPath (Join-Path $root 'tasks.json') -ExtraNames @(
     assert "Get-WinEvent" not in text and "Get-EventLog" not in text
 
 
-def _sweep_report(tmp_path, states, failures=()):
+def _sweep_report(tmp_path, states, failures=(), extra_finding=""):
     """Run the shipped post-pass and report block on synthetic findings; parse it with status.ps1."""
     text = SWEEP.read_text(encoding="utf-8-sig")
     (tmp_path / "block.ps1").write_text(text[text.index("# ---- 12. task last-run snapshot"):], encoding="utf-8")
@@ -419,6 +535,7 @@ Add-Finding 'learning/daily_learning' 'CRITICAL' 'data\\backtest\\daily_learning
 Add-Finding 'learning/market_beating_scoreboard' 'CRITICAL' 'data\\backtest\\market_beating_objective_scoreboard.json is 80.0d old' 'scoreboard why' 80.0 2
 Add-Finding 'docs/unreachable' 'WARN' '1 of 9 unreachable' 'why' $null $null
 Add-Finding 'settlement/latest' 'OK' 'fresh' 'why' 1 2
+{extra_finding}
 $repo=$root; $now=[datetime]'2026-11-10T08:10:00'
 $JsonOut=Join-Path $root 'sweep.jsonl'; $MarkdownOut=Join-Path $root 'sweep.md'
 $ErrorActionPreference='Continue'
@@ -466,6 +583,19 @@ def test_an_unheld_known_critical_stays_critical_and_adds_a_lapsed_row(tmp_path)
     assert any("learning/daily_learning: producer WeatherTrainingWindow is Ready, not Disabled" in f for f in flags)
     assert (record["critical_count"], record["warn_count"], record["known_count"]) == (2, 2, 1)
     assert {f["check"]: f["severity"] for f in record["findings"]}["tasks/task_results"] == "WARN"
+
+
+@pytest.mark.spawns
+def test_held_learning_alarms_do_not_hide_stage_a_failure(tmp_path):
+    result, md, record, flags = _sweep_report(
+        tmp_path, HELD,
+        extra_finding="Add-Finding 'chain/settled_day_barrier' 'CRITICAL' 'barrier=BLOCK' 'barrier why' $null $null",
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert record["known_count"] == 2
+    assert record["critical_count"] == 1
+    assert "| **CRITICAL** | `chain/settled_day_barrier` |" in md
+    assert len(flags) == 1 and "chain/settled_day_barrier" in flags[0]
 
 
 def test_learning_why_texts_name_stage_b_and_carry_no_dates():

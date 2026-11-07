@@ -108,6 +108,59 @@ function Get-WeatherStageAChainFinding {
         detail = ('Stage-A manifest unreadable; report is {0:N1}d old and not a running checkpoint' -f $age) }
 }
 
+function Get-WeatherStageABarrierFinding {
+    # Completion and success are separate contracts: a contained barrier error
+    # publishes COMPLETED with payload_status=critical so learning can continue.
+    param([string]$ManifestPath)
+    function Get-BarrierProperty($Object, [string]$Name) {
+        if ($null -eq $Object) { return $null }
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -ne $property) { return ,$property.Value }
+        return $null
+    }
+    try {
+        $raw = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 -ErrorAction Stop
+        # Pipeline enumeration can unwrap a one-element JSON array on some
+        # PowerShell versions; require an object before deserializing it.
+        if ($raw -isnot [string] -or -not $raw.TrimStart().StartsWith('{')) { throw 'manifest root is not an object' }
+        $manifest = $raw | ConvertFrom-Json -ErrorAction Stop
+        $manifestStatus = Get-BarrierProperty $manifest 'status'
+        if ($manifestStatus -isnot [string] -or -not $manifestStatus) { throw 'manifest status missing or invalid' }
+    } catch {
+        return [pscustomobject]@{ severity = 'CRITICAL'; detail = 'Stage-A barrier unavailable: manifest missing or unreadable' }
+    }
+    if ($manifestStatus -ceq 'RUNNING') {
+        return [pscustomobject]@{ severity = 'WARN'; detail = 'Stage-A barrier pending; see the independent chain completion check' }
+    }
+    $barrier = Get-BarrierProperty $manifest 'barrier'
+    $payloadStatus = Get-BarrierProperty $manifest 'payload_status'
+    $target = Get-BarrierProperty $manifest 'target_date'
+    $barrierTarget = Get-BarrierProperty $barrier 'target_date'
+    $barrierStatus = Get-BarrierProperty $barrier 'status'
+    $barrierStepStatus = Get-BarrierProperty $barrier 'step_status'
+    $blockerCount = Get-BarrierProperty $barrier 'blocker_count'
+    $parsedTarget = [datetime]::MinValue
+    $validTarget = $target -is [string] -and [datetime]::TryParseExact($target, 'yyyy-MM-dd',
+        [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsedTarget)
+    $stringFields = $payloadStatus -is [string] -and $barrierTarget -is [string] -and
+        $barrierStatus -is [string] -and $barrierStepStatus -is [string]
+    $noBlockers = ($blockerCount -is [int] -or $blockerCount -is [long]) -and $blockerCount -eq 0
+    $severity = 'CRITICAL'
+    # Later rollup freshness may mark the parent critical while Stage B is
+    # held. This check owns only the barrier, not the aggregate pipeline.
+    if ($manifestStatus -ceq 'COMPLETED' -and $stringFields -and
+        $payloadStatus -cin @('ok', 'critical') -and
+        $barrierStatus -cin @('PASS', 'DIAGNOSTIC_ONLY') -and $barrierStepStatus -ceq 'ok' -and
+        $validTarget -and $barrierTarget -ceq $target -and $noBlockers) {
+        # Partial settled labels are non-blocking in the chain. Warn only when
+        # the receipt is otherwise valid; malformed diagnostics still fail closed.
+        $severity = if ($barrierStatus -ceq 'PASS') { 'OK' } else { 'WARN' }
+    }
+    $detail = 'Stage-A target {0}: manifest={1}, payload={2}, barrier={3}, barrier target={4}, blockers={5}; inspect data/backtest/settled_day_analysis_barrier.json and daily_refresh_status.json' -f `
+        $target, $manifestStatus, $payloadStatus, $barrierStatus, $barrierTarget, $blockerCount
+    return [pscustomobject]@{ severity = $severity; detail = $detail }
+}
+
 function Get-WeatherRewardCaptureFinding {
     param([string]$Root, [object]$Task, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
     $detail = 'no producer registered (WeatherMakerEvidenceCapture)'
@@ -429,6 +482,10 @@ $stageA = Get-WeatherStageAChainFinding `
 Add-Finding "chain/daily_refresh_report" $stageA.severity $stageA.detail `
     "the chain's own completion record; per-step checkpoints keep the report fresh even when the chain is killed, so only a COMPLETED Stage-A manifest proves the chain completed" `
     $stageA.age_days 1
+$stageABarrier = Get-WeatherStageABarrierFinding `
+    -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json")
+Add-Finding "chain/settled_day_barrier" $stageABarrier.severity $stageABarrier.detail `
+    "COMPLETED proves termination; the settlement barrier must be visible independently of held Stage-B learning alarms. A passing barrier does not certify the aggregate pipeline or promotion readiness" $null $null
 
 # ---- 3. serving artifacts ----
 # Not a bug on its own -- but an artifact serving a season it never trained on is (see 4b/2).
