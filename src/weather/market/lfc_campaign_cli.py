@@ -30,6 +30,9 @@ def parser():
     seal = commands.add_parser('seal', help='owner registrar only, after qualification and frozen F0')
     for key in ('campaign', 'release', 'pregate', 'head', 'python'):
         seal.add_argument('--' + key, required=True)
+    history = commands.add_parser('owner-recover-history', help='owner-only explicit pre-enrollment money recovery')
+    history.add_argument('--head', required=True)
+    history.add_argument('--session', required=True)
     for command in ('check', 'tick', 'owner-recover', 'owner-clear-workload'):
         item = commands.add_parser(command)
         item.add_argument('--release', required=True)
@@ -89,8 +92,70 @@ def owner_recover(runtime, incident):
     return 0
 
 
+def owner_recover_history(args):
+    """Conditional owner repair, never part of registration or scheduled ticks.
+
+    Runs only GET account proof under full exclusion; it never adopts/cancels or
+    edits failed evidence. Missing/ambiguous identities require an earlier owner
+    repair. The explicit closure is permanently tied to that original history.
+    """
+    from weather.market.lfc_campaign_history import history_refusals, record_owner_recovery
+    from weather.market.lfc_campaign_policy import EARLIEST
+    from weather.market.lfc_campaign_release import git_identity
+    from weather.market.lfc_campaign_guard import ExclusiveWorkload, OwnedHold, HOLD_PATH
+    from weather.market.lfc_campaign_workload import WorkloadMarker
+    from weather.market.lfc_campaign_runtime import CampaignClock, Runtime
+    from weather.market.lfc_recording_io import write_new
+    from weather.execution_host import require_current_portable_execution_assignment
+    from weather.paths import REPO_ROOT
+    if not sys.stdin.isatty():
+        raise StateRefused('owner_terminal_required')
+    clock = CampaignClock()
+    if clock.now() < EARLIEST or git_identity(REPO_ROOT) != args.head:
+        raise StateRefused('owner_history_qualified_post_F0_required')
+    require_current_portable_execution_assignment()
+    root = pilot_root()
+    ledger = Ledger.open(ledger_path(root), clock=clock.now)
+    with account_lease(ledger.rows[0]['maker_address']):
+        state = AccountState(DEFAULT_STATE_ROOT, ledger)
+        issue = history_refusals(ledger, root).get(args.session)
+        if issue is None:
+            raise StateRefused('historical_incident_missing')
+        phrase = 'recover legacy ' + issue[:12]
+        print('Owner only: review the original ambiguous session and containment. Type: ' + phrase)
+        if input().strip() != phrase:
+            raise StateRefused('owner_confirmation_refused')
+        if HOLD_PATH.exists():
+            raise AdmissionBusy('hold_already_owned')
+        with ExclusiveWorkload(state.maker) as lease:
+            hold = OwnedHold(HOLD_PATH)
+            marker = WorkloadMarker(poison_root=lease.poison_root, maker=state.maker,
+                                    state_id=ledger.row_sha256(0))
+            hold.acquire()
+            try:
+                marker.acquire(hold_sha256=hold.sha256, hold_owner=hold.identity)
+                runtime = Runtime(state=state, pilot_root=root, policy_path=root / 'campaign.json', release={}, clock=clock,
+                                  control_root=CONTROL_ROOT, task_enabled=lambda: False)
+                read = runtime.account_read_once()
+                proof = runtime.core_proof(ledger, read)
+                record_owner_recovery(ledger, root, args.session, account_read=read, proof=proof,
+                                      now=clock.now(), containment_proven=True)
+            except BaseException as exc:
+                write_new(root / 'history-recovery-failures' / (uuid.uuid4().hex + '.json'), {
+                    'at_utc': clock.now().isoformat(), 'session_id': args.session,
+                    'original_evidence_sha256': issue, 'exception_type': type(exc).__name__})
+                raise
+            finally:
+                if marker.sha256 is not None:
+                    marker.release(contained=True)  # This GET-only path launches no child process.
+                hold.release(contained=True)
+    return 0
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.command == 'owner-recover-history':
+        return owner_recover_history(args)
     if args.command == 'seal':
         seal_release(campaign_path=args.campaign, pregate_path=args.pregate, qualified_head=args.head,
                      python_path=args.python, output=args.release)
@@ -106,6 +171,7 @@ def main(argv=None):
             root, state = bound_state(release, clock)
             load = lambda: load_policy(release['campaign_path'])
             if args.command == 'check':
+                state.require_history()
                 policy = load()
                 if args.require_enabled and not policy.raw['enabled']:
                     raise StateRefused('campaign_disabled')

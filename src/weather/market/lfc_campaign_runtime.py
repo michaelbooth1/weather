@@ -147,6 +147,7 @@ class ScheduledAuthority:
 
     def start_gates(self, *, ledger, now, maker_address, open_orders, positions, **_):
         self.check(starting=True)
+        self.runtime.state.require_history()
         refused = []
         if ledger.enrollment is None or ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted:
             refused.append('unresolved_campaign_money')
@@ -431,6 +432,7 @@ class Runtime:
             raise OwnerStopRequested('owner_stop')
         resources = workstation_headroom()
         ledger = self.reload_ledger()
+        self.state.require_history()
         if ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted or self.state.incidents():
             raise MoneyContradiction('prior_money_unresolved')
         if ledger.counted_sessions() >= policy.terms['max_sessions']:

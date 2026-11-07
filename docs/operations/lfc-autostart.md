@@ -92,6 +92,19 @@ manual/F0 gates keep their historical protocol.
 
 ## Availability and containment
 
+Enrollment and every new admission inspect legacy/F0 monetary history. A lost
+acknowledgement, adoption, crash closure or retained unknown-submit flag requires
+explicit owner recovery even when ordinary reconciliation now lists no orders.
+Only the exact intentional S0 exercises named by the existing valid owner
+attestation use that qualification contract. Reconcile never clears ambiguity.
+If this gate refuses, the owner reviews and repairs the original identities and
+containment, then runs `weather.market.lfc_campaign_cli owner-recover-history
+--head <qualified-sha> --session <original-session-id>` in the qualified pin's
+interpreter after frozen F0. This terminal-confirmed, GET-only operation takes
+account/all-slot exclusion, proves current quantities and no resting orders,
+and appends a hash-bound recovery without changing failed flags or used dates.
+It neither registers nor enables a task. Missing recovery evidence refuses.
+
 One coordinator thread owns the account guard, exclusive workload barrier,
 legacy heavy slot and all newer compatibility slots through cleanup and owned
 sidecar teardown. It refuses abandoned/poisoned ownership without recovery.

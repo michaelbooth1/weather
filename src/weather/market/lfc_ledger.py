@@ -57,7 +57,7 @@ POSITIONS_STATUSES = ('OPEN', 'REDEEMABLE_LOST')
 POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filter_amount': '0', 'sort_by': 'TOKENS',
                      'sort_direction': 'DESC'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
-           'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident'}
+           'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'owner_history_recovery'}
 
 
 class LedgerUnavailable(RuntimeError):
@@ -161,6 +161,7 @@ class Ledger:
                 ok = (canonical_bytes(row) == line and row_version >= version and
                       (row['event'] != 'leg_adopt' or row_version >= 1) and
                       (row['event'] != 'autostart_enroll' or row_version == 2) and
+                      (row['event'] != 'owner_history_recovery' or row_version == 2) and
                       row['kind'] == 'lfc_ledger' and row['sequence'] == index and
                       row['previous_sha256'] == previous and row['event'] in _EVENTS and
                       (last is None or when >= last) and (index == 0) == (row['event'] == 'genesis'))
@@ -176,14 +177,20 @@ class Ledger:
     def _replay(self):
         self.legs, self.by_order, self.sessions, self.baselines = {}, {}, {}, []
         self.enrollment = None
-        self.autostart_claims, self.autostart_incidents = [], []
+        self.autostart_claims, self.autostart_incidents, self.history_recoveries = [], [], []
         self.halted, self.mismatches = False, []
         for row in self.rows:
             self._apply(row)
 
     def _apply(self, row):
         event = row['event']
-        if event == 'autostart_enroll':
+        if event == 'owner_history_recovery':
+            if (row.get('session_id') not in self.sessions or self.sessions[row['session_id']]['end'] is None or
+                    not all(isinstance(row.get(k), str) and row[k] for k in
+                            ('original_evidence_sha256', 'file', 'file_sha256'))):
+                raise LedgerUnavailable('ledger_history_recovery_scope')
+            self.history_recoveries.append(row)
+        elif event == 'autostart_enroll':
             if self.enrollment is not None or self.open_sessions() or self.unresolved_legs():
                 raise LedgerUnavailable('ledger_enrollment_scope')
             if not all(isinstance(row.get(k), str) and row[k] for k in ('state_id', 'identity_sha256', 'state_root')):
@@ -309,7 +316,7 @@ class Ledger:
         fields = {**getattr(self, 'policy_metadata', {}), **fields}
         if event not in _EVENTS or event == 'genesis':
             raise LedgerUnavailable('ledger_event_unknown')
-        if self.enrollment is not None or event == 'autostart_enroll':
+        if self.enrollment is not None or self.history_recoveries or event in {'autostart_enroll', 'owner_history_recovery'}:
             from weather.market.lfc_campaign_guard import require_account
             require_account(self.rows[0]['maker_address'])
         # Refuse to append on top of bytes this process did not verify (another writer or an edit).
@@ -327,7 +334,7 @@ class Ledger:
         if not unchanged:
             raise LedgerUnavailable('ledger_changed_underneath')
         row = self._row(len(self.rows), self.previous, self.clock, event, fields)
-        if self.enrollment is not None or event == 'autostart_enroll':
+        if self.enrollment is not None or self.history_recoveries or event in {'autostart_enroll', 'owner_history_recovery'}:
             row['schema_version'] = 'lfc_ledger_v0.3'
         if utc(row['recorded_at_utc']) < utc(self.rows[-1]['recorded_at_utc']):
             raise LedgerUnavailable('ledger_clock_regressed')

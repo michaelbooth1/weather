@@ -68,6 +68,7 @@ class AccountState:
             raise StateRefused('already_or_partially_enrolled')
         if self.ledger.open_sessions() or self.ledger.unresolved_legs() or self.ledger.halted:
             raise StateRefused('enrollment_unresolved_money')
+        self.require_history()
         self.root.mkdir(parents=True, exist_ok=False)
         validate_nonreparse_directory(self.root.absolute())
         row = {'account': str(self.maker).lower(), 'genesis_sha256': self.ledger.row_sha256(0),
@@ -77,6 +78,15 @@ class AccountState:
         self.ledger.record('autostart_enroll', state_id=row['state_id'], identity_sha256=sha,
                            state_root=str(self.root.resolve()), protocol='lfc_autostart_v1')
         return sha
+
+    def require_history(self):
+        from weather.market.lfc_campaign_history import history_refusals
+        try:
+            refused = history_refusals(self.ledger, self.ledger.path.parent)
+        except (OSError, ValueError, RuntimeError):
+            raise StateRefused('historical_recovery_evidence_fault') from None
+        if refused:
+            raise StateRefused('historical_money_ambiguity_requires_owner_recovery')
 
     def verify(self):
         validate_nonreparse_directory(self.root.absolute())
@@ -164,6 +174,7 @@ class AccountState:
     def claim(self, entry, policy, now, *, prepared=None):
         require_account(self.maker)
         self.verify()
+        self.require_history()
         self.policy_binding = policy.labels(entry.local_date)
         if self.incidents():
             raise StateRefused('account_incident_latched')
