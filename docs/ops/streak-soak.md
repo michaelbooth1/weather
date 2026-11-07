@@ -388,7 +388,14 @@ producers prove they have re-adopted the previous code. Failure to prove
 rollback adoption is recorded separately as `rollback_recovery_failed`; it is never reported
 as a completed rollback. It refuses to run outside 01:00–04:00
 without `-Force`, never inside 12:00–18:00, and never during the protected 18:00–00:30
-near-close window. `-ExpectedTip` is optional for interactive use but required operationally
+near-close window. **Effective start window is 00:30–09:00 for every branch it merges (trap,
+master 2026-11-07).** The wrapper takes the shared heavy lease as workload `quiet_window_merge`
+without the Stage-A switch, and `workload_admission.ps1` admits that only 00:30–09:00
+("heavy workload ... is outside the 00:30-09:00 window"), so after 09:00 it refuses before any
+verdict or merge. The script header's "a ROLL-FREE branch may run 00:30-12:00" is wrong: a
+ROLL-FREE branch that is not docs-only lands 00:30–09:00, and only a docs-only branch gets
+00:30–12:00, through the docs light path below. The same gap was flagged in the 2026-10-05
+landing-backlog review and not carried into this runbook. `-ExpectedTip` is optional for interactive use but required operationally
 for a scheduled or already-reviewed merge: the script aborts before any automatic commit if
 the named branch no longer resolves to that exact full SHA, and merges the immutable commit
 object rather than the movable branch ref. The outcome lands in
