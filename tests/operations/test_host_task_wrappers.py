@@ -18,7 +18,14 @@ def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
     }
 
     assert scheduled_registrars
+    # T026 M01 and scripts/ops/AGENTS.md explicitly authorize this owner-only
+    # Interactive/Limited XML lane. Its actual generated principal/settings,
+    # including rejection of S4U, execute in test_lfc_campaign_task.py.
+    owner_xml_registrar = ROOT / "scripts" / "ops" / "register_lfc_campaign_task.ps1"
+    assert owner_xml_registrar in scheduled_registrars
     for path, text in scheduled_registrars.items():
+        if path == owner_xml_registrar:
+            continue
         assert "$principal = New-ScheduledTaskPrincipal" in text
         assert "-UserId $env:USERNAME" in text
         assert "-LogonType S4U" in text
