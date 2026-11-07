@@ -141,19 +141,42 @@ def test_native_mutex_domains_refuse_overlapping_compatibility_slots(tmp_path, s
 
 @pytest.mark.skipif(os.name != 'nt', reason='native Windows abandoned mutex contract')
 def test_native_abandoned_mutex_is_refused_without_recovery():
+    from ctypes import wintypes
     from weather.market.lfc_campaign_guard import AdmissionUncertain, WindowsMutexes
     backend = WindowsMutexes()
     name = 'Local\\CodexLFCFixture.' + uuid.uuid4().hex
     handles = []
-    thread = threading.Thread(target=lambda: handles.append(backend.acquire(name)))
+    ready, leave = threading.Event(), threading.Event()
+    def hold_until_native_handle_opened():
+        try:
+            handles.append(backend.acquire(name))
+        finally:
+            ready.set()
+        leave.wait(10)
+    thread = threading.Thread(target=hold_until_native_handle_opened)
     thread.start()
-    thread.join(10)
-    assert not thread.is_alive() and len(handles) == 1
+    native_thread = None
     try:
+        assert ready.wait(10) and len(handles) == 1
+        backend.api.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        backend.api.OpenThread.restype = wintypes.HANDLE
+        native_thread = backend.api.OpenThread(0x00100000, False, thread.native_id)  # SYNCHRONIZE only
+        assert native_thread
+        leave.set()
+        # Python join can finish before Windows signals native thread death;
+        # only native termination proves that this mutex has been abandoned.
+        assert backend.api.WaitForSingleObject(native_thread, 10000) == 0
+        thread.join(10)
+        assert not thread.is_alive()
         with pytest.raises(AdmissionUncertain, match='abandoned'):
             backend.acquire(name)
     finally:
-        backend.api.CloseHandle(handles[0])
+        leave.set()
+        thread.join(10)
+        if native_thread:
+            backend.api.CloseHandle(native_thread)
+        for handle in handles:
+            backend.api.CloseHandle(handle)
 
 
 @pytest.mark.spawns

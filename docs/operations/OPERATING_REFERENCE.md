@@ -75,6 +75,7 @@ Active means maintained, not enabled. Owner holds and one-shot receipts still go
 | WeatherIntegrationRecoveryBootstrapMerge0822 | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherIntegrationRecoveryBootstrapSuite0822 | one-shot | True | Host-local; XML not in repository | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherIntegrationSuite_* | one-shot | False | scripts/ops/register_integration_attempt.ps1 | docs/operations/OPERATIONS_DESIGN.md |
+| WeatherLFCCampaign | active | False | scripts/ops/register_lfc_campaign_task.ps1 | docs/operations/lfc-autostart.md |
 | WeatherLocationConfigRefresh | active | False | scripts/ops/register_location_config_refresh.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherMakerEvidenceCapture | active | False | scripts/ops/register_maker_evidence_capture.ps1 | docs/operations/OPERATIONS_DESIGN.md |
 | WeatherManualOrderJournal | active | False | scripts/ops/register_manual_order_journal.ps1 | docs/operations/manual-order-journal.md |

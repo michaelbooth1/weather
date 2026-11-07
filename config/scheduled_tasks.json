@@ -182,6 +182,15 @@
       "registration_evidence": "repository registrar; host action and enablement unverified"
     },
     {
+      "name": "WeatherLFCCampaign",
+      "owner": "docs/operations/lfc-autostart.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_lfc_campaign_task.ps1",
+      "registration_evidence": "owner-only Interactive/Limited registrar on the assigned non-capture workstation; initial registration is disabled until owner enablement; host registration and activation unverified, not authorized by this inventory"
+    },
+    {
       "name": "WeatherLocationConfigRefresh",
       "owner": "docs/operations/OPERATIONS_DESIGN.md",
       "state": "active",
