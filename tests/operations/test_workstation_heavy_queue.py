@@ -395,11 +395,12 @@ def test_a_dead_owners_pending_teardown_still_fails_closed_in_the_queue(workstat
         timeout=120,
     )
     assert result.returncode == 1
-    assert "teardown is pending; a proved reboot and explicit poison recovery are required" in result.stderr
+    reason = "teardown is pending; a proved reboot and explicit poison recovery are required"
+    assert reason in " ".join(result.stderr.split())
     assert not sentinel.exists()
     events = _events(repo)
     assert [e["event"] for e in events] == ["enqueue", "error"]
-    assert "teardown is pending" in events[1]["message"]
+    assert reason in events[1]["message"]
     assert _queue_tickets(repo) == []
 
 
