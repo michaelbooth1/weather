@@ -249,9 +249,26 @@ class Coverage:
 
     def snapshot(self):
         with self.lock:
+            now = time.monotonic_ns()
+            def recent(received, limit):
+                return bool(received and 0 <= (now - received["receipt_monotonic_ns"]) / 1e9 <= limit)
             tokens = {t: dict(state) for t, state in self.tokens.items()}
             events = {e: dict(state) for e, state in self.events.items()}
-            ready = bool(tokens) and all(e["discovered"] and e["f0_discovery_agrees"] for e in events.values())
+            # Health also runs while the main reconciliation loop is in a shared
+            # cooldown. Derive current ages without mutating/journaling here.
+            for state in tokens.values():
+                state["rest_observation_fresh"] = recent(state["last_rest"], self.max_age)
+                sample = state.get("source_observed_at")
+                if sample:
+                    elapsed = (now - sample["receipt_monotonic_ns"]) / 1e9
+                    age = state["source_age_at_observation"] + elapsed
+                    state["source_age_seconds"] = age
+                    state["baseline_usable"] = bool(state["baseline_usable"] and elapsed >= 0 and
+                                                   -self.max_delay <= age <= self.max_age)
+            for event in events.values():
+                event["metadata_observation_fresh"] = recent(event.get("metadata_received"), self.metadata_seconds * 1.1)
+            ready = bool(tokens) and all(e["discovered"] and e["f0_discovery_agrees"] and
+                                         e["metadata_observation_fresh"] for e in events.values())
             observed_ready = ready and all(s["baseline_taken_at"] is not None and s["rest_observation_fresh"] for s in tokens.values())
             blocking = {"book_invalid", "book_response_scope", "book_baseline_missing", "event_discovery_pending",
                         "event_membership_missing", "event_metadata_stale", "f0_discovery_mismatch", "capacity_infeasible"}

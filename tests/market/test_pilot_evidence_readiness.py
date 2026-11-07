@@ -98,6 +98,24 @@ def test_readiness_proves_all_four_events_and_eight_tokens_with_receipt_times(tm
     assert receipt["coverage_ready"] and receipt["accuracy_qualified"] is False
 
 
+def test_health_freshness_expires_even_when_reconciliation_is_in_cooldown(tmp_path, monkeypatch):
+    capture, store, _ = fixture_capture(tmp_path)
+    assert capture.readiness() == "readiness_complete"
+    now = [time.monotonic_ns()]
+    monkeypatch.setattr("weather.market.pilot_evidence_coverage.time",
+                        SimpleNamespace(monotonic_ns=lambda: now[0]))
+    assert capture.snapshot()["ready_for_capture"]
+    now[0] += 31_000_000_000
+    health = capture.snapshot()
+    assert not health["ready_for_capture"] and not health["source_freshness_ready"]
+    assert all(not row["rest_observation_fresh"] for row in health["tokens"].values())
+    assert all(row["metadata_observation_fresh"] for row in health["events"].values())
+    assert all(row["rest_observation_fresh"] for row in capture.coverage.tokens.values())
+    now[0] += 200_000_000_000
+    assert all(not row["metadata_observation_fresh"] for row in capture.snapshot()["events"].values())
+    store.close("fixture")
+
+
 @pytest.mark.parametrize("fault", [None, "event", "token", "stale", "stale_rest", "stopped", "f0", "checksum"])
 def test_readiness_reuses_fresh_checksummed_capture_without_second_rest_budget(tmp_path, fault):
     capture, producer, _ = fixture_capture(tmp_path)
