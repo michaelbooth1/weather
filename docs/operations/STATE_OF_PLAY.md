@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-11-06 America/Toronto (night 11-05/06: 343b and C10 LANDED, origin/master `4f01448e6`, torn-journal Stage 2 registered (master); owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
+**Last updated: 2026-11-06 America/Toronto (owner 11-06 ~13:07: maker pilot session 1 targeted MON 11-09, budget $300, top priority; night 11-05/06: 343b and C10 LANDED, origin/master `4f01448e6`, torn-journal Stage 2 registered (master); owner 11-05: project ends if no edge by end of year; edge = simulated fair-trial profit, market making reopened; full plan approved, edge trial charter and B-1 Clarification 8 (master); night 11-04/05: combo C, item 340s and combo Ds LANDED, origin/master `cb6678f35`; R1+R2 24 h receipt COMPLETE (built-ins unchanged); 343b in progress on the WS; E1 DON'T ADD, 4b B-arm CLOSED, κ-unit method rule 20 (master 11-04); train/serve null-temperature mismatch and climatology defects recorded, EF §10ay/§10az; R21 erratum-1 cited, verdict unchanged; owner 11-04 decisions unchanged).**
 Read this first. Then [the findings digest](FINDINGS_DIGEST.md) before any research or economics work.
 
 > **REWRITTEN, never appended; at most 95 lines; detail in the linked owner.** Live readings: `status.ps1` (flags age > 3 days), `Get-Volume`.
@@ -17,8 +17,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 
 ## Headline
 
-- **Free public data looks already priced:** every free source scored on dev is null or harmful ([register](EXHAUSTION_REGISTER.md) §6 X44-X103).
-- **The model adds nothing against the market yet:** MG-1 w ≈ 0.008 (EF §10ad); gap about 1.5 out of sample (EF §10ao); no strong lever left.
+- **Free public data looks already priced:** every free source scored on dev is null or harmful ([register](EXHAUSTION_REGISTER.md) §6 X44-X103). **The model adds nothing against the market yet:** MG-1 w ≈ 0.008 (EF §10ad); gap about 1.5 out of sample (EF §10ao); no strong lever left.
 
 ## Current authority
 
@@ -64,13 +63,14 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 - **After-B list** (after 12-13 and an MG-2 export byte-identity check; PT-1's record = the R21 receipt, so it waits only for B's release record, C11 in [config inventory](config-inventory.md)): fix 10 (high_so_far parity; defect measured, 53.8% of dev 00-12), fix 11 (no SPECI in the floor from 10-23), `claude/ops-freshness-utc-mg2-after-b` @ `3957b9728`.
 - **Windows Update (owner 11-01, DL):** host pause to 12-02T12:00Z stays, no patch night; master brings a notify-only / no-auto-restart option before 12-02 if it cannot be extended. **WS pause EXPIRED 10-30T13:58:48Z** (not covering 12-13); owner decides in the WS chat.
 - **WS forward recorders:** ENS, GEM and IEM MOS logon tasks plus the 15-min keepalive (owner yes 10-30). All 10 died at once 11-01 22:06-22:08Z under one dead parent (cause unverified, EF §10av); L34 [live-parent design](../research/recorder-live-parent-design-2026-11-01/design.md).
-- **Exchange economics refresh:** failed daily since at least 10-08; rc 0 11-01 06:50, accepted snapshot and barrier unverified; fix before any maker work ([runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
+- **Exchange economics (master 11-06, DL):** the policy gate is SATISFIED for LFC, which reads fees and rewards live. Drift 11-05 PASS; the accepted baseline `xecon-c485b4bc` (09-26) is unchanged. The refresh failure (daily since at least 10-08) and the rc 2 barrier stay with production, due before T1 scoring (look 1 ~11-20) ([runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)).
 - **No forecast_history / open_meteo_archives / reanalysis cache rebuild until `a399941e` lands (after 12-21)** (master).
 - **More markets** (owner 10-23; R1+R2, master D1-7, DL 11-01): roll-free config revert if capture < 10/10, RAM < 3.5 GB 3 ticks, commit >= 70%, rising 88a 429s/errors or abnormal partitions. **R1+R2 24 h receipt 11-05** ([plan](DATA_LAYER_V2_PLAN.md) *S2+S9 24 h receipt*): pilot REST, 0 429s, MB/city-day, 88a RSS PASS; core total NOT MET under legacy cadence (0.4 applies after `event_driven`); 12 built-ins' selection UNCHANGED (check 11-05). Receipt COMPLETE.
   **91a nightly** policy `eca4064a…` (expires 11-27). **Maker shadow ACTIVE** (paper; `data\maker_shadow\STOP`). **88a hold:** UTC 09-27..10-30.
 
 ## Ordered critical path
 
+0. **Maker pilot (LFC) session 1, MON 2026-11-09** (owner 11-06 ~13:07, DL; supersedes the 10-30 postponement): budget $300 grown by breadth (more bands and markets, size unchanged; owner ~13:1x, DL), needs both money yeses, a new pin, pregate PASS, signed Clarification F and the t24 baseline; gap list with master. Session 1 runs LFC F0 `f531395522d0b0a37495185b2750164008fe586a` (pin `124603578` + 4 commits for the Data API v2 move; workstation pregate PASS 11-06) under the 10-26 terms, once the owner re-yeses in both chats naming that sha and the dust deviation (DL 11-06); F2 (K bands, cap split) targets 11-13..16. Research readers drop every pilot-touched market-date; for session 1, only the LFC analysis lane may read the venue's resolved winner for its TOR/DEN market-dates (master 11-06, DL).
 1. **Rule B-1 bound 10-28**; MG-2 accrues from D0 10-29, inputs received daily; no look before 12-13.
 2. **T+1:** owner-approved WS daily task 'L3 T+1 forward daily emit' (reg. 11-01, `C:\t\t1_emit\forward`, emitter `5d348b75…` @ `6d96d9dab`); prereg freeze awaits P1-P3 receipts. Row 72 and F8-MH accrue blind; L6_G emitting (first emission vectors d1e09134, runs.jsonl 6842d139).
 3. **MG-1 look after 11-28**, then B 12-13; **PT-1 NOT RUNNABLE** (R21, rules 4/6; claims no date; [receipt](../research/pt1-not-runnable-2026-11-03/receipt.md), [erratum-1](../research/pt1-not-runnable-2026-11-03/erratum-1.md) `c29eee7a…`, verdict unchanged); F8-MH >= 01-27.
@@ -84,7 +84,7 @@ trying. I want to keep trying smartly." **Iterate fast** (owner 10-30, DL): kill
 | Look-chain clarification (MG-2 score, B look, per-date extraction) | master | before 11-29 | docs landing |
 | Evening-fix Stage 2: gap read after the MG-1 look receipt (Clarification 1 s5); H2 then needs a market-arm replay (owner question) | master + WS | after 11-28 | MG-1 look receipt; Stage 2 receipt |
 | F8-MH: forward layout with venue-rule labels; `f8_mh` allowlist admission | WS L16 | before 01-26 | run-branch receipt |
-| Economics refresh and rc 2 barrier fixed | production | before maker work | accepted snapshot |
+| Economics refresh-failure cause and rc 2 barrier fixed (LFC policy gate satisfied, master 11-06) | production (master) | before T1 scoring (look 1 ~11-20) | accepted snapshot; barrier receipt |
 | Host hardening: Ethernet (host on Wi-Fi; owner 11-02 "Ethernet cord is coming"); Wi-Fi stays connected with it (DL 11-02) | owner | OPEN until the cable is in | Get-NetAdapter Up |
 | Torn-journal Stage 2 REGISTERED 11-06 03:02 (`\WeatherMakerEvidenceTornQuarantine`, readback exact; DL 11-06); first boot run pending | master | next host startup | quarantine receipt |
 | Venue-rule labels for forward looks (R24): host refresh + counts-only audit Mondays; freeze each look morning | master (host); WS module | first run DONE 11-03 (rc 0, runbook receipt); Mondays; module on master by 11-20 | loop-plan manifest shas; look-log freeze shas |
