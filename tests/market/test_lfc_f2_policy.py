@@ -95,3 +95,19 @@ def test_malformed_or_noncanonical_market_list_is_an_explicit_refusal(markets):
     row['market_ids'] = markets
     with pytest.raises(ValueError, match='unsupported_market_ids'):
         parse_policy(row)
+
+
+@pytest.mark.parametrize('window,seconds', [(['18:50:00', '19:15:00'], 300),
+                                          (['17:30:00', '17:51:00'], 3600)])
+def test_unsupported_UTC_window_refuses_before_any_date_can_be_consumed(window, seconds):
+    row = example_policy()
+    row.update(start_window_toronto=window, trading_end_toronto='20:00:00', max_session_seconds=seconds)
+    with pytest.raises(ValueError, match='unsupported_utc_session_boundary'):
+        parse_policy(row)
+
+
+def test_latest_start_can_end_exactly_at_the_existing_UTC_cutoff():
+    row = example_policy()
+    row.update(start_window_toronto=['18:30:00', '18:45:00'], trading_end_toronto='20:00:00', max_session_seconds=300)
+    entry = parse_policy(row).entries[0]
+    assert entry.permits(entry.start) and entry.permits(entry.end - timedelta(microseconds=1))

@@ -6,6 +6,7 @@ Unsupported field values refuse; there are no implicit economic defaults.
 """
 from datetime import date, datetime, timedelta, timezone
 
+from weather.market import lfc_constants as C
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_campaign_policy import (Campaign, Entry, EARLIEST, ID, MIN_SESSION_SECONDS,
                                                PolicyRefused, ZONE, exact_keys, wall_time)
@@ -163,6 +164,12 @@ def parse_f2(row):
             fixed = datetime.combine(day, stop, ZONE).astimezone(timezone.utc)
             if (end - start).total_seconds() > 7200 or (fixed - end).total_seconds() < MIN_SESSION_SECONDS:
                 refuse('entry_window_or_duration')
+            # Every advertised start must fit the controller's existing UTC
+            # day/cutoff contract. Refuse here, before tick can claim or skip a
+            # date merely because an early segment of its window cannot run.
+            latest_end = min(end + timedelta(seconds=seconds), fixed)
+            if latest_end > datetime.combine(start.date(), C.HARD_STOP_UTC, tzinfo=timezone.utc):
+                refuse('unsupported_utc_session_boundary')
             # Monday retains its separately pinned F0 authority and terms.
             if start >= EARLIEST:
                 entries.append(Entry('f2-' + day.isoformat(), day.isoformat(), start, end, seconds, fixed, True))
@@ -196,6 +203,7 @@ def support_table():
             'leg_price_range': ['.17', '.80'], 'share_many_range': ['.15', '.70'],
             'per_order_cap_pusd_max': '15.80', 'per_band_cap_pusd_max': '19.60',
             'duration_seconds': [MIN_SESSION_SECONDS, 21600], 'late_start_shortens_fixed_end': True,
+            'latest_session_end_utc': C.HARD_STOP_UTC.isoformat(), 'utc_date_crossing': False,
             'last_entry_date': '2026-12-22', 'transition_has_no_entry': True,
             'funding_native_max': 300000000, 'native_decimals': 6,
             'legacy_ledger_bridge_required': True, 'revisions_apply_to_next_unclaimed_entry': True}

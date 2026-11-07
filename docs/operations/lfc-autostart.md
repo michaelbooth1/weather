@@ -90,6 +90,11 @@ unattributed cash is quarantined; an unexplained debit refuses another post.
 A later known payout appends a scoped resolution, retaining its original unknown
 read. Unknown outgoing costs refuse admission.
 
+Every start in a supported clock window must fit before the existing 23:50 UTC
+cutoff within one UTC date. Otherwise policy parsing refuses before any date can
+be claimed or skipped. Market-local horizon pulls remain independent of this
+UTC evidence boundary, including Denver midnight inside a supported session.
+
 The bridge checks bounded activity, account fills and exact inventory against
 the original baseline. It verifies Polygon identity and the collateral's actual
 decimals, then matches retained ERC-20 receipts to native wallet flows. Data API
