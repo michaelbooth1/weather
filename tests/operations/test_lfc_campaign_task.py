@@ -70,7 +70,9 @@ $enabled=Assert-LfcCampaignTaskXml -Actual $enabledXml -Expected $xml
     assert root.findtext('.//t:WakeToRun', namespaces=ns) == 'false'
     assert root.findtext('.//t:AllowStartOnDemand', namespaces=ns) == 'false'
     assert root.findtext('.//t:MultipleInstancesPolicy', namespaces=ns) == 'IgnoreNew'
-    assert root.findtext('.//t:EndBoundary', namespaces=ns) == '2026-11-25T00:00:00Z'
+    assert root.findtext('.//t:StartBoundary', namespaces=ns) == '2026-11-10T00:00:00'
+    assert root.findtext('.//t:EndBoundary', namespaces=ns) == '2026-11-25T00:00:00'
+    assert root.find('.//t:TimeTrigger', ns) is not None and root.find('.//t:CalendarTrigger', ns) is None
 
 
 @pytest.mark.spawns

@@ -31,11 +31,13 @@ function New-LfcCampaignTaskXml {
     $arguments=ConvertTo-LfcTaskArguments -Tokens $tokens
     $escape={param($value) [Security.SecurityElement]::Escape([string]$value)}
     # Finite generic ticks permit supported policy edits without re-registration.
-    # UTC boundaries avoid DST gaps/folds. IgnoreNew supplements durable claims.
+    # Floating local boundaries follow the repository Scheduler contract. These
+    # are generic timer ticks only: the controller's explicit UTC windows and
+    # named Toronto dates alone authorize go. IgnoreNew supplements date claims.
     $xml=@"
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Owner activated finite LFC campaign; no agent activation.</Description></RegistrationInfo>
-  <Triggers><TimeTrigger><Repetition><Interval>PT5M</Interval><Duration>P15D</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>2026-11-10T00:00:00Z</StartBoundary><EndBoundary>2026-11-25T00:00:00Z</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers>
+  <Triggers><TimeTrigger><Repetition><Interval>PT5M</Interval><Duration>P15D</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>2026-11-10T00:00:00</StartBoundary><EndBoundary>2026-11-25T00:00:00</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers>
   <Principals><Principal id="Owner"><UserId>$(& $escape $OwnerSid)</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><AllowStartOnDemand>false</AllowStartOnDemand><Enabled>false</Enabled><Hidden>true</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>PT9H</ExecutionTimeLimit><Priority>7</Priority></Settings>
   <Actions Context="Owner"><Exec><Command>$(& $escape $psPath)</Command><Arguments>$(& $escape $arguments)</Arguments><WorkingDirectory>$(& $escape $Release.root)</WorkingDirectory></Exec></Actions>

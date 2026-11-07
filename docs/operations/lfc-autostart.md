@@ -127,6 +127,8 @@ connected. It starts only on suitable power, but entering battery mode does not
 hard-kill a live session. The wrapper contains its child tree in a kill-on-close
 Job. Scheduler termination is process containment, never cancellation proof.
 These settings follow [Microsoft's task settings contract](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasksettingsset).
+Its five-minute timer has floating local Scheduler boundaries; those ticks never
+authorize a start outside the campaign's explicit UTC window and Toronto date.
 
 To request normal cleanup, the OWNER alone creates `C:\t\pilot\STOP`. Agents
 never create it: its existence causes real cancellation. A separate observation
