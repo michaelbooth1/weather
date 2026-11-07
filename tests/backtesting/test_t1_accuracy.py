@@ -258,6 +258,7 @@ def test_rebate_disagreement_cannot_pass_with_reconciled_wallet_cash():
     raw = journal_bytes()
     receipt = receipts(raw)
     receipt['wallet']['rebate_credit'] = '.5'
+    receipt['wallet']['payment_ids']['rebate'] = ['independent-rebate-credit']
     receipt['wallet']['end_cash'] = str(D(receipt['wallet']['end_cash']) + D('.5'))
     report = accuracy_gate(payload(), config(), raw, receipt, tolerance())
     assert report['status'] == 'FAIL'
@@ -292,7 +293,9 @@ def test_true_zero_fill_session_agrees_but_cannot_certify_fill_accuracy():
     receipt['lfc_ledger']['legs'][0]['size_matched'] = '0'
     receipt['lfc_ledger']['L'] = receipt['lfc_ledger']['L_filled'] = '0'
     receipt['wallet'].update(fills=[], settlement_value='0', redemption_credit='0',
-                              reward_credit=str(reward), end_cash=str(D(100) + reward))
+                              reward_credit=str(reward), end_cash=str(D(100) + reward),
+                              terminal_positions={'yes1': '0', 'no1': '0'}, end_positions={'yes1': '0', 'no1': '0'})
+    receipt['state_checkpoints'][0].update(cash='100', cost_at_risk='0', positions={'yes1': '0', 'no1': '0'})
     for read in receipt['rewards']:
         read['paid_reward'] = str(reward)
     report = accuracy_gate(p, config(), raw, receipt, tolerance())

@@ -23,7 +23,7 @@ def test_queue_partial_fill_rebate_settlement_and_stress_arithmetic():
     assert result['inventory_move_pusd'] == D('5.00')
     assert result['maker_fees_pusd'] == 0
     assert result['rebate_accrued'] == D('.0312375')
-    assert result['reward_accrued'] == pytest.approx(D(20) / 7 + D(10) / 13)
+    assert result['reward_accrued'] == pytest.approx(D(20) / 7 + D(2))
     assert result['rebate_payable'] == 0
     assert result['informed_stress_cost'] == D('3.675')
     assert result['stressed_net_pnl'] == result['raw_net_pnl'] - D('3.675')
@@ -68,6 +68,8 @@ def test_reward_competition_updates_and_minimum_change():
 def test_queue_and_aggressor_boundaries(trade_changes, expected):
     p = payload()
     p['events'][2].update(trade_changes)
+    if trade_changes.get('aggressor') == 'BUY':
+        p['events'][2]['execution_route'] = 'not_buy_liquidity'
     result = replay(p, config())
     assert [f['size'] for f in result['fills']] == expected
 
@@ -92,7 +94,9 @@ def test_trade_duplicates_do_not_duplicate_fills_and_conflicts_refuse():
 def test_delayed_trade_receipt_does_not_fill_orders_placed_after_execution():
     p = payload()
     p['events'][2].update(traded_at=at(1), at=at(4))
-    assert replay(p, config())['fills'] == []
+    result = replay(p, config())
+    assert [f['trade_id'] for f in result['fills']] == ['t2']
+    assert result['fills'][0]['at'].isoformat() == at(5)
 
 
 def test_arrival_book_changes_post_only_result_and_later_latency():
@@ -210,7 +214,7 @@ def test_rewards_split_at_utc_midnight_before_daily_payout_floor():
                               order_latency_seconds='0', measured_order_p95_seconds='0'))
     assert {r['day'] for r in result['rewards']} == {'2026-10-12', '2026-10-13'}
     assert result['reward_payable'] == result['reward_accrued']
-    assert result['reward_accrued'] == pytest.approx(D(40) / 7 + D(10) / 13)
+    assert result['reward_accrued'] == pytest.approx(D(40) / 7 + D(2))
 
 
 def test_informed_fraction_changes_only_the_declared_stress():

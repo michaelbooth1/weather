@@ -23,6 +23,14 @@ accuracy remain explicit qualification dependencies; synthetic agreement is
 development evidence only. The [edge trial charter](../../operations/EDGE_TRIAL_CHARTER.md)
 owns freeze and PASS. This implementation grants no live authority.
 
+T014 remediation extends the comparison to independently reconstructed cash,
+token positions, costs, settlement, redemption and session/campaign net P&L.
+The F0 adapter accepts partial recorder output with qualification gaps. Campaign
+accounting enforces cash continuity through verified flat, nonoverlapping capital
+periods and independently allocated shared reward days. Unsettled opening lots,
+passive posting response and unobserved reward sampling remain NOT QUALIFIED;
+synthetic validation cannot establish a real-session accuracy certificate.
+
 ## October 16 counterfactual tape exporter for build 2 (built; host run pending)
 
 Build 2 (the toxicity table) fits on COUNTERFACTUAL minutes and fills dated on

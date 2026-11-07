@@ -233,7 +233,10 @@ bounded captured inputs and compare saved pilot receipts offline. The command
 `python -m weather.backtesting.t1_cli simulate` requires `--inputs`, `--config`,
 `--latency-evidence` and `--output`; `accuracy` additionally requires `--journal`,
 `--receipts` and `--tolerance`. Run it through the workstation heavy wrapper.
-It writes code/input hashes and comparisons; it never freezes or passes a trial.
+It compares settlement, redemption, positions, cash and net P&L as well as fills,
+incentives and markouts. F0 journal intake retains missing-evidence flags. Only a
+real, clean-source, raw-evidence-bound accuracy certificate can exit successfully;
+synthetic agreement and partial calibration exit 2. It never passes a profit trial.
 
 The [manual order journal](docs/operations/manual-order-journal.md) records the owner's manual
 resting orders read-only with

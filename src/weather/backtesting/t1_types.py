@@ -51,11 +51,26 @@ def source_hash(value):
     return value
 
 
+def lineage_hashes(value):
+    """All retained source/projection lineage hashes, including condition-day pools."""
+    out = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key.endswith('source_sha256'):
+                out.add(source_hash(child))
+            else:
+                out.update(lineage_hashes(child))
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            out.update(lineage_hashes(child))
+    return out
+
+
 @dataclass(frozen=True)
 class ReplayConfig:
     """All economic assumptions are required inputs, with no qualifying defaults."""
 
-    informed_fraction: str
+    informed_fraction: str  # Deprecated wire name: incremental cost reserve / filled purchase cost, NOT informed flow.
     latency_seconds: str
     order_latency_seconds: str
     latency_source_sha256: str
@@ -71,6 +86,10 @@ class ReplayConfig:
     mark_max_delay_seconds: str
     fee_coefficient: str
     rebate_fraction: str
+    cancel_latency_seconds: str = '0'
+    measured_cancel_p95_seconds: str = '0'
+    midpoint_rule: str = 'level_filter'
+    fee_rounding_rule: str = 'unrounded_diagnostic'
 
     def __post_init__(self):
         for name in ("informed_fraction", "rebate_fraction"):
@@ -96,6 +115,13 @@ class ReplayConfig:
         if number(self.fee_coefficient) != D('.05') or number(self.rebate_fraction) != D('.25'):
             raise ValueError('T1 weather economics differ from the charter')
         source_hash(self.latency_source_sha256)
+        number(self.cancel_latency_seconds)
+        if number(self.cancel_latency_seconds) < number(self.measured_cancel_p95_seconds):
+            raise ValueError('cancel latency is below its own measured transport bound')
+        if self.midpoint_rule not in ('level_filter', 'cumulative_depth'):
+            raise ValueError('unsupported midpoint semantics')
+        if self.fee_rounding_rule not in ('unrounded_diagnostic', 'per_match_5dp_half_even'):
+            raise ValueError('unsupported fee precision rule')
 
     def projection(self):
         return asdict(self)
@@ -119,12 +145,14 @@ def book_valid(book, *, now, max_age):
         number(book[outcome]['tick'], minimum=D('.000001'), maximum=ONE)
         number(book[outcome]['min_order_size'], minimum=D('.000001'))
         bids, asks = levels(book[outcome]["bids"]), levels(book[outcome]["asks"])
-        if not bids or not asks or max(r["price"] for r in bids) >= min(r["price"] for r in asks):
+        if ((not bids or not asks) and not book.get('competitor_only')
+                or bids and asks and max(r["price"] for r in bids) >= min(r["price"] for r in asks)):
             raise ValueError("incomplete or crossed book")
 
 
 @decimal_context
-def fee(size, price, coefficient):
+def fee(size, price, coefficient, rounding_rule='unrounded_diagnostic'):
     """Weather taker fee; maker fee is identically zero (charter section 2)."""
     p = number(price, maximum=ONE)
-    return number(size) * number(coefficient) * p * (ONE - p)
+    value = number(size) * number(coefficient) * p * (ONE - p)
+    return value.quantize(D('.00001')) if rounding_rule == 'per_match_5dp_half_even' else value

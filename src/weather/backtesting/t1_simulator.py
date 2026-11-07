@@ -12,8 +12,9 @@ from datetime import date, timedelta
 from decimal import Decimal as D
 
 from weather.backtesting.t1_rewards import reward_share
+from weather.backtesting.t1_accounting import predicted_positions
 from weather.backtesting.t1_types import (ONE, ZERO, ReplayConfig, book_valid, decimal_context, digest,
-                                         fee, levels, number, source_hash, utc)
+                                         fee, levels, lineage_hashes, number, source_hash, utc)
 
 
 @decimal_context
@@ -52,12 +53,22 @@ def replay(payload, config: ReplayConfig):
     decisions always use observed_at plus declared end-to-end latency.
     coverage is a declared complete book/trade interval per condition.
     """
+    if payload.get('policy') is not None:
+        from weather.backtesting.t1_policy import asof_commands
+
+        commands = asof_commands([e for e in payload['events'] if e['kind'] == 'book'], payload['policy'],
+                                 start=payload['start'], end=payload['end'], max_age=config.max_book_age_seconds)
+        if payload.get('commands') and payload['commands'] != commands:
+            raise ValueError('command stream differs from the deterministic as-of policy')
+        payload = {**payload, 'commands': commands}
     start, end = utc(payload['start']), utc(payload['end'])
     if start >= end:
         raise ValueError('invalid replay interval')
     if payload.get('opening_state') != 'flat':
         raise ValueError('explicit flat opening state required; inventory state carry is unsupported')
     conditions = payload['conditions']
+    opening_cash = number(payload.get('opening_cash', config.total_cap))
+    operating_cost = number(payload.get('operating_cost', '0'))
     if not conditions:
         raise ValueError('empty universe')
     if len(payload['events']) + len(payload['commands']) > 50000:
@@ -82,7 +93,9 @@ def replay(payload, config: ReplayConfig):
     used, rewards = defaultdict(lambda: ZERO), defaultdict(lambda: ZERO)
     rewarded_seconds = defaultdict(lambda: ZERO)
     spent, payouts, cash_paid, rebate_weight = ZERO, ZERO, ZERO, defaultdict(lambda: ZERO)
-    settlement_values, redeemed = {}, defaultdict(lambda: ZERO)
+    settlement_values, settled_fractions, redeemed = {}, {}, defaultdict(lambda: ZERO)
+    redemption_quantities = defaultdict(lambda: defaultdict(lambda: ZERO))
+    redemption_ids, checkpoints, sampled_minutes = set(), {}, set()
     reasons, rejected, settled = set(), [], set()
     if payload.get('account_scope_complete') is not True:
         reasons.add('incomplete_account_incentive_scope')
@@ -94,6 +107,11 @@ def replay(payload, config: ReplayConfig):
         number(row['reward_accrued'])
         number(row['rebate_accrued'])
     schedule = []
+    for i, checkpoint in enumerate(payload.get('checkpoints', [])):
+        checkpoint_at = utc(checkpoint['at'])
+        if not start <= checkpoint_at <= end:
+            raise ValueError('checkpoint outside capital period')
+        schedule.append((checkpoint_at, 8, i, {'kind': 'checkpoint', **checkpoint}))
     if payload.get('close_all_at') is not None:
         source_hash(payload['close_all_source_sha256'])
         close_at = utc(payload['close_all_at'])
@@ -106,6 +124,7 @@ def replay(payload, config: ReplayConfig):
         midnight += timedelta(days=1)
     trade_ids = {}
     for i, event in enumerate(payload['events']):
+        event = deepcopy(event)
         source_hash(event['source_sha256'])
         cid = event['condition_id']
         if cid not in conditions:
@@ -115,7 +134,25 @@ def replay(payload, config: ReplayConfig):
         if event['kind'] == 'trade':
             if at > available:
                 raise ValueError('trade precedes availability incorrectly')
-            key = (cid, event['id'])
+            finality = event.get('status', 'UNKNOWN')
+            route = event.get('execution_route', 'UNKNOWN')
+            if finality == 'FAILED':
+                continue
+            if finality != 'CONFIRMED' or route == 'UNKNOWN' or not event.get('consumption_id'):
+                reasons.add('unqualified_public_execution_route_identity_or_finality')
+            if finality != 'CONFIRMED':
+                continue  # a later confirmed update must still be eligible to supply settled flow
+            if route == 'complementary_mint':
+                if event['aggressor'] != 'BUY':
+                    raise ValueError('complementary mint must retain the original BUY representation')
+                source_hash(event['route_source_sha256'])
+                event.update(outcome='NO' if event['outcome'] == 'YES' else 'YES',
+                             aggressor='SELL', price=ONE - number(event['price'], maximum=ONE))
+            elif route not in ('native_sell', 'not_buy_liquidity', 'UNKNOWN'):
+                raise ValueError('unsupported execution route')
+            if route == 'native_sell' and event['aggressor'] != 'SELL':
+                raise ValueError('native SELL route disagrees with aggressor')
+            key = (cid, event.get('consumption_id', event['id']))
             if key in trade_ids:
                 prior = trade_ids[key]
                 economic_keys = ('traded_at', 'outcome', 'aggressor')
@@ -125,7 +162,7 @@ def replay(payload, config: ReplayConfig):
                     raise ValueError('conflicting duplicate trade')
                 continue
             trade_ids[key] = event
-        priority = {'book': 0, 'terms': 1, 'trade': 2, 'settlement': 6, 'redemption': 7}.get(event['kind'])
+        priority = {'book': 0, 'terms': 1, 'trade': 2, 'reward_sample': 5, 'settlement': 6, 'redemption': 7}.get(event['kind'])
         if priority is None:
             raise ValueError('unknown event kind')
         if at < start or at > end:
@@ -139,7 +176,12 @@ def replay(payload, config: ReplayConfig):
             raise ValueError('submitted order identity required')
         observed = utc(command['observed_at'])
         decided = utc(command['decided_at'])
-        earliest = max(observed + latency, decided + order_latency)
+        transport = timedelta(seconds=float(number(config.cancel_latency_seconds))) if command['kind'] == 'cancel' else order_latency
+        earliest = max(observed + latency, decided + transport) if command['kind'] == 'post' else decided + transport
+        if payload.get('replay_mode') == 'receipt':
+            earliest = decided
+            if not command.get('arrival_at'):
+                raise ValueError('receipt replay requires an observed acknowledgment')
         at = utc(command['arrival_at']) if command.get('arrival_at') else earliest
         if decided < observed or at < earliest or observed < start or at > end:
             raise ValueError('command violates declared latency or interval')
@@ -174,7 +216,7 @@ def replay(payload, config: ReplayConfig):
             if safe_end <= left:
                 continue
             try:
-                share = reward_share(book, resting, term, config.competition_rule)
+                share = reward_share(book, resting, term, config.competition_rule, config.midpoint_rule)
             except ValueError as exc:
                 reasons.add(str(exc))
                 continue
@@ -197,7 +239,8 @@ def replay(payload, config: ReplayConfig):
                 rewarded_seconds[(cid, day)] += duration
                 if rewarded_seconds[(cid, day)] > active_seconds:
                     raise ValueError('reward epoch shorter than own eligible duration')
-            rewards[(cid, day)] += share * number(term['rate_per_day']) * duration / active_seconds
+            if payload.get('reward_realization') != 'observed_samples':
+                rewards[(cid, day)] += share * number(term['rate_per_day']) * duration / active_seconds
 
     previous, session_closed = start, False
     for at, _, _, event in sorted(schedule, key=lambda x: x[:3]):
@@ -209,6 +252,17 @@ def replay(payload, config: ReplayConfig):
         if kind == 'end':
             break
         if kind == 'boundary':
+            continue
+        if kind == 'checkpoint':
+            if event['id'] in checkpoints:
+                raise ValueError('duplicate accounting checkpoint')
+            holdings = {}
+            for condition, meta in conditions.items():
+                _, holdings[condition] = predicted_positions(
+                    [f for f in fills if f['condition_id'] == condition], meta['token_ids'], redemption_quantities[condition])
+            checkpoints[event['id']] = {'at': at, 'cash': opening_cash - spent + cash_paid - operating_cost,
+                'reserved': sum((r['price'] * r['remaining'] for r in active.values()), ZERO),
+                'cost_at_risk': sum(used.values(), ZERO), 'positions': holdings}
             continue
         if kind == 'session_close':
             for order in active.values():
@@ -261,12 +315,27 @@ def replay(payload, config: ReplayConfig):
                     or size < number(book[outcome]['min_order_size'])):
                 rejected.append({'id': event['id'], 'reason': 'arrival_market_rules'})
                 continue
-            if p >= min(r['price'] for r in levels(book[outcome]['asks'])):
+            if book.get('accepting_orders') is not True:
+                rejected.append({'id': event['id'], 'reason': 'market_not_accepting_orders'})
+                if 'accepting_orders' not in book or book.get('acceptance_state_known') is False:
+                    reasons.add('missing_market_acceptance_state')
+                continue
+            other = 'NO' if outcome == 'YES' else 'YES'
+            opposite = [r['price'] for r in active.values() if r['condition_id'] == cid and r['outcome'] == other]
+            if opposite and p + max(opposite) >= ONE:
+                rejected.append({'id': event['id'], 'reason': 'own_post_only_cross'})
+                continue
+            asks = [r['price'] for r in levels(book[outcome]['asks'])] + [ONE - v for v in opposite]
+            if not asks:
+                reasons.add('missing_executable_ask')
+                rejected.append({'id': event['id'], 'reason': 'missing_executable_ask'})
+                continue
+            if p >= min(asks):
                 rejected.append({'id': event['id'], 'reason': 'post_only_cross'})
                 continue
             reserve = p * size
             resting_cash = sum((r['price'] * r['remaining'] for r in active.values()), ZERO)
-            funding_cash = number(config.total_cap) - spent + cash_paid
+            funding_cash = opening_cash - spent + cash_paid - operating_cost
             if (used[cid] + reserve > number(config.per_market_cap)
                     or sum(used.values(), ZERO) + reserve > number(config.total_cap)
                     or resting_cash + reserve > funding_cash):
@@ -277,8 +346,12 @@ def replay(payload, config: ReplayConfig):
                 continue
             # Better prices execute first, then every displayed share at our price.
             # No cancellation credit, and no reset when later snapshots shrink.
-            ahead = sum((r['size'] for r in levels(book[outcome]['bids']) if r['price'] >= p), ZERO)
-            order = {**event, 'price': p, 'size': size, 'remaining': size, 'queue_ahead': ahead, 'at': at}
+            ahead = defaultdict(lambda: ZERO)
+            for row in levels(book[outcome]['bids']):
+                if row['price'] >= p:
+                    ahead[row['price']] += row['size']
+            order = {**event, 'price': p, 'size': size, 'remaining': size,
+                     'queue_ahead_levels': ahead, 'at': at}
             orders[event['id']] = order
             active[event['id']] = order
             used[cid] += reserve
@@ -291,24 +364,33 @@ def replay(payload, config: ReplayConfig):
             if event['aggressor'] != 'SELL':
                 continue
             candidates = sorted((r for r in active.values() if r['condition_id'] == cid
-                                 and r['outcome'] == event['outcome'] and p <= r['price']),
+                                 and r['outcome'] == event['outcome']),
                                 key=lambda r: (-r['price'], r['at'], r['id']))
             # T1 permits one live order per native outcome. A physical print
             # therefore never supplies residual volume to multiple own orders.
             for order in candidates:
-                consumed = min(volume, order['queue_ahead'])
-                order['queue_ahead'] -= consumed
-                executable = volume - consumed
+                executable = volume
+                # Better-price prints retire their actual price levels too.
+                # A lower-price sweep retires all represented preceding depth.
+                for price in sorted(order['queue_ahead_levels'], reverse=True):
+                    if price < p:
+                        continue
+                    consumed = min(executable, order['queue_ahead_levels'][price])
+                    order['queue_ahead_levels'][price] -= consumed
+                    executable -= consumed
+                if p > order['price']:
+                    continue
                 if config.queue_rule == 'back_strict_through' and p == order['price']:
                     continue
                 quantity = min(order['remaining'], executable)
                 if quantity <= ZERO:
                     continue
+                pre_fill_remaining = order['remaining']
                 order['remaining'] -= quantity
                 cost = quantity * order['price']
                 spent += cost
-                weight = fee(quantity, order['price'], config.fee_coefficient)
-                rebate_weight[at.date().isoformat()] += weight
+                weight = fee(quantity, order['price'], config.fee_coefficient, config.fee_rounding_rule)
+                rebate_weight[(cid, at.date().isoformat())] += weight
                 reference_mid = None
                 current = books.get(cid)
                 try:
@@ -316,8 +398,13 @@ def replay(payload, config: ReplayConfig):
                         raise ValueError('missing fill book')
                     book_valid(current, now=at, max_age=max_age)
                     side = current[order['outcome']]
-                    reference_mid = (max(r['price'] for r in levels(side['bids']))
-                                     + min(r['price'] for r in levels(side['asks']))) / 2
+                    bids = [r['price'] for r in levels(side['bids'])]
+                    if pre_fill_remaining:
+                        bids.append(order['price'])
+                    other = 'NO' if order['outcome'] == 'YES' else 'YES'
+                    asks = [r['price'] for r in levels(side['asks'])] + [ONE - r['price'] for r in active.values()
+                             if r['condition_id'] == cid and r['outcome'] == other and r['remaining'] > ZERO]
+                    reference_mid = (max(bids) + min(asks)) / 2
                 except ValueError:
                     reasons.add('missing_fill_reference_mid')
                 fills.append({'order_id': order['id'], 'condition_id': cid, 'outcome': order['outcome'],
@@ -325,6 +412,57 @@ def replay(payload, config: ReplayConfig):
                               'fee_weight': weight, 'maker_fee': ZERO, 'entry_mid': reference_mid})
                 if order['remaining'] == ZERO:
                     active.pop(order['id'])
+            # Keep the captured external book coherent until its next snapshot;
+            # a cancel/repost must not rebuild queue from already consumed depth.
+            current = books.get(cid)
+            if current is not None:
+                current = deepcopy(current)
+                other = 'NO' if event['outcome'] == 'YES' else 'YES'
+                for outcome, side, threshold in ((event['outcome'], 'bids', p), (other, 'asks', ONE - p)):
+                    remaining = volume
+                    rows = sorted(current[outcome][side], key=lambda r: number(r['price']), reverse=side == 'bids')
+                    for row in rows:
+                        price = number(row['price'])
+                        if (side == 'bids' and price >= threshold) or (side == 'asks' and price <= threshold):
+                            consumed = min(remaining, number(row['size']))
+                            row['size'] = number(row['size']) - consumed
+                            remaining -= consumed
+                    current[outcome][side] = [r for r in rows if number(r['size']) > ZERO]
+                if current.get('reward_orders_complete'):
+                    remaining = volume
+                    eligible = sorted((r for r in current['reward_orders']
+                                       if r['outcome'] == event['outcome'] and r['side'] == 'BUY'
+                                       and number(r['price']) >= p), key=lambda r: (-number(r['price']), r['order_id']))
+                    if len({r['maker_id'] for r in eligible}) > 1 and remaining < sum((number(r['size']) for r in eligible), ZERO):
+                        reasons.add('unidentified_competitor_queue_assignment')
+                    for row in eligible:
+                        consumed = min(remaining, number(row['size']))
+                        row['size'] = number(row['size']) - consumed
+                        remaining -= consumed
+                    current['reward_orders'] = [r for r in current['reward_orders'] if number(r['size']) > ZERO]
+                current['competitor_only'] = True
+                books[cid] = current
+        elif kind == 'reward_sample':
+            if payload.get('reward_realization') != 'observed_samples':
+                raise ValueError('sample evidence supplied without realized reward mode')
+            book, term = books.get(cid), terms.get(cid)
+            resting = [r for r in active.values() if r['condition_id'] == cid]
+            if book is None or term is None:
+                reasons.add('missing_reward_sample_inputs')
+                continue
+            book_valid(book, now=at, max_age=max_age)
+            if at >= utc(term['valid_until']):
+                reasons.add('stale_reward_sample_terms')
+                continue
+            count = number(event['epoch_active_sample_count'], minimum=ONE, maximum=D(1440))
+            if count != count.to_integral_value():
+                raise ValueError('reward sample denominator must be an integer')
+            sample_key = (cid, at.replace(second=0, microsecond=0))
+            if sample_key in sampled_minutes:
+                raise ValueError('duplicate reward sample minute')
+            sampled_minutes.add(sample_key)
+            rewards[(cid, at.date().isoformat())] += reward_share(
+                book, resting, term, config.competition_rule, config.midpoint_rule) * number(term['rate_per_day']) / count
         elif kind == 'settlement':
             if cid in settled or event['source'] != 'venue' or not event['source_sha256']:
                 raise ValueError('unverified or duplicate venue settlement')
@@ -335,15 +473,33 @@ def replay(payload, config: ReplayConfig):
                          for r in fills if r['condition_id'] == cid), ZERO)
             payouts += value
             settlement_values[cid] = value
+            settled_fractions[cid] = payout
             used[cid] = ZERO
             active = {oid: r for oid, r in active.items() if r['condition_id'] != cid}
             settled.add(cid)
         elif kind == 'redemption':
-            fraction = number(event['fraction'], maximum=ONE)
-            if cid not in settled or event['source'] != 'venue' or redeemed[cid] + fraction > ONE:
+            if cid not in settled or event['source'] != 'venue' or event.get('id') and event['id'] in redemption_ids:
                 raise ValueError('unsettled or duplicate cash redemption')
-            redeemed[cid] += fraction
-            cash_paid += settlement_values[cid] * fraction
+            tokens = conditions[cid]['token_ids']
+            bought, _ = predicted_positions([f for f in fills if f['condition_id'] == cid], tokens, ZERO)
+            if 'tokens' in event:
+                if set(event['tokens']) != set(tokens):
+                    raise ValueError('redemption requires both token quantities')
+                quantities = {t: number(event['tokens'][t]) for t in tokens}
+            else:
+                fraction = number(event['fraction'], maximum=ONE)
+                if redeemed[cid] + fraction > ONE:
+                    raise ValueError('unsettled or duplicate cash redemption')
+                redeemed[cid] += fraction
+                quantities = {t: bought[t] * fraction for t in tokens}
+            for t in tokens:
+                redemption_quantities[cid][t] += quantities[t]
+                if redemption_quantities[cid][t] > bought[t]:
+                    raise ValueError('duplicate cash redemption exceeds held tokens')
+            cash_paid += sum((quantities[t] * (settled_fractions[cid] if i == 0 else ONE - settled_fractions[cid])
+                              for i, t in enumerate(tokens)), ZERO)
+            if event.get('id'):
+                redemption_ids.add(event['id'])
     if any(r['condition_id'] not in settled for r in fills):
         reasons.add('unsettled_inventory')
     if active:
@@ -365,20 +521,48 @@ def replay(payload, config: ReplayConfig):
             fill['markout_per_share'] = mid - fill['price']
     rebates = ZERO
     rebate_paid = ZERO
-    for day, weight in rebate_weight.items():
-        pool = payload.get('rebate_pools', {}).get(day)
+    daily_rebates = defaultdict(lambda: ZERO)
+    rebate_scope_qualified = True
+    for day, pool in payload.get('rebate_pools', {}).items():
+        category = pool.get('category_totals')
+        if category is not None:
+            if category['complete'] is not True or not pool.get('conditions'):
+                raise ValueError('incomplete rebate category reconciliation')
+            source_hash(category['source_sha256'])
+            for key in ('total_taker_fees', 'total_maker_fee_weight'):
+                if sum((number(p[key]) for p in pool['conditions'].values()), ZERO) != number(category[key]):
+                    raise ValueError('condition rebate pools do not reconcile to category aggregates')
+    for (cid, day), weight in rebate_weight.items():
+        day_pool = payload.get('rebate_pools', {}).get(day)
+        pool = day_pool.get('conditions', {}).get(cid) if day_pool and 'conditions' in day_pool else day_pool
         if pool is None:
             reasons.add('missing_rebate_pool')
             continue
-        if pool['category'] != 'weather' or not pool['source_sha256'] or pool['complete'] is not True:
+        if pool.get('category', 'weather') != 'weather' or not pool['source_sha256'] or pool['complete'] is not True:
             raise ValueError('incomplete rebate pool')
         source_hash(pool['source_sha256'])
         denominator = number(pool['total_maker_fee_weight'])
         fees = number(pool['total_taker_fees'])
         if denominator <= ZERO or weight > denominator:
             raise ValueError('invalid rebate denominator')
+        if pool.get('condition_id') != cid or pool.get('eligible') is not True:
+            rebate_scope_qualified = False
+        if pool.get('eligible') is False:
+            raise ValueError('captured condition is not eligible for weather maker rebates')
+        if 'fee_coefficient' in pool and number(pool['fee_coefficient']) != number(config.fee_coefficient):
+            raise ValueError('captured condition fee schedule differs from config')
+        if 'rebate_fraction' in pool and number(pool['rebate_fraction']) != number(config.rebate_fraction):
+            raise ValueError('captured rebate allocation differs from config')
+        day_start = utc(day + 'T00:00:00Z')
+        if (pool.get('fee_coefficient') is None or pool.get('rebate_fraction') is None
+                or pool.get('valid_from') is None or pool.get('valid_until') is None):
+            rebate_scope_qualified = False
+        elif not utc(pool['valid_from']) <= day_start < day_start + timedelta(days=1) <= utc(pool['valid_until']):
+            raise ValueError('captured rebate economics do not cover the earned day')
         daily_rebate = number(config.rebate_fraction) * fees * weight / denominator
         rebates += daily_rebate
+        daily_rebates[day] += daily_rebate
+    for day, daily_rebate in daily_rebates.items():
         outside_rebate = number(external.get(day, {}).get('rebate_accrued', '0'))
         rebate_paid += daily_rebate if daily_rebate + outside_rebate >= ONE else ZERO
     reward_total = sum(rewards.values(), ZERO)
@@ -386,34 +570,61 @@ def replay(payload, config: ReplayConfig):
     for (_, day), amount in rewards.items():
         daily_rewards[day] += amount
     reward_paid = sum((r for day, r in daily_rewards.items()
-                       if r + number(external.get(day, {}).get('reward_accrued', '0')) >= ONE), ZERO)
-    raw_pnl = payouts - spent + reward_paid + rebate_paid
+                       if payload.get('reward_payment_rule') == 'campaign_day'
+                       or r + number(external.get(day, {}).get('reward_accrued', '0')) >= ONE), ZERO)
+    raw_pnl = payouts - spent + reward_paid + rebate_paid - operating_cost
     # This reserve is a proposed incremental adverse-selection stress, not a
     # different venue outcome or a claim to have identified informed traders.
     stress = number(config.informed_fraction) * spent
     references_complete = all(r['entry_mid'] is not None for r in fills)
     reference_value = sum((r['entry_mid'] * r['size'] for r in fills), ZERO) if references_complete else None
+    terminal_positions, end_positions = {}, {}
+    for cid, meta in conditions.items():
+        terminal_positions[cid], end_positions[cid] = predicted_positions(
+            [f for f in fills if f['condition_id'] == cid], meta['token_ids'], redemption_quantities[cid])
     return {'config': config.projection(), 'config_sha256': digest(config.projection()),
             'conditions': deepcopy(conditions),
             'input_sha256': digest(payload), 'fills': fills, 'rejected': rejected,
-            'source_hashes': sorted({e['source_sha256'] for e in payload['events']}
-                                    | {p['source_sha256'] for p in payload.get('rebate_pools', {}).values()}
-                                    | {p['source_sha256'] for day in payload.get('reward_epochs', {}).values()
-                                       for p in day.values()} | {p['source_sha256'] for p in external.values()}),
+            'decision_trace': deepcopy(payload['commands']),
+            'policy_qualification': ('ASOF_POLICY_REQUIRES_FREEZE' if payload.get('policy') else
+                                     'EXTERNAL_JOURNAL_TRACE_ONLY' if payload.get('replay_mode') == 'receipt' else 'NOT QUALIFIED'),
+            'source_hashes': sorted(lineage_hashes(payload)),
             'rewards': [{'condition_id': cid, 'day': day, 'accrued': amount}
                         for (cid, day), amount in sorted(rewards.items())],
             'reward_accrued': reward_total, 'rebate_accrued': rebates,
             'reward_payable': reward_paid, 'rebate_payable': rebate_paid,
             'cost': spent, 'venue_payout': payouts, 'raw_net_pnl': raw_pnl,
             'cash_redemptions_pusd': cash_paid, 'unredeemed_venue_value': payouts - cash_paid,
-            'cash_available': number(config.total_cap) - spent + cash_paid,
+            'cash_available': opening_cash - spent + cash_paid - operating_cost,
+            'wallet_end_cash': opening_cash - spent + cash_paid + reward_paid + rebate_paid - operating_cost,
+            'terminal_positions': terminal_positions, 'end_positions': end_positions,
+            'checkpoints': checkpoints,
+            'operating_cost': operating_cost,
             'spread_capture_pusd': reference_value - spent if references_complete else None,
             'inventory_move_pusd': payouts - reference_value if references_complete else None,
             'maker_fees_pusd': ZERO,
+            'cost_reserve': stress, 'cost_reserve_fraction': number(config.informed_fraction),
             'informed_stress_cost': stress, 'stressed_net_pnl': raw_pnl - stress,
             'stress_rule': 'incremental_fill_cost_reserve', 'f_identification': 'NOT_ESTIMATED',
             'competition_estimate': config.competition_rule,
             'reward_epoch_rule': config.reward_epoch_rule,
+            'reward_realization': payload.get('reward_realization', 'CONTINUOUS_EXPECTATION_DIAGNOSTIC'),
+            'reward_payment_rule': payload.get('reward_payment_rule', 'zero_credit_below_account_day_threshold_no_assumed_carry'),
+            'reward_sampling_qualification': 'RETAINED_SAMPLES_REQUIRE_RAW_PROOF' if payload.get('reward_realization') == 'observed_samples' else 'NOT QUALIFIED',
+            'midpoint_qualification': 'NOT QUALIFIED',
+            'midpoint_evidence_required': 'Dated authoritative rule or controlled fragmented-depth comparison, bound in the receipt certificate',
+            'rebate_scope_qualification': 'CONDITION_DAY_REQUIRES_RAW_PROOF' if rebate_scope_qualified else 'NOT QUALIFIED',
+            'rebate_rounding_rule': config.fee_rounding_rule,
+            'rebate_precision_qualification': 'NOT QUALIFIED',
+            'rebate_precision_evidence_required': 'Dated per-match rounding and actual payment/carry receipts',
+            'incentive_cash_policy': 'NO_UNVERIFIED_CARRY_CREDIT_OR_INCENTIVE_REINVESTMENT',
+            'rebate_paid_lower_bound': ZERO,
             'competition_response': 'CONDITIONAL_ON_CAPTURED_BOOK_ONLY',
+            'passive_competition_qualification': 'NOT QUALIFIED',
+            'passive_incentive_lower_bound': ZERO,
+            'competition_evidence_required': 'Validated posting-response intervention/envelope; public passive data does not identify causality',
+            'fill_path_claim': 'NO_PNL_ORDERING_FROM_FEWER_FILLS',
+            'all_posted_lots_loss_floor': -sum((number(r['price']) * number(r['size']) for r in payload['commands'] if r['kind'] == 'post'), ZERO) - operating_cost,
+            'loss_floor_rule': 'Every commanded posted lot fills fully and loses; zero incentives; fixed command trace only',
             'qualification': 'ACCURACY_GATE_REQUIRED' if not reasons else 'INCOMPLETE',
             'reasons': sorted(reasons), 'trial_can_pass': False}

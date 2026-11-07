@@ -61,7 +61,20 @@ def native_competitor_score(book, mid, spread, minimum):
 
 
 @decimal_context
-def reward_share(book, resting, terms, rule):
+def qualified_price(rows, minimum, *, bids, semantics):
+    if semantics not in ('level_filter', 'cumulative_depth'):
+        raise ValueError('unknown qualified midpoint semantics')
+    ordered = sorted(rows, reverse=bids)
+    total = ZERO
+    for price, size in ordered:
+        total += size
+        if (size if semantics == 'level_filter' else total) >= minimum:
+            return price
+    return None
+
+
+@decimal_context
+def reward_share(book, resting, terms, rule, midpoint_rule='level_filter'):
     minimum, spread = number(terms['min_size']), number(terms['max_spread_cents'])
     if minimum <= ZERO or spread <= ZERO:
         raise ValueError('invalid captured reward terms')
@@ -69,11 +82,11 @@ def reward_share(book, resting, terms, rule):
                   tuple(level_map(book, 'YES', 'asks').items()), tuple(level_map(book, 'NO', 'bids').items()),
                   tuple(level_map(book, 'NO', 'asks').items()))
     display = compose_book(public, tuple(QuoteLeg(r['outcome'], r['price'], r['remaining']) for r in resting))
-    bids = [p for p, size in display.yes_bids if size >= minimum]
-    asks = [p for p, size in display.yes_asks if size >= minimum]
-    if not bids or not asks or max(bids) >= min(asks):
+    bid = qualified_price(display.yes_bids, minimum, bids=True, semantics=midpoint_rule)
+    ask = qualified_price(display.yes_asks, minimum, bids=False, semantics=midpoint_rule)
+    if bid is None or ask is None or bid >= ask:
         raise ValueError('no qualified midpoint')
-    mid = (max(bids) + min(asks)) / 2
+    mid = (bid + ask) / 2
     own = [ZERO, ZERO]
     for order in resting:
         p = order['price'] if order['outcome'] == 'YES' else ONE - order['price']
@@ -85,9 +98,9 @@ def reward_share(book, resting, terms, rule):
         total = ZERO
         for outcome in ('YES', 'NO'):
             for side in ('bids', 'asks'):
-                for row in levels(book[outcome][side]):
-                    p = row['price'] if outcome == 'YES' else ONE - row['price']
-                    total += order_score(row['size'], abs(p - mid) * 100, spread, minimum)
+                for price, size in level_map(book, outcome, side).items():
+                    p = price if outcome == 'YES' else ONE - price
+                    total += order_score(size, abs(p - mid) * 100, spread, minimum)
         competing = total / 2
     else:
         raise ValueError('unknown competition rule')

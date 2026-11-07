@@ -6,7 +6,7 @@ or live authority. Raw receipt files remain hashed CLI inputs. No source fetches
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D
 import hashlib
@@ -15,10 +15,13 @@ import json
 from pathlib import Path
 
 from weather.backtesting.t1_simulator import replay
+from weather.backtesting.t1_accounting import actual_accounts
 from weather.backtesting.t1_types import (ONE, ZERO, canonical, decimal_context, digest, levels,
                                          number, source_hash, utc)
 
 LFC_PIN = '124603578f393827fa1b67bd978f6e3b02048ae9'
+F0_PIN = 'f531395522d0b0a37495185b2750164008fe586a'
+COMPATIBLE_RECORDER_PINS = frozenset((LFC_PIN, F0_PIN))
 # Wire identifier from schema_registry_data.py at LFC_PIN; do not import live code.
 PIN_JOURNAL_VERSION = 'mm_stage2_hold_v0.1'
 PIN_LEDGER_VERSION = 'lfc_l_ledger_v0.1'
@@ -49,6 +52,9 @@ class Tolerance:
     receipt_reconciliation_absolute: str
     min_filled_orders: int
     min_paid_reward: str
+    monetary_absolute: str = '.01'
+    campaign_net_absolute: str = '.01'
+    position_absolute_shares: str = '0'
 
     def __post_init__(self):
         for key, value in asdict(self).items():
@@ -67,9 +73,10 @@ class JournalEvidence:
     sha256: str
     byte_count: int
     record_count: int
+    gaps: tuple = ()
 
 
-def read_pin_evidence(source):
+def read_pin_evidence(source, *, require_complete=True, observations=False):
     """Stream all canonical chain bytes; retain only quote lifecycle records.
 
     source is bytes for a small fixture, or an explicit path for a pilot journal.
@@ -98,21 +105,31 @@ def read_pin_evidence(source):
             first_event = row['event'] if count == 0 else first_event
             last_event = row['event']
             count += 1
-            keep = (row['event'] in LIFECYCLE_EVENTS
+            keep = ((row['event'] in LIFECYCLE_EVENTS or observations and row['event'] in (
+                        'market_snapshot', 'terminal_trades', 'terminal_positions',
+                        'initial_balances_response', 'initial_positions_response', 'final_balances_response'))
                     and not (row['event'] == 'lfc_queue_ahead' and row.get('phase') != 'placement'))
             if keep:
                 retained_bytes += len(line)
                 if retained_bytes > MAX_LIFECYCLE_BYTES:
                     raise ValueError('retained journal lifecycle exceeds bounded receipt limit')
                 rows.append(row)
-    if not rows or first_event != 'opened' or last_event != 'terminal':
-        raise ValueError('journal missing opened or terminal record')
-    terminal = rows[-1]
-    if (rows[0]['mode'] not in ('live', 'replay') or terminal['cleanup_ok'] is not True
-            or terminal['evidence_complete'] is not True or terminal['unknown_submit'] is not False
-            or terminal['inventory_proven'] is not True):
-        raise ValueError('incomplete session journal')
-    return JournalEvidence(rows, whole_hash.hexdigest(), byte_count, count)
+    gaps = []
+    if not rows or first_event != 'opened':
+        raise ValueError('journal missing opened record')
+    if last_event != 'terminal':
+        gaps.append('missing_terminal_record')
+    else:
+        terminal = rows[-1]
+        if any(terminal.get(k) is not v for k, v in (
+                ('cleanup_ok', True), ('evidence_complete', True), ('unknown_submit', False), ('inventory_proven', True))):
+            gaps.append('incomplete_session_journal')
+    if rows[0]['mode'] not in ('live', 'replay', 'rehearse'):
+        raise ValueError('unsupported journal mode')
+    if require_complete and gaps:
+        raise ValueError('incomplete session journal: missing opened or terminal record or cleanup proof')
+    source_hash(rows[0]['profile_sha256'])
+    return JournalEvidence(rows, whole_hash.hexdigest(), byte_count, count, tuple(gaps))
 
 
 def read_pin_journal(source):
@@ -120,7 +137,7 @@ def read_pin_journal(source):
     return read_pin_evidence(source).rows
 
 
-def pin_latency_evidence(raw):
+def pin_latency_evidence(raw, *, recorder_pin=None):
     """Retain observation -> decision -> ACK samples from the pinned writer format.
 
     The file hash of this returned projection becomes latency_source_sha256.
@@ -149,16 +166,22 @@ def pin_latency_evidence(raw):
             request = None
     if request is not None or not samples:
         raise ValueError('complete latency samples required')
+    commands, _ = pin_commands(rows, rows[0]['scope']['condition_id'])
+    cancel_samples = [{'requested_at': c['decided_at'], 'acknowledged_at': c['arrival_at']}
+                      for c in commands if c['kind'] == 'cancel']
+    if recorder_pin is not None and recorder_pin not in COMPATIBLE_RECORDER_PINS:
+        raise ValueError('unreviewed recorder latency pin')
     return {'kind': 'observation_to_order_ack', 'sample_count': len(samples), 'samples': samples,
+            'cancel_samples': cancel_samples, 'tail_claim': 'EMPIRICAL_P95_IS_NOT_A_WORST_CASE_BOUND',
             'synthetic': rows[0]['mode'] != 'live', 'journal_sha256': evidence.sha256,
-            'journal_pin': LFC_PIN}
+            'journal_pin': recorder_pin or 'UNBOUND_RECORDER_PIN'}
 
 
 def pin_commands(rows, condition_id):
     """Adapt pin's real submit_request/response and acknowledged cancel lifecycle.
 
-    Modelled arrival is observation plus declared latency, not the ACK timestamp.
-    ACKs supply order identity only. Unknown/ambiguous posts refuse the session.
+    Receipt replay uses actual request/ACK bounds, independently of p95 stress.
+    Unknown/ambiguous posts refuse the complete gate and remain partial evidence.
     Queue-placement rows cross-check the acknowledged order mapping.
     """
     scope = rows[0]['scope']
@@ -196,6 +219,7 @@ def pin_commands(rows, condition_id):
             command = {'kind': 'post', 'id': oid, 'condition_id': condition_id,
                        'outcome': 'YES' if request['token_id'] == tokens[0] else 'NO',
                        'observed_at': pending['observed_at'], 'decided_at': pending['decided_at'],
+                       'arrival_at': row['recorded_at_utc'], 'arrival_earliest': pending['decided_at'],
                        'expires_at': clob_time(request['expiration']).isoformat(),
                        'price': request['price'], 'size': request['size']}
             commands.append(command)
@@ -229,7 +253,8 @@ def pin_commands(rows, condition_id):
                 if request_time is None:
                     raise ValueError('cancel acknowledgment lacks its request')
                 commands.append({'kind': 'cancel', 'id': oid, 'observed_at': request_time,
-                                 'decided_at': request_time})
+                                 'decided_at': request_time, 'arrival_earliest': request_time,
+                                 'arrival_at': row['recorded_at_utc']})
     if pending is not None or len(known) != rows[-1]['post_count']:
         raise ValueError('missing submit acknowledgment')
     canceled_ids = {c['id'] for c in commands if c['kind'] == 'cancel'}
@@ -383,11 +408,15 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
     D+1/D+2 venue reads must refer to the same account/session/reward day. Their
     source hashes bind separate files at the CLI layer, not caller assertions.
     """
+    if payload.get('input_kind') == 'f0_lfc_recording':
+        from weather.backtesting.t1_recorder import recorder_report
+
+        return recorder_report(payload, config, raw_journal, receipts, tolerance)
     journal = read_pin_evidence(raw_journal)
     rows = journal.rows
     scope = receipts['scope']
     cid, day = scope['condition_id'], scope['reward_day']
-    if (receipts['journal_pin'] != LFC_PIN or receipts['journal_sha256'] != journal.sha256
+    if (receipts['journal_pin'] not in COMPATIBLE_RECORDER_PINS or receipts['journal_sha256'] != journal.sha256
             or rows[0]['scope']['condition_id'] != cid or set(payload['conditions']) != {cid}
             or rows[0]['scope']['maker_address'].lower() != scope['account_id'].lower()
             or rows[0]['scope']['session_id'] != scope['session_id']
@@ -395,9 +424,26 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
             or day != utc(rows[0]['recorded_at_utc']).date().isoformat()):
         raise ValueError('receipt/journal scope mismatch')
     commands, known = pin_commands(rows, cid)
-    predicted = replay({**payload, 'commands': commands, 'close_all_at': rows[-1]['recorded_at_utc'],
-                        'close_all_source_sha256': journal.sha256}, config)
+    if receipts.get('profile_sha256', rows[0]['profile_sha256']) != rows[0]['profile_sha256']:
+        raise ValueError('actual journal profile hash mismatch')
+    replay_payload = {**payload, 'opening_cash': receipts['wallet']['start_cash'],
+                        'commands': commands, 'replay_mode': 'receipt',
+                        'checkpoints': [{'id': r['id'], 'at': r['at']} for r in receipts.get('state_checkpoints', [])],
+                        'close_all_at': rows[-1]['recorded_at_utc'],
+                        'close_all_source_sha256': journal.sha256}
+    if any(r.get('allocation') for r in receipts['rewards']):
+        replay_payload['reward_payment_rule'] = 'campaign_day'
+    predicted = replay(replay_payload, config)
     fills = clob_fills(receipts['clob'], known, rows[0]['scope']['token_ids'], account_id=scope['account_id'])
+    from weather.backtesting.t1_capture import verify_own_exclusions
+
+    evidence_gaps = verify_own_exclusions(payload['events'], commands, fills)
+    if not receipts.get('state_checkpoints'):
+        evidence_gaps.append('missing_intermediate_cash_inventory_reservation_evidence')
+    for fill in fills:
+        for command in commands:
+            if command['id'] == fill['order_id'] and utc(command['decided_at']) <= fill['at_end'] and fill['at'] < utc(command['arrival_at']):
+                evidence_gaps.append('lifecycle_time_unidentified')
     wallet = receipts['wallet']
     if (wallet['account_id'] != scope['account_id'] or wallet['session_id'] != scope['session_id']
             or wallet['complete'] is not True or wallet['unattributed_cashflows'] != []
@@ -434,11 +480,25 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
     base_day = utc(day + 'T00:00:00Z')
     for read, delay in zip(reward_reads, (1, 2)):
         if (read['account_id'] != scope['account_id'] or read['condition_id'] != cid or read['reward_day'] != day
-                or read['session_id'] != scope['session_id'] or read['session_exclusive'] is not True
-                or read['complete'] is not True or utc(read['as_of_utc']) < base_day + timedelta(days=delay)
+                or read['session_id'] != scope['session_id']
+                or (read['session_exclusive'] is not True and not read.get('allocation'))
+                or read['complete'] is not True
+                or not base_day + timedelta(days=delay) <= utc(read['as_of_utc']) < base_day + timedelta(days=delay + 1)
                 or not read['source_sha256']):
             raise ValueError('unattributed, immature or incomplete rewards')
         source_hash(read['source_sha256'])
+        allocation = read.get('allocation')
+        if allocation is not None:
+            source_hash(allocation['source_sha256'])
+            if (allocation['method'] != 'independent_venue_accrual_deltas'
+                    or not allocation['payment_id'] or allocation['account_day_complete'] is not True
+                    or number(allocation['sessions'][scope['session_id']]) != number(read['paid_reward'])
+                    or sum((number(v) for v in allocation['sessions'].values()), ZERO) != number(allocation['day_total'])):
+                raise ValueError('unattributed shared reward-day allocation')
+    if (reward_reads[0]['source_sha256'] == reward_reads[1]['source_sha256']
+            or utc(reward_reads[0]['as_of_utc']) >= utc(reward_reads[1]['as_of_utc'])
+            or reward_reads[0].get('allocation') != reward_reads[1].get('allocation')):
+        raise ValueError('distinct chronological D+1/D+2 reward reads required')
     actual_reward = number(reward_reads[1]['paid_reward'])
     if utc(wallet['as_of_utc']) < utc(reward_reads[1]['as_of_utc']):
         raise ValueError('wallet snapshot predates payout evidence')
@@ -446,15 +506,24 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
             or abs(number(wallet['reward_credit']) - actual_reward) > eps):
         raise ValueError('reward reads or wallet credit disagree')
     cost = sum((f['size'] * f['price'] for f in fills), ZERO)
-    if wallet['settlement_complete'] is not True:
-        raise ValueError('incomplete wallet venue settlement evidence')
-    source_hash(wallet['settlement_source_sha256'])
+    if wallet['settlement_complete'] is True:
+        source_hash(wallet['settlement_source_sha256'])
+    elif fills:
+        evidence_gaps.append('unresolved_inventory_full_loss_retained')
     settlements = [e for e in payload['events'] if e['kind'] == 'settlement' and e['condition_id'] == cid]
-    if len(settlements) != 1 or settlements[0]['source'] != 'venue':
+    if len(settlements) > 1 or settlements and settlements[0]['source'] != 'venue':
         raise ValueError('unique venue settlement required for receipt reconciliation')
-    yes_payout = number(settlements[0]['yes_payout'], maximum=ONE)
+    if fills and (not settlements or wallet['settlement_complete'] is not True):
+        # Keep the full-loss row; the entire campaign fails completeness.
+        yes_payout = None
+    else:
+        yes_payout = number(settlements[0]['yes_payout'], maximum=ONE) if settlements else None
+    if fills and yes_payout is not None and number(wallet['yes_payout'], maximum=ONE) != yes_payout:
+        raise ValueError('wallet and captured venue settlement fractions disagree')
+    accounts = actual_accounts(fills, wallet, rows[0]['scope']['token_ids'],
+                               yes_payout=yes_payout, session_id=scope['session_id'], epsilon=eps)
     actual_venue_value = sum((f['size'] * (yes_payout if f['outcome'] == 'YES' else ONE - yes_payout)
-                              for f in fills), ZERO)
+                              for f in fills), ZERO) if yes_payout is not None else ZERO
     if (abs(actual_venue_value - number(wallet['settlement_value'])) > eps
             or number(wallet['redemption_credit']) > actual_venue_value + eps):
         raise ValueError('wallet and captured venue settlement disagree')
@@ -466,9 +535,37 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
         cash_ids.add(flow['id'])
         outside_cash += number(flow['amount'], minimum=None)
     expected_end_cash = (number(wallet['start_cash']) - cost + actual_reward + number(wallet['rebate_credit'])
-                         + number(wallet['redemption_credit']) + outside_cash)
+                         + number(wallet['redemption_credit']) + outside_cash
+                         - number(wallet['maker_fees']) - number(wallet['operating_cost']))
     if abs(number(wallet['end_cash']) - expected_end_cash) > eps:
         raise ValueError('wallet cash identity fails')
+    money_keys = ('cost', 'venue_payout', 'cash_redemptions_pusd', 'unredeemed_venue_value',
+                  'cash_available', 'wallet_end_cash', 'raw_net_pnl', 'maker_fees_pusd', 'operating_cost')
+    economics = {k: compare(predicted[k] + (outside_cash if k == 'wallet_end_cash' else ZERO),
+                            accounts[k], tolerance.monetary_absolute) for k in money_keys}
+    economics['wallet_balance_identity'] = compare(accounts['wallet_end_cash'], number(wallet['end_cash']), eps)
+    economics['net_balance_identity'] = compare(accounts['raw_net_pnl'], accounts['balance_net_pnl'], eps)
+    position_metrics = {stage: {token: compare(predicted[stage][cid][token], accounts[stage][token],
+                                                tolerance.position_absolute_shares)
+                                 for token in rows[0]['scope']['token_ids']}
+                        for stage in ('terminal_positions', 'end_positions')}
+    economics['cost_reserve_identity'] = compare(predicted['cost_reserve'],
+                                                number(config.informed_fraction) * predicted['cost'], '0')
+    economics['stressed_net_identity'] = compare(predicted['stressed_net_pnl'],
+                                                predicted['raw_net_pnl'] - predicted['cost_reserve'], '0')
+    economics_pass = (accounts['settlement_complete'] and all(m['pass'] for m in economics.values())
+                      and all(m['pass'] for stage in position_metrics.values() for m in stage.values()))
+    checkpoint_metrics = {}
+    for checkpoint in receipts.get('state_checkpoints', []):
+        source_hash(checkpoint['source_sha256'])
+        prediction = predicted['checkpoints'][checkpoint['id']]
+        checkpoint_metrics[checkpoint['id']] = {
+            k: compare(prediction[k], number(checkpoint[k]), tolerance.monetary_absolute)
+            for k in ('cash', 'reserved', 'cost_at_risk')}
+        for token in rows[0]['scope']['token_ids']:
+            checkpoint_metrics[checkpoint['id']][token] = compare(prediction['positions'][cid][token],
+                number(checkpoint['positions'][token]), tolerance.position_absolute_shares)
+    economics_pass = economics_pass and all(m['pass'] for point in checkpoint_metrics.values() for m in point.values())
     predicted_sizes = defaultdict(lambda: ZERO)
     predicted_marks = defaultdict(lambda: [ZERO, ZERO])
     for fill in predicted['fills']:
@@ -477,7 +574,21 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
         if fill['markout_per_share'] is not None:
             predicted_marks[oid][0] += fill['size'] * fill['markout_per_share']
             predicted_marks[oid][1] += fill['size']
-    actual_marks = observed_markouts(fills, payload['events'], config)
+    if 'mark_books' not in receipts:
+        evidence_gaps.append('missing_independent_raw_mark_books')
+    mark_events = receipts.get('mark_books', payload['events'])
+    try:
+        actual_marks = observed_markouts(fills, mark_events, config)
+    except ValueError:
+        actual_marks = {}
+        evidence_gaps.append('missing_bounded_independent_five_minute_marks')
+    horizon_diagnostics = {}
+    for horizon in (60, 300, 1800):
+        try:
+            values = observed_markouts(fills, mark_events, replace(config, markout_seconds=horizon))
+            horizon_diagnostics[str(horizon)] = {'status': 'OBSERVED_INTERVAL', 'per_share': values}
+        except ValueError:
+            horizon_diagnostics[str(horizon)] = {'status': 'NOT QUALIFIED', 'evidence_required': 'Independent post-fill books through horizon and timestamp uncertainty.'}
     fill_metrics, mark_metrics = {}, {}
     for oid in sorted(known):
         fill_metrics[oid] = compare(predicted_sizes[oid], actual_sizes[oid],
@@ -489,44 +600,80 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
                 prediction = total / size
                 metric = compare(prediction, (low + high) / 2, tolerance.markout_absolute_per_share)
                 metric['actual_interval'] = [low, high]
-                metric['absolute_error'] = max(abs(prediction - low), abs(prediction - high))
+                metric['absolute_error'] = max(low - prediction, prediction - high, ZERO)
                 metric['pass'] = metric['absolute_error'] <= metric['limit']
+                metric['identified'] = high - low <= 2 * metric['limit']
+                if not metric['identified']:
+                    evidence_gaps.append('markout_time_resolution_insufficient')
                 mark_metrics[oid] = metric
             else:
                 mark_metrics[oid] = {'predicted': None, 'actual_interval': [low, high], 'pass': False}
+        elif actual_sizes[oid] > ZERO:
+            mark_metrics[oid] = {'predicted': None, 'actual_interval': None, 'pass': False,
+                                 'status': 'NOT QUALIFIED: MISSING_HORIZON_EVIDENCE'}
     reward_metric = compare(predicted['reward_payable'], actual_reward,
                             tolerance.reward_absolute, tolerance.reward_relative)
+    if config.competition_rule == 'aggregate_upper_bound':
+        reward_metric.update({'comparison': 'ONE_SIDED_LOWER_BOUND_COVERAGE',
+                              'pass': predicted['reward_payable'] <= actual_reward + number(tolerance.reward_absolute)})
     rebate_metric = compare(predicted['rebate_payable'], number(wallet['rebate_credit']),
                             tolerance.receipt_reconciliation_absolute)
-    evidence_sufficient = (len(actual_marks) >= tolerance.min_filled_orders
+    actual_filled_count = sum(size > ZERO for size in actual_sizes.values())
+    evidence_sufficient = (actual_filled_count >= tolerance.min_filled_orders
                            and actual_reward >= number(tolerance.min_paid_reward))
-    complete = not predicted['reasons'] and not predicted['rejected']
-    passed = (evidence_sufficient and complete and reward_metric['pass'] and rebate_metric['pass']
+    complete = not predicted['reasons'] and not predicted['rejected'] and not evidence_gaps
+    passed = (economics_pass and evidence_sufficient and complete and reward_metric['pass'] and rebate_metric['pass']
               and all(m['pass'] for m in fill_metrics.values()) and all(m['pass'] for m in mark_metrics.values()))
-    metrics_pass = (complete and reward_metric['pass'] and rebate_metric['pass']
+    metrics_pass = (economics_pass and complete and reward_metric['pass'] and rebate_metric['pass']
                     and all(m['pass'] for m in fill_metrics.values())
                     and all(m['pass'] for m in mark_metrics.values()))
-    return {'status': 'PASS' if passed else ('INSUFFICIENT_EVIDENCE' if not evidence_sufficient else 'FAIL'),
+    status = ('NOT_QUALIFIED' if evidence_gaps else 'PASS' if passed else
+              'INSUFFICIENT_EVIDENCE' if not evidence_sufficient else 'FAIL')
+    if config.competition_rule == 'aggregate_upper_bound' and not evidence_gaps:
+        status = 'BOUND_COVERAGE_PASS' if complete and reward_metric['pass'] else 'BOUND_NOT_QUALIFIED'
+    return {'status': status,
             'synthetic': rows[0]['mode'] != 'live',
             'rewards': reward_metric, 'rebates': rebate_metric,
+            'economics': economics, 'positions': position_metrics, 'actual_accounts': accounts,
+            'checkpoints': checkpoint_metrics,
+            'order_ids': sorted(known), 'period_start': payload['start'], 'period_end': payload['end'],
+            'reward_allocation': reward_reads[1].get('allocation'),
+            'session_exclusive': reward_reads[1]['session_exclusive'],
+            'external_reward_accrued': number(payload.get('external_incentives', {}).get(day, {}).get('reward_accrued', '0')),
+            'payment_ids': wallet['payment_ids'],
+            'wallet_as_of_utc': wallet['as_of_utc'], 'wallet_end_cash': number(wallet['end_cash']),
+            'wallet_end_cash_source_sha256': source_hash(wallet['end_cash_source_sha256']),
+            'other_attributed_cashflows': wallet['other_attributed_cashflows'],
+            'capital_period': {'opening_cash': number(wallet['start_cash']),
+                               'closing_cash': accounts['cash_available'],
+                               'opening_positions': accounts['opening_positions'],
+                               'end_positions': accounts['end_positions'],
+                               'last_redemption_at': max((r['at'] for r in wallet['redemptions']), default=payload['start']),
+                               'interperiod_cashflows': wallet.get('interperiod_cashflows', [])},
             'venue_settlement': {'actual_fills_value': actual_venue_value,
                                  'wallet_value': number(wallet['settlement_value']),
                                  'predicted_fills_value': predicted['venue_payout']},
             'fills': fill_metrics, 'markouts_per_share': mark_metrics,
+            'markout_diagnostics_seconds': horizon_diagnostics,
+            'settlement_markout_per_share': {f['order_id']: (yes_payout if f['outcome'] == 'YES' else ONE - yes_payout) - f['price']
+                                            for f in fills} if yes_payout is not None else None,
             'evidence_sufficient': evidence_sufficient, 'simulator_complete': complete,
-            'metrics_pass': metrics_pass, 'actual_filled_orders': len(actual_marks),
+            'metrics_pass': metrics_pass, 'actual_filled_orders': actual_filled_count,
             'simulator_reasons': predicted['reasons'], 'scope': scope,
+            'evidence_gaps': sorted(set(evidence_gaps)), 'timing_rule': 'OBSERVED_REQUEST_ACK_INTERVALS',
             'lifecycle_rejections': predicted['rejected'],
             'config_sha256': digest(config.projection()), 'payload_sha256': digest(payload),
             'receipts_sha256': digest(receipts), 'journal_sha256': receipts['journal_sha256'],
             'journal_records': journal.record_count, 'journal_bytes': journal.byte_count,
             'retained_lifecycle_records': len(rows),
+            'profile_sha256': rows[0]['profile_sha256'], 'recorder_pin': receipts['journal_pin'],
             'tolerance': asdict(tolerance), 'tolerance_sha256': digest(asdict(tolerance)),
-            'qualification': 'SESSION_ACCURACY_ONLY', 'trial_can_pass': False, 'simulation': predicted}
+            'qualification': 'NOT QUALIFIED: BOUND_ONLY' if config.competition_rule == 'aggregate_upper_bound' else 'SESSION_METRICS_REQUIRE_RAW_CERTIFICATE',
+            'trial_can_pass': False, 'simulation': predicted}
 
 
 @decimal_context
-def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_reward):
+def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_reward, expected_session_ids=None):
     """Campaign certificate from distinct complete sessions at one code/config/tolerance.
 
     No-fill sessions still contribute their reward and zero-fill checks; they do
@@ -542,12 +689,103 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
     for key in ('config_sha256', 'tolerance_sha256'):
         if len({r[key] for r in reports}) != 1:
             raise ValueError('mixed campaign configuration')
+    if len({r['scope']['account_id'].lower() for r in reports}) != 1:
+        raise ValueError('campaign must represent one funded account')
+    if expected_session_ids is not None and sorted(expected_session_ids) != sorted(r['scope']['session_id'] for r in reports):
+        raise ValueError('campaign population includes every scheduled, failed and incomplete session')
+    order_ids, cash_ids, allocations, periods, day_claims = set(), set(), {}, [], {}
+    for report in sorted(reports, key=lambda r: utc(r['period_start'])):
+        if order_ids.intersection(report['order_ids']):
+            raise ValueError('duplicate campaign order identity')
+        order_ids.update(report['order_ids'])
+        allocation = report['reward_allocation']
+        day_key = (report['scope']['condition_id'], report['scope']['reward_day'])
+        if day_key in day_claims and (day_claims[day_key] or report['session_exclusive']):
+            raise ValueError('two sessions claim exclusive income from the same condition-day')
+        day_claims[day_key] = report['session_exclusive']
+        for kind, ids in report['payment_ids'].items():
+            for key in ids:
+                # A shared reward payment is legal only with the SAME whole
+                # independently observed day allocation, checked below.
+                if (kind, key) in cash_ids and not (kind == 'reward' and allocation and key == allocation['payment_id']):
+                    raise ValueError('duplicate campaign payment identity')
+                cash_ids.add((kind, key))
+        if allocation:
+            key = (report['scope']['account_id'].lower(), report['scope']['reward_day'], allocation['payment_id'])
+            if key in allocations and allocations[key][0] != allocation:
+                raise ValueError('conflicting shared reward-day allocation')
+            allocations.setdefault(key, (allocation, []))[1].append(report['scope']['session_id'])
+        capital = report['capital_period']
+        if any(capital['opening_positions'].values()):
+            raise ValueError('NOT QUALIFIED: unsettled capital carry requires persistent inventory support')
+        if utc(capital['last_redemption_at']) > utc(report['period_end']):
+            raise ValueError('capital period ends before its redemption')
+        if periods:
+            previous = periods[-1]
+            if any(previous['capital_period']['end_positions'].values()):
+                raise ValueError('NOT QUALIFIED: prior inventory was not flat before the next funded period')
+            if utc(previous['period_end']) > utc(report['period_start']):
+                raise ValueError('overlapping funded capital periods')
+            changes = ZERO
+            for flow in capital['interperiod_cashflows']:
+                source_hash(flow['source_sha256'])
+                amount = number(flow['amount'], minimum=None)
+                if (flow.get('kind') not in ('deposit', 'withdrawal')
+                        or flow['kind'] == 'deposit' and amount < ZERO
+                        or flow['kind'] == 'withdrawal' and amount > ZERO):
+                    raise ValueError('capital policy excludes incentive reinvestment; only explicit deposits/withdrawals adjust funding')
+                key = ('interperiod', flow['id'])
+                if key in cash_ids or not utc(previous['period_end']) <= utc(flow['at']) <= utc(report['period_start']):
+                    raise ValueError('duplicate or out-of-period capital cashflow')
+                cash_ids.add(key)
+                changes += amount
+            if capital['opening_cash'] != previous['capital_period']['closing_cash'] + changes:
+                raise ValueError('campaign cash reset or unrecorded capital flow')
+        periods.append(report)
+    for allocation, sessions in allocations.values():
+        if sorted(sessions) != sorted(allocation['sessions']):
+            raise ValueError('incomplete shared reward-day campaign population')
     filled = sum(r['actual_filled_orders'] for r in reports)
     paid = sum((r['rewards']['actual'] for r in reports), ZERO)
     enough = len(reports) >= min_sessions and filled >= min_filled_orders and paid >= number(min_paid_reward)
-    return {'status': 'PASS' if enough and all(r['metrics_pass'] for r in reports)
+    net_predicted = sum((r['economics']['raw_net_pnl']['predicted'] for r in reports), ZERO)
+    net_actual = sum((r['economics']['raw_net_pnl']['actual'] for r in reports), ZERO)
+    population = {r['scope']['session_id'] for r in reports}
+    closings = {(r['wallet_as_of_utc'], r['wallet_end_cash'], r['wallet_end_cash_source_sha256']) for r in reports}
+    if len(closings) != 1:
+        raise ValueError('campaign requires one independent common closing cash snapshot')
+    external_flows = {}
+    for flow in periods[0]['other_attributed_cashflows']:
+        if flow['session_id'] not in population:
+            external_flows[flow['id']] = number(flow['amount'], minimum=None)
+    residual = sum((r['actual_accounts']['unredeemed_venue_value'] for r in reports), ZERO)
+    balance_net = (periods[-1]['wallet_end_cash'] - periods[0]['capital_period']['opening_cash']
+                   - sum(external_flows.values(), ZERO) + residual)
+    actual_identity = compare(net_actual, balance_net, reports[0]['tolerance']['receipt_reconciliation_absolute'])
+    reward_days = defaultdict(list)
+    for r in reports:
+        reward_days[r['scope']['reward_day']].append(r)
+    campaign_reward_metrics = {}
+    for day, sessions in reward_days.items():
+        if not any(r['reward_allocation'] for r in sessions):
+            continue
+        if len({r['external_reward_accrued'] for r in sessions}) != 1:
+            raise ValueError('conflicting external account-day incentive scope')
+        accrued = sum((r['simulation']['reward_accrued'] for r in sessions), ZERO)
+        payable = accrued if accrued + sessions[0]['external_reward_accrued'] >= ONE else ZERO
+        assigned = sum((r['rewards']['predicted'] for r in sessions), ZERO)
+        net_predicted += payable - assigned
+        campaign_reward_metrics[day] = compare(payable, sum((r['rewards']['actual'] for r in sessions), ZERO),
+                                               reports[0]['tolerance']['monetary_absolute'])
+    net_metric = compare(net_predicted, net_actual, reports[0]['tolerance']['campaign_net_absolute'])
+    return {'status': 'PASS' if enough and net_metric['pass'] and actual_identity['pass'] and all(r['metrics_pass'] for r in reports)
+                          and all(r['pass'] for r in campaign_reward_metrics.values())
             else ('INSUFFICIENT_EVIDENCE' if not enough else 'FAIL'),
             'sessions': len(reports), 'actual_filled_orders': filled, 'paid_rewards': paid,
+            'net_pnl': net_metric, 'population_rule': 'ALL_SCHEDULED_SESSIONS_NO_FILTERING',
+            'reward_days': campaign_reward_metrics,
+            'actual_campaign_cash_identity': actual_identity,
+            'capital_rule': 'VERIFIED_FLAT_NONOVERLAPPING_PERIODS_WITH_CASH_CONTINUITY',
             'synthetic': any(r['synthetic'] for r in reports),
             'config_sha256': reports[0]['config_sha256'], 'tolerance_sha256': reports[0]['tolerance_sha256'],
             'session_report_sha256': [digest(r) for r in reports],

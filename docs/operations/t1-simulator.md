@@ -1,289 +1,271 @@
 # T1 maker simulator and pilot accuracy gate
 
-Status: canonical offline implementation contract; parameter proposals are not frozen.
+Status: canonical offline implementation and evidence contract. No parameters are frozen here.
 
-**Owns:** normalized captured inputs, maker replay accounting, pinned LFC receipt
-adaptation and accuracy comparisons. **Read when:** preparing a T1 replay or pilot
-accuracy package. The [edge trial charter](EDGE_TRIAL_CHARTER.md) owns eligibility
-and trial PASS; [host load policy](HOST_LOAD_POLICY.md) owns execution admission.
-This simulator has no order transport, credentials, source fetcher or live mode.
+**Owns:** bounded captured inputs, receipt accounting, F0 intake and accuracy
+certificates. **Read when:** preparing or reviewing T1 calibration. The
+[edge trial charter](EDGE_TRIAL_CHARTER.md) owns the profit trial and its freeze;
+[host load policy](HOST_LOAD_POLICY.md) owns command admission. This package
+has no network client, credential access, order transport or live authority.
 
-## Package and input contract
+## Entry points and claims
 
-`weather.backtesting.t1_simulator.replay(payload, ReplayConfig)` is the pure engine.
-`t1_capture` adapts saved CLOB books, 88a prints and the pinned pilot's public
-snapshots; `t1_accuracy` reads the pin's chained journal and saved receipt export.
-`t1_cli` writes an exclusive-new JSON report with source and input hashes.
-The deterministic synthetic examples are the constructors in
-[`tests/backtesting/t1_fixtures.py`](../../tests/backtesting/t1_fixtures.py).
-They read no runtime data and are development evidence only.
+`weather.backtesting.t1_simulator.replay` produces deterministic diagnostics from
+explicit inputs. `t1_accuracy.accuracy_gate` reconstructs a session from a chained
+journal and independent receipts. `t1_provenance.session_certificate` checks the
+CLI envelope and retained raw files. `certify_campaign` consumes full CLI envelopes;
+`combine_session_gates` alone is an arithmetic diagnostic, not a source certificate.
+`t1_recorder` accepts the reviewed F0 writer's native shapes as partial evidence.
 
-The engine takes a bounded session export with:
+A result-level `status=PASS` means all session financial and calibration metrics
+meet the supplied tolerances and evidence floors. It can be synthetic. A production
+accuracy PASS additionally requires `accuracy_certificate.status=PASS`, nonsynthetic
+inputs, common clean source, the prospective evidence contract and campaign gates.
+The CLI returns zero for accuracy only under that certificate. Every output keeps
+`trial_can_pass=false`: agreement does not establish positive expected profit.
 
-- `opening_state=flat`: an explicit declaration that this simulated capital
-  period begins with no resting orders or inventory. Missing or other opening
-  states refuse; this kernel cannot resume unsettled inventory. Do not reset
-  capital by splitting overlapping unsettled periods into independent inputs.
-- `start`/`end` UTC; `conditions` mapping IDs to International venue, YES/NO
-  `token_ids`, `event_date`, `native_unit`, captured `tick`/`min_order_size` and
-  complete `coverage_start`/`coverage_end`. Cash units are pUSD; shares and prices
-  are decimal strings. Temperature units are retained, never converted.
-- `account_scope_complete=true`: the export covers the account-day incentive
-  scope. Optional `external_incentives` rows declare captured, complete other
-  reward/rebate accruals and source hashes. These affect only the account's
-  payment threshold; they are never credited as this strategy's income.
-- `events`: full two-token `book` snapshots at availability time; captured `terms`
-  with `rate_per_day`, `min_size`, `max_spread_cents`, `valid_until` and source
-  hash; `trade` rows with stable execution ID, native outcome, aggressor, price,
-  size, receipt `at` and exchange `traded_at`; explicit `settlement` rows with
-  venue YES payout fraction and source hash. No Gamma display prices or
-  reconstructed weather labels can substitute for these inputs.
-  Optional `redemption` events release a captured fraction of that condition's
-  settled venue value into spendable cash, with venue source hash. Resolution
-  value alone never finances another order; fractions cannot exceed one in total.
-  A book has both `at` (completed-input availability) and `observed_at` (earliest
-  observation/request start, a conservative age bound), plus each token's captured
-  `tick` and `min_order_size`. Arrival uses those native rules, not initial metadata.
-- `commands`: post-only native BUY YES/NO proposals (`id`, condition, outcome,
-  input-availability `observed_at`, `decided_at`, `expires_at`, price, size), or
-  cancellation of a submitted ID. Arrival is at least the later of availability
-  plus end-to-end latency and decision plus order-transport latency. An explicitly
-  supplied arrival cannot precede either bound. GTD expiry precedes a same-time trade.
-  The separate `market_centred_quote` proposer uses a captured midpoint, outward
-  tick rounding, a declared distance and size; it makes no forecast.
-- `rebate_pools`: complete, captured weather-category UTC-day taker fees and
-  total maker fee-weight denominator, with source hash. The denominator includes
-  all category fills, not only this condition or our orders. A missing pool is
-  incomplete evidence, not a zero rebate assumption.
-- `reward_epochs`, when `reward_epoch_rule=captured_active`: per UTC day and condition, complete captured normalization
-  `active_seconds` and source hash. This is 60 times the number of active venue
-  minute samples, or the captured full-day expectation under the declared sample
-  rule. Include counterfactual own-liquidity activation. It cannot be shorter
-  than the replay's own eligible duration. A missing denominator is incomplete.
-  The separately declared `full_day_upper_bound` rule uses 86,400 seconds as a
-  denominator upper bound; it needs no invented observation of venue sample times
-  and is labelled conservative rather than exact normalization.
+An anonymous-book lower bound has a one-sided coverage comparison. It is never an
+exact reward or net-P&L certificate. Continuous reward integration is an expectation
+diagnostic, not reproduction of the venue's realized random minute samples.
+Missing sample, midpoint, fee, competition or source evidence remains NOT QUALIFIED.
+A real-session certificate is conditional on the books observed under that actual
+intervention; it never qualifies the response to our posting on passive trial books.
 
-Exporting is not a licence to inspect trial dates: preserve the embargo and
-freeze-before-read rules of the task and charter. Do not point this tool at
-shadow tapes. Capture/export owners must establish coverage and stable trade
-IDs before a countable run. Timestamp/price/size hashes alone cannot distinguish
-two legitimate identical prints; `captured_print` therefore requires an
-exporter-supplied deduplicated `execution_id`.
+## Normalized replay inputs
 
-## Replay semantics and limits
+Use a bounded JSON session with UTC `start`/`end`, `conditions`, `events` and
+`commands`. Conditions retain International venue identity, unique YES/NO tokens,
+local `event_date`, native C/F unit, captured tick/minimum and coverage interval.
+Cash is pUSD; quantities and prices are decimal strings. Current Gamma display
+prices and weather labels cannot substitute for captured execution or venue payout.
 
-The arrival-time native ask, tick and minimum order size determine rejection. Better-price and
-same-price displayed volume is ahead of us. T1 permits at most one resting
-order per native outcome per condition; cancel before replacing that leg.
-Only matching native-token SELL-aggressor volume consumes that queue. There is
-no cancellation credit. The default proposed rule additionally requires a print
-strictly through our price; `back_at_price` is an explicit sensitivity that still
-depletes the queue first. Retransmitted execution IDs do not duplicate volume.
-At identical timestamps a trade precedes a cancellation or new post, conservatively.
-Late public receipt does not move the exchange's execution time forward.
-Unknown aggressors, mirrored prints without identity reconciliation and
-ambiguous mint/merge executions must not be silently counted as own fills.
+`opening_state=flat` is mandatory. `opening_cash` is the actual funded cash, distinct
+from the risk ceiling in `ReplayConfig.total_cap`. Never replenish cash by splitting
+a capital period. Nonflat opening inventory is unsupported and NOT QUALIFIED.
+`account_scope_complete` and independently captured `external_incentives` describe
+the account-day payout threshold; other income is not this strategy's profit.
+`operating_cost` is the prospectively declared cost charged to the period; receipt
+accounting independently supplies its actual value.
 
-Resting reservations and filled cost both consume per-market and total capital;
-settlement releases the risk reservation. Spendable cash releases only through
-an explicit redemption event. Global cash cannot be reused after a loss.
-Incentive accrual cannot finance orders before payment. The strategy holds native
-tokens to venue settlement; it has no taker exit. `fee` implements the charter's
-taker fee for accounting consumers; the maker pays zero. Adding a taker strategy
-requires its own depth walk and minimum-slippage contract.
+Events carry availability `at` and `source_sha256`:
 
-Reward shares use the quadratic order score, size-qualified midpoint, the
-single-sided divisor and complementary books. Own liquidity is composed with
-the canonical `maker_core.quoting.book.compose_book`; it moves the midpoint and
-is excluded from competing scores. Actual pilot books must first have actual
-own outstanding sizes removed by `t1_capture`, then simulated sizes are added.
-Every book/terms/fill/cancel boundary updates the reward estimate; selection-time
-share is never held for the session. Continuous integration is the expectation
-of the venue's random minute sampling, not an assertion about its realized offset.
-The epoch rule is explicit. Captured active normalization needs its own complete
-coverage. Full-day upper normalization deliberately underestimates income when
-some samples have no scoring liquidity; it does not assert 1,440 active samples.
-Stale book/terms intervals are omitted and explicitly make the report incomplete.
-No missing-configuration substitute ships: export captured settings or obtain
-a preregistered substitute implementation before freezing.
+- `book`: both tokens' bids/asks, ticks, minimum size, oldest `observed_at`, captured
+  `accepting_orders`, and an own-subtraction manifest. Missing acceptance evidence
+  cannot admit a post. Competitor-only sides may be empty after valid subtraction;
+  an executable ask and a composed qualified reward midpoint are separate checks.
+  `token_times` retains each token's collection start/completion; sequential reads
+  do not acquire a fictitious simultaneous timestamp.
+- `terms`: captured reward rate, minimum size, spread and `valid_until`. The pin
+  adapter retains the original rules and fee evidence as well as their hash.
+- `trade`: exchange `traded_at`, native token outcome, aggressor, price, shares,
+  stable `consumption_id`, `status` and `execution_route`. `native_sell` consumes
+  that native BUY book. `complementary_mint` retains an original BUY and, with
+  linked route evidence, consumes the opposite BUY book at the complement price.
+  `not_buy_liquidity` explicitly identifies other flow. Mirrors share one native
+  consumption identity. FAILED prints supply no fills; unknown finality, route
+  or identity makes coverage incomplete. A transaction hash or wire fingerprint
+  alone does not identify a unique execution.
+- `settlement`: venue payout fraction `yes_payout`, source and provenance. NO pays
+  its complement; split/void fractions are supported. No held inventory needs a
+  settlement merely to reconcile a true zero-fill period.
+- `redemption`: unique transaction identity, venue source and actual per-token
+  `tokens` burned. Legacy `fraction` redeems that fraction of all filled holdings.
+  Tokens cannot be redeemed twice. Resolution releases risk, while only redemption
+  releases spendable principal. Redemption never creates profit a second time.
+- Optional `reward_sample`: actual venue sample time and integer
+  `epoch_active_sample_count`; `reward_realization=observed_samples` enables this
+  path. Duplicate condition/minute samples refuse. Retain the complete sampling
+  and denominator evidence; a declared count is not proof of venue sampling.
 
-`maker_grouped` requires a complete census of unique native orders with order ID,
-maker ID, outcome, side, price and size. Its reconstruction must equal the captured
-books. Each native own order scores once; its displayed complement is not a second
-order. Anonymous L2 price levels with maker labels cannot establish exact allocation.
-`aggregate_upper_bound` uses half the sum of all four displayed side scores
-as a denominator upper bound: each maker's Q_min is at most half its side-score sum.
-Mirror duplication increases that bound. Its reward estimate is conservative conditional
-on the displayed book. It is labelled as a bound, never exact reward allocation.
-Neither mode predicts competition induced by our own quote. Replaying realized
-pilot books measures conditional scoring accuracy; it does not identify the
-counterfactual competition response in passive trial captures. That application
-limit must be addressed in the trial preregistration, not hidden by a pilot PASS.
+`rebate_pools[UTC day].conditions[condition]` carries condition identity, eligibility,
+total taker fees, maker fee-weight denominator, coefficient, rebate fraction,
+validity interval, completeness and source hash. Optional `category_totals` must
+reconcile to the supplied condition pools. Legacy category-only pools remain
+unqualified diagnostics. Captured incompatible eligibility or economics refuse.
+Do not replace unavailable denominators with zero.
 
-Rebates are 25% of category taker fees times our fee-weighted filled share when
-configured with the charter's weather coefficient. Rewards and rebates retain
-separate accrued and payable totals. A daily total below the venue's $1 payment
-minimum is assigned no payable income; no unverified carry-forward credit.
-The export must contain our entire rewarded account-day scope for that threshold
-to be meaningful. Trial net P&L uses payable amounts, not unpaid accrual.
+Rewards retain per-condition/day accrual; rebates aggregate condition allocations
+before the account-day payout threshold. Accrued, estimated payable and actual
+cash credits remain distinct. No unverified sub-threshold carry is credited, and
+paid incentives are excluded from reinvestment under this conservative capital
+policy. Missing carry/rounding evidence remains NOT QUALIFIED. The fee rule may
+be `unrounded_diagnostic` or explicit per-match five-decimal half-even rounding;
+the latter needs dated receipt support before qualification, not assumption.
 
-Raw settlement P&L always uses the venue's payout for every share of that token.
-The proposed additional adverse-selection reserve is `f * filled cost`, independent
-of whether the token won. It reserves the purchase cost on a declared fraction of
-represented fills; it is not a bound on replacing those fills with different assets,
-a different settlement, inferred trader knowledge, or a fitted informed-flow model.
-It can conservatively double-charge losses already
-present in realized P&L. The output labels that reserve and reports risk-adjusted
-net separately. Its use and the interpretation of f require owner/master review.
-Cash accounting uses actual captured redemption proceeds; a scoring reserve does
-not fabricate a different wallet cash flow. Inventory remains reserved until settlement.
-The raw trading component is also decomposed into entry-mid spread capture and
-subsequent inventory movement to venue payout, with maker fees shown separately.
-Markouts are share-weighted native-token midpoint minus entry at the fixed
-horizon, using the first two-sided capture whose observation starts at/after the
-horizon and whose availability is within the declared delay.
-They are diagnostics and never enter the quoting information set.
+## Queue, clocks and policy
 
-## Accuracy receipt export
+Orders are BUY-only, post-only, capped and expiry-bound. Queue is recorded by
+price level: better-price executions retire better depth, same-price executions
+retire same-price depth, and sweeps deplete preceding depth. Public executions
+also deplete external depth before a cancel/repost can reconstruct queue. Ambiguous
+native maker assignments remain a gap. Snapshot interpolation and cancellation
+priority do not prove exact queue position.
 
-The LFC writer is read-only source authority at the task's pin, not an import or
-runtime dependency. `read_pin_journal` verifies canonical newline bytes,
-sequence, previous SHA, UTC order, opened/terminal records and evidence/cleanup
-flags. `pin_commands` binds `submit_market_snapshot`, `submit_request`,
-`submit_response`, LFC placement identity and acknowledged cancel events.
-Fill detection timestamps in the journal are not precise trade times.
-The pin's `observed_at_utc` is batch start, before sequential HTTP reads.
-`pin_snapshot` therefore requires the completed snapshot journal time as
-`available_at`; it does not backdate data availability to request start.
-The terminal clean-up proof bounds quote exposure in session replay. A simulated
-rejection of an acknowledged order is a lifecycle mismatch and fails the gate.
-Journal input is streamed: every observation is hash/clock checked, while only
-quote lifecycle records are retained. The reader caps individual lines and total
-journal bytes; it never loads a whole pilot journal to replay a handful of quotes.
-Retained lifecycle bytes also have a separate bound; book-update queue telemetry
-is verified and discarded, while placement records remain part of the replay binding.
+`back_at_price` can fill after represented depth is exhausted. `back_strict_through`
+requires a lower print. Both are uncertainty scenarios. **Fewer fills has no
+one-sided net-P&L interpretation.** The output also reports the loose fixed-command
+floor: every commanded posted lot fills completely and loses, incentives are zero,
+and operating costs are charged. It is a bound only for that fixed command trace,
+not for an adaptive policy generating different commands under different books.
 
-The sanitized receipt JSON contains `scope` (account, session, condition and
-reward day), `journal_pin`, `journal_sha256`, and:
+Receipt replay uses observed request/ACK intervals for posts and cancels, rather
+than replacing them with a p95 stress. Exposure inside an unresolved interval is
+not identified. Passive simulation keeps availability-to-order and decision-to-ACK
+latencies separate; cancellation uses `cancel_latency_seconds`. Empirical p95 is
+not a tail guarantee. Preserve clock precision and synchronization evidence.
 
-- `clob`: exact saved CLOB `/data/trades` endpoint, complete pagination through
-  terminal cursor and wire `rows`. Confirmed `maker_orders` matching our order
-  IDs supply price, matched amount, token, side and exchange match time. Unix
-  seconds and normalized ISO UTC are accepted. Trade IDs deduplicate pagination;
-  transaction hashes do not collapse distinct fills.
-  Integer-second match times retain a one-second uncertainty interval. ISO exports
-  must declare `match_time_precision_seconds`; they cannot silently invent precision.
-  Markout comparisons use the worst error across the interval, bounded by the
-  journal/ledger terminal proof, and need sufficient captured books for that interval.
-- `wallet`: independently exported start/end cash, start/end snapshot times,
-  account/session identity, complete attributed order fills, reward/rebate/
-  redemption credits and an empty unattributed-cashflow list. It must agree
-  with CLOB fills and the cash identity. Ending snapshot follows D+2 evidence.
-  `other_attributed_cashflows` may contain independently sourced signed amounts
-  from other sessions, each with a unique ID, other session ID and source hash;
-  these reconcile whole-wallet cash without becoming this session's income.
-  `settlement_complete`, `settlement_value` (redeemed plus remaining venue value)
-  and `settlement_source_sha256` independently check the captured payout against
-  the actual filled holdings. Redemption credit cannot exceed that venue value.
-- `lfc_ledger`: the pin's actual `Ledger.snapshot()` JSON, including history tail,
-  cost figures and terminal legs. The reader independently checks L_filled,
-  L_resting, L, session/order/token/price identities and matched quantities
-  against the journal and CLOB fills. This cap ledger is not a cash balance;
-  retain its verified history alongside the snapshot and wallet cash evidence.
-- `rewards`: exact-scope D+1 and D+2 completed venue reads with source hashes,
-  reward day, account/session/condition identity, paid amount and an explicit
-  assertion that this session exclusively owns the attributed scope. Shared
-  reward days require an independently reviewed allocation/export; subtracting
-  a simulated reward prediction from a wallet credit is not attribution.
+Arbitrary stamped command lists do not prove an as-of policy. The implemented
+`first_book_pair_v1` policy accepts only predeclared conditions, size, distance and
+lifetime; it consumes the first available book and cannot inspect accounting
+outcomes. Its decision trace binds book/config hashes. Other policy selection,
+requotes and stops require their own reviewed event runner and prospective freeze.
+Journal reconstruction is an external decision trace, not a passive strategy test.
 
-The CLI hashes the sanitized export and raw journal. Source hashes in an export
-are provenance assertions: the preparing operator must retain their underlying
-raw responses and projection script. This command does not authenticate or
-fetch those responses. No credentials or authenticated request headers belong
-in the export. Capture correctness and source authenticity remain distinct
-from the arithmetic accuracy comparison.
+`midpoint_rule` chooses explicit `level_filter` or `cumulative_depth` semantics.
+Both candidates are available for controlled comparison. Venue-exact semantics
+require dated authority; changing this candidate does not change shared live quoting.
+Aggregate scoring uses the same summed price levels as midpoint composition, so
+splitting one price into smaller rows cannot erase a qualifying competitor.
 
-`accuracy_gate` reports predicted/actual payable rewards, filled shares per
-order and horizon markouts per actual filled order. Disagreement fails.
-Incorrect rebate payment also fails at the receipt reconciliation tolerance;
-venue payout inconsistent with the wallet's settlement evidence refuses the input.
-Missing or inconsistent receipt evidence raises before certification. Source fill
-quantities agree exactly; monetary reconciliation alone has a rounding tolerance.
-Journal account/session identity must match the receipt scope. No-fill sessions
-cannot alone identify fill/markout accuracy. `combine_session_gates` enforces
-distinct sessions, one configuration/tolerance and campaign evidence floors;
-the caller must additionally bind every report to the same clean simulator
-commit and preregistration. Neither session nor campaign report is a trial PASS.
-The trial scorer must refuse a failed, insufficient, incomplete or unbound gate.
+The deprecated config name `informed_fraction` is **cost reserve / filled purchase
+cost**. Outputs call it `cost_reserve_fraction` and `cost_reserve`; the legacy
+`informed_stress_cost` field is a compatibility alias. `stressed_net_pnl` subtracts
+this reserve from raw net. It is not an informed-fill estimate, cannot be filled
+from LFC `f_hat`, and even value one does not cover omitted or different losing
+exposures. Freeze the primary profit quantity before looking at trial results.
 
-## CLI and admission
+## Independent receipt accounting
 
-The CLI interface is `python -m weather.backtesting.t1_cli simulate` or `accuracy`,
-with required `--inputs`, `--config`, `--latency-evidence`, `--output`; accuracy
-also requires `--journal`, `--receipts`, `--tolerance`. These are explicit file
-paths. Outputs are create-only; an existing destination is an error. A failed
-accuracy comparison exits 2. There is no freeze command or trial look command.
+The full journal is streamed and its canonical newline bytes, sequence, clocks,
+previous hashes and opened/terminal evidence are checked. Wire modes `live`,
+`rehearse` and legacy synthetic `replay` retain their identity. Compatible recorder
+commits are enumerated in `t1_accuracy.COMPATIBLE_RECORDER_PINS`; never relabel F0
+as the legacy commit. The opened profile hash must match the retained profile.
 
-`--latency-evidence` binds the config's SHA to retained samples containing
-`observed_at`, `decided_at`, `acknowledged_at`, `kind=observation_to_order_ack`,
-`sample_count` and `synthetic`. The CLI recomputes nearest-rank end-to-end and
-decision-to-ACK p95 values; the two configured latency bounds must cover them.
-Synthetic evidence is explicitly
-labelled and cannot become live accuracy evidence merely by passing arithmetic.
-`t1_accuracy.pin_latency_evidence` exports those samples directly from a verified
-pin-format journal; its projection retains the raw journal hash and live/replay mode.
-The report records Git HEAD, worktree cleanliness and hashes of all T1 modules.
-Freeze authority requires a clean committed source and retained input manifests.
+The receipt JSON contains account/session/condition/day scope, actual recorder pin,
+journal hash, profile hash and:
 
-All replay and verification obey the workstation wrapper, HOLD and memory rules.
-The exact CLI module is listed by the wrapper and hook mirror; no child or
-similarly named module is admitted. Encode its argument array as UTF-8 JSON
-base64 for `workstation_heavy.ps1 -Kind weather_heavy`, with absolute project
-interpreter and repository paths. Fixture CLI coverage runs inside focused
-wrapped pytest. Normalized JSON inputs are capped at 16 MiB and 50,000 events/commands;
-the separately streamed journal is capped at 2 GiB with 1 MiB per record.
-Large tape streaming/export and resumable cross-session state are separate work.
-Module admission does not authorize a read of trial dates or a live action.
+- `clob`: independently retained confirmed maker entries and complete `/data/trades`
+  pagination through LTE=. Native order/token/side/price identities and quantities
+  reconcile exactly with wallet fills and terminal LFC ledger quantities. Integer
+  seconds retain uncertainty rather than fabricated subsecond precision.
+- `wallet`: start/follow-up cash and clocks, selected-token opening/terminal/end
+  positions including zeros, opening orders, `opening_other_positions` and
+  `opening_other_open_orders`, fills, venue payout fraction/value, redemption
+  transactions, reward/rebate credits, maker fees, operating cost, payment IDs and
+  all other signed attributed cashflows. Unknown cashflows cannot be suppressed.
+  Redemption receipts bind quantities, credit, transaction and collection time.
+  `end_cash_source_sha256` identifies the common independent closing account read.
+- `state_checkpoints`: independently observed `id`, `at`, cash, reserved commitment,
+  cost at risk, token positions and source hash. The engine produces predictions
+  at those clocks; both intermediate and terminal financial states are compared.
+- `lfc_ledger`: actual cap-ledger snapshot. The certificate replays its full retained
+  chained history and compares every leg and terminal hash. This is not wallet cash.
+- `rewards`: genuinely distinct reads collected during UTC D+1 and D+2. Exclusive
+  session attribution is legal only once per condition/day. A shared-day
+  `allocation` names the actual payment ID, full day total, every session amount,
+  source hash and `method=independent_venue_accrual_deltas`. Amounts sum to the
+  independently observed credit. Simulated shares cannot allocate actual rewards.
+- `mark_books`: independent retained raw two-token horizon books. Own subtraction
+  is reconstructed from acknowledged orders/cancels and confirmed fill intervals;
+  raw and removed depth must sum exactly once to the supplied competitor book.
+  Shared capture errors remain a provenance question. Five-minute marks are
+  diagnostics, not executable exits or informed-trader labels.
 
-When using another checkout's shared interpreter, set the invoking process's
-`PYTHONPATH` to `<worktree>;<worktree>\src` before starting the wrapper. The root
-selects that checkout's existing bootstrap, and `src` selects its packages.
-`-RepoRoot` chooses the child's working directory; it does not replace an editable
-install. The CLI refuses a maker dependency from another checkout. Keep that
-refusal enabled and verify the source hashes; do not change interpreter installs
-or persistent environment settings to run this task.
+The gate compares predicted purchase cost, fees/costs, payout, redemption, residual
+venue value, available cash, wallet ending cash, terminal/end positions and raw
+net P&L. The actual cash-plus-residual-assets identity independently reconciles net
+profit. Each monetary component has a predeclared absolute budget; campaign net
+has a separate budget, preventing accumulated per-order share allowances from
+hiding a material missing losing fill. Reserve arithmetic is checked separately.
 
-## Values proposed for owner/master review
+Markout comparisons measure distance to the actual timestamp interval. An interval
+wider than twice the tolerance is insufficient time resolution, not measured model
+error. Reports include available 1/5/30-minute and settlement diagnostics, with
+missing horizons labelled NOT QUALIFIED. Phantom fills also face position/cost gates.
 
-These are proposals only; they are not runtime defaults or a preregistration.
+Unknown held settlements remain full-loss rows and fail completeness. A campaign
+must retain every scheduled/failed/incomplete session from its frozen population;
+it may not select only complete or profitable reports. A true zero-fill period
+needs no resolution. Unresolved exposure cannot quietly be dropped downstream.
 
-| Input | Proposal | Basis and limit |
-| --- | --- | --- |
-| f low/mid/high | 0.25 / 0.50 / 1.00; primary high absent stronger pilot evidence | Stress scenarios, not informed-trader estimates. The high case reserves another full filled cost; 0.75 has no demonstrated conservative coverage. Review the reserve definition above before freezing. |
-| Latency | Measured availability-to-ACK and decision-to-ACK p95 or worse; 2 s / 1 s synthetic rehearsal only | No measured latency was supplied. The pin exposes batch start separately from data availability; freeze only after pilot measurement. |
-| Queue | back_strict_through; back_at_price sensitivity | Displayed better/same-price shares first, no cancellation credit; do not treat a touch as a back-queue fill. |
-| Reward tolerance | max(0.05 pUSD, 20% of actual), per attributed session | Allows random minute sampling and rounding while detecting the historical order-of-magnitude overstatement; low reward days alone are weak evidence. |
-| Fill tolerance | max(1 share, 10% actual), per order | Permits timestamp/granularity differences, prevents aggregate cancellation of missed and excess fills. |
-| Markout tolerance | 0.01 pUSD/share at 5 minutes, per filled order | One cent is below the pin's adverse-markout indicator; use identical captured horizon convention for predicted and actual fills. |
-| Receipt reconciliation | 0.01 pUSD, including D+1 versus D+2 | Accounting completeness is mandatory, separate from model tolerances. |
-| Campaign evidence | At least 3 complete sessions, 5 distinct filled orders, 1 pUSD paid reward | Avoid certifying a zero-fill model; first-fill termination means the floor spans sessions. Report uncertainty; this floor is a proposal, not proof of precision. |
-| Capture/mark delay | At most 30 seconds for books; 30 seconds after markout horizon | Conservative prospective starting point; verify capture cadence outcome-blind before freeze. |
+## Campaign and evidence certificate
 
-The owner/master must decide whether an aggregate reward lower bound is
-acceptable after calibration, specify the capital scale, establish the rebate
-category denominator and approve a raw-receipt export/attribution protocol.
-No output of this implementation freezes any of those choices.
+The supported conservative capital alternative is verified flat, nonoverlapping
+funded periods with exact cash continuity. Prior unredeemed inventory prevents a
+new period. Interperiod deposits/withdrawals must have independent unique IDs,
+clocks and source evidence. Settled residual assets in a final period are reported
+explicitly. Persistent unsettled opening lots remain NOT QUALIFIED.
 
-## Source contracts and update triggers
+The combiner rejects repeated sessions, order IDs, redemption/payment IDs, false
+exclusive day claims, overlapping capital and cash resets. A shared reward credit
+may appear only with the same complete independent allocation across all named
+sessions. The account-day threshold is applied to combined predicted accrual,
+never independently to each short session. Aggregate predicted/actual net P&L has
+its own tolerance. Evidence floors are coverage requirements, not power claims.
+All session exports must reference the same independently observed closing cash
+snapshot and its source hash. The sum of actual session profits must equal whole
+account cash change, less external flows, plus remaining venue assets.
 
-Venue primary references: [reward method](https://docs.polymarket.com/programs/liquidity-rewards),
-[fees](https://docs.polymarket.com/trading/fees),
-[rebates](https://docs.polymarket.com/programs/maker-rebates),
-[CLOB trade wire format](https://docs.polymarket.com/trading/manage-orders).
-The charter and captured daily configuration take precedence over current
-web pages when replaying a historical condition.
+`receipts.evidence_bundle.files` lists explicit safe relative paths, roles and
+SHA256s beneath the staged receipt directory. Files are streamed and verified;
+there is no directory discovery. Preserve raw journal, profile, full ledger,
+private fills, wallet, D+1/D+2 rewards, books/marks/terms, settlement/redemptions,
+rebates, exporter source, actual recorder source manifest and preregistration. The
+recorder manifest binds the clean actual recorder commit, journal/profile hashes
+and session identity. Every declared source hash must bind
+retained bytes. Hashes establish byte identity, not venue authenticity.
 
-Update this document with input/export, accounting, queue, latency, gate or CLI
-changes. Tests must remain synthetic and dated within the permitted development
-window; real receipts and trial dates require their own authority and freeze.
+The JSON preregistration binds the common clean CLI source envelope, configuration,
+tolerances, exporter, `expected_session_ids`, a prospective `frozen_at_utc`, and
+`missing_session_rule=FAIL_WHOLE_CAMPAIGN_RETAIN_FULL_LOSS_ROWS`.
+The final certificate rejects synthetic, dirty, mixed or unsupported pins and
+unqualified components. Actual venue sampling, midpoint semantics and condition-day
+rebate precision require their own retained evidence. A passed conditional pilot
+cannot identify posting-induced competition: the passive incentive floor remains
+zero until a defensible intervention/response envelope is independently validated.
+Retained `midpoint_rule_evidence`, `reward_sample_evidence` and
+`fee_rounding_evidence` must name the actual rule/method/granularity and verified
+raw sources; merely choosing a candidate config does not qualify the component.
+
+## Native F0 intake and command
+
+For partial intake, set inputs to `input_kind=f0_lfc_recording` and the actual
+`recorder_pin` from `t1_accuracy.F0_PIN`. Supply the original journal; receipts may
+be an empty JSON object. The adapter preserves raw snapshot diagnostics, exact
+submit/cancel ACKs, confirmed versus pending terminal trades, profile and journal
+identity, and explicit gap flags. It never sets invented coverage/complete flags.
+An optional `normalized_payload` plus complete supplementary receipts runs the
+strict comparison beside this partial report. The native report remains partial.
+
+F0 normally captures books each minute and stops soon after a fill. It lacks
+continuous post-fill books, unique confirmed public maker consumption, exact
+competing orders/random samples, complete day denominators, independent shared
+paid-reward attribution, rebate totals and a complete cash/redemption account.
+Position endpoint repairs do not create those missing observations. These gaps
+cannot be repaired by loosening freshness or relabelling a rehearsal as live.
+
+Use `python -m weather.backtesting.t1_cli simulate` or `accuracy` with `--inputs`,
+`--config`, `--latency-evidence`, `--output`; accuracy also requires `--journal`,
+`--receipts`, `--tolerance`. Paths are explicit; output creation is exclusive.
+Accuracy exits 2 on a diagnostic match without a real certificate, incomplete
+F0 evidence, mismatch or insufficient evidence. No freeze/trial command exists.
+
+Latency evidence contains sample clocks, count, kind, synthetic identity and a
+file hash bound by config. Complete replay recomputes both empirical p95 values.
+Partial F0 intake alone permits an empty measurement set, clearly unqualified.
+The report binds all T1 sources and their imported first-party economic dependencies.
+Run through `scripts/ops/workstation_heavy.ps1 -Kind weather_heavy`, encoding the
+exact argument array as UTF-8 JSON base64. Check task HOLD/freeze constraints first.
+Set process `PYTHONPATH` to the worktree and its `src` when sharing an interpreter.
+
+Normalized inputs are bounded to 16 MiB and 50,000 events/commands. Journals stream
+under the explicit reader limits; raw evidence bundles are bounded to 2 GiB.
+Admission never grants access to trial dates, credentials, a reader or a venue.
+
+## Update triggers
+
+Update with input/export, financial identity, timing, queue, reward/rebate, policy,
+qualification or CLI changes. Synthetic constructors and regression coverage are
+in `tests/backtesting/t1_fixtures.py` and the `test_t1_*` modules. Real qualification
+requires its own authorized, mature evidence run and prospective contract.

@@ -1,10 +1,11 @@
 """Small synthetic International session; event date and D+2 are <= 2026-10-14."""
 from datetime import datetime, timedelta, timezone
+from copy import deepcopy
 from decimal import Decimal as D
 import hashlib
 
 from weather.backtesting.t1_accuracy import PIN_JOURNAL_VERSION, Tolerance
-from weather.backtesting.t1_types import ReplayConfig, canonical
+from weather.backtesting.t1_types import ReplayConfig, canonical, digest
 
 BASE = datetime(2026, 10, 12, 9, tzinfo=timezone.utc)
 
@@ -16,7 +17,9 @@ def at(seconds):
 def book(seconds=0, bid='.49', ask='.51', size='20', condition='c1'):
     side = {'bids': [{'price': bid, 'size': size, 'maker_id': 'competitor'}],
             'asks': [{'price': ask, 'size': size, 'maker_id': 'competitor'}], 'tick': '.01', 'min_order_size': '5'}
-    return {'kind': 'book', 'condition_id': condition, 'at': at(seconds), 'observed_at': at(seconds),
+    result = {'kind': 'book', 'condition_id': condition, 'at': at(seconds), 'observed_at': at(seconds),
+            'accepting_orders': True, 'competitor_only': True,
+            'token_times': {o: {'started_at': at(seconds), 'completed_at': at(seconds)} for o in ('YES', 'NO')},
             'source_sha256': 'e' * 64, 'reward_orders_complete': True,
             'reward_orders': [{'order_id': f'comp-{outcome}-{seconds}', 'maker_id': 'competitor', 'outcome': outcome,
                                'side': 'BUY', 'price': p, 'size': size}
@@ -24,6 +27,9 @@ def book(seconds=0, bid='.49', ask='.51', size='20', condition='c1'):
             'YES': side, 'NO': {'bids': [{'price': str(1 - D(ask)), 'size': size}],
                                'asks': [{'price': str(1 - D(bid)), 'size': size}],
                                'tick': '.01', 'min_order_size': '5'}}
+    raw = {o: deepcopy(result[o]) for o in ('YES', 'NO')}
+    result['own_exclusion'] = {'raw_sides': raw, 'raw_sides_sha256': digest(raw), 'orders': []}
+    return result
 
 
 def config(**changes):
@@ -33,6 +39,7 @@ def config(**changes):
                   queue_rule='back_strict_through', competition_rule='maker_grouped',
                   max_book_age_seconds='600', markout_seconds=300, mark_max_delay_seconds='1',
                   fee_coefficient='.05', rebate_fraction='.25')
+    values['cancel_latency_seconds'] = '2'
     return ReplayConfig(**{**values, **changes})
 
 
@@ -46,9 +53,11 @@ def payload():
                             'min_size': '5', 'max_spread_cents': '3', 'rate_per_day': '864000',
                             'source_sha256': 'b' * 64},
                    {'kind': 'trade', 'condition_id': 'c1', 'at': at(4), 'traded_at': at(4), 'id': 't1',
-                    'outcome': 'YES', 'aggressor': 'SELL', 'price': '.48', 'size': '25', 'source_sha256': 'f' * 64},
+                    'outcome': 'YES', 'aggressor': 'SELL', 'price': '.48', 'size': '25', 'source_sha256': 'f' * 64,
+                    'status': 'CONFIRMED', 'execution_route': 'native_sell', 'consumption_id': 't1'},
                    {'kind': 'trade', 'condition_id': 'c1', 'at': at(5), 'traded_at': at(5), 'id': 't2',
-                    'outcome': 'YES', 'aggressor': 'SELL', 'price': '.48', 'size': '5', 'source_sha256': 'f' * 64},
+                    'outcome': 'YES', 'aggressor': 'SELL', 'price': '.48', 'size': '5', 'source_sha256': 'f' * 64,
+                    'status': 'CONFIRMED', 'execution_route': 'native_sell', 'consumption_id': 't2'},
                    book(304, '.45', '.47'), book(305, '.45', '.47'), book(306, '.45', '.47'),
                    {'kind': 'settlement', 'condition_id': 'c1', 'at': at(306), 'yes_payout': '1',
                     'source': 'venue', 'source_sha256': 'c' * 64}],
@@ -87,14 +96,20 @@ def journal_bytes(events=None):
 
 
 def receipts(raw):
-    # Independent arithmetic: shares 1/7 for 2 seconds, 1/13 for 1 second,
+    # Independent arithmetic: share 1/7 for 2 seconds, then 1/5 for 1 second
+    # after the original YES competitor's 20 shares were executed.
     # rate 10 per second. Two 5-share maker fills, both at our .49 quote.
-    reward = D(20) / 7 + D(10) / 13
+    reward = D(20) / 7 + D(2)
     rebate = D(0)  # accrued .0312375 is below the venue's $1 daily payout floor
     scope = {'condition_id': 'c1', 'account_id': 'synthetic-account', 'session_id': 'synthetic-session',
              'reward_day': '2026-10-12'}
     return {'scope': scope, 'journal_pin': '124603578f393827fa1b67bd978f6e3b02048ae9',
             'journal_sha256': hashlib.sha256(raw).hexdigest(),
+            'payment_ids': {'reward': ['reward-day-1'], 'rebate': [], 'redemption': []},
+            'mark_books': [book(t, '.45', '.47') for t in (304, 305, 306)],
+            'state_checkpoints': [{'id': 'terminal', 'at': at(6), 'cash': '95.1', 'reserved': '0',
+                                    'cost_at_risk': '4.9', 'positions': {'yes1': '10', 'no1': '0'},
+                                    'source_sha256': 'a' * 64}],
             'lfc_ledger': {'schema_version': 'lfc_l_ledger_v0.1', 'kind': 'lfc_l_ledger',
                            'history_file': 'ledger.jsonl', 'history_rows': 7, 'history_last_sha256': 'a' * 64,
                            'recorded_at_utc': at(6), 'budget_pusd': '100', 'L': '4.9', 'L_filled': '4.9',
@@ -112,13 +127,19 @@ def receipts(raw):
                                             'price': '.49', 'matched_amount': '5'}]}
                          for key, t in [('actual1', 4), ('actual2', 5)]]},
             'wallet': {'account_id': scope['account_id'], 'session_id': scope['session_id'], 'complete': True,
-                       'settlement_complete': True, 'settlement_value': '10',
+                       'settlement_complete': True, 'settlement_value': '10', 'yes_payout': '1',
                        'settlement_source_sha256': 'c' * 64,
                        'start_as_of_utc': at(0), 'as_of_utc': '2026-10-14T10:00:00+00:00',
+                       'end_cash_source_sha256': 'b' * 64,
                        'unattributed_cashflows': [], 'other_attributed_cashflows': [], 'fills': [
                            {'order_id': 'o1', 'price': '.49', 'size': '10'}],
-                       'start_cash': '100', 'end_cash': str(D('105.1') + reward + rebate),
-                       'reward_credit': str(reward), 'rebate_credit': str(rebate), 'redemption_credit': '10'},
+                       'opening_positions': {'yes1': '0', 'no1': '0'}, 'opening_open_orders': [],
+                       'opening_other_positions': [], 'opening_other_open_orders': [],
+                       'terminal_positions': {'yes1': '10', 'no1': '0'}, 'end_positions': {'yes1': '10', 'no1': '0'},
+                       'redemptions': [], 'maker_fees': '0', 'operating_cost': '0',
+                       'start_cash': '100', 'end_cash': str(D('95.1') + reward + rebate),
+                       'reward_credit': str(reward), 'rebate_credit': str(rebate), 'redemption_credit': '0',
+                       'payment_ids': {'reward': ['reward-day-1'], 'rebate': [], 'redemption': []}},
             'rewards': [{**scope, 'as_of_utc': f'2026-10-{day}T10:00:00+00:00',
                          'complete': True, 'session_exclusive': True, 'source_sha256': str(day % 10) * 64,
                          'paid_reward': str(reward)} for day in (13, 14)]}

@@ -22,13 +22,21 @@ def source_binding():
         raise ValueError('T1 CLI imported outside the bound worktree')
     for path in sorted(source_dir.glob('t1_*.py')):
         result[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
-    from maker_core.quoting import book, policy
+    from maker_core import contracts
+    from maker_core.evidence import journal
+    from maker_core.quoting import book, policy, prices, rewards
+    from weather import paths, schema_registry_types
 
-    for dependency in (book, policy):
+    for dependency in (book, policy, prices, rewards, contracts, journal, paths, schema_registry_types):
         path = Path(dependency.__file__).resolve()
         if not path.is_relative_to(REPO_ROOT):
             raise ValueError('maker dependency imported outside the bound worktree')
         result[dependency.__name__] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for relative in ('sitecustomize.py', 'weather/__init__.py', 'src/weather/__init__.py',
+                     'src/weather/schema_families/__init__.py', 'src/weather/schema_families/t1_simulator.py'):
+        path = REPO_ROOT / relative
+        if path.is_file():
+            result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     commit = subprocess.run(['git', '-C', str(REPO_ROOT), 'rev-parse', 'HEAD'], check=True,
                             capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(['git', '-C', str(REPO_ROOT), 'status', '--porcelain'], check=True,
@@ -55,6 +63,8 @@ def main(argv=None):
         parser.error('input files exceed 16 MiB; export a bounded session')
     raw = {name: path.read_bytes() for name, path in files.items() if name != 'journal'}
     config = ReplayConfig(**json.loads(raw['config']))
+    payload = json.loads(raw['inputs'])
+    partial = payload.get('input_kind') == 'f0_lfc_recording'
     latency = json.loads(raw['latency_evidence'])
     durations, order_durations = [], []
     for sample in latency['samples']:
@@ -65,16 +75,26 @@ def main(argv=None):
         order_durations.append(number((acknowledged - decided).total_seconds()))
     durations.sort()
     order_durations.sort()
+    cancel_durations = []
+    for sample in latency.get('cancel_samples', []):
+        requested, acknowledged = utc(sample['requested_at']), utc(sample['acknowledged_at'])
+        cancel_durations.append(number((acknowledged - requested).total_seconds()))
+    cancel_durations.sort()
+    cancel_p95 = cancel_durations[(95 * len(cancel_durations) + 99) // 100 - 1] if cancel_durations else None
+    if cancel_p95 is not None and cancel_p95 != number(config.measured_cancel_p95_seconds):
+        parser.error('cancellation transport measurement does not bind to config')
+    if (args.mode == 'simulate' and not partial and not cancel_durations
+            and any(c['kind'] == 'cancel' for c in payload['commands'])):
+        parser.error('passive cancel simulation requires independent cancellation transport samples')
     # Nearest-rank empirical p95, including the full observation-to-ACK path.
     p95 = durations[(95 * len(durations) + 99) // 100 - 1] if durations else None
     order_p95 = order_durations[(95 * len(order_durations) + 99) // 100 - 1] if order_durations else None
     if (hashlib.sha256(raw['latency_evidence']).hexdigest() != config.latency_source_sha256
             or latency['kind'] != 'observation_to_order_ack'
-            or p95 != number(config.measured_p95_seconds)
-            or order_p95 != number(config.measured_order_p95_seconds)
-            or latency['sample_count'] != len(durations) or not durations):
+            or (not partial and (p95 != number(config.measured_p95_seconds)
+                                 or order_p95 != number(config.measured_order_p95_seconds) or not durations))
+            or latency['sample_count'] != len(durations)):
         parser.error('latency measurement does not bind to config')
-    payload = json.loads(raw['inputs'])
     if args.mode == 'simulate':
         result = replay(payload, config)
     else:
@@ -89,10 +109,16 @@ def main(argv=None):
                          for name, data in raw.items()}}
     if args.mode == 'accuracy':
         report['inputs']['journal'] = {'path': str(args.journal.resolve()), 'sha256': result['journal_sha256']}
+        from weather.backtesting.t1_provenance import session_certificate
+
+        report['accuracy_certificate'] = session_certificate(result, report['code'], json.loads(raw['receipts']),
+                                                              payload, args.receipts.resolve().parent,
+                                                              cli_inputs=report['inputs'])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('xb') as handle:
         handle.write(canonical(report))
-    return 0 if args.mode == 'simulate' or result['status'] == 'PASS' else 2
+    return 0 if args.mode == 'simulate' or (result['status'] == 'PASS'
+                 and report['accuracy_certificate']['status'] == 'PASS' and not report['synthetic']) else 2
 
 
 if __name__ == '__main__':
