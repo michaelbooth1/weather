@@ -18,6 +18,7 @@ REFERENCE = 'f531395522d0b0a37495185b2750164008fe586a'
 SELECTION = 'F0_eligible_then_max_predicted_360_minute_reward_per_city; ties_condition_id_ascending; same_rank_for_cash_admission'
 ELIGIBILITY = 'F0_reference_filters_restricted_to_configured_DTE; native_reward_minimum_must_fit_20_shares'
 FIXED = {'platform': 'polymarket_international', 'bands_per_event': 1, 'events_per_city': 1,
+         'local_event_dte': [1],  # Owner-approved T+1 only (B039).
          'selection': SELECTION, 'selection_reference_git_sha': REFERENCE, 'order_side': 'BUY',
          'shares_per_leg': '20', 'tick_pusd': '0.01', 'price_rounding': 'floor_outward_to_tick',
          'eligibility_profile': ELIGIBILITY, 'predicted_reward_floor': None, 'post_only': True,
@@ -33,7 +34,7 @@ FIXED = {'platform': 'polymarket_international', 'bands_per_event': 1, 'events_p
          'evidence_cutoff_toronto': '2026-12-28T12:00:00-05:00',
          'economic_changes_after_freeze': 'successor_learning_only'}
 VARIABLE = {'schema_version', 'enabled', 'campaign_id', 'revision', 'timezone', 'sidecar',
-            'policy_name', 'policy_revision', 'market_ids', 'local_event_dte', 'band_limit_session',
+            'policy_name', 'policy_revision', 'market_ids', 'band_limit_session',
             'band_limit_concurrent', 'tokens', 'quote_offset_pusd', 'requote_distance_cents',
             'leg_price_range', 'per_order_cap_pusd', 'per_band_cap_pusd', 'share_many_range',
             'start_window_toronto', 'trading_end_toronto', 'max_session_seconds', 'learning_dates',
@@ -89,17 +90,14 @@ def parse_f2(row):
     for key, expected in FIXED.items():
         value = row[key]
         # Numeric JSON strings and exact booleans have distinct contracts.
-        if type(value) is not type(expected) or value != expected:
+        if (type(value) is not type(expected) or value != expected or
+                key == 'local_event_dte' and any(type(day) is not int for day in value)):
             refuse('unsupported_' + key)
     if (not isinstance(row['market_ids'], list) or not row['market_ids'] or
             any(not isinstance(city, str) for city in row['market_ids']) or
             row['market_ids'] != sorted(set(row['market_ids'])) or
             any(city not in ('denver', 'toronto') for city in row['market_ids'])):
         refuse('unsupported_market_ids')
-    if (not isinstance(row['local_event_dte'], list) or not row['local_event_dte'] or
-            any(type(day) is not int or day not in (1, 2) for day in row['local_event_dte']) or
-            row['local_event_dte'] != sorted(set(row['local_event_dte']))):
-        refuse('unsupported_local_event_dte')
     if (type(row['band_limit_session']) is not int or row['band_limit_session'] not in (1, 2) or
             type(row['band_limit_concurrent']) is not int or row['band_limit_concurrent'] != row['band_limit_session']):
         refuse('unsupported_band_limits')
@@ -196,7 +194,7 @@ def example_policy():
 def support_table():
     return {'schema_version': SCHEMA, 'fields': sorted(set(FIXED) | VARIABLE), 'fixed_values': FIXED,
             'band_limits': [1, 2], 'bands_per_event': 1, 'events_per_city': 1,
-            'market_ids': ['denver', 'toronto'], 'local_event_dte_subset': [1, 2],
+            'market_ids': ['denver', 'toronto'], 'local_event_dte_subset': [1],
             'tokens': [['YES', 'NO'], ['YES'], ['NO'], ['CHEAP']],
             'quote_offset_pusd': {'min': '.005', 'max': '.05', 'step': '.001'},
             'requote_distance_cents': {'min': '.5', 'max': '6', 'ordered_inclusive_pair': True},

@@ -78,6 +78,10 @@ def test_cash_admits_one_using_same_cross_city_rank():
 def test_each_configured_filter_changes_selection_instead_of_silent_fallback(key, value):
     row = example_policy()
     row[key] = value
+    if key == 'local_event_dte':
+        with pytest.raises(ValueError, match='unsupported_local_event_dte'):
+            table(row=row)
+        return
     result = table(row=row)
     if key == 'market_ids':
         assert [r['market_id'] for r in result['rows'] if r['eligible']] == ['toronto']

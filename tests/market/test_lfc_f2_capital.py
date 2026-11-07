@@ -20,9 +20,9 @@ def ledger_at(tmp_path):
     return Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: NOW, maker_address=MAKER)
 
 
-def filled(ledger, key, *, size='20', price='.5', token='yes'):
+def filled(ledger, key, *, size='20', price='.5', token='yes', condition='c'):
     ledger.record('session_start', session_id=key, counted=True)
-    ledger.intent(session_id=key, intent_key=key, token_id=token, condition_id='c', size=size,
+    ledger.intent(session_id=key, intent_key=key, token_id=token, condition_id=condition, size=size,
                   price=price, fee_rate_bps='0')
     ledger.ack(key, 'order-' + key)
     ledger.terminal('order-' + key, {'id': 'order-' + key, 'status': 'MATCHED', 'size_matched': size}, source='fixture')
@@ -87,12 +87,15 @@ def test_unknown_payout_later_known_releases_only_evidenced_principal_once(tmp_p
     source = activity(cash=None)
     record_activity(ledger, source)
     if before_bridge:
-        install(ledger, cash='310')
+        with pytest.raises(CapitalRefused, match='capital_bridge_unknown_cash'):
+            install(ledger, cash='310')
     book = CapitalBook(ledger)
-    assert book.figures()['headroom_native'] == 290_000_000
+    assert book.figures()['headroom_native'] == (0 if before_bridge else 290_000_000)
     known = activity(cash='20')
     ledger.record('capital_resolution', source=known, source_sha256=digest(known),
                   previous_source_sha256=book.sources[next(iter(book.unknown))])
+    if before_bridge:
+        install(ledger, cash='310')
     book = CapitalBook(ledger)
     assert book.figures()['headroom_native'] == 300_000_000
     assert book.figures()['segregated_profit_native'] == 10_000_000

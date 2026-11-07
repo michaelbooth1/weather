@@ -34,7 +34,7 @@ def test_each_fixed_field_accepts_approved_and_refuses_unsupported(field):
 
 REFUSALS = {'schema_version': 'unknown', 'enabled': 'yes', 'campaign_id': '../bad', 'revision': 0,
             'timezone': 'UTC', 'sidecar': {'enabled': True, 'release_manifest': 'fixture'},
-            'policy_name': '', 'policy_revision': 0, 'market_ids': ['nyc'], 'local_event_dte': [0],
+            'policy_name': '', 'policy_revision': 0, 'market_ids': ['nyc'],
             'band_limit_session': 3, 'band_limit_concurrent': 3, 'tokens': ['MAYBE'],
             'quote_offset_pusd': '.051', 'requote_distance_cents': ['3', '1'],
             'leg_price_range': ['.16', '.8'], 'per_order_cap_pusd': '15.800001',

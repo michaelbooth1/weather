@@ -68,7 +68,8 @@ def test_unknown_receipt_returns_no_principal_and_zero_native_transfer_is_actual
 def test_batch_needs_exact_allocation_and_cannot_reuse_whole_transfer_per_lot():
     first, second = source(cash='10', size='10'), source(cash='10', size='10', token='no')
     native = proof([first, second])
-    assert cash_native(first, native) == cash_native(second, native) == 10_000_000
+    # Exact total does not bind either condition to its own payout.
+    assert cash_native(first, native) is cash_native(second, native) is None
     unknown = deepcopy(native)
     unknown['rows'][1]['usdc_size'] = None
     unknown['rows_sha256'] = digest(unknown['rows'])

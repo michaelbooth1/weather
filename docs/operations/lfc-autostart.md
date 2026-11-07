@@ -65,7 +65,7 @@ own supported values. Unknown fields and unsupported values refuse explicitly.
 
 | Fields | Enforcement |
 | --- | --- |
-| Markets, native-date horizons and selection | Retain F0 public/depth/reward filters with the configured quote. Pick the highest planning reward per city, tie by condition ID; use that same rank when cash admits fewer bands. An absent city stays idle. |
+| Markets, native-date horizons and selection | F2 fixes `local_event_dte` to `[1]` (T+1 only); other sets refuse. Retain F0 public/depth/reward filters with the configured quote. Pick the highest planning reward per city, tie by condition ID; use that same rank when cash admits fewer bands. An absent city stays idle. |
 | Band/event limits | At most two concurrent bands, one event per city, no replacement. One cooperative process owns the account/date claim and all workload slots. Each band retains its own submit/requote limits. |
 | `tokens`, `order_side`, `shares_per_leg` | Paired YES+NO, YES, NO, or CHEAP (lower quoted probability; YES wins a tie). BUY only at the approved fixed size; no reward-minimum scaling. |
 | Offset, distance window, price/share ranges and caps | Applied to proposals and placement/requote checks, with final raw-POST and signed-order checks. Monetary caps dominate allowed prices. |
@@ -90,6 +90,24 @@ unattributed cash is quarantined; an unexplained debit refuses another post.
 A later known payout appends a scoped resolution, retaining its original unknown
 read. Unknown outgoing costs refuse admission.
 
+The initial bridge refuses every unresolved cash observation, including legacy
+redemptions and outgoing payments. Later discovery of an older credit never
+adds it to the bridge balance again: it reclassifies only the bridge's original
+unattributed quarantine, and reduces the effective allocation for any remainder.
+Known external funds and later deposits cannot replace that principal. The
+original bridge receipt is preserved. An unresolved older credit blocks admission
+until its native cash is known; no payout is guessed.
+
+Withdrawals consume set-aside external cash, profit and incentives, in that order,
+before charging any excess to principal. Allocation follows cash-flow time, so a
+later deposit cannot cover an earlier withdrawal whose receipt resolves late.
+An outgoing flow is charged before a same-second incoming flow when the
+whole-second timestamps cannot prove their order.
+Production cost booking comes only from evidenced outgoing transfers; there is
+no production `capital_cost` writer. The unchanged maker-fee guard requires a
+zero maker charge. An unrecorded fee debit instead fails the fresh balance gate
+as `capital_cash_changed`; it is not silently booked as a zero cost.
+
 Every start in a supported clock window must fit before the existing 23:50 UTC
 cutoff within one UTC date. Otherwise policy parsing refuses before any date can
 be claimed or skipped. Market-local horizon pulls remain independent of this
@@ -102,6 +120,10 @@ cash labels are candidates; a mismatched or unallocated payout returns no
 principal. There is no assumed USD conversion. See the
 [v2 schema](https://data-api.polymarket.com/v2/openapi.json) and
 [ERC-20 transfer contract](https://eips.ethereum.org/EIPS/eip-20).
+When a transaction has more than one incoming activity row for this maker,
+every row's cash is UNKNOWN even when their labels sum to the native transfer.
+The total alone cannot prove the payout for each condition. Their complete
+cost bases remain charged; none of the batched proceeds is recycled.
 There is no redemption, sale, top-up or transfer capability in this code.
 
 Outcomes separate PLANNING scenarios from MEASURED fills, fees, carried basis

@@ -166,7 +166,9 @@ def evidence_for(packet, source, *, ledger=None):
 def cash_native(source, proof):
     """Allocate only chain-proved native units, never a USD conversion.
 
-    Incoming rows must match the native transfer exactly, including batches.
+    A lone incoming row must match the native transfer exactly. Multiple
+    incoming rows for the maker are UNKNOWN: a total ERC-20 transfer cannot
+    prove which condition earned it, even when the Data API labels sum exactly.
     A USD label is never converted to collateral. An unallocated payout stays
     unknown and its full basis stays charged. A lone outgoing row conservatively
     charges the transaction's entire native debit.
@@ -223,6 +225,8 @@ def cash_native(source, proof):
         return 'OUT' if row['type'] == 'WITHDRAWAL' else 'IN'
     side = direction(source)
     rows = [row for row in proof['rows'] if str(row['proxy_wallet']).lower() == maker and direction(row) == side]
+    if side == 'IN' and len(rows) > 1:
+        return None
     if len(rows) == 1 and side == 'OUT':
         return total[side]
     if total[side] == 0:
