@@ -5,6 +5,7 @@ evidence contract supplies that provenance boundary; a caller's complete flag
 alone cannot mint a certificate. No implicit discovery or credential access.
 """
 import hashlib
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -105,6 +106,21 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
     Conservative bound calibration is reported separately from point accuracy.
     """
     from weather.backtesting.t1_accuracy import COMPATIBLE_RECORDER_PINS
+
+    if result.get('qualification') == 'F0_PARTIAL_CALIBRATION':
+        # No normalized arithmetic was attempted. Missing numerical fields are
+        # evidence gaps, not proof of changed inputs, loose limits or a bad pin.
+        provenance_gaps = []
+        if result.get('synthetic'):
+            provenance_gaps.append('synthetic_receipts')
+        if not code['worktree_clean']:
+            provenance_gaps.append('dirty_source')
+        return {'status': 'NOT QUALIFIED', 'claim': 'PARTIAL_INTAKE_NOT_CERTIFIABLE',
+                'gaps': sorted(result['gap_flags']), 'gap_flags': deepcopy(result['gap_flags']),
+                'provenance_gaps': provenance_gaps, 'recorder_pin': result['recorder_pin'],
+                'not_evaluated': ['normalized_accuracy_certification', 'raw_financial_projection', 'prospective_accuracy_certificate'],
+                'code_sha256': digest(code), 'result_sha256': digest(result),
+                'cli_inputs_sha256': digest(cli_inputs), 'trial_can_pass': False}
 
     gaps = []
     population_hash = None

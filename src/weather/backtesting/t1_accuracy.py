@@ -825,8 +825,9 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
         if flow['session_id'] not in population:
             external_flows[flow['id']] = number(flow['amount'], minimum=None)
     residual = sum((r['actual_accounts']['unredeemed_venue_value'] for r in reports), ZERO)
-    balance_net = (periods[-1]['wallet_end_cash'] - periods[0]['capital_period']['opening_cash']
-                   - sum(external_flows.values(), ZERO) + residual)
+    independent_cash_net = (periods[-1]['wallet_end_cash'] - periods[0]['capital_period']['opening_cash']
+                            - sum(external_flows.values(), ZERO))
+    balance_net = independent_cash_net + residual
     conservation_limit = min(number(reports[0]['tolerance']['receipt_reconciliation_absolute']),
                              number(reports[0]['tolerance']['cash_conservation_absolute']))
     actual_identity = compare(net_actual, balance_net, conservation_limit)
@@ -849,12 +850,15 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
     cash_actual = sum((r['actual_accounts']['cash_net_pnl'] for r in reports), ZERO)
     cash_predicted += net_predicted - sum((r['economics']['raw_net_pnl']['predicted'] for r in reports), ZERO)
     cash_metric = compare(cash_predicted, cash_actual, net_limit)
+    cash_bridge = compare(cash_predicted, independent_cash_net, net_limit)
+    economic_bridge = compare(net_predicted, balance_net, net_limit)
     cash_complete = all(r.get('completed_cash', {}).get('status') == 'COMPLETE' for r in reports)
     accounting_complete = all(r['accounting_complete'] for r in reports)
     joint_total = sum((r.get('joint_error', {}).get('absolute_error', ZERO) for r in reports), ZERO)
     joint_limit = number(reports[0]['tolerance']['joint_monetary_absolute'])
     return {'status': 'PASS' if enough and cash_complete and accounting_complete and cash_metric['pass'] and joint_total <= joint_limit
                           and net_metric['pass'] and actual_identity['pass'] and all(r['metrics_pass'] for r in reports)
+                          and cash_bridge['pass'] and economic_bridge['pass']
                           and all(r['pass'] for r in net_identities.values())
                           and all(r['pass'] for r in campaign_reward_metrics.values())
             else ('INSUFFICIENT_EVIDENCE' if not enough else 'NOT_QUALIFIED' if not cash_complete or not accounting_complete else 'FAIL'),
@@ -864,6 +868,7 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
             'actual_campaign_cash_identity': actual_identity,
             'session_net_identities': net_identities,
             'economic_net_pnl': net_metric, 'completed_cash_net_pnl': cash_metric,
+            'predicted_campaign_cash_bridge': cash_bridge, 'predicted_campaign_economic_bridge': economic_bridge,
             'cash_completion_status': 'COMPLETE' if cash_complete else 'NOT COMPLETE',
             'accounting_complete': accounting_complete,
             'joint_error': {'absolute_error': joint_total, 'limit': joint_limit, 'pass': joint_total <= joint_limit},

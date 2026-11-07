@@ -44,16 +44,23 @@ def net_checks(simulation, accounts, economics, rewards, rebates, opening_cash, 
         'actual_economic_balance': check(a['raw_net_pnl'], a['balance_net_pnl']),
         'cash_prediction_accuracy': check(s['cash_net_pnl'], a['cash_net_pnl']),
         'economic_prediction_accuracy': check(s['raw_net_pnl'], a['raw_net_pnl']),
+        'cash_prediction_balance_bridge': check(s['cash_net_pnl'], a['cash_balance_net_pnl']),
+        'economic_prediction_balance_bridge': check(s['raw_net_pnl'], a['balance_net_pnl']),
+        'economic_alias_balance_bridge': check(s['economic_net_pnl'], a['balance_net_pnl']),
     }
     for key in ('cash_net_pnl', 'raw_net_pnl'):
         checks['reported_' + key] = check(economics[key]['predicted'], s[key])
         checks['reported_actual_' + key] = check(economics[key]['actual'], a[key])
+        bridge = a['cash_balance_net_pnl'] if key == 'cash_net_pnl' else a['balance_net_pnl']
+        checks['reported_balance_bridge_' + key] = check(economics[key]['predicted'], bridge)
     if accounts.get('completed_cash', {}).get('status') == 'COMPLETE':
         checks['completed_cash_economic_identity'] = check(s['cash_net_pnl'], s['raw_net_pnl'])
         checks['actual_completed_cash_economic_identity'] = check(a['cash_net_pnl'], a['raw_net_pnl'])
         checks['completed_cash_alias'] = check(accounts['completed_cash']['net_pnl'], a['cash_net_pnl'])
+        checks['completed_cash_alias_balance_bridge'] = check(accounts['completed_cash']['net_pnl'], a['cash_balance_net_pnl'])
     completion_matches = completed_cash is None or completed_cash['status'] == accounts['completed_cash']['status']
     if completed_cash is not None:
         checks['reported_completed_cash_alias'] = check(completed_cash['net_pnl'], a['cash_net_pnl'])
+        checks['reported_completed_cash_balance_bridge'] = check(completed_cash['net_pnl'], a['cash_balance_net_pnl'])
     return {'pass': completion_matches and all(m['pass'] for m in checks.values()),
             'completion_status_matches': completion_matches, 'limit': limit, 'metrics': checks}

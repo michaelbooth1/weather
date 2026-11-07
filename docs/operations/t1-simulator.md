@@ -26,6 +26,12 @@ The CLI returns zero for accuracy only under that certificate. Every output keep
 `CASH_PENDING` separates matched economic accounting from completed cash. A
 reconciled zero-activity session can receive completeness certification; positive
 fill/reward floors apply to the frozen campaign, not each member.
+Native partial intake has certificate claim `PARTIAL_INTAKE_NOT_CERTIFIABLE` and
+status NOT QUALIFIED. Its certificate `gaps` and `gap_flags` mirror the result's
+actual evidence checklist. Synthetic/dirty source caveats are separate
+`provenance_gaps`; absent normalized fields are not called changed inputs,
+excessive tolerances or an unreviewed recorder. Numerical certification is not
+evaluated on that partial path, including when supplements are present.
 
 An anonymous-book lower bound has a one-sided coverage comparison. It is never an
 exact reward or net-P&L certificate. Continuous reward integration is an expectation
@@ -217,6 +223,11 @@ and predicted-versus-actual net use the cash-conservation ceiling independently
 of component budgets. Persisted campaign consumption recomputes these checks.
 Campaign net tolerance cannot exceed the cash-conservation ceiling; a wider
 option is rejected and effective net limits also respect receipt reconciliation.
+Predicted and publicly reported net aliases are also compared directly with the
+independent cash/economic balance bridges. Campaign reports expose
+`predicted_campaign_cash_bridge` and `predicted_campaign_economic_bridge`, both
+required for PASS. Separate component-to-balance and prediction-to-component
+allowances cannot compose into an endpoint error above the net ceiling.
 These are implementation ceilings, not owner adoption of a
 trial amendment. Reserve arithmetic is
 checked separately and is not deducted from completed cash.
