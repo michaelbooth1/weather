@@ -21,7 +21,7 @@ def decode_session_report(value):
     from weather.backtesting.t1_accuracy import Tolerance
 
     result = deepcopy(value)
-    if (not {'completed_cash', 'joint_error', 'transition_verification', 'accounting_complete'} <= set(result)
+    if (not {'completed_cash', 'joint_error', 'transition_verification', 'accounting_complete', 'net_identities', 'wallet_observations'} <= set(result)
             or 'cash_net_pnl' not in result.get('economics', {})):
         raise ValueError('unsupported persisted session report; regenerate the current accounting schema')
     for key in ('config_sha256', 'tolerance_sha256', 'journal_sha256', 'wallet_end_cash_source_sha256'):
@@ -35,6 +35,15 @@ def decode_session_report(value):
             or type(result['accounting_complete']) is not bool):
         raise ValueError('report count and status types invalid')
     Tolerance(**result['tolerance'])
+    refs = result['wallet_observations']
+    if set(refs) != {'opening', 'period_closing', 'closing'}:
+        raise ValueError('wallet observation references incomplete')
+    if any(refs.values()):
+        for ref in refs.values():
+            if not ref or not isinstance(ref['id'], str) or not ref['id']:
+                raise ValueError('wallet observation ID required')
+            source_hash(ref['source_sha256'])
+        source_hash(result['wallet_activity_source_sha256'])
     for key in ('rewards', 'rebates'):
         metric(result[key])
     for value in result['economics'].values():
@@ -57,7 +66,7 @@ def decode_session_report(value):
     accounts = result['actual_accounts']
     for key in ('cost', 'venue_payout', 'cash_redemptions_pusd', 'unredeemed_venue_value', 'cash_available',
                 'wallet_end_cash', 'raw_net_pnl', 'balance_net_pnl', 'maker_fees_pusd', 'operating_cost',
-                'outside_cash', 'opening_cash', 'cash_net_pnl', 'cash_balance_net_pnl'):
+                'outside_cash', 'opening_cash', 'cash_net_pnl', 'cash_balance_net_pnl', 'economic_net_pnl'):
         if key in accounts:
             accounts[key] = number(accounts[key], minimum=None)
     for key in ('terminal_positions', 'end_positions', 'opening_positions'):

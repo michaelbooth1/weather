@@ -162,12 +162,26 @@ journal hash, profile hash and:
   all other signed attributed cashflows. Unknown cashflows cannot be suppressed.
   Redemption receipts bind quantities, credit, transaction and collection time.
   `end_cash_source_sha256` identifies the common independent closing account read.
+  Its shared `wallet_observations` role is separate from the session export's
+  `activity_source_sha256`. `opening_observation`, `period_closing_observation`
+  and `closing_observation` each name an observation `id` and `source_sha256`.
+  The first two bind actual funded boundaries; the last binds the common later
+  account follow-up after paid credits. A period's closing observation may be
+  the next period's opening observation, without making their activity files
+  identical. A shared native body is verified, not merely a copied hash.
 - `state_checkpoints`: independently observed `id`, `at`, cash, reserved commitment,
   cost at risk, token positions and source hash. The engine produces predictions
   at those clocks. Required IDs cover opening/terminal, each post, cancel, actual
   fill, applicable expiry, settlement, redemption and timed cash movement; a
   caller-chosen terminal-only subset cannot certify. `transition_id` may name
   that required ID when `id` identifies an observation separately.
+  Same-clock raw states require `activity_prefix_ids`: the exact observed prefix
+  of ordered raw movement IDs incorporated in that native balance/position
+  snapshot. Phase order is opening, expiry, executions, terminal/cancel, post,
+  settlement, then redemption/payment. Settlement therefore keeps pre-redemption
+  cash and tokens even at the same timestamp. Within-phase payment/execution
+  ordering needs retained prefixes; absent or contradictory order remains
+  NOT QUALIFIED. Do not invent subsecond clocks or simulator-derived snapshots.
 - `lfc_ledger`: actual cap-ledger snapshot. The certificate replays its full retained
   chained history and compares every leg and terminal hash. This is not wallet cash.
 - `rewards`: genuinely distinct reads collected during UTC D+1 and D+2. Exclusive
@@ -198,8 +212,13 @@ groups also has a joint budget, summed across campaign sessions; opposite errors
 cannot cancel into PASS. Proceeds use the larger of total payout error and the
 sum of disjoint redeemed-cash/residual-asset errors. Certificate ceilings are one cent
 for money/joint error, .00001 pUSD for cash conservation and zero shares for
-native positions. These are implementation ceilings, not owner adoption of a
-trial amendment. Campaign net has a separate budget. Reserve arithmetic is
+native positions. Derived economic/cash net formulas, aliases, asset/cash bridges
+and predicted-versus-actual net use the cash-conservation ceiling independently
+of component budgets. Persisted campaign consumption recomputes these checks.
+Campaign net tolerance cannot exceed the cash-conservation ceiling; a wider
+option is rejected and effective net limits also respect receipt reconciliation.
+These are implementation ceilings, not owner adoption of a
+trial amendment. Reserve arithmetic is
 checked separately and is not deducted from completed cash.
 
 Markout comparisons measure distance to the actual timestamp interval. An interval
@@ -252,6 +271,7 @@ proof of its output. Unsupported raw shapes are NOT QUALIFIED. Supported roles:
 | Role | Retained body and verification |
 | --- | --- |
 | `wallet` | `format=t1_raw_projection_v1`, account/session, opening/terminal/closing snapshots, ordered confirmed `activity`, final `activity_cursor`, and raw checkpoints. Snapshots retain integer micro-unit `collateral_evidence.balance`, native v2 `position_walks` for OPEN/REDEEMABLE_LOST and cursor-complete `order_pages`. Optional aggregate cash/positions must match native bodies. |
+| `wallet_observations` | Shared full-account native `snapshots`, each with immutable `id`, clock, collateral, complete position walks and order pages. The role binds account identity and scope completeness. Session exports reference opening, funded-period closing and common later closing observations and retain matching native bodies; each funded boundary is flat. |
 | `clob` | Native request-cursor/response pages for `/data/trades` ending LTE=; confirmed maker quantities, identity and costs are independently reconstructed. |
 | `settlement` / `redemptions` | Final resolution token mapping, payout numerators/denominator, availability clock; independently retained transaction IDs, burned tokens, credit and finality clocks. |
 | `reward_d1`, `reward_d2`, `reward_followup_N` | Original collection clock, account/condition/day, individually identified pending/confirmed credits and full session allocation. Latest pending credits cannot certify completed payment. |
@@ -267,6 +287,13 @@ delta, native BUY price/quantity or REDEEM burned quantities, and payment
 finality. Unknown manual exits, other terminal holdings or uncovered activity
 cannot qualify this flat BUY/hold projection. These envelopes require retained
 native bodies; copying normalized totals into them is not a native export.
+The wallet also retains `period_closing` and the three corresponding
+`*_observation_id` references. With shared observations, ending-cash source binds
+that role; activity source binds the separate session wallet role. Raw interperiod
+funding changes need an independent movement adapter and remain unsupported.
+Post-period foreign movements may retain signed native `token_deltas` for other
+tokens; every intermediate full-account position must reconcile to those
+movements. This does not admit overlapping funded periods or opening carry.
 
 The JSON preregistration binds the common clean CLI source envelope, configuration,
 tolerances, exporter, `expected_session_ids`, a prospective `frozen_at_utc`, and

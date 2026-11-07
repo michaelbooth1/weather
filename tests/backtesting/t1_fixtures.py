@@ -181,3 +181,22 @@ def tolerance(**changes):
                               fill_relative='0', markout_absolute_per_share='.000001',
                               receipt_reconciliation_absolute='.000001', min_filled_orders=1,
                               min_paid_reward='.001'), **changes})
+
+
+def attach_activity_prefixes(raw_wallet, normalized):
+    """Independent observed ordering for the small synthetic wallet episodes."""
+    activity = raw_wallet['activity']
+    for point in raw_wallet['checkpoints']:
+        key = point.get('transition_id', point['id'])
+        at = datetime.fromisoformat(point['at'].replace('Z', '+00:00'))
+        if key.startswith(('redemption:', 'cash:')):
+            count = next(i + 1 for i, row in enumerate(activity) if row['id'] == key.split(':', 1)[1])
+        elif key.startswith('fill:'):
+            _, oid, ordinal = key.split(':')
+            count = [i + 1 for i, row in enumerate(activity) if row['kind'] == 'BUY' and row['order_id'] == oid][int(ordinal) - 1]
+        else:
+            count = sum(datetime.fromisoformat(row['at'].replace('Z', '+00:00')) < at or
+                datetime.fromisoformat(row['at'].replace('Z', '+00:00')) == at and row['kind'] == 'BUY'
+                and key != 'opening' for row in activity)
+        point['activity_prefix_ids'] = [row['id'] for row in activity[:count]]
+        next(c for c in normalized if c['id'] == point['id'])['activity_prefix_ids'] = list(point['activity_prefix_ids'])

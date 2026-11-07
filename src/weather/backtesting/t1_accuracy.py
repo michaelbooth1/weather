@@ -16,6 +16,7 @@ from pathlib import Path
 
 from weather.backtesting.t1_simulator import replay
 from weather.backtesting.t1_accounting import actual_accounts
+from weather.backtesting.t1_net import CASH_CEILING, cash_limit, net_checks
 from weather.backtesting.t1_types import (ONE, ZERO, canonical, decimal_context, digest, levels,
                                          number, source_hash, utc)
 
@@ -53,7 +54,7 @@ class Tolerance:
     min_filled_orders: int
     min_paid_reward: str
     monetary_absolute: str = '.01'
-    campaign_net_absolute: str = '.01'
+    campaign_net_absolute: str = '.00001'
     position_absolute_shares: str = '0'
     joint_monetary_absolute: str = '.01'
     cash_conservation_absolute: str = '.00001'
@@ -67,6 +68,8 @@ class Tolerance:
                 number(value)
         if number(self.min_paid_reward) <= ZERO:
             raise ValueError('positive paid reward floor required')
+        if number(self.campaign_net_absolute) > min(number(CASH_CEILING), number(self.cash_conservation_absolute)):
+            raise ValueError('campaign net tolerance exceeds cash-conservation ceiling')
 
 
 @dataclass(frozen=True)
@@ -557,7 +560,7 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
     money_keys = ('cost', 'venue_payout', 'cash_redemptions_pusd', 'unredeemed_venue_value',
                   'cash_available', 'wallet_end_cash', 'raw_net_pnl', 'cash_net_pnl', 'maker_fees_pusd', 'operating_cost')
     economics = {k: compare(predicted[k] + (outside_cash if k == 'wallet_end_cash' else ZERO),
-                            accounts[k], tolerance.monetary_absolute) for k in money_keys}
+                            accounts[k], eps if k in ('raw_net_pnl', 'cash_net_pnl') else tolerance.monetary_absolute) for k in money_keys}
     economics['wallet_balance_identity'] = compare(accounts['wallet_end_cash'], number(wallet['end_cash']), eps)
     economics['net_balance_identity'] = compare(accounts['raw_net_pnl'], accounts['balance_net_pnl'], eps)
     position_metrics = {stage: {token: compare(predicted[stage][cid][token], accounts[stage][token],
@@ -651,7 +654,8 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
     joint = sum(components.values(), ZERO)
     joint_metric = {'absolute_error': joint, 'limit': number(tolerance.joint_monetary_absolute),
                     'components': components, 'pass': joint <= number(tolerance.joint_monetary_absolute)}
-    economics_pass = economics_pass and joint_metric['pass']
+    identities = net_checks(predicted, accounts, economics, actual_reward, wallet['rebate_credit'], wallet['start_cash'], asdict(tolerance))
+    economics_pass = economics_pass and joint_metric['pass'] and identities['pass']
     actual_filled_count = sum(size > ZERO for size in actual_sizes.values())
     evidence_sufficient = (actual_filled_count >= tolerance.min_filled_orders
                            and actual_reward >= number(tolerance.min_paid_reward))
@@ -673,7 +677,7 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
             'rewards': reward_metric, 'rebates': rebate_metric,
             'economics': economics, 'positions': position_metrics, 'actual_accounts': accounts,
             'checkpoints': checkpoint_metrics,
-            'transition_verification': transitions, 'joint_error': joint_metric,
+            'transition_verification': transitions, 'joint_error': joint_metric, 'net_identities': identities,
             'accounting_complete': transitions['status'] == 'PASS' and metrics_pass,
             'order_ids': sorted(known), 'period_start': payload['start'], 'period_end': payload['end'],
             'reward_allocation': reward_reads[-1].get('allocation'),
@@ -683,6 +687,8 @@ def accuracy_gate(payload, config, raw_journal, receipts, tolerance: Tolerance):
             'payment_ids': wallet['payment_ids'],
             'wallet_as_of_utc': wallet['as_of_utc'], 'wallet_end_cash': number(wallet['end_cash']),
             'wallet_end_cash_source_sha256': source_hash(wallet['end_cash_source_sha256']),
+            'wallet_observations': {k: wallet.get(k + '_observation') for k in ('opening', 'period_closing', 'closing')},
+            'wallet_activity_source_sha256': wallet.get('activity_source_sha256'),
             'other_attributed_cashflows': wallet['other_attributed_cashflows'],
             'capital_period': {'opening_cash': number(wallet['start_cash']),
                                'closing_cash': accounts['cash_available'],
@@ -734,6 +740,8 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
     from weather.backtesting.t1_report_codec import decode_session_report
 
     reports = [decode_session_report(r) for r in reports]
+    net_identities = {r['scope']['session_id']: net_checks(r['simulation'], r['actual_accounts'], r['economics'],
+        r['rewards']['actual'], r['rebates']['actual'], r['capital_period']['opening_cash'], r['tolerance'], r['completed_cash']) for r in reports}
     identities = [(r['scope']['account_id'].lower(), r['scope']['session_id']) for r in reports]
     if (len(set(identities)) != len(identities)
             or len({r['journal_sha256'] for r in reports}) != len(reports)):
@@ -794,6 +802,10 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
                 changes += amount
             if capital['opening_cash'] != previous['capital_period']['closing_cash'] + changes:
                 raise ValueError('campaign cash reset or unrecorded capital flow')
+            prior_refs, refs = previous['wallet_observations'], report['wallet_observations']
+            if prior_refs['period_closing'] or refs['opening']:
+                if not capital['interperiod_cashflows'] and prior_refs['period_closing'] != refs['opening']:
+                    raise ValueError('contiguous flat funding must reuse its independently verified boundary observation')
         periods.append(report)
     for allocation, sessions in allocations.values():
         if sorted(sessions) != sorted(allocation['sessions']):
@@ -804,7 +816,8 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
     net_predicted = sum((r['economics']['raw_net_pnl']['predicted'] for r in reports), ZERO)
     net_actual = sum((r['economics']['raw_net_pnl']['actual'] for r in reports), ZERO)
     population = {r['scope']['session_id'] for r in reports}
-    closings = {(r['wallet_as_of_utc'], r['wallet_end_cash'], r['wallet_end_cash_source_sha256']) for r in reports}
+    closings = {(r['wallet_as_of_utc'], r['wallet_end_cash'], r['wallet_end_cash_source_sha256'],
+                 digest(r['wallet_observations']['closing'])) for r in reports}
     if len(closings) != 1:
         raise ValueError('campaign requires one independent common closing cash snapshot')
     external_flows = {}
@@ -830,23 +843,26 @@ def combine_session_gates(reports, *, min_sessions, min_filled_orders, min_paid_
         net_predicted += payable - assigned
         campaign_reward_metrics[day] = compare(payable, sum((r['rewards']['actual'] for r in sessions), ZERO),
                                                reports[0]['tolerance']['monetary_absolute'])
-    net_metric = compare(net_predicted, net_actual, reports[0]['tolerance']['campaign_net_absolute'])
+    net_limit = min(cash_limit(reports[0]['tolerance']), number(reports[0]['tolerance']['campaign_net_absolute']))
+    net_metric = compare(net_predicted, net_actual, net_limit)
     cash_predicted = sum((r['economics']['cash_net_pnl']['predicted'] for r in reports), ZERO)
     cash_actual = sum((r['actual_accounts']['cash_net_pnl'] for r in reports), ZERO)
     cash_predicted += net_predicted - sum((r['economics']['raw_net_pnl']['predicted'] for r in reports), ZERO)
-    cash_metric = compare(cash_predicted, cash_actual, reports[0]['tolerance']['campaign_net_absolute'])
+    cash_metric = compare(cash_predicted, cash_actual, net_limit)
     cash_complete = all(r.get('completed_cash', {}).get('status') == 'COMPLETE' for r in reports)
     accounting_complete = all(r['accounting_complete'] for r in reports)
     joint_total = sum((r.get('joint_error', {}).get('absolute_error', ZERO) for r in reports), ZERO)
     joint_limit = number(reports[0]['tolerance']['joint_monetary_absolute'])
     return {'status': 'PASS' if enough and cash_complete and accounting_complete and cash_metric['pass'] and joint_total <= joint_limit
                           and net_metric['pass'] and actual_identity['pass'] and all(r['metrics_pass'] for r in reports)
+                          and all(r['pass'] for r in net_identities.values())
                           and all(r['pass'] for r in campaign_reward_metrics.values())
             else ('INSUFFICIENT_EVIDENCE' if not enough else 'NOT_QUALIFIED' if not cash_complete or not accounting_complete else 'FAIL'),
             'sessions': len(reports), 'actual_filled_orders': filled, 'paid_rewards': paid,
             'net_pnl': net_metric, 'population_rule': 'ALL_SCHEDULED_SESSIONS_NO_FILTERING',
             'reward_days': campaign_reward_metrics,
             'actual_campaign_cash_identity': actual_identity,
+            'session_net_identities': net_identities,
             'economic_net_pnl': net_metric, 'completed_cash_net_pnl': cash_metric,
             'cash_completion_status': 'COMPLETE' if cash_complete else 'NOT COMPLETE',
             'accounting_complete': accounting_complete,

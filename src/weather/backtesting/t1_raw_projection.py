@@ -122,16 +122,19 @@ def raw_wallet(raw, scope, tokens, yes_payout, source):
     fills, redemptions, outside, cash_events, ids = [], [], [], [], set()
     rewards, rebates, fees, costs, redeem_cash = ZERO, ZERO, ZERO, ZERO, ZERO
     payment_ids = {'reward': [], 'rebate': [], 'redemption': []}
-    last = utc(opening['at'])
+    last, last_phase = utc(opening['at']), -100
     for row in raw['activity']:
         at = utc(row['at'])
+        phase = 2 if row['kind'] == 'BUY' else 7
         if at < last or at > utc(closing['at']) or row['id'] in ids or row['status'] != 'CONFIRMED':
             raise ValueError('raw wallet activity identity/finality/clock fails')
-        if terminal_positions is None and at > utc(terminal['at']):
+        if at == last and phase < last_phase:
+            raise ValueError('same-clock raw activity contradicts the declared economic phases')
+        if terminal_positions is None and (at > utc(terminal['at']) or at == utc(terminal['at']) and phase > 3):
             terminal_positions = dict(holdings)
             terminal_cash = cash
         ids.add(row['id'])
-        last = at
+        last, last_phase = at, phase
         amount = number(row['cash_delta'], minimum=None)
         kind = row['kind']
         if kind == 'BUY':
@@ -251,7 +254,7 @@ def verify_projection(verified, receipts, payload, result):
     for flow in receipts['wallet'].get('cash_events', []):
         if flow['source_sha256'] != verified['wallet']['sha256']:
             raise ValueError('cash event source is not its raw wallet role')
-    if receipts['wallet']['end_cash_source_sha256'] != verified['wallet']['sha256']:
+    if 'wallet_observations' not in verified and receipts['wallet']['end_cash_source_sha256'] != verified['wallet']['sha256']:
         raise ValueError('wallet closing cash source is not its raw wallet role')
     clob = raw_clob(raw['clob'])
     same(receipts['clob'], clob, 'clob')
@@ -261,6 +264,13 @@ def verify_projection(verified, receipts, payload, result):
     accounts = actual_accounts(fills, wallet, tokens, yes_payout=yes_payout, session_id=scope['session_id'])
     for key, value in accounts.items():
         same(result['actual_accounts'][key], value, 'accounts/' + key)
+    from weather.backtesting.t1_wallet_observations import verify_observations
+
+    observations = verify_observations(verified, raw['wallet'], receipts, payload, accounts)
+    if observations['status'] == 'PASS':
+        same(result['wallet_observations'], observations['references'], 'report/wallet_observations')
+        same(result['wallet_activity_source_sha256'], verified['wallet']['sha256'], 'report/wallet_activity_source_sha256')
+        same(result['wallet_end_cash_source_sha256'], observations['source_sha256'], 'report/wallet_end_cash_source_sha256')
     same(without_lineage(receipts['wallet']['redemptions']), without_lineage(raw['redemptions']['transactions']), 'redemptions')
     reward_reads = [*receipts['rewards'], *receipts.get('reward_followups', [])]
     for role, read in zip(('reward_d1', 'reward_d2', *followup_roles), reward_reads):
@@ -290,7 +300,9 @@ def verify_projection(verified, receipts, payload, result):
     return {'projector': PROJECTOR, 'status': 'PASS',
             'scope': 'RAW_FINANCIAL_PROJECTION', 'transitions': transition_check,
             'market_projection': verify_market_roles(verified, payload, receipts),
-            'input_role_sha256': {k: verified[k]['sha256'] for k in required},
+            'wallet_observations': observations,
+            'input_role_sha256': {k: verified[k]['sha256'] for k in (*required,
+                *(('wallet_observations',) if 'wallet_observations' in verified else ()))},
             'projected_accounts_sha256': digest(accounts),
             'normalized_receipts_sha256': digest(receipts), 'actual_accounts': accounts}
 
@@ -317,39 +329,79 @@ def verify_raw_states(raw, receipts, payload, journal_rows, known, fills, source
         projected = {k: checkpoint[k] for k in ('id', 'at', 'reserved', 'cost_at_risk')}
         if 'transition_id' in checkpoint:
             projected['transition_id'] = checkpoint['transition_id']
+        if 'activity_prefix_ids' in checkpoint:
+            projected['activity_prefix_ids'] = checkpoint['activity_prefix_ids']
         projected['cash'] = collateral(checkpoint)
         projected['positions'], other = native_positions(checkpoint, tokens, receipts['scope']['account_id'], cid)
-        if other:
-            raise ValueError('flat checkpoint has unsupported other positions')
         same(without_lineage(normalized[key]), projected, 'checkpoint/' + key)
         if normalized[key]['source_sha256'] not in (source, digest(checkpoint)):
             raise ValueError('checkpoint source is not its raw wallet record')
         at = utc(checkpoint['at'])
+        phase = {'opening': -100, 'expiry': -1, 'fill': 2, 'terminal': 3, 'cancel': 3,
+                 'post': 4, 'settlement': 6, 'redemption': 7, 'cash': 7}.get(key.split(':')[0])
+        if phase is None and any(utc(row['at']) == at for row in raw['activity']):
+            raise ValueError('same-clock observation needs an identified economic transition')
+        phase = 8 if phase is None else phase
         if key in required and at != required[key]:
             raise ValueError('raw economic transition observation clock differs')
         cash = collateral(raw['opening'])
         positions, _ = native_positions(raw['opening'], tokens, receipts['scope']['account_id'], cid)
-        for row in raw['activity']:
-            if utc(row['at']) > at:
-                continue
+        prefix = checkpoint.get('activity_prefix_ids')
+        if prefix is None:
+            if any(utc(row['at']) == at for row in raw['activity']):
+                raise ValueError('same-clock raw checkpoint requires an explicit activity prefix')
+            included = [row for row in raw['activity'] if utc(row['at']) < at]
+        else:
+            included = raw['activity'][:len(prefix)]
+            if (prefix != [row['id'] for row in included]
+                    or any(utc(row['at']) > at for row in included)
+                    or any(utc(row['at']) < at for row in raw['activity'][len(prefix):])):
+                raise ValueError('raw checkpoint activity prefix is not an observed chronological prefix')
+            if phase <= 6 and any(utc(row['at']) == at and row['kind'] != 'BUY' for row in included):
+                raise ValueError('settlement/order phase precedes same-clock redemption and payments')
+            if phase < 2 and any(utc(row['at']) == at for row in included):
+                raise ValueError('opening/expiry phase precedes same-clock executions')
+            if key.startswith(('redemption:', 'cash:')) and (not prefix or prefix[-1] != key.split(':', 1)[1]):
+                raise ValueError('payment checkpoint prefix must end at its identified movement')
+        matched, foreign = defaultdict(lambda: ZERO), defaultdict(lambda: ZERO)
+        for row in included:
             cash += number(row['cash_delta'], minimum=None)
             if row['kind'] == 'BUY':
                 positions[row['token_id']] += number(row['size'])
+                matched[row['order_id']] += number(row['size'])
             elif row['kind'] == 'REDEEM':
                 for token in tokens:
                     positions[token] -= number(row['tokens'][token])
-        matched = defaultdict(lambda: ZERO)
+            elif row['kind'] == 'EXTERNAL':
+                for token, delta in row.get('token_deltas', {}).items():
+                    if token in tokens or not token.isdigit() or utc(row['at']) < utc(payload['end']):
+                        raise ValueError('foreign token movements require a disjoint later funded period')
+                    foreign[token] += number(delta, minimum=None)
+                    if foreign[token] < ZERO:
+                        raise ValueError('foreign token movement exceeds independently retained holdings')
+        same(other, {t: v for t, v in foreign.items() if v}, 'checkpoint/' + key + '/other_positions')
         for fill in fills:
             if fill['at'] < at < fill['at_end']:
                 raise ValueError('raw transition clock falls within unresolved fill interval')
-            if fill['at_end'] <= at:
-                matched[fill['order_id']] += fill['size']
-        resolved = any(e['kind'] == 'settlement' and utc(e['at']) <= at for e in payload['events'])
+        for oid in known:
+            before = sum((f['size'] for f in fills if f['order_id'] == oid and f['at_end'] < at), ZERO)
+            through = sum((f['size'] for f in fills if f['order_id'] == oid and f['at_end'] <= at), ZERO)
+            if not before <= matched[oid] <= through:
+                raise ValueError('checkpoint activity prefix contradicts private fill quantities/clocks')
+        resolved = any(e['kind'] == 'settlement' and (utc(e['at']) < at or utc(e['at']) == at and phase >= 6)
+                       for e in payload['events'])
         reserve = ZERO
-        if at < utc(journal_rows[-1]['recorded_at_utc']) and not resolved:
+        terminal_at = utc(journal_rows[-1]['recorded_at_utc'])
+        closed = at > terminal_at or at == terminal_at and phase >= 3
+        if not closed and not resolved:
             for oid, command in known.items():
-                canceled = any(c['kind'] == 'cancel' and c['id'] == oid and utc(c['arrival_at']) <= at for c in commands)
-                if utc(command['arrival_at']) <= at < utc(command['expires_at']) and not canceled:
+                canceled = any(c['kind'] == 'cancel' and c['id'] == oid and (utc(c['arrival_at']) < at
+                               or utc(c['arrival_at']) == at and phase >= 3) for c in commands)
+                arrived = utc(command['arrival_at']) < at or utc(command['arrival_at']) == at and phase >= 4
+                simultaneous_posts = [c['id'] for c in commands if c['kind'] == 'post' and utc(c['arrival_at']) == at]
+                if phase == 4 and len(simultaneous_posts) > 1 and oid in simultaneous_posts:
+                    arrived = arrived and simultaneous_posts.index(oid) <= simultaneous_posts.index(key.split(':', 1)[1])
+                if arrived and at < utc(command['expires_at']) and not canceled:
                     reserve += number(command['price']) * (number(command['size']) - matched[oid])
         risk = ZERO if resolved else reserve + sum((number(known[oid]['price']) * size for oid, size in matched.items()), ZERO)
         observed_cash = collateral(checkpoint)

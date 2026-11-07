@@ -132,14 +132,14 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
     if result.get('receipts_sha256') != digest(receipts) or result.get('payload_sha256') != digest(payload):
         gaps.append('arithmetic_inputs_changed_before_certification')
     tolerance = result.get('tolerance', {})
-    for name, ceiling in (('cash_conservation_absolute', '.00001'), ('joint_monetary_absolute', '.01'), ('monetary_absolute', '.01')):
+    for name, ceiling in (('cash_conservation_absolute', '.00001'), ('campaign_net_absolute', '.00001'), ('joint_monetary_absolute', '.01'), ('monetary_absolute', '.01')):
         if name not in tolerance or number(tolerance[name]) > number(ceiling):
             gaps.append(name + '_exceeds_certificate_ceiling')
     if number(tolerance.get('position_absolute_shares', '0')) != ZERO:
         gaps.append('exact_native_positions_require_zero_tolerance')
     if receipts.get('journal_pin') not in COMPATIBLE_RECORDER_PINS:
         gaps.append('unreviewed_actual_recorder_pin')
-    required = ('journal', 'profile', 'ledger', 'clob', 'wallet', 'reward_d1', 'reward_d2',
+    required = ('journal', 'profile', 'ledger', 'clob', 'wallet', 'wallet_observations', 'reward_d1', 'reward_d2',
                 'books', 'marks', 'terms', 'settlement', 'redemptions', 'rebates', 'preregistration', 'exporter',
                 'reward_samples', 'market_state', 'clock', 'rebate_rounding', 'recorder_manifest')
     if idle:
@@ -158,6 +158,8 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
             projection = verify_projection(verified, receipts, payload, result)
             if projection['transitions']['status'] != 'PASS':
                 gaps.append('raw_economic_transition_projection_not_verified')
+            if projection['wallet_observations']['status'] != 'PASS':
+                gaps.append('shared_wallet_observations_not_verified')
             if not idle and projection['market_projection']['status'] != 'PASS':
                 gaps.append('raw_market_projection_not_verified')
         except (ValueError, KeyError, TypeError) as exc:
@@ -229,6 +231,8 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
     components['passive_posting_response'] = {'status': 'NOT QUALIFIED',
         'bound': 'Zero incentive income; all commanded lots may fill and lose.',
         'evidence_required': 'Independent validated intervention/response envelope; public passive data does not identify this.'}
+    components['persistent_capital'] = {'status': 'NOT QUALIFIED',
+        'evidence_required': 'Reviewed persistent principal/inventory ledger, independently reconciled lot carry and funding; current scope is flat nonoverlapping periods only.'}
     if not idle:
         components['midpoint_semantics']['evidence_required'] = 'STILL OPEN F09: authoritative rule/comparison verification is not implemented; hash-linked declarations are insufficient.'
         components['realized_reward_sampling']['evidence_required'] = 'STILL OPEN F08 authority: valid raw sample populations alone do not prove venue sampling; no authoritative feed adapter is implemented.'
@@ -243,6 +247,7 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
             'population_sha256': population_hash,
             'raw_projection': projection,
             'claim': 'CONDITIONAL_REAL_SESSION_COMPLETED_CASH_REPRODUCTION',
+            'capital_scope': 'VERIFIED_FLAT_NONOVERLAPPING_PERIODS',
             'passive_posting_response': 'NOT QUALIFIED', 'trial_can_pass': False}
 
 

@@ -11,7 +11,7 @@ import re
 
 import pytest
 
-from tests.backtesting.t1_fixtures import at, book, config, journal_bytes, payload, receipts, tolerance, no_fill_checkpoints
+from tests.backtesting.t1_fixtures import at, book, config, journal_bytes, payload, receipts, tolerance, no_fill_checkpoints, attach_activity_prefixes
 from tests.backtesting.test_t1_qualification import shared_reports, two_leg_session
 from weather.backtesting import t1_accuracy, t1_cli
 from weather.backtesting.t1_accuracy import accuracy_gate, combine_session_gates
@@ -420,6 +420,7 @@ def stage_raw_financial_fixture(root):
               'activity': activity, 'activity_cursor': 'LTE=',
               'checkpoints': without_lineage(deepcopy(r['state_checkpoints']))}
     wallet = numeric_tokens(wallet)
+    attach_activity_prefixes(wallet, r['state_checkpoints'])
     for snapshot in [wallet[k] for k in ('opening', 'terminal', 'closing')] + wallet['checkpoints']:
         native_snapshot(snapshot)
     roles = {'journal': raw_journal,
@@ -674,8 +675,18 @@ def test_idle_raw_accounting_member_is_eligible_without_fill_reward_or_market_fl
         'activity': [], 'activity_cursor': 'LTE=', 'checkpoints': without_lineage(r['state_checkpoints'])}
     for snapshot in [raw_wallet[k] for k in ('opening', 'terminal', 'closing')] + raw_wallet['checkpoints']:
         native_snapshot(snapshot)
+    raw_wallet['period_closing'] = native_snapshot({'at': p['end'], 'cash': '100', 'positions': {'yes1': '0', 'no1': '0'}})
+    observation_rows = []
+    for key in ('opening', 'period_closing', 'closing'):
+        observation_rows.append({'id': key, **deepcopy(raw_wallet[key])})
+        raw_wallet[key + '_observation_id'] = key
+    observation_hash = retain('wallet_observations', {'account_id': 'synthetic-account', 'account_scope_complete': True,
+                                                    'snapshots': observation_rows})
+    for key in ('opening', 'period_closing', 'closing'):
+        w[key + '_observation'] = {'id': key, 'source_sha256': observation_hash}
     wallet_hash = retain('wallet', raw_wallet)
-    w['end_cash_source_sha256'] = wallet_hash
+    w['end_cash_source_sha256'] = observation_hash
+    w['activity_source_sha256'] = wallet_hash
     for row in r['state_checkpoints']:
         row['source_sha256'] = wallet_hash
     w['settlement_source_sha256'] = retain('settlement', {'resolutions': []})
