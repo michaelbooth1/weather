@@ -368,14 +368,18 @@ def test_b021_unsupported_fields_refuse_without_fallback(field, value):
         parse_policy(row)
 
 
-def test_b021_fixed_toronto_end_shortens_late_start_and_global_max_is_enforced():
+def test_b021_fixed_toronto_end_requires_full_late_duration_and_enforces_global_max():
     row = policy_row()
     row['entries'][0].update(window_start_utc='2026-11-11T14:00:00Z', window_end_utc='2026-11-11T14:15:00Z')
-    row.update(start_window_toronto=['09:00:00', '09:15:00'], trading_end_toronto='15:00:00')
+    row.update(start_window_toronto=['09:00:00', '09:15:00'], trading_end_toronto='15:15:00')
     entry = parse_policy(row).entries[0]
     early, late = NOW - timedelta(hours=2), NOW - timedelta(hours=1, minutes=50)
-    assert entry.session_end(early) == entry.session_end(late) == NOW + timedelta(hours=4)
+    assert entry.session_end(early) == NOW + timedelta(hours=4)
+    assert entry.session_end(late) == late + timedelta(hours=6)
     assert entry.permits(late) and not entry.permits(entry.end)
+    row['trading_end_toronto'] = '15:00:00'
+    with pytest.raises(PolicyRefused, match='trading_end_before_full_session'):
+        parse_policy(row)  # An otherwise on-time deferral cannot clip six hours.
     row['max_session_seconds'] = 1800
     shorter = parse_policy(row).entries[0]
     assert shorter.seconds == 1800 and shorter.session_end(late) == late + timedelta(minutes=30)

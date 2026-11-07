@@ -602,6 +602,16 @@ class PilotSession(Session):
         self._pending = {'token_id': self.tokens[leg], 'price': price, 'size': size,
                          'fee_rate_bps': rule['fee_rate_bps']}
 
+    def before_post(self, request):
+        # SDK signing/metadata reads can outlive the earlier authorization.
+        # Recheck before the durable POST counter/intent so a proved no-POST
+        # horizon/owner stop never manufactures an ambiguous placement.
+        self.control()
+        self.check_horizon()
+        own = sum((self.size * p for _, p in self.active.values()), Decimal(0))
+        self._gate(own_resting=own)
+        super().before_post(request)
+
     def post_intent(self, request):
         # Persisted before the raw POST; a failed write raises inside the venue before anything is posted.
         pending = getattr(self, '_pending', None)

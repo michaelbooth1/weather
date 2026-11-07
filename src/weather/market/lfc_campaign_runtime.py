@@ -247,7 +247,12 @@ class Runtime:
 
     def read_account(self):
         try:
-            return self.account_read_once()
+            read = self.account_read_once()
+            # Retain every observation, including an early quantity mismatch
+            # that a later bounded read explains as propagation delay.
+            self.state.save('account-reads/' + uuid.uuid4().hex + '.json',
+                            {'read': read, 'read_sha256': digest(read)})
+            return read
         except Exception as exc:
             retryable = transient_read_error(exc)
             self.state.save('read-failures/' + uuid.uuid4().hex + '.json', {

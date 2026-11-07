@@ -49,11 +49,11 @@ class Entry:
     def permits(self, now):
         planned = self.session_end(now)
         return (self.start <= now < self.end and planned - now >= timedelta(seconds=60) and
+                (self.fixed_end is None or planned <= self.fixed_end) and
                 planned <= datetime.combine(now.date(), time(23, 50), tzinfo=timezone.utc))
 
     def session_end(self, now):
-        maximum = now + timedelta(seconds=self.seconds)
-        return maximum if self.fixed_end is None else min(maximum, self.fixed_end)
+        return now + timedelta(seconds=self.seconds)
 
 
 @dataclass(frozen=True)
@@ -207,16 +207,15 @@ def parse_policy(row):
                 not start < end <= start + timedelta(hours=2) or start.astimezone(ZONE).date().isoformat() != item['local_date'] or
                 end.astimezone(ZONE).date().isoformat() != item['local_date'] or item['local_date'] in days or
                 date.fromisoformat(item['local_date']) > last or
-                (min(end + timedelta(seconds=seconds), deadline) if deadline is not None else
-                 end + timedelta(seconds=seconds)) > datetime.combine(start.date(), time(23, 50), tzinfo=timezone.utc)):
+                end + timedelta(seconds=seconds) > datetime.combine(start.date(), time(23, 50), tzinfo=timezone.utc)):
             raise PolicyRefused('entry_window_or_duration')
         if window is not None and (local.time() != wall_time(window[0]) or
                                    end.astimezone(ZONE).time() != wall_time(window[1])):
             raise PolicyRefused('entry_toronto_window_differs')
         if ranges and not any(begin <= local.date() <= finish for begin, finish in ranges):
             raise PolicyRefused('entry_outside_learning_confirmation_dates')
-        if deadline is not None and deadline <= end:
-            raise PolicyRefused('trading_end_before_window')
+        if deadline is not None and end + timedelta(seconds=seconds) > deadline:
+            raise PolicyRefused('trading_end_before_full_session')
         entries.append(Entry(item['id'], item['local_date'], start, end, seconds, deadline))
         ids.add(item['id'])
         days.add(item['local_date'])
@@ -258,7 +257,8 @@ def parameter_support():
                     'duration_min_seconds': 60, 'duration_max_seconds': C.SESSION_SECONDS,
                     'utc_hard_end': '23:50:00', 'unique_toronto_dates': True},
         'start_window_toronto': {'nullable': True, 'format': 'HH:MM:SS_pair_matches_each_UTC_entry'},
-        'trading_end_toronto': {'nullable': True, 'format': 'HH:MM:SS_fixed_absolute_end'},
+        'trading_end_toronto': {'nullable': True, 'format': 'HH:MM:SS_fixed_absolute_end',
+                                'full_duration_must_fit': True},
         **{key: {'format': 'empty_or_inclusive_disjoint_date_pair', 'max': C.LAST_START_LOCAL_DATE.isoformat()}
            for key in ('learning_dates', 'confirmation_dates')},
         'capital_mode': {'values': ['committed_cost_no_recycling']},

@@ -60,6 +60,22 @@ def test_stale_selection_crossing_midnight_cannot_place_or_requote(tmp_path, mar
 
 
 @pytest.mark.parametrize('market,hour', [('toronto', 3), ('denver', 5)])
+def test_time_spent_between_authorization_and_raw_post_cannot_cross_local_midnight(tmp_path, market, hour):
+    base = datetime(2026, 10, 21, hour, 59, 58, tzinfo=timezone.utc)
+    session, venue, clock, ledger = setup(tmp_path, base=base, table=horizon_table(Clock(base), market))
+    original = venue.submit
+    def delayed_fixture_submit(request, *, checkpoint):
+        clock.seconds = 3  # Synthetic signing/metadata latency, no SDK or signing.
+        return original(request, checkpoint=checkpoint)
+    venue.submit = delayed_fixture_submit
+    result = session.run(rehearsal_seconds=10)
+    assert result['reason'] == 'market_local_horizon' and result['cleanup_ok']
+    assert result['post_count'] == 0 and result['unknown_submit'] is False
+    assert not ledger.legs and not venue.memory.orders
+    assert not list(session.directory.glob('submit-*.intent.json'))
+
+
+@pytest.mark.parametrize('market,hour', [('toronto', 3), ('denver', 5)])
 def test_allowed_tplus2_to_tplus1_transition_continues(tmp_path, market, hour):
     base = datetime(2026, 10, 21, hour, 59, 58, tzinfo=timezone.utc)
     table = horizon_table(Clock(base), market, dte=2)

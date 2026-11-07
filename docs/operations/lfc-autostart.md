@@ -32,7 +32,7 @@ choice is represented by a named field; the parser is the support contract:
 | `policy_name`, `policy_revision` | Bound into each attempt's receipts, ledger rows, private journal and outcome; economic changes under one name require an increased revision. |
 | `local_event_dte` | A nonempty sorted subset of the reference horizons. Selection and every placement/requote use it; resting orders pull through normal cleanup at a disallowed market-local boundary. |
 | `band_limit_session`, `band_limit_concurrent`, `bands_per_event` | One each in this qualified controller, matching `k_max`. Unsupported expansion refuses. |
-| `start_window_toronto`, `trading_end_toronto` | Optional explicit Toronto clock window must match each UTC entry. A fixed trading end is absolute; a late start cannot move it later. |
+| `start_window_toronto`, `trading_end_toronto` | Optional Toronto clock window must match each UTC entry. Full effective duration must fit by the absolute end even at the latest allowed start; incompatible windows refuse, never clip a late session. |
 | `max_sessions_per_day`, `concurrent_sessions` | One each; stable account/date claims and the account guard enforce both. |
 | `max_session_seconds` | Global maximum, combined with each entry's duration and optional fixed end; the effective end is recorded. |
 | `learning_dates`, `confirmation_dates` | Empty, or an inclusive two-date range. Configured ranges must be disjoint, within qualification, and cover the entry. Receipts label the lane; this grants no scientific confirmation claim. |
@@ -72,6 +72,8 @@ sticky and consumes the date. The explicit `owner-recover` command requires an
 owner terminal, incident-hash confirmation and fresh complete money proof; it
 cannot repair unknown order identities or invent missing inventory evidence.
 An owner-reviewed repair must resolve those facts first. Original flags remain.
+Every account observation and failed read is retained separately, including an
+early quantity mismatch followed by a later matching read during propagation.
 
 Money proof requires complete bounded account reads, valid terminal identities
 and matched quantities, per-order fills, zero open orders and every token's
@@ -98,7 +100,8 @@ before admission; no start occurs at or after the window end. A missed window
 is recorded without catch-up. A claimed attempt is never restarted.
 
 The market-local horizon is checked against the current clock before every
-placement/requote and during quoting. A fresh-looking table's creation time
+placement/requote, again at the raw-POST callback after signing/metadata reads,
+and during quoting. A fresh-looking table's creation time
 cannot authorize a T+0 order. A disallowed native-date transition retires the
 event through normal cancel/verify cleanup; `horizon_retirement` remains in the
 outcome even if a cancel-race fill also changes the session's end reason. The

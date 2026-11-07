@@ -56,6 +56,30 @@ def account_read(runtime, *, positions=(), trades=()):
             'open_orders': [], 'positions': list(positions), 'trades': list(trades), 'balances': {'available_collateral': '100'}}
 
 
+def test_account_read_retries_retain_each_observation_and_failed_read(tmp_path, monkeypatch):
+    from weather.market.lfc_campaign import TransientPrecheck
+    from weather.market.mm_stage2_hold import digest
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        first = account_read(runtime)
+        second = account_read(runtime, positions=[{'asset': 't', 'size': '0.0001'}])
+        observations = iter([first, second])
+        monkeypatch.setattr(runtime, 'account_read_once', lambda: next(observations))
+        assert runtime.read_account() == first and runtime.read_account() == second
+        paths = list((runtime.state.root / 'account-reads').glob('*.json'))
+        saved = [runtime.state.read(path) for path in paths]
+        assert len(saved) == 2 and {row['read_sha256'] for row in saved} == {digest(first), digest(second)}
+        assert all(digest(row['read']) == row['read_sha256'] for row in saved)
+        def unavailable():
+            raise TimeoutError('synthetic read outage')
+        monkeypatch.setattr(runtime, 'account_read_once', unavailable)
+        with pytest.raises(TransientPrecheck):
+            runtime.read_account()
+        failures = list((runtime.state.root / 'read-failures').glob('*.json'))
+        assert len(failures) == 1 and runtime.state.read(failures[0])['retryable_read_gap'] is True
+        assert all(path.exists() for path in paths)
+
+
 def fill(runtime, *, size='20', matched='20'):
     ledger = runtime.state.ledger
     ledger.record('session_start', session_id='s', owner_local_date='2026-11-11')
