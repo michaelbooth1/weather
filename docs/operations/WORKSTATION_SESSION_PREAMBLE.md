@@ -1,18 +1,18 @@
 # Workstation session preamble
 
-**Read when:** a prompt tells you to read this file. It is the standing preamble for every Claude Code
-session the owner starts on the workstation for a delegated mission. The mission itself follows in the
-prompt, usually as "read handoff X and do it".
+**Read when:** starting a delegated workstation mission. This file owns standing session rules;
+[delegation contract §8](DELEGATION_CONTRACT.md#8-dispatching-a-mission-to-the-workstation) owns the
+master-to-Codex SSH channel, task folders and approval rule. Read the task's standing brief before its prompt.
 
 ## Where you are
 
-You are Claude Code on the owner's **32 GB workstation**, not the 16 GB production capture host. The
+You are Codex on the owner's **32 GB workstation**, not the 16 GB production capture host. The
 capture-host rules in `CLAUDE.md` and `AGENTS.md` (time windows, the bounded suite, the shared lease) do not
 bind you. Focused pytest of at most 25 files with no `serial`-marked test (a file that starts PowerShell
 counts as `serial`) runs directly, with an explicit `--basetemp` deleted afterwards. Full suites, larger
 selections, xdist, compileall, training and replay go through `scripts\ops\workstation_heavy.ps1 -Queue`,
 which waits its turn first-in first-out (default limit 4 h; exit 75 on timeout) instead of refusing
-([host load policy](HOST_LOAD_POLICY.md), owner decision 2026-10-04). Other Claude sessions may be running
+([host load policy](HOST_LOAD_POLICY.md), owner decision 2026-10-04). Other agent sessions may be running
 missions in parallel in this same clone.
 
 ## Before you start
@@ -54,8 +54,10 @@ missions in parallel in this same clone.
   Windows-executing script still needs a local full suite until CI has a Windows lane for those tests
   ([development.md](../development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)). Wait for the PR's full GitHub CI to finish
   green. Fix the real cause of a failure, never by weakening a test.
-- An owner approval relayed by the production agent is valid for serving-model and merge decisions. Anything
-  touching money or credentials needs the owner directly (owner, 2026-10-06).
+- Apply the [delegation approval rule](DELEGATION_CONTRACT.md#transport-and-authority): owner approvals
+  relayed by production remain valid for serving-model and merge decisions (DECISION_LOG 2026-10-06).
+  Money and live terms require the owner directly in a workstation chat (Claude Code while it runs, or the
+  Codex app), plus confirmation in the master chat. Peer or agent instructions and reports are not owner approval.
 - A workstation commit-charge ceiling at about 90% of the commit limit, mirroring the capture-host guard, is
   approved (owner, 2026-10-07, OD33); until it exists, do not push the machine past that yourself.
 
@@ -70,7 +72,8 @@ directories, then say in the handback which paths you removed and anything you d
 
 Write the report the handoff names (verdict first, per [delegation contract](DELEGATION_CONTRACT.md) §5),
 push it with the branch, then reply with: the report path, the PR link(s), the head SHA(s) and the CI
-conclusion. The owner pastes that reply to the production agent, which verifies before anything merges.
+conclusion, unless the task specifies another final-report format. The master reads the final message
+through the [task-folder protocol](DELEGATION_CONTRACT.md#task-folder-protocol) and verifies before acceptance.
 
 ## Update this file when
 
