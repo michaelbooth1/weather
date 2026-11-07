@@ -199,10 +199,32 @@ def _validate_receipt_ancestors(
     *,
     allow_missing: bool,
 ) -> None:
-    """Reject symlink/reparse ancestors from the CAS root through the parent."""
+    """Reject symlink/reparse ancestors from the CAS root through the parent.
+
+    The walk is one ``lstat`` per level, so it is not atomic: a peer child can
+    create the missing chain between two of this walk's reads (#281).  Seeing
+    a directory below one this walk found missing therefore restarts the walk.
+    Normal operation only ever creates these directories, so every restart
+    implies a new creation and at most one restart per level can be needed;
+    an inconsistency that outlasts that bound still fails closed.
+    """
+
+    paths = _receipt_ancestor_paths(cas_root, parent)
+    walks = len(paths) + 1
+    for _ in range(walks):
+        if _walk_receipt_ancestors(paths, allow_missing=allow_missing):
+            return
+    raise ForecastPayloadCASIntegrityError(
+        "cross-process fan-out receipt ancestor exists below a missing "
+        f"directory in {walks} consecutive walks: {paths[-1]}"
+    )
+
+
+def _walk_receipt_ancestors(paths: list[Path], *, allow_missing: bool) -> bool:
+    """Validate one walk; return False if it saw a directory below a missing one."""
 
     missing_seen = False
-    for path in _receipt_ancestor_paths(cas_root, parent):
+    for path in paths:
         try:
             value = os.lstat(path)
         except FileNotFoundError:
@@ -217,10 +239,7 @@ def _validate_receipt_ancestors(
                 f"cross-process fan-out receipt ancestor is unreadable: {path}: {exc}"
             ) from exc
         if missing_seen:
-            raise ForecastPayloadCASIntegrityError(
-                "cross-process fan-out receipt ancestor exists below a missing "
-                f"directory: {path}"
-            )
+            return False
         attributes = int(getattr(value, "st_file_attributes", 0) or 0)
         if not stat.S_ISDIR(value.st_mode) or (
             attributes & _FILE_ATTRIBUTE_REPARSE_POINT
@@ -229,6 +248,7 @@ def _validate_receipt_ancestors(
                 "cross-process fan-out receipt ancestor is not a regular "
                 f"non-reparse directory: {path}"
             )
+    return True
 
 
 def _ensure_receipt_parent(cas_root: Path, parent: Path) -> None:
