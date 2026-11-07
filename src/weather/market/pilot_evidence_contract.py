@@ -124,6 +124,7 @@ class ClockPlan:
                  wall=lambda: datetime.now(timezone.utc).timestamp(), tolerance=2):
         self.mono, self.wall, self.tolerance = mono, wall, tolerance
         self.anchor_mono, self.anchor_wall = mono(), wall()
+        self.end_utc = end.isoformat() if end else None
         self.start_at = self.anchor_mono + start.timestamp() - self.anchor_wall if start else self.anchor_mono
         self.end_at = self.anchor_mono + max(0, end.timestamp() - self.anchor_wall) if end else None
 
@@ -133,6 +134,7 @@ class ClockPlan:
 
     def anchors(self):
         return {"utc_epoch": self.anchor_wall, "monotonic": self.anchor_mono,
+                "end_utc": self.end_utc,
                 "start_monotonic": self.start_at, "end_monotonic": self.end_at,
                 "step_tolerance_seconds": self.tolerance, "step_policy": "stop_with_gap",
                 "monotonic_resolution_seconds": time.get_clock_info("monotonic").resolution}

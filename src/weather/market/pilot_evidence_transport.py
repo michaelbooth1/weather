@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from weather.market.pilot_evidence_contract import MIB, retry_delay
+from weather.market.pilot_evidence_store import CaptureStopped, stamp
 
 
 class IdlePoll(TimeoutError):
@@ -149,8 +150,17 @@ def tls_socket(host, check, *, seconds=8):
     return DeadlineSocket(secure, check, deadline)
 
 
-def header_cooldown(status, headers, gate, store, kind):
-    if status == 429 or 500 <= status <= 599:
+def header_cooldown(status, headers, gate, store, kind, *, endpoint=None, body_unread=True):
+    hint = any(k.lower() == "retry-after" and v is not None for k, v in headers.items())
+    if status == 429 or hint:
+        gate.halt()  # Before I/O: no subsequent request/control/reconnect may start.
+        safe = {k: v for k, v in headers.items() if k.lower() in {
+            "date", "retry-after", "content-type", "content-length", "transfer-encoding", "content-encoding"}}
+        store.fail("venue_congestion", endpoint=endpoint, transport=kind, status=status,
+                   response_headers=safe, header_received=stamp(), retry_policy="terminal_no_restart",
+                   response_body_unread=body_unread)
+        raise CaptureStopped("venue_congestion")
+    if 500 <= status <= 599:
         delay = retry_delay(headers.get("Retry-After"), 1)
         gate.defer(delay)
         store.write("response_header_backoff", {"transport": kind, "status": status,
@@ -184,7 +194,7 @@ def http_exchange(method, parts, params, body, *, gate, store, pool=None):
         response.begin()
         headers = {k: response.getheader(k) for k in ("Date", "Retry-After", "Content-Type",
                                                     "Content-Length", "Transfer-Encoding", "Content-Encoding")}
-        header_cooldown(response.status, headers, gate, store, "rest")
+        header_cooldown(response.status, headers, gate, store, "rest", endpoint=parts.geturl())
         raw = response.read(4 * MIB + 1)
         if len(raw) <= 4 * MIB and getattr(response, "length", 0) not in (0, None):
             store.raw("http_incomplete_response", raw, parse=False, status=response.status,
@@ -286,7 +296,7 @@ def socket_exchange(parts, *, gate, store, max_size=MIB):
         response = http.client.HTTPResponse(stream)
         response.begin()
         headers = {k: response.getheader(k) for k in ("Date", "Retry-After", "Content-Type")}
-        header_cooldown(response.status, headers, gate, store, "websocket")
+        header_cooldown(response.status, headers, gate, store, "websocket", endpoint=parts.geturl())
         if response.status != 101:
             raw = response.read(16385)
             raise HandshakeError(response.status, headers, raw[:16384], len(raw) > 16384)

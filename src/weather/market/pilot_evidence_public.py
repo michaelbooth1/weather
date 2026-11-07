@@ -14,7 +14,7 @@ from urllib.parse import urlencode, urlsplit
 
 from weather.market.pilot_evidence_contract import retry_delay
 from weather.market.pilot_evidence_store import CaptureStopped, MIB, stamp
-from weather.market.pilot_evidence_transport import http_exchange, socket_exchange, TransportLimit
+from weather.market.pilot_evidence_transport import header_cooldown, http_exchange, socket_exchange, TransportLimit
 
 CLOB = "https://clob.polymarket.com"
 GAMMA = "https://gamma-api.polymarket.com"
@@ -69,6 +69,10 @@ class RateGate:
         self.interval, self.clock, self.sleep, self.check = 1 / rps, clock, sleep, check
         self.next_at = 0.0
         self.lock = threading.Lock()
+        self.halted = threading.Event()
+
+    def halt(self):
+        self.halted.set()  # Terminal for this run; no cooldown can re-arm it.
 
     def wait(self):
         return self.start(lambda: None)
@@ -81,6 +85,8 @@ class RateGate:
         """
         with self.lock:
             while True:
+                if self.halted.is_set():
+                    raise CaptureStopped("venue_congestion")
                 self.check()
                 delay = self.next_at - self.clock()
                 if delay <= 0:
@@ -148,6 +154,8 @@ class PublicHTTP:
                                 params=params or {}, request_body=body, request_start=sent,
                                 transport_start=self.store.last_network_stamp.get("rest"),
                                 status=status, response_headers=headers)
+        if self.request is not None:  # Real transport already inspected headers before reading the body.
+            header_cooldown(status, headers, self.gate, self.store, "rest", endpoint=url, body_unread=False)
         if status == 429 or 500 <= status <= 599:
             self.failures += 1
             delay = retry_delay(headers.get("Retry-After"), self.failures)

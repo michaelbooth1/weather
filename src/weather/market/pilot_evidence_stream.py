@@ -10,7 +10,8 @@ from types import SimpleNamespace
 from weather.market.pilot_evidence_contract import strict_json
 from weather.market.pilot_evidence_public import open_socket, retry_delay
 from weather.market.pilot_evidence_store import CaptureStopped, MIB, source_clocks, stamp
-from weather.market.pilot_evidence_transport import BoundedWebSocket, HandshakeError, IdlePoll, TransportLimit
+from weather.market.pilot_evidence_transport import BoundedWebSocket, HandshakeError, IdlePoll, TransportLimit, header_cooldown
+from weather.market.pilot_evidence_public import SOCKET
 
 EVENT_COUNTERS = frozenset(("book", "price_change", "last_trade_price", "best_bid_ask",
                             "tick_size_change", "new_market", "market_resolved"))
@@ -67,7 +68,7 @@ class MarketStream(threading.Thread):
                 self.coverage.changes(row, received)
             elif kind == "last_trade_price" and token in self.coverage.tokens:
                 if row.get("market") == self.coverage.tokens[token]["condition_id"]:
-                    self.coverage.last_market = received
+                    self.coverage.stream_clock(row, received, [token])
             if isinstance(kind, str):
                 self.store.counts["market_event_" + (kind if kind in EVENT_COUNTERS else "other")] += 1
         if self.gap_open and not self.pending:
@@ -165,6 +166,10 @@ class MarketStream(threading.Thread):
                     headers, status = exc.headers, exc.status
                     self.store.raw("ws_handshake_error", exc.body, parse=False, status=status,
                                    response_headers=headers, truncated=exc.truncated)
+                    try:
+                        header_cooldown(status, headers, self.gate, self.store, "websocket", endpoint=SOCKET, body_unread=False)
+                    except CaptureStopped:
+                        break
                     if exc.truncated:
                         self.store.fail("handshake_body_cap")
                         break

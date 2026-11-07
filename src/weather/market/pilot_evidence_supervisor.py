@@ -207,19 +207,22 @@ def supervise(args, worker, *, grace_seconds=3, heartbeat_seconds=15, free_space
             last.setdefault("gaps", {})["forced_worker_exit"] = 1
         if reason != "end_utc" and reason != "account_export_complete" and reason != "readiness_complete":
             last.setdefault("gaps", {})[reason] = max(1, last.get("gaps", {}).get(reason, 0))
-        success = (reason in ("end_utc", "account_export_complete", "readiness_complete") and joined and
-                   worker_final and not forced and process.exitcode == 0 and not last.get("storage_failed") and
-                   not last.get("secondary_errors") and last.get("worker_threads_joined", False))
+        clean_exit = (joined and worker_final and not forced and process.exitcode == 0 and
+                      not last.get("storage_failed") and not last.get("secondary_errors") and
+                      last.get("worker_threads_joined", False))
+        success = reason in ("end_utc", "account_export_complete", "readiness_complete") and clean_exit
+        if reason == "venue_congestion":
+            last.setdefault("coverage", {})["coverage_ready"] = False
         last.update(final=True, phase="terminated", stop_reason=reason, worker_exited=joined,
                     worker_final_receipt=worker_final, forced_worker_exit=forced,
                     worker_exit_code=process.exitcode if process.pid else None,
-                    success=success, supervisor_pid=os.getpid(), worker_pid=process.pid,
+                    success=success, clean_exit=clean_exit, supervisor_pid=os.getpid(), worker_pid=process.pid,
                     combined_sampled_peak_rss_bytes=combined_peak, clock_anchors=plan.anchors(), **stamp())
         last.update(parent_os_peak_rss_bytes=parent_peak, worker_os_peak_rss_bytes=child_peak,
                     sum_process_os_peak_upper_bound_bytes=parent_peak + child_peak,
                     rss_peak_measurement="Windows PeakWorkingSetSize; non-Windows fallback sampled")
         health.write(last)
-        return 0 if success and not health.failed else 1, last
+        return 0 if (success or reason == "venue_congestion" and clean_exit) and not health.failed else 1, last
     except Exception as exc:
         cancel.value = 2
         if process.pid is not None and process.is_alive():

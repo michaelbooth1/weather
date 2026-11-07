@@ -37,6 +37,7 @@ def readiness_from_capture(args, store):
     expected = {event_slug(specs[m], d) for m in args.market for d in args.event_date}
     events, tokens = coverage.get("events", {}), coverage.get("tokens", {})
     ready = (source.get("phase") == "running" and source.get("final") is False and fresh(source, 15) and
+             source.get("clock_anchors", {}).get("end_utc") == args.end_utc.isoformat() and
              coverage.get("f0_commit") == F0_COMMIT and coverage.get("ready_for_capture") is True and
              set(events) == expected and bool(tokens) and coverage.get("capacity", {}).get("feasible") is True)
     for slug, event in events.items():

@@ -47,8 +47,12 @@ Hashes/local counters never become native exchange sequence or execution IDs.
 One shared gate allows at most two starts/second without bursts across REST,
 websocket upgrades/reconnects and application subscribe/PING messages. Mandatory
 protocol PONG replies are separately counted and exempt. Actual connect/send
-boundaries are serialized. REST and sanitized websocket 429/5xx/connect failures
-honor Retry-After and the same cooldown; control frames do not reset back-off.
+boundaries are serialized. The first venue HTTP 429 or any Retry-After header,
+including a websocket upgrade response, terminally stops this optional recorder.
+It retains timestamp/endpoint/sanitized headers as an evidence gap and never
+retries or automatically restarts that session. The body is left unread so a
+slow response cannot delay yielding the shared IP. Unhinted 5xx/connect failures
+retain shared cooldown; control frames do not reset back-off.
 This is a process-local bound, not a home-IP quota guarantee; reserve F0 headroom.
 
 Books retain priority at every request boundary and stay batched (up to 100
@@ -66,6 +70,13 @@ quiet-market uncertainty from transport liveness. A source-age flag is not a
 missing-price percentage. REST is compared with reconstructed stream books
 where timing permits; overlapping updates and mismatches cannot prove sequence
 completeness. No anonymous source can supply an exact maker census or fee denominator.
+
+Non-book deltas/prints require a finite source timestamp within the configured
+delay tolerance. Delayed, future or unreadable clocks retain raw bytes and open
+scoped uncertainty; they cannot advance qualified liveness or mutate trusted
+depth. Fresh event clocks are reported separately from full-book source age.
+A fresh delta/print cannot qualify an old full book or close earlier clock
+uncertainty; a fresh validated full stream book is the recovery anchor.
 
 The output ceiling is 4,096 MiB and C: must retain at least 40 GiB free at
 admission and runtime. Only two 512-KiB physical health banks are reserved;
@@ -95,15 +106,25 @@ and exits all worker threads. P2 retains both PIDs and actual completion.
 Paired UTC/monotonic anchors are frozen; a material wall-clock step stops with
 a discontinuity gap. No clock setting is changed.
 
-WS Claude coordinates launch; the owner keeps a separate console independent
-of F0 cleanup. Launch the waiting process before Sunday's freeze, preserve
-manifest/PIDs and final exit/health, and keep host/console available through
-completion. No Scheduler registration, host-setting change or in-freeze
-operator restart is part of this procedure. Start is Sun 2026-11-08 18:55
-Toronto = 23:55Z; automatic stop is Tue 2026-11-10 00:45Z (Mon 19:45 Toronto).
-Frozen F0 stops at 23:50Z: 55 minutes of tail, or 54 after its documented GTD
-tail. Recheck actual final-order/cleanup bounds before pinning; extend the
-reviewed end if necessary.
+WS Claude pins the independent `launch` command; the owner invokes it at the
+Monday session start. It starts immediately unless a planned `--start-utc` is
+explicitly supplied. There is no overnight waiting run or duration-derived end.
+The single Monday end parameter is **2026-11-10T00:45:00Z** (Mon 19:45 EST):
+frozen F0's 23:50Z hard stop plus about 55 minutes of tail. A late start shortens
+coverage and never moves this end; a supplied planned start retains its missing
+prefix as a gap. Later sessions pass their own absolute `--end-utc`.
+
+`launch` checks the clean reviewed tip and creates a detached evidence-only
+process detached from the caller's console, with its own group and Windows Job
+breakaway; if breakaway is
+refused it fails only the optional launch. Its sibling `.launch.json` handle,
+stdout/stderr and output root belong only to evidence. It never waits for
+collector success, retries, starts F0 or propagates a collector exit into F0
+cleanup. `stop` writes only that handle's output/STOP; the supervisor can stop
+only its own child. No Scheduler, shared live mutex or host-setting change.
+P2 retains the exact tip/runtime/arguments, own handle/PIDs and actual final
+exit/health. Shared CPU/disk/network/IP contention is still possible; process
+ownership is not a resource-isolation guarantee.
 
 WS Claude runs readiness Sunday before 18:55 and Monday at 07:07 Toronto,
 into separate new directories. Sunday's public walk independently compares all four events with
@@ -113,18 +134,23 @@ observations and infeasible capacity. Exit 0 certifies full scoped baseline
 books were taken and when, never source freshness or simulator accuracy.
 Health separates `ready_for_capture`, `source_freshness_ready`, `coverage_ready`
 and always-false `accuracy_qualified`, with per-token receipts and open gaps.
-Monday uses `--capture-health` to verify the active recorder's checksummed
+Both Sunday and Monday 07:07 checks use `--pre-start` while no collector runs.
+This is an explicit operator assertion, not an automatic shared-IP lock. After
+launch, use `--capture-health` to verify the active recorder's checksummed
 comparison, four-event membership and current book/metadata receipt ages. This
-adds no REST traffic beside capture. A stale, stopped, corrupt or mismatched
+adds no REST traffic beside capture and requires the same absolute end. A stale, stopped, corrupt or mismatched
 receipt refuses readiness; retry a concurrent-write checksum failure into a new
-check directory. Network readiness walks are refused during the live interval.
+check directory. Never run a second network readiness walk beside the collector.
 
 ```powershell
 Set-Location -LiteralPath 'C:\wt\codex-monday-evidence-20261109'
 $Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
-& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 180 --output 'C:\t\pilot1109\readiness-sunday'
-& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 180 --capture-health 'C:\t\pilot1109\public-capture\health.json' --output 'C:\t\pilot1109\readiness-monday-0707'
-& $Python -B -m weather.market.pilot_validation_evidence public-capture --market denver --market toronto --event-date 2026-11-10 --event-date 2026-11-11 --all-bands --both-tokens --start-utc 2026-11-08T23:55:00Z --end-utc 2026-11-10T00:45:00Z --raw-market-stream --rest-book-seconds 5 --terms-seconds 60 --fee-seconds 180 --fee-rate-seconds 180 --metadata-seconds 180 --time-sample-seconds 60 --max-age-seconds 30 --max-mark-delay-seconds 30 --max-rest-rps 2 --max-rss-mib 256 --max-output-mib 4096 --min-free-gib 40 --output 'C:\t\pilot1109\public-capture'
+& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --end-utc 2026-11-10T00:45:00Z --pre-start --output 'C:\t\pilot1109\readiness-sunday'
+& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --end-utc 2026-11-10T00:45:00Z --pre-start --output 'C:\t\pilot1109\readiness-monday-0707'
+# At Monday's owner-started session; P2 supplies the exact reviewed 40-hex tip.
+& $Python -B -m weather.market.pilot_validation_evidence launch --expected-tip $PinnedEvidenceTip --market denver --market toronto --event-date 2026-11-10 --event-date 2026-11-11 --all-bands --both-tokens --raw-market-stream --end-utc 2026-11-10T00:45:00Z --output 'C:\t\pilot1109\public-capture'
+# Once launched, health-only readiness checks the identical end with no new RPC.
+& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --end-utc 2026-11-10T00:45:00Z --capture-health 'C:\t\pilot1109\public-capture\health.json' --output 'C:\t\pilot1109\readiness-active'
 $LASTEXITCODE
 ```
 
@@ -133,7 +159,7 @@ receipt requires pin/launch review, not a lowered guard. Normal stop is
 `--end-utc`; this requests an earlier clean stop:
 
 ```powershell
-New-Item -ItemType File -Path 'C:\t\pilot1109\public-capture\STOP' -ErrorAction Stop
+& $Python -B -m weather.market.pilot_validation_evidence stop --output 'C:\t\pilot1109\public-capture'
 ```
 
 `account-flow` retains raw Data API v2 pages: maker-inclusive trades, all default
@@ -148,7 +174,7 @@ Repeat immutable exports for late indexing, resolution and redemption.
 
 Do not overlap account export with capture/F0. The CLI refuses exports during
 the scheduled interval and bounds an earlier export to yield before it starts.
-Run follow-ups after Tue 00:45Z or the actual extended capture stop:
+Run follow-ups after the fixed Tue 00:45Z stop:
 
 ```powershell
 & $Python -B -m weather.market.pilot_validation_evidence account-flow --wallet $PublicFunderAddress --from-utc 2026-11-09T00:00:00Z --max-rest-rps 2 --output 'C:\t\pilot1109\account-flow-first'

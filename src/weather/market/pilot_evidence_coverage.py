@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, DecimalException, InvalidOperation
 import re
 import math
 import threading
@@ -182,11 +182,22 @@ class Coverage:
                     mismatch = current["book"] != book and not ambiguous
             else:
                 state["last_stream"] = received
-                self.last_market = received
+                if usable:
+                    self.last_market = received
+                    state.update(stream_event_received=received, stream_event_age_at_observation=age,
+                                 stream_event_clock_valid=True)
                 self.stream_books[token] = {"book": book, "received": received}
         self.interval("book_invalid", token, bad=False)
         self.interval("book_source_age", token, bad=not usable, boundary=source_boundary, seconds=age,
                       interpretation="source age, not an outage or missing-price count")
+        if source == "stream" and usable:
+            # A fresh delta/print cannot repair uncertain full depth. Only this
+            # validated full stream anchor closes the earlier clock intervals.
+            with self.lock:
+                prior_intervals = tuple(self.intervals.values())
+            for interval in prior_intervals:
+                if interval["code"] in {"stream_source_delay", "stream_source_clock_unreadable"} and interval["scope"].startswith(token + ":"):
+                    self.interval(interval["code"], interval["scope"], bad=False)
         if source == "rest":
             self.interval("rest_observation_stale", token, bad=False)
             if not ambiguous:
@@ -195,10 +206,52 @@ class Coverage:
                 self.store.counts["reconciliation_overlaps_stream_update"] += 1
         return usable
 
+    def stream_clock(self, row, received, tokens):
+        """Validate event time separately from full-depth source freshness."""
+        tokens = sorted(set(tokens))
+        if not tokens:
+            return False
+        code, age = None, None
+        try:
+            text = str(row["timestamp"])
+            if len(text) > 64:
+                raise ValueError("timestamp length")
+            source = Decimal(text) / 1000
+            if not source.is_finite() or source <= 0:
+                raise ValueError("timestamp invalid")
+            age = datetime.fromisoformat(received["receipt_utc"]).timestamp() - float(source)
+            if not math.isfinite(age):
+                raise ValueError("timestamp unrepresentable")
+            if not -self.max_delay <= age <= self.max_delay:
+                code = "stream_source_delay"
+        except (KeyError, ValueError, DecimalException, OverflowError):
+            code = "stream_source_clock_unreadable"
+        boundaries = {}
+        with self.lock:
+            for token in tokens:
+                state = self.tokens[token]
+                state["stream_event_clock_valid"] = code is None
+                if code:
+                    boundaries[token] = state.get("stream_event_received") or self.begin
+                else:
+                    state.update(stream_event_received=received, stream_event_age_at_observation=age)
+            if code is None:
+                self.last_market = received
+        for token, boundary in boundaries.items():
+            self.interval(code, token + ":" + row["event_type"], boundary=boundary,
+                          source_timestamp=row.get("timestamp"), seconds=age,
+                          recovery="fresh full stream book required")
+        return code is None
+
     def changes(self, row, received):
         changes = row.get("price_changes")
         if not isinstance(changes, list):
             return
+        affected = [c.get("asset_id") for c in changes if isinstance(c, dict) and c.get("asset_id") in self.tokens]
+        if any(row.get("market") != self.tokens[t]["condition_id"] for t in affected):
+            raise ValueError("stream change condition")
+        if not self.stream_clock(row, received, affected):
+            return  # Raw bytes survive; unvalidated depth never becomes a trusted mutation.
         with self.lock:
             for change in changes:
                 token = change.get("asset_id") if isinstance(change, dict) else None
@@ -257,6 +310,11 @@ class Coverage:
             # Health also runs while the main reconciliation loop is in a shared
             # cooldown. Derive current ages without mutating/journaling here.
             for state in tokens.values():
+                event = state.get("stream_event_received")
+                if event:
+                    event_age = state["stream_event_age_at_observation"] + (now - event["receipt_monotonic_ns"]) / 1e9
+                    state["stream_event_source_age_seconds"] = event_age
+                    state["stream_event_fresh"] = bool(state.get("stream_event_clock_valid") and -self.max_delay <= event_age <= self.max_delay)
                 state["rest_observation_fresh"] = recent(state["last_rest"], self.max_age)
                 sample = state.get("source_observed_at")
                 if sample:

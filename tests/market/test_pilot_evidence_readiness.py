@@ -16,7 +16,7 @@ from weather.market.pilot_evidence_contract import BUILTIN_SPECS
 from weather.market.pilot_evidence_health import HealthFile
 from weather.market.pilot_evidence_coverage import Coverage, event_slug
 from weather.market.pilot_evidence_public import RateGate, allow_url, SOCKET
-from weather.market.pilot_evidence_store import EvidenceStore, MIB, stamp
+from weather.market.pilot_evidence_store import CaptureStopped, EvidenceStore, MIB, stamp
 from weather.market.pilot_evidence_stream import MarketStream
 from weather.market.pilot_evidence_supervisor import WorkerLifeline, supervise, validate_output
 from weather.market.pilot_evidence_transport import DeadlineSocket, HandshakeError, http_exchange, socket_exchange, TransportLimit
@@ -29,7 +29,7 @@ def fixture_capture(tmp_path, *, missing_event=None, missing_token=None):
     args = SimpleNamespace(market=["denver", "toronto"], event_date=[date(2026, 1, 2), date(2026, 1, 3)],
         rest_book_seconds=5, terms_seconds=60, fee_seconds=180, fee_rate_seconds=180,
         metadata_seconds=180, time_sample_seconds=60, max_age_seconds=30,
-        max_mark_delay_seconds=30, max_rest_rps=2)
+        max_mark_delay_seconds=30, max_rest_rps=2, end_utc=datetime(2026, 11, 10, 0, 45, tzinfo=timezone.utc))
     events, token_conditions = {}, {}
     specs = {s.id: s for s in BUILTIN_SPECS}
     for index, (market, day) in enumerate((m, d) for m in args.market for d in args.event_date):
@@ -82,6 +82,8 @@ def test_live_interval_refuses_a_second_network_budget(tmp_path, monkeypatch, co
     args = [command, "--output", str(output)]
     if command == "account-flow":
         args += ["--wallet", "0x" + "1" * 40]
+    else:
+        args += ["--end-utc", "2026-11-10T00:45:00Z"]
     with pytest.raises(SystemExit) as refused:
         main(args)
     assert refused.value.code == 2 and not output.exists()
@@ -116,11 +118,12 @@ def test_health_freshness_expires_even_when_reconciliation_is_in_cooldown(tmp_pa
     store.close("fixture")
 
 
-@pytest.mark.parametrize("fault", [None, "event", "token", "stale", "stale_rest", "stopped", "f0", "checksum"])
+@pytest.mark.parametrize("fault", [None, "event", "token", "stale", "stale_rest", "stopped", "f0", "checksum", "end"])
 def test_readiness_reuses_fresh_checksummed_capture_without_second_rest_budget(tmp_path, fault):
     capture, producer, _ = fixture_capture(tmp_path)
     assert capture.readiness() == "readiness_complete"
-    source = {**producer.health(), "phase": "running", "final": False}
+    source = {**producer.health(), "phase": "running", "final": False,
+              "clock_anchors": {"end_utc": capture.args.end_utc.isoformat()}}
     if fault == "event":
         source["coverage"]["events"].pop(next(iter(source["coverage"]["events"])))
     elif fault == "token":
@@ -133,6 +136,8 @@ def test_readiness_reuses_fresh_checksummed_capture_without_second_rest_budget(t
         source.update(phase="terminated", final=True)
     elif fault == "f0":
         source["coverage"]["f0_commit"] = "0" * 40
+    elif fault == "end":
+        source["clock_anchors"]["end_utc"] = "2026-11-10T01:45:00+00:00"
     live = tmp_path / "live"
     live.mkdir()
     reserved = HealthFile(live)
@@ -183,7 +188,7 @@ def test_unexpected_asset_in_rest_batch_never_certifies_any_requested_token(tmp_
 
 
 @pytest.mark.parametrize("status", [429, 503])
-def test_websocket_retry_after_suspends_same_gate_used_by_rest(tmp_path, status):
+def test_websocket_retry_after_permanently_halts_same_gate_used_by_rest(tmp_path, status):
     store, clock = make_store(tmp_path), FakeClock()
     gate = RateGate(clock=clock.clock, sleep=clock.sleep)
     starts = []
@@ -202,8 +207,10 @@ def test_websocket_retry_after_suspends_same_gate_used_by_rest(tmp_path, status)
         raise HandshakeError(status, {"Retry-After": "120"}, b"busy")
     stream.connect = connect
     stream.run()
-    assert starts == [100, 220]
-    assert gate.wait() >= 220.5
+    assert starts == [100]
+    with pytest.raises(CaptureStopped, match="venue_congestion"):
+        gate.wait()
+    assert store.reason == "venue_congestion" and store.stop.is_set()
 
 
 @pytest.mark.parametrize("kind", ["rest", "websocket"])
@@ -214,7 +221,7 @@ def test_error_headers_defer_shared_gate_before_reading_body(tmp_path, monkeypat
     stream = SimpleNamespace(sendall=lambda raw: None, close=lambda: None)
 
     class Response:
-        status, will_close = 429, True
+        status, will_close = 503, True
 
         def __init__(self, stream):
             pass
@@ -223,17 +230,17 @@ def test_error_headers_defer_shared_gate_before_reading_body(tmp_path, monkeypat
             pass
 
         def getheader(self, key, default=None):
-            return "120" if key == "Retry-After" else default
+            return default
 
         def read(self, size):
-            assert gate.next_at >= 220  # Even a slow body starts after cooldown is shared.
+            assert gate.next_at >= 102  # Unhinted 5xx retains bounded shared backoff.
             return b"limited"
 
     monkeypatch.setattr("weather.market.pilot_evidence_transport.tls_socket", lambda *a, **k: stream)
     monkeypatch.setattr("weather.market.pilot_evidence_transport.http.client.HTTPResponse", Response)
     if kind == "rest":
         assert http_exchange("GET", allow_url("GET", "https://clob.polymarket.com/time"),
-                             {}, None, gate=gate, store=store)[0] == 429
+                             {}, None, gate=gate, store=store)[0] == 503
     else:
         with pytest.raises(HandshakeError):
             socket_exchange(allow_url("WS", SOCKET), gate=gate, store=store)
@@ -243,13 +250,13 @@ def test_error_headers_defer_shared_gate_before_reading_body(tmp_path, monkeypat
 
 def test_handshake_error_body_is_bounded_while_reading(tmp_path, monkeypatch):
     store = make_store(tmp_path)
-    wire = b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 1000000000\r\nRetry-After: 120\r\n\r\n" + b"x" * 16385
+    wire = b"HTTP/1.1 503 Busy\r\nContent-Length: 1000000000\r\n\r\n" + b"x" * 16385
     raw = SyntheticSocket(wire)
     stream = DeadlineSocket(raw, store.check, time.monotonic() + 2)
     monkeypatch.setattr("weather.market.pilot_evidence_transport.tls_socket", lambda *a: stream)
     with pytest.raises(HandshakeError) as error:
         socket_exchange(allow_url("WS", SOCKET), gate=RateGate(), store=store)
-    assert error.value.status == 429 and error.value.headers["Retry-After"] == "120"
+    assert error.value.status == 503 and error.value.headers["Retry-After"] is None
     assert len(error.value.body) == 16384 and error.value.truncated
     assert max(raw.calls) <= 16384
 

@@ -40,16 +40,23 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
     capture = commands.add_parser("public-capture")
-    capture.add_argument("--market", action="append", choices=[s.id for s in BUILTIN_SPECS], required=True)
-    capture.add_argument("--event-date", type=date.fromisoformat, action="append", required=True)
-    for flag in ("all-bands", "both-tokens", "raw-market-stream"):
-        capture.add_argument("--" + flag, action="store_true", required=True)
-    capture.add_argument("--start-utc", type=utc, required=True)
-    capture.add_argument("--end-utc", type=utc, required=True)
+    launch = commands.add_parser("launch", help="start only the independent evidence process; no wait/restart")
+    launch.add_argument("--expected-tip", required=True)
+    stop = commands.add_parser("stop", help="request STOP through the evidence process's own handle")
+    stop.add_argument("--output", type=Path, required=True)
+    for command in (capture, launch):
+        command.add_argument("--market", action="append", choices=[s.id for s in BUILTIN_SPECS], required=True)
+        command.add_argument("--event-date", type=date.fromisoformat, action="append", required=True)
+        for flag in ("all-bands", "both-tokens", "raw-market-stream"):
+            command.add_argument("--" + flag, action="store_true", required=True)
+        command.add_argument("--start-utc", type=utc, help="optional planned start; omitted means start now")
+        command.add_argument("--end-utc", type=utc, required=True)
     readiness = commands.add_parser("readiness", help="compare all four F0 pre-filter events and validate every baseline")
     readiness.add_argument("--session-date", type=date.fromisoformat, default=date(2026, 11, 9))
     readiness.add_argument("--capture-health", type=Path, help="verify active capture without a second REST budget")
-    for command in (capture, readiness):
+    readiness.add_argument("--pre-start", action="store_true", help="assert this public walk precedes the independent collector launch")
+    readiness.add_argument("--end-utc", type=utc, required=True, help="same absolute end as the capture launch")
+    for command in (capture, launch, readiness):
         for flag, default in (("rest-book-seconds", 5), ("terms-seconds", 60), ("fee-seconds", 180),
                               ("fee-rate-seconds", 180), ("metadata-seconds", 180), ("time-sample-seconds", 60),
                               ("max-age-seconds", 30), ("max-mark-delay-seconds", 30)):
@@ -60,7 +67,7 @@ def parser():
     account.add_argument("--through-utc", type=utc)
     account.add_argument("--page-size", type=int, default=500, choices=range(1, 1001), metavar="1..1000")
     account.add_argument("--max-pages", type=int, default=4096)
-    for command in (capture, readiness, account):
+    for command in (capture, launch, readiness, account):
         command.add_argument("--output", type=Path, required=True, help="new absolute task/pilot evidence directory")
         command.add_argument("--max-rest-rps", type=positive, default=2)
         command.add_argument("--max-rss-mib", type=positive, default=256)
@@ -162,14 +169,26 @@ def worker_main(args, channel, cancel):
 def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
+    if args.command == "stop":
+        from weather.market.pilot_evidence_launch import stop
+        print(json.dumps(stop(args.output), indent=2))
+        return 0
     if (args.max_rest_rps > 2 or args.max_rss_mib > 256 or not 2 <= args.max_output_mib <= 4096 or
             args.min_free_gib < 40):
         cli.error("hard limits: <=2 rps, <=256 MiB RSS, 2..4096 MiB output, >=40 GiB free")
+    if args.command == "launch":
+        from weather.market.pilot_evidence_launch import launch
+        try:
+            print(json.dumps(launch(args), indent=2))
+        except (OSError, ValueError) as exc:
+            cli.error(f"independent evidence launch refused: {type(exc).__name__}: {exc}")
+        return 0
     if args.command == "readiness":
         args.market = ["denver", "toronto"]
         args.event_date = [args.session_date + timedelta(days=d) for d in (1, 2)]
         args.f0_commit = F0_COMMIT
     elif args.command == "public-capture":
+        args.start_utc = args.start_utc or datetime.now(timezone.utc)
         if args.end_utc <= args.start_utc or args.end_utc <= datetime.now(timezone.utc):
             cli.error("end must follow start and be in the future")
         args.market, args.event_date = sorted(set(args.market)), sorted(set(args.event_date))
@@ -183,9 +202,13 @@ def main(argv=None):
             cli.error("account export is refused during the public capture/live interval")
         if now < live_start:
             args.end_utc = live_start  # An earlier export must yield before the live interval too.
-    if (args.command == "readiness" and not args.capture_health and
-            utc("2026-11-08T23:55:00Z") <= datetime.now(timezone.utc) < utc("2026-11-10T00:45:00Z")):
-        cli.error("during capture, readiness requires --capture-health; no second REST budget")
+    if args.command == "readiness":
+        if args.end_utc <= datetime.now(timezone.utc):
+            cli.error("readiness end must be the future absolute capture end")
+        if not args.capture_health and not args.pre_start:
+            cli.error("network readiness requires --pre-start; active capture requires --capture-health")
+        if args.capture_health and args.pre_start:
+            cli.error("choose pre-start public readiness or active capture health")
     try:
         code, receipt = supervise(args, worker_main)
     except (OSError, ValueError) as exc:

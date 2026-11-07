@@ -91,24 +91,27 @@ def test_refuse_non_allowlisted_url_before_network(method, url, params):
         allow_url(method, url, params)
 
 
-def test_http_429_and_5xx_backoff_preserves_every_body(tmp_path):
+def test_http_429_is_terminal_and_unhinted_5xx_backoff_preserves_bodies(tmp_path):
     clock = Clock()
     store = store_at(tmp_path)
     gate = RateGate(2, clock=clock.clock, sleep=clock.sleep)
     starts = []
-    responses = iter([(429, {"Retry-After": "7"}, b'{"busy":true}'),
-                      (503, {}, b'{"down":true}'), (200, {}, b'{"ok":true}')])
+    responses = iter([(503, {}, b'{"down":true}'), (200, {}, b'{"ok":true}'),
+                      (429, {"Retry-After": "7"}, b'{"busy":true}')])
 
     def request(*args):
         starts.append(clock.clock())
         return next(responses)
 
-    assert PublicHTTP(store, gate, request=request).read(CLOB + "/time") == {"ok": True}
-    assert starts == [100, 107, 111]
+    client = PublicHTTP(store, gate, request=request)
+    assert client.read(CLOB + "/time") == {"ok": True}
+    with pytest.raises(CaptureStopped, match="venue_congestion"):
+        client.read(CLOB + "/time")
+    assert starts == [100, 102, 102.5]
     rows = records(store)
     bodies = [base64.b64decode(r["body_base64"]) for r in rows if r["kind"] == "http_response"]
-    assert bodies == [b'{"busy":true}', b'{"down":true}', b'{"ok":true}']
-    assert store.gaps["http_backoff"] == 2
+    assert bodies == [b'{"down":true}', b'{"ok":true}', b'{"busy":true}']
+    assert store.gaps["http_backoff"] == store.gaps["venue_congestion"] == 1
 
 
 def test_http_redirect_never_followed(tmp_path):
@@ -395,6 +398,7 @@ class Deny(importlib.abc.MetaPathFinder):
             raise RuntimeError('forbidden import ' + fullname)
 sys.meta_path.insert(0, Deny())
 import weather.market.pilot_validation_evidence
+import weather.market.pilot_evidence_launch
 assert not any(m.startswith(('requests', 'dotenv', 'eth_account', 'polymarket', 'py_clob_client')) for m in sys.modules)
 print('public import closure PASS')
 '''

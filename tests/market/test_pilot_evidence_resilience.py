@@ -364,7 +364,7 @@ def test_question_revision_continues_but_true_token_reassignment_refuses(tmp_pat
 @pytest.mark.parametrize("response_seconds", [0.1, 1.0])
 @pytest.mark.parametrize("duration", [600, 25200])
 def test_full_monday_scheduler_reserves_books_under_feasible_contract(tmp_path, bands, fee_period, response_seconds, duration, request):
-    profile = parser().parse_args(["readiness", "--output", str(tmp_path / "readiness")])
+    profile = parser().parse_args(["readiness", "--end-utc", "2026-11-10T00:45:00Z", "--output", str(tmp_path / "readiness")])
     assert profile.fee_seconds == 180
     fee_period = profile.fee_seconds if fee_period is None else fee_period
     clock = FakeClock()
