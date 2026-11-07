@@ -178,7 +178,7 @@ def test_reporting_never_requests_the_old_mask(tmp_path, monkeypatch):
 
     monkeypatch.setattr(c, "market_day_flags", primary_only)
     c.report(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
-    assert calls == [{}]
+    assert len(calls) == 1 and set(calls[0]) == {"disclosures"}
 
 
 def test_countability_previews_do_not_consume_or_replace_the_single_look_freeze(tmp_path):
@@ -213,3 +213,104 @@ def test_legacy_countability_lists_are_not_silently_reinterpreted(tmp_path):
     path.write_text(json.dumps({"schema": "mg1_countable/1", "dates": []}), encoding="utf-8")
     with pytest.raises(m.MG1LookRefused, match="not mg1_countable/2"):
         m.read_countable(path)
+
+
+@pytest.mark.parametrize("encoding", ["basic", "week"])
+def test_frozen_receipt_keys_normalise_to_the_same_primary_population(tmp_path, encoding):
+    from datetime import date
+
+    root = write_ledger(tmp_path, LAST + timedelta(days=3))
+    freeze = freeze_keys(root, FINAL_NOW)
+    original = c.report(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
+    body = json.loads(freeze.read_text(encoding="utf-8"))
+
+    def encode(day):
+        parsed = date.fromisoformat(day)
+        if encoding == "basic":
+            return parsed.isoformat().replace("-", "")
+        year, week, weekday = parsed.isocalendar()
+        return f"{year:04d}-W{week:02d}-{weekday}"
+
+    for entry in body["markets"].values():
+        entry["label_dates"] = [encode(d) for d in entry["label_dates"]]
+    freeze.write_text(json.dumps(body), encoding="utf-8")
+    # label_key_check accepts and normalises the receipt list against the unchanged ISO manifest keys.
+    keys, _ = c.frozen_keys(freeze, FINAL_NOW)
+    assert D0.isoformat() in keys[MARKETS[0]]
+    normalised = c.report(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
+    assert normalised["dates"] == original["dates"] and normalised["countable_reached"] == 45
+    rows, _ = c.final_rows(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
+    assert len(rows) == 45 and rows[-1]["date"] == LAST.isoformat()
+    direct, _ = c.market_day_flags(root, [D0], [MARKETS[0]], {MARKETS[0]: {"20261015"}})
+    assert direct[(MARKETS[0], D0.isoformat())] is True
+
+
+def test_unparseable_frozen_key_refuses_instead_of_emptying_population(tmp_path):
+    root = write_ledger(tmp_path, LAST)
+    freeze = freeze_keys(root, FINAL_NOW)
+    body = json.loads(freeze.read_text(encoding="utf-8"))
+    body["markets"][MARKETS[0]]["label_dates"][0] = "not-a-date"
+    freeze.write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(c.CountableRefused, match="frozen label keys unavailable"):
+        c.report(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
+
+
+def test_disclosures_count_only_primary_dates_and_the_sole_missing_settlement_failure(tmp_path):
+    from tests.calibration.test_mg1_countable import _row
+
+    def override(market, day):
+        row = _row(market, day, True)
+        if market == MARKETS[0] and day in (D0, LAST + timedelta(days=1)):
+            row["material_coverage_grade"] = "manual_override"
+        if market == MARKETS[1] and day in (D0, LAST + timedelta(days=1)):
+            row["material_coverage_grade"] = "missing_settlement"
+        if market == MARKETS[2] and day == D0:
+            row["material_coverage_grade"] = "missing_settlement"
+            row["polymarket_reconciliation"]["event_closed"] = False  # second failed condition
+        if market == MARKETS[3] and day == D0:
+            row["material_coverage_grade"] = "missing_settlement"  # key removed below: two failures
+        if row["material_coverage_grade"] == "missing_settlement":
+            row["settlement_bucket"] = None
+            row["settlement_high"] = None
+            row["promotion_countable"] = False
+        return [row]
+
+    root = write_ledger(tmp_path, LAST + timedelta(days=3), override)
+    freeze = freeze_keys(root, FINAL_NOW, missing={(MARKETS[3], D0.isoformat())})
+    report = c.report(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
+    assert report["countability_disclosures"] == {"manual_override": 1, "missing_settlement": 1}
+    assert report["countability_disclosure_dates"] == 45
+    rows, _ = c.final_rows(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
+    assert rows[0]["disclosures"] == report["countability_disclosures"]
+    assert m.countability_disclosures(rows) == report["countability_disclosures"]
+    # Changing strict_complete to manual_override, or adding/removing a second failed condition on an already
+    # excluded missing_settlement cell, changes disclosures without changing primary selection or dates.
+    for market in (MARKETS[0], MARKETS[1]):
+        path = root / market / "ledger.jsonl"
+        ledger = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        if market == MARKETS[0]:
+            ledger[0]["material_coverage_grade"] = "strict_complete"
+        else:
+            ledger[0]["polymarket_reconciliation"]["event_closed"] = False
+        path.write_text("".join(json.dumps(row) + "\n" for row in ledger), encoding="utf-8")
+    changed = c.report(ledger_root=root, label_freeze=freeze, now=FINAL_NOW)
+    assert changed["countability_disclosures"] == {"manual_override": 0, "missing_settlement": 0}
+    for key in ("dates", "countable_reached", "required_mg1_last", "extend_mg1_last"):
+        assert changed[key] == report[key]
+
+
+@pytest.mark.parametrize("key", m.COUNTABILITY_DISCLOSURE_KEYS)
+def test_each_disclosure_count_can_change_without_changing_any_decision(tmp_path, monkeypatch, key):
+    inputs = _synthetic(tmp_path)
+    results = []
+    for value in (0, 17):
+        body = json.loads(inputs["countable"].read_text(encoding="utf-8"))
+        body["dates"][0]["disclosures"][key] = value
+        inputs["countable"].write_text(json.dumps(body), encoding="utf-8")
+        monkeypatch.setattr(m, "LOOK_ROOT", tmp_path / f"look-{value}")
+        _, result = _score(monkeypatch, {**inputs, "out": tmp_path / f"result-{value}"})
+        assert result["countability_disclosures"][key] == value
+        results.append(result)
+    for field in ("decision", "primary", "counted_dates", "not_countable", "promotion_mask_sensitivity"):
+        assert results[0][field] == results[1][field]
+    assert results[0]["decision"]["verdict"] == "PASS"

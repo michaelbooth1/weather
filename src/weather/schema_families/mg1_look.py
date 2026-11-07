@@ -35,7 +35,8 @@ SCHEMAS = (
         "MG-1's single look result (pre-registration sections 4 and 6), written once (mode x) as "
         "mg1_look_result.json under the look's --out and bound by sha256 in the look receipt: counted dates, "
         "outcome-blind VOID checks, the primary 00-16 MG-1 minus served estimate and interval, the decision and "
-        "every reported quantity, including the guarded NONDECIDING promotion_mask_sensitivity.",
+        "every reported quantity, including the guarded NONDECIDING promotion_mask_sensitivity and B015's "
+        "countability_disclosures (manual_override admissions and missing_settlement-only exclusions).",
     ),
     SchemaSpec(
         "mg1_countable",
@@ -46,6 +47,8 @@ SCHEMAS = (
         "per calendar date from D0 through the 45th primary-countable date, with per-market outcome-blind "
         "flags (markets; one qualifying market-day counts a date, Clarification 4), separate frozen old-mask "
         "sensitivity_markets flags, label_freeze_receipt_sha256 and ledger_sha256, and the "
+        "per-date disclosures integer counts (manual_override admissions; missing_settlement-only exclusions) "
+        "that are summed over the primary's 45 counted dates for reporting only, plus the "
         "Clarification 1 reporting caveats (null with a text reason allowed). No label or price.",
     ),
     SchemaSpec(

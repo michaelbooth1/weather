@@ -16,7 +16,10 @@ SCHEMAS = (
         "MG-1 countability report mode (R11 P1/P2), printed to stdout: per calendar date from D0 its status only "
         "(countable, non_countable, pending), the required MG1_LAST, whether the recorded MG1_LAST must move, "
         "each market ledger's sha256, the frozen label receipt sha and the run time. Primary mask: admitted coverage, "
-        "closed/one winner and frozen label key (Clarification 4). Nothing per market; no label, price or settlement value.",
+        "closed/one winner and frozen label key (Clarification 4). B015 countability_disclosures gives integer "
+        "manual_override admissions and missing_settlement-only exclusions over the first up to 45 counted "
+        "dates; countability_disclosure_dates states how many are available. Reporting only. "
+        "Nothing per market; no label, price or settlement value.",
     ),
     SchemaSpec(
         "mg1_countable_report_v1_legacy",

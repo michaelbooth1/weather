@@ -58,6 +58,8 @@ verdict, a VOID, or ABORTED).
 Clarification 4 selects primary market-days by coverage, closed/one-winner metadata and frozen label keys.
 The separately frozen old promotion mask is scored only after the primary decision, on its same joined inputs,
 as ``promotion_mask_sensitivity``. It cannot select dates, enter a gate or lose the primary receipt on error.
+B015's ``countability_disclosures`` sums the frozen per-date manual_override admission and
+missing_settlement-only exclusion counts on the primary's 45 dates. These counts enter no decision or VOID.
 
 ``main check-keys`` is the dry run (master, 2026-11-03). It runs every pre-stamp check except the A6 status count:
 
@@ -276,6 +278,7 @@ def receipt_problems(path):
 RESULT = "mg1_look_result.json"
 RESULT_SCHEMA = "mg1_look_result/1"
 COUNTABLE_SCHEMA = "mg1_countable/2"
+COUNTABILITY_DISCLOSURE_KEYS = ("manual_override", "missing_settlement")  # B015: reporting only
 SENSITIVITY_WORDING = (
     "NONDECIDING sensitivity: old promotion_countable mask within the primary's first 45 countable dates, "
     "on the same frozen inputs at the same single look. Outcome-selected subset; cannot change the primary "
@@ -384,6 +387,7 @@ def _parse_countable(body):
     try:
         rows = [{"date": date.fromisoformat(str(r["date"])), "countable": r["countable"],
                  "markets": dict(r["markets"]), "sensitivity_markets": dict(r["sensitivity_markets"]),
+                 "disclosures": dict(r["disclosures"]),
                  "parser_v2_verified": r["parser_v2_verified"],
                  "shadow_stage_captured": r["shadow_stage_captured"],
                  "caveat_reasons": dict(r.get("caveat_reasons") or {})}
@@ -402,6 +406,9 @@ def _parse_countable(body):
                 or any(not isinstance(v, bool) for v in r["sensitivity_markets"].values())
                 or any(v and not r["markets"][m] for m, v in r["sensitivity_markets"].items())):
             raise MG1LookRefused("sensitivity_markets must be boolean flags within the primary market-day mask")
+        if (set(r["disclosures"]) != set(COUNTABILITY_DISCLOSURE_KEYS)
+                or any(type(v) is not int or v < 0 for v in r["disclosures"].values())):
+            raise MG1LookRefused("countability disclosures must give two nonnegative integer counts")
         for key in ("parser_v2_verified", "shadow_stage_captured"):
             if r[key] not in (True, False, None):
                 raise MG1LookRefused(f"{key} must be true, false or null on every date")
@@ -422,6 +429,17 @@ def _parse_countable(body):
     return counted, rows
 
 
+def countability_disclosures(rows):
+    """B015 reporting counts on the primary's counted dates; never decision or VOID inputs.
+
+    manual_override: admitted primary market-days with that coverage grade.
+    missing_settlement: excluded market-days with that grade and the winner/key conditions satisfied.
+    The latter identifies the sole failed primary condition; it does not reconstruct unrecorded coverage.
+    """
+    return {k: sum(r["disclosures"][k] for r in rows if any(r["markets"].values()))
+            for k in COUNTABILITY_DISCLOSURE_KEYS}
+
+
 def countable_freeze_check(path, freeze):
     """The primary mask must have been constructed from this exact look-morning frozen key set."""
     body = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -434,7 +452,8 @@ def read_countable(path):
 
     ``mg1_countable/2`` carries one row per calendar date from D0 through the 45th primary-countable date,
     with ``countable``, ``markets`` and ``sensitivity_markets`` ({market: bool}), ``parser_v2_verified``,
-    ``shadow_stage_captured`` and optional ``caveat_reasons``. It binds ``label_freeze_receipt_sha256`` and
+    ``shadow_stage_captured``, integer ``disclosures`` and optional ``caveat_reasons``.
+    It binds ``label_freeze_receipt_sha256`` and
     the ledger hashes. Master writes it with ``write_countable``. A date counts iff at least one support
     market-day satisfies Clarification 4; section 4 scores only those primary market-days. No label or price.
     """
@@ -463,6 +482,7 @@ def write_countable(path, dates, *, label_freeze_receipt_sha256, ledger_sha256=N
     for r in dates:
         row = {"date": str(r["date"]), "markets": {str(k): v for k, v in dict(r["markets"]).items()},
                "sensitivity_markets": dict(r["sensitivity_markets"]),
+               "disclosures": dict(r["disclosures"]),
                "parser_v2_verified": r.get("parser_v2_verified"),
                "shadow_stage_captured": r.get("shadow_stage_captured")}
         row["countable"] = any(v is True for v in row["markets"].values())
@@ -1213,6 +1233,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
                           "consumed (A6)")
     base = {"schema": RESULT_SCHEMA, "mg1_rule_sha256": look.rule_sha256, "entry_sha256": module_sha256(),
             "clarifications_sha256": dict(CLARIFICATIONS_SHA256),
+            "countability_disclosures": countability_disclosures(rows),
             "owner_constants": owners,
             "counted_dates": {"count": len(counted), "first": counted[0].isoformat(),
                               "last": counted[-1].isoformat()},

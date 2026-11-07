@@ -3,7 +3,8 @@ r"""MG-1 outcome-blind countability (owner-approved Clarification 4, 2026-11-06)
 Research only. The primary uses the latest unique event's admitted material coverage, closed/one-winner
 metadata and the look-morning R24 frozen label key, never WU reconciliation or the winning band's identity.
 A date counts iff at least one support market-day qualifies. A missing row is pending; multiple event slugs are
-non-countable. Pending is false in the final mask. Report mode emits date statuses and provenance only.
+non-countable. Pending is false in the final mask. Report mode emits date statuses, provenance and B015's
+reporting-only manual_override admission / missing_settlement-only exclusion counts on the primary dates.
 
 Both modes require frozen key metadata; P1/P2 may use immutable mg1-countability-* preview freezes, leaving
 the one mg1 look freeze for P3 after 45 dates are ready. Before metadata exists they refuse. No CSV,
@@ -23,7 +24,7 @@ import hashlib
 import json
 import socket
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 _PRODUCTION_PREFIXES = ("weather.operations", "weather.market", "weather.model", "weather.serving",
@@ -94,7 +95,7 @@ def _jsonl_rows(raw):
     return rows
 
 
-def market_day_flags(ledger_root, days, markets, label_keys, *, sensitivity_flags=None):
+def market_day_flags(ledger_root, days, markets, label_keys, *, sensitivity_flags=None, disclosures=None):
     """Primary flags from coverage, closed/one-winner metadata and frozen label keys (Clarification 4).
 
     No winner identity, bucket or reconciliation status enters the primary. Only the final writer requests
@@ -102,7 +103,8 @@ def market_day_flags(ledger_root, days, markets, label_keys, *, sensitivity_flag
     """
     from weather.backtesting import settlement_ledger as sl
 
-    wanted = {d.isoformat() for d in days}
+    wanted = {date.fromisoformat(str(d)).isoformat() for d in days}
+    label_keys = {m: {date.fromisoformat(str(d)).isoformat() for d in label_keys[m]} for m in markets}
     flags, shas = {}, {}
     for market in markets:
         path = sl.ledger_path_for_market(market, ledger_root)
@@ -116,6 +118,7 @@ def market_day_flags(ledger_root, days, markets, label_keys, *, sensitivity_flag
             events.setdefault(str(r.get("target_date"))[:10], set()).add(r.get("event_slug"))
         for day in sorted(wanted):
             latest = None
+            winner_and_key = False
             slugs = events.get(day, set())
             if not slugs:
                 flags[(market, day)] = None
@@ -125,16 +128,22 @@ def market_day_flags(ledger_root, days, markets, label_keys, *, sensitivity_flag
                 latest = sl.current_ledger_label(rows, next(iter(slugs)))
                 reconciliation = (latest or {}).get("polymarket_reconciliation") or {}
                 winners = reconciliation.get("winning_markets")
+                winner_and_key = bool(reconciliation.get("event_closed") is True
+                    and isinstance(winners, list) and len(winners) == 1
+                    and date.fromisoformat(day).isoformat() in label_keys[market])
                 flags[(market, day)] = bool(
                     latest and latest.get("material_coverage_grade") in sl.MATERIAL_COUNTABLE_COVERAGE_GRADES
-                    and reconciliation.get("event_closed") is True
-                    and isinstance(winners, list) and len(winners) == 1
-                    and day in label_keys[market])
+                    and winner_and_key)
             if sensitivity_flags is not None:
                 # This branch never selects a date or a primary row. Freeze only the intersection; a legacy
                 # true flag cannot admit a market-day rejected by the primary.
                 sensitivity_flags[(market, day)] = (flags[(market, day)] is True
                                                     and latest.get("promotion_countable") is True)
+            if disclosures is not None:
+                grade = (latest or {}).get("material_coverage_grade")
+                disclosures[(market, day)] = {
+                    "manual_override": int(flags[(market, day)] is True and grade == "manual_override"),
+                    "missing_settlement": int(grade == "missing_settlement" and winner_and_key)}
     return flags, shas
 
 
@@ -153,9 +162,11 @@ def frozen_keys(label_freeze, now, *, allow_preview=False):
                     and look_id.startswith(PREVIEW_LOOK_PREFIX) else mg1_look.FREEZE_LOOK_ID)
         freeze = mg1_look.read_freeze_receipt(label_freeze, through, mg1_look.settled_at(through), look_id=expected)
         mg1_look.label_key_check(freeze, [])  # consistency checks, with no countable population yet
+        keys = {m: {date.fromisoformat(str(d)).isoformat()
+                    for d in freeze["keys"][m][mg1_look.FREEZE_LABEL_KEYS]} for m in support_markets()}
     except (OSError, KeyError, TypeError, ValueError, mg1_look.MG1LookRefused) as exc:
         raise CountableRefused(f"frozen label keys unavailable: {exc}") from exc
-    return {m: set(freeze["keys"][m][mg1_look.FREEZE_LABEL_KEYS]) for m in support_markets()}, freeze
+    return keys, freeze
 
 
 def date_status(flags, day, markets):
@@ -209,9 +220,12 @@ def report(*, ledger_root, label_freeze, now=None):
     if not days:
         raise CountableRefused(f"no date from D0 {d0} has ended in every support market")
     markets = support_markets()
-    flags, shas = market_day_flags(ledger_root, days, markets, keys)
+    disclosed = {}
+    flags, shas = market_day_flags(ledger_root, days, markets, keys, disclosures=disclosed)
     statuses = [(d, date_status(flags, d.isoformat(), markets)) for d in days]
     counted, required = plan(statuses, d0, mg1_look.N_DATES)
+    disclosure_counts = {k: sum(disclosed[(m, d.isoformat())][k] for d in counted for m in markets)
+                         for k in mg1_look.COUNTABILITY_DISCLOSURE_KEYS}
     return {
         "schema": REPORT_SCHEMA, "run_utc": now.isoformat(), "d0": d0.isoformat(),
         "through": days[-1].isoformat(),
@@ -221,6 +235,7 @@ def report(*, ledger_root, label_freeze, now=None):
         "dates": [{"date": d.isoformat(), "status": s} for d, s in statuses],
         "counts": {k: sum(1 for _, s in statuses if s == k) for k in (COUNTABLE, NON_COUNTABLE, PENDING)},
         "countable_reached": len(counted), "required_mg1_last": required.isoformat(),
+        "countability_disclosures": disclosure_counts, "countability_disclosure_dates": len(counted),
         "recorded_mg1_last": recorded_last.isoformat(), "extend_mg1_last": required > recorded_last,
         "ledger_sha256": shas, "label_freeze_receipt_sha256": freeze["sha256"],
         "module_sha256": module_sha256(), "host": socket.gethostname(),
@@ -238,8 +253,9 @@ def final_rows(*, ledger_root, label_freeze, now=None):
     keys, freeze = frozen_keys(label_freeze, now)
     days = [d for d in _ended_dates(d0, now) if d.isoformat() <= freeze["through"]]
     markets = support_markets()
-    sensitivity = {}
-    flags, shas = market_day_flags(ledger_root, days, markets, keys, sensitivity_flags=sensitivity)
+    sensitivity, disclosed = {}, {}
+    flags, shas = market_day_flags(ledger_root, days, markets, keys, sensitivity_flags=sensitivity,
+                                  disclosures=disclosed)
     statuses = [(d, date_status(flags, d.isoformat(), markets)) for d in days]
     counted, _ = plan(statuses, d0, mg1_look.N_DATES)
     if len(counted) < mg1_look.N_DATES:
@@ -254,6 +270,8 @@ def final_rows(*, ledger_root, label_freeze, now=None):
         raise CountableRefused(str(exc)) from exc
     rows = [{"date": d.isoformat(), "markets": {m: flags.get((m, d.isoformat())) is True for m in markets},
              "sensitivity_markets": {m: sensitivity.get((m, d.isoformat())) is True for m in markets},
+             "disclosures": {k: sum(disclosed[(m, d.isoformat())][k] for m in markets)
+                             for k in mg1_look.COUNTABILITY_DISCLOSURE_KEYS},
              "parser_v2_verified": None, "shadow_stage_captured": None,
              "caveat_reasons": {"parser_v2_verified": CAVEAT_REASON, "shadow_stage_captured": CAVEAT_REASON}}
             for d, _ in statuses if d <= last]
@@ -279,6 +297,7 @@ def final(*, ledger_root, label_freeze, out, now=None):
     except mg1_look.MG1LookRefused as exc:
         raise CountableRefused(f"write_countable refused: {exc}") from exc
     return {"status": "ok", "out": str(out), "sha256": sha, "dates": len(rows), "last": rows[-1]["date"],
+            "countability_disclosures": mg1_look.countability_disclosures(rows),
             "run_utc": now.isoformat(), "ledger_sha256": shas, "module_sha256": module_sha256(),
             "host": socket.gethostname()}
 

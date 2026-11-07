@@ -196,6 +196,7 @@ def _countable(path, rows=None, markets=None):
     for d, c in rows:
         flags = dict((markets or {}).get(d) or _flags(c))
         dates.append({"date": d.isoformat(), "countable": any(flags.values()), "markets": flags, "sensitivity_markets": dict(flags),
+                      "disclosures": dict.fromkeys(m.COUNTABILITY_DISCLOSURE_KEYS, 0),
                       "parser_v2_verified": True, "shadow_stage_captured": None})
     path.write_text(json.dumps({"schema": m.COUNTABLE_SCHEMA, "dates": dates, "label_freeze_receipt_sha256":
         m.sha256_file(path.parent / "frozen/mg1/freeze_receipt.json")
@@ -654,6 +655,7 @@ def test_a1_without_denver_scores_the_ten(tmp_path, monkeypatch):
         m._parse_countable({"schema": m.COUNTABLE_SCHEMA, "dates": [
             {"date": D0.isoformat(), "countable": True, "markets": _flags(True, m.MARKETS),
              "sensitivity_markets": _flags(True, m.MARKETS),
+             "disclosures": dict.fromkeys(m.COUNTABILITY_DISCLOSURE_KEYS, 0),
              "parser_v2_verified": None, "shadow_stage_captured": None}]})
 
 
@@ -831,6 +833,7 @@ def test_a_countable_market_day_without_layout_rows_holds_the_look(tmp_path, mon
 def test_write_countable_round_trips_once(tmp_path):
     dates = [{"date": D0 + timedelta(days=k), "markets": _flags(k != 3),
               "sensitivity_markets": _flags(k != 3), "parser_v2_verified": None,
+              "disclosures": dict.fromkeys(m.COUNTABILITY_DISCLOSURE_KEYS, 0),
               "shadow_stage_captured": None,
               "caveat_reasons": {"parser_v2_verified": "no outcome-blind source"} if k == 0 else None}
              for k in range(46)]
