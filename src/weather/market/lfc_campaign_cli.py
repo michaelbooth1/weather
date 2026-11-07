@@ -81,21 +81,25 @@ def owner_recover(runtime, incident):
         proof = runtime.core_proof(ledger, read)
         if not proof['money_accounting_complete'] or not proof['cleanup_proven'] or proof['unknown_submit']:
             raise StateRefused('owner_money_repair_required')
-        pending_proofs = []
+        pending_proofs, bindings = [], {}
         for claim in runtime.state.pending():
             # Restore the retained originals before owner closure too. An owner
             # confirmation cannot manufacture a missing private journal.
-            _, result_sha, local = runtime.state.retained_result(claim)
+            binding = runtime.state.owner_result_binding(claim)
             from weather.market.mm_stage2_hold import digest
-            pending_proofs.append((claim, {**proof, 'result_sha256': result_sha,
-                                          'private_evidence_sha256': digest(local)}))
-        runtime.state.save('owner-closures/' + incident + '.json', {
+            bindings[claim['attempt_id']] = binding
+            pending_proofs.append((claim, {**proof, 'result_sha256': binding['result_sha256'],
+                                          'private_evidence_sha256': digest(binding)}))
+        closure_file = 'owner-closures/' + incident + '.json'
+        closure_sha = runtime.state.save(closure_file, {
             'authority': 'owner_recovery', 'incident_sha256': receipt_sha, 'proof': proof,
+            'account_read': read, 'bindings': bindings,
             'local_date': runtime.clock.now().astimezone(ZONE).date().isoformat(),
             'closed_at_utc': runtime.clock.now().isoformat()})
         if not runtime.state.incidents():
             for claim, bound_proof in pending_proofs:
                 runtime.state.close(claim, {**bound_proof, 'authority': 'owner_recovery',
+                                           'owner_closure_file': closure_file, 'owner_closure_sha256': closure_sha,
                                            'original_result_retained': True}, runtime.clock.now())
     return 0
 

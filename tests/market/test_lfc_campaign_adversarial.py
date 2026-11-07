@@ -542,3 +542,109 @@ def test_owner_history_command_is_explicit_readonly_and_retains_originals(tmp_pa
     assert reopened.sessions['S0c-1']['end']['unknown_submit'] is True
     assert history_refusals(reopened, root) == {}
     assert not (tmp_path / 'HOLD').exists() and not (poison / 'heavy_workload_v1.poison').exists()
+
+
+def owner_review_fixture(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from weather.market import lfc_campaign_cli as cli
+    runtime = runtime_at(tmp_path)
+    policy = parse_policy(policy_row())
+    claim = runtime.state.claim(policy.entries[0], policy, NOW)
+    directory, result = private_result(runtime, claim, faults=('unclassified_core_fault',), unknown_submit=True)
+    assert result['unknown_submit'] and not result['local_money_proof']['complete']
+    runtime.save_result(claim, result)
+    runtime.state.latch(claim['attempt_id'], 'ambiguous_placement', NOW)
+    # Explicit synthetic OWNER repair. The automatic postchecker never adopts.
+    runtime.state.ledger.adopt('s:1', 'o', source='owner_reviewed_fixture', evidence={'fixture': True})
+    runtime.state.ledger.terminal('o', {'id': 'o', 'status': 'CANCELED', 'size_matched': '0'}, source='owner_fixture')
+    @contextmanager
+    def admission():
+        yield
+    monkeypatch.setattr(runtime, 'admission', admission)
+    monkeypatch.setattr(runtime, 'read_account', lambda: account_read(runtime))
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: True)
+    incident = runtime.state.root / 'incidents' / (claim['attempt_id'] + '.json')
+    monkeypatch.setattr('builtins.input', lambda: 'recover ' + file_sha(incident)[:12])
+    return runtime, claim, directory
+
+
+def test_explicit_owner_recovery_can_clear_resolved_ambiguity_without_rewriting_flags(tmp_path, monkeypatch):
+    from weather.market.lfc_campaign_cli import owner_recover
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime, claim, directory = owner_review_fixture(tmp_path, monkeypatch)
+        before = file_sha(runtime.state.root / 'results' / (claim['attempt_id'] + '.json'))
+        assert owner_recover(runtime, claim['attempt_id']) == 0
+        assert runtime.state.pending() == [] and runtime.state.incidents() == []
+        runtime.state.require_retained_evidence()
+        result = runtime.saved_result(claim)
+        assert result['unknown_submit'] and not result['local_money_proof']['complete']
+        assert file_sha(runtime.state.root / 'results' / (claim['attempt_id'] + '.json')) == before
+        assert runtime.state.ledger.sessions['s']['end']['unknown_submit'] is True
+        closed = runtime.state.read(runtime.state.root / 'closed' / (claim['attempt_id'] + '.json'))
+        assert closed['proof']['authority'] == 'owner_recovery'
+        assert closed['proof']['unknown_submit'] is False and closed['proof']['original_result_retained'] is True
+        assert '2026-11-11' in runtime.state.consumed_dates() and runtime.state.ledger.counted_sessions() == 1
+        row = policy_row()
+        row['entries'][0].update(local_date='2026-11-12', window_start_utc='2026-11-12T16:00:00Z',
+                                  window_end_utc='2026-11-12T17:00:00Z')
+        runtime.clock.sleep(86400)
+        next_policy = parse_policy(row)
+        following = runtime.state.claim(next_policy.entries[0], next_policy, runtime.clock.now())
+        assert following['local_date'] == '2026-11-12'
+
+
+@pytest.mark.parametrize('name', ['journal.jsonl', 'prediction.json', 'session_end.json', 'submit-1.intent.json', 'result'])
+@pytest.mark.parametrize('damage', ['delete', 'mismatch'])
+def test_owner_confirmation_cannot_waive_missing_or_changed_originals(tmp_path, monkeypatch, name, damage):
+    from weather.market.lfc_campaign_cli import owner_recover
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime, claim, directory = owner_review_fixture(tmp_path, monkeypatch)
+        path = runtime.state.root / 'results' / (claim['attempt_id'] + '.json') if name == 'result' else directory / name
+        if damage == 'delete':
+            path.unlink()
+        else:
+            path.write_bytes(path.read_bytes() + b' ')
+        with pytest.raises(StateRefused):
+            owner_recover(runtime, claim['attempt_id'])
+        assert not list((runtime.state.root / 'closed').glob('*.json'))
+        assert not list((runtime.state.root / 'owner-closures').glob('*.json'))
+
+
+@pytest.mark.parametrize('name', ['journal.jsonl', 'prediction.json', 'session_end.json', 'result', 'owner_closure'])
+def test_owner_recovered_originals_remain_required_for_later_admission(tmp_path, monkeypatch, name):
+    from weather.market.lfc_campaign_cli import owner_recover
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime, claim, directory = owner_review_fixture(tmp_path, monkeypatch)
+        assert owner_recover(runtime, claim['attempt_id']) == 0
+        path = (runtime.state.root / 'results' / (claim['attempt_id'] + '.json') if name == 'result' else
+                runtime.state.root / 'owner-closures' / (claim['attempt_id'] + '.json') if name == 'owner_closure' else
+                directory / name)
+        path.unlink()
+        with pytest.raises(StateRefused):
+            runtime.state.require_retained_evidence()
+
+
+def test_automatic_close_cannot_claim_owner_authority_without_owner_receipt(tmp_path, monkeypatch):
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime, claim, _ = owner_review_fixture(tmp_path, monkeypatch)
+        # An actual closure is still required; scalar green account flags or an
+        # authority string cannot clear the original incident automatically.
+        proof = runtime.core_proof(runtime.state.ledger, account_read(runtime))
+        with pytest.raises(StateRefused):
+            runtime.state.close(claim, {**proof, 'authority': 'owner_recovery'}, NOW)
+        assert runtime.state.pending()
+
+
+@pytest.mark.parametrize('name', ['submit-1.ack.json', 'prediction.json'])
+def test_owner_recovery_refuses_conflicting_pre_save_evidence_hashes(tmp_path, name):
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        policy = parse_policy(policy_row())
+        claim = runtime.state.claim(policy.entries[0], policy, NOW)
+        directory, result = private_result(runtime, claim)
+        path = directory / name
+        path.write_bytes(path.read_bytes() + b' ')  # Still valid JSON, different original bytes.
+        runtime.save_result(claim, result)
+        with pytest.raises(StateRefused, match='owner_original_evidence_fault'):
+            runtime.state.owner_result_binding(claim)
+        assert runtime.state.ledger.autostart_incidents

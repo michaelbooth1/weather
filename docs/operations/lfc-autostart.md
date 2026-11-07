@@ -216,6 +216,13 @@ explicit typed fault codes: supported scoring/public gaps affect research, while
 acknowledged terminal GET outages remain pending until fresh complete accounting
 proves them. Original flags remain unchanged. Owner recovery also requires the
 retained originals and never reconstructs a missing journal from an empty account.
+An explicit owner recovery may close a fully retained but originally failed or
+unknown result after the owner has repaired its identities and current account
+proof is complete. Its separately hashed owner receipt binds every original,
+the resolved identities and fresh account proof. Original failure flags remain
+unchanged. Automatic closeout cannot select this authority or create that receipt;
+later admission still revalidates originals and the owner decision. Missing or
+changed originals cannot be waived, including by a terminal confirmation.
 
 ## Update when
 

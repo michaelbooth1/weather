@@ -17,7 +17,7 @@ MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable
                    'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable'}
 
 
-def journal_contract(path, prediction, *, legacy=False):
+def journal_contract(path, prediction, *, legacy=False, owner_review=False):
     """Stream the exact chained journal; a gap name cannot replace core rows."""
     if path.stat().st_size > 256 * 1024 * 1024:
         raise ValueError('private_journal_limit')
@@ -63,7 +63,7 @@ def journal_contract(path, prediction, *, legacy=False):
                 money_gaps.add(event)
             elif event == 'read_unavailable' and isinstance(row.get('fact'), str):
                 money_gaps.add('read_' + row['fact'])
-            elif (row.get('exception_type') is not None or event == 'unmatched_trade_event' or
+            elif not owner_review and (row.get('exception_type') is not None or event == 'unmatched_trade_event' or
                   isinstance(event, str) and event.endswith(('_unavailable', '_missed', '_failed', '_error'))):
                 raise ValueError('unclassified_private_evidence_fault')
         else:
@@ -79,6 +79,61 @@ def journal_contract(path, prediction, *, legacy=False):
         if key not in prediction or terminal.get(key) != prediction[key]:
             raise ValueError('private_terminal_binding')
     return requests, responses, orders, gaps, money_gaps
+
+
+def owner_originals(directory, *, ledger, session_id, attempt_id, outcome):
+    """Bind originals for an EXPLICIT owner decision; this is not money proof.
+
+    Failed flags and missing ACKs may explain the original incident. They are
+    never relabelled complete. Missing/changed original files or broken journal
+    structure cannot be waived by this reader or by an owner confirmation.
+    """
+    directory = Path(directory).absolute()
+    session = ledger.sessions[session_id]
+    if session['end'] is None or session['start'].get('autostart_attempt_id') != attempt_id:
+        raise ValueError('owner_original_session_binding')
+    hashes = dict(outcome['evidence_sha256'])
+    if not {'journal.jsonl', 'prediction.json', 'session_end.json'} <= hashes.keys():
+        raise ValueError('owner_original_core_missing')
+    for name, sha in hashes.items():
+        if Path(name).name != name or file_sha(validate_regular_nonreparse_file(directory / name)) != sha:
+            raise ValueError('owner_original_core_changed')
+    prediction = strict_json(read_bytes(directory / 'prediction.json', 2_000_000))
+    ending = strict_json(read_bytes(directory / 'session_end.json', 2_000_000))
+    count = prediction.get('post_count')
+    known = prediction.get('order_ids')
+    legs = [ledger.legs[key] for key in session['legs']]
+    if (prediction.get('mode') != 'live' or prediction.get('scope', {}).get('session_id') != session_id or
+            prediction.get('journal_sha256') != hashes['journal.jsonl'] or
+            ending.get('session_id') != session_id or type(count) is not int or not 0 <= count <= 10 or
+            count != len(legs) or not isinstance(known, list) or len(known) > count or
+            any(not isinstance(oid, str) or not oid for oid in known) or
+            any(leg['order_id'] is None or leg['status'] != 'terminal' for leg in legs)):
+        raise ValueError('owner_original_identity_unresolved')
+    requests, _, _, _, _ = journal_contract(directory / 'journal.jsonl', prediction, owner_review=True)
+    if len(requests) < count:
+        raise ValueError('owner_original_requests_missing')
+    for number, leg in enumerate(legs, 1):
+        name = f'submit-{number}.intent.json'
+        path = validate_regular_nonreparse_file(directory / name)
+        intent = strict_json(read_bytes(path, 2_000_000))
+        request = intent['request']
+        if (intent.get('number') != number or intent.get('scope') != prediction['scope'] or
+                request != requests[number - 1] or request.get('token_id') != leg['token_id'] or
+                request.get('side') != 'BUY' or request.get('post_only') is not True or
+                quantity(request['size']) != quantity(leg['size']) or quantity(request['price']) != quantity(leg['price'])):
+            raise ValueError('owner_original_intent_binding')
+        hashes[name] = file_sha(path)
+        ack_name = f'submit-{number}.ack.json'
+        if number <= len(known) or (directory / ack_name).exists():
+            ack_path = validate_regular_nonreparse_file(directory / ack_name)
+            ack = strict_json(read_bytes(ack_path, 65536))
+            if (ack.get('order_id') != leg['order_id'] or
+                    number <= len(known) and known[number - 1] != leg['order_id']):
+                raise ValueError('owner_original_ack_binding')
+            hashes[ack_name] = file_sha(ack_path)
+    return {'session_id': session_id, 'original_private_files': hashes,
+            'raw_flags': evidence_flags(prediction), 'resolved_legs_sha256': hashlib.sha256(canonical_bytes(legs)).hexdigest()}
 
 
 def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, legacy=False):

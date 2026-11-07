@@ -558,7 +558,20 @@ class Runtime:
         return result
 
     def save_result(self, claim, result):
-        sha = self.state.save('results/' + claim['attempt_id'] + '.json', result)
+        original_files = {}
+        relative = Path(str(result.get('private_evidence_directory', '')))
+        if relative.parts and not relative.is_absolute() and '..' not in relative.parts:
+            from weather.operations.live_path_security import validate_contained_regular_file
+            directory = self.pilot_root / relative
+            paths = [path for name in ('journal.jsonl', 'prediction.json', 'session_end.json', 'attempt.json', 'selection.json')
+                     if (path := directory / name).exists()]
+            paths += list(directory.glob('submit-*.intent.json')) + list(directory.glob('submit-*.ack.json'))
+            if len(paths) > 30:
+                raise StateRefused('private_file_count')
+            for path in paths:
+                original_files[path.name] = file_sha(validate_contained_regular_file(self.pilot_root, path))
+        sha = self.state.save('results/' + claim['attempt_id'] + '.json',
+                              {**result, 'private_file_hashes': original_files})
         self.state.ledger.record('autostart_result', attempt_id=claim['attempt_id'], file_sha256=sha)
 
     def saved_result(self, claim):

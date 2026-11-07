@@ -179,6 +179,7 @@ class AccountState:
         try:
             if not relative.parts or relative.is_absolute() or '..' in relative.parts:
                 raise ValueError('private_evidence_path')
+            self.result_original_hashes(result, relative)
             local = local_money_proof(self.ledger.path.parent / relative, ledger=self.ledger,
                                       session_id=result['session_id'], attempt_id=claim['attempt_id'],
                                       outcome=result['outcome'])
@@ -189,6 +190,27 @@ class AccountState:
             self.evidence_fault(claim['attempt_id'])
             raise StateRefused('retained_private_evidence_fault') from None
 
+    def result_original_hashes(self, result, relative):
+        from weather.operations.live_path_security import validate_contained_regular_file
+        hashes = result['private_file_hashes']
+        if not isinstance(hashes, dict) or not {'journal.jsonl', 'prediction.json', 'session_end.json'} <= hashes.keys():
+            raise ValueError('private_original_hashes_missing')
+        expected = {}
+        for declared in (result['outcome']['evidence_sha256'], result.get('local_money_proof', {}).get('evidence_sha256', {})):
+            if not isinstance(declared, dict):
+                raise ValueError('private_original_hashes_schema')
+            for name, sha in declared.items():
+                if name in expected and expected[name] != sha:
+                    raise ValueError('private_original_hashes_conflict')
+                expected[name] = sha
+        if any(hashes.get(name) != sha for name, sha in expected.items()):
+            raise ValueError('private_original_hashes_conflict')
+        for name, sha in hashes.items():
+            if Path(name).name != name or file_sha(validate_contained_regular_file(self.ledger.path.parent,
+                    self.ledger.path.parent / relative / name)) != sha:
+                raise ValueError('private_original_hash_changed')
+        return hashes
+
     def require_retained_evidence(self):
         for claim in self.claims():
             path = self.root / 'closed' / (claim['attempt_id'] + '.json')
@@ -197,11 +219,55 @@ class AccountState:
             has_session = any(s['start'].get('autostart_attempt_id') == claim['attempt_id']
                               for s in self.ledger.sessions.values())
             if has_session or any(e['attempt_id'] == claim['attempt_id'] for e in self.ledger.autostart_results):
-                _, sha, local = self.retained_result(claim)
                 proof = self.read(path)['proof']
+                if proof.get('authority') == 'owner_recovery':
+                    self.owner_close_binding(claim, proof)
+                    continue
+                _, sha, local = self.retained_result(claim)
                 if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
                     self.evidence_fault(claim['attempt_id'])
                     raise StateRefused('closed_private_evidence_binding')
+
+    def owner_result_binding(self, claim):
+        """Only retained originals, never an inferred automatic clean result."""
+        from weather.market.lfc_campaign_proof import owner_originals
+        result, sha = self.result_anchor(claim['attempt_id'])
+        try:
+            relative = Path(str(result.get('private_evidence_directory', '')))
+            if not relative.parts or relative.is_absolute() or '..' in relative.parts:
+                raise ValueError('owner_original_path')
+            hashes = self.result_original_hashes(result, relative)
+            outcome = {**result['outcome'], 'evidence_sha256': {**result['outcome']['evidence_sha256'], **hashes}}
+            binding = owner_originals(self.ledger.path.parent / relative, ledger=self.ledger,
+                                      session_id=result['session_id'], attempt_id=claim['attempt_id'], outcome=outcome)
+            return {**binding, 'result_sha256': sha}
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            self.evidence_fault(claim['attempt_id'])
+            raise StateRefused('owner_original_evidence_fault') from None
+
+    def owner_close_binding(self, claim, proof):
+        try:
+            relative = Path(proof['owner_closure_file'])
+            if len(relative.parts) != 2 or relative.parts[0] != 'owner-closures' or relative.suffix != '.json':
+                raise ValueError('owner_closure_path')
+            path = self.root / relative
+            closure = self.read(path)
+            binding = self.owner_result_binding(claim)
+            if (file_sha(path) != proof.get('owner_closure_sha256') or
+                    closure.get('authority') != 'owner_recovery' or
+                    closure.get('incident_sha256') != file_sha(self.root / 'incidents' / relative.name) or
+                    closure.get('bindings', {}).get(claim['attempt_id']) != binding or
+                    proof.get('result_sha256') != binding['result_sha256'] or
+                    proof.get('private_evidence_sha256') != digest(binding) or
+                    closure.get('proof', {}).get('money_accounting_complete') is not True or
+                    closure.get('proof', {}).get('cleanup_proven') is not True or
+                    closure.get('proof', {}).get('unknown_submit') is not False or
+                    closure['proof'].get('read_sha256') != digest(closure.get('account_read'))):
+                raise ValueError('owner_closure_binding')
+            return binding
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            self.evidence_fault(claim['attempt_id'])
+            raise StateRefused('owner_closure_evidence_fault') from None
 
     def claims(self):
         self.verify()
@@ -306,9 +372,12 @@ class AccountState:
             raise StateRefused('cannot_close_unclean_attempt')
         if (any(s['start'].get('autostart_attempt_id') == claim['attempt_id'] for s in self.ledger.sessions.values()) or
                 any(e['attempt_id'] == claim['attempt_id'] for e in self.ledger.autostart_results)):
-            _, sha, local = self.retained_result(claim)
-            if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
-                raise StateRefused('closeout_private_evidence_binding')
+            if proof.get('authority') == 'owner_recovery':
+                self.owner_close_binding(claim, proof)
+            else:
+                _, sha, local = self.retained_result(claim)
+                if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
+                    raise StateRefused('closeout_private_evidence_binding')
         if proof.get('ledger_head_sha256', self.ledger.previous) != self.ledger.previous:
             raise StateRefused('closeout_proof_stale')
         proof = {**proof, 'ledger_head_sha256': self.ledger.previous}
