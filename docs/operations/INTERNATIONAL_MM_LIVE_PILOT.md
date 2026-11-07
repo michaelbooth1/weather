@@ -53,10 +53,10 @@ This is a process-local bound, not a home-IP quota guarantee; reserve F0 headroo
 
 Books retain priority at every request boundary and stay batched (up to 100
 tokens). Lower work is staggered evenly; paginated rewards/retries yield after
-each request. Targets are books 5 s, rewards/CLOB fees 60 s, token fee-rate/Gamma
-metadata 180 s, time samples 60 s. Infeasible combinations are explicit and
-cannot pass readiness. An explicit `--fee-seconds 180` profile implements T018's
-feasible split; changes to sampling need the master's disposition before pinning.
+each request. Default targets are books 5 s, rewards 60 s, CLOB fees/token
+fee-rate/Gamma metadata 180 s, time samples 60 s. Infeasible combinations are
+explicit and cannot pass readiness. Both capture and readiness use this profile;
+their receipts retain the configured periods and achieved book cadence.
 Never lengthen the independent book fallback merely to clear lower-work flags.
 
 Cadence lateness is an interval when it exceeds the greater of two request
@@ -122,9 +122,9 @@ check directory. Network readiness walks are refused during the live interval.
 ```powershell
 Set-Location -LiteralPath 'C:\wt\codex-monday-evidence-20261109'
 $Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
-& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 60 --output 'C:\t\pilot1109\readiness-sunday'
-& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 60 --capture-health 'C:\t\pilot1109\public-capture\health.json' --output 'C:\t\pilot1109\readiness-monday-0707'
-& $Python -B -m weather.market.pilot_validation_evidence public-capture --market denver --market toronto --event-date 2026-11-10 --event-date 2026-11-11 --all-bands --both-tokens --start-utc 2026-11-08T23:55:00Z --end-utc 2026-11-10T00:45:00Z --raw-market-stream --rest-book-seconds 5 --terms-seconds 60 --fee-seconds 60 --fee-rate-seconds 180 --metadata-seconds 180 --time-sample-seconds 60 --max-age-seconds 30 --max-mark-delay-seconds 30 --max-rest-rps 2 --max-rss-mib 256 --max-output-mib 4096 --min-free-gib 40 --output 'C:\t\pilot1109\public-capture'
+& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 180 --output 'C:\t\pilot1109\readiness-sunday'
+& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 180 --capture-health 'C:\t\pilot1109\public-capture\health.json' --output 'C:\t\pilot1109\readiness-monday-0707'
+& $Python -B -m weather.market.pilot_validation_evidence public-capture --market denver --market toronto --event-date 2026-11-10 --event-date 2026-11-11 --all-bands --both-tokens --start-utc 2026-11-08T23:55:00Z --end-utc 2026-11-10T00:45:00Z --raw-market-stream --rest-book-seconds 5 --terms-seconds 60 --fee-seconds 180 --fee-rate-seconds 180 --metadata-seconds 180 --time-sample-seconds 60 --max-age-seconds 30 --max-mark-delay-seconds 30 --max-rest-rps 2 --max-rss-mib 256 --max-output-mib 4096 --min-free-gib 40 --output 'C:\t\pilot1109\public-capture'
 $LASTEXITCODE
 ```
 

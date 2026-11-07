@@ -26,6 +26,7 @@ from weather.market.pilot_evidence_store import CaptureStopped, EvidenceStore, M
 from weather.market.pilot_evidence_stream import MarketStream
 from weather.market.pilot_evidence_supervisor import WorkerLifeline, supervise
 from weather.market.pilot_evidence_transport import BoundedWebSocket, DeadlineSocket, HandshakeError, TransportLimit
+from weather.market.pilot_validation_evidence import parser
 
 
 def make_store(tmp_path, **kwargs):
@@ -359,28 +360,34 @@ def test_question_revision_continues_but_true_token_reassignment_refuses(tmp_pat
 
 
 @pytest.mark.parametrize("bands", [40, 44, 45])
-@pytest.mark.parametrize("fee_period", [60, 180])
+@pytest.mark.parametrize("fee_period", [60, None])
 @pytest.mark.parametrize("response_seconds", [0.1, 1.0])
-def test_full_monday_scheduler_reserves_books_under_feasible_contract(tmp_path, bands, fee_period, response_seconds, request):
+@pytest.mark.parametrize("duration", [600, 25200])
+def test_full_monday_scheduler_reserves_books_under_feasible_contract(tmp_path, bands, fee_period, response_seconds, duration, request):
+    profile = parser().parse_args(["readiness", "--output", str(tmp_path / "readiness")])
+    assert profile.fee_seconds == 180
+    fee_period = profile.fee_seconds if fee_period is None else fee_period
     clock = FakeClock()
     store = make_store(tmp_path, clock=clock.clock)
-    gate = RateGate(2, clock=clock.clock, sleep=clock.sleep)
+    gate = RateGate(profile.max_rest_rps, clock=clock.clock, sleep=clock.sleep)
     scheduler = Scheduler(store, gate, clock=clock.clock, sleep=clock.sleep)
     starts = []
     def call(label):
         gate.start(lambda: starts.append((label, clock.clock())))
         clock.sleep(response_seconds)  # Response latency occurs after the send boundary.
-    scheduler.add("books", 5, lambda: call("books"), immediate=True)
+    call("websocket_upgrade")
+    call("subscribe")
+    scheduler.add("books", profile.rest_book_seconds, lambda: call("books"), immediate=True)
     for index in range(bands):
-        scheduler.add(f"reward:{index}", 60, lambda: call("reward"))
+        scheduler.add(f"reward:{index}", profile.terms_seconds, lambda: call("reward"))
         for field in ("clob-fee", "yes-fee", "no-fee"):
-            scheduler.add(f"{field}:{index}", fee_period if field == "clob-fee" else 180, lambda: call("fee"))
+            scheduler.add(f"{field}:{index}", fee_period if field == "clob-fee" else profile.fee_rate_seconds, lambda: call("fee"))
     for index in range(4):
-        scheduler.add(f"event:{index}", 180, lambda: call("metadata"))
-    scheduler.add("time", 60, lambda: call("time"))
+        scheduler.add(f"event:{index}", profile.metadata_seconds, lambda: call("metadata"))
+    scheduler.add("time", profile.time_sample_seconds, lambda: call("time"))
     scheduler.add("ping", 9, lambda: call("ping"))
     scheduler.spread()
-    duration = 89400  # Exact planned Monday interval, entirely synthetic time.
+    # Fresh ten-minute density check and the accepted seven-hour session-day model.
     while clock.clock() < 100 + duration:
         scheduler.service()
     book_times = [at for label, at in starts if label == "books"]
@@ -391,9 +398,10 @@ def test_full_monday_scheduler_reserves_books_under_feasible_contract(tmp_path, 
         assert store.gaps["rest_cadence_lag"] < 20
     achieved = {"bands": bands, "clob_fee_seconds": fee_period, "response_seconds": response_seconds,
                 "modeled_seconds": duration,
+                "rest_average_rps": sum(100 <= at < 100 + duration and label not in {"ping", "websocket_upgrade", "subscribe"} for label, at in starts) / duration,
                 "book_stats": scheduler.snapshot(), "starts": len(starts),
                 "average_starts_per_second": sum(100 <= at < 100 + duration for _, at in starts) / duration,
-                "cadence_gap_starts": store.gaps["rest_cadence_lag"],
+                "cadence_gap_starts": store.gaps["rest_cadence_lag"], "flags": dict(store.gaps),
                 "capacity": capacity(bands, fees=fee_period)}
     for label in ("reward:", "clob-fee:", "yes-fee:", "no-fee:"):
         intervals = [value for key, job in scheduler.jobs.items() if key.startswith(label) for value in job.intervals]

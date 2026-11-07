@@ -50,7 +50,7 @@ def parser():
     readiness.add_argument("--session-date", type=date.fromisoformat, default=date(2026, 11, 9))
     readiness.add_argument("--capture-health", type=Path, help="verify active capture without a second REST budget")
     for command in (capture, readiness):
-        for flag, default in (("rest-book-seconds", 5), ("terms-seconds", 60), ("fee-seconds", 60),
+        for flag, default in (("rest-book-seconds", 5), ("terms-seconds", 60), ("fee-seconds", 180),
                               ("fee-rate-seconds", 180), ("metadata-seconds", 180), ("time-sample-seconds", 60),
                               ("max-age-seconds", 30), ("max-mark-delay-seconds", 30)):
             command.add_argument("--" + flag, type=positive, default=default)
