@@ -57,7 +57,7 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
     account is bound to the existing ledger's public genesis, never a new ledger.
     """
     from weather.market.lfc_campaign_guard import account_lease
-    from weather.market.lfc_campaign_policy import load_policy, EARLIEST
+    from weather.market.lfc_campaign_policy import load_policy, EARLIEST, parameter_support
     from weather.market.lfc_campaign_state import AccountState, DEFAULT_STATE_ROOT
     from weather.market.lfc_ledger import Ledger, ledger_path
     from weather.market.lfc_pilot import pilot_root
@@ -81,6 +81,7 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
             state.verify()
         row = {'schema_version': RELEASE_SCHEMA, 'root': str(root.resolve()), 'head': head,
                **policy.labels(),
+               'parameter_support': parameter_support(),
                'python': str(Path(python_path).resolve()), 'campaign_path': str(policy_path.resolve()),
                'python_root': str(Path(python_path).resolve().parent.parent.parent),
                'host_id': current_execution_host_id(), 'principal_id': current_execution_principal_id(),
@@ -106,7 +107,14 @@ def load_release(path, expected_sha):
     return row
 
 
+def validate_parameter_support(row):
+    from weather.market.lfc_campaign_policy import parameter_support
+    if row.get('parameter_support') != parameter_support():
+        raise RuntimeError('campaign_parameter_support_changed')
+
+
 def validate_release(row):
+    validate_parameter_support(row)
     assert_no_ambient_proxy_configuration()
     require_current_portable_execution_assignment()
     if (current_execution_host_id() != row['host_id'] or current_execution_principal_id() != row['principal_id'] or

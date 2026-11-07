@@ -32,6 +32,23 @@ def runtime_at(tmp_path):
     return runtime
 
 
+def test_release_parameter_support_covers_policy_and_rejects_stale_or_expanded_contract():
+    from weather.market.lfc_campaign_policy import parameter_support
+    from weather.market.lfc_campaign_release import validate_parameter_support
+    table = parameter_support()
+    row = policy_row()
+    assert all('terms.' + key in table for key in row['terms'])
+    assert set(row) - {'schema_version', 'enabled', 'campaign_id', 'revision', 'timezone', 'terms'} <= set(table)
+    assert table['terms.budget_pusd']['max'] == '100'
+    assert table['terms.shares_per_leg']['values'] == ['20']
+    assert table['terms.k_max']['values'] == [1]
+    validate_parameter_support({'parameter_support': table})
+    for changed in ({}, {'parameter_support': {}}, {'parameter_support': {
+            **table, 'terms.budget_pusd': {'exclusive_min': '0', 'max': '300'}}}):
+        with pytest.raises(RuntimeError, match='campaign_parameter_support_changed'):
+            validate_parameter_support(changed)
+
+
 def account_read(runtime, *, positions=(), trades=()):
     return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': MAKER, 'complete': True,
             'errors': [], 'scope': 'account_wide_sdk_trades_and_f0_v2_positions',

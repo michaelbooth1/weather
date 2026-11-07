@@ -38,7 +38,8 @@ choice is represented by a named field; the parser is the support contract:
 | `learning_dates`, `confirmation_dates` | Empty, or an inclusive two-date range. Configured ranges must be disjoint, within qualification, and cover the entry. Receipts label the lane; this grants no scientific confirmation claim. |
 | `capital_mode` | `committed_cost_no_recycling` only. Principal recycling and `fixed_sleeve_redeemed_principal_only` refuse. |
 
-An unsupported expansion is a precise refusal, never a partial implementation
+The immutable release records the parameter-support table and refuses if it
+differs from this code's enforced contract. An unsupported expansion is a precise refusal, never a partial implementation
 or implicit approval. Supported edits take effect for the next attempt; an
 admitted attempt uses its immutable snapshot. Changing campaign ID/revision or
 lowering a count does not reset account history. Enabling/disabling the campaign

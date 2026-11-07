@@ -230,3 +230,39 @@ def parse_policy(row):
 def load_policy(path):
     from weather.operations.live_path_security import validate_regular_nonreparse_file
     return parse_policy(strict_json(read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), 65536)))
+
+
+def parameter_support():
+    """JSON support table sealed with the release, independent of policy edits."""
+    return {
+        'terms.budget_pusd': {'exclusive_min': '0', 'max': str(C.CAP_PUSD)},
+        'terms.shares_per_leg': {'values': [str(C.PILOT_SIZE)]},
+        'terms.k_max': {'values': [1]},
+        'terms.per_order_cap': {'exclusive_min': '0', 'max': str(C.PER_ORDER_CAP_PUSD)},
+        'terms.per_band_cap': {'exclusive_min': '0', 'max': str(C.PER_BAND_CAP_PUSD)},
+        'terms.per_date_cap': {'exclusive_min': '0', 'max': str(C.CAP_PUSD), 'scope': 'start_date_new_cost'},
+        'terms.daily_loss_cap': {'nullable': True, 'exclusive_min': '0', 'max': str(C.CAP_PUSD),
+                                 'scope': 'all_carried_cost_plus_new_reserve_no_credit'},
+        'terms.realised_stop': {'nullable': True, 'exclusive_min': '0', 'max': str(C.CAP_PUSD),
+                                'scope': 'all_carried_cost_plus_new_reserve_no_credit'},
+        'terms.unknown_settlement': {'values': ['full_loss']},
+        'terms.max_sessions': {'min': 1, 'max': C.MAX_SESSIONS, 'includes_previous_counted_sessions': True},
+        'terms.last_start_local_date': {'max': C.LAST_START_LOCAL_DATE.isoformat()},
+        'terms.fill_retires': {'values': ['band']},
+        'local_event_dte': {'sorted_nonempty_subset': [1, 2], 'checked': 'every_placement_and_requote'},
+        **{key: {'values': [1]} for key in ('band_limit_session', 'band_limit_concurrent', 'bands_per_event',
+                                           'max_sessions_per_day', 'concurrent_sessions')},
+        'max_session_seconds': {'min': 60, 'max': C.SESSION_SECONDS},
+        'entries': {'min': 1, 'max': 32, 'earliest_utc': EARLIEST.isoformat(),
+                    'window': 'half_open_explicit_UTC_Z', 'max_window_seconds': 7200,
+                    'duration_min_seconds': 60, 'duration_max_seconds': C.SESSION_SECONDS,
+                    'utc_hard_end': '23:50:00', 'unique_toronto_dates': True},
+        'start_window_toronto': {'nullable': True, 'format': 'HH:MM:SS_pair_matches_each_UTC_entry'},
+        'trading_end_toronto': {'nullable': True, 'format': 'HH:MM:SS_fixed_absolute_end'},
+        **{key: {'format': 'empty_or_inclusive_disjoint_date_pair', 'max': C.LAST_START_LOCAL_DATE.isoformat()}
+           for key in ('learning_dates', 'confirmation_dates')},
+        'capital_mode': {'values': ['committed_cost_no_recycling']},
+        'policy_name': {'format': 'identifier_1_to_64_characters'},
+        'policy_revision': {'min': 1, 'economic_change_requires_increase': True},
+        'sidecar': {'nullable': True, 'scope': 'optional_reviewed_public_T017_manifest_failure_is_research_gap'},
+    }
