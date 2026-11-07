@@ -15,8 +15,11 @@ from weather.market.pilot_evidence_capture import MarketStream, PublicCapture, e
 from weather.market.pilot_evidence_public import CLOB, DATA, SOCKET, PublicHTTP, RateGate, allow_url, retry_delay
 from weather.market.pilot_evidence_store import CaptureStopped, EvidenceStore, MIB, stamp
 from weather.market.pilot_validation_evidence import main, parser
-from weather.market.market_registry import TORONTO
+from weather.market.pilot_evidence_contract import BUILTIN_SPECS
+from weather.market.pilot_evidence_coverage import Coverage
 from datetime import date
+
+TORONTO = next(spec for spec in BUILTIN_SPECS if spec.id == "toronto")
 
 
 class Clock:
@@ -33,6 +36,7 @@ class Clock:
 
 
 def store_at(tmp_path, **kwargs):
+    kwargs.setdefault("free_space", lambda: 100 * 1024 ** 3)
     store = EvidenceStore(tmp_path / "evidence", memory=lambda: 20 * MIB, **kwargs)
     store.start({"test": True})
     return store
@@ -149,19 +153,19 @@ def test_retry_after_http_date_and_exponential_bound():
 
 
 def test_output_cap_stops_cleanly_with_gap_and_final_receipt(tmp_path):
-    store = store_at(tmp_path, max_output_mib=1)
+    store = store_at(tmp_path, max_output_mib=2)
     with pytest.raises(CaptureStopped, match="output_cap"):
-        store.write("large", {"body": "a" * MIB})
+        store.write("large", {"body": "a" * (2 * MIB)})
     health = store.close("failed")
     assert health["stop_reason"] == "output_cap"
     assert health["gaps"]["output_cap"] == 1
-    assert health["output_bytes"] < MIB
+    assert health["output_bytes"] < 2 * MIB
     assert records(store)[-1]["kind"] == "stop"
 
 
 def test_rss_cap_stops_and_records_current_peak(tmp_path):
     memory = [10 * MIB]
-    store = EvidenceStore(tmp_path / "rss", max_rss_mib=32, memory=lambda: memory[0])
+    store = EvidenceStore(tmp_path / "rss", max_rss_mib=32, memory=lambda: memory[0], free_space=lambda: 100 * 1024 ** 3)
     store.start({})
     memory[0] = 32 * MIB
     with pytest.raises(CaptureStopped, match="rss_cap"):
@@ -170,7 +174,9 @@ def test_rss_cap_stops_and_records_current_peak(tmp_path):
     assert store.gaps["rss_cap"] == 1
 
 
-def test_initial_rss_cap_also_seals_a_final_receipt(tmp_path):
+def test_initial_rss_cap_also_seals_a_final_receipt(tmp_path, monkeypatch):
+    monkeypatch.setattr("weather.market.pilot_evidence_supervisor.shutil.disk_usage",
+                        lambda *args: SimpleNamespace(free=100 * 1024 ** 3))
     root = tmp_path / "initial-cap"
     assert main(["account-flow", "--wallet", "0x" + "1" * 40,
                  "--max-rss-mib", "0.001", "--output", str(root)]) == 1
@@ -218,23 +224,32 @@ def test_chunks_checksum_exact_bytes_and_refuse_root_reuse(tmp_path):
     frames = [r for r in records(store) if r["kind"] == "ws_frame"]
     assert len(frames) == 5  # Identical-looking observations are never removed.
     assert all(r["receipt_monotonic_ns"] > 0 and r["receipt_utc"] for r in frames)
-    assert frames[0]["source_timestamps"] == [{"field": "timestamp", "value": "1794000000000"}]
+    clocks = [r for r in records(store) if r["kind"] == "source_clocks"]
+    assert clocks[0]["source_timestamps"] == [{"field": "timestamp", "value": "1794000000000"}]
     with pytest.raises(FileExistsError):
         EvidenceStore(store.root)
 
 
 def test_stream_gap_closes_only_after_all_token_book_frames(tmp_path):
     store = store_at(tmp_path)
-    stream = MarketStream(store, RateGate(), lambda: ["1", "2"])
+    coverage = Coverage(store, ["synthetic"])
+    coverage.tokens = {t: {"condition_id": "0x" + "a" * 64, "event": "synthetic",
+        "baseline_taken_at": None, "baseline_valid_at": None, "last_rest": None,
+        "last_stream": None, "source_age_seconds": None, "baseline_usable": False,
+        "rest_observation_fresh": False} for t in ("1", "2")}
+    stream = MarketStream(store, RateGate(), lambda: ["1", "2"], coverage=coverage)
     stream.disconnected("test")
     stream.pending = {"1", "2"}
-    stream.frame(1, b'{"event_type":"book","asset_id":"1"}', stamp())
+    def full_book(token):
+        return json.dumps({"event_type": "book", "asset_id": token, "market": "0x" + "a" * 64,
+                           "timestamp": str(int(__import__('time').time() * 1000)), "bids": [], "asks": []}).encode()
+    stream.frame(1, full_book("1"), stamp())
     stream.frame(1, b'PONG', stamp())
     assert stream.gap_open
-    stream.frame(1, b'{"event_type":"book","asset_id":"2"}', stamp())
+    stream.frame(1, full_book("2"), stamp())
     assert not stream.gap_open
     rows = records(store)
-    assert [r["kind"] for r in rows].count("stream_gap_end") == 1
+    assert [r["kind"] for r in rows].count("stream_transport_recovered") == 1
     assert len([r for r in rows if r["kind"] == "ws_frame"]) == 3
 
 
@@ -243,7 +258,7 @@ def test_stream_reconnect_is_journaled_and_bounded(tmp_path):
     clock = Clock()
     gate = RateGate(clock=clock.clock, sleep=clock.sleep)
     attempts, waits = [], []
-    stream = MarketStream(store, gate, lambda: ["1"])
+    stream = MarketStream(store, gate, lambda: ["1"], coverage=Coverage(store, ["synthetic"]))
 
     class Ending:
         done = False
@@ -266,8 +281,8 @@ def test_stream_reconnect_is_journaled_and_bounded(tmp_path):
     stream.connect = connect
     stream.run()
     assert len(attempts) == 2
-    assert waits == [2]
-    assert store.gaps["stream_gap_start"] == 1
+    assert waits == [0.2]
+    assert store.gaps["stream_transport_gap"] == 1
     assert any(r["kind"] == "stream_reconnect" for r in records(store))
 
 
@@ -283,22 +298,26 @@ def test_discovery_latches_all_bands_and_both_outcomes(tmp_path):
 
     class HTTP:
         gate = RateGate()
+        last_body_bytes = 100
 
-        def read(self, url, **kwargs):
+        def once(self, url, **kwargs):
             if url.endswith("/books"):
-                return [{"asset_id": row["token_id"], "bids": [], "asks": [], "timestamp": "0"}
+                return [{"asset_id": row["token_id"], "market": "0x" + ("a" if row["token_id"] in ("11", "12") else "b") * 64,
+                         "bids": [], "asks": [], "timestamp": str(int(__import__('time').time() * 1000))}
                         for row in kwargs["body"]]
             return event
 
-    capture = PublicCapture(SimpleNamespace(terms_seconds=15, metadata_seconds=60,
-                            max_age_seconds=30, max_mark_delay_seconds=30), store, HTTP())
+    capture = PublicCapture(SimpleNamespace(market=["toronto"], event_date=[day], rest_book_seconds=5,
+                            terms_seconds=60, metadata_seconds=180, fee_seconds=180, fee_rate_seconds=180,
+                            max_rest_rps=2, max_age_seconds=30, max_mark_delay_seconds=30), store, HTTP())
     capture.discover(TORONTO, day)
+    capture.books()
     assert capture.tokens() == ["11", "12", "21", "22"]
     assert capture.baselined == set(capture.tokens())
     event["markets"] = [band()]
     capture.discover(TORONTO, day)
     assert capture.tokens() == ["11", "12", "21", "22"]
-    assert store.gaps["metadata_membership_missing"] == 1
+    assert store.gaps["event_membership_missing"] == 1
     identity = [r for r in records(store) if r["kind"] == "band_identity"]
     assert len(identity) == 2 and all(r["unit"] == "C" for r in identity)
     assert identity[0]["outcomes"] == ["No", "Yes"]
@@ -372,11 +391,10 @@ class Deny(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if (fullname.split('.')[0] in {'requests','dotenv','py_clob_client','polymarket','eth_account','web3','nacl'}
             or any(word in fullname.lower() for word in ('credential','signing','oauth','.auth','_auth','order_journal','re1_transport','lfc_'))
-            or fullname.startswith('weather.market.') and not fullname.startswith(('weather.market.pilot_', 'weather.market.market_registry'))):
+            or fullname.startswith('weather.market.') and not fullname.startswith('weather.market.pilot_')):
             raise RuntimeError('forbidden import ' + fullname)
 sys.meta_path.insert(0, Deny())
 import weather.market.pilot_validation_evidence
-import websocket
 assert not any(m.startswith(('requests', 'dotenv', 'eth_account', 'polymarket', 'py_clob_client')) for m in sys.modules)
 print('public import closure PASS')
 '''

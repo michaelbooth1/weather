@@ -8,14 +8,13 @@ from __future__ import annotations
 import http.client
 import json
 import re
-import ssl
 import threading
 import time
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from urllib.parse import urlencode, urlsplit
 
+from weather.market.pilot_evidence_contract import retry_delay
 from weather.market.pilot_evidence_store import CaptureStopped, MIB, stamp
+from weather.market.pilot_evidence_transport import http_exchange, socket_exchange, TransportLimit
 
 CLOB = "https://clob.polymarket.com"
 GAMMA = "https://gamma-api.polymarket.com"
@@ -72,14 +71,25 @@ class RateGate:
         self.lock = threading.Lock()
 
     def wait(self):
+        return self.start(lambda: None)
+
+    def start(self, send):
+        """Serialize actual connect/send boundaries, including slow preparation.
+
+        The lock stays held through connect and send, never through the response
+        body. A slow journal/DNS/TLS setup cannot race another reservation.
+        """
         with self.lock:
             while True:
                 self.check()
                 delay = self.next_at - self.clock()
                 if delay <= 0:
                     now = self.clock()
-                    self.next_at = now + self.interval
-                    return now
+                    try:
+                        send()
+                        return now
+                    finally:
+                        self.next_at = self.clock() + self.interval
                 self.sleep(min(delay, 0.2))
 
     def defer(self, seconds):
@@ -87,88 +97,71 @@ class RateGate:
             self.next_at = max(self.next_at, self.clock() + max(self.interval, seconds))
 
 
-def retry_delay(value, failures, now=None):
-    seconds = 0.0
-    if value:
-        try:
-            seconds = float(value)
-        except ValueError:
-            try:
-                seconds = (parsedate_to_datetime(value) -
-                           (now or datetime.now(timezone.utc))).total_seconds()
-            except (ValueError, TypeError, OverflowError):
-                pass
-    return max(min(300, 2 ** min(failures, 9)), seconds)
-
-
-def direct_request(method, parts, params, body):
-    connection = http.client.HTTPSConnection(parts.hostname, timeout=5,
-                                             context=ssl.create_default_context())
-    try:
-        path = parts.path + (("?" + urlencode(params)) if params else "")
-        encoded = json.dumps(body, separators=(",", ":")).encode() if body is not None else None
-        headers = {"Accept": "application/json", "User-Agent": "weather-public-evidence/1"}
-        if encoded is not None:
-            headers["Content-Type"] = "application/json"
-        connection.request(method, path, body=encoded, headers=headers)
-        response = connection.getresponse()
-        received_headers = {k: response.getheader(k) for k in ("Date", "Retry-After", "Content-Type")}
-        raw = response.read(4 * MIB + 1)
-        return response.status, received_headers, raw
-    finally:
-        connection.close()
+class RetryPending(ValueError):
+    """Return control to the scheduler while the shared cooldown is active."""
 
 
 class PublicHTTP:
-    def __init__(self, store, gate, *, request=direct_request):
+    def __init__(self, store, gate, *, request=None):
         self.store, self.gate, self.request = store, gate, request
         self.failures = 0
+        self.last_body_bytes = 0
+        self.pool = {}
 
     def read(self, url, *, params=None, body=None):
-        method = "POST" if body is not None else "GET"
-        parts = allow_url(method, url, params)
-        for attempt in range(5):
-            self.gate.wait()
-            sent = stamp()
-            self.store.write("http_request", {"method": method, "url": url,
-                                              "params": params or {}, "body": body}, received=sent)
-            # A slow disk must not consume the spacing before the HTTP call.
-            self.gate.defer(self.gate.interval)
-            self.store.request_started(self.gate.clock())
-            sent = stamp()
+        for _ in range(5):
             try:
-                status, headers, raw = self.request(method, parts, params or {}, body)
-            except (OSError, http.client.HTTPException) as exc:
-                self.store.gap("http_transport", url=url, error=type(exc).__name__, request_start=sent)
-                status, headers, raw = 599, {}, b""
-            received = stamp()
-            if len(raw) > 4 * MIB:
-                self.store.fail("http_body_cap", url=url, bytes=len(raw))
-                raise CaptureStopped("http_body_cap")
-            parsed = self.store.raw("http_response", raw, received=received, url=url, method=method,
-                                    params=params or {}, request_body=body, request_start=sent,
-                                    status=status, response_headers=headers)
-            if status == 429 or 500 <= status <= 599:
-                self.failures += 1
-                delay = retry_delay(headers.get("Retry-After"), self.failures)
-                self.gate.defer(delay)
-                self.store.gap("http_backoff", url=url, status=status, seconds=delay, attempt=attempt)
-                continue
-            if status != 200:
-                self.store.gap("http_status", url=url, status=status)
-                raise ValueError(f"public HTTP status {status}")
-            self.failures = 0
-            if parsed is None:
-                self.store.gap("http_shape", url=url)
-                raise ValueError("public response is not JSON")
-            return parsed
+                return self.once(url, params=params, body=body)
+            except RetryPending:
+                pass
         raise ValueError("public retry bound reached")
 
+    def once(self, url, *, params=None, body=None):
+        method = "POST" if body is not None else "GET"
+        parts = allow_url(method, url, params)
+        sent = stamp()
+        self.store.write("http_request", {"method": method, "url": url,
+                                          "params": params or {}, "body": body}, received=sent)
+        try:
+            if self.request is None:
+                status, headers, raw = http_exchange(method, parts, params or {}, body,
+                                                      gate=self.gate, store=self.store, pool=self.pool)
+            else:
+                result = []
+                def send():
+                    self.store.network_started("rest", monotonic=self.gate.clock())
+                    result.append(self.request(method, parts, params or {}, body))
+                self.gate.start(send)
+                status, headers, raw = result[0]
+        except TransportLimit as exc:
+            self.store.fail("transport_size_cap", error=str(exc))
+            raise CaptureStopped("transport_size_cap") from None
+        except (OSError, http.client.HTTPException) as exc:
+            self.store.gap("http_transport", url=url, error=type(exc).__name__, request_start=sent)
+            status, headers, raw = 599, {}, b""
+        received = stamp()
+        self.last_body_bytes = len(raw)
+        if len(raw) > 4 * MIB:
+            self.store.fail("http_body_cap", url=url, bytes=len(raw))
+            raise CaptureStopped("http_body_cap")
+        parsed = self.store.raw("http_response", raw, received=received, url=url, method=method,
+                                params=params or {}, request_body=body, request_start=sent,
+                                transport_start=self.store.last_network_stamp.get("rest"),
+                                status=status, response_headers=headers)
+        if status == 429 or 500 <= status <= 599:
+            self.failures += 1
+            delay = retry_delay(headers.get("Retry-After"), self.failures)
+            self.gate.defer(delay)
+            self.store.gap("http_backoff", url=url, status=status, seconds=delay)
+            raise RetryPending("shared cooldown")
+        if status != 200:
+            self.store.gap("http_status", url=url, status=status)
+            raise ValueError(f"public HTTP status {status}")
+        self.failures = 0
+        if parsed is None:
+            raise ValueError("public response is not validated JSON")
+        return parsed
 
-def open_socket():
-    # Import installed public websocket support only, never a venue SDK.
-    import websocket
 
-    allow_url("WS", SOCKET)
-    return websocket.create_connection(SOCKET, timeout=1, http_no_proxy=["*"],
-                                       redirect_limit=0, enable_multithread=True)
+def open_socket(*, gate, store, max_size=MIB):
+    return socket_exchange(allow_url("WS", SOCKET), gate=gate, store=store, max_size=max_size)

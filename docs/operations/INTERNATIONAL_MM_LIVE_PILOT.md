@@ -31,86 +31,135 @@ does not make a blocked gate pass and it never authorizes Polymarket US.
 
 ## Independent public pilot evidence
 
-`python -m weather.market.pilot_validation_evidence public-capture` is a separate,
-credential-free recorder. It discovers every band of the specified built-in
-city/date events, latches both outcome tokens even if metadata later removes a
-band, records full REST baseline/reconciliation books, raw market websocket
-frames (including duplicate-looking frames), Gamma rules, CLOB reward pages,
-`/clob-markets/<condition>` fee terms, per-token `/fee-rate`, and timed `/time`
-responses. Every raw body has receipt UTC, monotonic nanoseconds, source clock
-fields and a checksum; request/response brackets and parameters are retained.
-No SDK, key loader, auth, order/cancel/signing route, or live/heavy mutex is used.
+`weather.market.pilot_validation_evidence` owns public capture, count-only
+readiness and raw account export. It imports no F0, wallet-reader, venue SDK,
+auth or signing module. Built-in identities come from literal canonical source
+without executing its ambient registry loader. The manifest hashes source,
+bootstrap, interpreter and loaded dependencies; P2 binds it to the reviewed pin.
 
-The hard ceilings are two public REST starts per second without bursts,
-256 MiB RSS and 1,536 MiB compressed output (including a final-receipt reserve).
-Socket handshakes also share the rate gate. HTTP 429/5xx and transport errors
-defer the whole HTTP budget with exponential back-off, honoring Retry-After.
-Websocket changes carry the continuous path; REST reconciles it. The requested
-5/15/60-second cadences are per-job targets: the request limit takes precedence.
-`rest_cadence_lag`, stale source clocks, missing baselines, reconnects and caps
-are explicit gaps, never silently qualified marks. Four events can exceed the
-term/fee request budget; inspect those gaps before using any interval.
+Capture latches every band and both tokens of the specified city/date events,
+with native units and raw REST/socket bytes. It keeps full baseline/reconciled
+books, Gamma rules, reward pages, CLOB/token fee terms and timed /time reads.
+Frames retain receipt UTC/monotonic clocks, FIN/RSV/opcode and local connection
+identity. Bounded complete messages are validated separately, after raw retention.
+Hashes/local counters never become native exchange sequence or execution IDs.
 
-Each output directory must be new. Minute/four-MiB raw chunks are sealed as
-`chunk-*.jsonl.gz` with exclusive checksum receipts; sealed files are never
-rewritten. A crash may leave an unsealed `.partial` chunk. Only `health.json`
-is replaced; it contains counts, gaps, timing and resource totals, no prices.
-RSS is sampled at control/read checkpoints; response/frame bounds also limit
-allocations. A cap stops capture and records the uncovered tail. Anonymous
-books cannot prove native execution IDs, sequence numbers, exact competing
-maker census, fee denominators or a complete change history of polled terms.
+One shared gate allows at most two starts/second without bursts across REST,
+websocket upgrades/reconnects and application subscribe/PING messages. Mandatory
+protocol PONG replies are separately counted and exempt. Actual connect/send
+boundaries are serialized. REST and sanitized websocket 429/5xx/connect failures
+honor Retry-After and the same cooldown; control frames do not reset back-off.
+This is a process-local bound, not a home-IP quota guarantee; reserve F0 headroom.
 
-For the Monday evidence run, WS Claude owns launch coordination and the owner
-holds a separate console, independent of F0 and its cleanup. Launch the waiting
-process before the Sunday freeze; retain its manifest PID, console exit code
-and final health receipt. Keep that console/process and host available through
-the end; no Scheduler, host-setting change, supervisor or in-freeze restart is
-part of this command. Verify health before Monday 07:45 Toronto. Start is Sun
-2026-11-08 18:55 Toronto = 23:55Z; stop is automatic Tue 2026-11-10 00:45Z
-(Mon 19:45 Toronto). F0's frozen `HARD_STOP_UTC` is 23:50Z, so this leaves 55
-minutes, exceeding the 30-minute fill tail plus uncertainty/delay allowance.
-Recheck the stop against the actual reviewed F0 schedule before pinning; extend
-`--end-utc` if that schedule moves later.
+Books retain priority at every request boundary and stay batched (up to 100
+tokens). Lower work is staggered evenly; paginated rewards/retries yield after
+each request. Targets are books 5 s, rewards/CLOB fees 60 s, token fee-rate/Gamma
+metadata 180 s, time samples 60 s. Infeasible combinations are explicit and
+cannot pass readiness. An explicit `--fee-seconds 180` profile implements T018's
+feasible split; changes to sampling need the master's disposition before pinning.
+Never lengthen the independent book fallback merely to clear lower-work flags.
+
+Cadence lateness is an interval when it exceeds the greater of two request
+slots and 10% of the period; repeated checks extend that interval. Missed periods
+remain explicit. Health separates REST observation age, source-update age and
+quiet-market uncertainty from transport liveness. A source-age flag is not a
+missing-price percentage. REST is compared with reconstructed stream books
+where timing permits; overlapping updates and mismatches cannot prove sequence
+completeness. No anonymous source can supply an exact maker census or fee denominator.
+
+The output ceiling is 4,096 MiB and C: must retain at least 40 GiB free at
+admission and runtime. Only two 512-KiB physical health banks are reserved;
+chunks/tapes and the output budget are never preallocated. Reserved health is
+written first, before final chunk work, using in-place overwrites on ENOSPC.
+The previous bank is a fallback; each bank has a receipt checksum to reject torn
+reads. Chunk write/flush/fsync/link/checksum failures
+stop capture and remain incomplete. Success requires actual worker exit, joined
+receiver and clean finalization. Missing/stale health, an unsealed partial or a
+published chunk without its checksum receipt is incomplete. Hardware/filesystem
+failure can still make emergency bytes unreadable; exit text cannot prove coverage.
+
+Advertised frames and assembled messages are each bounded to 1 MiB before
+allocation; HTTP bodies to 4 MiB, handshake errors to 16 KiB and headers to 32 KiB.
+JSON depth/node expansion is checked before construction. An inbound ceiling
+of 500 frames or 8 MiB/second stops excessive input. RSS checks cover parent and
+worker; health labels sampled combined RSS and Windows per-process OS peaks.
+An observed threshold stops capture; this is not an OS guarantee of zero
+transient overshoot. Raw source-age/freshness uncertainty remains unqualified.
+
+An independent supervisor owns one network/writer process without Scheduler
+or live/heavy mutex. Absolute read and operation/heartbeat watchdogs bound
+slow reads and uncancellable DNS. Deadline/STOP/handled signals allow three
+seconds of cleanup, then force termination and join. A worker lifeline also
+detects forceful Windows supervisor termination, writes reserved failure health
+and exits all worker threads. P2 retains both PIDs and actual completion.
+Paired UTC/monotonic anchors are frozen; a material wall-clock step stops with
+a discontinuity gap. No clock setting is changed.
+
+WS Claude coordinates launch; the owner keeps a separate console independent
+of F0 cleanup. Launch the waiting process before Sunday's freeze, preserve
+manifest/PIDs and final exit/health, and keep host/console available through
+completion. No Scheduler registration, host-setting change or in-freeze
+operator restart is part of this procedure. Start is Sun 2026-11-08 18:55
+Toronto = 23:55Z; automatic stop is Tue 2026-11-10 00:45Z (Mon 19:45 Toronto).
+Frozen F0 stops at 23:50Z: 55 minutes of tail, or 54 after its documented GTD
+tail. Recheck actual final-order/cleanup bounds before pinning; extend the
+reviewed end if necessary.
+
+WS Claude runs readiness Sunday before 18:55 and Monday at 07:07 Toronto,
+into separate new directories. Sunday's public walk independently compares all four events with
+F0's frozen pre-reward/ranking discovery identity contract; no F0 module runs.
+It refuses missing events/bands/tokens, invalid scope/books, stale REST
+observations and infeasible capacity. Exit 0 certifies full scoped baseline
+books were taken and when, never source freshness or simulator accuracy.
+Health separates `ready_for_capture`, `source_freshness_ready`, `coverage_ready`
+and always-false `accuracy_qualified`, with per-token receipts and open gaps.
+Monday uses `--capture-health` to verify the active recorder's checksummed
+comparison, four-event membership and current book/metadata receipt ages. This
+adds no REST traffic beside capture. A stale, stopped, corrupt or mismatched
+receipt refuses readiness; retry a concurrent-write checksum failure into a new
+check directory. Network readiness walks are refused during the live interval.
 
 ```powershell
 Set-Location -LiteralPath 'C:\wt\codex-monday-evidence-20261109'
 $Python = 'C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe'
-& $Python -B -m weather.market.pilot_validation_evidence public-capture --market denver --market toronto --event-date 2026-11-10 --event-date 2026-11-11 --all-bands --both-tokens --start-utc 2026-11-08T23:55:00Z --end-utc 2026-11-10T00:45:00Z --raw-market-stream --rest-book-seconds 5 --terms-seconds 15 --metadata-seconds 60 --time-sample-seconds 60 --max-age-seconds 30 --max-mark-delay-seconds 30 --max-rest-rps 2 --max-rss-mib 256 --max-output-mib 1536 --output 'C:\t\pilot1109\public-capture'
+& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 60 --output 'C:\t\pilot1109\readiness-sunday'
+& $Python -B -m weather.market.pilot_validation_evidence readiness --session-date 2026-11-09 --fee-seconds 60 --capture-health 'C:\t\pilot1109\public-capture\health.json' --output 'C:\t\pilot1109\readiness-monday-0707'
+& $Python -B -m weather.market.pilot_validation_evidence public-capture --market denver --market toronto --event-date 2026-11-10 --event-date 2026-11-11 --all-bands --both-tokens --start-utc 2026-11-08T23:55:00Z --end-utc 2026-11-10T00:45:00Z --raw-market-stream --rest-book-seconds 5 --terms-seconds 60 --fee-seconds 60 --fee-rate-seconds 180 --metadata-seconds 180 --time-sample-seconds 60 --max-age-seconds 30 --max-mark-delay-seconds 30 --max-rest-rps 2 --max-rss-mib 256 --max-output-mib 4096 --min-free-gib 40 --output 'C:\t\pilot1109\public-capture'
 $LASTEXITCODE
 ```
 
-The `--end-utc` above is the normal stop command. If the process remains after
-00:45Z (or an operator must stop early), this requests a clean stop at the next
-checkpoint, journals the gap, seals the current chunk and writes final health:
+Readiness commands above run on separate days, not as one batch. A non-zero
+receipt requires pin/launch review, not a lowered guard. Normal stop is
+`--end-utc`; this requests an earlier clean stop:
 
 ```powershell
 New-Item -ItemType File -Path 'C:\t\pilot1109\public-capture\STOP' -ErrorAction Stop
 ```
 
-`account-flow` is a public Data API supplement, run later into a fresh directory
-with the already known public funder address. It walks raw v2 trades including
-maker rows, all default activity types with deposits/withdrawals enabled, a
-separate opt-in TIP walk, and OPEN/REDEEMABLE/REDEEMABLE_LOST/CLOSED positions
-at zero token threshold (archived markets included where supported). It retains
-every opaque cursor, filter, page body and receipt; missing/repeated cursors or
-page caps produce an incomplete result. No redemption or venue write occurs.
+`account-flow` retains raw Data API v2 pages: maker-inclusive trades, all default
+activity with deposits/withdrawals enabled, opt-in TIP separately, and
+OPEN/REDEEMABLE/REDEEMABLE_LOST/CLOSED positions. Filters and native cursors are
+retained; null/empty terminal cursors require has_more=false. Strict JSON,
+row/wallet scope, page limits and contradictory page checks refuse malformed
+completion. Cursor traversal is explicitly unvalidated for cashflow, not proof
+of private fill finality, atomic inventory, inactive holdings, chain balances,
+payout attribution or net P&L. Raw economic rows are never deduplicated or summed.
+Repeat immutable exports for late indexing, resolution and redemption.
+
+Do not overlap account export with capture/F0. The CLI refuses exports during
+the scheduled interval and bounds an earlier export to yield before it starts.
+Run follow-ups after Tue 00:45Z or the actual extended capture stop:
 
 ```powershell
 & $Python -B -m weather.market.pilot_validation_evidence account-flow --wallet $PublicFunderAddress --from-utc 2026-11-09T00:00:00Z --max-rest-rps 2 --output 'C:\t\pilot1109\account-flow-first'
 ```
 
-Omit `--from-utc` for all indexed history (`start=1`); the default end is frozen
-at invocation, or pass `--through-utc`. Position walks stay unbounded by time to
-retain rows without a native activity clock. Repeat into new directories after
-confirmation, resolution and redemption. Cursor exhaustion proves traversal of
-the requested public API scope, not private fill finality, an atomic inventory
-snapshot or complete chain cash reconciliation. Public trade filters retain an
-explicit tiny positive floor; inactive positions may be absent. Overlapping
-position statuses and raw rows are retained, never summed into a cash proof.
+Omit --from-utc for all indexed history. Default end is frozen at invocation, or
+pass --through-utc; position walks stay time-unbounded to retain unclocked rows.
 The [Data API v2 contract](https://data-api.polymarket.com/v2/openapi.json) and
 [market stream contract](https://docs.polymarket.com/market-data/realtime-data)
-own the upstream pagination and frame semantics. Update this section when the
-public allowlist, capture limits, output format or operator lifecycle changes.
+own upstream semantics. Update this section when allowlists, sampling, bounds,
+readiness, health or lifecycle change.
 
 ## Purpose and claim boundary
 
