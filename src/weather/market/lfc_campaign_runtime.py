@@ -18,6 +18,7 @@ from weather.market.lfc_campaign_control import control_record
 from weather.market.lfc_campaign_guard import (ExclusiveWorkload, OwnedHold, HOLD_PATH, AdmissionBusy,
                                                workstation_headroom)
 from weather.market.lfc_campaign_policy import PROTOCOL, ZONE, load_policy
+from weather.market.lfc_campaign_reads import ACCOUNT_READ_COMPONENTS, account_read_age
 from weather.market.lfc_campaign_state import MoneyContradiction, StateRefused
 from weather.market.lfc_completion import evidence_flags
 from weather.market.lfc_ledger import (Ledger, fetch_account_positions, ledger_path, normalize_positions,
@@ -112,7 +113,8 @@ class ScheduledAuthority:
         if not load_policy(self.runtime.policy_path).raw['enabled'] or not self.runtime.task_enabled():
             from weather.market.re1_attended import HoldEnd
             raise HoldEnd('owner_campaign_disabled')
-        if starting and (not self.entry.permits(now) or datetime.fromisoformat(self.prepared['expires_utc']) < now):
+        if starting and (not self.entry.permits(now) or datetime.fromisoformat(self.prepared['expires_utc']) < now or
+                         account_read_age(self.prepared['account_read'], now) > 120):
             raise RuntimeError('go_window_or_freshness_expired')
 
     @contextmanager
@@ -130,7 +132,7 @@ class ScheduledAuthority:
                 self.claim.get('prepared_sha256') != self.prepared['sha256'] or
                 self.prepared.get('entry_id') != self.entry.id or self.prepared.get('local_date') != self.entry.local_date or
                 self.prepared.get('policy_sha256') != self.policy.sha256 or
-                not 0 <= (now - datetime.fromisoformat(self.prepared['account_read']['ended_at_utc'])).total_seconds() <= 120):
+                account_read_age(self.prepared['account_read'], now) > 120):
             raise StateRefused('prepared_hash')
         return receipt
 
@@ -280,17 +282,23 @@ class Runtime:
             from weather.market import lfc_constants as C
             venue.trades_seconds = C.TRADE_READ_SECONDS
             start = self.clock.now()
-            orders, trades = venue.open_orders(), venue.trades()
-            positions = fetch_account_positions(self.state.maker)
-            balances = venue.balances()
-            if venue.geography().get('blocked') is not False:
+            values, times = {}, {}
+            readers = {'open_orders': venue.open_orders, 'trades': venue.trades,
+                       'positions': lambda: fetch_account_positions(self.state.maker),
+                       'balances': venue.balances, 'geography': venue.geography}
+            for name in ACCOUNT_READ_COMPONENTS:
+                observed_start = self.clock.now()
+                values[name] = readers[name]()
+                times[name] = {'started_at_utc': observed_start.isoformat(),
+                               'ended_at_utc': self.clock.now().isoformat()}
+            if values['geography'].get('blocked') is not False:
                 raise StateRefused('geoblock')
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': self.state.maker,
                     **self.state.policy_binding,
                     'since': venue.trades_after, 'started_at_utc': start.isoformat(),
                     'ended_at_utc': self.clock.now().isoformat(), 'complete': True,
                     'errors': [], 'scope': 'account_wide_sdk_trades_and_f0_v2_positions',
-                    'open_orders': orders, 'trades': trades, 'positions': positions, 'balances': balances}
+                    'component_times': times, **values}
         except (TimeoutError, ConnectionError):
             raise TransientPrecheck('account_transport_unavailable') from None
         finally:
@@ -316,10 +324,14 @@ class Runtime:
                 read.get('since') != str(int(datetime.fromisoformat(ledger.rows[0]['recorded_at_utc']).timestamp())) or
                 read.get('scope') != 'account_wide_sdk_trades_and_f0_v2_positions' or read.get('errors') != [] or
                 any(not isinstance(read.get(key), list) for key in ('open_orders', 'trades', 'positions')) or
+                not isinstance(read.get('balances'), dict) or not isinstance(read.get('geography'), dict) or
+                read['geography'].get('blocked') is not False or
                 not 0 <= (self.clock.now() - datetime.fromisoformat(read['ended_at_utc'])).total_seconds() <= 120 or
                 not datetime.fromisoformat(read['started_at_utc']) <= datetime.fromisoformat(read['ended_at_utc'])):
             raise StateRefused('account_read_binding')
         traded = traded_shares(read['trades'], ledger.our_order_ids())
+        if account_read_age(read, self.clock.now()) > 120:
+            raise TransientPrecheck('account_read_stale')
         differences = ledger.trade_mismatches(traded)
         inventory = inventory_delta(ledger, self.original_baseline(ledger), normalize_positions(read['positions']))
         return {'money_accounting_complete': not differences and not inventory['changed'] and not ledger.unresolved_legs(),
@@ -433,7 +445,7 @@ class Runtime:
         if not proof['money_accounting_complete'] or not proof['cleanup_proven']:
             raise MoneyContradiction('pre_go_money_contradiction')
         readiness = self.readiness(entry, policy, read)
-        if (self.clock.now() - datetime.fromisoformat(read['ended_at_utc'])).total_seconds() > 90:
+        if account_read_age(read, self.clock.now()) > 90:
             read = self.read_account()
             proof = self.core_proof(ledger, read)
             if not proof['money_accounting_complete'] or not proof['cleanup_proven']:

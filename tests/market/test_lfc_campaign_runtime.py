@@ -14,6 +14,7 @@ from tests.market.test_lfc_campaign import Clock, MAKER, Mutexes, NOW, policy_ro
 from weather.market.lfc_campaign_guard import account_lease
 from weather.market.lfc_campaign_policy import parse_policy
 from weather.market.lfc_campaign_runtime import Runtime, ScheduledAuthority
+from weather.market.lfc_campaign_reads import ACCOUNT_READ_COMPONENTS, account_read_age
 from weather.market.lfc_campaign_sidecar import cadences, health_receipt, public_environment
 from weather.market.lfc_campaign_state import StateRefused
 from weather.market.lfc_recording_io import file_sha, write_new
@@ -53,7 +54,10 @@ def account_read(runtime, *, positions=(), trades=()):
     return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': MAKER, 'complete': True,
             'errors': [], 'scope': 'account_wide_sdk_trades_and_f0_v2_positions',
             'since': str(int(NOW.timestamp())), 'started_at_utc': NOW.isoformat(), 'ended_at_utc': NOW.isoformat(),
-            'open_orders': [], 'positions': list(positions), 'trades': list(trades), 'balances': {'available_collateral': '100'}}
+            'component_times': {name: {'started_at_utc': NOW.isoformat(), 'ended_at_utc': NOW.isoformat()}
+                                for name in ACCOUNT_READ_COMPONENTS},
+            'open_orders': [], 'positions': list(positions), 'trades': list(trades),
+            'balances': {'available_collateral': '100'}, 'geography': {'blocked': False}}
 
 
 def test_account_read_retries_retain_each_observation_and_failed_read(tmp_path, monkeypatch):
@@ -106,6 +110,7 @@ def test_money_complete_can_preserve_incomplete_research_without_resetting_raw_f
 
 @pytest.mark.parametrize('change', [
     {'complete': False}, {'maker_address': '0x' + 'b' * 40}, {'schema_version': 'unknown'},
+    {'balances': None}, {'geography': {}}, {'geography': {'blocked': True}},
     {'ended_at_utc': (NOW - timedelta(seconds=121)).isoformat()},
     {'ended_at_utc': (NOW + timedelta(seconds=1)).isoformat()}])
 def test_core_read_binding_and_actual_observation_time(tmp_path, change):
@@ -115,6 +120,69 @@ def test_core_read_binding_and_actual_observation_time(tmp_path, change):
         row.update(change)
         with pytest.raises(StateRefused, match='account_read_binding'):
             runtime.core_proof(runtime.state.ledger, row)
+
+
+def test_fresh_report_end_cannot_refresh_an_old_component(tmp_path):
+    from weather.market.lfc_campaign import TransientPrecheck
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        row = account_read(runtime)
+        old = (NOW - timedelta(seconds=121)).isoformat()
+        row['started_at_utc'] = old
+        row['component_times']['open_orders'] = {'started_at_utc': old, 'ended_at_utc': old}
+        assert account_read_age(row, NOW) == 121
+        with pytest.raises(TransientPrecheck, match='account_read_stale'):
+            runtime.core_proof(runtime.state.ledger, row)
+        del row['component_times']['open_orders']
+        with pytest.raises(StateRefused, match='account_read_binding'):
+            runtime.core_proof(runtime.state.ledger, row)
+
+
+def test_actual_go_checks_oldest_component_even_with_a_fresh_prepared_expiry(tmp_path):
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        policy = parse_policy(policy_row())
+        claim = runtime.state.claim(policy.entries[0], policy, NOW)
+        row = account_read(runtime)
+        old = (NOW - timedelta(seconds=121)).isoformat()
+        row['started_at_utc'] = old
+        row['component_times']['open_orders'] = {'started_at_utc': old, 'ended_at_utc': old}
+        runtime.lease = SimpleNamespace(check=lambda: None)
+        authority = ScheduledAuthority(runtime, claim, policy.entries[0], policy,
+            {'baseline': {}, 'account_read': row, 'expires_utc': (NOW + timedelta(seconds=120)).isoformat()})
+        with pytest.raises(RuntimeError, match='go_window_or_freshness_expired'):
+            authority.check(starting=True)
+
+
+def test_account_components_keep_their_actual_local_observation_intervals(tmp_path, monkeypatch):
+    from weather.market import lfc_campaign_runtime, re1_transport
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        closed = []
+        def measured(seconds, value):
+            runtime.clock.sleep(seconds)
+            return value
+        class Venue:
+            def __init__(self, *args, **kwargs):
+                assert kwargs['readonly'] is True
+            def open_orders(self): return measured(1, [])
+            def trades(self): return measured(2, [])
+            def balances(self): return measured(4, {'available_collateral': '100'})
+            def geography(self): return measured(5, {'blocked': False})
+            def close(self): closed.append(True)
+        monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda mode: ({'FUNDER_ADDRESS': MAKER}, None))
+        monkeypatch.setattr(re1_transport, 'build_client', lambda *args, **kwargs: object())
+        monkeypatch.setattr(re1_transport, 'OwnerVenue', Venue)
+        monkeypatch.setattr(lfc_campaign_runtime, 'fetch_account_positions', lambda maker: measured(3, []))
+        row = runtime.read_account()
+        assert account_read_age(row, runtime.clock.now()) == 15 and closed == [True]
+        offset = 0
+        for name, seconds in zip(ACCOUNT_READ_COMPONENTS, (1, 2, 3, 4, 5)):
+            assert row['component_times'][name] == {
+                'started_at_utc': (NOW + timedelta(seconds=offset)).isoformat(),
+                'ended_at_utc': (NOW + timedelta(seconds=offset + seconds)).isoformat()}
+            offset += seconds
+        assert runtime.core_proof(runtime.state.ledger, row)['money_accounting_complete']
 
 
 def test_missing_pilot_holding_is_money_contradiction_and_microfills_are_retained(tmp_path):

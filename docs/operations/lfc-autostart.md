@@ -80,6 +80,8 @@ and matched quantities, per-order fills, zero open orders and every token's
 quantity against the original immutable inventory anchor plus verified fills.
 A missing holding fails even if aggregate L agrees. Microfills remain inventory;
 API absence, including below a visibility floor, does not prove exact zero.
+Each account component retains its own UTC read interval; freshness uses the
+oldest component, so a fresh report end cannot refresh earlier stale reads.
 Unverified sales, redemption or merges are never inferred from prices or marks.
 
 The new `lfc_autostart_v1` protocol explicitly removes the historical T-24
