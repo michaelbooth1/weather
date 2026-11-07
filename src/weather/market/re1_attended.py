@@ -194,6 +194,9 @@ class Session:
     def leg_terminal(self, oid, row):
         """Called with a terminal order read (cancelled requote leg or cleanup read)."""
 
+    def terminal_extra(self):
+        return {}
+
     def cancel_terminal_row(self, oid, row):
         """The order read handed to leg_terminal after a requote cancel; RE-1 passes its pre-poll read unchanged."""
         return row
@@ -230,16 +233,23 @@ class Session:
                            token_ids=self.tokens, now=self.start, allow_sized=True)
 
     def __init__(self, *, venue, public, table, clock, directory, guard=None, mode='rehearse',
-                 confirmation=None, attempt=None, realtime_rehearsal=False):
+                 confirmation=None, attempt=None, realtime_rehearsal=False, scheduled_authority=None):
         self.venue, self.public, self.clock = venue, public, clock
         self.table, self.mode = table, mode
         self.guard = guard or SecretGuard()
         self.directory = Path(directory)
+        if scheduled_authority is not None:
+            from weather.market.lfc_campaign_runtime import ScheduledAuthority
+            if type(scheduled_authority) is not ScheduledAuthority:
+                raise RuntimeError('scheduled_authority_required')
         self.start = utc(clock.now())
         if realtime_rehearsal and mode != 'rehearse':
             raise RuntimeError('live_duration_is_fixed')
         self.planned_seconds = self.session_seconds(realtime_rehearsal)
         self.end = self.start + timedelta(seconds=self.planned_seconds)
+        if scheduled_authority is not None:
+            self.end = scheduled_authority.session_end(self.start, self.planned_seconds)
+            self.planned_seconds = (self.end - self.start).total_seconds()
         self.deadline = clock.monotonic() + self.planned_seconds
         self.condition = table['selected_condition_id']
         selected = next(r for r in table['rows'] if r['condition_id'] == self.condition)
@@ -251,8 +261,10 @@ class Session:
         self.order_cap, self.band_cap = (self.caps(self.size, table['available_collateral'])
                                        if self.sized else (ORDER_CAP, BAND_CAP))
         self.selection_sha256 = digest(table)
+        scheduled_confirmation = (scheduled_authority is not None and
+                                  scheduled_authority.confirmation_valid(table, confirmation))
         if mode == 'live' and (not self.sized or not confirmation or
-                confirmation.get('text') != 'go ' + self.selection_sha256[:6]):
+                (not scheduled_confirmation and confirmation.get('text') != 'go ' + self.selection_sha256[:6])):
             raise RuntimeError('size_confirmation_required')
         self.initial_terms = selected['snapshot']['quote_inputs']
         self.known, self.active = {}, {}
@@ -277,6 +289,9 @@ class Session:
         self.scope = {'condition_id': self.condition, 'token_ids': list(self.tokens),
                       'maker_address': venue.maker, 'end_at_utc': self.end.isoformat(),
                       'protocol': self.PROTOCOL}
+        if scheduled_authority is not None:
+            self.scope.update(scheduled_authority.policy.labels(scheduled_authority.entry.local_date))
+            self.scope['protocol'] = scheduled_authority.protocol
         if self.sized:
             self.scope.update(size=str(self.size), reserve_pusd=selected['quote']['reserve_pusd'],
                               available_collateral=table['available_collateral'],
@@ -612,6 +627,7 @@ class Session:
                 self.clock.sleep(1)
         except BaseException:
             pass
+
         # Cancellation and deadline races can fill after the last loop poll.
         # A zero-open-order read alone says nothing about that inventory.
         try:
@@ -619,7 +635,7 @@ class Session:
                 row = recover('terminal_order', lambda: self.venue.order(oid))
                 retain('terminal_order', order=row)
                 from weather.market.mm_account_reads import order_terminal
-                if not order_terminal(row):
+                if not order_terminal(row, order_id=oid, size=self.size):
                     self.evidence_failed = True
                 if filled(row):
                     self.fill_seen = True
@@ -744,6 +760,7 @@ class Session:
             self.sample('final_accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
             self.cleanup_ok = self.cleanup_ok and not self.evidence_failed and self.inventory_proven and self.posts == len(self.known)
             self.journal.record('terminal', reason=reason, failure_type=failure, cleanup_ok=self.cleanup_ok,
+                                **self.terminal_extra(),
                                 fill_seen=self.fill_seen, submits=self.submits, requotes=self.requotes,
                                 evidence_complete=not self.evidence_failed, reward_terms_changed=self.terms_changed,
                                 scoring_seen=self.scoring_seen, order_ids=list(self.known),
@@ -757,6 +774,7 @@ class Session:
         except BaseException:
             self.evidence_failed, self.cleanup_ok = True, False
         result = {**self.totals, 'scope': self.scope, 'mode': self.mode, 'condition_id': self.condition,
+                  **self.terminal_extra(),
                   'reward_day': self.start.date().isoformat(), 'frozen_at_utc': utc(self.clock.now()).isoformat(),
                   'journal_sha256': hashlib.sha256(self.journal.path.read_bytes()).hexdigest(),
                   'cleanup_ok': self.cleanup_ok, 'fill_seen': self.fill_seen, 'reward_terms_changed': self.terms_changed,

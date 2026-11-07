@@ -28,7 +28,7 @@ LOCATION_ORDER = ('los-angeles', 'seattle', 'san-francisco', 'denver')
 
 
 def select_table(universe, *, now, complete=True, source_records=(), available_collateral=None,
-                 treatment=None, ledger=None, held_conditions=None):
+                 treatment=None, ledger=None, held_conditions=None, local_event_dte=None):
     """Rank frozen tomorrow bands, or the explicit 84h local T+0/1/2 treatment.
 
     treatment=LFC-40 is the live-fill calibration campaign (signed pre-registration section 3): the same frozen rule
@@ -38,6 +38,11 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
     LFC.PREDICTED_REWARD_FLOOR (None = no floor) for the campaign only.
     """
     current = utc(now)
+    if local_event_dte is not None and (treatment != LFC.TREATMENT or
+            not isinstance(local_event_dte, (list, tuple)) or not local_event_dte or
+            any(type(day) is not int or day not in (1, 2) for day in local_event_dte) or
+            len(set(local_event_dte)) != len(local_event_dte)):
+        raise ValueError('unsupported_local_event_dte')
     if treatment is not None:
         if (treatment != LFC.TREATMENT or available_collateral is None or not isinstance(ledger, dict)
                 or held_conditions is None):
@@ -66,7 +71,7 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
             # Owner 2026-09-24 (92a): sized sessions quote local T+1/T+2 only, never the local event day.
             dates = [target] if available_collateral is None else [
                 (current.astimezone(ZoneInfo(band['market_timezone'])).date() + timedelta(days=d)).isoformat()
-                for d in range(1, 3)]
+                for d in ((1, 2) if local_event_dte is None else local_event_dte)]
             if band['target_date'] not in dates:
                 raise QuoteRefused('not_configured_tomorrow_event' if available_collateral is None
                                    else 'not_configured_local_day_1_2')
@@ -121,6 +126,8 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
                   'campaign_L_pusd': str(_decimal(ledger['L'])),
                   'campaign_L_resting_pusd': str(_decimal(ledger['L_resting'])),
                   'baseline_position_conditions': sorted(held), 'pilot_size': str(LFC.PILOT_SIZE)}
+        if local_event_dte is not None and tuple(local_event_dte) != (1, 2):
+            fields['local_event_dte'] = list(local_event_dte)
     else:
         fields = {} if available_collateral is None else {
             'size_treatment': 'RE-1-84h', 'available_collateral': str(_decimal(available_collateral)),
@@ -150,7 +157,8 @@ def validate_selection(table, *, expected_sha256, condition_id, token_ids, now, 
                            treatment=LFC.TREATMENT if pilot else None,
                            ledger={'L': table['campaign_L_pusd'], 'L_resting': table['campaign_L_resting_pusd']}
                            if pilot else None,
-                           held_conditions=table['baseline_position_conditions'] if pilot else None)
+                           held_conditions=table['baseline_position_conditions'] if pilot else None,
+                           local_event_dte=table.get('local_event_dte'))
     if rebuilt != table:
         raise ValueError('selection ranking does not reproduce the frozen rule')
     selected = next(row for row in table['rows'] if row['condition_id'] == condition_id)
@@ -271,7 +279,8 @@ class PublicBooks:
                     'reward_rate_per_day': str(rate),
                     'tick': str(books[0]['tick_size']), 'post_only_available': True}}
 
-    def selection(self, *, available_collateral=None, treatment=None, ledger=None, held_conditions=None):
+    def selection(self, *, available_collateral=None, treatment=None, ledger=None, held_conditions=None,
+                  local_event_dte=None):
         assert_no_ambient_market_registry_override()
         if available_collateral is not None and treatment is None:
             reserve_budget(available_collateral)
@@ -312,4 +321,4 @@ class PublicBooks:
                     universe.append(row)
         return select_table(universe, now=self.clock(), source_records=self.records,
                             available_collateral=available_collateral, treatment=treatment, ledger=ledger,
-                            held_conditions=held_conditions)
+                            held_conditions=held_conditions, local_event_dte=local_event_dte)

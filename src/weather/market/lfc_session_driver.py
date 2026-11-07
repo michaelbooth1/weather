@@ -182,6 +182,8 @@ class _Job:
             raise OSError('job_open_process_failed')
         try:
             assigned = bool(self.k32.AssignProcessToJobObject(self.handle, process))
+            if not assigned:
+                return False
             ntdll = self.ctypes.WinDLL('ntdll')
             ntdll.NtResumeProcess.argtypes = (self.wintypes.HANDLE,)
             if ntdll.NtResumeProcess(process) != 0:
@@ -193,6 +195,27 @@ class _Job:
     def terminate(self):
         return bool(self.handle) and bool(self.k32.TerminateJobObject(self.handle, 1))
 
+    def wait_empty(self, timeout=15):
+        """Prove the entire owned child job is empty, not just its first PID."""
+        import ctypes
+        class Accounting(ctypes.Structure):
+            _fields_ = [('user', ctypes.c_int64), ('kernel', ctypes.c_int64),
+                        ('period_user', ctypes.c_int64), ('period_kernel', ctypes.c_int64),
+                        ('page_faults', ctypes.c_uint32), ('total', ctypes.c_uint32),
+                        ('active', ctypes.c_uint32), ('terminated', ctypes.c_uint32)]
+        self.k32.QueryInformationJobObject.argtypes = (self.wintypes.HANDLE, ctypes.c_int,
+                                                       ctypes.c_void_p, self.wintypes.DWORD, ctypes.c_void_p)
+        deadline = time.monotonic() + timeout
+        while True:
+            value = Accounting()
+            if not self.k32.QueryInformationJobObject(self.handle, 1, ctypes.byref(value), ctypes.sizeof(value), None):
+                return False
+            if value.active == 0:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(.05)
+
     def close(self):
         if self.handle:
             self.k32.CloseHandle(self.handle)
@@ -203,7 +226,7 @@ class ChildProcess:
     """One child: lines from a reader thread (so Ctrl+C and deadlines stay responsive), a job-object tree kill with
     a `taskkill /F /T` fallback when no job could be created or assigned."""
 
-    def __init__(self, argv, *, cwd, env, interactive):
+    def __init__(self, argv, *, cwd, env, interactive, require_containment=False):
         self.job, self.kill_method = None, 'taskkill'
         flags = 0x4 | 0x200 if os.name == 'nt' else 0  # SUSPENDED + NEW_PROCESS_GROUP for targeted CTRL_BREAK
         self.popen = subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=None if interactive else subprocess.DEVNULL,
@@ -217,10 +240,19 @@ class ChildProcess:
                 else:
                     self.job.close()
                     self.job = None
+                    if require_containment:
+                        self.popen.kill()
+                        self.popen.wait()
+                        raise RuntimeError('child_containment_required')
+                    self._resume_fallback()
             except Exception:
                 if self.job is not None:
                     self.job.close()
                     self.job = None
+                if require_containment:
+                    self.popen.kill()
+                    self.popen.wait()
+                    raise RuntimeError('child_containment_required') from None
                 self._resume_fallback()
         self.lines = queue.Queue()
         threading.Thread(target=self._pump, daemon=True).start()
@@ -343,7 +375,7 @@ def judge_open_order_count(code, lines, *, expected=0):
     """Runbook section 2 Get-OpenOrderCount output: a number, or `ERR <reason>`."""
     text = [line.strip() for line in lines if line.strip()]
     last = text[-1] if text else ''
-    if re.fullmatch(r'\d+', last):
+    if code == 0 and re.fullmatch(r'\d+', last) and all(re.fullmatch(r'\d+', row) for row in text):
         count = int(last)
         return ('PASS', count) if count == expected else ('FAIL', f'open_orders_{count}_expected_{expected}')
     if last in ('ERR timeout', 'ERR refused') or any('TimeoutError' in line for line in text):

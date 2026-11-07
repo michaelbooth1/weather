@@ -243,6 +243,11 @@ and owner-run reward/rebate evidence. Use
 venue settlement and `python -m weather.market.lfc_cli rewards-record --date YYYY-MM-DD`
 for the D+1/D+2 incentive reads.
 
+The [LFC campaign contract](docs/operations/lfc-autostart.md) owns scheduled
+sessions. Its owner-only `register_lfc_campaign_task.ps1` registrar has separate
+Register, Verify and Enable actions; the shipped example policy is disabled.
+Agents never invoke those actions or create the owner STOP file.
+
 The [manual order journal](docs/operations/manual-order-journal.md) records the owner's manual
 resting orders read-only with
 `python -m weather.market.order_journal record --out data\manual_order_journal` and reports

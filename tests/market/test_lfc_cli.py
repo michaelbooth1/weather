@@ -79,7 +79,7 @@ def pass_session0(ledger, *, reason='fixed_end', cleanup_ok=True, run='0a', post
                       fee_rate_bps='0')
         if posted != 'intent':
             ledger.ack(key, f'o-{sid}-{n}')
-            ledger.terminal(f'o-{sid}-{n}', {'status': 'CANCELED', 'size_matched': '0'}, source='test')
+            ledger.terminal(f'o-{sid}-{n}', {'id': f'o-{sid}-{n}', 'status': 'CANCELED', 'size_matched': '0'}, source='test')
     ledger.record('session_end', session_id=sid, reason=reason, cleanup_ok=cleanup_ok)
 
 
@@ -114,7 +114,7 @@ def counted(ledger, sid, *, local_date, matched='0'):
     ledger.intent(session_id=sid, intent_key=sid + ':1', token_id='1', condition_id='c', price='.5', size='1',
                   fee_rate_bps='0')
     ledger.ack(sid + ':1', 'o' + sid)
-    ledger.terminal('o' + sid, {'status': 'CANCELED', 'size_matched': matched}, source='test')
+    ledger.terminal('o' + sid, {'id': 'o' + sid, 'status': 'CANCELED', 'size_matched': matched}, source='test')
     ledger.record('session_end', session_id=sid, reason='fixed_end', cleanup_ok=True)
 
 
@@ -246,7 +246,7 @@ def test_open_session_unresolved_leg_cap_and_stop_refuse(tmp_path):
     ledger.ack('S1:1', 'o1')
     ledger.record('session_end', session_id='S1', reason='exception')
     assert gates(ledger, tmp_path) == ['ledger_unresolved_legs_need_reconcile']
-    ledger.terminal('o1', {'status': 'CANCELED', 'size_matched': '0'}, source='test')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'CANCELED', 'size_matched': '0'}, source='test')
     for number in range(2, LFC.MAX_SESSIONS + 1):
         counted(ledger, f'S{number}', local_date=f'2026-10-0{number}')
     assert ledger.counted_sessions() == LFC.MAX_SESSIONS
@@ -332,7 +332,7 @@ class FakeVenue:
         return [r for r in self.rows if r['id'] not in self.cancelled]
 
     def order(self, oid):
-        return self.orders[oid]
+        return {'id': oid, **self.orders[oid]}
 
     def trades(self):
         return self._trades
@@ -392,15 +392,15 @@ def test_reconcile_surfaces_a_trades_mismatch(tmp_path):
 
 def test_finish_session_halts_at_stop_at_100(tmp_path):
     ledger = crashed(tmp_path)
-    ledger.terminal('o1', {'status': 'MATCHED', 'size_matched': '40'}, source='t')
-    ledger.terminal('o2', {'status': 'MATCHED', 'size_matched': '40'}, source='t')  # 40 + 19.2 <= 100
+    ledger.terminal('o1', {'id': 'o1', 'status': 'MATCHED', 'size_matched': '40'}, source='t')
+    ledger.terminal('o2', {'id': 'o2', 'status': 'MATCHED', 'size_matched': '40'}, source='t')  # 40 + 19.2 <= 100
     finish_session(ledger, 'S0c-1', {'reason': 'fill', 'cleanup_ok': True})
     assert not ledger.halted
     ledger.record('session_start', session_id='S2', counted=True)
     ledger.intent(session_id='S2', intent_key='S2:1', token_id='1', condition_id='c', price='.8', size='52',
                   fee_rate_bps='0')
     ledger.ack('S2:1', 'o3')
-    ledger.terminal('o3', {'status': 'MATCHED', 'size_matched': '52'}, source='t')  # 81.6 + 19.2 > 100
+    ledger.terminal('o3', {'id': 'o3', 'status': 'MATCHED', 'size_matched': '52'}, source='t')  # 81.6 + 19.2 > 100
     finish_session(ledger, 'S2', {'reason': 'fill', 'cleanup_ok': True})
     assert ledger.halted and ledger.rows[-1]['reason'] == 'l_stop_at_cap'
 
@@ -434,7 +434,7 @@ def wallet_ledger(tmp_path, *, matched='2'):
     ledger.intent(session_id='S0a-1', intent_key='S0a-1:1', token_id='11', condition_id='c', price='.5', size='20',
                   fee_rate_bps='0')
     ledger.ack('S0a-1:1', 'o1')
-    ledger.terminal('o1', {'status': 'CANCELED', 'size_matched': matched}, source='test')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'CANCELED', 'size_matched': matched}, source='test')
     ledger.record('session_end', session_id='S0a-1', reason='fixed_end', cleanup_ok=True)
     return ledger
 
@@ -449,7 +449,8 @@ def fills(*pairs):
 
 
 def positions(*pairs):
-    return {'status': 'OBSERVED', 'positions': [{'token_id': t, 'size': s} for t, s in pairs], 'resolved_count': 0}
+    return {'status': 'OBSERVED', 'positions': [{'token_id': t, 'size': s} for t, s in pairs], 'resolved_count': 0,
+            'inventory_complete': True, 'unclassified_positions': [], 'errors': {}}
 
 
 def report(tmp_path, ledger, *, open_orders=(), trades=None, held=None, snap=None):
@@ -475,7 +476,7 @@ def test_wallet_verify_counts_only_our_order_ids_and_ignores_failed_trades(tmp_p
     assert report(tmp_path, ledger, trades=trades)['status'] == 'PASS'
 
 
-@pytest.mark.parametrize('venue_shares,verdict', [('2.02', 'PASS'), ('2.04', 'FAIL'), ('0', 'FAIL')])
+@pytest.mark.parametrize('venue_shares,verdict', [('2.02', 'FAIL'), ('2.04', 'FAIL'), ('0', 'FAIL')])
 def test_wallet_verify_l_tolerance_is_one_cent(tmp_path, venue_shares, verdict):
     ledger = wallet_ledger(tmp_path)
     assert report(tmp_path, ledger, trades=fills(('o1', venue_shares)))['s0_6'] == verdict
@@ -501,6 +502,28 @@ def test_wallet_verify_refuses_a_stale_l_ledger_json(tmp_path):
     stale = dict(snapshot(tmp_path), history_last_sha256='0' * 64)
     result = report(tmp_path, ledger, snap=stale)
     assert result['s0_6'] == 'FAIL' and result['l_ledger_json'] == 'stale_or_unreadable'
+
+
+def test_wallet_verify_missing_pilot_holding_fails_despite_matching_fill_cost(tmp_path):
+    ledger = wallet_ledger(tmp_path, matched='20')
+    result = report(tmp_path, ledger, trades=fills(('o1', '20')), held=positions((OLD, '7')))
+    assert result['venue_L'] == result['ledger_L'] == '10.0'
+    assert result['status'] == 'FAIL' and result['missing_or_below_visibility'] == ['11']
+
+
+@pytest.mark.parametrize('change', [{'inventory_complete': False}, {'errors': {'positions': 'unavailable'}},
+                                   {'unclassified_positions': [{'size': '1'}]}])
+def test_observed_inventory_needs_explicit_complete_error_free_rows(tmp_path, change):
+    ledger = wallet_ledger(tmp_path)
+    held = positions((OLD, '7'), ('11', '2'))
+    held.update(change)
+    assert report(tmp_path, ledger, held=held)['status'] == 'FAIL'
+
+
+def test_wallet_verify_failed_trade_read_cannot_pass_empty_inventory(tmp_path):
+    ledger = wallet_ledger(tmp_path, matched='0')
+    assert report(tmp_path, ledger, trades={'fills': [], 'errors': {'trades': 'timeout'}},
+                  held=positions((OLD, '7')))['status'] == 'FAIL'
 
 
 def test_wallet_verify_command_reads_only_the_three_reader_routes(tmp_path, capsys):
@@ -709,7 +732,7 @@ def test_ambiguous_or_missing_adoption_adopts_nothing_and_start_stays_refused(tm
         def order(self, oid):
             if oid not in self.orders:
                 raise RuntimeError('order_unreadable')
-            return self.orders[oid]
+            return {'id': oid, **self.orders[oid]}
     venue = Venue([orders[oid] for oid in open_ids], {'o1': {'status': 'CANCELED', 'size_matched': '0'}, **orders})
     report_, _ = reconcile_ledger(ledger, venue, root=tmp_path, sleep=lambda s: None)
     assert report_['adoption_refusals'] == {'S0c-1:2': code} and report_['adopted_order_ids'] == []
@@ -741,7 +764,7 @@ def test_reconcile_re_reads_lagging_trades_before_a_mismatch(tmp_path):
 
 def test_reconcile_re_reads_size_matched_from_the_order_before_recording(tmp_path):
     ledger = crashed(tmp_path)
-    ledger.terminal('o1', {'status': 'CANCELED', 'size_matched': '0'}, source='session')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'CANCELED', 'size_matched': '0'}, source='session')
     venue = FakeVenue([], {'o1': {'status': 'CANCELED', 'size_matched': '3'},
                            'o2': {'status': 'CANCELED', 'size_matched': '0'}},
                       [{'status': 'CONFIRMED', 'maker_orders': [{'order_id': 'o1', 'matched_amount': '3'}]}])

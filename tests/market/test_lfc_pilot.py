@@ -125,7 +125,7 @@ def prior(ledger, *, filled=None, resting=None):
         ledger.intent(session_id='prior', intent_key='prior:1', token_id='999', condition_id='0xold', price='.5',
                       size=str(Decimal(filled) * 2), fee_rate_bps='0')
         ledger.ack('prior:1', 'prior-filled')
-        ledger.terminal('prior-filled', {'status': 'MATCHED', 'size_matched': str(Decimal(filled) * 2)}, source='test')
+        ledger.terminal('prior-filled', {'id': 'prior-filled', 'status': 'MATCHED', 'size_matched': str(Decimal(filled) * 2)}, source='test')
     if resting is not None:
         ledger.intent(session_id='prior', intent_key='prior:2', token_id='998', condition_id='0xold', price='.5',
                       size=str(Decimal(resting) * 2), fee_rate_bps='0')
@@ -730,10 +730,10 @@ def test_other_user_stream_failures_end_with_their_own_code(tmp_path):
 def resting_leg(tmp_path, *, live_reads):
     session, venue, clock, ledger = setup(tmp_path)
     ledger.intent(session_id='S1-test', intent_key='S1-test:1', token_id=TOKENS[0], condition_id=CONDITION,
-                  price='.3', size='40', fee_rate_bps='0')
+                  price='.3', size='20', fee_rate_bps='0')
     ledger.ack('S1-test:1', 'x')
     venue.memory.orders['x'] = {'id': 'x', 'asset_id': TOKENS[0], 'market': CONDITION, 'maker_address': venue.maker,
-                                'side': 'BUY', 'price': '.3', 'original_size': '40', 'size_matched': '0',
+                                'side': 'BUY', 'price': '.3', 'original_size': '20', 'size_matched': '0',
                                 'status': 'LIVE', 'associate_trades': []}
     session.known['x'], session.active['x'] = 0, (0, Decimal('.3'))
     real, reads = venue.order, []
@@ -751,7 +751,7 @@ def resting_leg(tmp_path, *, live_reads):
 
 def test_cancel_releases_L_only_after_a_terminal_re_read(tmp_path):
     session, venue, ledger, reads = resting_leg(tmp_path, live_reads=2)
-    assert ledger.L_resting() == Decimal(12)
+    assert ledger.L_resting() == Decimal(6)
     session.cancel_leg('x')
     assert 'x' not in session.active and ledger.L() == 0 and len(reads) == 3
     assert len(events(session, 'cancel_terminal_read_request')) == 1
@@ -761,7 +761,7 @@ def test_a_cancel_that_never_reads_terminal_keeps_L_resting_and_ends(tmp_path):
     session, venue, ledger, _ = resting_leg(tmp_path, live_reads=None)
     with pytest.raises(HoldEnd, match='cancel_not_terminal'):
         session.cancel_leg('x')
-    assert 'x' in session.active and ledger.L_resting() == Decimal(12)
+    assert 'x' in session.active and ledger.L_resting() == Decimal(6)
     assert events(session, 'lfc_cancel_not_terminal')[0]['order_id'] == 'x'
 
 

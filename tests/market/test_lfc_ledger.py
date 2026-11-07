@@ -83,8 +83,8 @@ def test_signed_formula_filled_plus_resting_without_fee(tmp_path):
     leg(ledger, 'S1', 'S1:1', price='.33', fee='0', order_id='o1')
     leg(ledger, 'S1', 'S1:2', price='.64', fee='100', order_id='o2')
     assert ledger.figures() == {'L': Decimal('38.80'), 'L_filled': 0, 'L_resting': Decimal('38.80')}
-    ledger.terminal('o1', {'status': 'CANCELED', 'size_matched': '0'}, source='test')
-    ledger.terminal('o2', {'status': 'MATCHED', 'size_matched': '12'}, source='test')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'CANCELED', 'size_matched': '0'}, source='test')
+    ledger.terminal('o2', {'id': 'o2', 'status': 'MATCHED', 'size_matched': '12'}, source='test')
     assert ledger.figures() == {'L': Decimal('7.68'), 'L_filled': Decimal('7.68'), 'L_resting': 0}
     assert leg_cost({'price': '.5', 'size': '40', 'status': 'open', 'size_matched': '0'}) == (0, Decimal('20'))
     assert leg_cost({'price': '.5', 'size': '40', 'status': 'terminal', 'size_matched': '40'}) == (Decimal('20'), 0)
@@ -97,9 +97,9 @@ def test_unacknowledged_intent_stays_at_full_worst_case(tmp_path):
     leg(ledger, 'S1', 'S1:1', price='.5')
     assert ledger.L() == Decimal('20') and ledger.unresolved_legs()[0]['order_id'] is None
     # A live or unreadable read never releases worst case.
-    assert ledger.terminal('unknown', {'status': 'CANCELED'}, source='test') is None
+    assert ledger.terminal('unknown', {'id': 'unknown', 'status': 'CANCELED'}, source='test') is None
     ledger.ack('S1:1', 'o1')
-    assert ledger.terminal('o1', {'status': 'LIVE', 'size_matched': '0'}, source='test') is None
+    assert ledger.terminal('o1', {'id': 'o1', 'status': 'LIVE', 'size_matched': '0'}, source='test') is None
     assert ledger.terminal('o1', {}, source='test') is None
     assert ledger.L() == Decimal('20')
 
@@ -110,7 +110,7 @@ def test_persists_across_restarts_and_sessions(tmp_path):
         sid = f'S{number}'
         ledger.record('session_start', session_id=sid, counted=True)
         leg(ledger, sid, sid + ':1', order_id='o' + sid)
-        ledger.terminal('o' + sid, {'status': 'MATCHED', 'size_matched': '40'}, source='test')
+        ledger.terminal('o' + sid, {'id': 'o' + sid, 'status': 'MATCHED', 'size_matched': '40'}, source='test')
         ledger.record('session_end', session_id=sid, reason='fill')
         ledger = Ledger.open(tmp_path / 'ledger.jsonl', clock=clock, maker_address=MAKER)
     ledger.record('session_start', session_id='S0-x', counted=False)
@@ -139,10 +139,10 @@ def test_stop_at_100_uses_filled_plus_minimum_feasible_reserve(tmp_path):
     ledger.record('session_start', session_id='S1', counted=True)
     assert LFC.MIN_FEASIBLE_RESERVE == Decimal('19.2')  # 20 x 0.96 (clarification E)
     leg(ledger, 'S1', 'S1:1', price='.5', size='161.6', order_id='o1')
-    ledger.terminal('o1', {'status': 'MATCHED', 'size_matched': '161.6'}, source='test')  # 80.8 + 19.2 = 100
+    ledger.terminal('o1', {'id': 'o1', 'status': 'MATCHED', 'size_matched': '161.6'}, source='test')  # 80.8 + 19.2 = 100
     assert ledger.L_filled() == Decimal('80.8') and ledger.stop_reason() is None
     leg(ledger, 'S1', 'S1:2', price='.5', size='1', order_id='o2')
-    ledger.terminal('o2', {'status': 'MATCHED', 'size_matched': '.2'}, source='test')  # 80.9 + 19.2 > 100
+    ledger.terminal('o2', {'id': 'o2', 'status': 'MATCHED', 'size_matched': '.2'}, source='test')  # 80.9 + 19.2 > 100
     assert ledger.stop_reason() == 'l_stop_at_cap'
     with pytest.raises(LedgerCap, match='l_stop_at_cap'):
         ledger.post_gate(reserve=0, cap=100)
@@ -165,10 +165,10 @@ def test_second_terminal_read_that_disagrees_is_a_mismatch(tmp_path):
     ledger, _ = new(tmp_path)
     ledger.record('session_start', session_id='S1', counted=True)
     leg(ledger, 'S1', 'S1:1', order_id='o1')
-    ledger.terminal('o1', {'status': 'CANCELED', 'size_matched': '0'}, source='session')
-    ledger.terminal('o1', {'status': 'CANCELED', 'size_matched': '0'}, source='reconcile')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'CANCELED', 'size_matched': '0'}, source='session')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'CANCELED', 'size_matched': '0'}, source='reconcile')
     assert ledger.stop_reason() is None
-    ledger.terminal('o1', {'status': 'MATCHED', 'size_matched': '5'}, source='reconcile')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'MATCHED', 'size_matched': '5'}, source='reconcile')
     assert ledger.stop_reason() == 'l_reconciliation_mismatch'
 
 
@@ -176,7 +176,7 @@ def test_trades_reconcile_counts_only_our_order_ids(tmp_path):
     ledger, _ = new(tmp_path)
     ledger.record('session_start', session_id='S1', counted=True)
     leg(ledger, 'S1', 'S1:1', order_id='o1')
-    ledger.terminal('o1', {'status': 'MATCHED', 'size_matched': '40'}, source='session')
+    ledger.terminal('o1', {'id': 'o1', 'status': 'MATCHED', 'size_matched': '40'}, source='session')
     trades = [{'status': 'CONFIRMED', 'maker_orders': [{'order_id': 'o1', 'matched_amount': '25'},
                                                        {'order_id': 'owner', 'matched_amount': '99'}]},
               {'status': 'MINED', 'taker_order_id': 'o1', 'size': '15'},

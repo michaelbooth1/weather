@@ -92,7 +92,7 @@ def test_later_condition_read_does_not_halt_for_prior_condition_fill(tmp_path):
         ledger.intent(session_id=sid, intent_key=sid+':0', condition_id=condition, token_id=str(index+1),
                       price='.4', size='20', fee_rate_bps='0')
         ledger.ack(sid+':0', oid)
-        ledger.terminal(oid, {'status': 'MATCHED', 'size_matched': '1'}, source='fixture')
+        ledger.terminal(oid, {'id': oid, 'status': 'MATCHED', 'size_matched': '1'}, source='fixture')
     venue = SimpleNamespace(condition=CONDITION, trades=lambda: [
         {'status': 'CONFIRMED', 'maker_orders': [{'order_id': 'order-1', 'matched_amount': '1'}]}])
     traded, mismatch = reconcile_trades_bounded(ledger, venue, attempts=1)

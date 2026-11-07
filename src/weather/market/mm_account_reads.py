@@ -14,8 +14,16 @@ class AmbiguousAccountRead(RuntimeError):
     code = 'AMBIGUOUS'
 
 
-def order_terminal(row):
+def order_terminal(row, *, order_id=None, size=None):
+    """A terminal *identity and quantity* proof, never just a status string.
+
+    The caller binds the expected id/size when it knows an order. A response
+    cannot release another order's reserve, nor release an unbounded quantity.
+    """
     if not isinstance(row, dict):
+        return False
+    ids = [str(row[k]) for k in ('id', 'order_id') if row.get(k) is not None]
+    if not ids or not ids[0] or len(set(ids)) != 1 or (order_id is not None and ids[0] != str(order_id)):
         return False
     if str(row.get('status') or row.get('official_order_status') or '').upper() not in {
             'CANCELED', 'CANCELLED', 'MATCHED', 'EXPIRED'}:
@@ -25,7 +33,13 @@ def order_terminal(row):
         if isinstance(value, bool):
             return False
         matched = Decimal(str(value))
-        return matched.is_finite() and matched >= 0
+        original = row.get('original_size', size)
+        if isinstance(original, bool) or isinstance(size, bool):
+            return False
+        original = Decimal(str(original))
+        if size is not None and original != Decimal(str(size)):
+            return False
+        return matched.is_finite() and original.is_finite() and original > 0 and 0 <= matched <= original
     except (KeyError, TypeError, ValueError, InvalidOperation):
         return False
 

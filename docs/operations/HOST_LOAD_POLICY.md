@@ -14,6 +14,10 @@ be rescheduled — is never starved.
 
 ## Workstation and portable-executor scope
 
+The separately owner-activated [LFC campaign lane](lfc-autostart.md) uses its
+own account guard and refusal-only all-slot exclusion. It does not widen the
+generic portable Stage 0/1 workload allowlist or grant agent live authority.
+
 This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,

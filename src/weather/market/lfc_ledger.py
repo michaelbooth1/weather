@@ -42,7 +42,7 @@ from weather.market.reward_quote import QuoteRefused, _decimal
 # v0.2 (fix round 1, review F-5) adds leg_adopt: an unacknowledged intent adopted at reconcile onto the one venue
 # order that matches it. New rows are written as v0.2; v0.1 history stays valid and leg_adopt needs a v0.2 row.
 LEDGER_SCHEMA = 'lfc_ledger_v0.2'
-LEDGER_SCHEMAS = ('lfc_ledger_v0.1', 'lfc_ledger_v0.2')
+LEDGER_SCHEMAS = ('lfc_ledger_v0.1', 'lfc_ledger_v0.2', 'lfc_ledger_v0.3')
 BASELINE_SCHEMA = 'lfc_baseline_v0.1'
 SNAPSHOT_SCHEMA = 'lfc_l_ledger_v0.1'
 LEDGER_FILE = 'ledger.jsonl'
@@ -57,7 +57,7 @@ POSITIONS_STATUSES = ('OPEN', 'REDEEMABLE_LOST')
 POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filter_amount': '0', 'sort_by': 'TOKENS',
                      'sort_direction': 'DESC'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
-           'halt', 'mismatch'}
+           'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident'}
 
 
 class LedgerUnavailable(RuntimeError):
@@ -100,6 +100,7 @@ class Ledger:
     def __init__(self, path, *, clock, rows, raw):
         self.path, self.clock = Path(path), clock
         self.rows, self._raw_len = rows, len(raw)
+        self._history_hash = hashlib.sha256(raw)
         self.previous = hashlib.sha256(raw.splitlines(keepends=True)[-1]).hexdigest() if rows else None
         self._replay()
 
@@ -158,7 +159,8 @@ class Ledger:
                 when = utc(row['recorded_at_utc'])
                 row_version = LEDGER_SCHEMAS.index(row['schema_version'])
                 ok = (canonical_bytes(row) == line and row_version >= version and
-                      (row['event'] != 'leg_adopt' or row['schema_version'] == 'lfc_ledger_v0.2') and
+                      (row['event'] != 'leg_adopt' or row_version >= 1) and
+                      (row['event'] != 'autostart_enroll' or row_version == 2) and
                       row['kind'] == 'lfc_ledger' and row['sequence'] == index and
                       row['previous_sha256'] == previous and row['event'] in _EVENTS and
                       (last is None or when >= last) and (index == 0) == (row['event'] == 'genesis'))
@@ -173,13 +175,30 @@ class Ledger:
     # ----- state --------------------------------------------------------------------------------------------
     def _replay(self):
         self.legs, self.by_order, self.sessions, self.baselines = {}, {}, {}, []
+        self.enrollment = None
+        self.autostart_claims, self.autostart_incidents = [], []
         self.halted, self.mismatches = False, []
         for row in self.rows:
             self._apply(row)
 
     def _apply(self, row):
         event = row['event']
-        if event == 'baseline':
+        if event == 'autostart_enroll':
+            if self.enrollment is not None or self.open_sessions() or self.unresolved_legs():
+                raise LedgerUnavailable('ledger_enrollment_scope')
+            if not all(isinstance(row.get(k), str) and row[k] for k in ('state_id', 'identity_sha256', 'state_root')):
+                raise LedgerUnavailable('ledger_enrollment_identity')
+            self.enrollment = row
+        elif event in ('autostart_claim', 'autostart_incident'):
+            if self.enrollment is None:
+                raise LedgerUnavailable('ledger_not_enrolled')
+            if not all(isinstance(row.get(k), str) and row[k] for k in ('attempt_id', 'file_sha256')):
+                raise LedgerUnavailable('ledger_autostart_record')
+            target = self.autostart_claims if event == 'autostart_claim' else self.autostart_incidents
+            if any(r['attempt_id'] == row['attempt_id'] for r in target):
+                raise LedgerUnavailable('ledger_autostart_repeated')
+            target.append(row)
+        elif event == 'baseline':
             self.baselines.append(row)
         elif event == 'session_start':
             if row['session_id'] in self.sessions:
@@ -206,6 +225,9 @@ class Ledger:
             if leg is None or leg['status'] == 'terminal':
                 raise LedgerUnavailable('ledger_terminal_scope')
             _num(row['size_matched'], 'size_matched')
+            from weather.market.mm_account_reads import order_terminal
+            if not order_terminal(row, order_id=leg['order_id'], size=leg['size']):
+                raise LedgerUnavailable('ledger_terminal_unproven')
             leg['status'], leg['size_matched'] = 'terminal', row['size_matched']
         elif event == 'mismatch':
             self.mismatches.append(row)
@@ -284,8 +306,12 @@ class Ledger:
 
     # ----- writes -------------------------------------------------------------------------------------------
     def record(self, event, **fields):
+        fields = {**getattr(self, 'policy_metadata', {}), **fields}
         if event not in _EVENTS or event == 'genesis':
             raise LedgerUnavailable('ledger_event_unknown')
+        if self.enrollment is not None or event == 'autostart_enroll':
+            from weather.market.lfc_campaign_guard import require_account
+            require_account(self.rows[0]['maker_address'])
         # Refuse to append on top of bytes this process did not verify (another writer or an edit).
         try:
             size = self.path.stat().st_size
@@ -293,7 +319,18 @@ class Ledger:
             raise LedgerUnavailable('ledger_missing') from None
         if size != self._raw_len:
             raise LedgerUnavailable('ledger_changed_underneath')
+        from weather.market.lfc_recording_io import file_sha
+        try:
+            unchanged = file_sha(self.path) == self._history_hash.hexdigest()
+        except OSError:
+            raise LedgerUnavailable('ledger_write_failed') from None
+        if not unchanged:
+            raise LedgerUnavailable('ledger_changed_underneath')
         row = self._row(len(self.rows), self.previous, self.clock, event, fields)
+        if self.enrollment is not None or event == 'autostart_enroll':
+            row['schema_version'] = 'lfc_ledger_v0.3'
+        if utc(row['recorded_at_utc']) < utc(self.rows[-1]['recorded_at_utc']):
+            raise LedgerUnavailable('ledger_clock_regressed')
         raw = canonical_bytes(row)
         try:
             self._apply(row)  # validates the transition before anything is written
@@ -308,6 +345,7 @@ class Ledger:
             self._replay()
             raise LedgerUnavailable('ledger_write_failed') from None
         self.rows.append(row)
+        self._history_hash.update(raw)
         self._raw_len += len(raw)
         self.previous = hashlib.sha256(raw).hexdigest()
         self.write_snapshot()
@@ -327,6 +365,9 @@ class Ledger:
 
     def write_snapshot(self):
         """Rewrite l_ledger.json from the verified history (atomic replace). A failure fails closed."""
+        if self.enrollment is not None:
+            from weather.market.lfc_campaign_guard import require_account
+            require_account(self.rows[0]['maker_address'])
         target = self.path.parent / SNAPSHOT_FILE
         temporary = target.with_name(SNAPSHOT_FILE + '.tmp')
         try:
@@ -362,14 +403,14 @@ class Ledger:
         recorded and stops the campaign for good.
         """
         from weather.market.mm_account_reads import order_terminal
-        status = str(row.get('status') or row.get('official_order_status') or '').upper()
-        if not order_terminal(row):
-            return None
         key = self.by_order.get(str(order_id))
         if key is None:
             return None
-        matched = _decimal(row.get('size_matched', 0))
         leg = self.legs[key]
+        if not order_terminal(row, order_id=order_id, size=leg['size']):
+            return None
+        status = str(row.get('status') or row.get('official_order_status') or '').upper()
+        matched = _decimal(row.get('size_matched', 0))
         if leg['status'] == 'terminal':
             if matched != _decimal(leg['size_matched']):
                 self.record('mismatch', order_id=str(order_id), recorded=leg['size_matched'], observed=str(matched),

@@ -1,0 +1,225 @@
+"""Durable account-scoped claims and incidents. Policy revisions cannot reset it."""
+from pathlib import Path
+import uuid
+
+from weather.market.lfc_campaign_guard import account_key, require_account
+from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new
+from weather.market.mm_stage2_hold import digest
+from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
+
+
+STATE_SCHEMA = 'lfc_campaign_state_v0.1'
+DEFAULT_STATE_ROOT = Path(r'C:\t\pilot\account-state')
+
+
+class StateRefused(RuntimeError):
+    pass
+
+
+class MoneyContradiction(StateRefused):
+    pass
+
+
+class AccountState:
+    def __init__(self, root, ledger):
+        self.root = Path(root) / account_key(ledger.rows[0]['maker_address'])
+        self.ledger = ledger
+        self.maker = ledger.rows[0]['maker_address']
+        self.policy_binding = {'policy_name': None, 'policy_revision': None, 'evidence_lane': None}
+
+    @property
+    def policy_binding(self):
+        return self._policy_binding
+
+    @policy_binding.setter
+    def policy_binding(self, value):
+        self._policy_binding = dict(value)
+        self.ledger.policy_metadata = dict(value) if value.get('policy_name') is not None else {}
+
+    def read(self, path):
+        row = strict_json(read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), 2_000_000))
+        if not isinstance(row, dict) or row.get('schema_version') != STATE_SCHEMA:
+            raise StateRefused('state_schema')
+        return row
+
+    def save(self, relative, fields):
+        require_account(self.maker)
+        relative = Path(relative)
+        if relative.is_absolute() or '..' in relative.parts:
+            raise StateRefused('state_path_escape')
+        validate_nonreparse_directory(self.root.absolute())
+        path = self.root / relative
+        current = self.root
+        for part in relative.parts[:-1]:
+            current = current / part
+            current.mkdir(exist_ok=True)
+            validate_nonreparse_directory(current.absolute())
+        write_new(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields})
+        return file_sha(path)
+
+    def enroll(self, now):
+        """Owner-run enrollment only, after the frozen F0 session is closed.
+
+        A partial enrollment refuses; re-registration never creates a new account
+        history. Old ledger readers reject the explicit protocol-version event.
+        """
+        require_account(self.maker)
+        if self.ledger.enrollment is not None or self.root.exists():
+            raise StateRefused('already_or_partially_enrolled')
+        if self.ledger.open_sessions() or self.ledger.unresolved_legs() or self.ledger.halted:
+            raise StateRefused('enrollment_unresolved_money')
+        self.root.mkdir(parents=True, exist_ok=False)
+        validate_nonreparse_directory(self.root.absolute())
+        row = {'account': str(self.maker).lower(), 'genesis_sha256': self.ledger.row_sha256(0),
+               'ledger_path': str(self.ledger.path.resolve()), 'state_id': uuid.uuid4().hex,
+               'enrolled_at_utc': now.isoformat(), 'previous_ledger_sha256': self.ledger.previous}
+        sha = self.save('identity.json', row)
+        self.ledger.record('autostart_enroll', state_id=row['state_id'], identity_sha256=sha,
+                           state_root=str(self.root.resolve()), protocol='lfc_autostart_v1')
+        return sha
+
+    def verify(self):
+        validate_nonreparse_directory(self.root.absolute())
+        row = self.read(self.root / 'identity.json')
+        event = self.ledger.enrollment
+        if (event is None or event['identity_sha256'] != file_sha(self.root / 'identity.json') or
+                row['state_id'] != event['state_id'] or row['account'] != str(self.maker).lower() or
+                row['genesis_sha256'] != self.ledger.row_sha256(0) or
+                row['previous_ledger_sha256'] != event['previous_sha256'] or
+                Path(row['ledger_path']).resolve() != self.ledger.path.resolve() or
+                Path(event['state_root']).resolve() != self.root.resolve()):
+            raise StateRefused('enrollment_continuity')
+        for event in self.ledger.autostart_claims:
+            claim_path = self.root / 'claims' / (event['local_date'] + '.json')
+            if file_sha(claim_path) != event['file_sha256']:
+                raise StateRefused('claim_continuity')
+            claim = self.read(claim_path)
+            if claim.get('ledger_sha256') != event['previous_sha256']:
+                raise StateRefused('claim_ledger_continuity')
+            policy_path = self.root / 'policies' / (claim['attempt_id'] + '.json')
+            if file_sha(policy_path) != claim.get('policy_snapshot_sha256'):
+                raise StateRefused('policy_snapshot_continuity')
+            policy = self.read(policy_path)
+            if digest(policy.get('policy')) != claim['policy_sha256'] or policy.get('sha256') != claim['policy_sha256']:
+                raise StateRefused('policy_snapshot_continuity')
+            prepared_file, prepared_sha = claim.get('prepared_file'), claim.get('prepared_sha256')
+            if prepared_file is not None or prepared_sha is not None:
+                relative = Path(str(prepared_file))
+                if relative.is_absolute() or '..' in relative.parts or file_sha(self.root / relative) != prepared_sha:
+                    raise StateRefused('prepared_receipt_continuity')
+        for event in self.ledger.autostart_incidents:
+            path = self.root / 'incidents' / (event['attempt_id'] + '.json')
+            if file_sha(path) != event['file_sha256']:
+                raise StateRefused('incident_continuity')
+        chain = {self.ledger.row_sha256(i) for i in range(len(self.ledger.rows))}
+        for path in (self.root / 'closed').glob('*.json'):
+            closed = self.read(path)
+            if (not isinstance(closed.get('proof'), dict) or closed['proof'].get('ledger_head_sha256') not in chain or
+                    closed.get('proof_sha256') != digest(closed['proof'])):
+                raise StateRefused('closeout_ledger_continuity')
+        return row
+
+    def claims(self):
+        self.verify()
+        return [self.read(path) for path in sorted((self.root / 'claims').glob('*.json'))]
+
+    def skips(self):
+        self.verify()
+        return [self.read(path) for path in sorted((self.root / 'skips').glob('*.json'))]
+
+    def consumed_dates(self):
+        days = {row['local_date'] for row in self.claims() + self.skips()}
+        for directory in ('incidents', 'owner-closures'):
+            for path in (self.root / directory).glob('*.json'):
+                row = self.read(path)
+                if row.get('local_date'):
+                    days.add(row['local_date'])
+        return days
+
+    def incidents(self):
+        self.verify()
+        pending = []
+        for path in sorted((self.root / 'incidents').glob('*.json')):
+            row = self.read(path)
+            closure = self.root / 'owner-closures' / path.name
+            if not closure.exists():
+                pending.append(row)
+                continue
+            closed = self.read(closure)
+            if closed.get('incident_sha256') != file_sha(path) or closed.get('authority') != 'owner_recovery':
+                raise StateRefused('incident_closure_invalid')
+        return pending
+
+    def latch(self, attempt, reason, now):
+        # Safe reason codes only; never serialize exception messages/credentials.
+        self.verify()
+        relative = f'incidents/{attempt}.json'
+        if not (self.root / relative).exists():
+            from weather.market.lfc_campaign_policy import ZONE
+            local_date = now.astimezone(ZONE).date().isoformat()
+            sha = self.save(relative, {'attempt_id': attempt, 'reason': reason, 'at_utc': now.isoformat(),
+                                       'local_date': local_date})
+            self.ledger.record('autostart_incident', attempt_id=attempt, file_sha256=sha, local_date=local_date)
+
+    def claim(self, entry, policy, now, *, prepared=None):
+        require_account(self.maker)
+        self.verify()
+        self.policy_binding = policy.labels(entry.local_date)
+        if self.incidents():
+            raise StateRefused('account_incident_latched')
+        from weather.market.lfc_campaign_policy import ZONE
+        if not entry.permits(now) or now.astimezone(ZONE).date().isoformat() != entry.local_date:
+            raise StateRefused('claim_outside_window')
+        # Account+date is the stable id, independent of campaign name/revision.
+        if entry.local_date in self.consumed_dates():
+            raise StateRefused('account_date_consumed')
+        if any(s['start'].get('owner_local_date') == entry.local_date and s['legs']
+               for s in self.ledger.sessions.values()):
+            raise StateRefused('legacy_account_date_consumed')
+        for previous in self.claims():
+            if previous.get('policy_name') != policy.raw['policy_name']:
+                continue
+            old_revision = previous.get('policy_revision')
+            if type(old_revision) is not int or old_revision > policy.raw['policy_revision']:
+                raise StateRefused('policy_revision_regressed')
+            old = self.read(self.root / 'policies' / (previous['attempt_id'] + '.json'))['policy']
+            keys = ('terms', 'local_event_dte', 'band_limit_session', 'band_limit_concurrent', 'bands_per_event',
+                    'start_window_toronto', 'trading_end_toronto', 'max_session_seconds')
+            if old_revision == policy.raw['policy_revision'] and any(old[key] != policy.raw[key] for key in keys):
+                raise StateRefused('economic_policy_change_requires_revision')
+        attempt = uuid.uuid4().hex
+        snapshot_sha = self.save(f'policies/{attempt}.json', {'policy': policy.raw, 'sha256': policy.sha256})
+        claim = {'attempt_id': attempt, 'local_date': entry.local_date, 'entry_id': entry.id,
+                 'prepared_file': (prepared or {}).get('file'), 'prepared_sha256': (prepared or {}).get('sha256'),
+                 'campaign_id': policy.raw['campaign_id'], 'policy_sha256': policy.sha256,
+                 'policy_snapshot_sha256': snapshot_sha, 'claimed_at_utc': now.isoformat(),
+                 'ledger_sha256': self.ledger.previous}
+        sha = self.save(f'claims/{entry.local_date}.json', claim)
+        self.ledger.record('autostart_claim', attempt_id=attempt, local_date=entry.local_date, file_sha256=sha)
+        return self.read(self.root / 'claims' / (entry.local_date + '.json'))
+
+    def pending(self):
+        result = []
+        for row in self.claims():
+            path = self.root / 'closed' / (row['attempt_id'] + '.json')
+            if not path.exists():
+                result.append(row)
+                continue
+            closed = self.read(path)
+            proof = closed.get('proof')
+            if (closed.get('attempt_id') != row['attempt_id'] or closed.get('proof_sha256') != digest(proof) or
+                    not isinstance(proof, dict) or proof.get('unknown_submit') is not False or
+                    proof.get('cleanup_proven') is not True or proof.get('money_accounting_complete') is not True):
+                raise StateRefused('closeout_continuity')
+        return result
+
+    def close(self, claim, proof, now):
+        if self.incidents() or proof.get('unknown_submit') is not False or proof.get('money_accounting_complete') is not True:
+            raise StateRefused('cannot_close_ambiguous_attempt')
+        if proof.get('cleanup_proven') is not True:
+            raise StateRefused('cannot_close_unclean_attempt')
+        if proof.get('ledger_head_sha256', self.ledger.previous) != self.ledger.previous:
+            raise StateRefused('closeout_proof_stale')
+        proof = {**proof, 'ledger_head_sha256': self.ledger.previous}
+        return self.save(f"closed/{claim['attempt_id']}.json", {'attempt_id': claim['attempt_id'],
+                         'proof': proof, 'proof_sha256': digest(proof), 'closed_at_utc': now.isoformat()})

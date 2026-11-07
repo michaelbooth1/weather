@@ -138,9 +138,9 @@ def _rule_key(rule):
         return ('unreadable', id(rule))
 
 
-def _terminal(row):
+def _terminal(row, oid=None, size=None):
     from weather.market.mm_account_reads import order_terminal
-    return order_terminal(row)
+    return order_terminal(row, order_id=oid, size=size)
 
 
 # ----- session 0 market choice (S0 section 2) -------------------------------------------------------------------
@@ -435,6 +435,8 @@ class PilotSession(Session):
         self.BAND_CEILING = profile.venue_ceiling(profile.size)[1]  # band cap of PR section 6 (19.60 at 20)
         super().__init__(**kwargs)
         chosen = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
+        self.horizon_row = {key: chosen.get(key) for key in ('market_id', 'market_timezone', 'target_date')}
+        self.local_event_dte = tuple(getattr(profile, 'local_event_dte', (1, 2)))
         opening = chosen['snapshot'].get('rules')
         self.opening_rules = ({t: dict(opening[t]) for t in self.tokens}
                               if isinstance(opening, dict) and all(t in opening for t in self.tokens) else None)
@@ -492,8 +494,36 @@ class PilotSession(Session):
         except LedgerUnavailable:
             raise HoldEnd('ledger_unavailable') from None
 
+    def check_horizon(self):
+        if self.profile.session0:
+            return
+        from weather.market.lfc_horizon import local_event_dte
+        try:
+            dte = local_event_dte(self.horizon_row, self.clock.now())
+        except (ValueError, KeyError, TypeError):
+            raise HoldEnd('market_local_horizon_unreadable') from None
+        if dte not in self.local_event_dte:
+            self.horizon_retirement = {'reason': 'market_local_horizon', 'current_local_event_dte': dte,
+                                       'allowed_local_event_dte': list(self.local_event_dte),
+                                       'observed_at_utc': utc(self.clock.now()).isoformat()}
+            self.journal.record('lfc_horizon_retired', current_local_event_dte=dte,
+                                allowed_local_event_dte=list(self.local_event_dte),
+                                observed_at_utc=utc(self.clock.now()).isoformat())
+            raise HoldEnd('market_local_horizon')
+
+    def terminal_extra(self):
+        retired = getattr(self, 'horizon_retirement', None)
+        return {} if retired is None else {'horizon_retirement': dict(retired)}
+
     def _gate(self, *, own_resting=Decimal(0)):
         reserve = band_reserve(self.size, self.prices)
+        policy = getattr(self, 'campaign_policy', None)
+        if policy is not None:
+            from weather.market.lfc_campaign_policy import PolicyRefused
+            try:
+                policy.cost_gate(self.ledger, self.campaign_entry, reserve, own_resting=own_resting)
+            except PolicyRefused as exc:
+                raise HoldEnd(str(exc)) from None
         try:
             base = self._ledger(lambda: self.ledger.post_gate(reserve=reserve, own_resting=own_resting, cap=self.cap))
         except LedgerCap as exc:
@@ -548,6 +578,7 @@ class PilotSession(Session):
             self.journal.record('lfc_panel_exclusion', lfc_journal_schema=LFC_JOURNAL_SCHEMA, line_sha256=sha, **line)
 
     def authorize_post(self, leg, price, size, rule):
+        self.check_horizon()  # placement and every requote, using the current clock
         own = sum((self.size * p for _, p in self.active.values()), Decimal(0))
         reserve, base = self._gate(own_resting=own)
         record = {'phase': 'post', 'leg': leg, 'L_after_cancel_of_replaced_leg': str(base), 'reserve': str(reserve),
@@ -622,7 +653,7 @@ class PilotSession(Session):
             if filled(row):
                 self.fill_seen = True
                 raise HoldEnd('fill')
-            if _terminal(row):
+            if _terminal(row, oid, self.size):
                 return row
             self._alive()
             self.clock.sleep(1)
@@ -630,7 +661,7 @@ class PilotSession(Session):
         if filled(row):
             self.fill_seen = True
             raise HoldEnd('fill')
-        if _terminal(row):
+        if _terminal(row, oid, self.size):
             return row
         self.journal.record('lfc_cancel_not_terminal', lfc_journal_schema=LFC_JOURNAL_SCHEMA, order_id=oid,
                             status=str((row or {}).get('status')))
@@ -708,6 +739,7 @@ class PilotSession(Session):
         self.posted_at = self.clock.monotonic()
 
     def extra_checks(self, *, force=False):
+        self.check_horizon()  # pull resting orders at the target's local midnight
         stopped = self._ledger(self.ledger.stop_reason)
         if stopped:
             raise HoldEnd(stopped)
@@ -754,7 +786,7 @@ class PilotSession(Session):
             row = None
             for _ in range(10):
                 row = self.required('venue_deadman_order', lambda: self.venue.order(oid), checkpoint=False, order_id=oid)
-                if _terminal(row):
+                if _terminal(row, oid, self.size):
                     break
                 self._alive()
                 self.clock.sleep(1)
@@ -770,11 +802,11 @@ class PilotSession(Session):
         self.journal.record('lfc_venue_deadman_first_terminal', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run='0g',
                             seconds_after_drop=seconds, rows=rows,
                             own_cancel_requests_since_drop=self.cancels_since_drop,
-                            all_terminal=all(_terminal(r) for r in rows.values()))
+                            all_terminal=all(_terminal(r, oid, self.size) for oid, r in rows.items()))
         if any(filled(r) for r in rows.values()):
             self.fill_seen = True
             raise HoldEnd('fill')
-        if rows and all(_terminal(r) for r in rows.values()) and self.cancels_since_drop == 0:
+        if rows and all(_terminal(r, oid, self.size) for oid, r in rows.items()) and self.cancels_since_drop == 0:
             raise HoldEnd('venue_deadman_cancelled')
         raise HoldEnd('order_no_longer_resting')
 
@@ -790,7 +822,7 @@ class PilotSession(Session):
         for oid in list(self.active):
             rows[oid] = self.required('venue_deadman_order', lambda: self.venue.order(oid), checkpoint=False,
                                       order_id=oid)
-        if rows and all(_terminal(r) for r in rows.values()):
+        if rows and all(_terminal(r, oid, self.size) for oid, r in rows.items()):
             self._venue_deadman_observe()
         self.journal.record('lfc_venue_deadman_not_observed', lfc_journal_schema=LFC_JOURNAL_SCHEMA, run='0g',
                             seconds_after_drop=self.clock.monotonic() - self.dropped_at, rows=rows)

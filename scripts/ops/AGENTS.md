@@ -32,8 +32,8 @@ before changing or invoking it.** Detail lives with the owners:
   branch to a full reviewed SHA; movable branch-only queues are unsupported.
 - Unattended recurring work binds a current-user `S4U` / `Limited` principal;
   re-running a registrar must not introduce an interactive-logon dependency.
-  The credential-vault push and mirror tasks are the intentional interactive
-  exceptions (an S4U session cannot access the vault).
+  Credential-vault push/mirror and the [owner-activated LFC campaign](../../docs/operations/lfc-autostart.md)
+  are explicit Interactive/Limited exceptions; S4U cannot access the vault.
 - Default repository roots from the registrar's own `PSScriptRoot` and bind S4U
   to `$env:USERNAME`. Never hard-code the production checkout or account;
   registrars must stay safe when reviewed from an isolated worktree.

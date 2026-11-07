@@ -38,7 +38,7 @@ def now():
 
 
 class SessionStatus:
-    def __init__(self, *, kind, clock=now, monotonic=time.monotonic):
+    def __init__(self, *, kind, clock=now, monotonic=time.monotonic, checkpoint_hook=None, policy_metadata=None):
         self.clock, self.monotonic = clock, monotonic
         self.started = self.timestamp()
         self.directory, self.stop_file = STATUS_DIRECTORY, OWNER_STOP_FILE
@@ -48,6 +48,9 @@ class SessionStatus:
         self.last_tick, self.finished, self.stop_seen = None, False, False
         self.session, self.selection, self.evidence_directory, self.ledger = None, {}, None, None
         self.open_rows, self.reason, self.failed = None, None, False
+        self.checkpoint_hook = checkpoint_hook
+        self.policy_metadata = ({} if policy_metadata is None else
+                                {key: policy_metadata.get(key) for key in ('policy_name', 'policy_revision', 'evidence_lane')})
 
     def timestamp(self):
         # A failing injected clock must never disable the driver's cleanup watchdog.
@@ -73,6 +76,7 @@ class SessionStatus:
         if self.last_tick is None or stamp - self.last_tick >= 60:
             self.directory.mkdir(parents=True, exist_ok=True)
             row = {'schema_version': HEARTBEAT_SCHEMA, 'state': 'RUNNING',
+                   **self.policy_metadata,
                    'session_id': self.session_id, 'at_utc': self.timestamp()}
             with (self.directory / (self.session_id + '.heartbeat.jsonl')).open('ab') as handle:
                 handle.write((json.dumps(row, sort_keys=True) + '\n').encode('utf-8'))
@@ -87,6 +91,8 @@ class SessionStatus:
 
     def checkpoint(self):
         self.tick()
+        if self.checkpoint_hook is not None:
+            self.checkpoint_hook()
         if self.owner_stop():
             from weather.market.re1_attended import HoldEnd
             raise HoldEnd('owner_stop')
@@ -168,7 +174,9 @@ class SessionStatus:
         if opens != []:
             flags.update(evidence_complete=False, inventory_proven=False)
             cleanup = False
-        return {'event': public_id(chosen.get('event_slug')), 'band': public_id(chosen.get('condition_id')),
+        retirement = getattr(self.session, 'horizon_retirement', None)
+        return {**({} if retirement is None else {'horizon_retirement': dict(retirement)}),
+                'event': public_id(chosen.get('event_slug')), 'band': public_id(chosen.get('condition_id')),
                 'tokens': [public_id(t) for t in chosen.get('token_ids', [])],
                 'orders_placed': {'count': None if flags['unknown_submit'] else len(placed),
                                   'known_count': len(placed), 'ids': sorted(placed),
@@ -196,6 +204,7 @@ class SessionStatus:
         if success and not self.failed and not self.stop_seen and self.kind == 'driver' and self.evidence_directory is None:
             state = 'COMPLETE_NO_SESSION'
         row = {'schema_version': OUTCOME_SCHEMA, 'session_id': self.session_id, 'kind': self.kind,
+               **self.policy_metadata,
                'state': state, 'related_session_ids': sorted(set(self.related_session_ids)),
                'started_at_utc': self.started, 'ended_at_utc': self.timestamp(),
                'halt_reason': self.reason or ('completed' if passed else 'outcome_unproven'), **facts}

@@ -350,6 +350,8 @@ def finish_session(ledger, session_id, result):
     ledger.record('session_end', session_id=session_id, reason=result.get('reason'),
                   cleanup_ok=result.get('cleanup_ok') is True and complete_evidence(result), fill_seen=result.get('fill_seen'),
                   source=result.get('source', 'session'), L=str(ledger.L()),
+                  **{key: ledger.sessions[session_id]['start'][key] for key in
+                     ('policy_name', 'policy_revision', 'evidence_lane') if key in ledger.sessions[session_id]['start']},
                   **evidence_flags(result))
     if ledger.stop_reason() == 'l_stop_at_cap' and not ledger.halted:
         ledger.record('halt', reason='l_stop_at_cap', L_filled=str(ledger.L_filled()))
@@ -367,6 +369,8 @@ def end_summary(ledger, session_id, *, number, counted, run, reason, failure_typ
     figures = ledger.figures()
     ours, foreign = classify_open_orders(open_rows, ledger) if isinstance(open_rows, list) else (None, None)
     return {'session_id': session_id, 'number': number, 'counted': counted, 'session0_run': run, 'reason': reason,
+            **{key: ledger.sessions[session_id]['start'][key] for key in
+               ('policy_name', 'policy_revision', 'evidence_lane') if key in ledger.sessions[session_id]['start']},
             'failure_type': failure_type, 'cleanup_ok': bool(cleanup_ok) and complete_evidence(evidence), 'panic': bool(panic),
             **evidence_flags(evidence),
             **{k: str(v) for k, v in figures.items()}, 'open_orders': {'ours': ours, 'foreign': foreign},
@@ -513,7 +517,7 @@ def held_conditions(root, ledger):
     return sorted(set(t40['position_conditions']) | set(c for c in t40['open_order_conditions'] if c))
 
 
-def _selector(args, *, root, ledger, now_fn=_now):
+def _selector(args, *, root, ledger, now_fn=_now, local_event_dte=None):
     """(public books, select(balances)) for the profile; select builds the selection table from public reads."""
     if args.session0:
         public = Session0Books()
@@ -545,7 +549,8 @@ def _selector(args, *, root, ledger, now_fn=_now):
         # Maker-fee class rule (C8 as replaced by clarification D): WEATHER_TAKER_ONLY or FEE_FREE, else fail closed.
         return require_maker_fee_zero(public.selection(
             available_collateral=balances['available_collateral'], treatment=LFC.TREATMENT,
-            ledger=ledger.figures(), held_conditions=held_conditions(root, ledger)))
+            ledger=ledger.figures(), held_conditions=held_conditions(root, ledger),
+            **({} if local_event_dte is None else {'local_event_dte': local_event_dte})))
     return public, select
 
 
@@ -650,7 +655,7 @@ def run_live(args):
     return 0 if code == 0 and outcome['state'] == 'COMPLETE' else 1
 
 
-def _run_live(args, *, status):
+def _run_live(args, *, status, scheduled=None):
     global _LIVE_STARTED
     if _LIVE_STARTED:
         raise RuntimeError('one_session_per_process')
@@ -659,7 +664,7 @@ def _run_live(args, *, status):
     from weather.market.re1_owner_checks import clean_preflight, code_identity
     from weather.market.re1_rehearsal import WallClock
     from weather.market.re1_transport import load_owner_credentials, build_client, OwnerVenue, geography
-    profile = check_flags(args)
+    profile = check_flags(args) if scheduled is None else scheduled.profile
     late = session0_deadline_refusal(_now(), profile)
     if late:
         raise RuntimeError(late)
@@ -672,13 +677,14 @@ def _run_live(args, *, status):
         # The 88a file too (hardening review should-fix 4): absent, linked or mis-shaped refuses here, not after
         # the credentials; _selector loads it again for the selection.
         load_conditions(args.extra_conditions)
-    root = pilot_root()
-    with live_mutex():
+    root = pilot_root() if scheduled is None else scheduled.pilot_root
+    with live_mutex() if scheduled is None else scheduled.owned_admission():
         now = _now()
         early = start_refusals(now, session0=profile.session0, seconds=profile.seconds)
         if early:
             raise RuntimeError(early[0])
-        preflight = clean_preflight(root, now=now, commit=code_identity())
+        preflight = (clean_preflight(root, now=now, commit=code_identity()) if scheduled is None else
+                     scheduled.preflight(now=now, commit=code_identity()))
         if geography().get('blocked') is not False:
             raise RuntimeError('geoblock')
         fields, guard = load_owner_credentials('live')
@@ -686,6 +692,9 @@ def _run_live(args, *, status):
         if maker != preflight['maker_address']:
             raise RuntimeError('preflight_account_changed')
         ledger = Ledger.open(ledger_path(root), clock=_now, maker_address=maker)
+        if scheduled is not None:
+            scheduled.runtime.state.ledger = ledger
+            ledger.policy_metadata = scheduled.policy.labels(owner_local_date(now).isoformat())
         timeouts = preflight['timeouts_seconds']
         client = build_client(fields, timeout=max(timeouts.values()))
         venue = session = None
@@ -694,16 +703,21 @@ def _run_live(args, *, status):
         wallet_reader = OwnerVenue(client, fields, guard, readonly=True, timeouts=timeouts)
         try:
             balances = wallet_reader.balances()
-            refusals = start_gates(ledger=ledger, now=_now(), profile=profile, root=root, maker_address=maker,
-                                   open_orders=wallet_reader.open_orders(), positions=fetch_account_positions(maker))
+            gate = start_gates if scheduled is None else scheduled.start_gates
+            refusals = gate(ledger=ledger, now=_now(), profile=profile, root=root, maker_address=maker,
+                            open_orders=wallet_reader.open_orders(), positions=fetch_account_positions(maker))
             if refusals:
                 guard.print({'status': 'REFUSED', 'refusals': refusals})
                 return 1
-            public, select = _selector(args, root=root, ledger=ledger)
-            table = select(balances)
+            public, select = _selector(args, root=root, ledger=ledger,
+                                       **({} if scheduled is None else {'local_event_dte': scheduled.policy.raw['local_event_dte']}))
+            table = select(balances) if scheduled is None else scheduled.selection()
             if not table['selected_condition_id']:
                 raise RuntimeError('no_qualifying_band')
-            receipt = confirmation(table, guard, profile=profile, ledger=ledger)
+            if scheduled is not None:
+                scheduled.check_selection(table, balances)
+            receipt = (confirmation(table, guard, profile=profile, ledger=ledger) if scheduled is None else
+                       scheduled.confirmation(table, ledger))
             selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
             _, reserve_cap = profile.venue_ceiling(selected['quote']['size'])
             started = _now()
@@ -716,7 +730,9 @@ def _run_live(args, *, status):
             status.bind(session_id, directory=directory, selection=selected, ledger=ledger)
             directory.mkdir(parents=True, exist_ok=False)
             attempt = {'number': numbering['session_number'], **numbering, 'session_id': session_id,
-                       'protocol': LFC.PROTOCOL, 'selection_sha256': digest(table)}
+                       **({} if scheduled is None else scheduled.policy.labels(owner_local_date(started).isoformat())),
+                       'protocol': LFC.PROTOCOL if scheduled is None else scheduled.protocol,
+                       'selection_sha256': digest(table)}
             write_new(directory / 'attempt.json', attempt)
             ledger.record('session_start', session_id=session_id, counted=numbering['counted'],
                           session_number=numbering['session_number'], session0_run=profile.run,
@@ -724,6 +740,9 @@ def _run_live(args, *, status):
                           directory=directory.relative_to(root).as_posix(), condition_id=selected['condition_id'],
                           market_id=selected.get('market_id'), event_date=selected.get('target_date'),
                           event_slug=selected.get('event_slug'), selection_sha256=digest(table),
+                          **({} if scheduled is None else {'autostart_attempt_id': scheduled.claim['attempt_id'],
+                              'autostart_policy_sha256': scheduled.policy.sha256,
+                              'protocol': scheduled.protocol, **scheduled.policy.labels(owner_local_date(started).isoformat())}),
                           **{k: str(v) for k, v in ledger.figures().items()})
             session_recorded = True
             exclusion = None if profile.session0 else {
@@ -734,14 +753,18 @@ def _run_live(args, *, status):
                                reserve_cap=reserve_cap, profile=profile)
             # The signed order: no builder or fee argument, builder == bytes32 zero (clarification D, C8).
             guard_signed_orders(venue)
-            t40 = latest_baseline(root, ledger, 't40')
+            t40 = latest_baseline(root, ledger, 't40') if scheduled is None else scheduled.baseline
             baselines = {'t40_sha256': digest(t40)}
-            if not profile.session0:
+            if not profile.session0 and scheduled is None:
                 baselines['t24_sha256'] = digest(latest_baseline(root, ledger, 't24'))
             session = PilotSession(ledger=ledger, session_id=session_id, profile=profile, root=root,
                                    exclusion=exclusion, baselines=baselines, venue=venue, public=public, table=table,
                                    clock=WallClock(), directory=directory, guard=guard, mode='live',
-                                   confirmation=receipt, attempt=attempt)
+                                   confirmation=receipt, attempt=attempt,
+                                   **({} if scheduled is None else {'scheduled_authority': scheduled}))
+            if scheduled is not None:
+                session.cap = Decimal(scheduled.policy.terms['budget_pusd'])
+                session.campaign_policy, session.campaign_entry = scheduled.policy, scheduled.entry
             status.session, session.outcome_status = session, status
 
             def interrupted(_signal, _frame):
@@ -751,6 +774,8 @@ def _run_live(args, *, status):
                     value = getattr(signal, name)
                     handlers[value] = signal.signal(value, interrupted)
             venue.start()
+            if scheduled is not None:
+                scheduled.check(starting=True)
             result = session.run()
             status.reason = result.get('reason')
             return 0 if (result['cleanup_ok'] and result['failure_type'] is None and complete_evidence(result)
@@ -790,6 +815,8 @@ def _run_live(args, *, status):
                                       failure_type=(result or {}).get('failure_type'),
                                       cleanup_ok=outcome['cleanup_ok'], panic=not outcome['cleanup_ok'],
                                       open_rows=open_rows, evidence=outcome)
+                if getattr(session, 'horizon_retirement', None) is not None:
+                    summary['horizon_retirement'] = dict(session.horizon_retirement)
                 if close_error:
                     summary['ledger_close'] = close_error + ': run reconcile'
                 closed = close_out(root, directory, summary)
@@ -821,7 +848,7 @@ L_TOLERANCE_PUSD = Decimal('0.01')
 
 
 def positions_inventory_readable(positions):
-    """Review F-4: S0-6 compares SIZES only. OBSERVED passes; a PARTIAL read passes only with a complete inventory
+    """S0-6 compares SIZES only. Every status needs a complete inventory
     (inventory_complete is True), no unclassified rows, no top-level errors and a readable size on every row (marks
     and resolved values are irrelevant). Anything else refuses."""
     if not isinstance(positions, dict):
@@ -841,8 +868,6 @@ def positions_inventory_readable(positions):
                 return False
     except (KeyError, InvalidOperation, ValueError, TypeError):
         return False
-    if status == 'OBSERVED':
-        return True
     return (positions.get('inventory_complete') is True and positions.get('unclassified_positions') == [] and
             not positions.get('errors'))
 
@@ -871,14 +896,16 @@ def wallet_reader_report(ledger, snapshot, t40, *, open_orders, trades, position
         snapshot_l, fresh = None, False
     report['l_ledger_json_L'] = str(snapshot_l) if snapshot_l is not None else 'ERR'
     fills = trades.get('fills') if isinstance(trades, dict) else None
-    if isinstance(fills, list) and all(isinstance(row, dict) for row in fills):
+    if (isinstance(fills, list) and all(isinstance(row, dict) for row in fills) and
+            not trades.get('errors') and not trades.get('error') and trades.get('complete', True) is True):
         traded = traded_shares(fills, ledger.our_order_ids())
         venue_l = sum((Decimal(traded.get(oid, '0')) * Decimal(str(ledger.legs[key]['price']))
                        for oid, key in ledger.by_order.items()), Decimal(0))
         report['venue_L'] = str(venue_l)
         difference = abs(venue_l - snapshot_l) if snapshot_l is not None else None
         report['l_difference'] = str(difference) if difference is not None else 'ERR'
-        l_ok = fresh and difference is not None and difference <= L_TOLERANCE_PUSD
+        l_ok = (fresh and difference is not None and difference <= L_TOLERANCE_PUSD and
+                not ledger.unresolved_legs() and not ledger.trade_mismatches(traded))
     else:
         report['venue_L'] = report['l_difference'] = 'ERR'
         l_ok = False
@@ -891,12 +918,15 @@ def wallet_reader_report(ledger, snapshot, t40, *, open_orders, trades, position
     if positions_inventory_readable(positions) and t40 is not None:
         try:
             rows = list(positions.get('positions') or []) + list(positions.get('resolved_positions') or [])
-            current = {a: Decimal(v) for a, v in normalize_positions(rows).items() if a not in tokens}
-            before = {a: Decimal(str(v)) for a, v in t40['positions'].items() if a not in tokens and Decimal(str(v))}
-            changed = sorted(a for a in set(current) | set(before) if current.get(a) != before.get(a))
+            from weather.market.lfc_accounting import inventory_delta
+            inventory = inventory_delta(ledger, t40, normalize_positions(rows))
+            changed = inventory['changed']
+            report['expected_inventory'] = inventory['expected']
+            report['missing_or_below_visibility'] = inventory['missing_or_below_visibility']
         except (TypeError, ValueError, KeyError, InvalidOperation):
             changed = None
     report['positions_changed_outside_pilot'] = changed if changed is not None else 'ERR'
+    report['positions_changed'] = changed if changed is not None else 'ERR'
     report['s0_6'] = 'PASS' if l_ok and changed == [] else 'FAIL'
     report['status'] = 'PASS' if report['s0_1'] == 'PASS' and report['s0_6'] == 'PASS' else 'FAIL'
     return report
@@ -1111,7 +1141,7 @@ def reconcile_ledger(ledger, venue, *, root=None, sleep=None):
     mismatches = [{k: m.get(k) for k in ('order_id', 'recorded', 'observed', 'mismatch_kind', 'source')}
                   for m in ledger.mismatches[before:]]
     closed = []
-    if not ours and not adoption_refusals:
+    if not ours and not foreign and not adoption_refusals and not ledger.unresolved_legs():
         for session_id in ledger.open_sessions():
             finish_session(ledger, session_id, {'reason': 'reconciled_after_crash', 'cleanup_ok': True,
                                                 'fill_seen': None, 'source': 'reconcile'})

@@ -40,6 +40,12 @@ The claim boundary and frozen economics decision rule are preregistered in
 
 ## Current production disposition
 
+The separately qualified [owner-activated LFC campaign](lfc-autostart.md) defines
+its finite unattended task, entry-bound baseline protocol, durable account
+claims and control-only agent status. Its registrar remains owner-run and
+disabled by default. It does not alter the frozen manual/F0 worktree or grant
+agent execution authority.
+
 **Where each fact lives.** This runbook owns the protocol. It does not own
 authority or history:
 
