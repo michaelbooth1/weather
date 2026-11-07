@@ -31,6 +31,15 @@
       "registration_evidence": "live action (master's 2026-11-01 Scheduler read, R35): the production checkout's scripts/ops/boot_recovery.ps1, self-pinned with -ExpectedSelfSha256; repointed by the production operator under DECISION_LOG 2026-09-27 (efficiency-audit housekeeping). A landed change to boot_recovery.ps1 makes the next boot throw before recovery until register_boot_recovery.ps1 re-pins it, so such a head lands master-attended with the registrar run right after (R35 ruling); status.ps1 self_pinned_tasks flags a mismatch"
     },
     {
+      "name": "WeatherBPriceCoverage",
+      "owner": "docs/operations/OPERATIONS_DESIGN.md",
+      "state": "active",
+      "expected_disabled": false,
+      "expected_nonzero": [],
+      "registrar": "scripts/ops/register_b_price_coverage.ps1",
+      "registration_evidence": "repository registrar and checked-in task XML scripts/ops/tasks/WeatherBPriceCoverage.xml (owner yes 2026-11-05, R19 daily b_price_coverage catch-up at 04:35, DECISION_LOG); NOT registered until master registers it on the capture host with -ExpectedSourceTip and -ExpectedScriptSha256 (the b_price_coverage.ps1 pin is checked at registration only, so a landed change to the wrapper takes effect at the next run)"
+    },
+    {
       "name": "WeatherCapturePriorityGuard",
       "owner": "docs/operations/OPERATIONS_DESIGN.md",
       "state": "active",
