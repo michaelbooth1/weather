@@ -1,9 +1,10 @@
 # OWNER ONLY: register/verify/enable. Agents never call any action here.
 param([Parameter(Mandatory=$true)][ValidateSet('Register','Verify','Enable')][string]$Action,
-      [string]$RepoRoot=(Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
+      [string]$RepoRoot='',
       [Parameter(Mandatory=$true)][string]$CampaignPath,
       [Parameter(Mandatory=$true)][string]$ReleasePath,
       [string]$PythonPath,[string]$PregateReceipt,[ValidatePattern('^[0-9a-f]{40}$')][string]$QualifiedHead)
+if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'lfc_campaign_task_contract.ps1')

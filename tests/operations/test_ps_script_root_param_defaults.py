@@ -62,6 +62,7 @@ BINDING_TARGETS = {
     "register_daily_refresh.ps1": "RepoRoot",
     "register_health_watchdog.ps1": "RepoRoot",
     "register_integration_attempt.ps1": "RepoRoot",
+    "register_lfc_campaign_task.ps1": "RepoRoot",
     "register_maker_evidence_capture.ps1": "RepoRoot",
     "register_nightly_retrain.ps1": "RepoRoot",
     "register_training_window.ps1": "RepoRoot",
