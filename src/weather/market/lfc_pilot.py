@@ -514,7 +514,7 @@ class PilotSession(Session):
     def terminal_extra(self):
         retired = getattr(self, 'horizon_retirement', None)
         result = {} if retired is None else {'horizon_retirement': dict(retired)}
-        if self.scope.get('protocol') == 'lfc_autostart_v1':
+        if self.scope.get('protocol') in {'lfc_autostart_v1', 'lfc_autostart_v2'}:
             result['evidence_faults'] = sorted(self._evidence_faults)
         return result
 

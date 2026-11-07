@@ -1,0 +1,123 @@
+def run(self, *, rehearsal_seconds=None):
+    if self.started or self.mode not in {'live', 'rehearse'}:
+        raise RuntimeError('one_session_per_process')
+    if rehearsal_seconds is not None and self.mode != 'rehearse':
+        raise RuntimeError('live_duration_is_fixed')
+    self.started = True
+    atexit.register(self.cleanup)
+    reason, failure = 'fixed_end', None
+    observed_minutes = 0
+    try:
+        if self.end.date() != self.start.date() or not self.start_allowed(self.start):
+            raise HoldEnd('session_duration_or_utc_day')
+        if self.required('initial_open_orders', self.venue.open_orders, checkpoint=False) != []:
+            raise HoldEnd('initial_open_orders')
+        self.empty_account_proven = True
+        if not self.initial_positions_ok(self.required('initial_positions', self.venue.positions, checkpoint=False)):
+            raise HoldEnd('initial_positions')
+        balances = self.required('initial_balances', self.venue.balances, checkpoint=False)
+        if not self.initial_capital_ok(balances):
+            raise HoldEnd('available_collateral')
+        self.freshness.started = self.market_time = self.clock.monotonic()
+        self.opening_check()
+        self.before_first_post()
+        self.submit(0, self.prices[0])
+        self.submit(1, self.prices[1])
+        self.after_open()
+        next_minute = self.clock.monotonic()
+        next_accrual = next_minute
+        stop_at = self.deadline if rehearsal_seconds is None else min(self.deadline, self.clock.monotonic() + rehearsal_seconds)
+        while self.clock.monotonic() < stop_at:
+            self.heartbeat_loop.tick()
+            self.control()
+            if self.clock.monotonic() >= next_minute:
+                next_minute = max(next_minute + 60, self.clock.monotonic() + 1)
+                self.sample_scoring()
+                try:
+                    snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
+                except Exception as exc:
+                    if not transient(exc):
+                        raise
+                    self.note_evidence_fault('minute_missed')
+                    self.journal.record('minute_missed', exception_type=type(exc).__name__)
+                    continue
+                self.journal.record('market_snapshot', snapshot=snapshot)
+                if self.clock.monotonic() - self.market_time >= 300:
+                    raise HoldEnd('market_snapshot_stale')
+                self.market_time = self.clock.monotonic()
+                self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
+                    ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
+                observation = self.observe_snapshot(snapshot)
+                self.minute_extra(snapshot)
+                self.control()
+                if self.clock.monotonic() >= next_accrual:
+                    self.sample('accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
+                    next_accrual = self.clock.monotonic() + 1800
+                    self.control()
+                # Match the reference's one-minute sampled sums exactly.
+                if observation['visible_two_sided']:
+                    self.totals['visible_two_sided_minutes'] += 1
+                    for suffix in ('many', 'single', 'many_plain_mid'):
+                        self.totals['P_' + suffix] += observation['per_minute_' + suffix]
+                self.journal.record('minute', snapshot=snapshot, prices=list(map(str, self.prices)),
+                                    observation=observation, **self.totals)
+                observed_minutes += 1
+                if observation['requote_legs']:
+                    if self.requotes >= MAX_REQUOTES:
+                        raise HoldEnd('fifth_requote')
+                    self.requotes += 1
+                for leg in observation['requote_legs']:
+                    oid = next(oid for oid, (i, _) in self.active.items() if i == leg)
+                    self.cancel_leg(oid)
+                # Retire all affected legs before replacing either. A
+                # mixed old/new pair can exceed the capital cap even
+                # though the new treatment pair is within it.
+                for leg in observation['requote_legs']:
+                    self.prices[leg] = replacement_price(observation['adjusted_mid'], leg, self.OFFSET)
+                for leg in observation['requote_legs']:
+                    self.submit(leg, self.prices[leg])
+            self.clock.sleep(min(1, max(0, stop_at - self.clock.monotonic())))
+    except HoldEnd as exc:
+        reason = exc.reason
+    except BaseException as exc:
+        reason = 'transport_unavailable' if transient(exc) else 'interrupted' if isinstance(exc, KeyboardInterrupt) else 'exception'
+        failure = type(exc).__name__
+        self.evidence_failed = True
+    finally:
+        self.cleanup()
+        atexit.unregister(self.cleanup)
+    if self.fill_seen:
+        reason = 'fill'
+    try:
+        self.sample('final_balances', self.venue.balances)
+        self.sample('final_accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
+        self.cleanup_ok = self.cleanup_ok and not self.evidence_failed and self.inventory_proven and self.posts == len(self.known)
+        self.journal.record('terminal', reason=reason, failure_type=failure, cleanup_ok=self.cleanup_ok,
+                            **self.terminal_extra(),
+                            fill_seen=self.fill_seen, submits=self.submits, requotes=self.requotes,
+                            evidence_complete=not self.evidence_failed, reward_terms_changed=self.terms_changed,
+                            scoring_seen=self.scoring_seen, order_ids=list(self.known),
+                            unknown_submit=self.posts != len(self.known), post_count=self.posts,
+                            inventory_proven=self.inventory_proven)
+    except BaseException:
+        self.evidence_failed = True
+        self.cleanup_ok = False
+    try:
+        self.journal.close()
+    except BaseException:
+        self.evidence_failed, self.cleanup_ok = True, False
+    result = {**self.totals, 'scope': self.scope, 'mode': self.mode, 'condition_id': self.condition,
+              **self.terminal_extra(),
+              'reward_day': self.start.date().isoformat(), 'frozen_at_utc': utc(self.clock.now()).isoformat(),
+              'journal_sha256': hashlib.sha256(self.journal.path.read_bytes()).hexdigest(),
+              'cleanup_ok': self.cleanup_ok, 'fill_seen': self.fill_seen, 'reward_terms_changed': self.terms_changed,
+              'cancellation_ok': self.cancellation_ok,
+              'scoring_seen': self.scoring_seen, 'evidence_complete': not self.evidence_failed,
+              'reason': reason, 'failure_type': failure, 'submits': self.submits,
+              'order_ids': list(self.known), 'unknown_submit': self.posts != len(self.known), 'post_count': self.posts,
+              'inventory_proven': self.inventory_proven,
+              'requotes': self.requotes, 'minute_samples': observed_minutes, 'payout_read': False}
+    write_new(self.directory / 'prediction.json', self.guard.clean(result))
+    self.guard.print({'prediction': str(self.directory / 'prediction.json'), 'sha256': digest(result),
+                      'reason': reason, 'cleanup_ok': self.cleanup_ok})
+    return result

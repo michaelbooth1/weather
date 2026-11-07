@@ -72,7 +72,7 @@ class GuardedJournal(HoldJournal):
             super().record(event, **self.guard.clean(fields))
 
 
-def observe(snapshot, prices, size=SIZE, sizes=SIZES, *, reward_terms=True, window=(1, 3)):
+def observe(snapshot, prices, size=SIZE, sizes=SIZES, *, reward_terms=True, window=(1, 3), trade_legs=(0, 1)):
     """84b scoring: hold prices may drift; drift requests a re-quote, not exit.
 
 Reuse the estimator formulas; do not invoke 80b's hold-only re-pricing gates.
@@ -104,19 +104,20 @@ the reward-term exits and the reward-share estimate are skipped and the mid uses
     plain = (max(p for p, _ in yb) + min(p for p, _ in ya)) / 2
     yes, no = map(number, prices)
     visible = all(sum(s for p, s in levels if p == price) >= size
-                  for levels, price in ((yb, yes), (nb, no)))
+                  for leg, (levels, price) in enumerate(((yb, yes), (nb, no))) if leg in trade_legs)
 
     def shares(at):
         scores = []
-        for levels, own_price in ((yb, yes), (ya, 1 - no)):
+        for leg, (levels, own_price) in enumerate(((yb, yes), (ya, 1 - no))):
             aggregate = {}
             for p, s in levels:
                 aggregate[p] = aggregate.get(p, Decimal(0)) + s
-            aggregate[own_price] = max(Decimal(0), aggregate.get(own_price, Decimal(0)) - size)
+            if leg in trade_legs:
+                aggregate[own_price] = max(Decimal(0), aggregate.get(own_price, Decimal(0)) - size)
             scores.append(side_score([(float(p), float(s)) for p, s in aggregate.items() if s > 0],
                                      float(at), float(maximum), float(minimum))[0])
-        own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum))
-                      for d in ((at - yes) * 100, (1 - at - no) * 100)), float(at))
+        own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum)) if leg in trade_legs else 0
+                      for leg, d in enumerate(((at - yes) * 100, (1 - at - no) * 100))), float(at))
         return share_of(own, sum(scores) / 2), share_of(own, q_min(*scores, float(at)))
 
     many, single = shares(mid) if reward_terms else (0.0, 0.0)
@@ -129,7 +130,7 @@ the reward-term exits and the reward-share estimate are skipped and the mid uses
             'per_minute_many': float(rate) / 1440 * many,
             'per_minute_single': float(rate) / 1440 * single,
             'per_minute_many_plain_mid': float(rate) / 1440 * plain_many,
-            'requote_legs': [i for i, d in enumerate(distances) if not low <= d <= high]}
+            'requote_legs': [i for i, d in enumerate(distances) if i in trade_legs and not low <= d <= high]}
 
 
 def replacement_price(mid, leg, offset=Decimal('.015')):
@@ -154,6 +155,11 @@ class Session:
     REWARD_TERMS = True  # session-0 mode of the calibration campaign skips only the reward-terms check
     OFFSET = Decimal('.015')
     REQUOTE_WINDOW = (Decimal(1), Decimal(3))
+    TRADE_LEGS = (0, 1)
+    LEG_PRICE_RANGE = (Decimal('.17'), Decimal('.80'))
+
+    def reserve_prices(self):
+        return [self.prices[leg] for leg in self.TRADE_LEGS]
 
     @property
     def evidence_failed(self):
@@ -306,7 +312,10 @@ class Session:
                       'maker_address': venue.maker, 'end_at_utc': self.end.isoformat(),
                       'protocol': self.PROTOCOL}
         if scheduled_authority is not None:
-            self.scope.update(scheduled_authority.policy.labels(scheduled_authority.entry.local_date))
+            if scheduled_authority.protocol == 'lfc_autostart_v2':
+                self.scope.update({key: attempt[key] for key in ('policy_name', 'policy_revision', 'evidence_lane')})
+            else:
+                self.scope.update(scheduled_authority.policy.labels(scheduled_authority.entry.local_date))
             self.scope['protocol'] = scheduled_authority.protocol
         if self.sized:
             self.scope.update(size=str(self.size), reserve_pusd=selected['quote']['reserve_pusd'],
@@ -392,10 +401,14 @@ class Session:
 
     def before_post(self, request):
         # Persist before the raw network POST, after signing and all checks.
+        self.final_post_gate()
         write_new(self.directory / f'submit-{self.posts + 1}.intent.json',
                   {'number': self.posts + 1, 'request': request, 'scope': self.scope})
         self.posts += 1
         self.post_intent(request)
+
+    def final_post_gate(self):
+        """Last pure policy check, after all potentially slow opening reads."""
 
     def control(self, *, force=False):
         if getattr(self, 'outcome_status', None) is not None:
@@ -497,9 +510,11 @@ class Session:
         if self.submits >= MAX_SUBMITS or self.requotes > MAX_REQUOTES:
             raise HoldEnd('submit_budget')
         price = number(price)
-        if price != self.prices[leg] or not Decimal('.17') <= price <= Decimal('.80') or price % Decimal('.01'):
+        if (leg not in self.TRADE_LEGS or price != self.prices[leg] or
+                not self.LEG_PRICE_RANGE[0] <= price <= self.LEG_PRICE_RANGE[1] or price % Decimal('.01')):
             raise HoldEnd('submit_price')
-        if price * size > self.order_cap or sum(self.prices) * size > self.band_cap or sum(self.prices) * size > self.BAND_CEILING:
+        if (price * size > self.order_cap or sum(self.reserve_prices()) * size > self.band_cap or
+                sum(self.reserve_prices()) * size > self.BAND_CEILING):
             raise HoldEnd('capital_cap')
         expected = {oid: (self.tokens[i], p, size) for oid, (i, p) in self.active.items()}
         rows = self.required('open_orders', self.venue.open_orders)
@@ -689,6 +704,29 @@ class Session:
         return self.cleanup_ok
 
     def run(self, *, rehearsal_seconds=None):
+        """Drive the same cooperative loop used by the single-thread F2 owner.
+
+        Default draining preserves the original sleeps and journal sequence.
+        An interrupt during an external sleep is thrown back into the generator
+        so its existing cleanup/final evidence path still owns that exit.
+        """
+        steps = self.run_steps(rehearsal_seconds=rehearsal_seconds)
+        pending = None
+        try:
+            while True:
+                try:
+                    delay = next(steps) if pending is None else steps.throw(pending)
+                    pending = None
+                except StopIteration as end:
+                    return end.value
+                try:
+                    self.clock.sleep(delay)
+                except BaseException as exc:
+                    pending = exc
+        finally:
+            steps.close()
+
+    def run_steps(self, *, rehearsal_seconds=None):
         if self.started or self.mode not in {'live', 'rehearse'}:
             raise RuntimeError('one_session_per_process')
         if rehearsal_seconds is not None and self.mode != 'rehearse':
@@ -711,8 +749,8 @@ class Session:
             self.freshness.started = self.market_time = self.clock.monotonic()
             self.opening_check()
             self.before_first_post()
-            self.submit(0, self.prices[0])
-            self.submit(1, self.prices[1])
+            for leg in self.TRADE_LEGS:
+                self.submit(leg, self.prices[leg])
             self.after_open()
             next_minute = self.clock.monotonic()
             next_accrual = next_minute
@@ -738,6 +776,7 @@ class Session:
                     self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
                         ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
                     observation = self.observe_snapshot(snapshot)
+                    observation['requote_legs'] = [leg for leg in observation['requote_legs'] if leg in self.TRADE_LEGS]
                     self.minute_extra(snapshot)
                     self.control()
                     if self.clock.monotonic() >= next_accrual:
@@ -766,7 +805,7 @@ class Session:
                         self.prices[leg] = replacement_price(observation['adjusted_mid'], leg, self.OFFSET)
                     for leg in observation['requote_legs']:
                         self.submit(leg, self.prices[leg])
-                self.clock.sleep(min(1, max(0, stop_at - self.clock.monotonic())))
+                yield min(1, max(0, stop_at - self.clock.monotonic()))
         except HoldEnd as exc:
             reason = exc.reason
         except BaseException as exc:

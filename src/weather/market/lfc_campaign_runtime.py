@@ -31,7 +31,7 @@ from weather.market.mm_stage2_hold import digest
 def transient_read_error(exc):
     from urllib.error import HTTPError, URLError
     from weather.market.mm_account_reads import AmbiguousAccountRead
-    status = getattr(getattr(exc, 'response', None), 'status_code', getattr(exc, 'code', None))
+    status = getattr(getattr(exc, 'response', None), 'status_code', getattr(exc, 'status', getattr(exc, 'code', None)))
     return (isinstance(exc, (TransientPrecheck, TimeoutError, ConnectionError, AmbiguousAccountRead)) or
             isinstance(exc, URLError) and not isinstance(exc, HTTPError) or
             type(status) is int and (status == 429 or 500 <= status <= 599) or
@@ -39,10 +39,12 @@ def transient_read_error(exc):
                 'ReadTimeout', 'ConnectTimeout', 'WriteTimeout', 'PoolTimeout', 'ConnectError',
                 'ReadError', 'RemoteProtocolError'} or
             isinstance(exc, RuntimeError) and str(exc) in {'positions_unreadable', 'positions_walks_differ',
-                'positions_conflict', 'positions_page_budget', 'user_stream_readiness'})
+                'positions_conflict', 'positions_page_budget', 'user_stream_readiness'} or
+            isinstance(exc, ValueError) and str(exc).startswith(('capital_rpc_', 'capital_native_', 'capital_activity_')))
 
 
 class CampaignClock:
+    realtime = True
     def now(self):
         return datetime.now(timezone.utc)
 
@@ -62,6 +64,20 @@ class ScheduledProfile(PilotProfile):
     def venue_ceiling(self, size):
         super().venue_ceiling(size)
         return quantity(self.policy.terms['per_order_cap']), quantity(self.policy.terms['per_band_cap'])
+
+
+def claim_labels(policy, claim, entry):
+    return ({key: claim[key] for key in ('policy_name', 'policy_revision', 'evidence_lane')}
+            if policy.f2 else policy.labels(entry.local_date))
+
+
+def reward_context(fields):
+    from weather.market.wallet_reader_security import SecretGuard
+    keys = ('API_KEY', 'API_SECRET', 'API_PASSPHRASE', 'WALLET_ADDRESS', 'FUNDER_ADDRESS')
+    if not all(key in fields for key in keys) or fields.get('SIGNATURE_TYPE') not in ('2', '3'):
+        return None
+    selected = {key: fields[key] for key in keys}
+    return selected, SecretGuard(selected[key] for key in ('API_KEY', 'API_SECRET', 'API_PASSPHRASE')), int(fields['SIGNATURE_TYPE'])
 
 
 def selection_account_screen(table, balances):
@@ -86,6 +102,8 @@ class ScheduledAuthority:
         self.profile = ScheduledProfile(policy, entry)
         self.last_wall, self.last_mono = runtime.clock.now(), runtime.clock.monotonic()
         self.last_control = None
+        if policy.f2:
+            self.protocol = 'lfc_autostart_v2'
 
     def check(self, *, starting=False):
         self.runtime.lease.check()
@@ -108,7 +126,7 @@ class ScheduledAuthority:
                 except OSError:
                     gaps = True
             control_record(self.runtime.control_root, self.claim['attempt_id'], phase='RUNNING', now=now,
-                           research_gaps=gaps, reason='running', policy_metadata=self.policy.labels(self.entry.local_date))
+                           research_gaps=gaps, reason='running', policy_metadata=claim_labels(self.policy, self.claim, self.entry))
             self.last_control = mono
         if not load_policy(self.runtime.policy_path).raw['enabled'] or not self.runtime.task_enabled():
             from weather.market.re1_attended import HoldEnd
@@ -156,9 +174,9 @@ class ScheduledAuthority:
             refused.append('unresolved_campaign_money')
         if open_orders != []:
             refused.append('account_not_empty')
-        if ledger.counted_sessions() >= self.policy.terms['max_sessions']:
+        if not self.policy.f2 and ledger.counted_sessions() >= self.policy.terms['max_sessions']:
             refused.append('session_cap')
-        if ledger.L() > quantity(self.policy.terms['budget_pusd']):
+        if not self.policy.f2 and ledger.L() > quantity(self.policy.terms['budget_pusd']):
             refused.append('cap_below_committed_l')
         if str(maker_address).lower() != str(self.baseline['maker_address']).lower():
             refused.append('baseline_account_changed')
@@ -177,7 +195,8 @@ class ScheduledAuthority:
             raise StateRefused('claim_or_incident_changed')
         chosen = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
         quote = chosen['quote']
-        reserve = quantity(quote['size']) * sum((quantity(quote[k]) for k in ('yes_buy', 'no_buy')), quantity(0))
+        reserve = (quantity(quote['reserve_pusd']) if self.policy.f2 else
+                   quantity(quote['size']) * sum((quantity(quote[k]) for k in ('yes_buy', 'no_buy')), quantity(0)))
         self.policy.cost_gate(ledger, self.entry, reserve)
         return {'text': PROTOCOL, 'at_utc': self.runtime.clock.now().isoformat(),
                 'claim_sha256': digest(self.claim), 'policy_sha256': self.policy.sha256}
@@ -279,6 +298,9 @@ class Runtime:
         fields, guard = load_owner_credentials('preflight')
         if fields['FUNDER_ADDRESS'].lower() != self.state.maker.lower():
             raise StateRefused('account_changed')
+        # Share only the existing read credential subset in memory with R3.
+        # No private key, reader token, credential path or file is exported.
+        self.reward_read_context = reward_context(fields)
         client = build_client(fields, readonly=True)
         venue = OwnerVenue(client, fields, guard, readonly=True)
         try:
@@ -304,6 +326,13 @@ class Runtime:
                                                        'ended_at_utc': self.clock.now().isoformat()}
             if values['geography'].get('blocked') is not False:
                 raise StateRefused('geoblock')
+            policy = load_policy(self.policy_path)
+            if policy.f2 or any(r['event'] == 'capital_bridge' for r in self.state.ledger.capital_rows):
+                from weather.market.lfc_capital_reads import read_activity
+                values['capital_activity'] = read_activity(self.state.maker, int(venue.trades_after),
+                                      int(self.clock.now().timestamp()))
+                from weather.market.lfc_capital_native import collect
+                values['capital_activity'] = collect(values['capital_activity'], ledger=self.state.ledger)
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': self.state.maker,
                     **self.state.policy_binding,
                     'since': venue.trades_after, 'started_at_utc': start.isoformat(),
@@ -350,13 +379,20 @@ class Runtime:
                     'ledger_head_sha256': ledger.previous, 'read_sha256': digest(read),
                     'open_orders': len(read['open_orders'])}
         differences = ledger.trade_mismatches(traded)
+        capital = None
+        if 'capital_activity' in read:
+            from weather.market.lfc_capital_reads import synchronize
+            capital = synchronize(ledger, self.original_baseline(ledger), read)
+        elif any(r['event'] == 'capital_bridge' for r in ledger.capital_rows):
+            raise StateRefused('capital_activity_missing')
         inventory = inventory_delta(ledger, self.original_baseline(ledger), normalize_positions(read['positions']))
         return {'money_accounting_complete': not differences and not inventory['changed'] and not ledger.unresolved_legs(),
                 'ledger_head_sha256': ledger.previous,
                 'money_contradiction': bool(differences or inventory['changed']), 'inventory': inventory,
                 'trade_differences': differences, 'open_orders': len(read['open_orders']),
                 'cleanup_proven': read['open_orders'] == [] and not ledger.unresolved_legs(),
-                'unknown_submit': bool(ledger.unacknowledged_intents()), 'read_sha256': digest(read)}
+                'unknown_submit': bool(ledger.unacknowledged_intents()), 'read_sha256': digest(read),
+                **({} if capital is None else {'capital': capital})}
 
     def readiness(self, entry, policy, read):
         """Fresh private-stream, heartbeat and latency proof before the claim.
@@ -373,7 +409,14 @@ class Runtime:
         if fields['FUNDER_ADDRESS'].lower() != self.state.maker.lower():
             raise StateRefused('account_changed')
         public = LfcPublicBooks()
-        table = require_maker_fee_zero(public.selection(
+        if policy.f2:
+            from weather.market.lfc_f2_selection import discover
+            from weather.market.lfc_capital import CapitalBook
+            table = discover(public, policy, now=self.clock.now(), cash=read['balances']['available_collateral'],
+                      capital=CapitalBook(self.state.ledger).figures(), held_conditions=sorted(set(
+                          r.get('conditionId', '') for r in read['positions'])))
+        else:
+            table = require_maker_fee_zero(public.selection(
             available_collateral=read['balances']['available_collateral'], treatment=C.TREATMENT,
             ledger=self.state.ledger.figures(), held_conditions=sorted(set(
                 r.get('conditionId', '') for r in read['positions'])), local_event_dte=policy.raw['local_event_dte']))
@@ -381,11 +424,17 @@ class Runtime:
             raise TransientPrecheck('no_qualifying_band')
         selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
         selection_account_screen(table, read['balances'])
+        if policy.f2:
+            from weather.market.lfc_f2_selection import band_table
+            for cid in table['selected_condition_ids'][1:]:
+                selection_account_screen(band_table(table, cid), read['balances'])
         quote = selected['quote']
-        reserve = quantity(quote['size']) * sum((quantity(quote[k]) for k in ('yes_buy', 'no_buy')), quantity(0))
+        reserve = (sum((quantity(r['quote']['reserve_pusd']) for r in table['rows']
+                          if r['condition_id'] in table['selected_condition_ids']), quantity(0)) if policy.f2 else
+                   quantity(quote['size']) * sum((quantity(quote[k]) for k in ('yes_buy', 'no_buy')), quantity(0)))
         policy.cost_gate(self.state.ledger, entry, reserve)
-        if any(quantity(quote[k]) * quantity(quote['size']) > quantity(policy.terms['per_order_cap'])
-               for k in ('yes_buy', 'no_buy')) or reserve > quantity(policy.terms['per_band_cap']):
+        if not policy.f2 and (any(quantity(quote[k]) * quantity(quote['size']) > quantity(policy.terms['per_order_cap'])
+               for k in ('yes_buy', 'no_buy')) or reserve > quantity(policy.terms['per_band_cap'])):
             raise TransientPrecheck('no_qualifying_band_for_policy')
         directory = self.state.root / 'readiness' / uuid.uuid4().hex
         directory.mkdir(parents=True, exist_ok=False)
@@ -452,9 +501,9 @@ class Runtime:
         self.state.require_retained_evidence()
         if ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted or self.state.incidents():
             raise MoneyContradiction('prior_money_unresolved')
-        if ledger.counted_sessions() >= policy.terms['max_sessions']:
+        if not policy.f2 and ledger.counted_sessions() >= policy.terms['max_sessions']:
             raise StateRefused('session_cap')
-        if quantity(policy.terms['budget_pusd']) < ledger.L():
+        if not policy.f2 and quantity(policy.terms['budget_pusd']) < ledger.L():
             raise StateRefused('cap_below_committed_l')
         from weather.market.lfc_cli import session0_passed
         if not session0_passed(ledger, root=self.pilot_root):
@@ -474,7 +523,7 @@ class Runtime:
         baseline = take_baseline(label='t40', now=self.clock.now(), maker_address=self.state.maker,
                                  positions=read['positions'], open_orders=read['open_orders'],
                                  available_collateral=read['balances']['available_collateral'])
-        baseline.update(policy.labels(entry.local_date))
+        baseline.update(self.state.policy_labels(policy, entry.local_date))
         filename, sha = write_baseline(self.pilot_root, baseline, ledger)
         from weather.market.re1_owner_checks import code_identity
         prepared = {'baseline': baseline, 'baseline_file': filename, 'baseline_sha256': sha, 'headroom': resources,
@@ -491,8 +540,11 @@ class Runtime:
     def run_session(self, claim, entry, policy, prepared):
         from weather.market.lfc_cli import _run_live, parser
         from weather.market.lfc_session_status import SessionStatus
+        if policy.f2:
+            from weather.market.lfc_f2_evidence import F2Status
+            SessionStatus = F2Status
         status = SessionStatus(kind='autostart', clock=self.clock.now, monotonic=self.clock.monotonic,
-                               policy_metadata=policy.labels(entry.local_date))
+                               policy_metadata=claim_labels(policy, claim, entry))
         status.directory = self.state.root / 'owner-status'
         # STOP remains the existing owner-only fixed path; agents never create
         # it. Tests inject a temporary status/STOP surface before any checkpoint.
@@ -519,7 +571,7 @@ class Runtime:
                 self.sidecar = Sidecar(manifest=sidecar_policy['release_manifest'],
                                        output=self.state.root / 'sidecars' / claim['attempt_id'],
                                        scope=prepared['preflight']['sidecar_scope'], started=self.clock.now(),
-                                       seconds=entry.seconds, policy_metadata=policy.labels(entry.local_date))
+                                       seconds=entry.seconds, policy_metadata=claim_labels(policy, claim, entry))
             watcher = threading.Thread(target=watch_owner_stop, name='lfc-owner-stop', daemon=True)
             watcher.start()
             for name in ('SIGINT', 'SIGTERM', 'SIGBREAK'):
@@ -527,7 +579,11 @@ class Runtime:
                     number = getattr(signal, name)
                     previous[number] = signal.signal(number, interrupted)
             status.checkpoint()
-            code = _run_live(parser().parse_args(['live']), status=status, scheduled=authority)
+            if policy.f2:
+                from weather.market.lfc_f2_runtime import run_live
+                code = run_live(self, authority, status)
+            else:
+                code = _run_live(parser().parse_args(['live']), status=status, scheduled=authority)
         except BaseException as exc:
             status.failed = True
             status.reason = status.reason or ('owner_interrupt' if isinstance(exc, KeyboardInterrupt) else
@@ -568,10 +624,15 @@ class Runtime:
             paths = [path for name in ('journal.jsonl', 'prediction.json', 'session_end.json', 'attempt.json', 'selection.json')
                      if (path := directory / name).exists()]
             paths += list(directory.glob('submit-*.intent.json')) + list(directory.glob('submit-*.ack.json'))
-            if len(paths) > 30:
+            if result['outcome'].get('f2_session') is True:
+                paths.append(directory / 'f2_manifest.json')
+                from weather.market.lfc_f2_evidence import manifest_at
+                for band in manifest_at(directory)['bands']:
+                    paths += [directory / band['directory'] / name for name in band['evidence_sha256']]
+            if len(paths) > 70:
                 raise StateRefused('private_file_count')
             for path in paths:
-                original_files[path.name] = file_sha(validate_contained_regular_file(self.pilot_root, path))
+                original_files[path.relative_to(directory).as_posix()] = file_sha(validate_contained_regular_file(self.pilot_root, path))
         sha = self.state.save('results/' + claim['attempt_id'] + '.json',
                               {**result, 'private_file_hashes': original_files})
         self.state.ledger.record('autostart_result', attempt_id=claim['attempt_id'], file_sha256=sha)
@@ -627,6 +688,9 @@ class Runtime:
                 public.get('research_evidence_complete') is not True):
             proof['research_evidence_complete'] = False
         self.state.save('postchecks/' + uuid.uuid4().hex + '.json', {'attempt_id': claim['attempt_id'], 'proof': proof})
+        if result.get('outcome', {}).get('f2_session') is True:
+            from weather.market.lfc_f2_economics import publish_supplements
+            publish_supplements(self)
         return proof
 
     def record_skip(self, entry, policy, reason):

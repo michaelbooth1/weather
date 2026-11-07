@@ -2649,6 +2649,10 @@ SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
     SchemaLiteralExclusion(
+        "campaign_support_bound_v1", "weather.market.lfc_f2_policy", "inference_method_identifier",
+        "Campaign-level support-bound inference identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "sorted_whole_files_v1",
         "weather.operations.production_cold_archive_stage",
         "archive_chunk_grouping",

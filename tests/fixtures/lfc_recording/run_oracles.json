@@ -1,0 +1,12 @@
+[
+  {
+    "name": "pin",
+    "git_sha": "124603578f393827fa1b67bd978f6e3b02048ae9",
+    "sha256": "e60e895e3ca9337711f17730769ef55796deef674486ff5f7b75fb54ee10da2e"
+  },
+  {
+    "name": "recording_only",
+    "git_sha": "2c0e858180277e102c7e9cd95d4e3eff0b1c1883",
+    "sha256": "5c94a0a072fb56b4a0fb2c04850076c4c1a60a9ce2d643d73e4cd11bbf29ade8"
+  }
+]

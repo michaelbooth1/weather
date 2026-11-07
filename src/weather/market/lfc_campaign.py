@@ -101,7 +101,10 @@ class CampaignCoordinator:
             self.status('INCIDENT', incident=True, postchecks_pending=True)
             return 'INCIDENT'
         policy = load_policy()
-        self.policy_binding = policy.labels(self.clock.now().astimezone(ZONE).date().isoformat())
+        if policy.f2:
+            from weather.market.lfc_f2_freeze import capture
+            capture(self.state, policy, self.clock.now())
+        self.policy_binding = self.state.policy_labels(policy, self.clock.now().astimezone(ZONE).date().isoformat())
         self.state.policy_binding = dict(self.policy_binding)
         if not policy.raw['enabled'] or not self.runtime.task_enabled():
             self.status('DISABLED')
@@ -121,6 +124,9 @@ class CampaignCoordinator:
             if now < entry.start:
                 continue
             return self.start(entry, policy, load_policy)
+        if policy.f2:
+            from weather.market.lfc_f2_followup import maintenance
+            maintenance(self.runtime, policy)
         self.status('IDLE')
         return 'IDLE'
 

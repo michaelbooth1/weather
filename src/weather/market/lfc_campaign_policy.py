@@ -47,6 +47,7 @@ class Entry:
     end: datetime
     seconds: int
     fixed_end: datetime | None = None
+    shorten_to_fixed_end: bool = False
 
     def permits(self, now):
         if type(self.seconds) is not int or not MIN_SESSION_SECONDS <= self.seconds <= C.SESSION_SECONDS:
@@ -57,13 +58,18 @@ class Entry:
                 planned <= datetime.combine(now.date(), time(23, 50), tzinfo=timezone.utc))
 
     def session_end(self, now):
-        return now + timedelta(seconds=self.seconds)
+        end = now + timedelta(seconds=self.seconds)
+        return min(end, self.fixed_end) if self.shorten_to_fixed_end and self.fixed_end is not None else end
 
 
 @dataclass(frozen=True)
 class Campaign:
     raw: dict
     entries: tuple
+
+    @property
+    def f2(self):
+        return False
 
     @property
     def sha256(self):
@@ -125,6 +131,9 @@ def wall_time(value):
 
 
 def parse_policy(row):
+    if isinstance(row, dict) and row.get('schema_version') == 'lfc_campaign_policy_v0.2':
+        from weather.market.lfc_f2_policy import parse_f2
+        return parse_f2(row)
     exact_keys(row, ('schema_version', 'enabled', 'campaign_id', 'revision', 'timezone', 'terms', 'entries', 'sidecar',
                      'policy_name', 'policy_revision', 'local_event_dte', 'band_limit_session', 'band_limit_concurrent',
                      'bands_per_event', 'start_window_toronto', 'trading_end_toronto', 'max_sessions_per_day',
@@ -239,7 +248,9 @@ def load_policy(path):
 
 def parameter_support():
     """JSON support table sealed with the release, independent of policy edits."""
+    from weather.market.lfc_f2_policy import support_table
     return {
+        'f2': support_table(),
         'terms.budget_pusd': {'exclusive_min': '0', 'max': str(C.CAP_PUSD)},
         'terms.shares_per_leg': {'values': [str(C.PILOT_SIZE)]},
         'terms.k_max': {'values': [1]},

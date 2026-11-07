@@ -6,9 +6,17 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
-    SchemaSpec("lfc_autostart_protocol", "lfc_autostart_v1", "weather.market.lfc_campaign_policy", "active",
+    SchemaSpec("lfc_economics_supplement", "lfc_economics_supplement_v0.1", "weather.market.lfc_f2_economics", "active",
+               "Immutable measured-cash follow-up; preserves the original outcome and separates unlinked incentives."),
+    SchemaSpec("lfc_f2_manifest", "lfc_f2_manifest_v0.1", "weather.market.lfc_f2_evidence", "active",
+               "Retained aggregate of two independently proved band packets and their original file hashes."),
+    SchemaSpec("lfc_autostart_protocol", "lfc_autostart_v2", "weather.market.lfc_f2_controller", "active",
+               "Cooperative multi-band sessions backed by reconciled native-principal accounting.", supersedes=("lfc_autostart_v1",)),
+    SchemaSpec("lfc_autostart_protocol_v1_legacy", "lfc_autostart_v1", "weather.market.lfc_campaign_policy", "legacy",
                "Explicit owner-activated protocol with internally bound fresh baselines instead of historical T-24 lead time."),
-    SchemaSpec("lfc_campaign_policy", "lfc_campaign_policy_v0.1", "weather.market.lfc_campaign_policy", "active",
+    SchemaSpec("lfc_campaign_policy", "lfc_campaign_policy_v0.2", "weather.market.lfc_f2_policy", "active",
+               "Owner-editable F2 terms, native-principal sleeve and fixed-end finite calendar.", supersedes=("lfc_campaign_policy_v0.1",)),
+    SchemaSpec("lfc_campaign_policy_v0_1_legacy", "lfc_campaign_policy_v0.1", "weather.market.lfc_campaign_policy", "legacy",
                "Owner-editable finite scheduled campaign policy, independent of immutable release identity."),
     SchemaSpec("lfc_campaign_state", "lfc_campaign_state_v0.1", "weather.market.lfc_campaign_state", "active",
                "Account-scoped enrollment, date claims, incident latches and non-recovering closeout proofs."),
@@ -28,7 +36,9 @@ RECENT_REGISTERED_SCHEMAS = (
                "Optional T017 recorder scope, cadences, honest coverage gaps and physical chunk verification."),
     SchemaSpec("lfc_campaign_sidecar_release", "lfc_campaign_sidecar_release_v0.1", "weather.market.lfc_campaign_sidecar", "active",
                "Owner-selected reviewed public recorder pin, interpreter and expected health schema."),
-    SchemaSpec("lfc_session_outcome", "lfc_session_outcome_v0.1", "weather.market.lfc_session_status", "active",
+    SchemaSpec("lfc_session_outcome", "lfc_session_outcome_v0.2", "weather.market.lfc_f2_evidence", "active",
+               "Two-band owner outcome with separated planning and measured economics.", supersedes=("lfc_session_outcome_v0.1",)),
+    SchemaSpec("lfc_session_outcome_v0_1_legacy", "lfc_session_outcome_v0.1", "weather.market.lfc_session_status", "legacy",
                "Create-only public unattended outcome with strict proof flags and evidence hashes; no credentials."),
     SchemaSpec("lfc_session_heartbeat", "lfc_session_heartbeat_v0.1", "weather.market.lfc_session_status", "active",
                "Append-only public RUNNING observations; a stale last observation indicates lost progress."),
@@ -1392,10 +1402,16 @@ RECENT_REGISTERED_SCHEMAS = (
         migration_notes="No rewrite: v0.1 rows stay valid; new rows are v0.2 and leg_adopt needs a v0.2 row.",
     ),
     SchemaSpec(
-        "lfc_ledger", "lfc_ledger_v0.3", "weather.market.lfc_ledger", "active",
+        "lfc_ledger_v0_3_legacy", "lfc_ledger_v0.3", "weather.market.lfc_ledger", "legacy",
         "Opt-in autostart enrollment, durable claims and incident hashes; enrolled writers require the account OS guard.",
         supersedes=("lfc_ledger_v0.1", "lfc_ledger_v0.2"),
         migration_notes="Old rows are preserved. Unenrolled/manual rows remain v0.2; enrollment explicitly advances to v0.3 so old clients refuse.",
+    ),
+    SchemaSpec(
+        "lfc_ledger", "lfc_ledger_v0.4", "weather.market.lfc_ledger", "active",
+        "Native-unit principal bridge, observed redemptions/costs and retained legacy L on the same writer.",
+        supersedes=("lfc_ledger_v0.1", "lfc_ledger_v0.2", "lfc_ledger_v0.3"),
+        migration_notes="Capital events opt in after account/inventory reconciliation; old readers must refuse.",
     ),
     SchemaSpec(
         "lfc_session0_pass", "lfc_session0_pass_v0.1", "weather.market.lfc_cli", "active",

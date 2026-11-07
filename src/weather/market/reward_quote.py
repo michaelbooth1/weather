@@ -84,6 +84,9 @@ def _price_reward_quote(
     per_order_ceiling: object = "16",
     per_band_ceiling: object = "20",
     size: object = "20",
+    quote_offset: object = "0.015",
+    distance_window: tuple = ("1", "3"),
+    trade_legs: tuple = (0, 1),
 ) -> RewardQuote:
     """Price a bounded RE-1 size, 1.5 cents outward from size-adjusted mid.
 
@@ -100,6 +103,11 @@ require explicit size and ceilings; no profile is selected by this calculation.
     step = _decimal(tick)
     order_cap, band_cap = _decimal(per_order_ceiling), _decimal(per_band_ceiling)
     size = _decimal(size)
+    offset = _decimal(quote_offset)
+    low, high = map(_decimal, distance_window)
+    if (not Decimal('.005') <= offset <= Decimal('.05') or not Decimal('.5') <= low <= high <= 6 or
+            tuple(trade_legs) not in ((0,), (1,), (0, 1))):
+        raise QuoteRefused('unsupported_quote_policy')
     # 40 = live-fill calibration pilot (weather.market.lfc_constants.PILOT_SIZE), a declared deviation from 75.
     if size not in (20, 30, 40, 50, 75):
         raise QuoteRefused("invalid_treatment_size")
@@ -133,18 +141,19 @@ require explicit size and ceilings; no profile is selected by this calculation.
     def outward(value: Decimal) -> Decimal:
         return (value / step).to_integral_value(rounding=ROUND_FLOOR) * step
 
-    yes = outward(mid - Decimal("0.015"))
-    no = outward(1 - mid - Decimal("0.015"))
+    yes = outward(mid - offset)
+    no = outward(1 - mid - offset)
     for buy, asks in ((yes, ya), (no, na)):
         if buy <= 0 or min(price for price, _ in asks) - buy < step:
             raise QuoteRefused("would_cross_or_violate_touch_buffer")
-    reserve = size * (yes + no)
-    if max(yes, no) * size > order_cap or reserve > band_cap:
+    reserve = size * sum(((yes, no)[leg] for leg in trade_legs), Decimal(0))
+    if max((yes, no)[leg] for leg in trade_legs) * size > order_cap or reserve > band_cap:
         raise QuoteRefused("capital_ceiling_exceeded")
     distances = ((mid - yes) * 100, (1 - mid - no) * 100)
-    if any(not Decimal("1.0") <= d <= Decimal("3.0") or d >= maximum for d in distances):
+    if any(not low <= distances[leg] <= high or distances[leg] >= maximum for leg in trade_legs):
         raise QuoteRefused("outside_leave_alone_window")
-    own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum)) for d in distances), float(mid))
+    own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum)) if leg in trade_legs else 0
+                  for leg, d in enumerate(distances)), float(mid))
     scores = [
         side_score([(float(p), float(s)) for p, s in levels], float(mid), float(maximum), float(minimum))[0]
         for levels in (yb, ya)

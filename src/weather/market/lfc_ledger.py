@@ -42,7 +42,7 @@ from weather.market.reward_quote import QuoteRefused, _decimal
 # v0.2 (fix round 1, review F-5) adds leg_adopt: an unacknowledged intent adopted at reconcile onto the one venue
 # order that matches it. New rows are written as v0.2; v0.1 history stays valid and leg_adopt needs a v0.2 row.
 LEDGER_SCHEMA = 'lfc_ledger_v0.2'
-LEDGER_SCHEMAS = ('lfc_ledger_v0.1', 'lfc_ledger_v0.2', 'lfc_ledger_v0.3')
+LEDGER_SCHEMAS = ('lfc_ledger_v0.1', 'lfc_ledger_v0.2', 'lfc_ledger_v0.3', 'lfc_ledger_v0.4')
 BASELINE_SCHEMA = 'lfc_baseline_v0.1'
 SNAPSHOT_SCHEMA = 'lfc_l_ledger_v0.1'
 LEDGER_FILE = 'ledger.jsonl'
@@ -57,8 +57,9 @@ POSITIONS_STATUSES = ('OPEN', 'REDEEMABLE_LOST')
 POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filter_amount': '0', 'sort_by': 'TOKENS',
                      'sort_direction': 'DESC'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
-           'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result',
-           'owner_history_recovery'}
+           'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result', 'autostart_freeze',
+           'owner_history_recovery', 'capital_anchor', 'capital_bridge', 'capital_native_group',
+           'capital_activity', 'capital_resolution', 'capital_cost'}
 
 
 class LedgerUnavailable(RuntimeError):
@@ -161,8 +162,9 @@ class Ledger:
                 row_version = LEDGER_SCHEMAS.index(row['schema_version'])
                 ok = (canonical_bytes(row) == line and row_version >= version and
                       (row['event'] != 'leg_adopt' or row_version >= 1) and
-                      (row['event'] != 'autostart_enroll' or row_version == 2) and
-                      (row['event'] != 'owner_history_recovery' or row_version == 2) and
+                      (row['event'] != 'autostart_enroll' or row_version >= 2) and
+                      (row['event'] != 'owner_history_recovery' or row_version >= 2) and
+                      (not row['event'].startswith('capital_') or row_version == 3) and
                       row['kind'] == 'lfc_ledger' and row['sequence'] == index and
                       row['previous_sha256'] == previous and row['event'] in _EVENTS and
                       (last is None or when >= last) and (index == 0) == (row['event'] == 'genesis'))
@@ -180,13 +182,21 @@ class Ledger:
         self.enrollment = None
         self.autostart_claims, self.autostart_incidents, self.history_recoveries = [], [], []
         self.autostart_results = []
+        self.capital_rows = []
         self.halted, self.mismatches = False, []
         for row in self.rows:
             self._apply(row)
 
     def _apply(self, row):
         event = row['event']
-        if event == 'owner_history_recovery':
+        if event.startswith('capital_'):
+            from weather.market.lfc_capital import CapitalBook, CapitalRefused
+            try:
+                CapitalBook(self).apply(row)
+            except (ValueError, KeyError, TypeError) as exc:
+                raise LedgerUnavailable(str(exc) if isinstance(exc, CapitalRefused) else 'capital_event_invalid') from None
+            self.capital_rows.append(row)
+        elif event == 'owner_history_recovery':
             if (row.get('session_id') not in self.sessions or self.sessions[row['session_id']]['end'] is None or
                     not all(isinstance(row.get(k), str) and row[k] for k in
                             ('original_evidence_sha256', 'file', 'file_sha256'))):
@@ -198,6 +208,11 @@ class Ledger:
             if not all(isinstance(row.get(k), str) and row[k] for k in ('state_id', 'identity_sha256', 'state_root')):
                 raise LedgerUnavailable('ledger_enrollment_identity')
             self.enrollment = row
+        elif event == 'autostart_freeze':
+            if (self.enrollment is None or row.get('attempt_id') != 'campaign-freeze' or
+                    not isinstance(row.get('file_sha256'), str) or
+                    any(r['event'] == event and r['sequence'] < row['sequence'] for r in self.rows)):
+                raise LedgerUnavailable('ledger_freeze_scope')
         elif event in ('autostart_claim', 'autostart_incident', 'autostart_result'):
             if self.enrollment is None:
                 raise LedgerUnavailable('ledger_not_enrolled')
@@ -269,6 +284,11 @@ class Ledger:
         return self.figures()['L_resting']
 
     def headroom(self, cap=None):
+        if any(r['event'] == 'capital_bridge' for r in self.capital_rows):
+            from weather.market.lfc_capital import CapitalBook, SCALE
+            figures = CapitalBook(self).figures()
+            ceiling = figures['funding_native'] if cap is None else min(figures['funding_native'], int(_decimal(cap) * SCALE))
+            return Decimal(max(0, ceiling - figures['charged_native'])) / SCALE
         return max(Decimal(0), self.effective_cap(cap) - self.L())
 
     @staticmethod
@@ -282,6 +302,10 @@ class Ledger:
             return 'l_reconciliation_mismatch'
         if self.halted:
             return 'ledger_halted'
+        if any(r['event'] == 'capital_bridge' for r in self.capital_rows):
+            from weather.market.lfc_capital import CapitalBook
+            figures = CapitalBook(self).figures()
+            return 'capital_total_ceiling' if figures['charged_native'] > figures['funding_native'] else None
         if self.L_filled() + LFC.MIN_FEASIBLE_RESERVE > self.effective_cap(cap):
             return 'l_stop_at_cap'
         return None
@@ -293,6 +317,8 @@ class Ledger:
         that band's own legs still counted in L, which the reserve already covers (a replaced leg is cancelled and
         terminal before its replacement is gated, so it is no longer in L).
         """
+        if any(row['event'] == 'capital_bridge' for row in self.capital_rows):
+            raise LedgerCap('capital_requires_native_gate')
         stopped = self.stop_reason(LFC.CAP_PUSD)
         if stopped:
             raise LedgerCap(stopped)
@@ -302,7 +328,11 @@ class Ledger:
         return base
 
     def counted_sessions(self):
-        return sum(1 for s in self.sessions.values() if s['start']['counted'] and s['legs'])
+        legacy = sum(1 for s in self.sessions.values() if s['start']['counted'] and s['legs'] and
+                     s['start'].get('protocol') != 'lfc_autostart_v2')
+        f2 = {s['start']['autostart_attempt_id'] for s in self.sessions.values() if s['legs'] and
+              s['start'].get('protocol') == 'lfc_autostart_v2'}
+        return legacy + len(f2)
 
     def open_sessions(self):
         return [sid for sid, s in self.sessions.items() if s['end'] is None]
@@ -341,6 +371,8 @@ class Ledger:
         row = self._row(len(self.rows), self.previous, self.clock, event, fields)
         if self.enrollment is not None or self.history_recoveries or event in {'autostart_enroll', 'owner_history_recovery'}:
             row['schema_version'] = 'lfc_ledger_v0.3'
+        if self.capital_rows or event.startswith('capital_'):
+            row['schema_version'] = 'lfc_ledger_v0.4'
         if utc(row['recorded_at_utc']) < utc(self.rows[-1]['recorded_at_utc']):
             raise LedgerUnavailable('ledger_clock_regressed')
         raw = canonical_bytes(row)
@@ -365,9 +397,14 @@ class Ledger:
 
     def snapshot(self):
         figures = self.figures()
+        capital = None
+        if any(r['event'] == 'capital_bridge' for r in self.capital_rows):
+            from weather.market.lfc_capital import CapitalBook
+            capital = CapitalBook(self).figures()
         return {'schema_version': SNAPSHOT_SCHEMA, 'kind': 'lfc_l_ledger', 'history_file': self.path.name,
                 'history_rows': len(self.rows), 'history_last_sha256': self.previous,
                 'recorded_at_utc': self.rows[-1]['recorded_at_utc'], 'budget_pusd': str(LFC.CAP_PUSD),
+                **({} if capital is None else {'capital_mode': 'fixed_sleeve_redeemed_principal_only', 'capital': capital}),
                 **{k: str(v) for k, v in figures.items()}, 'halted': self.halted,
                 'mismatches': len(self.mismatches), 'stop_reason': self.stop_reason(),
                 'our_order_ids': sorted(self.by_order),
@@ -390,6 +427,11 @@ class Ledger:
 
     def intent(self, *, session_id, intent_key, token_id, condition_id, price, size, fee_rate_bps):
         # fee_rate_bps is recorded for the analysis only; the signed L has no fee term.
+        if any(row['event'] == 'capital_bridge' for row in self.capital_rows):
+            from weather.market.lfc_capital import CapitalBook
+            # Lowest durable boundary: concurrent bands cannot both spend the
+            # same headroom even if an earlier planning gate was stale.
+            CapitalBook(self).gate(reserve=_decimal(price) * _decimal(size))
         return self.record('leg_intent', session_id=session_id, intent_key=intent_key, token_id=token_id,
                            condition_id=condition_id, price=str(price), size=str(size), fee_rate_bps=str(fee_rate_bps))
 

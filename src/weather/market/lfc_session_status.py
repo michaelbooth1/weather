@@ -38,6 +38,8 @@ def now():
 
 
 class SessionStatus:
+    OUTCOME_SCHEMA = OUTCOME_SCHEMA
+
     def __init__(self, *, kind, clock=now, monotonic=time.monotonic, checkpoint_hook=None, policy_metadata=None):
         self.clock, self.monotonic = clock, monotonic
         self.started = self.timestamp()
@@ -217,7 +219,7 @@ class SessionStatus:
         state = 'COMPLETE' if passed else 'STOPPED' if self.stop_seen else 'ATTENTION'
         if success and not self.failed and not self.stop_seen and self.kind == 'driver' and self.evidence_directory is None:
             state = 'COMPLETE_NO_SESSION'
-        row = {'schema_version': OUTCOME_SCHEMA, 'session_id': self.session_id, 'kind': self.kind,
+        row = {'schema_version': self.OUTCOME_SCHEMA, 'session_id': self.session_id, 'kind': self.kind,
                **self.policy_metadata,
                'state': state, 'related_session_ids': sorted(set(self.related_session_ids)),
                'started_at_utc': self.started, 'ended_at_utc': self.timestamp(),

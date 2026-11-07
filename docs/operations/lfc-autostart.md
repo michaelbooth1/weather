@@ -15,9 +15,14 @@ This credential-dependent owner task is an explicit exception to the ordinary
 S4U operations convention. There is no signature, ARM receipt, mandatory
 owner-started validation day, or per-policy-edit pregate.
 
-The checked-in [example](../examples/lfc-campaign.example.json) is disabled.
-Its terms remain the existing one-band pilot terms. Every pending money/session
-choice is represented by a named field; the parser is the support contract:
+The checked-in [F2 example](../examples/lfc-campaign.example.json) and
+[alternate filename](../examples/campaign.proposed.json) are disabled runtime
+policies. F2's v0.2 rules below govern those files. The separate
+[v0.1 reference](../examples/lfc-campaign.reference.json) retains the original
+one-band contract in the following table; those reference restrictions do not
+override F2. Parsing a file never activates it.
+
+## Reference v0.1 protocol
 
 | Fields | Qualified edits |
 | --- | --- |
@@ -50,7 +55,54 @@ The minimum leaves 120 seconds for opening reads before the controller's existin
 180-second pre-POST horizon. The boundary is tested with nonzero opening latency;
 it is not a promise to place through an outage. Unsupported short durations refuse
 at policy parsing and the final preclaim predicate, before any claim or skip is
-written. Full duration must still fit at the actual go time; no late clipping.
+written. This reference protocol requires the full duration to fit. F2 explicitly
+shortens a late session at its fixed end instead.
+
+## F2 v0.2 fields and admission
+
+The example owns exact defaults; `lfc_f2_policy` and the release's support table
+own supported values. Unknown fields and unsupported values refuse explicitly.
+
+| Fields | Enforcement |
+| --- | --- |
+| Markets, native-date horizons and selection | Retain F0 public/depth/reward filters with the configured quote. Pick the highest planning reward per city, tie by condition ID; use that same rank when cash admits fewer bands. An absent city stays idle. |
+| Band/event limits | At most two concurrent bands, one event per city, no replacement. One cooperative process owns the account/date claim and all workload slots. Each band retains its own submit/requote limits. |
+| `tokens`, `order_side`, `shares_per_leg` | Paired YES+NO, YES, NO, or CHEAP (lower quoted probability; YES wins a tie). BUY only at the approved fixed size; no reward-minimum scaling. |
+| Offset, distance window, price/share ranges and caps | Applied to proposals and placement/requote checks, with final raw-POST and signed-order checks. Monetary caps dominate allowed prices. |
+| Fill, replacement and inventory-exit fields | First fill cancels that band's remaining orders and retires it. Other bands continue. Hold inventory for actual venue payout/redemption; own cancel-race fills. |
+| Start/end, duration and calendar fields | Derive finite Toronto entries, excluding transition and separately bound Monday F0. Late go shortens exposure, retaining the fixed end. No catch-up or second claim. |
+| Funding, capital mode, top-ups and reinvestment | Native-unit sleeve in the existing account ledger. Actual redemption releases at most lot basis. The reconciled bridge includes legacy L/inventory; no config/date/deposit reset. |
+| Loss-stop fields | Null. Total sleeve, prospective exposure and actual spendable principal cash are the monetary gates; no additional daily or smaller cumulative stop. |
+| Policy identity/revision | Snapshot per attempt. Economic changes require a higher revision and apply only at the next unclaimed session, including changes of name. |
+| Evidence and economic-contract fields | Label cash population, final look, strict positive-cash hurdle and inference contract. A prediction is never income or a promotion decision. |
+| Sidecar | Null/disabled only; enabled capability still refuses until interval coverage is qualified. |
+
+The ledger advances its protocol before capital events. Genesis and historical
+L remain intact. F2 refuses the old L post gate after the bridge. In collateral
+native units its disjoint lots require:
+
+`realized principal loss + unrecovered basis + resting reserve + new reserve + paid/reserved costs <= funding ceiling`.
+
+Fresh spendable cash is an independent gate. Unknown payout returns no principal.
+Cancellation frees only proved unfilled reserve. Redemption returns at most
+released basis; profit, incentives and later deposits are segregated. Incoming
+unattributed cash is quarantined; an unexplained debit refuses another post.
+A later known payout appends a scoped resolution, retaining its original unknown
+read. Unknown outgoing costs refuse admission.
+
+The bridge checks bounded activity, account fills and exact inventory against
+the original baseline. It verifies Polygon identity and the collateral's actual
+decimals, then matches retained ERC-20 receipts to native wallet flows. Data API
+cash labels are candidates; a mismatched or unallocated payout returns no
+principal. There is no assumed USD conversion. See the
+[v2 schema](https://data-api.polymarket.com/v2/openapi.json) and
+[ERC-20 transfer contract](https://eips.ethereum.org/EIPS/eip-20).
+There is no redemption, sale, top-up or transfer capability in this code.
+
+Outcomes separate PLANNING scenarios from MEASURED fills, fees, carried basis
+and redemption cash. Accrual and paid rewards are distinct; missing earned-scope
+or payment linkage stays unknown, never zero or predicted income. Rebates remain
+flagged separately from loss.
 
 ## Claims, proof and recovery
 
@@ -132,7 +184,8 @@ and during quoting. A fresh-looking table's creation time
 cannot authorize a T+0 order. A disallowed native-date transition retires the
 event through normal cancel/verify cleanup; `horizon_retirement` remains in the
 outcome even if a cancel-race fill also changes the session's end reason. The
-qualified controller has one event, so this ends its session without replacement.
+reference controller has one event. F2 retires only that band without replacement;
+unaffected bands continue.
 Toronto and Denver midnight transitions are tested separately. A planned end
 may cross such a boundary because that tested pull is in place.
 
@@ -185,11 +238,36 @@ no prices, fills, tokens, events, wallet or credential paths. RUNNING observatio
 are published at least every minute while the loop progresses. A stale last
 observation is lost progress, not proof of a clean exit.
 
-The disabled [T033 proposal](../examples/campaign.proposed.json) is a specification
-example, not runtime policy or approval. Its proposed horizon, band, date, budget
-and capital values are not activated by shipping it. Unknown fields and any
-unsupported values fail explicitly; the runtime [reference example](../examples/lfc-campaign.example.json)
-retains the current F0 terms. Original historical evidence is never relabeled.
+The disabled [F2 example](../examples/lfc-campaign.example.json) and
+[proposal copy](../examples/campaign.proposed.json) carry the B036 owner-approved
+v0.2 terms. The [v0.1 reference](../examples/lfc-campaign.reference.json) retains
+the compatibility contract. Shipping examples does not register or enable a task.
+Unsupported values refuse explicitly; original history is never reset or relabeled.
+
+The final scheduled tick in the five minutes preceding November 16 18:00 Toronto
+seals the economic parameters early, automatically. The immutable freeze records
+its actual observation time and hash. A missed deadline is late, never backdated;
+trading may continue as learning. A changed economic revision after that seal
+abandons confirmation: its claimed dates and all subsequent dates are successor
+learning, even if parameters later revert. No extra owner action or pregate is
+needed for supported edits. Missing freeze originals take the same sticky N1
+artifact-fault path as missing private session evidence.
+
+F2 outcomes distinguish PLANNING reward scenarios from MEASURED fills, fees,
+carried cost basis, actual native redemptions and incentives. Unknown fees or
+payments remain null. Account incentive credits are shown separately; a payment
+without a verified earned-session link is never booked as session income.
+Read-only hourly follow-up, outside entry windows, records independent D+1/D+2
+passes and venue settlement. Public calls are capped at two per second and the
+pass has a bounded read budget. Failures remain explicit gaps. It never redeems
+holdings, places orders or consumes another date. Redemption remains an owner or
+separately authorized facility action; until proved, its principal stays charged.
+Later facts create immutable `status/<session>.e-<hash>.json` economics supplements;
+the original outcome remains unchanged. The control projection remains free of
+economic facts for researchers who must stay blind. The default final-look helper
+requires complete measured cash and the registered family closure; positive cash
+alone is not qualified edge, and missing evidence gives INCONCLUSIVE.
+
 
 The optional T017 capability is explicitly refused in this release, including
 at the adapter constructor. A manifest alone cannot enable it. Qualification

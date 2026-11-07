@@ -150,11 +150,17 @@ class AccountState:
             if (not isinstance(closed.get('proof'), dict) or closed['proof'].get('ledger_head_sha256') not in chain or
                     closed.get('proof_sha256') != digest(closed['proof'])):
                 raise StateRefused('closeout_ledger_continuity')
+        from weather.market.lfc_f2_freeze import verify
+        verify(self)
         return row
 
     def evidence_fault(self, attempt, *, artifact='private-evidence'):
         """Persist a sticky fault even when ordinary verification is now failing."""
         return latch_occurrence(self, attempt, 'private_evidence_fault', artifact, self.ledger.clock())
+
+    def policy_labels(self, policy, local_date):
+        from weather.market.lfc_f2_freeze import labels
+        return labels(self, policy, local_date)
 
     def result_anchor(self, attempt):
         events = [r for r in self.ledger.autostart_results if r['attempt_id'] == attempt]
@@ -201,7 +207,10 @@ class AccountState:
         if any(hashes.get(name) != sha for name, sha in expected.items()):
             raise ValueError('private_original_hashes_conflict')
         for name, sha in hashes.items():
-            if Path(name).name != name:
+            parts = Path(name).parts
+            f2_name = (result['outcome'].get('f2_session') is True and len(parts) == 2 and
+                       parts[0] in ('band-1', 'band-2') and parts[1] not in ('.', '..'))
+            if Path(name).name != name and not f2_name:
                 raise ValueError('private_original_name')
             try:
                 if file_sha(validate_contained_regular_file(self.ledger.path.parent,
@@ -307,7 +316,7 @@ class AccountState:
         self.verify()
         self.require_history()
         self.require_retained_evidence()
-        self.policy_binding = policy.labels(entry.local_date)
+        self.policy_binding = self.policy_labels(policy, entry.local_date)
         if self.incidents():
             raise StateRefused('account_incident_latched')
         from weather.market.lfc_campaign_policy import ZONE
@@ -320,15 +329,19 @@ class AccountState:
                for s in self.ledger.sessions.values()):
             raise StateRefused('legacy_account_date_consumed')
         for previous in self.claims():
-            if previous.get('policy_name') != policy.raw['policy_name']:
+            old = self.read(self.root / 'policies' / (previous['attempt_id'] + '.json'))['policy']
+            same_f2_protocol = policy.f2 and old.get('schema_version') == 'lfc_campaign_policy_v0.2'
+            if previous.get('policy_name') != policy.raw['policy_name'] and not same_f2_protocol:
                 continue
             old_revision = previous.get('policy_revision')
             if type(old_revision) is not int or old_revision > policy.raw['policy_revision']:
                 raise StateRefused('policy_revision_regressed')
-            old = self.read(self.root / 'policies' / (previous['attempt_id'] + '.json'))['policy']
             keys = ('terms', 'local_event_dte', 'band_limit_session', 'band_limit_concurrent', 'bands_per_event',
                     'start_window_toronto', 'trading_end_toronto', 'max_session_seconds')
-            if old_revision == policy.raw['policy_revision'] and any(old[key] != policy.raw[key] for key in keys):
+            if same_f2_protocol:
+                from weather.market.lfc_f2_policy import ECONOMIC_FIELDS
+                keys = ECONOMIC_FIELDS
+            if old_revision == policy.raw['policy_revision'] and any(old.get(key) != policy.raw.get(key) for key in keys):
                 raise StateRefused('economic_policy_change_requires_revision')
         attempt = uuid.uuid4().hex
         snapshot_sha = self.save(f'policies/{attempt}.json', {'policy': policy.raw, 'sha256': policy.sha256})

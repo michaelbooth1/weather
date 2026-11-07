@@ -14,7 +14,8 @@ from weather.operations.live_path_security import validate_regular_nonreparse_fi
 ANCILLARY_SAMPLES = {'scoring', 'accrual', 'final_accrual', 'final_balances'}
 MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable',
                    'terminal_trades_unavailable', 'cleanup_open_orders_unavailable',
-                   'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable'}
+                   'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable',
+                   'f2_account_read_unavailable', 'f2_account_cancel_unavailable', 'f2_account_cleanup_pending'}
 
 
 def journal_contract(path, prediction, *, legacy=False, owner_review=False):
@@ -89,6 +90,10 @@ def owner_originals(directory, *, ledger, session_id, attempt_id, outcome):
     structure cannot be waived by this reader or by an owner confirmation.
     """
     directory = Path(directory).absolute()
+    if outcome.get('f2_session') is True:
+        from weather.market.lfc_f2_evidence import money_proof
+        return money_proof(directory, ledger=ledger, session_id=session_id, attempt_id=attempt_id,
+                           outcome=outcome, owner=True)
     session = ledger.sessions[session_id]
     if session['end'] is None or session['start'].get('autostart_attempt_id') != attempt_id:
         raise ValueError('owner_original_session_binding')
@@ -145,6 +150,9 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
     result = {'complete': False, 'unknown_submit': True, 'failure': 'private_evidence_unbound'}
     try:
         directory = Path(directory).absolute()
+        if outcome.get('f2_session') is True:
+            from weather.market.lfc_f2_evidence import money_proof
+            return money_proof(directory, ledger=ledger, session_id=session_id, attempt_id=attempt_id, outcome=outcome)
         session = ledger.sessions[session_id]
         if (session['end'] is None or session['start'].get('autostart_attempt_id') != attempt_id or
                 legacy and (attempt_id is not None or session['start'].get('autostart_attempt_id'))):

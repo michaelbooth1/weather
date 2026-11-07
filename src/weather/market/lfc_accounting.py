@@ -37,6 +37,19 @@ def inventory_delta(ledger, baseline, current):
             raise ValueError('inventory_terminal_regression')
         token = leg['token_id']
         expected[token] = expected.get(token, Decimal(0)) + delta
+    # F2 only: observed redemption removes quantity, never a price-derived
+    # settlement assumption. Legacy/manual histories have no such events.
+    for row in getattr(ledger, 'capital_rows', []):
+        if row['event'] != 'capital_activity' or row['activity']['type'] != 'REDEEM':
+            continue
+        activity = row['activity']
+        from weather.market.mm_stage2_hold import utc
+        if activity['timestamp'] < utc(baseline['at_utc']).timestamp():
+            continue
+        token = activity['token_id']
+        expected[token] = expected.get(token, Decimal(0)) - quantity(activity['quantity'])
+        if expected[token] < 0:
+            raise ValueError('inventory_redemption_scope')
     observed = {str(t): quantity(v) for t, v in current.items() if quantity(v)}
     expected = {t: v for t, v in expected.items() if v}
     changed = sorted(t for t in set(expected) | set(observed) if expected.get(t) != observed.get(t))

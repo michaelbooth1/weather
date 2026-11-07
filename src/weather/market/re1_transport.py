@@ -290,7 +290,7 @@ def bounded_rows(paginator, *, seconds=None):
 class OwnerVenue:
     host = HOST
     def __init__(self, client, fields, guard, *, condition=None, tokens=(), directory=None, readonly=False,
-                 preflight=False, timeouts=None, size='20', reserve_cap='19.6', profile=None):
+                 preflight=False, timeouts=None, size='20', reserve_cap='19.6', profile=None, stream_factory=PairStream):
         from weather.market.re1_sizing import session_caps
         self.size, self.reserve_cap = number(size), number(reserve_cap)
         # profile: the live-fill calibration pilot (weather.market.lfc_pilot) supplies its own size set and ceiling.
@@ -314,20 +314,23 @@ class OwnerVenue:
         self.stream_args = None
         self.stream_number = 0
         self.directory = directory
+        self.stream_factory = stream_factory
         if directory is not None:
             self.stream_args = dict(tokens=tokens, guard=guard, known_order_ids=self.known_order_ids,
                 api_key=fields['API_KEY'], secret=fields['API_SECRET'],
                 passphrase=fields['API_PASSPHRASE'], maker_address=self.maker, condition_id=condition,
                 connect_timeout_seconds=self.timeouts.get('user_stream', 2), heartbeat_seconds=5, inbound_silence_seconds=10)
-            self.stream = PairStream(**self.stream_args, journal_path=Path(directory) / 'user-stream.jsonl')
+            self.stream = self.stream_factory(**self.stream_args, journal_path=Path(directory) / 'user-stream.jsonl')
         self.event_count = 0
 
     def set_journal(self, journal):
         self.journal = journal
+        if getattr(self, '_journal_hooks_installed', False):
+            return
         def sent(request):
             # Exact send time, with no inspection of auth headers or signed
             # request bodies. The controller records the unsigned order.
-            journal.record('sdk_request', method=request.method, path=request.url.path)
+            self.journal.record('sdk_request', method=request.method, path=request.url.path)
         def retain(response):
             # This observational hook must never turn a completed POST into
             # an exception. Non-JSON/oversized bodies retain metadata only.
@@ -339,7 +342,7 @@ class OwnerVenue:
                     payload = json.loads(raw) if len(raw) <= 2_000_000 else None
                 except (ValueError, UnicodeError):
                     payload = None
-                journal.record('sdk_response', **metadata, response=payload)
+                self.journal.record('sdk_response', **metadata, response=payload)
             except BaseException:
                 self.journal_failed = True
         for name in ('secure_clob', 'clob', 'data', 'gamma'):
@@ -347,6 +350,7 @@ class OwnerVenue:
             if transport is not None:
                 transport._client.event_hooks['request'].append(sent)
                 transport._client.event_hooks['response'].append(retain)
+        self._journal_hooks_installed = True
 
     def start(self):
         self.stream.start()
@@ -380,7 +384,7 @@ class OwnerVenue:
                 raise RuntimeError('user_stream_invalid_event')
             self.stream.stop(timeout_seconds=2)
             self.stream_number += 1
-            self.stream = PairStream(**self.stream_args,
+            self.stream = self.stream_factory(**self.stream_args,
                 journal_path=Path(self.directory) / f'user-stream-{self.stream_number}.jsonl')
             self.event_count = 0
             self.stream.start()
@@ -450,6 +454,9 @@ class OwnerVenue:
         profile = getattr(self, 'profile', None)
         if size not in (SIZES if profile is None else profile.SIZES) or size != getattr(self, 'size', Decimal(20)):
             raise RuntimeError('signed_order_binding')
+        if request['token_id'] not in getattr(self, 'allowed_trade_tokens', getattr(self, 'tokens', ())):
+            raise RuntimeError('signed_order_binding')
+        order_cap = Decimal('.79') * size if profile is None else profile.venue_ceiling(size)[0]
         signed = self.client.create_limit_order(**request)
         expected_signer = self.maker if self.fields['SIGNATURE_TYPE'] == '3' else self.client.signer
         if (signed.maker.lower() != self.maker.lower() or signed.signer.lower() != expected_signer.lower() or
@@ -457,7 +464,7 @@ class OwnerVenue:
                 signed.side != 'BUY' or signed.order_type != 'GTD' or signed.post_only is not True or
                 signed.expiration != request['expiration'] or signed.taker_amount != int(size * 1_000_000) or
                 signed.maker_amount != int(number(request['price']) * size * 1_000_000) or
-                number(request['price']) * size > Decimal('.79') * size):
+                number(request['price']) * size > min(Decimal('.79') * size, order_cap)):
             raise RuntimeError('signed_order_binding')
         checkpoint()
         # Signing can fetch SDK metadata. Re-read the actual token ask after
