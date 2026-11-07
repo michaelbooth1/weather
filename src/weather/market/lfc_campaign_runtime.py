@@ -148,6 +148,7 @@ class ScheduledAuthority:
     def start_gates(self, *, ledger, now, maker_address, open_orders, positions, **_):
         self.check(starting=True)
         self.runtime.state.require_history()
+        self.runtime.state.require_retained_evidence()
         refused = []
         if ledger.enrollment is None or ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted:
             refused.append('unresolved_campaign_money')
@@ -292,6 +293,13 @@ class Runtime:
                 values[name] = readers[name]()
                 times[name] = {'started_at_utc': observed_start.isoformat(),
                                'ended_at_utc': self.clock.now().isoformat()}
+            terminal_orders = {}
+            for leg in self.state.ledger.unresolved_legs():
+                if leg['order_id'] is not None:
+                    observed_start = self.clock.now()
+                    order = venue.order(leg['order_id'])
+                    terminal_orders[leg['order_id']] = {'row': order, 'started_at_utc': observed_start.isoformat(),
+                                                       'ended_at_utc': self.clock.now().isoformat()}
             if values['geography'].get('blocked') is not False:
                 raise StateRefused('geoblock')
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': self.state.maker,
@@ -299,7 +307,7 @@ class Runtime:
                     'since': venue.trades_after, 'started_at_utc': start.isoformat(),
                     'ended_at_utc': self.clock.now().isoformat(), 'complete': True,
                     'errors': [], 'scope': 'account_wide_sdk_trades_and_f0_v2_positions',
-                    'component_times': times, **values}
+                    'component_times': times, 'terminal_orders': terminal_orders, **values}
         except (TimeoutError, ConnectionError):
             raise TransientPrecheck('account_transport_unavailable') from None
         finally:
@@ -333,6 +341,12 @@ class Runtime:
         traded = traded_shares(read['trades'], ledger.our_order_ids())
         if account_read_age(read, self.clock.now()) > 120:
             raise TransientPrecheck('account_read_stale')
+        if ledger.unresolved_legs():
+            return {'money_accounting_complete': False, 'cleanup_proven': False,
+                    'unknown_submit': bool(ledger.unacknowledged_intents()), 'money_contradiction': False,
+                    'inventory': {'proven': False}, 'trade_differences': [],
+                    'ledger_head_sha256': ledger.previous, 'read_sha256': digest(read),
+                    'open_orders': len(read['open_orders'])}
         differences = ledger.trade_mismatches(traded)
         inventory = inventory_delta(ledger, self.original_baseline(ledger), normalize_positions(read['positions']))
         return {'money_accounting_complete': not differences and not inventory['changed'] and not ledger.unresolved_legs(),
@@ -433,6 +447,7 @@ class Runtime:
         resources = workstation_headroom()
         ledger = self.reload_ledger()
         self.state.require_history()
+        self.state.require_retained_evidence()
         if ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted or self.state.incidents():
             raise MoneyContradiction('prior_money_unresolved')
         if ledger.counted_sessions() >= policy.terms['max_sessions']:
@@ -533,6 +548,8 @@ class Runtime:
                                    attempt_id=claim['attempt_id'], outcome=outcome)
                  if status.evidence_directory is not None else {'complete': False, 'unknown_submit': True})
         result = {'exit_code': code, 'session_id': status.session_id, 'outcome': outcome,
+                  'private_evidence_directory': (str(Path(status.evidence_directory).relative_to(self.pilot_root))
+                                                 if status.evidence_directory is not None else None),
                   **evidence_flags(outcome), 'unknown_submit': (session is None or session.posts != len(session.known) or
                                                                local['unknown_submit']),
                   'local_money_proof': local,
@@ -541,24 +558,43 @@ class Runtime:
         return result
 
     def save_result(self, claim, result):
-        self.state.save('results/' + claim['attempt_id'] + '.json', result)
+        sha = self.state.save('results/' + claim['attempt_id'] + '.json', result)
+        self.state.ledger.record('autostart_result', attempt_id=claim['attempt_id'], file_sha256=sha)
 
     def saved_result(self, claim):
         path = self.state.root / 'results' / (claim['attempt_id'] + '.json')
-        return self.state.read(path) if path.exists() else None
+        if not path.exists() and not any(e['attempt_id'] == claim['attempt_id'] for e in self.state.ledger.autostart_results):
+            return None
+        return self.state.result_anchor(claim['attempt_id'])[0]
 
     def postcheck(self, claim, result):
         if self.lease is None:
             with self.admission():
                 return self.postcheck(claim, result)
         ledger = self.reload_ledger()
-        if result.get('local_money_proof', {}).get('complete') is not True:
-            return {'money_accounting_complete': False, 'cleanup_proven': False, 'unknown_submit': True}
-        if ledger.open_sessions() or ledger.unresolved_legs() or ledger.unacknowledged_intents():
+        retained, result_sha, local = self.state.retained_result(claim)
+        if retained != result:
+            self.state.evidence_fault(claim['attempt_id'])
+            raise StateRefused('private_result_changed')
+        if ledger.open_sessions() or ledger.unacknowledged_intents():
             # No adoption and no closing crashed sessions. Only owner recovery
             # may address missing private identities or an interrupted cleanup.
             return {'money_accounting_complete': False, 'cleanup_proven': False, 'unknown_submit': True}
         read = self.read_account()
+        # Known acknowledged identities may finish bounded GET accounting. This
+        # never adopts an intent, closes a crash or retries a placement.
+        self.core_proof(ledger, read)  # Validate account/scope/completeness before any ledger append.
+        for leg in list(ledger.unresolved_legs()):
+            observed = read.get('terminal_orders', {}).get(leg['order_id'])
+            if observed is None:
+                continue
+            begin, end = (datetime.fromisoformat(observed[k]) for k in ('started_at_utc', 'ended_at_utc'))
+            if (begin.utcoffset() != timedelta(0) or end.utcoffset() != timedelta(0) or
+                    not datetime.fromisoformat(read['started_at_utc']) <= begin <= end <=
+                    datetime.fromisoformat(read['ended_at_utc']) or
+                    not 0 <= (self.clock.now() - begin).total_seconds() <= 120):
+                raise StateRefused('terminal_read_binding')
+            ledger.terminal(leg['order_id'], observed['row'], source='autostart_postcheck')
         proof = self.core_proof(ledger, read)
         for _ in range(4):
             if not proof.get('money_contradiction'):
@@ -567,6 +603,7 @@ class Runtime:
             read = self.read_account()
             proof = self.core_proof(ledger, read)
         proof.update(research_evidence_complete=result.get('evidence_complete') is True,
+                     result_sha256=result_sha, private_evidence_sha256=digest(local),
                      raw_evidence_flags=evidence_flags(result), account_read=read,
                      public_coverage=result.get('public_coverage'))
         if result.get('public_coverage', {}).get('gap') not in (None, 'not_configured'):

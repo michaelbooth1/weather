@@ -57,7 +57,8 @@ POSITIONS_STATUSES = ('OPEN', 'REDEEMABLE_LOST')
 POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filter_amount': '0', 'sort_by': 'TOKENS',
                      'sort_direction': 'DESC'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
-           'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'owner_history_recovery'}
+           'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result',
+           'owner_history_recovery'}
 
 
 class LedgerUnavailable(RuntimeError):
@@ -178,6 +179,7 @@ class Ledger:
         self.legs, self.by_order, self.sessions, self.baselines = {}, {}, {}, []
         self.enrollment = None
         self.autostart_claims, self.autostart_incidents, self.history_recoveries = [], [], []
+        self.autostart_results = []
         self.halted, self.mismatches = False, []
         for row in self.rows:
             self._apply(row)
@@ -196,12 +198,15 @@ class Ledger:
             if not all(isinstance(row.get(k), str) and row[k] for k in ('state_id', 'identity_sha256', 'state_root')):
                 raise LedgerUnavailable('ledger_enrollment_identity')
             self.enrollment = row
-        elif event in ('autostart_claim', 'autostart_incident'):
+        elif event in ('autostart_claim', 'autostart_incident', 'autostart_result'):
             if self.enrollment is None:
                 raise LedgerUnavailable('ledger_not_enrolled')
             if not all(isinstance(row.get(k), str) and row[k] for k in ('attempt_id', 'file_sha256')):
                 raise LedgerUnavailable('ledger_autostart_record')
-            target = self.autostart_claims if event == 'autostart_claim' else self.autostart_incidents
+            target = {'autostart_claim': self.autostart_claims, 'autostart_incident': self.autostart_incidents,
+                      'autostart_result': self.autostart_results}[event]
+            if event == 'autostart_result' and not any(r['attempt_id'] == row['attempt_id'] for r in self.autostart_claims):
+                raise LedgerUnavailable('ledger_result_without_claim')
             if any(r['attempt_id'] == row['attempt_id'] for r in target):
                 raise LedgerUnavailable('ledger_autostart_repeated')
             target.append(row)

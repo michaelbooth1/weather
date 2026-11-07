@@ -121,6 +121,8 @@ class AccountState:
             path = self.root / 'incidents' / (event['attempt_id'] + '.json')
             if file_sha(path) != event['file_sha256']:
                 raise StateRefused('incident_continuity')
+        for event in list(self.ledger.autostart_results):
+            self.result_anchor(event['attempt_id'])
         chain = {self.ledger.row_sha256(i) for i in range(len(self.ledger.rows))}
         for path in (self.root / 'closed').glob('*.json'):
             closed = self.read(path)
@@ -128,6 +130,61 @@ class AccountState:
                     closed.get('proof_sha256') != digest(closed['proof'])):
                 raise StateRefused('closeout_ledger_continuity')
         return row
+
+    def evidence_fault(self, attempt):
+        """Persist a sticky fault even when ordinary verification is now failing."""
+        from weather.market.lfc_campaign_policy import ZONE
+        fault = digest({'attempt': attempt, 'reason': 'private_evidence_fault'})[:32]
+        if any(r['attempt_id'] == fault for r in self.ledger.autostart_incidents):
+            return
+        path = 'incidents/' + fault + '.json'
+        if not (self.root / path).exists():
+            now = self.ledger.clock()
+            self.save(path, {'attempt_id': fault, 'source_attempt_id': attempt, 'reason': 'private_evidence_fault',
+                             'at_utc': now.isoformat(), 'local_date': now.astimezone(ZONE).date().isoformat()})
+        self.ledger.record('autostart_incident', attempt_id=fault, file_sha256=file_sha(self.root / path))
+
+    def result_anchor(self, attempt):
+        events = [r for r in self.ledger.autostart_results if r['attempt_id'] == attempt]
+        path = self.root / 'results' / (attempt + '.json')
+        try:
+            if len(events) != 1 or file_sha(path) != events[0]['file_sha256']:
+                raise ValueError('result_not_anchored')
+            return self.read(path), events[0]['file_sha256']
+        except (OSError, ValueError, RuntimeError):
+            self.evidence_fault(attempt)
+            raise StateRefused('private_result_evidence_fault') from None
+
+    def retained_result(self, claim):
+        from weather.market.lfc_campaign_proof import local_money_proof
+        result, sha = self.result_anchor(claim['attempt_id'])
+        relative = Path(str(result.get('private_evidence_directory', '')))
+        try:
+            if not relative.parts or relative.is_absolute() or '..' in relative.parts:
+                raise ValueError('private_evidence_path')
+            local = local_money_proof(self.ledger.path.parent / relative, ledger=self.ledger,
+                                      session_id=result['session_id'], attempt_id=claim['attempt_id'],
+                                      outcome=result['outcome'])
+            if local.get('complete') is not True or local != result.get('local_money_proof'):
+                raise ValueError('private_evidence_changed')
+            return result, sha, local
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            self.evidence_fault(claim['attempt_id'])
+            raise StateRefused('retained_private_evidence_fault') from None
+
+    def require_retained_evidence(self):
+        for claim in self.claims():
+            path = self.root / 'closed' / (claim['attempt_id'] + '.json')
+            if not path.exists():
+                continue
+            has_session = any(s['start'].get('autostart_attempt_id') == claim['attempt_id']
+                              for s in self.ledger.sessions.values())
+            if has_session or any(e['attempt_id'] == claim['attempt_id'] for e in self.ledger.autostart_results):
+                _, sha, local = self.retained_result(claim)
+                proof = self.read(path)['proof']
+                if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
+                    self.evidence_fault(claim['attempt_id'])
+                    raise StateRefused('closed_private_evidence_binding')
 
     def claims(self):
         self.verify()
@@ -175,6 +232,7 @@ class AccountState:
         require_account(self.maker)
         self.verify()
         self.require_history()
+        self.require_retained_evidence()
         self.policy_binding = policy.labels(entry.local_date)
         if self.incidents():
             raise StateRefused('account_incident_latched')
@@ -229,6 +287,11 @@ class AccountState:
             raise StateRefused('cannot_close_ambiguous_attempt')
         if proof.get('cleanup_proven') is not True:
             raise StateRefused('cannot_close_unclean_attempt')
+        if (any(s['start'].get('autostart_attempt_id') == claim['attempt_id'] for s in self.ledger.sessions.values()) or
+                any(e['attempt_id'] == claim['attempt_id'] for e in self.ledger.autostart_results)):
+            _, sha, local = self.retained_result(claim)
+            if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
+                raise StateRefused('closeout_private_evidence_binding')
         if proof.get('ledger_head_sha256', self.ledger.previous) != self.ledger.previous:
             raise StateRefused('closeout_proof_stale')
         proof = {**proof, 'ledger_head_sha256': self.ledger.previous}

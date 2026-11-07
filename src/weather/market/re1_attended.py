@@ -155,6 +155,22 @@ class Session:
     OFFSET = Decimal('.015')
     REQUOTE_WINDOW = (Decimal(1), Decimal(3))
 
+    @property
+    def evidence_failed(self):
+        return getattr(self, '_evidence_failed', False)
+
+    @evidence_failed.setter
+    def evidence_failed(self, value):
+        self._evidence_failed = bool(value)
+        if value:
+            self._evidence_faults = getattr(self, '_evidence_faults', set()) | {'unclassified_core_fault'}
+        elif not hasattr(self, '_evidence_faults'):
+            self._evidence_faults = set()
+
+    def note_evidence_fault(self, code):
+        self._evidence_failed = True
+        self._evidence_faults.add(code)
+
     def observe_snapshot(self, snapshot):
         return observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=self.REWARD_TERMS,
                        window=self.REQUOTE_WINDOW)
@@ -331,7 +347,7 @@ class Session:
         except HoldEnd:
             raise
         except Exception as exc:
-            self.evidence_failed = True
+            self.note_evidence_fault('sample_' + name)
             self.journal.record('missing_sample', sample=name, exception_type=type(exc).__name__)
             return None
 
@@ -348,7 +364,7 @@ class Session:
         except HoldEnd:
             raise
         except Exception as exc:
-            self.evidence_failed = True
+            self.note_evidence_fault('scoring_missed')
             self.journal.record('scoring_missed', band=self.condition, order_ids=ids,
                                 observed_at_utc=utc(self.clock.now()).isoformat(), exception_type=type(exc).__name__)
             return
@@ -433,7 +449,7 @@ class Session:
                         orders.append(self.required('fill_order', lambda: self.venue.order(oid),
                                                     checkpoint=False, order_id=oid))
                     except Exception as exc:
-                        self.evidence_failed = True
+                        self.note_evidence_fault('fill_order_unavailable')
                         self.journal.record('fill_order_unavailable', order_id=oid, exception_type=type(exc).__name__)
                 self.journal.record('fill', rows=orders, user_event=event)
                 raise HoldEnd('fill')
@@ -632,7 +648,11 @@ class Session:
         # A zero-open-order read alone says nothing about that inventory.
         try:
             for oid in self.known:
-                row = recover('terminal_order', lambda: self.venue.order(oid))
+                try:
+                    row = recover('terminal_order', lambda: self.venue.order(oid))
+                except BaseException:
+                    self.note_evidence_fault('terminal_order_unavailable')
+                    continue
                 retain('terminal_order', order=row)
                 from weather.market.mm_account_reads import order_terminal
                 if not order_terminal(row, order_id=oid, size=self.size):
@@ -649,11 +669,11 @@ class Session:
                 self.fill_seen = True
             self.inventory_proven = True
         except BaseException:
-            self.evidence_failed = True
+            self.note_evidence_fault('terminal_positions_unavailable')
         try:
             retain('terminal_trades', rows=recover('terminal_trades', self.venue.trades))
         except BaseException:
-            self.evidence_failed = True
+            self.note_evidence_fault('terminal_trades_unavailable')
         # A lost submit acknowledgement may hide an order/fill identity even
         # after cancel-all succeeds. Never qualify or silently retry it.
         if self.posts != len(self.known):
@@ -705,7 +725,7 @@ class Session:
                     except Exception as exc:
                         if not transient(exc):
                             raise
-                        self.evidence_failed = True
+                        self.note_evidence_fault('minute_missed')
                         self.journal.record('minute_missed', exception_type=type(exc).__name__)
                         continue
                     self.journal.record('market_snapshot', snapshot=snapshot)

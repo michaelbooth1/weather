@@ -81,13 +81,21 @@ def owner_recover(runtime, incident):
         proof = runtime.core_proof(ledger, read)
         if not proof['money_accounting_complete'] or not proof['cleanup_proven'] or proof['unknown_submit']:
             raise StateRefused('owner_money_repair_required')
+        pending_proofs = []
+        for claim in runtime.state.pending():
+            # Restore the retained originals before owner closure too. An owner
+            # confirmation cannot manufacture a missing private journal.
+            _, result_sha, local = runtime.state.retained_result(claim)
+            from weather.market.mm_stage2_hold import digest
+            pending_proofs.append((claim, {**proof, 'result_sha256': result_sha,
+                                          'private_evidence_sha256': digest(local)}))
         runtime.state.save('owner-closures/' + incident + '.json', {
             'authority': 'owner_recovery', 'incident_sha256': receipt_sha, 'proof': proof,
             'local_date': runtime.clock.now().astimezone(ZONE).date().isoformat(),
             'closed_at_utc': runtime.clock.now().isoformat()})
         if not runtime.state.incidents():
-            for claim in runtime.state.pending():
-                runtime.state.close(claim, {**proof, 'authority': 'owner_recovery',
+            for claim, bound_proof in pending_proofs:
+                runtime.state.close(claim, {**bound_proof, 'authority': 'owner_recovery',
                                            'original_result_retained': True}, runtime.clock.now())
     return 0
 
@@ -172,6 +180,7 @@ def main(argv=None):
             load = lambda: load_policy(release['campaign_path'])
             if args.command == 'check':
                 state.require_history()
+                state.require_retained_evidence()
                 policy = load()
                 if args.require_enabled and not policy.raw['enabled']:
                     raise StateRefused('campaign_disabled')

@@ -513,7 +513,10 @@ class PilotSession(Session):
 
     def terminal_extra(self):
         retired = getattr(self, 'horizon_retirement', None)
-        return {} if retired is None else {'horizon_retirement': dict(retired)}
+        result = {} if retired is None else {'horizon_retirement': dict(retired)}
+        if self.scope.get('protocol') == 'lfc_autostart_v1':
+            result['evidence_faults'] = sorted(self._evidence_faults)
+        return result
 
     def _gate(self, *, own_resting=Decimal(0)):
         reserve = band_reserve(self.size, self.prices)
@@ -880,7 +883,9 @@ class PilotSession(Session):
         ok = super().cleanup()
         if self.submits:
             mismatch = self.reconcile_trades()
-            if mismatch is None or mismatch:
+            if mismatch is None:
+                self.note_evidence_fault('terminal_trades_unavailable')
+            elif mismatch:
                 self.evidence_failed = True
         self.cleanup_ok = ok and not self.evidence_failed and self.inventory_proven and self.posts == len(self.known)
         return self.cleanup_ok
@@ -904,6 +909,10 @@ class PilotSession(Session):
             for row in found:
                 self.ledger.record('mismatch', source='cleanup', **row)
             return found
-        except BaseException:
-            self.evidence_failed = True
+        except BaseException as exc:
+            from weather.market.re1_resilience import transient
+            if transient(exc):
+                self.note_evidence_fault('terminal_trades_unavailable')
+            else:
+                self.evidence_failed = True
             return None

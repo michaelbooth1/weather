@@ -46,7 +46,11 @@ class CampaignCoordinator:
             self.policy_binding = {key: claim.get(key) for key in ('policy_name', 'policy_revision', 'evidence_lane')}
             self.state.policy_binding = dict(self.policy_binding)
             attempt = claim['attempt_id']
-            result = self.runtime.saved_result(claim)
+            try:
+                result = self.runtime.saved_result(claim)
+            except StateRefused:
+                self.status('INCIDENT', attempt, incident=True, postchecks_pending=True)
+                continue
             if result is None or result.get('unknown_submit') is not False:
                 self.state.latch(attempt, 'interrupted_or_ambiguous_attempt', self.clock.now())
                 self.status('INCIDENT', attempt, incident=True, postchecks_pending=True)
@@ -55,6 +59,9 @@ class CampaignCoordinator:
                 proof = self.runtime.postcheck(claim, result)
             except (TransientPrecheck, AdmissionBusy):
                 self.status('POSTCHECK_PENDING', attempt, postchecks_pending=True)
+                continue
+            except StateRefused:
+                self.status('INCIDENT', attempt, incident=True, postchecks_pending=True)
                 continue
             if proof.get('unknown_submit') is not False:
                 self.state.latch(attempt, 'postcheck_unknown_private_proof', self.clock.now())
@@ -76,13 +83,22 @@ class CampaignCoordinator:
         return True
 
     def tick(self, load_policy):
-        self.state.verify()
+        try:
+            self.state.verify()
+        except StateRefused:
+            self.status('INCIDENT', incident=True, postchecks_pending=True)
+            return 'INCIDENT'
         # Incident state is durable and account scoped; readonly finalization is
         # allowed but automatic reconciliation can never close the incident.
         if self.pending():
             return 'POSTCHECKS'
         if self.state.incidents():
             self.status('INCIDENT', incident=True)
+            return 'INCIDENT'
+        try:
+            self.state.require_retained_evidence()
+        except StateRefused:
+            self.status('INCIDENT', incident=True, postchecks_pending=True)
             return 'INCIDENT'
         policy = load_policy()
         self.policy_binding = policy.labels(self.clock.now().astimezone(ZONE).date().isoformat())

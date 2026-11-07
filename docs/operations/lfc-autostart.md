@@ -183,6 +183,17 @@ from `research_evidence_complete` and public coverage. A missed scoring read or
 optional sidecar gap remains visible without permanently stranding a money-clean
 account. An unexplained missing core proof remains unknown and blocks starts.
 
+Private completion requires the chained session journal, matching submit intent
+and ACK files, terminal identities/quantities and prediction/end bindings. Each
+result has its own ledger hash anchor. Pending finalization reopens and hashes
+these originals; later admissions repeat the check for closed attempts. Missing,
+changed or unclassified core evidence records a sticky evidence fault. A generic
+exception type or a scoring gap cannot excuse it. The automatic lane retains
+explicit typed fault codes: supported scoring/public gaps affect research, while
+acknowledged terminal GET outages remain pending until fresh complete accounting
+proves them. Original flags remain unchanged. Owner recovery also requires the
+retained originals and never reconstructs a missing journal from an empty account.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

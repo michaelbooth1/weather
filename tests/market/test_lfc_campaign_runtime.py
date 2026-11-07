@@ -21,6 +21,7 @@ from weather.market.lfc_recording_io import file_sha, write_new
 from weather.market.lfc_campaign_proof import local_money_proof
 from weather.market.lfc_campaign_workload import WorkloadMarker, owner_release_workload_after_reboot
 from weather.market.lfc_campaign_guard import AdmissionUncertain, OwnedHold
+from tests.market.lfc_campaign_fixtures import private_result
 
 
 def runtime_at(tmp_path):
@@ -100,9 +101,10 @@ def test_money_complete_can_preserve_incomplete_research_without_resetting_raw_f
         claim = runtime.state.claim(policy.entries[0], policy, NOW)
         monkeypatch.setattr(runtime, 'read_account', lambda: account_read(runtime))
         runtime.lease = SimpleNamespace(check=lambda: None)
-        result = {'evidence_complete': False, 'inventory_proven': True, 'unknown_submit': False,
-                  'public_coverage': {'gap': 'sidecar_failed'}, 'local_money_proof': {'complete': True}}
-        proof = runtime.postcheck(claim, result)
+        _, result = private_result(runtime, claim)
+        result['public_coverage'] = {'gap': 'sidecar_failed'}
+        runtime.save_result(claim, result)
+        proof = runtime.postcheck(claim, runtime.saved_result(claim))
         assert proof['money_accounting_complete'] and proof['cleanup_proven']
         assert not proof['research_evidence_complete'] and not proof['raw_evidence_flags']['evidence_complete']
         assert proof['raw_evidence_flags']['unknown_submit'] is False
@@ -205,8 +207,8 @@ def test_postcheck_never_adopts_lost_ack_or_closes_crashed_session(tmp_path, mon
         ledger.intent(session_id='crashed', intent_key='lost', token_id='t', condition_id='c', size='20', price='.5', fee_rate_bps='0')
         runtime.lease = SimpleNamespace(check=lambda: None)
         monkeypatch.setattr(runtime, 'read_account', lambda: pytest.fail('must not manufacture a proof'))
-        proof = runtime.postcheck({'attempt_id': 'fixture'}, {'unknown_submit': False})
-        assert proof['unknown_submit'] and not proof['cleanup_proven']
+        with pytest.raises(StateRefused, match='private_result_evidence_fault'):
+            runtime.postcheck({'attempt_id': 'fixture'}, {'unknown_submit': False})
         assert ledger.open_sessions() == ['crashed'] and ledger.L() == 10
 
 
@@ -267,30 +269,17 @@ def test_sidecar_final_missing_or_corrupt_chunk_refuses_coverage(tmp_path):
 def test_local_private_proof_keeps_explained_scoring_gap_and_refuses_unexplained_false(tmp_path):
     with account_lease(MAKER, backend=Mutexes()):
         runtime = runtime_at(tmp_path)
-        fill(runtime, matched='0')
-        runtime.state.ledger.sessions['s']['start']['autostart_attempt_id'] = 'a' * 32
-        directory = tmp_path / 'private-session'
-        directory.mkdir()
-        journal = directory / 'journal.jsonl'
-        journal.write_text(json.dumps({'event': 'scoring_missed'}) + '\n')
-        prediction = {'mode': 'live', 'scope': {'session_id': 's'}, 'unknown_submit': False,
-                      'inventory_proven': True, 'evidence_complete': False, 'post_count': 1, 'order_ids': ['o'],
-                      'journal_sha256': file_sha(journal), 'failure_type': None}
-        write_new(directory / 'prediction.json', prediction)
-        write_new(directory / 'session_end.json', {'session_id': 's'})
-        outcome = {'evidence_sha256': {name: file_sha(directory / name) for name in
-                                      ('journal.jsonl', 'prediction.json', 'session_end.json')}}
-        proof = local_money_proof(directory, ledger=runtime.state.ledger, session_id='s', attempt_id='a' * 32, outcome=outcome)
+        policy = parse_policy(policy_row())
+        claim = runtime.state.claim(policy.entries[0], policy, NOW)
+        directory, result = private_result(runtime, claim)
+        proof = result['local_money_proof']
         assert proof['complete'] and not proof['raw_flags']['evidence_complete']
         assert proof['explained_gaps'] == ['scoring_missed']
-        journal.write_text(json.dumps({'event': 'ordinary'}) + '\n')
-        prediction['journal_sha256'] = file_sha(journal)
-        (directory / 'prediction.json').write_text(json.dumps(prediction))
-        outcome['evidence_sha256'] = {name: file_sha(directory / name) for name in
-                                    ('journal.jsonl', 'prediction.json', 'session_end.json')}
-        refused = local_money_proof(directory, ledger=runtime.state.ledger, session_id='s', attempt_id='a' * 32, outcome=outcome)
+        (directory / 'journal.jsonl').write_text(json.dumps({'event': 'ordinary'}) + '\n')
+        refused = local_money_proof(directory, ledger=runtime.state.ledger, session_id='s',
+                                    attempt_id=claim['attempt_id'], outcome=result['outcome'])
         assert not refused['complete'] and refused['unknown_submit']
-        assert refused['failure'] == 'unexplained_false_evidence_flag'
+        assert refused['failure'] == 'private_evidence_unbound'
 
 
 def test_workload_marker_survives_uncertainty_and_requires_owner_proved_reboot(tmp_path):
