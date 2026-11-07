@@ -16,6 +16,18 @@ alarms · §4 backlog and branch traps · §4a maker-economics traps · §5 how 
 
 ## 1. Retracted model claims
 
+### "Never weaken the floor" permits hard-zeroing every lower observed bucket — SUPERSEDED
+
+The historical floor improvement did not license zeroing an outcome possible under a different
+dated resolution rule. The clarified contract is: **hard-zero only outcomes impossible under the
+event's dated resolution rule and admissible observations** (B022; [domain context](AGENT_CONTEXT.md)).
+T032 traces SPECI-inclusive serving against routine-only labels: 15/671 dev station-days (2.24%)
+have a higher rounded maximum, with real Atlanta 94°F versus routine-only 92°F. Under the rule from
+10-23 this can zero the eventual winning band; it does not relabel the pre-cutover Atlanta payout.
+Labels exclude SPECI and select accepted COR; a real max-changing COR pair and incidence remain
+unmeasured, with the census PARKED. F0/F2 book pricing has no direct floor exposure. The serving
+repair is roll-sensitive and undone. Source: `C:\archive\reviews\T032\TRACE.md`; EF §10bb.
+
 ### The 24.69% absorption claim — RETRACTED
 
 Published, then found to **cross zero under crossed date x market clustering**. It was produced with

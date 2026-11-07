@@ -110,7 +110,10 @@ role file and host runbooks.
 - [`reserved-confirmation-window.md`](reserved-confirmation-window.md) **wins over every handoff.**
   Check it at run time — do not assume its contents are unchanged since the handoff was written.
   **Reading a reserved target date destroys it permanently.**
-- **Never weaken the trusted observed-high floor.**
+- **Hard-zero only outcomes impossible under the event's dated resolution rule and admissible observations.**
+  "Never weaken the floor" is superseded as an unconditional prohibition; it never licensed zeroing
+  a possible outcome. Preserve admissible support constraints, not an invalid anchor. See
+  [domain context](AGENT_CONTEXT.md) and EF §10bb (`C:\archive\reviews\T032\TRACE.md`).
 - **Do not relax the promotion gate for `harvest_only` rows.** That requires an operator decision plus
   a code change and is explicitly not delegated.
 - **Do not relax a gate to make it pass.** Gates in this project are frequently correct when they
