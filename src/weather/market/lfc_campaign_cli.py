@@ -118,9 +118,9 @@ def main(argv=None):
                 return owner_recover(runtime, args.incident)
             if args.command == 'owner-clear-workload':
                 from weather.market.lfc_campaign_guard import ExclusiveWorkload
-                from weather.market.lfc_campaign_workload import owner_clear_after_reboot
+                from weather.market.lfc_campaign_workload import owner_release_workload_after_reboot
                 path = ExclusiveWorkload(state.maker).poison_root / 'heavy_workload_v1.poison'
-                owner_clear_after_reboot(path=path, expected_sha=file_sha(path),
+                owner_release_workload_after_reboot(path=path, expected_sha=file_sha(path),
                                          state_id=state.verify()['state_id'], maker=state.maker)
                 return 0
             result = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=CONTROL_ROOT).tick(load)

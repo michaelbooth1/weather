@@ -18,7 +18,7 @@ from weather.market.lfc_campaign_sidecar import cadences, health_receipt, public
 from weather.market.lfc_campaign_state import StateRefused
 from weather.market.lfc_recording_io import file_sha, write_new
 from weather.market.lfc_campaign_proof import local_money_proof
-from weather.market.lfc_campaign_workload import WorkloadMarker, owner_clear_after_reboot
+from weather.market.lfc_campaign_workload import WorkloadMarker, owner_release_workload_after_reboot
 from weather.market.lfc_campaign_guard import AdmissionUncertain, OwnedHold
 
 
@@ -238,10 +238,10 @@ def test_workload_marker_survives_uncertainty_and_requires_owner_proved_reboot(t
     arguments = dict(path=marker.path, expected_sha=marker.sha256, state_id='fixture-state', maker=MAKER,
                      backend=Mutexes(), namespace='fixture', hold_path=hold_path)
     with pytest.raises(AdmissionUncertain, match='terminal'):
-        owner_clear_after_reboot(**arguments, boot_id=8, owner_terminal=False)
+        owner_release_workload_after_reboot(**arguments, boot_id=8, owner_terminal=False)
     with pytest.raises(AdmissionUncertain, match='reboot'):
-        owner_clear_after_reboot(**arguments, boot_id=7, owner_terminal=True)
-    owner_clear_after_reboot(**arguments, boot_id=8, owner_terminal=True,
+        owner_release_workload_after_reboot(**arguments, boot_id=7, owner_terminal=True)
+    owner_release_workload_after_reboot(**arguments, boot_id=8, owner_terminal=True,
                              confirmation='clear workload ' + marker.sha256[:12])
     assert not marker.path.exists() and not hold_path.exists()
 

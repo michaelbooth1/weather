@@ -51,7 +51,7 @@ class WorkloadMarker:
         self.path.unlink()
 
 
-def owner_clear_after_reboot(*, path, expected_sha, state_id, maker, boot_id=None, backend=None,
+def owner_release_workload_after_reboot(*, path, expected_sha, state_id, maker, boot_id=None, backend=None,
                              namespace=LEGACY_MUTEX, owner_terminal=None, confirmation=None, hold_path=HOLD_PATH):
     """Never called by automatic admission or money reconciliation."""
     terminal = sys.stdin.isatty() if owner_terminal is None else owner_terminal
