@@ -72,9 +72,11 @@ For the `2026-07-31`-aligned slice (±7 days, local cutoff hours 07–20, 12 liv
 3. **Forecast vintage is part of the feature distribution.** The underlying NWP models change across
    years. A model whose job is to exploit *current* forecast-residual structure gains little from
    2018-vintage forecasts and risks train/serve drift by construction.
-4. **Sample size is not our binding constraint.** The measured skill gap is 98.88% resolution versus
-   1.12% reliability — an *information* problem, not a calibration or sample-count problem. Three
-   more years of the wrong vintage does not buy information.
+4. **The old decomposition rationale is superseded (2026-08-09).** The historical 98.88% resolution /
+   1.12% reliability split is replaced by `-09-56a`'s gap-recovery result: tested monotone mappings
+   recover at most about 16.5% (16.494%), with an interval including zero, on the old B/C surface
+   ([EF §1c](ESTABLISHED_FINDINGS.md#section-index)). That is neither a sample-size theorem nor a
+   profit veto. The issue-qualified vintage constraint above remains the reason not to add stitched years.
 
 ### The real cost of this choice, stated plainly
 

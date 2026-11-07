@@ -1,7 +1,8 @@
 # Model-improvement method
 
-Status: canonical method. Written for LLM agents. Owner directive 2026-10-23 (model improvement
-only, then a real edge test): this file says how a model lane finds, builds and measures a candidate.
+Status: canonical method for model research. The 2026-10-23 forecast-first product ordering was
+superseded by the owner's 2026-11-05 ~21:50 edge-definition row in [DECISION_LOG.md](DECISION_LOG.md).
+This file governs component research; [EF §0c](ESTABLISHED_FINDINGS.md#section-index) owns the profit criterion.
 
 - **Owns:** the order of work for a model-improvement lane: locate the loss, start from the simple
   baseline, add one ingredient per rung, climb the measurement ladder, and the pre-registration
@@ -76,7 +77,9 @@ candidate. Raw R0 is not a baseline ([checklist, the unfair raw-R0 lesson](PRERE
 
 ## 3. The measurement ladder
 
-Climb in this order. A candidate that fails a rung does not proceed to the next one.
+For a forecast-improvement lane, climb in this order. Failure closes that candidate under its named
+score rule, population and effect size. These research allocation gates neither authorize nor veto
+an economic trial of an executable, capital-bounded policy; independent forecasts remain controls.
 
 1. **Dev R against the served model** on the dev scorecard (`weather.reporting.scorecards.dev_scorecard`).
    Use the paired `model_minus_control` on identical rows. Report the served positive control first.
@@ -91,7 +94,8 @@ Climb in this order. A candidate that fails a rung does not proceed to the next 
    hour) are allowed only for the MG-2 vs MG-1 gate, where both arms are models. Report R = candidate
    Brier / market Brier per hour.
 4. **The blend weight w.** Fit a walk-forward log pool of market and candidate. **A w of about 0 means
-   the candidate carries no information beyond the market, whatever its R.** Run the w = 0 identity, a
+   no demonstrated increment from that fitted log-pool family on that population**, not absence of
+   every conditional or economic use (T013 #10; EF §10ba). Run the w = 0 identity, a
    placebo (vectors deranged across dates) and a floor-only control (market plus the hard floor) beside
    it. In L11 the 13-16 "gain" over the market was the floor zeroing already-dead buckets, not model
    information: MG-1's blend R 0.9858 against floor-only 0.9845 (EF §10ad).
@@ -101,8 +105,9 @@ read dated the floor by the METAR's observation time plus an assumed 10 minutes.
 Re-dated by when the capture actually held that METAR (rule r4), it is $0.03/day [0.00, 0.09] on 21
 trades. The 57 obs-dated trades were exactly the book rows read before the system had the killing
 report. The same audit found P3d_N's dev emitter applying each hour's last snapshot to every row in
-the hour, which exposes about 6% of rows. That can only flatter the candidate, so its nulls stand
-firmer. Date every input by receipt, not by observation.
+the hour, which exposes about 6% of rows. The earlier claim that this can only flatter the candidate
+is superseded: a misspecified model can worsen with later inputs (T013 #11; EF §10ba; RF §1).
+Keep the recorded results and bound rules; date a deployability claim by receipt, not observation.
 
 ## 4. Pre-registration checklist
 
