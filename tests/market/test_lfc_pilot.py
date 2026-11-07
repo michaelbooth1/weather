@@ -371,7 +371,8 @@ def test_ledger_file_lost_mid_session_fails_closed_before_any_post(tmp_path):
     session, venue, _, ledger = setup(tmp_path)
     ledger.path.unlink()
     result = session.run(rehearsal_seconds=60)
-    assert not venue.calls and result['cleanup_ok'] and result['reason'] in {'exception', 'ledger_unavailable'}
+    assert not venue.calls and not result['cleanup_ok'] and result['reason'] in {'exception', 'ledger_unavailable'}
+    assert result['cancellation_ok'] and not result['evidence_complete']
 
 
 def test_unacknowledged_intent_stays_in_L_and_cancel_all_clears_it(tmp_path):
@@ -658,7 +659,8 @@ def test_session0_0g_venue_deadman_cancel_is_observed_without_any_cancel_from_us
     session, venue, clock, ledger = setup(tmp_path, session0=True, run='0g')
     venue_deadman(venue, clock)
     result = session.run()
-    assert result['reason'] == 'venue_deadman_cancelled' and result['cleanup_ok'] and not venue.open_orders()
+    assert result['reason'] == 'venue_deadman_cancelled' and not result['cleanup_ok'] and not venue.open_orders()
+    assert result['cancellation_ok'] and not result['evidence_complete']
     [flag] = [r for r in events(session, 'lfc_session0_test_flag') if r['action'] == 'heartbeat_sends_stopped']
     assert flag['run'] == '0g' and flag['script_stale_cleanup'] is False
     assert session.heartbeat_loop.stale_cleanup_disabled

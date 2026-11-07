@@ -268,6 +268,7 @@ class Session:
         self.scoring_seen = False
         self.started = self.closed = False
         self.empty_account_proven = False
+        self.cancellation_ok = False
         self.heartbeat_loop = None
         self.order_created = {}
         self.market_time = clock.monotonic()
@@ -296,6 +297,8 @@ class Session:
         return result
 
     def _alive(self):
+        if getattr(self, 'outcome_status', None) is not None and not self.closed:
+            self.outcome_status.checkpoint()
         # Waits and retries mean the main loop is alive: keep its watchdog signal fresh (a transient read stall could
         # otherwise outlast the 20 s limit), and in replay (non-threaded) also pump the heartbeat step as live does.
         if self.heartbeat_loop is not None:
@@ -364,6 +367,8 @@ class Session:
         self.post_intent(request)
 
     def control(self, *, force=False):
+        if getattr(self, 'outcome_status', None) is not None:
+            self.outcome_status.checkpoint()
         # Checkpoints between reads are main-thread progress too. A blocked
         # read cannot call this, so the independent 20-second watchdog holds.
         if self.heartbeat_loop is not None:
@@ -579,10 +584,11 @@ class Session:
         # Before the empty-account preflight succeeds, there is no authority to
         # cancel unrelated pre-existing orders. No submit can have occurred.
         if not self.empty_account_proven and self.submits == 0:
-            self.cleanup_ok = True
+            self.cancellation_ok = True  # no submit occurred and no cancellation authority was acquired
+            self.cleanup_ok = not self.evidence_failed and self.posts == len(self.known)
             self.inventory_proven = True
             self.closed = True
-            return True
+            return self.cleanup_ok
         for oid in self.active:
             try:
                 retain('cleanup_cancel_request', order_id=oid)
@@ -612,6 +618,9 @@ class Session:
             for oid in self.known:
                 row = recover('terminal_order', lambda: self.venue.order(oid))
                 retain('terminal_order', order=row)
+                from weather.market.mm_account_reads import order_terminal
+                if not order_terminal(row):
+                    self.evidence_failed = True
                 if filled(row):
                     self.fill_seen = True
                 try:
@@ -633,9 +642,10 @@ class Session:
         # after cancel-all succeeds. Never qualify or silently retry it.
         if self.posts != len(self.known):
             self.evidence_failed = True
-        self.cleanup_ok = empty and acknowledged
+        self.cancellation_ok = empty and acknowledged
+        self.cleanup_ok = self.cancellation_ok and self.inventory_proven and not self.evidence_failed and self.posts == len(self.known)
         self.closed = True
-        if not self.cleanup_ok:
+        if not self.cancellation_ok:
             self.guard.print('PANIC: run cancel-only in a second terminal and check the account in the browser.')
         return self.cleanup_ok
 
@@ -732,6 +742,7 @@ class Session:
         try:
             self.sample('final_balances', self.venue.balances)
             self.sample('final_accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
+            self.cleanup_ok = self.cleanup_ok and not self.evidence_failed and self.inventory_proven and self.posts == len(self.known)
             self.journal.record('terminal', reason=reason, failure_type=failure, cleanup_ok=self.cleanup_ok,
                                 fill_seen=self.fill_seen, submits=self.submits, requotes=self.requotes,
                                 evidence_complete=not self.evidence_failed, reward_terms_changed=self.terms_changed,
@@ -740,11 +751,16 @@ class Session:
                                 inventory_proven=self.inventory_proven)
         except BaseException:
             self.evidence_failed = True
-        self.journal.close()
+            self.cleanup_ok = False
+        try:
+            self.journal.close()
+        except BaseException:
+            self.evidence_failed, self.cleanup_ok = True, False
         result = {**self.totals, 'scope': self.scope, 'mode': self.mode, 'condition_id': self.condition,
                   'reward_day': self.start.date().isoformat(), 'frozen_at_utc': utc(self.clock.now()).isoformat(),
                   'journal_sha256': hashlib.sha256(self.journal.path.read_bytes()).hexdigest(),
                   'cleanup_ok': self.cleanup_ok, 'fill_seen': self.fill_seen, 'reward_terms_changed': self.terms_changed,
+                  'cancellation_ok': self.cancellation_ok,
                   'scoring_seen': self.scoring_seen, 'evidence_complete': not self.evidence_failed,
                   'reason': reason, 'failure_type': failure, 'submits': self.submits,
                   'order_ids': list(self.known), 'unknown_submit': self.posts != len(self.known), 'post_count': self.posts,

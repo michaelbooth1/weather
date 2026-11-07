@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-import hashlib
-import json
 from pathlib import Path
 import re
 from urllib.parse import urlencode
 from urllib.request import Request
+from urllib.error import HTTPError
+from functools import partial
 
-from weather.market.mm_stage2_hold import utc, write_new
+from weather.market.mm_stage2_hold import utc
+from weather.market.lfc_recording_io import (PublicReadFailure, observed_get, prepare_recovery,
+    publish_recovery, read_bytes, read_recovered, retained, response_bytes, strict_json, write_new)
 from weather.market.wallet_reader_transport import direct_opener
 
 SETTLEMENT_SCHEMA = 'lfc_venue_settlement_v0.1'
@@ -36,31 +38,39 @@ def public_get(path, params):
         raise ValueError('recording_endpoint_refused')
     request = Request(API + path + '?' + urlencode(params), method='GET',
                       headers={'Accept': 'application/json', 'User-Agent': USER_AGENT})
-    with direct_opener().open(request, timeout=15) as response:
-        if response.status != 200 or response.geturl() != request.full_url:
-            raise ValueError('recording_response_refused')
-        raw = response.read(MAX_BYTES + 1)
-    if len(raw) > MAX_BYTES:
-        raise ValueError('recording_response_budget')
-    return raw
+    response, status, body = None, None, bytearray()
+    try:
+        try:
+            response = direct_opener().open(request, timeout=15)
+        except HTTPError as exc:
+            response = exc
+        status = response.status
+        while len(body) <= MAX_BYTES:
+            block = response.read(min(65536, MAX_BYTES + 1 - len(body)))
+            if not block:
+                break
+            body.extend(block)
+        if len(body) > MAX_BYTES:
+            raise PublicReadFailure('recording_response_budget', status=status,
+                                    raw=bytes(body[:MAX_BYTES]), truncated=True)
+        if status != 200 or response.geturl() != request.full_url:
+            raise PublicReadFailure('recording_response_refused', status=status, raw=bytes(body))
+        return bytes(body)
+    except PublicReadFailure:
+        raise
+    except Exception:
+        raise PublicReadFailure('recording_transport_failed', status=status,
+                                raw=bytes(body) if body else None) from None
+    finally:
+        if response is not None:
+            response.close()
 
 
 def envelope(raw):
-    result = json.loads(raw)
+    result = strict_json(raw)
     if not isinstance(result, dict) or not isinstance(result.get('data'), list):
         raise ValueError('recording_envelope')
     return result
-
-
-def retained(raw):
-    return {'raw_response': raw.decode('utf-8'), 'sha256': hashlib.sha256(raw).hexdigest()}
-
-
-def response_bytes(receipt):
-    raw = receipt['raw_response'].encode('utf-8')
-    if hashlib.sha256(raw).hexdigest() != receipt['sha256']:
-        raise ValueError('recording_response_hash')
-    return raw
 
 
 def traded_token_ids(root, condition):
@@ -112,19 +122,24 @@ def resolution_result(condition, resolution_raw, tokens_raw, *, traded_tokens):
     return True, winner, pair
 
 
-def record_settlement(root, condition, *, clock=None, get=public_get, traded_tokens=None):
+def record_settlement(root, condition, *, clock=None, get=public_get, traded_tokens=None, recover_corrupt=False):
     condition = condition_id(condition)
     clock = clock or (lambda: datetime.now(timezone.utc))
     directory = Path(root) / 'settlement'
     target = directory / (condition + '.json')
+    recovery = None
     if target.exists():
-        raise FileExistsError('settlement_exists')
-    resolution_raw = get('/v2/resolutions', {'condition': condition})
-    rows = envelope(resolution_raw)['data']
-    tokens_raw = (get('/v2/tokens', {'condition': condition})
-                  if rows and rows[0].get('status') == 'resolved' and rows[0].get('payouts') is not None
-                  else b'{"data":[]}')
-    reason = None
+        try:
+            read_recovered(target, lambda p: validate_settlement(p, condition))
+        except (ValueError, KeyError, TypeError, UnicodeError):
+            if not recover_corrupt:
+                raise
+            target, recovery = prepare_recovery(target, clock=clock, reason='invalid_settlement_record')
+        else:
+            raise FileExistsError('settlement_exists')
+    reason, terminal, winner, pair = None, False, None, []
+    resolution_raw, tokens_raw = None, None
+    read = partial(observed_get, directory / 'reads' / condition, get, clock=clock)
     if traded_tokens is None:
         try:
             traded_tokens = traded_token_ids(root, condition)
@@ -132,15 +147,21 @@ def record_settlement(root, condition, *, clock=None, get=public_get, traded_tok
             traded_tokens, reason = [], 'traded_tokens_unavailable'
     traded_tokens = sorted(set(map(str, traded_tokens)))
     try:
+        resolution_raw = read('/v2/resolutions', {'condition': condition})
+        rows = envelope(resolution_raw)['data']
+        tokens_raw = (read('/v2/tokens', {'condition': condition})
+                      if rows and rows[0].get('status') == 'resolved' and rows[0].get('payouts') is not None
+                      else b'{"data":[]}')
         terminal, winner, pair = resolution_result(condition, resolution_raw, tokens_raw, traded_tokens=traded_tokens)
-    except (KeyError, TypeError, ValueError) as exc:
+    except Exception as exc:
         terminal, winner, pair = False, None, []
         reason = reason or (str(exc) if re.fullmatch(r'[a-z_]+', str(exc)) else 'resolution_evidence_refused')
     observed = utc(clock()).isoformat()
     result = {'schema_version': SETTLEMENT_SCHEMA, 'kind': 'lfc_venue_settlement',
               'condition_id': condition, 'observed_at_utc': observed, 'terminal': terminal,
               'winning_token_id': winner, 'token_ids': pair, 'traded_token_ids': traded_tokens,
-              'reason': reason, 'resolution': retained(resolution_raw), 'tokens': retained(tokens_raw)}
+              'reason': reason, 'resolution': retained(resolution_raw) if resolution_raw is not None else None,
+              'tokens': retained(tokens_raw) if tokens_raw is not None else None}
     directory.mkdir(parents=True, exist_ok=True)
     if not terminal:
         directory = directory / 'pending' / condition
@@ -152,7 +173,21 @@ def record_settlement(root, condition, *, clock=None, get=public_get, traded_tok
                 break
             target = directory / f'{stem}-{number:03d}.json'
     write_new(target, result)
+    if terminal and recovery:
+        publish_recovery(target, recovery)
     return result
+
+
+def validate_settlement(path, condition):
+    row = strict_json(read_bytes(path, MAX_BYTES * 6))
+    if row.get('schema_version') != SETTLEMENT_SCHEMA or row.get('condition_id') != condition:
+        raise ValueError('settlement_record_scope')
+    terminal, winner, pair = resolution_result(condition, response_bytes(row['resolution']),
+        response_bytes(row['tokens']), traded_tokens=row['traded_token_ids'])
+    if row.get('terminal') is not terminal or row.get('winning_token_id') != winner or row.get('token_ids') != pair:
+        raise ValueError('settlement_record_mismatch')
+    utc(row['observed_at_utc'])
+    return row
 
 
 def load_settlements(directory, conditions, *, tokens_by_condition=None):
@@ -166,19 +201,8 @@ def load_settlements(directory, conditions, *, tokens_by_condition=None):
         path = directory / (condition + '.json')
         if not path.exists():
             continue
-        with path.open('rb') as handle:
-            raw = handle.read(MAX_BYTES * 6 + 1)
-        if len(raw) > MAX_BYTES * 6:
-            raise ValueError('settlement_file_budget')
-        row = json.loads(raw)
-        if row.get('schema_version') != SETTLEMENT_SCHEMA or row.get('condition_id') != condition:
-            raise ValueError('settlement_record_scope')
-        raws = []
-        for key in ('resolution', 'tokens'):
-            raws.append(response_bytes(row[key]))
-        terminal, winner, pair = resolution_result(condition, *raws, traded_tokens=row['traded_token_ids'])
-        if row.get('terminal') is not terminal or row.get('winning_token_id') != winner or row.get('token_ids') != pair:
-            raise ValueError('settlement_record_mismatch')
+        row, _ = read_recovered(path, lambda p: validate_settlement(p, condition))
+        terminal, winner, pair = row['terminal'], row['winning_token_id'], row['token_ids']
         if tokens_by_condition and not set(tokens_by_condition.get(condition, ())) <= set(pair):
             raise ValueError('settlement_leg_token_outside_pair')
         utc(row['observed_at_utc'])
@@ -191,9 +215,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--condition', required=True, action='append')
     parser.add_argument('--root', type=Path)
+    parser.add_argument('--recover-corrupt', action='store_true', help='retain corrupt originals and publish an explicit recovery manifest')
     args = parser.parse_args(argv)
     from weather.market.lfc_pilot import pilot_root
-    rows = [record_settlement(args.root or pilot_root(), condition) for condition in args.condition]
+    rows = [record_settlement(args.root or pilot_root(), condition, recover_corrupt=args.recover_corrupt) for condition in args.condition]
     return 0 if all(row['terminal'] for row in rows) else 2
 
 

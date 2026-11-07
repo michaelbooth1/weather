@@ -172,13 +172,33 @@ addresses, printed at setup, differ from the driver's SF-1 spenders), `wrong_wor
 10. **Recording addendum (R1/R3/R4):** on UTC D+1 and D+2, the owner runs
     `python -m weather.market.lfc_cli rewards-record --date D` from the reviewed recording branch worktree.
     These read-only commands need no live-session pin. Check the printed pass, completeness and rebate flags;
-    retry incomplete reads, and repeat for D+2 if `current_pass_due` is true after an older pass finishes.
+    retry incomplete reads with `--pass d1` or `--pass d2`. The default records the currently due UTC pass;
+    unfinished D+1 evidence never blocks the independent D+2 observation.
     After venue resolution, record each session condition with
     `python -m weather.market.lfc_settlement_record --condition <condition-id>`.
     Preserve the create-only evidence. Credential selection, numbered retries and settlement token matching are
     owned by [the recording guide](../operations/lfc-recording.md). M and R2 still require the live-session pin gates.
 
 There is no attest phrase in a counted session.
+
+Unattended-session addendum: after the owner types `go`, the session ends and
+runs cleanup itself. Public outcomes are create-only JSON at
+`C:\t\pilot\status\<session_id>.json`; driver/setup attempts have separate IDs.
+The same directory holds append-only `*.heartbeat.jsonl` RUNNING lines every
+60 seconds while the process makes progress. A stale heartbeat without a final
+outcome means the result is unproven. Agents read these public files only, never
+the pilot root. COMPLETE requires complete evidence, proven inventory and no
+unknown submit; a cleanup or evidence failure is ATTENTION. A successful T-24
+phase or prompt-only dry run is COMPLETE_NO_SESSION and makes no fill-proof claim.
+
+The emergency file `C:\t\pilot\STOP` is OWNER ONLY. Agents must never create it:
+its existence causes cancellation. The driver checks at least every five seconds,
+asks the live child to run normal cleanup (known IDs, account-wide cancel-all,
+verification), writes an outcome and exits nonzero. The child also checks at its
+control checkpoints. The existing bounded cleanup grace and venue backstops
+remain; hard termination cannot promise cancellation and leaves an unproven
+outcome/stale heartbeat. The owner removes STOP before a later start. These
+controls do not authorize scheduled self-start or change any money or size limit.
 
 ## 6. What to paste to master
 

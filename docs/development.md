@@ -149,10 +149,12 @@ host. The run:
   runs in a detached worktree `C:\lpf-s\pg-<sha12>` and removes it, and the chunk basetemps, afterwards.
 - **Receipt.** It writes a receipt (`weather.workstation_pregate_receipt.v1`) under `data\pregate\`. The
   receipt has the chunk plan, each chunk's exit code, the verdict, the log path and the log's SHA-256.
-  **The receipt verdict is authoritative**; consumers read it, not the process exit code. The exit code
-  follows it (0 only for PASS, 75 for a queue timeout, otherwise 1), including after Ctrl+C: the exit is
-  issued from inside the final `finally`, because a stopped Windows PowerShell 5.1 `-File` script would
-  otherwise exit 0. A hard kill (`taskkill /F`, a closed console) writes no receipt and leaves
+  Qualification requires process exit zero **and** a fresh exact-head PASS receipt with complete
+  matching log/JUnit evidence. Dot-source `scripts/ops/workstation_pregate_receipt.ps1` and call
+  `Assert-WeatherPregateReceipt` with the receipt, expected full head, actual process exit and invocation
+  start time. A receipt alone or exit code alone does not qualify a head. Native exit follows teardown
+  and receipt publication (0 only for PASS, 75 for queue timeout, otherwise 1); Ctrl+C and publication
+  failures exit nonzero even under Windows PowerShell 5.1. A hard kill writes no receipt and leaves
   `C:\lpf-s\pg-<sha12>` behind; the next run for that head refuses until it is removed.
 
 Known gaps (Defender review of 2026-10-07, not fixed):

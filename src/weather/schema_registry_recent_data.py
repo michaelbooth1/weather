@@ -6,6 +6,10 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("lfc_session_outcome", "lfc_session_outcome_v0.1", "weather.market.lfc_session_status", "active",
+               "Create-only public unattended outcome with strict proof flags and evidence hashes; no credentials."),
+    SchemaSpec("lfc_session_heartbeat", "lfc_session_heartbeat_v0.1", "weather.market.lfc_session_status", "active",
+               "Append-only public RUNNING observations; a stale last observation indicates lost progress."),
     SchemaSpec("manual_order_journal", "manual_order_journal_v0.1", "weather.market.order_journal", "active",
                "Hash-chained owner-discretionary manual order records: orders, books, rewards, fills, markouts."),
     SchemaSpec("manual_order_journal_report", "manual_order_journal_report_v0.1", "weather.market.order_journal_report",
@@ -1404,5 +1408,13 @@ RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
         "lfc_session_driver_pack", "lfc_session_driver_pack_v0.1", "weather.market.lfc_session_driver", "active",
         "Owner session-driver evidence pack: steps, stop reason, runbook section 8 fields, codes and hashes only.",
+    ),
+    SchemaSpec(
+        "lfc_recording_recovery", "lfc_recording_recovery_v0.1", "weather.market.lfc_recording_io", "active",
+        "Immutable, hash-bound recovery of corrupt recorder attempts without replacing original evidence.",
+    ),
+    SchemaSpec(
+        "lfc_recording_read", "lfc_recording_read_v0.1", "weather.market.lfc_recording_io", "active",
+        "Immutable public-read attempt with endpoint, query, clocks, status and retained bounded response bytes.",
     ),
 )

@@ -760,18 +760,18 @@ def test_trade_reads_are_bounded_by_genesis_pages_and_time(monkeypatch):
     venue = OwnerVenue.__new__(OwnerVenue)
     venue.condition = '0xc'
     venue.client = SimpleNamespace(list_account_trades=lambda **kw: calls.append(kw) or iter(
-        [SimpleNamespace(items=[{'id': 't1'}], next_cursor=None)]))
+        [SimpleNamespace(items=[{'id': 't1'}], has_more=False, next_cursor=None)]))
     assert venue.trades() == [{'id': 't1'}] and calls == [{'market': '0xc'}]  # RE-1 unchanged
     venue.trades_after, venue.trades_seconds = '1760000000', 60
     venue.trades()
     assert calls[-1] == {'market': '0xc', 'after': '1760000000'}
     ticks = iter(range(0, 1000, 40))
     monkeypatch.setattr(re1_transport, 'time', SimpleNamespace(monotonic=lambda: next(ticks)))
-    pages = (SimpleNamespace(items=[{'id': str(n)}], next_cursor=str(n)) for n in range(10))
-    with pytest.raises(RuntimeError, match='read_time_budget'):
+    pages = (SimpleNamespace(items=[{'id': str(n)}], has_more=True, next_cursor=str(n)) for n in range(10))
+    with pytest.raises(RuntimeError, match='account_read_deadline'):
         bounded_rows(pages, seconds=60)
-    endless = (SimpleNamespace(items=[], next_cursor=str(n)) for n in range(100))
-    with pytest.raises(RuntimeError, match='pagination_budget'):
+    endless = (SimpleNamespace(items=[], has_more=True, next_cursor=str(n)) for n in range(100))
+    with pytest.raises(RuntimeError, match='account_page_budget'):
         bounded_rows(endless)
 
 

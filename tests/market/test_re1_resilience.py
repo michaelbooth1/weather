@@ -16,6 +16,7 @@ from weather.market.re1_attended import SecretGuard
 from weather.market.re1_evidence import reserve_attempt, attempt_state
 from weather.market.re1_owner_checks import reconcile_receipt, latency
 from weather.market.re1_resilience import HeartbeatLoop
+from weather.market.lfc_completion import complete_evidence
 
 
 @pytest.mark.parametrize('point,names', [
@@ -38,7 +39,8 @@ def test_one_timeout_per_read_at_each_phase_survives(tmp_path, names, point):
         result = session.run(rehearsal_seconds=180)
         assert failures, (point, name)
         assert result['reason'] == 'fixed_end', (point, name, result['reason'])
-        assert result['cleanup_ok'] and not venue.open_orders()
+        assert result['cancellation_ok'] and not venue.open_orders()
+        assert result['cleanup_ok'] == complete_evidence(result)
         assert result['post_count'] == 2
 
 
@@ -56,7 +58,8 @@ def test_persistent_outage_exhausts_own_budget(tmp_path, name, reason, maximum):
     result = session.run(rehearsal_seconds=400)
     assert result['reason'].startswith(reason)
     assert result['failure_type'] is None
-    assert result['cleanup_ok'] and not venue.open_orders()
+    assert result['cancellation_ok'] and not venue.open_orders()
+    assert result['cleanup_ok'] == complete_evidence(result)
     assert clock.seconds <= maximum + 4
 
 
@@ -65,7 +68,8 @@ def test_noncritical_samples_can_fail_forever(tmp_path):
     def fail(*args): raise TimeoutError()
     venue.scoring = venue.accrual = fail
     result = session.run(rehearsal_seconds=60)
-    assert result['reason'] == 'fixed_end' and result['cleanup_ok']
+    assert result['reason'] == 'fixed_end' and not result['cleanup_ok']
+    assert result['cancellation_ok'] and not venue.open_orders()
     assert not result['evidence_complete']
 
 
@@ -128,9 +132,10 @@ def test_evidence_gap_does_not_block_safe_next_session(tmp_path):
     def missing(*a): raise TimeoutError()
     venue.scoring = missing
     result = session.run(rehearsal_seconds=1)
-    assert not result['evidence_complete'] and result['cleanup_ok']
-    _, marker = reserve_attempt(tmp_path, now=clock.now(), selection_sha256='b' * 64)
-    assert marker['session_number'] == 2
+    # B018 strengthens the historical contract: evidence loss cannot qualify cleanup.
+    assert not result['evidence_complete'] and not result['cleanup_ok'] and result['cancellation_ok']
+    with pytest.raises(RuntimeError, match='reconciliation'):
+        reserve_attempt(tmp_path, now=clock.now(), selection_sha256='b' * 64)
 
 
 def test_reconcile_needs_phrase_bound_receipt_and_fresh_empty_account(tmp_path):
@@ -142,7 +147,7 @@ def test_reconcile_needs_phrase_bound_receipt_and_fresh_empty_account(tmp_path):
         raise TimeoutError()
     venue.submit = lost
     result = session.run()
-    assert result['unknown_submit'] and result['cleanup_ok']
+    assert result['unknown_submit'] and not result['cleanup_ok'] and result['cancellation_ok']
     marker = tmp_path / 'session-1.attempt.json'
     with pytest.raises(RuntimeError, match='reconciliation'):
         reserve_attempt(tmp_path, now=clock.now(), selection_sha256='b' * 64)
@@ -228,7 +233,8 @@ def test_seeded_two_percent_six_hour_rehearsal(tmp_path):
             return _original(*args, **kwargs)
         setattr(venue, name, flaky)
     result = session.run()
-    assert result['reason'] == 'fixed_end' and result['cleanup_ok']
+    assert result['reason'] == 'fixed_end' and not result['cleanup_ok'] and result['cancellation_ok']
+    assert not result['evidence_complete']
     assert not [r for r in venue.memory.orders.values() if r['status'] == 'LIVE']
     assert result['post_count'] == 2 and clock.seconds >= 21600
     assert 300 <= result['minute_samples'] <= 360 and sum(faults.values()) > 100

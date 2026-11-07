@@ -139,9 +139,8 @@ def _rule_key(rule):
 
 
 def _terminal(row):
-    row = row if isinstance(row, dict) else {}
-    status = str(row.get('status') or row.get('official_order_status') or '').upper()
-    return bool(status) and status != 'LIVE'
+    from weather.market.mm_account_reads import order_terminal
+    return order_terminal(row)
 
 
 # ----- session 0 market choice (S0 section 2) -------------------------------------------------------------------
@@ -838,8 +837,11 @@ class PilotSession(Session):
                          part_of_proof=False, order_ids=list(self.active))
         ok = super().cleanup()
         if self.submits:
-            self.reconcile_trades()
-        return ok
+            mismatch = self.reconcile_trades()
+            if mismatch is None or mismatch:
+                self.evidence_failed = True
+        self.cleanup_ok = ok and not self.evidence_failed and self.inventory_proven and self.posts == len(self.known)
+        return self.cleanup_ok
 
     def reconcile_trades(self, *, attempts=5, pause=2):
         """L from venue trades at cleanup (PR section 6). Trade reads can lag a terminal order read, so a
@@ -847,10 +849,12 @@ class PilotSession(Session):
         try:
             for attempt in range(attempts):
                 trades = self._recover('lfc_trades', self.venue.trades)
-                traded = traded_shares(trades, self.ledger.our_order_ids())
-                found = self.ledger.trade_mismatches(traded)
+                scope_ids = self.ledger.trade_scope_ids(self.condition)
+                traded = traded_shares(trades, scope_ids)
+                found = self.ledger.trade_mismatches(traded, order_ids=scope_ids)
                 self._retain('lfc_trade_reconcile', lfc_journal_schema=LFC_JOURNAL_SCHEMA, attempt=attempt,
-                             traded=traded, mismatches=found)
+                             traded=traded, mismatches=found, condition_id=self.condition,
+                             scoped_order_ids=sorted(scope_ids))
                 if not found:
                     return []
                 if attempt + 1 < attempts:

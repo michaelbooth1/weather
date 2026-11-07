@@ -495,6 +495,10 @@ class TestMMExchange(unittest.TestCase):
                 def iter_items(self):
                     return iter(self.rows)
 
+                def __iter__(self):
+                    from polymarket import Page
+                    yield Page(items=list(self.rows), has_more=False, next_cursor=None)
+
             def list_open_orders(self):
                 self.calls.append(("list_open_orders",))
                 return self.Paginator(list(self.open_orders))

@@ -66,6 +66,7 @@ import signal
 import sys
 
 from weather.market import lfc_constants as LFC
+from weather.market.lfc_completion import complete_evidence, evidence_flags, ledger_completion
 from weather.market.lfc_ledger import (SNAPSHOT_FILE, Ledger, LedgerUnavailable, compare_baselines,
                                        fetch_account_positions, latest_baseline, ledger_path, normalize_positions,
                                        take_baseline, traded_shares, write_baseline)
@@ -105,6 +106,10 @@ def parser():
     rewards = modes.add_parser('rewards-record', help='owner-run D+1/D+2 read-only incentive evidence')
     rewards.add_argument('--date', required=True, help='session UTC date YYYY-MM-DD')
     rewards.add_argument('--root', type=Path, help='pilot root (default: normal campaign root)')
+    rewards.add_argument('--pass', dest='record_pass', choices=('d1', 'd2'),
+                         help='select an observation/retry explicitly; default is the currently due UTC pass')
+    rewards.add_argument('--recover-corrupt', action='store_true',
+                         help='retain corrupt originals and publish explicit recovery manifests')
     rewards.add_argument('--signature-type', type=int, choices=(2, 3), default=2,
                          help='L2 account signature type; default 2, use 3 for a deposit wallet')
     wallet = modes.add_parser('wallet-verify')
@@ -343,8 +348,9 @@ def classify_open_orders(rows, ledger):
 def finish_session(ledger, session_id, result):
     """Close the session in the ledger; stop-at-100 then halts the campaign for good (PR section 6)."""
     ledger.record('session_end', session_id=session_id, reason=result.get('reason'),
-                  cleanup_ok=bool(result.get('cleanup_ok')), fill_seen=result.get('fill_seen'),
-                  source=result.get('source', 'session'), L=str(ledger.L()))
+                  cleanup_ok=result.get('cleanup_ok') is True and complete_evidence(result), fill_seen=result.get('fill_seen'),
+                  source=result.get('source', 'session'), L=str(ledger.L()),
+                  **evidence_flags(result))
     if ledger.stop_reason() == 'l_stop_at_cap' and not ledger.halted:
         ledger.record('halt', reason='l_stop_at_cap', L_filled=str(ledger.L_filled()))
     return ledger.figures()
@@ -356,11 +362,13 @@ def session_fills(ledger, session_id):
             if leg['session_id'] == session_id and leg['order_id']]
 
 
-def end_summary(ledger, session_id, *, number, counted, run, reason, failure_type, cleanup_ok, panic, open_rows):
+def end_summary(ledger, session_id, *, number, counted, run, reason, failure_type, cleanup_ok, panic, open_rows,
+                evidence=None):
     figures = ledger.figures()
     ours, foreign = classify_open_orders(open_rows, ledger) if isinstance(open_rows, list) else (None, None)
     return {'session_id': session_id, 'number': number, 'counted': counted, 'session0_run': run, 'reason': reason,
-            'failure_type': failure_type, 'cleanup_ok': bool(cleanup_ok), 'panic': bool(panic),
+            'failure_type': failure_type, 'cleanup_ok': bool(cleanup_ok) and complete_evidence(evidence), 'panic': bool(panic),
+            **evidence_flags(evidence),
             **{k: str(v) for k, v in figures.items()}, 'open_orders': {'ours': ours, 'foreign': foreign},
             'fills': session_fills(ledger, session_id), 'stop_reason': ledger.stop_reason(),
             'ended_at_utc': _now().isoformat()}
@@ -626,6 +634,23 @@ def ledger_state(ledger):
 
 
 def run_live(args):
+    """Publish a public outcome even when setup, the journal or final cleanup fails."""
+    from weather.market.lfc_session_status import SessionStatus
+    status = getattr(args, '_outcome_status', None) or SessionStatus(kind='live')
+    code = 1
+    try:
+        status.checkpoint()
+        code = _run_live(args, status=status)
+    except BaseException as exc:
+        status.failed = True
+        status.reason = 'owner_interrupt' if isinstance(exc, KeyboardInterrupt) else 'exception_' + type(exc).__name__
+        raise
+    finally:
+        outcome = status.finish(success=code == 0)
+    return 0 if code == 0 and outcome['state'] == 'COMPLETE' else 1
+
+
+def _run_live(args, *, status):
     global _LIVE_STARTED
     if _LIVE_STARTED:
         raise RuntimeError('one_session_per_process')
@@ -665,6 +690,7 @@ def run_live(args):
         client = build_client(fields, timeout=max(timeouts.values()))
         venue = session = None
         handlers, session_id, result, directory, numbering = {}, None, None, None, {}
+        session_recorded = False
         wallet_reader = OwnerVenue(client, fields, guard, readonly=True, timeouts=timeouts)
         try:
             balances = wallet_reader.balances()
@@ -687,6 +713,7 @@ def run_live(args):
                     raise RuntimeError(moved)  # before any session id, directory or ledger row
             session_id, numbering = session_identity(ledger, started, profile=profile)
             directory = session_directory(root, session_id, profile=profile)
+            status.bind(session_id, directory=directory, selection=selected, ledger=ledger)
             directory.mkdir(parents=True, exist_ok=False)
             attempt = {'number': numbering['session_number'], **numbering, 'session_id': session_id,
                        'protocol': LFC.PROTOCOL, 'selection_sha256': digest(table)}
@@ -698,6 +725,7 @@ def run_live(args):
                           market_id=selected.get('market_id'), event_date=selected.get('target_date'),
                           event_slug=selected.get('event_slug'), selection_sha256=digest(table),
                           **{k: str(v) for k, v in ledger.figures().items()})
+            session_recorded = True
             exclusion = None if profile.session0 else {
                 'event_slug': selected['event_slug'], 'condition_ids': selected['event_condition_ids'],
                 'timezone_name': selected['market_timezone']}
@@ -714,6 +742,7 @@ def run_live(args):
                                    exclusion=exclusion, baselines=baselines, venue=venue, public=public, table=table,
                                    clock=WallClock(), directory=directory, guard=guard, mode='live',
                                    confirmation=receipt, attempt=attempt)
+            status.session, session.outcome_status = session, status
 
             def interrupted(_signal, _frame):
                 raise KeyboardInterrupt()
@@ -723,7 +752,9 @@ def run_live(args):
                     handlers[value] = signal.signal(value, interrupted)
             venue.start()
             result = session.run()
-            return 0 if result['cleanup_ok'] and result['failure_type'] is None else 1
+            status.reason = result.get('reason')
+            return 0 if (result['cleanup_ok'] and result['failure_type'] is None and complete_evidence(result)
+                         and not status.stop_seen) else 1
         finally:
             if session is not None:
                 session.cleanup()
@@ -733,6 +764,7 @@ def run_live(args):
                     open_rows = wallet_reader.open_orders()
                 except Exception:
                     open_rows = None
+            status.open_rows = open_rows
             try:
                 if venue is not None:
                     venue.close()
@@ -741,10 +773,13 @@ def run_live(args):
             finally:
                 for value, handler in handlers.items():
                     signal.signal(value, handler)
-            if session_id is not None:
+            if session_recorded:
                 outcome = {'reason': (result or {}).get('reason', 'exception'),
                            'cleanup_ok': getattr(session, 'cleanup_ok', False),
-                           'fill_seen': getattr(session, 'fill_seen', None)}
+                           'fill_seen': getattr(session, 'fill_seen', None),
+                           'evidence_complete': not getattr(session, 'evidence_failed', True),
+                           'inventory_proven': getattr(session, 'inventory_proven', False),
+                           'unknown_submit': session is None or session.posts != len(session.known)}
                 close_error = None
                 try:
                     finish_session(ledger, session_id, outcome)
@@ -754,10 +789,12 @@ def run_live(args):
                                       counted=numbering.get('counted'), run=profile.run, reason=outcome['reason'],
                                       failure_type=(result or {}).get('failure_type'),
                                       cleanup_ok=outcome['cleanup_ok'], panic=not outcome['cleanup_ok'],
-                                      open_rows=open_rows)
+                                      open_rows=open_rows, evidence=outcome)
                 if close_error:
                     summary['ledger_close'] = close_error + ': run reconcile'
-                close_out(root, directory, summary)
+                closed = close_out(root, directory, summary)
+                if close_error or not closed.get('session_end_sha256') or open_rows != []:
+                    raise RuntimeError('terminal_evidence_unavailable')
 
 
 def run_verify():
@@ -771,7 +808,9 @@ def run_verify():
                   'session0_passed': session0_passed(ledger, root=root),
                   'session0_runs_missing': session0_mechanical(ledger),
                   'session0_attestation': session0_attestation(root, ledger) or 'PASS'}
-        report['status'] = 'PASS' if not ours and not foreign and not report['open_sessions'] else 'ATTENTION'
+        report.update(ledger_completion(root, ledger))
+        report['status'] = 'PASS' if (not ours and not foreign and not report['open_sessions'] and
+            not report['unresolved_legs'] and not report['stop_reason'] and complete_evidence(report)) else 'ATTENTION'
         guard.print(report)
         return 0 if report['status'] == 'PASS' else 1
     finally:
@@ -940,11 +979,26 @@ def _intent_request(root, ledger, leg):
 
 def _adoption_match(row, leg, expiration):
     try:
+        observed = row.get('expiration')
+        normalized = row.get('expires_at')
+        def epoch(value):
+            if isinstance(value, datetime) or isinstance(value, str) and ('T' in value or ':' in value):
+                stamp = utc(value).timestamp()
+                if not stamp.is_integer():
+                    raise ValueError('fractional_expiration')
+                return int(stamp)
+            if isinstance(value, bool) or str(value) != str(int(value)):
+                raise ValueError('invalid_expiration')
+            return int(value)
+        if normalized is not None:
+            if observed is not None and epoch(observed) != epoch(normalized):
+                return False
+            observed = normalized
         return (isinstance(row, dict) and str(row.get('asset_id') or row.get('token_id')) == leg['token_id'] and
                 str(row.get('side', '')).upper() == 'BUY' and Decimal(str(row['price'])) == Decimal(leg['price']) and
                 Decimal(str(row['original_size'])) == Decimal(leg['size']) and
-                int(row['expiration']) == int(expiration))
-    except (KeyError, TypeError, ValueError, InvalidOperation):
+                epoch(observed) == epoch(expiration))
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError, InvalidOperation):
         return False
 
 
@@ -1014,9 +1068,11 @@ def reconcile_trades_bounded(ledger, venue, *, attempts=LFC.TRADE_READ_ATTEMPTS,
     import time
     sleep = sleep or time.sleep
     traded, found, before = {}, [], len(ledger.mismatches)
+    condition = getattr(venue, 'condition', None)
+    scope_ids = ledger.trade_scope_ids(condition)
     for attempt in range(attempts):
-        traded = traded_shares(venue.trades(), ledger.our_order_ids())
-        found = ledger.trade_mismatches(traded)
+        traded = traded_shares(venue.trades(), scope_ids)
+        found = ledger.trade_mismatches(traded, order_ids=scope_ids)
         if not found:
             return traded, []
         for row in found:
@@ -1025,7 +1081,7 @@ def reconcile_trades_bounded(ledger, venue, *, attempts=LFC.TRADE_READ_ATTEMPTS,
             except Exception:
                 continue
             ledger.terminal(row['order_id'], order, source='reconcile_trade_check')
-        found = ledger.trade_mismatches(traded)
+        found = ledger.trade_mismatches(traded, order_ids=scope_ids)
         if not found or len(ledger.mismatches) > before:
             break
         if attempt + 1 < attempts:
@@ -1060,11 +1116,13 @@ def reconcile_ledger(ledger, venue, *, root=None, sleep=None):
             finish_session(ledger, session_id, {'reason': 'reconciled_after_crash', 'cleanup_ok': True,
                                                 'fill_seen': None, 'source': 'reconcile'})
             closed.append(session_id)
+    completion = ledger_completion(root, ledger) if root is not None else evidence_flags(None)
     return {'resolved_order_ids': resolved, 'closed_sessions': closed, 'our_open_orders': ours,
             'foreign_open_orders': foreign, 'traded': traded, 'mismatches': mismatches,
             **{k: str(v) for k, v in ledger.figures().items()}, 'stop_reason': ledger.stop_reason(),
             'unacknowledged_intents': [leg['intent_key'] for leg in ledger.unacknowledged_intents()],
-            'adopted_order_ids': adopted, 'adoption_refusals': adoption_refusals}, open_rows
+            'adopted_order_ids': adopted, 'adoption_refusals': adoption_refusals,
+            'trade_condition_scope': getattr(venue, 'condition', None), **completion}, open_rows
 
 
 def close_crashed(root, ledger, closed, open_rows, *, notifier=notify_owner):
@@ -1090,7 +1148,8 @@ def run_reconcile():
         close_crashed(root, ledger, report['closed_sessions'], open_rows)
         guard.print(report)
         return 0 if not (report['our_open_orders'] or report['mismatches'] or report['adoption_refusals'] or
-                         report['unacknowledged_intents']) else 1
+                         report['unacknowledged_intents'] or report['foreign_open_orders'] or report['stop_reason'] or
+                         ledger.open_sessions() or ledger.unresolved_legs()) and complete_evidence(report) else 1
     finally:
         venue.close()
 
@@ -1166,7 +1225,22 @@ def run_cancel_ours():
 
 
 def main(argv=None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments or arguments[0] not in ('live', 'session-run'):
+        return _main(arguments)
+    from weather.market.lfc_session_status import SessionStatus
+    status = SessionStatus(kind='live' if arguments[0] == 'live' else 'driver')
+    try:
+        status.tick()
+        return _main(arguments, outcome=status)
+    finally:
+        if not status.finished:
+            status.finish(reason='startup_refused')
+
+
+def _main(argv=None, *, outcome=None):
     args = parser().parse_args(argv)
+    args._outcome_status = outcome
     try:
         if args.mode == 'init-ledger':
             return run_init_ledger()

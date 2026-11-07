@@ -36,6 +36,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+trap {
+    # An unhandled setup/evidence-publication error cannot inherit PS 5.1's
+    # pending Ctrl+C success status. Inner Job finally blocks run before here.
+    [Console]::Error.WriteLine('workstation pre-gate aborted; no qualification')
+    [Environment]::Exit(1)
+}
+$invocationStarted = [DateTimeOffset]::UtcNow
 $receiptSchema = "weather.workstation_pregate_receipt.v1"
 $mutexName = "Global\WeatherProjectHeavyWorkloadV1"
 $queueTimeoutExitCode = 75
@@ -56,6 +63,7 @@ foreach ($required in @(
     (Join-Path $opsRoot "workload_admission.ps1"),
     (Join-Path $opsRoot "git_executable_identity.ps1"),
     (Join-Path $opsRoot "training_window_contract.ps1"),
+    (Join-Path $opsRoot "workstation_pregate_receipt.ps1"),
     (Join-Path $RepoRoot "scripts\ops\bounded_worktree_test_suite.ps1"),
     (Join-Path $RepoRoot "venv\Scripts\python.exe")
 )) {
@@ -67,6 +75,7 @@ foreach ($required in @(
 . (Join-Path $opsRoot "windows_kill_on_close_job.ps1")
 . (Join-Path $opsRoot "git_executable_identity.ps1")
 . (Join-Path $opsRoot "training_window_contract.ps1")
+. (Join-Path $opsRoot "workstation_pregate_receipt.ps1")
 
 function Get-WorkstationPregateHostFunctions {
     # Define the host suite's own chunk-planning functions in the caller's scope.
@@ -292,6 +301,7 @@ $receipt = [ordered]@{
     stdout_path = $logPath + ".stdout.log"
     stderr_path = $logPath + ".stderr.log"
     junit_paths = @()
+    junit_files = @()
     started_at = (Get-Date).ToString("o")
     finished_at = $null
     worktree_removed = $null
@@ -469,6 +479,9 @@ finally {
     $junitPaths = @($parsed.starts.Keys | Sort-Object | ForEach-Object { [string]$parsed.starts[$_].junit } |
         Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
     $receipt.junit_paths = $junitPaths
+    $receipt.junit_files = @($junitPaths | ForEach-Object {
+        [ordered]@{path=$_;sha256=(Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()}
+    })
     $receipt.failed_tests = @(Get-WorkstationPregateJUnitFailures -Paths $junitPaths)
     $chunkRecords = @()
     if ($null -ne $plan) {
@@ -565,6 +578,16 @@ finally {
         $exitCode = 1
     }
     $receipt.finished_at = (Get-Date).ToString("o")
+    if ($exitCode -eq 0) {
+        try {
+            Assert-WeatherPregateReceipt -Receipt $receipt -ExpectedHead $Head -ProcessExitCode 0 `
+                -NotBefore $invocationStarted | Out-Null
+        } catch {
+            $receipt.verdict = 'FAIL'
+            $exitCode = 1
+            $receipt.failure_reasons += 'full qualification evidence refused'
+        }
+    }
     # The receipt verdict is authoritative. The exit is issued inside this
     # finally because a PS 5.1 -File script stopped by Ctrl+C would otherwise
     # exit 0 after a FAIL receipt; Write-Output during a stop would also abort
@@ -579,6 +602,9 @@ finally {
     }
     finally {
         if (-not $receiptWritten -and $exitCode -eq 0) { $exitCode = 1 }
-        exit $exitCode
+        # PS 5.1 can overwrite its language-level `exit` status while handling
+        # a pending console stop. This is a standalone process boundary: all
+        # child-tree teardown and receipt publication above must finish first.
+        [Environment]::Exit([int]$exitCode)
     }
 }

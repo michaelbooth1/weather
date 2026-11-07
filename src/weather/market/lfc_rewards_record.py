@@ -13,10 +13,15 @@ import json
 import os
 from pathlib import Path
 import re
+import uuid
 from types import SimpleNamespace
+from functools import partial
 
 from weather.market.lfc_settlement_record import condition_id, envelope, public_get, response_bytes, retained
-from weather.market.mm_stage2_hold import utc, write_new
+from weather.market.mm_stage2_hold import utc
+from weather.market.lfc_recording_io import (observed_get, prepare_recovery, publish_recovery,
+    read_recovered, strict_json, write_new)
+from weather.market.lfc_accrual_replay import validate_accrual
 from weather.market.re1_payout_evidence import ReadJournal, collect_accruals, normalize_earnings
 from weather.market.wallet_reader_security import ADDRESS, CLOB, SecretGuard
 from weather.market.wallet_reader_transport import ReadTransport
@@ -76,18 +81,44 @@ class AccrualTransport(ReadTransport):
     def _record(self, path, host, status, raw, event):
         self.journal.record('sdk_response' if raw is not None else 'read_attempt', method='GET', path=path, status=status,
                             **(retained(raw) if raw is not None else {'sha256': None}))
+        if raw is not None and status == 200:
+            strict_json(raw)
 
 
 class AccrualClient:
     """Minimal pagination adapter for the existing collect_accruals implementation."""
     def __init__(self, transport, signature_type):
         self.transport, self.signature_type = transport, signature_type
+        self.journal, self.walk_id, self.read_id = None, None, 0
+
+    def bind_recording(self, journal, walk_id):
+        self.journal, self.walk_id, self.read_id = journal, walk_id, 0
+
+    def read(self, path, params):
+        if self.journal is None:
+            return self.transport.request('GET', CLOB, path, params)
+        journal, read_id = self.journal, self.read_id
+        self.read_id += 1
+        journal.record('accrual_request', walk_id=self.walk_id, read_id=read_id,
+                       method='GET', path=path, params=dict(params))
+        first = len(journal.records)
+        result = self.transport.request('GET', CLOB, path, params)
+        replies = [(i, row) for i, row in enumerate(journal.records) if i >= first and
+                   row.get('event') == 'sdk_response' and row.get('path') == path]
+        if len(replies) != 1 or replies[0][1].get('status') != 200:
+            raise ValueError('recording_accrual_response_missing')
+        index, receipt = replies[0]
+        if strict_json(response_bytes(receipt)) != result:
+            raise ValueError('recording_accrual_response_mismatch')
+        journal.record('accrual_response', walk_id=self.walk_id, read_id=read_id,
+                       response_index=index, response_sha256=receipt['sha256'])
+        return result
 
     def list_user_earnings_for_day(self, *, date):
         params = {'date': date, 'signature_type': self.signature_type}
         seen = set()
         for _ in range(MAX_PAGES):
-            page = self.transport.request('GET', CLOB, '/rewards/user', params)
+            page = self.read('/rewards/user', params)
             if not isinstance(page, dict) or not isinstance(page.get('data'), list):
                 raise ValueError('earnings_envelope')
             cursor = page.get('next_cursor')
@@ -102,8 +133,7 @@ class AccrualClient:
         raise ValueError('earnings_page_budget')
 
     def get_total_earnings_for_user_for_day(self, *, date):
-        rows = self.transport.request('GET', CLOB, '/rewards/user/total',
-                                      {'date': date, 'signature_type': self.signature_type})
+        rows = self.read('/rewards/user/total', {'date': date, 'signature_type': self.signature_type})
         return clob_earnings(rows, total=True)
 
 
@@ -121,7 +151,10 @@ def read_activity(maker, kind, start, end, *, get=public_get):
         return activity_pages(maker, kind, start, end, rows, pages, get=get)
     except Exception as exc:
         # Reason strings are fixed codes only; raw network exceptions are never echoed.
-        reason = str(exc) if isinstance(exc, ValueError) and re.fullmatch(r'activity_[a-z_]+', str(exc)) else type(exc).__name__
+        raw = getattr(exc, 'raw', None)
+        if isinstance(raw, bytes):
+            pages.append(dict(retained(raw), failed=True, status=getattr(exc, 'status', None)))
+        reason = str(exc) if isinstance(exc, ValueError) and re.fullmatch(r'(activity|recording)_[a-z_]+', str(exc)) else type(exc).__name__
         raise ActivityReadFailed(reason, rows, pages) from None
 
 
@@ -133,7 +166,7 @@ def activity_pages(maker, kind, start, end, rows, pages, *, get):
     params = {'user': maker, 'type': kind, 'start': int(start.timestamp()) + bool(start.microsecond),
               'end': int(end.timestamp()) - (not end.microsecond), 'limit': 100, 'sort_direction': 'ASC'}
     if end <= start:
-        raise ValueError('activity_window_not_open')
+        raise ValueError('activity_zero_width_reward_window' if kind == 'REWARD' and end == start else 'activity_window_not_open')
     for _ in range(MAX_PAGES):
         raw = get('/v2/activity', params.copy())
         pages.append(retained(raw))
@@ -204,24 +237,35 @@ def latest_record(base, **scope):
     if not paths:
         return None, base, -1
     number, path = max(paths, key=lambda item: item[0])
-    return load_record(path, **scope), path, number
+    row, actual = read_recovered(path, lambda p: load_record(p, **scope))
+    return row, actual, number
 
 
-def next_record(base, *, cutoff, **scope):
-    previous, path, number = latest_record(base, **scope)
+def next_record(base, *, cutoff, recover_corrupt=False, clock=None, **scope):
+    try:
+        previous, path, number = latest_record(base, **scope)
+    except (ValueError, KeyError, TypeError, UnicodeError) as exc:
+        if not recover_corrupt or str(exc) == 'recording_record_scope':
+            raise
+        paths = [Path(base)] if Path(base).exists() else []
+        paths += sorted(Path(base).parent.glob(Path(base).stem + '-retry-[0-9][0-9][0-9].json'))
+        target, recovery = prepare_recovery(paths[-1], clock=clock, reason='invalid_recording_attempt')
+        return target, cutoff, recovery
     if previous is not None and record_complete(previous):
         raise FileExistsError('rewards_record_exists')
     if number >= MAX_RECORD_ATTEMPTS:
         raise ValueError('recording_attempt_budget')
     target = Path(base) if number < 0 else Path(base).with_name(f'{Path(base).stem}-retry-{number + 1:03d}.json')
-    return target, utc(previous['query_end_utc']) if previous else cutoff
+    return target, utc(previous['query_end_utc']) if previous else cutoff, None
 
 
-def record_rebates(root, day, *, maker, conditions, clock, get=public_get, as_of=None):
+def record_rebates(root, day, *, maker, conditions, clock, get=public_get, as_of=None, recover_corrupt=False):
     start, cutoff, lag = recording_period(day, as_of or clock())
     conditions = sorted({condition_id(c) for c in conditions})
-    target, cutoff = next_record(rebate_path(root, day, lag), cutoff=cutoff, kind='lfc_rebate_record',
-                                  day=day, maker=maker, conditions=conditions, lag=lag)
+    target, cutoff, recovery = next_record(rebate_path(root, day, lag), cutoff=cutoff, kind='lfc_rebate_record',
+                                  day=day, maker=maker, conditions=conditions, lag=lag,
+                                  recover_corrupt=recover_corrupt, clock=clock)
+    get = partial(observed_get, Path(root) / 'rewards' / 'reads', get, clock=clock)
     try:
         evidence = read_activity(maker, 'MAKER_REBATE', start, cutoff, get=get)
     except Exception as exc:
@@ -234,6 +278,8 @@ def record_rebates(root, day, *, maker, conditions, clock, get=public_get, as_of
            'activity': evidence, 'flags': flags, 'netted_against_loss': False,
            'earned_period_verified': False}
     write_new(target, row)
+    if recovery:
+        publish_recovery(target, recovery)
     return row
 
 
@@ -256,21 +302,30 @@ def rebate_flags(evidence, conditions):
     return flags
 
 
-def record_rewards(root, day, *, maker, conditions, venue, journal, clock, get=public_get, as_of=None):
+def record_rewards(root, day, *, maker, conditions, venue, journal, clock, get=public_get, as_of=None, recover_corrupt=False):
     start, cutoff, lag = recording_period(day, as_of or clock())
     conditions = sorted({condition_id(c) for c in conditions})
     if not conditions:
         raise ValueError('no_session_conditions')
-    target, cutoff = next_record(Path(root) / 'rewards' / f'{day}-d{lag}.json', cutoff=cutoff,
-        kind='lfc_rewards_record', day=day, maker=maker, conditions=conditions, lag=lag)
+    target, cutoff, recovery = next_record(Path(root) / 'rewards' / f'{day}-d{lag}.json', cutoff=cutoff,
+        kind='lfc_rewards_record', day=day, maker=maker, conditions=conditions, lag=lag,
+        recover_corrupt=recover_corrupt, clock=clock)
     end = start + timedelta(days=1)
+    journal.clock = clock  # One observation clock for paired wire and derived evidence.
     accruals = []
     for condition in conditions:
+        walk_id = uuid.uuid4().hex
+        journal.record('accrual_walk_start', walk_id=walk_id, maker=maker, day=day, condition_id=condition,
+                       signature_type=getattr(venue.client, 'signature_type', None))
+        if hasattr(venue.client, 'bind_recording'):
+            venue.client.bind_recording(journal, walk_id)
         scope = dict(maker_address=maker, condition_id=condition, accrual_start_utc=start.isoformat(),
                      accrual_end_utc=end.isoformat(), cash_start_utc=start.isoformat(),
                      cash_end_utc=(start + timedelta(days=3)).isoformat())
         source, normalized, raw = collect_accruals(venue, scope, journal, clock)
-        accruals.append({'condition_id': condition, 'source': source, 'accruals': normalized, 'retained': raw})
+        journal.record('accrual_walk_end', walk_id=walk_id)
+        accruals.append({'condition_id': condition, 'walk_id': walk_id, 'source': source, 'accruals': normalized, 'retained': raw})
+    get = partial(observed_get, Path(root) / 'rewards' / 'reads', get, clock=clock)
     try:
         distributions = read_activity(maker, 'REWARD', end, cutoff, get=get)
     except Exception as exc:
@@ -282,6 +337,8 @@ def record_rewards(root, day, *, maker, conditions, venue, journal, clock, get=p
            'accruals': accruals, 'distributions': distributions, 'payment_verified': False,
            'wire_journal': journal.records}
     write_new(target, row)
+    if recovery:
+        publish_recovery(target, recovery)
     return row
 
 
@@ -291,7 +348,7 @@ def load_record(path, *, kind, day, maker, conditions, lag):
         raw = handle.read(MAX_RECORD_BYTES + 1)
     if len(raw) > MAX_RECORD_BYTES:
         raise ValueError('recording_file_budget')
-    row = json.loads(raw)
+    row = strict_json(raw)
     schema = REWARDS_SCHEMA if kind == 'lfc_rewards_record' else REBATE_SCHEMA
     if (row.get('schema_version') != schema or row.get('kind') != kind or row.get('maker_address') != maker or
             row.get('date') != day or type(row.get('pass')) is not int or row['pass'] != lag or
@@ -326,30 +383,13 @@ def load_record(path, *, kind, day, maker, conditions, lag):
     replies = [r for r in journal if r.get('event') == 'sdk_response' and 'raw_response' in r]
     for reply in replies:
         response_bytes(reply)
-    hashes = {r['sha256'] for r in replies if r.get('status') == 200}
-    earnings = [r for reply in replies if reply.get('status') == 200 and reply.get('path') == '/rewards/user'
-                for r in clob_earnings(envelope(response_bytes(reply))['data'])]
-    totals = [clob_earnings(json.loads(response_bytes(reply)), total=True) for reply in replies
-              if reply.get('status') == 200 and reply.get('path') == '/rewards/user/total']
     for entry in row['accruals']:
         source = entry['source']
         if type(source.get('complete')) is not bool:
             raise ValueError('recording_accrual_shape')
         if not source['complete']:
             continue
-        saved = entry['retained']
-        if (source.get('status') != 'OBSERVED' or source.get('pagination_complete') is not True or
-                saved['total_earnings'] not in totals or any(r not in earnings for r in saved['rows'])):
-            raise ValueError('recording_accrual_receipts_missing')
-        scope = dict(maker_address=maker, condition_id=entry['condition_id'],
-                     accrual_start_utc=start.isoformat(), accrual_end_utc=(start + timedelta(days=1)).isoformat())
-        normalized, all_assets = normalize_earnings([(r, 'probe') for r in saved['rows']],
-            [(r, 'probe') for r in saved['total_earnings']], scope, utc(source['observed_at_utc']))
-        strip = lambda rows: [{k: v for k, v in r.items() if k not in {'source_record_sha256', 'observed_at_utc'}} for r in rows]
-        if (not all_assets or utc(source['observed_at_utc']) < start + timedelta(days=1) or
-                strip(normalized) != strip(entry['accruals']) or
-                any(r['source_record_sha256'] not in hashes for r in entry['accruals'])):
-            raise ValueError('recording_accrual_mismatch')
+        validate_accrual(entry, journal, maker=maker, day=day, start=start, decode_rows=clob_earnings)
     return row
 
 
@@ -369,30 +409,24 @@ def run_rewards_record(args):
                          if s['legs'] and utc(s['start']['recorded_at_utc']).date() == start.date()})
     if not conditions:
         raise ValueError('no_session_conditions')
-    pending = None
-    for candidate in (1, 2):
-        reward_state = latest_record(Path(root) / 'rewards' / f'{args.date}-d{candidate}.json',
-            kind='lfc_rewards_record', day=args.date, maker=maker, conditions=conditions, lag=candidate)
-        rebate_state = latest_record(rebate_path(root, args.date, candidate), kind='lfc_rebate_record',
-            day=args.date, maker=maker, conditions=conditions, lag=candidate)
-        reward, rebate = reward_state[0], rebate_state[0]
-        if (reward or rebate) and not (reward and rebate and record_complete(reward) and record_complete(rebate)):
-            pending = candidate, reward_state, rebate_state
-            break
-    if pending is None:
-        _, _, lag = recording_period(args.date, observed)
-        reward_state = latest_record(Path(root) / 'rewards' / f'{args.date}-d{lag}.json',
-            kind='lfc_rewards_record', day=args.date, maker=maker, conditions=conditions, lag=lag)
-        rebate_state = latest_record(rebate_path(root, args.date, lag), kind='lfc_rebate_record',
-            day=args.date, maker=maker, conditions=conditions, lag=lag)
-    else:
-        lag, reward_state, rebate_state = pending
+    selected = getattr(args, 'record_pass', None)
+    lag = int(selected[1]) if selected else recording_period(args.date, observed)[2]
+    recover = getattr(args, 'recover_corrupt', False)
+    def state(base, kind):
+        try:
+            return latest_record(base, kind=kind, day=args.date, maker=maker, conditions=conditions, lag=lag)
+        except (ValueError, KeyError, TypeError, UnicodeError) as exc:
+            if not recover or str(exc) == 'recording_record_scope':
+                raise
+            return None, base, -1
+    reward_state = state(Path(root) / 'rewards' / f'{args.date}-d{lag}.json', 'lfc_rewards_record')
+    rebate_state = state(rebate_path(root, args.date, lag), 'lfc_rebate_record')
     reward, rewards_path = reward_state[:2]
     rebate, rebate_target = rebate_state[:2]
     if reward and rebate and record_complete(reward) and record_complete(rebate):
         raise FileExistsError('rewards_record_exists')
     cutoff = utc((reward or rebate)['query_end_utc']) if reward or rebate else observed
-    if cutoff > observed:
+    if cutoff > observed or recording_period(args.date, cutoff)[2] != lag:
         raise ValueError('recording_record_time')
     if reward is None or not record_complete(reward):
         fields, guard = load_reward_credentials()
@@ -401,11 +435,13 @@ def run_rewards_record(args):
         journal = ReadJournal(guard, clock)
         client = AccrualClient(AccrualTransport(fields, guard, journal), args.signature_type)
         reward = record_rewards(root, args.date, maker=maker, conditions=conditions,
-                                venue=SimpleNamespace(client=client), journal=journal, clock=clock, as_of=cutoff)
+                                venue=SimpleNamespace(client=client), journal=journal, clock=clock, as_of=cutoff,
+                                recover_corrupt=recover)
         _, rewards_path, _ = latest_record(Path(root) / 'rewards' / f'{args.date}-d{lag}.json',
             kind='lfc_rewards_record', day=args.date, maker=maker, conditions=conditions, lag=lag)
     if rebate is None or not record_complete(rebate):
-        rebate = record_rebates(root, args.date, maker=maker, conditions=conditions, clock=clock, as_of=cutoff)
+        rebate = record_rebates(root, args.date, maker=maker, conditions=conditions, clock=clock, as_of=cutoff,
+                               recover_corrupt=recover)
         _, rebate_target, _ = latest_record(rebate_path(root, args.date, lag), kind='lfc_rebate_record',
             day=args.date, maker=maker, conditions=conditions, lag=lag)
     complete = record_complete(reward) and record_complete(rebate)

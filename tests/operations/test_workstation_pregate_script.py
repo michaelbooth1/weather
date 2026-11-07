@@ -49,6 +49,7 @@ DRIVER = OPS / "workstation_pregate_driver.ps1"
 HOST_SUITE = OPS / "bounded_worktree_test_suite.ps1"
 POWERSHELL = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"]
 COPIED_SCRIPTS = (
+    "workstation_pregate_receipt.ps1",
     "bounded_worktree_test_suite.ps1",
     "workstation_pregate.ps1",
     "workstation_pregate_driver.ps1",
@@ -268,7 +269,7 @@ def fixture_repo(tmp_path_factory):
     return info
 
 
-def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subprocess.CompletedProcess, dict]:
+def _pregate(info: dict, head: str, label: str, base: str = "", *, receipt_exists=True) -> tuple[subprocess.CompletedProcess, dict]:
     root = Path(info["root"])
     receipt = root / f"receipt-{label}.json"
     env = os.environ.copy()
@@ -284,6 +285,9 @@ def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subproc
         command += ["-Base", base]
     with _HeldWorkstationMutex():
         result = _run(command, cwd=root, env=env, timeout=900)
+    if not receipt_exists:
+        assert not receipt.is_file()
+        return result, {}
     assert receipt.is_file(), result.stdout + result.stderr
     return result, json.loads(receipt.read_text(encoding="utf-8"))
 
@@ -295,6 +299,14 @@ def _assert_clean(info: dict, receipt: dict) -> None:
     assert receipt["basetemp_removed"] is True
     log = Path(receipt["log_path"])
     assert hashlib.sha256(log.read_bytes()).hexdigest() == receipt["log_sha256"]
+
+
+def test_receipt_publication_failure_exits_nonzero_after_cleanup(fixture_repo):
+    root = Path(fixture_repo['root'])
+    (root / 'receipt-unwritable.json').mkdir()
+    result, _ = _pregate(fixture_repo, fixture_repo['good'], 'unwritable', receipt_exists=False)
+    assert result.returncode == 1
+    assert not list((root / 'wt').glob('pg-*'))
 
 
 # ------------------------------------------------------------------ chunk plan
@@ -667,7 +679,7 @@ def test_pregate_exit_is_issued_from_the_final_finally():
     # and exits 0, and Write-Output during a stop aborts the finally.
     result = _run([*POWERSHELL, "-Command", EXIT_SHAPE], env={**os.environ, "PG_PREGATE": str(PREGATE)}, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"last_is_try": True, "exit": "exit $exitCode", "writes": 0}
+    assert json.loads(result.stdout) == {"last_is_try": True, "exit": "[Environment]::Exit([int]$exitCode)", "writes": 0}
 
 
 # ------------------------------------------------------------------ content pins

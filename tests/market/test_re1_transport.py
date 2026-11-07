@@ -54,7 +54,7 @@ def accrual_venue(monkeypatch):
     venue = object.__new__(OwnerVenue)
     venue.condition = CONDITION
     venue.client = SimpleNamespace(
-        list_user_earnings_for_day=lambda **kwargs: [SimpleNamespace(items=[{'earnings': '1.25'}], next_cursor=None)],
+        list_user_earnings_for_day=lambda **kwargs: [SimpleNamespace(items=[{'earnings': '1.25'}], has_more=False, next_cursor=None)],
         list_user_earnings_and_markets_config=universe,
         get_total_earnings_for_user_for_day=lambda **kwargs: [{'earnings': '1.25'}],
         get_reward_percentages=lambda: {CONDITION: '0.5'})

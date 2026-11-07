@@ -75,10 +75,23 @@ reads. Activity request bounds and bounded response sizes are retained.
 Completed pairs refuse before credentials load. Failed reads remain immutable;
 reruns create `-retry-001.json`, `-retry-002.json`, etc., for the failed component.
 The latest attempt is validated rather than skipping corrupt newer evidence.
-The oldest unfinished pass retains its names and cutoff across midnight. If
-`current_pass_due` is true after that pass completes, run the command again for
-the current D+2 pass. Incomplete reads return 2. The command prints actual output
+The default selects the pass due on the current UTC day; an unfinished D+1
+never blocks D+2. Use `--pass d1` or `--pass d2` to retry that existing pass
+after midnight, retaining its names and cutoff. A zero-width REWARD window is
+explicitly incomplete. Incomplete reads return 2. The command prints actual output
 paths, pass, completeness and rebate flags.
+
+Publication serializes strict JSON, fsyncs a unique same-directory attempt and
+atomically publishes without replacing an existing final file. Failed attempts
+remain for diagnosis. Duplicate JSON keys and nonfinite numbers are refused;
+raw responses and failed-read receipts remain available. Completed accrual
+records replay paired requests/responses through a terminal cursor and bind
+each derived row to its actual response page.
+
+For a corrupt legacy final file, `--recover-corrupt` on either recorder creates
+a separate replacement and immutable recovery manifests bound to the original
+and replacement hashes. It never overwrites the original. Conflicting or
+unvalidated replacements refuse; ordinary retries never silently skip corruption.
 
 R1/R3/R4 are read-only commands usable from a clean branch worktree without a
 live-session pin. M and R2 affect live-session code and retain its pin gates.

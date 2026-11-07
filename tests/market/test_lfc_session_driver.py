@@ -105,6 +105,9 @@ class FakeProc:
     def close(self):
         self.closed = True
 
+    def request_stop(self):
+        self.stop_requested = True
+
 
 def append_ledger(root, **row):
     with open(root / 'ledger.jsonl', 'a', encoding='utf-8') as handle:
@@ -221,10 +224,16 @@ class World:
         append_ledger(self.root, event='session_start', session_id='S1', directory=directory)
         (self.root / directory / 'session_end.json').write_text(json.dumps(
             {'reason': self.end_reason, 'cleanup_ok': self.cleanup_ok, 'panic': False,
+             'evidence_complete': True, 'inventory_proven': True, 'unknown_submit': False,
              'notification': {'toast_delivered': True}}))
         (self.root / directory / 'journal.jsonl').write_text(''.join(
             json.dumps({'event': 'submit_request', 'request': {'expiration': 1760820000}}) + '\n' for _ in range(2)))
         (self.root / directory / 'selection.json').write_text(json.dumps(self.selection()))
+        (self.root / directory / 'attempt.json').write_text('{}')
+        (self.root / directory / 'prediction.json').write_text(json.dumps(
+            {'evidence_complete': True, 'inventory_proven': True, 'unknown_submit': False,
+             'cleanup_ok': self.cleanup_ok, 'reason': self.end_reason,
+             'journal_sha256': hashlib.sha256((self.root / directory / 'journal.jsonl').read_bytes()).hexdigest()}))
         return (f'LFC-RESULT session_id=S1 reason={self.end_reason} cleanup_ok={self.cleanup_ok} panic=False L=0 '
                 'L_filled=0 L_resting=0 open_orders=0 fills=0')
 
@@ -240,7 +249,8 @@ class World:
 
     def h_verify(self, argv):
         return [str({'status': 'PASS', 'our_open_orders': 0, 'foreign_open_orders': 0, 'open_sessions': 0,
-                     'counted_sessions': 1, 'L': '0'})], 0
+                     'counted_sessions': 1, 'L': '0', 'evidence_complete': True,
+                     'inventory_proven': True, 'unknown_submit': False})], 0
 
     def h_wallet_verify(self, argv):
         return [str({'status': 'PASS', 's0_1': 'PASS', 's0_6': 'PASS', 'open_orders': 0, 'ledger_L': '0',

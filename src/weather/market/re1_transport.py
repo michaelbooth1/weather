@@ -283,18 +283,8 @@ does not inherit it or override its grant check.
 
 def bounded_rows(paginator, *, seconds=None):
     # seconds: optional wall-clock bound (live-fill calibration trade reads, review F-6); RE-1 passes none.
-    rows, cursors = [], set()
-    until = None if seconds is None else time.monotonic() + seconds
-    for page in paginator:
-        if until is not None and time.monotonic() > until:
-            raise RuntimeError('read_time_budget')
-        if len(cursors) >= 50 or page.next_cursor is not None and page.next_cursor in cursors:
-            raise RuntimeError('pagination_budget')
-        cursors.add(page.next_cursor)
-        rows.extend(plain_sdk_value(page.items))
-        if len(rows) > 25000:
-            raise RuntimeError('row_budget')
-    return rows
+    from weather.market.mm_account_reads import account_rows
+    return account_rows(paginator, normalize=plain_sdk_value, seconds=seconds, monotonic=time.monotonic)
 
 
 class OwnerVenue:

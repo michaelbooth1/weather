@@ -53,7 +53,7 @@ def test_sdk_cancel_models_and_open_order_model_normalization():
     order = adapter.get_order('order-1')
     exact_open_orders([order], {'order-1': (TOKENS[0], __import__('decimal').Decimal('.33'), 20)}, maker=MAKER, condition=CONDITION)
     assert order['token_id'] == TOKENS[0] and order['status'] == 'LIVE' and order['size_matched'] == '0'
-    assert bounded_rows([SimpleNamespace(items=(sdk_order(),), next_cursor=None)]) == [order]
+    assert bounded_rows([SimpleNamespace(items=(sdk_order(),), has_more=False, next_cursor=None)]) == [order]
 
 
 def test_sdk_trade_model_retains_fill_facts():
@@ -64,7 +64,7 @@ def test_sdk_trade_model_retains_fill_facts():
         maker_address=MAKER, taker_order_id='taker-1', side='SELL', trader_side='MAKER', price='.33', size='.1',
         outcome='Yes', status='TRADE_STATUS_MATCHED', fee_rate_bps='0', bucket_index=0, transaction_hash='',
         maker_orders=(maker_order,), match_time=1800000000, last_update=1800000000))
-    rows = bounded_rows([SimpleNamespace(items=(trade,), next_cursor=None)])
+    rows = bounded_rows([SimpleNamespace(items=(trade,), has_more=False, next_cursor=None)])
     assert rows[0]['status'] == 'MATCHED'
     assert rows[0]['maker_orders'][0]['matched_amount'] == '0.1'
 
@@ -95,7 +95,8 @@ def test_nonresting_sdk_status_ends_and_cancels(tmp_path, status):
     venue.order = order
     result = session.run(rehearsal_seconds=60)
     assert result['reason'] == ('fill' if status == 'MATCHED' else 'order_no_longer_resting')
-    assert result['cleanup_ok'] and not venue.open_orders()
+    assert result['cleanup_ok'] is (status == 'MATCHED') and not venue.open_orders()
+    assert result['cancellation_ok'] is True
 
 
 def test_sdk_scoring_parser_has_no_model_and_empty_list_is_rejected():

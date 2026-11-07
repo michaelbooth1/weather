@@ -60,7 +60,8 @@ def test_incomplete_acknowledgement_blocks_next_attempt(tmp_path):
         raise ConnectionError('unknown submit outcome')
     venue.submit = lost
     result = session.run()
-    assert result['cleanup_ok'] and not result['fill_seen'] and not result['evidence_complete']
+    assert not result['cleanup_ok'] and result['cancellation_ok']
+    assert not result['fill_seen'] and not result['evidence_complete']
     with pytest.raises(RuntimeError, match='reconciliation'):
         reserve_attempt(tmp_path, now=clock.now(), selection_sha256='a' * 64)
 

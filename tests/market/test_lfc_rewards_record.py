@@ -187,7 +187,7 @@ def test_interrupted_pass_finishes_rebate_without_loading_credentials(tmp_path, 
     rewards = tmp_path / 'rewards'
     original = recorder.record_rebates
     monkeypatch.setattr(recorder, 'record_rebates', lambda *a, **kwargs: original(*a, **kwargs, get=lambda *a: page()))
-    args = parser().parse_args(['rewards-record', '--date', '2026-09-20', '--root', str(tmp_path)])
+    args = parser().parse_args(['rewards-record', '--date', '2026-09-20', '--root', str(tmp_path), '--pass', 'd1'])
     assert recorder.run_rewards_record(args) == 0
     assert (rewards / '2026-09-20-rebate.json').exists()
     assert not (rewards / '2026-09-20-d2-rebate.json').exists()
@@ -270,7 +270,7 @@ def test_resume_rejects_corrupt_receipt_or_derived_values(tmp_path, monkeypatch,
     assert recorder.load_record(path, kind='lfc_rewards_record', day='2026-09-20', maker=MAKER,
                                 conditions=[CONDITION], lag=1) == row
     if mutation == 'receipt':
-        row['wire_journal'][0]['raw_response'] += ' '
+        next(item for item in row['wire_journal'] if 'raw_response' in item)['raw_response'] += ' '
     elif mutation == 'amount':
         row['accruals'][0]['accruals'][0]['amount'] = '999'
     else:
@@ -397,6 +397,7 @@ def test_failed_d1_read_retries_create_only_and_keeps_pass_after_midnight(tmp_pa
     before = base.read_bytes()
     assert recorder.record_complete(initial) is False
     args = owner_command(tmp_path, monkeypatch, now=START + timedelta(days=2, hours=1))
+    args.record_pass = 'd1'  # Explicit recovery; the default due pass is independently D+2.
     monkeypatch.setattr(recorder, 'load_reward_credentials', lambda: ({'FUNDER_ADDRESS': MAKER}, SecretGuard()))
     monkeypatch.setattr(recorder, 'AccrualTransport', lambda *a: None)
     monkeypatch.setattr(recorder, 'AccrualClient', lambda *a: None)

@@ -15,6 +15,7 @@ from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_selection import select_table
 from weather.market.re1_attended import Session, SecretGuard, HoldEnd, observe, replacement_price
 from weather.market.re1_rehearsal import RehearsalVenue
+from weather.market.lfc_completion import complete_evidence
 
 
 def setup(tmp_path):
@@ -137,7 +138,8 @@ def test_end_conditions_cancel_every_order(tmp_path, cause):
         return {'status': 'ok'}
     venue.heartbeat = beat
     result = session.run(rehearsal_seconds=120)
-    assert result['cleanup_ok'] and not venue.open_orders()
+    assert result['cancellation_ok'] and not venue.open_orders()
+    assert result['cleanup_ok'] == complete_evidence(result)
     assert result['minute_samples'] <= 1
     assert all(row['side'] == 'BUY' for row in venue.calls)
     if cause == 'fill': assert result['fill_seen']
@@ -157,7 +159,8 @@ def test_failure_between_submits_cancels_first(tmp_path, exception):
         return original(request, **kwargs)
     venue.submit = submit
     result = session.run()
-    assert result['cleanup_ok'] and not venue.open_orders() and len(venue.calls) == 1
+    assert not result['cleanup_ok'] and result['cancellation_ok']
+    assert not venue.open_orders() and len(venue.calls) == 1
 
 
 @pytest.mark.parametrize('change', ['side', 'size', 'post_only', 'type', 'host', 'price', 'ask',
@@ -288,7 +291,7 @@ def test_journal_failure_still_cancels(tmp_path):
         original(event, **fields)
     session.journal.record = record
     result = session.run()
-    assert not venue.open_orders() and result['cleanup_ok']
+    assert not venue.open_orders() and not result['cleanup_ok'] and result['cancellation_ok']
     assert not result['evidence_complete']
 
 
@@ -361,7 +364,8 @@ def test_lost_submit_ack_checks_inventory_and_marks_incomplete(tmp_path):
     venue.submit = lost
     result = session.run()
     assert result['fill_seen'] and not result['evidence_complete']
-    assert result['cleanup_ok'] and not venue.open_orders() and len(venue.calls) == 1
+    assert not result['cleanup_ok'] and result['cancellation_ok']
+    assert not venue.open_orders() and len(venue.calls) == 1
 
 
 def test_external_cancellation_stops_resting_minute_credit(tmp_path):
@@ -373,4 +377,4 @@ def test_external_cancellation_stops_resting_minute_credit(tmp_path):
     result = session.run(rehearsal_seconds=120)
     assert result['reason'] == 'order_no_longer_resting'
     assert result['minute_samples'] == 1 and not result['evidence_complete']
-    assert result['cleanup_ok'] and not venue.open_orders()
+    assert not result['cleanup_ok'] and result['cancellation_ok'] and not venue.open_orders()

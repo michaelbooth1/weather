@@ -61,9 +61,9 @@ def test_resolution_miss_is_unknown(tmp_path):
 
 @pytest.mark.parametrize('raw', [b'[]', b'{}', b'{"data":null}'])
 def test_bad_envelope_refused(tmp_path, raw):
-    with pytest.raises(ValueError, match='recording_envelope'):
-        record_settlement(tmp_path, CONDITION, get=lambda *a: raw)
-    assert not (tmp_path / 'settlement').exists()
+    row = record_settlement(tmp_path, CONDITION, get=lambda *a: raw)
+    assert row['terminal'] is False and row['reason'] == 'recording_envelope'
+    assert len(list((tmp_path / 'settlement' / 'reads' / CONDITION).glob('*.json'))) == 1
 
 
 def test_split_payout_is_terminal_without_invented_winner():
@@ -190,9 +190,9 @@ def test_public_get_redirect_is_not_followed(monkeypatch):
         def open(self, request, timeout):
             raise HTTPError(request.full_url, 302, 'redirect', {}, None)
     monkeypatch.setattr(recorder, 'direct_opener', Opener)
-    with pytest.raises(HTTPError) as error:
+    with pytest.raises(recorder.PublicReadFailure) as error:
         recorder.public_get('/v2/tokens', {'condition': CONDITION})
-    assert error.value.code == 302
+    assert error.value.status == 302
 
 
 def test_recorded_public_shapes_have_intact_receipts_and_no_invented_payout():

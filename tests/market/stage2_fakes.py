@@ -52,6 +52,10 @@ class Page:
     def iter_items(self):
         return iter(self.rows)
 
+    def __iter__(self):
+        from polymarket.pagination import Page as SDKPage
+        yield SDKPage(items=tuple(self.rows), has_more=False, next_cursor=None)
+
 
 class Venue:
     signer = MAKER

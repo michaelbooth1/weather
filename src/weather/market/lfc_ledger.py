@@ -361,8 +361,9 @@ class Ledger:
         A later terminal read that disagrees with the recorded size_matched is a reconciliation mismatch: it is
         recorded and stops the campaign for good.
         """
+        from weather.market.mm_account_reads import order_terminal
         status = str(row.get('status') or row.get('official_order_status') or '').upper()
-        if not status or status == 'LIVE':
+        if not order_terminal(row):
             return None
         key = self.by_order.get(str(order_id))
         if key is None:
@@ -377,13 +378,15 @@ class Ledger:
         return self.record('leg_terminal', order_id=str(order_id), size_matched=str(matched), status=status,
                            source=source)
 
-    def trade_mismatches(self, traded):
+    def trade_mismatches(self, traded, *, order_ids=None):
         """Pure comparison of traded shares per our order id (traded_shares) with the ledger.
 
         A terminal leg must match exactly; a non-terminal leg may not have traded more than its size.
         """
         found = []
         for oid, key in self.by_order.items():
+            if order_ids is not None and oid not in order_ids:
+                continue
             leg, seen = self.legs[key], _decimal(traded.get(oid, 0))
             if leg['status'] == 'terminal' and seen != _decimal(leg['size_matched']):
                 found.append({'order_id': oid, 'recorded': leg['size_matched'], 'observed': str(seen),
@@ -392,6 +395,10 @@ class Ledger:
                 found.append({'order_id': oid, 'recorded': leg['size'], 'observed': str(seen),
                               'mismatch_kind': 'trades_exceed_size'})
         return found
+
+    def trade_scope_ids(self, condition=None):
+        return {oid for oid, key in self.by_order.items()
+                if condition is None or str(self.legs[key]['condition_id']).lower() == str(condition).lower()}
 
     def reconcile_trades(self, trades, *, source):
         """Record every mismatch between venue trades and the ledger (each stops the campaign for good)."""

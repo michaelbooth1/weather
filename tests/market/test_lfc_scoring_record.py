@@ -24,7 +24,8 @@ def test_scoring_every_minute_accrual_independent_and_miss_nonfatal(tmp_path):
     rows = [json.loads(line) for line in session.journal.path.read_bytes().splitlines()]
     scored = [row for row in rows if row['event'] == 'scoring']
     missed = [row for row in rows if row['event'] == 'scoring_missed']
-    assert result['reason'] == 'fixed_end' and result['cleanup_ok'] and not result['evidence_complete']
+    assert result['reason'] == 'fixed_end' and not result['cleanup_ok'] and not result['evidence_complete']
+    assert result['cancellation_ok'] and venue.open_orders() == []
     assert len(samples) == 6 and all(len(ids) == 2 for _, ids in samples[2:])
     assert len(missed) == 1 and len(scored) == 6
     assert all(row['band'] == session.condition and type(row['scoring']) is bool and row['observed_at_utc']

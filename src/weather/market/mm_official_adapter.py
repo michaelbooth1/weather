@@ -619,10 +619,8 @@ def plain_sdk_value(value):
 
 
 def _paginator_items(paginator):
-    iterator = getattr(paginator, "iter_items", None)
-    if not callable(iterator):
-        raise RuntimeError("official SDK did not return the required paginator")
-    return [plain_sdk_value(item) for item in iterator()]
+    from weather.market.mm_account_reads import account_rows
+    return account_rows(paginator, normalize=plain_sdk_value)
 
 
 def _level_prices(levels):
@@ -679,6 +677,8 @@ class OfficialPolymarketGlobalAdapter:
     ):
         self.sdk_version = require_official_clob_version(sdk_version)
         self.client = client
+        from weather.market.mm_account_reads import install_account_guard
+        install_account_guard(client)
         self.token_id = str(token_id or "").strip() or None
         self.user_event_reader = user_event_reader
         self.user_event_health_reader = user_event_health_reader

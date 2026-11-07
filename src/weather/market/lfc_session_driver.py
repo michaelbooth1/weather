@@ -38,11 +38,14 @@ from pathlib import Path
 import queue
 import re
 import subprocess
+import signal
 import sys
 import threading
 import time
 
 from weather.market import lfc_constants as LFC
+from weather.market.lfc_completion import complete_evidence, evidence_flags, session_prediction
+from weather.market.lfc_session_status import SessionStatus
 from weather.market.lfc_ledger import BASELINE_SCHEMA  # the field Compare-T40ToStart checks
 
 PACK_SCHEMA = 'lfc_session_driver_pack_v0.1'
@@ -93,7 +96,8 @@ MASTER_FIELDS = (
     'refusal_codes', 'action', 'live_still_running')
 RUN_FIELDS = ('run', 'folder', 'session_id', 'reason', 'cleanup_ok', 'panic', 'result_line', 'toast_delivered',
               'helper_open_orders_after', 'submit_expirations', 'session_selection_neg_risk',
-              'session_selection_fee_class', 'neg_risk_signing_suspect', 'exit_code', 'refusal')
+              'session_selection_fee_class', 'neg_risk_signing_suspect', 'exit_code', 'refusal',
+              'evidence_complete', 'inventory_proven', 'unknown_submit')
 # Pin review SF-2: a first post rejected on a neg-risk band is reported as a signing-contract suspect, never retried.
 SIGNING_SUSPECT_REASONS = ('submit_acknowledgment', 'exception')
 
@@ -201,7 +205,7 @@ class ChildProcess:
 
     def __init__(self, argv, *, cwd, env, interactive):
         self.job, self.kill_method = None, 'taskkill'
-        flags = 0x4 if os.name == 'nt' else 0  # CREATE_SUSPENDED until the job holds it
+        flags = 0x4 | 0x200 if os.name == 'nt' else 0  # SUSPENDED + NEW_PROCESS_GROUP for targeted CTRL_BREAK
         self.popen = subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=None if interactive else subprocess.DEVNULL,
                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf-8',
                                       errors='replace', creationflags=flags)
@@ -250,6 +254,10 @@ class ChildProcess:
 
     def wait(self):
         return self.popen.wait()
+
+    def request_stop(self):
+        """Ask the child to run cleanup; only the existing grace expiry may kill it."""
+        self.popen.send_signal(signal.CTRL_BREAK_EVENT if os.name == 'nt' else signal.SIGINT)
 
     def kill_tree(self):
         if self.job is not None and self.job.terminate():
@@ -350,6 +358,8 @@ def judge_cli(code, lines, *, step):
     if is_transient_cli(row):
         return 'TRANSIENT', refusal_code(row, step + '_timeout')
     if code == 0 and row is not None and row.get('status') in ('PASS', 'ATTESTED'):
+        if step.startswith('verify') and not complete_evidence(row):
+            return 'FAIL', 'verify_evidence_incomplete'
         return 'PASS', row
     return 'FAIL', refusal_code(row, f'{step}_exit_{code}') if row is not None and row.get('status') == 'REFUSED' \
         else f"{step}_{(row or {}).get('status') or 'exit_' + str(code)}"
@@ -613,13 +623,38 @@ class _State:
 
 
 class SessionDriver:
-    def __init__(self, config, *, runner, clock=None, console=None, monotonic=None):
+    def __init__(self, config, *, runner, clock=None, console=None, monotonic=None, outcome=None):
         self.config, self.runner = config, runner
         self.clock, self.console = clock or Clock(), console or Console()
         self.monotonic = monotonic or time.monotonic  # seconds; independent of the injected clock
         self.state = _State()
         self.session0 = bool(config.session0_runs)
         self.pack_dir = None
+        self.outcome = outcome or SessionStatus(kind='driver', clock=self.clock.now, monotonic=self.monotonic)
+
+    def checkpoint(self):
+        self.outcome.tick()
+        if self.outcome.owner_stop():
+            raise DriverStop('driver', 'owner_stop')
+
+    def capture_session(self, session_id):
+        """Resolve only this child's ledger entry; the exported summary copies no private paths."""
+        from weather.market.lfc_recording_io import read_bytes, strict_json
+        starts = [row for row in ledger_rows(self.config.root) if row.get('event') == 'session_start'
+                  and row.get('session_id') == session_id]
+        if len(starts) != 1:
+            raise ValueError('status_session_unknown')
+        directory = self.config.root / starts[0]['directory']
+        directory.resolve().relative_to(self.config.root.resolve())
+        self.outcome.evidence_directory = directory
+        self.outcome.related_session_ids.append(session_id)
+        self.outcome.selection = {key: starts[0].get(key) for key in ('condition_id', 'event_slug')}
+        try:
+            selection = strict_json(read_bytes(directory / 'selection.json', 2_000_000))
+            self.outcome.selection = next(r for r in selection['rows']
+                if r.get('condition_id') == selection['selected_condition_id'])
+        except (OSError, ValueError, TypeError, KeyError, StopIteration):
+            self.outcome.failed = True
 
     # --- bookkeeping ---
     def say(self, text):
@@ -655,6 +690,9 @@ class SessionDriver:
         is never closed while that grace is pending. After any kill every further line is dropped, and EOF must come
         within KILL_EOF_SECONDS or the driver says LIVE STILL RUNNING. A hook returns None (it echoed the line
         itself) or a list of messages: kill FIRST, then say them. Returns (exit code, lines, transcript sha256)."""
+        self.checkpoint()
+        before_sessions = {row.get('session_id') for row in ledger_rows(self.config.root)
+                           if row.get('event') == 'session_start'} if live_hook is not None else set()
         proc = self.runner.start(argv, interactive=interactive)
         self.state.current, self.state.current_is_live = proc, live_hook is not None
         st = {'lines': [], 'deadline': None, 'killed_at': None, 'presses': 0, 'eof': False, 'stuck': False}
@@ -674,20 +712,33 @@ class SessionDriver:
                     self._press(proc, st, live)
         finally:
             try:
+                if live and not st['eof'] and st['killed_at'] is None and st['deadline'] is None:
+                    self._press(proc, st, live)  # an escaped error must also give cleanup its grace
                 if not (st['eof'] or st['killed_at'] is not None or st['deadline'] is None):
                     self._wait_out_grace(proc, st)  # a driver exception escaped mid-grace: let live finish first
                 proc.close()  # kill-on-close; never while live's own cleanup grace is pending
             finally:
                 self.state.current = None
+                if live:
+                    try:
+                        new_sessions = {row.get('session_id') for row in ledger_rows(self.config.root)
+                                        if row.get('event') == 'session_start'} - before_sessions
+                        if len(new_sessions) == 1:
+                            self.capture_session(new_sessions.pop())
+                    except Exception:
+                        self.outcome.failed = True
         sha = self._transcript(name, st['lines'])
         if st['stuck']:
             raise DriverStop(name, 'live_still_running_after_kill' if live else 'child_still_running_after_kill',
                              kind='INTERRUPT' if self.state.interrupted else 'FAIL')
         if self.state.interrupted:
-            raise DriverStop(name, 'owner_interrupt', kind='INTERRUPT')
+            raise DriverStop(name, 'owner_stop' if self.outcome.stop_seen else 'owner_interrupt', kind='INTERRUPT')
         return code, st['lines'], sha
 
     def _iteration(self, proc, st, live_hook, echo):
+        self.outcome.tick()
+        if self.outcome.owner_stop() and not self.state.interrupted:
+            self._press(proc, st, live_hook is not None)
         item = proc.poll_line(0.5)
         if item is EOF:
             st['eof'] = True
@@ -729,6 +780,7 @@ class SessionDriver:
                     if st['deadline'] is None:
                         st['deadline'] = _FAR  # grace pending before the clock is read
                         st['deadline'] = self.clock.now() + timedelta(seconds=LIVE_INTERRUPT_GRACE_SECONDS)
+                        proc.request_stop()
                     self.say('DRIVER owner Ctrl+C: live is running its own cleanup; Ctrl+C again kills its tree')
                 elif st['killed_at'] is None:
                     self._kill(proc, st)
@@ -783,6 +835,7 @@ class SessionDriver:
     def wait_reader_quiet(self, step, lead=0):
         """Runbook section 2 Wait-ReaderQuiet; the READER_QUIET line goes to the pack."""
         while True:
+            self.checkpoint()
             at = self.clock.now() + timedelta(seconds=lead)
             r = reader_quiet_at(at, self.state.last_reader_call)
             if r['ok']:
@@ -1037,6 +1090,7 @@ class SessionDriver:
         if len(starts) != 1 or not starts[0].get('directory'):
             raise DriverStop('after_run', 'session_directory_unknown')
         directory = self.config.root / starts[0]['directory']
+        directory.resolve().relative_to(self.config.root.resolve())
         entry['folder'] = starts[0]['directory']
         try:
             end = json.loads((directory / 'session_end.json').read_bytes())
@@ -1044,6 +1098,7 @@ class SessionDriver:
             raise DriverStop('after_run', 'session_end_unreadable') from None
         entry.update(reason=end.get('reason'), cleanup_ok=end.get('cleanup_ok'), panic=end.get('panic'),
                      toast_delivered=(end.get('notification') or {}).get('toast_delivered'))
+        entry.update(evidence_flags(end))
         expirations = set()
         try:
             for line in (directory / 'journal.jsonl').read_bytes().splitlines():
@@ -1056,6 +1111,7 @@ class SessionDriver:
         except OSError:
             pass
         entry['submit_expirations'] = sorted(expirations)
+        selection = {}
         try:
             selection = json.loads((directory / 'selection.json').read_bytes())
             condition = selection.get('selected_condition_id')
@@ -1065,6 +1121,13 @@ class SessionDriver:
                 isinstance(r.get('fee'), dict)), None)
         except (OSError, ValueError, AttributeError):
             entry['session_selection_neg_risk'] = 'unreadable'
+        try:
+            prediction = session_prediction(directory)
+        except (OSError, ValueError, TypeError):
+            prediction = None
+        self.outcome.evidence_directory = directory
+        self.outcome.selection = next((r for r in selection.get('rows', [])
+                                       if r.get('condition_id') == selection.get('selected_condition_id')), {})
         neg = entry['session_selection_neg_risk']
         entry['neg_risk_signing_suspect'] = bool(isinstance(neg, dict) and any(v is True for v in neg.values()) and
                                                  end.get('reason') in SIGNING_SUSPECT_REASONS)
@@ -1078,7 +1141,11 @@ class SessionDriver:
         if end.get('cleanup_ok') is not True or end.get('panic'):
             entry['refusal'] = 'cleanup_not_ok_or_panic'
             raise DriverStop('after_run', 'cleanup_not_ok_or_panic')
+        if code != 0 or not complete_evidence(end) or not complete_evidence(prediction):
+            entry['refusal'] = 'session_evidence_incomplete'
+            raise DriverStop('after_run', 'session_evidence_incomplete')
         entry['helper_open_orders_after'] = self.open_order_count('open_order_count_after_' + (run or 'counted'))
+        self.outcome.open_rows = []  # qualified fresh account-wide zero above
         self.verify('after_' + (run or 'counted'))
         if self.session0 and end.get('reason') not in LFC.SESSION0_PASS_REASONS.get(run, ()):
             entry['refusal'] = 'wrong_end_reason'
@@ -1155,6 +1222,24 @@ class SessionDriver:
         return 'session_complete'
 
     def run(self):
+        """The public summary is independent of failures writing the private driver pack."""
+        try:
+            self.checkpoint()
+            return self._run()
+        except BaseException as exc:
+            pack = self.state.pack
+            pack.update(stopped_reason='FAIL', stop_step='driver', stop_code=(
+                'owner_interrupt' if isinstance(exc, KeyboardInterrupt) else 'driver_exception_' + type(exc).__name__))
+            return pack, None
+        finally:
+            pack = self.state.pack
+            complete = pack.get('stopped_reason') in ('session_complete', 't24_complete', 'dry_run_complete')
+            self.outcome.failed |= not complete
+            outcome = self.outcome.finish(success=complete, reason=pack.get('stop_code') or pack.get('stopped_reason'))
+            if complete and self.outcome.evidence_directory is not None and outcome['state'] != 'COMPLETE':
+                raise RuntimeError('public_outcome_unproven')
+
+    def _run(self):
         """Run the plan, stop at the first FAIL/refusal, and always write pack.json and summary.txt."""
         started = self.clock.now()
         self.pack_dir = self.config.root / ('driver-' + started.strftime('%Y%m%dT%H%M%S%fZ'))
@@ -1183,7 +1268,8 @@ class SessionDriver:
         except Exception as exc:  # never echo a message: it may carry a secret
             stop = DriverStop('driver', 'driver_exception_' + type(exc).__name__)
         if stop is not None:
-            pack['stopped_reason'] = {'END': stop.code, 'INTERRUPT': 'owner_interrupt'}.get(stop.kind, stop.kind)
+            pack['stopped_reason'] = {'END': stop.code, 'INTERRUPT': (
+                'owner_stop' if self.outcome.stop_seen else 'owner_interrupt')}.get(stop.kind, stop.kind)
             pack['stop_step'], pack['stop_code'] = stop.step, stop.code
             if stop.kind not in ('END',):
                 pack['action'] = SECTION9_ACTION if stop.step.startswith(('live', 'after_run', 'driver')) or \
@@ -1253,5 +1339,5 @@ def main(args):
                           snap_dir=root.parent / '.weather-lfc-20261009-owner-snapshots', phase=args.phase,
                           to_go_prompt=args.to_go_prompt, session0_runs=runs, session0_flags=tuple(flags),
                           attest=(args.s0_2_seconds, args.s0_2_helper_zero_utc) if args.s0_2_seconds else None)
-    pack, _ = SessionDriver(config, runner=Runner(pin=pin)).run()
+    pack, _ = SessionDriver(config, runner=Runner(pin=pin), outcome=getattr(args, '_outcome_status', None)).run()
     return 0 if pack['stopped_reason'] in ('session_complete', 't24_complete', 'dry_run_complete') else 1
