@@ -170,3 +170,6 @@ rules for review, with no automatic freeze or live execution.
 
 The master owns eventual findings/register and ledger updates. Publication follows
 the latest COMMON.md deploy-key instruction, with a verified bundle retained. No merge.
+
+Follow-up: [B013 partial census and CSV boundary review](ws2-negrisk-scan-b013-partial-2026-11-06.md)
+records the subsequent GO, 393 completed events, quote-consistency flags and the fatal parser stop.

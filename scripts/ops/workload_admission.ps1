@@ -695,6 +695,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\codex\T003\out\scan_stream_v4.py'
             sha256 = 'b42a25f7d1fe4fc708059f1e2116607360a895a63b02f65e563435147cbf26cf'
         }
+        # T003 fatal CSV boundary diagnosis only; separate master GO required.
+        @{
+            path = 'C:\t\codex\T003\out\diagnose_csv_boundary.py'
+            sha256 = '9a5dcc9122282b3ab75b61d50627c57a8d287a14deb6f4bc3ed6175112a07da7'
+        }
     )
 }
 
