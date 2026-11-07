@@ -67,6 +67,34 @@ the same way: by hash, unread, and never into a tracked path.
 Master: Monday's prerequisites are complete, apart from the owner's Sun 12:00
 t24 step and the Mon 10:20 console.
 
+## Owner decisions, master chat, 2026-11-06 ~18:53 ET
+
+Owner, verbatim (relayed by master; master adds the DL rows and the SoP update):
+"yes approved no manual trade approve 2 and 3".
+
+1. **No manual trades.** On Mon 11-09 the account is exclusive to session 1, so
+   every account fill, reward and rebate for UTC 2026-11-09 may be treated as the
+   session's. Any non-F0 order that appears makes the affected quantities NOT
+   QUALIFIED; nothing is allocated silently.
+2. **Session 1 is simulator-calibration evidence.** Declared NOT QUALIFIED up
+   front: the competing-maker reward census, native public execution IDs, and
+   global fee/rebate denominators. Session 1 cannot qualify an edge on its own.
+3. **MG-1 is amended before its look.** The primary mask becomes outcome-blind
+   (B Clarification 8): admitted coverage, exactly one venue winner, and a frozen
+   label key; WU/venue reconciliation is not a condition. The old mask stays only
+   as a frozen sensitivity that decides nothing. Codex T020 drafts Clarification 4
+   and the code (`codex/mg1-clarification-4-20261106`, due Sun 18:00, lands after
+   Monday).
+
+## Capture host address, 2026-11-06
+
+The capture host's Wi-Fi dropped at 17:06 ET. The owner moved it to Ethernet, and
+it is now `192.168.1.192`; `192.168.1.247` is gone.
+- The owner stored the workstation SMB credential for the new address.
+- Master repointed the WS `production-pc` SSH alias and the MG-2 pull task, which
+  now passes `-ShareRoot "\\192.168.1.192\mg2-inputs"`.
+- Host transfers use `\\192.168.1.192\xfer`.
+
 ## Open items
 
 1. **Session-1 rewards reads on D+1 and D+2.** Approved (above). Originally the

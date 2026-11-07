@@ -16,7 +16,7 @@ after 2 consecutive misses. So an outage is noticed in 5-10 minutes rather than 
 
 The script is `scripts/ops/ws_ping_watchdog.ps1`. One invocation is one pass.
 
-1. **ICMP** to the capture host (default `192.168.1.247`): up to 3 echo requests, 1 s timeout each. Any reply means
+1. **ICMP** to the capture host (default `192.168.1.192`, the Ethernet address since 2026-11-06): up to 3 echo requests, 1 s timeout each. Any reply means
    "up".
 2. **TCP 22** (optional, `-TcpPort 22`; `0` disables it): only when ICMP fails, a 2 s connect to the SSH port. A
    connect also means "up". This covers a host whose firewall drops ICMP but which is otherwise alive.
@@ -75,7 +75,7 @@ the workstation, after this branch lands in the workstation's master checkout.
 $repo   = 'C:\Users\Michael\Documents\github\weather'
 $script = Join-Path $repo 'scripts\ops\ws_ping_watchdog.ps1'
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -WorkingDirectory $repo `
-    -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -TargetHost 192.168.1.247 -TcpPort 22"
+    -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -TargetHost 192.168.1.192 -TcpPort 22"
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
