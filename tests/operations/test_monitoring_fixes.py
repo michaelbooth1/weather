@@ -162,7 +162,10 @@ STAGE_A_CASES = {
 
 @pytest.mark.spawns
 @pytest.mark.parametrize("case", [
-    "pass", "blocked", "diagnostic", "critical_payload", "missing_barrier",
+    "pass", "blocked", "skipped", "diagnostic", "critical_payload", "missing_barrier",
+    "diagnostic_critical_payload", "diagnostic_mismatch", "diagnostic_missing_count",
+    "diagnostic_count_contradiction", "diagnostic_negative_count", "diagnostic_error_step",
+    "diagnostic_invalid_target", "diagnostic_boolean_count", "diagnostic_missing_payload",
     "mismatch", "missing_target", "error_step", "error_manifest", "running",
     "missing", "malformed", "empty_object", "scalar", "array", "single_element_array", "null_root",
     "missing_payload", "invalid_target", "null_barrier", "missing_step_status",
@@ -174,20 +177,26 @@ def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path
         status="COMPLETED", payload_status="ok", target_date="2026-10-07",
         barrier=dict(status="PASS", step_status="ok", target_date="2026-10-07", blocker_count=0),
     )
-    if case == "blocked":
+    fixture_case = case
+    if case.startswith("diagnostic_"):
+        manifest["barrier"]["status"] = "DIAGNOSTIC_ONLY"
+        fixture_case = case.removeprefix("diagnostic_")
+    if fixture_case == "blocked":
         manifest["barrier"].update(status="BLOCK", step_status="error", blocker_count=1)
         manifest["payload_status"] = "critical"
-    elif case == "diagnostic":
+    elif fixture_case == "skipped":
+        manifest["barrier"]["status"] = "SKIPPED"
+    elif fixture_case == "diagnostic":
         manifest["barrier"]["status"] = "DIAGNOSTIC_ONLY"
-    elif case == "critical_payload":
+    elif fixture_case == "critical_payload":
         manifest["payload_status"] = "critical"
     elif case == "missing_barrier":
         del manifest["barrier"]
-    elif case == "mismatch":
+    elif fixture_case == "mismatch":
         manifest["barrier"]["target_date"] = "2026-10-06"
     elif case == "missing_target":
         del manifest["target_date"]
-    elif case == "error_step":
+    elif fixture_case == "error_step":
         manifest["barrier"]["step_status"] = "error"
     elif case == "error_manifest":
         manifest["status"] = "ERROR"
@@ -203,21 +212,21 @@ def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path
         manifest = [manifest]
     elif case == "null_root":
         manifest = None
-    elif case == "missing_payload":
+    elif fixture_case == "missing_payload":
         del manifest["payload_status"]
-    elif case == "invalid_target":
+    elif fixture_case == "invalid_target":
         manifest["target_date"] = manifest["barrier"]["target_date"] = "2026-99-99"
     elif case == "null_barrier":
         manifest["barrier"] = None
     elif case == "missing_step_status":
         del manifest["barrier"]["step_status"]
-    elif case == "missing_count":
+    elif fixture_case == "missing_count":
         del manifest["barrier"]["blocker_count"]
-    elif case == "negative_count":
+    elif fixture_case == "negative_count":
         manifest["barrier"]["blocker_count"] = -1
-    elif case == "count_contradiction":
+    elif fixture_case == "count_contradiction":
         manifest["barrier"]["blocker_count"] = 1
-    elif case == "boolean_count":
+    elif fixture_case == "boolean_count":
         manifest["barrier"]["blocker_count"] = False
     elif case == "string_count":
         manifest["barrier"]["blocker_count"] = "0"
@@ -245,11 +254,23 @@ def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path
     finding = json.loads(result.stdout)
     # A held Stage-B rollup can make the parent critical after a passing barrier.
     # This check owns the barrier, not that separate aggregate verdict.
-    assert finding["severity"] == {"pass": "OK", "critical_payload": "OK", "running": "WARN"}.get(case, "CRITICAL")
+    assert finding["severity"] == {
+        "pass": "OK", "critical_payload": "OK", "running": "WARN",
+        "diagnostic": "WARN", "diagnostic_critical_payload": "WARN",
+    }.get(case, "CRITICAL")
     if case == "blocked":
         assert "2026-10-07" in finding["detail"]
         assert "barrier=BLOCK" in finding["detail"]
         assert "blockers=1" in finding["detail"]
+
+
+def test_stage_a_barrier_finding_is_wired_to_the_settlement_manifest():
+    source = (ROOT / "scripts/ops/staleness_sweep.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("$stageABarrier = Get-WeatherStageABarrierFinding")
+    end = source.index("# ---- 3. serving artifacts ----", start)
+    call_site = source[start:end]
+    assert r'-ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json")' in call_site
+    assert 'Add-Finding "chain/settled_day_barrier" $stageABarrier.severity $stageABarrier.detail' in call_site
 
 
 @pytest.mark.spawns

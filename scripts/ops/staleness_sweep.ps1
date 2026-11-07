@@ -150,9 +150,11 @@ function Get-WeatherStageABarrierFinding {
     # held. This check owns only the barrier, not the aggregate pipeline.
     if ($manifestStatus -ceq 'COMPLETED' -and $stringFields -and
         $payloadStatus -cin @('ok', 'critical') -and
-        $barrierStatus -ceq 'PASS' -and $barrierStepStatus -ceq 'ok' -and
+        $barrierStatus -cin @('PASS', 'DIAGNOSTIC_ONLY') -and $barrierStepStatus -ceq 'ok' -and
         $validTarget -and $barrierTarget -ceq $target -and $noBlockers) {
-        $severity = 'OK'
+        # Partial settled labels are non-blocking in the chain. Warn only when
+        # the receipt is otherwise valid; malformed diagnostics still fail closed.
+        $severity = if ($barrierStatus -ceq 'PASS') { 'OK' } else { 'WARN' }
     }
     $detail = 'Stage-A target {0}: manifest={1}, payload={2}, barrier={3}, barrier target={4}, blockers={5}; inspect data/backtest/settled_day_analysis_barrier.json and daily_refresh_status.json' -f `
         $target, $manifestStatus, $payloadStatus, $barrierStatus, $barrierTarget, $blockerCount

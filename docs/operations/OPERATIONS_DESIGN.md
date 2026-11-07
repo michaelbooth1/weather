@@ -610,10 +610,12 @@ is OK only for a `COMPLETED` status, falling back to the report (failing on
 `Status: **running**`) only when the manifest is missing or unreadable.
 Completion does not prove success: a contained barrier error can publish
 `COMPLETED` with `payload_status: critical`. The independent
-`chain/settled_day_barrier` check requires a completed payload and an `ok`,
-`PASS` barrier bound to the manifest's valid calendar target with an integer
-zero blocker count; it reports missing, contradictory or negative
-barriers as CRITICAL and an in-progress barrier as WARN. It accepts both `ok`
+`chain/settled_day_barrier` check requires a completed payload and an `ok`
+barrier bound to the manifest's valid calendar target with an integer zero
+blocker count. With those checks satisfied, `PASS` is OK and
+`DIAGNOSTIC_ONLY` is WARN: partial settled labels do not block the chain.
+`SKIPPED`, missing, malformed, contradictory or negative barriers remain
+CRITICAL; an in-progress barrier is WARN. It accepts both `ok`
 and `critical` completed payloads: later rollup freshness can make the aggregate
 critical independently of the barrier. A passing barrier does not certify
 aggregate pipeline health or promotion readiness. The completion check
