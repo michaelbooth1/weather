@@ -103,12 +103,14 @@ class SessionStatus:
         complete = False
         flags = evidence_flags(None)
         cleanup = False
+        cancellation_requested, cancellation_proven = None, False
         chosen = self.selection
         if self.evidence_directory is not None:
             try:
                 prediction = strict_json(read_bytes(self.evidence_directory / 'prediction.json', 2_000_000))
                 flags = evidence_flags(prediction)
                 cleanup = prediction.get('cleanup_ok') is True
+                cancellation_proven = prediction.get('cancellation_ok') is True
                 placed.update(oid for oid in prediction.get('order_ids', []) if public_id(oid))
                 self.reason = self.reason or public_id(prediction.get('reason'))
                 session_prediction(self.evidence_directory)
@@ -132,6 +134,10 @@ class SessionStatus:
                         row = strict_json(line)
                         if not isinstance(row, dict):
                             raise ValueError('status_journal_shape')
+                        if cancellation_requested is None:
+                            cancellation_requested = False
+                        if row.get('event') in {'cancel_request', 'cleanup_cancel_request', 'cleanup_cancel_all_request'}:
+                            cancellation_requested = True
                         if row.get('event') == 'submit_response':
                             response = row.get('response') or {}
                             oid = public_id(response.get('id') or response.get('order_id') or response.get('orderID'))
@@ -152,6 +158,7 @@ class SessionStatus:
                         raise ValueError('status_journal_limit')
             except (OSError, ValueError, TypeError, AttributeError):
                 complete = False
+                cancellation_proven = False
         if self.session is not None:
             placed.update(oid for oid in self.session.known if public_id(oid))
             live_flags = {'evidence_complete': not self.session.evidence_failed,
@@ -161,6 +168,7 @@ class SessionStatus:
             if not complete_evidence(live_flags):
                 complete = False
             cleanup &= self.session.cleanup_ok is True
+            cancellation_proven &= getattr(self.session, 'cancellation_ok', False) is True
         if self.ledger is not None:
             for leg in self.ledger.legs.values():
                 if leg['session_id'] == self.session_id and amount(leg.get('size_matched')) is not None:
@@ -174,6 +182,10 @@ class SessionStatus:
         if opens != []:
             flags.update(evidence_complete=False, inventory_proven=False)
             cleanup = False
+            cancellation_proven = False
+        if self.ledger is not None and any(leg['session_id'] == self.session_id and leg['status'] != 'terminal'
+                                           for leg in self.ledger.legs.values()):
+            cancellation_proven = False
         retirement = getattr(self.session, 'horizon_retirement', None)
         return {**({} if retirement is None else {'horizon_retirement': dict(retirement)}),
                 'event': public_id(chosen.get('event_slug')), 'band': public_id(chosen.get('condition_id')),
@@ -183,6 +195,7 @@ class SessionStatus:
                                   'attempted': getattr(self.session, 'posts', None)},
                 'orders_cancelled': {'count': len(cancelled), 'ids': sorted(cancelled)},
                 'orders_open_at_exit': opens, 'fills': list(fills.values()),
+                'cancellation_requested': cancellation_requested, 'cancellation_proven': cancellation_proven,
                 'cleanup_ok': cleanup and complete_evidence(flags), **flags, 'evidence_sha256': hashes}
 
     def finish(self, *, success=False, reason=None):
@@ -198,6 +211,7 @@ class SessionStatus:
             self.reason = self.reason or 'status_evidence_unreadable'
             facts = {'event': None, 'band': None, 'tokens': [], 'orders_placed': None,
                      'orders_cancelled': None, 'orders_open_at_exit': None, 'fills': [],
+                     'cancellation_requested': None, 'cancellation_proven': False,
                      'cleanup_ok': False, **evidence_flags(None), 'evidence_sha256': {}}
         passed = success and not self.failed and not self.stop_seen and facts['cleanup_ok']
         state = 'COMPLETE' if passed else 'STOPPED' if self.stop_seen else 'ATTENTION'

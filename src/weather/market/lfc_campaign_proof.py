@@ -17,7 +17,7 @@ MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable
                    'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable'}
 
 
-def journal_contract(path, prediction):
+def journal_contract(path, prediction, *, legacy=False):
     """Stream the exact chained journal; a gap name cannot replace core rows."""
     if path.stat().st_size > 256 * 1024 * 1024:
         raise ValueError('private_journal_limit')
@@ -74,12 +74,14 @@ def journal_contract(path, prediction):
         raise ValueError('private_journal_scope')
     for key in ('post_count', 'order_ids', 'unknown_submit', 'inventory_proven', 'evidence_complete',
                 'failure_type', 'cleanup_ok', 'reason', 'submits', 'requotes', 'evidence_faults'):
+        if legacy and key == 'evidence_faults' and key not in prediction and key not in terminal:
+            continue
         if key not in prediction or terminal.get(key) != prediction[key]:
             raise ValueError('private_terminal_binding')
     return requests, responses, orders, gaps, money_gaps
 
 
-def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome):
+def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, legacy=False):
     """Later complete account reads may resolve supported GET gaps, never file loss.
 
     Raw flags survive unchanged. A failure_type, or one scoring gap beside an
@@ -89,7 +91,8 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome):
     try:
         directory = Path(directory).absolute()
         session = ledger.sessions[session_id]
-        if session['end'] is None or session['start'].get('autostart_attempt_id') != attempt_id:
+        if (session['end'] is None or session['start'].get('autostart_attempt_id') != attempt_id or
+                legacy and (attempt_id is not None or session['start'].get('autostart_attempt_id'))):
             return result
         hashes = dict(outcome['evidence_sha256'])
         if not {'journal.jsonl', 'prediction.json', 'session_end.json'} <= hashes.keys():
@@ -109,8 +112,13 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome):
                 evidence_flags(ending) != flags or evidence_flags(session['end']) != flags or
                 prediction.get('failure_type') is not None):
             return result
-        requests, responses, orders, gaps, money_gaps = journal_contract(directory / 'journal.jsonl', prediction)
-        faults = prediction.get('evidence_faults')
+        requests, responses, orders, gaps, money_gaps = journal_contract(directory / 'journal.jsonl', prediction, legacy=legacy)
+        # Pre-enrollment producers did not emit typed faults. Only their explicit
+        # complete proof is automatically supported; failed legacy proof requires
+        # the separate recorded owner review, never an inferred scoring exemption.
+        if legacy and (not flags['evidence_complete'] or not flags['inventory_proven']):
+            return result
+        faults = prediction.get('evidence_faults', [] if legacy else None)
         if (not isinstance(faults, list) or any(not isinstance(code, str) for code in faults) or
                 len(faults) != len(set(faults)) or
                 any(code not in gaps and code not in money_gaps for code in faults) or

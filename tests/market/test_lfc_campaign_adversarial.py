@@ -32,7 +32,7 @@ def reconciled_legacy(tmp_path):
     return ledger
 
 
-def test_witness_enrollment_forgets_legacy_unknown_submission(tmp_path):
+def test_legacy_lost_ack_reconcile_blocks_enrollment(tmp_path):
     """Real lost-ACK reconcile cannot silently become the owner recovery ceremony."""
     ledger = reconciled_legacy(tmp_path)
     original = deepcopy(ledger.sessions['S0c-1']['end'])
@@ -98,20 +98,55 @@ def test_proved_f0_history_can_enroll_but_later_legacy_ambiguity_blocks_claim(tm
 
 def test_proved_normal_f0_history_remains_enrollable(tmp_path):
     from tests.market.test_lfc_cli import ledger_with_baselines
+    from weather.market.lfc_campaign_runtime import Runtime
     ledger = ledger_with_baselines(tmp_path)
-    ledger.record('session_start', session_id='proved-F0', counted=True, owner_local_date='2026-11-09')
-    ledger.record('session_end', session_id='proved-F0', unknown_submit=False, cleanup_ok=True,
-                  inventory_proven=True, evidence_complete=True, reason='fixed_end')
     ledger.clock = Clock().now
     with account_lease(MAKER, backend=Mutexes()):
-        AccountState(tmp_path / 'state', ledger).enroll(NOW)
+        state = AccountState(tmp_path / 'state', ledger)
+        runtime = Runtime(state=state, pilot_root=tmp_path, policy_path=tmp_path / 'unused.json', release={},
+                          clock=Clock(), control_root=tmp_path / 'control', task_enabled=lambda: False)
+        _, result = private_result(runtime, None, faults=(), legacy=True)
+        assert result['local_money_proof']['complete']
+        state.enroll(NOW)
+
+
+@pytest.mark.parametrize('name', ['journal.jsonl', 'prediction.json', 'session_end.json',
+                                 'submit-1.intent.json', 'submit-1.ack.json'])
+@pytest.mark.parametrize('enrolled', [False, True])
+def test_legacy_private_evidence_is_required_at_enrollment_and_later_admission(tmp_path, name, enrolled):
+    from tests.market.test_lfc_cli import ledger_with_baselines
+    from weather.market.lfc_campaign_runtime import Runtime
+    ledger = ledger_with_baselines(tmp_path)
+    ledger.clock = Clock().now
+    with account_lease(MAKER, backend=Mutexes()):
+        state = AccountState(tmp_path / 'state', ledger)
+        runtime = Runtime(state=state, pilot_root=tmp_path, policy_path=tmp_path / 'unused.json', release={},
+                          clock=Clock(), control_root=tmp_path / 'control', task_enabled=lambda: False)
+        directory, result = private_result(runtime, None, faults=(), legacy=True)
+        assert result['local_money_proof']['complete']
+        if enrolled:
+            state.enroll(NOW)
+        path = directory / name
+        original = path.read_bytes()
+        path.unlink()
+        with pytest.raises(StateRefused):
+            if enrolled:
+                state.require_history()
+            else:
+                state.enroll(NOW)
+        if enrolled:
+            assert state.ledger.autostart_incidents
+            path.write_bytes(original)  # Restoring bytes cannot clear the recorded incident.
+            policy = parse_policy(policy_row())
+            with pytest.raises(StateRefused, match='account_incident_latched'):
+                state.claim(policy.entries[0], policy, NOW)
 
 
 @pytest.mark.parametrize('rows,flags', [
     ([{'event': 'scoring_missed'}, {'event': 'cleanup_cancel_unavailable', 'order_id': 'o'}], {}),
     ([{'event': 'ordinary'}], {'failure_type': 'OSError', 'inventory_proven': False}),
 ])
-def test_witness_unproved_private_evidence_is_accepted(tmp_path, rows, flags):
+def test_unproved_private_evidence_is_refused(tmp_path, rows, flags):
     """T037's former accepted weak journal must now be refused."""
     from weather.market.lfc_campaign_proof import local_money_proof
     with account_lease(MAKER, backend=Mutexes()):
@@ -150,7 +185,7 @@ def test_failure_type_is_never_a_blanket_evidence_exemption(tmp_path, failure_ty
         assert not result['local_money_proof']['complete']
 
 
-def test_witness_pending_postcheck_accepts_deleted_private_journal(tmp_path, monkeypatch):
+def test_pending_postcheck_refuses_deleted_private_journal(tmp_path, monkeypatch):
     with account_lease(MAKER, backend=Mutexes()):
         runtime = runtime_at(tmp_path)
         policy = parse_policy(policy_row())
@@ -304,7 +339,7 @@ def test_actual_inert_controller_produces_qualifiable_chained_private_evidence(t
         assert proof['complete'] == (faults != 'scoring_and_core'), proof
 
 
-def test_witness_recovered_public_gap_becomes_complete(tmp_path):
+def test_recovered_public_gap_remains_incomplete(tmp_path):
     import hashlib
     from weather.market.lfc_campaign_sidecar import health_receipt
     row = health(tmp_path, gap=False, final=True)
@@ -352,7 +387,7 @@ def test_recovered_public_gap_remains_in_postcheck_quality_flags(tmp_path, monke
 
 @pytest.mark.parametrize('seconds', [60, 120, 179, 180, 299])
 @pytest.mark.parametrize('field', ['max_session_seconds', 'duration_seconds'])
-def test_witness_advertised_short_duration_consumes_session_without_post(tmp_path, seconds, field):
+def test_unsupported_short_duration_does_not_consume_date(tmp_path, seconds, field):
     from weather.market.lfc_campaign import CampaignCoordinator
     from weather.market.lfc_campaign_policy import PolicyRefused
     with account_lease(MAKER, backend=Mutexes()):
@@ -385,3 +420,125 @@ def test_duration_support_matches_preclaim_boundary_and_keeps_default_terms(tmp_
         with pytest.raises(PolicyRefused, match='unsupported_duration_seconds'):
             runtime.state.claim(entry, policy, NOW)
         assert runtime.state.claims() == [] and runtime.state.skips() == []
+
+
+@pytest.mark.parametrize('market,zone,hour', [('toronto','America/Toronto',5), ('denver','America/Denver',7)])
+def test_dst_native_midnights_and_folds(market, zone, hour):
+    from weather.market.lfc_horizon import local_event_dte
+    row = {'market_id': market, 'market_timezone': zone, 'target_date': '2026-11-12'}
+    before = datetime(2026,11,12,hour,0,0,tzinfo=timezone.utc) - timedelta(microseconds=1)
+    assert local_event_dte(row,before) == 1
+    assert local_event_dte(row,before+timedelta(microseconds=1)) == 0
+    row['target_date'] = '2026-11-02'
+    # Repeated 01:30 at the fall transition must not change the native day.
+    first = datetime(2026,11,1,hour,30,tzinfo=timezone.utc)
+    assert local_event_dte(row,first) == local_event_dte(row,first+timedelta(hours=1)) == 1
+
+
+def test_witness_cancel_outage_leaves_resting_orders_and_reserve(tmp_path):
+    from tests.market.test_lfc_pilot import setup
+    session, venue, clock, ledger = setup(tmp_path)
+    def outage(*args, **kwargs):
+        raise ConnectionError('synthetic cancellation outage')
+    venue.cancel = venue.cancel_all = outage
+    result = session.run(rehearsal_seconds=1)
+    assert not result['cleanup_ok'] and venue.open_orders()
+    assert ledger.L_resting() > 0 and ledger.unresolved_legs()
+    assert all(row['expiration'] == int(session.end.timestamp()) + 60 for row in venue.open_orders())
+
+
+@pytest.mark.parametrize('outage', [False, True])
+def test_cancellation_requested_and_proven_remain_distinct_with_gtd_contract(tmp_path, outage):
+    from tests.market.test_lfc_pilot import setup, events
+    from weather.market.lfc_session_status import SessionStatus
+    session, venue, clock, ledger = setup(tmp_path)
+    if outage:
+        def unavailable(*_, **__):
+            raise ConnectionError('synthetic cancellation outage')
+        venue.cancel = venue.cancel_all = unavailable
+    status = SessionStatus(kind='fixture', clock=clock.now, monotonic=clock.monotonic)
+    status.directory, status.stop_file = tmp_path / 'status', tmp_path / 'STOP'
+    status.bind(session.session_id, directory=session.directory, selection=session.table['rows'][0], ledger=ledger)
+    status.session = session
+    result = session.run(rehearsal_seconds=1)
+    status.open_rows = venue.open_orders()
+    outcome = status.finish(success=result['cleanup_ok'])
+    assert outcome['cancellation_requested'] is True
+    assert outcome['cancellation_proven'] is (not outage)
+    for row in events(session, 'submit_request'):
+        # Arithmetic against the documented venue threshold, not a fake venue
+        # claiming it has observed server expiry during a cancellation outage.
+        assert row['request']['expiration'] - 60 <= session.end.timestamp()
+        assert session.end.timestamp() - (row['request']['expiration'] - 60) < 1
+    if outage:
+        assert not outcome['cleanup_ok'] and outcome['state'] != 'COMPLETE'
+        assert ledger.L_resting() > 0
+
+
+def test_every_enrolled_admission_gate_rechecks_legacy_ambiguity(tmp_path, monkeypatch):
+    from weather.market import lfc_campaign_runtime as module, lfc_session_status
+    from weather.market.lfc_campaign_runtime import ScheduledAuthority
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        ledger = runtime.state.ledger
+        ledger.record('session_start', session_id='late-manual', counted=True, owner_local_date='2026-11-10')
+        ledger.record('session_end', session_id='late-manual', unknown_submit=True, cleanup_ok=False)
+        runtime.lease = SimpleNamespace(check=lambda: None)
+        monkeypatch.setattr(module, 'workstation_headroom', lambda: {})
+        monkeypatch.setattr(lfc_session_status, 'OWNER_STOP_FILE', tmp_path / 'STOP')
+        policy = parse_policy(policy_row())
+        with pytest.raises(StateRefused, match='historical_money_ambiguity_requires_owner_recovery'):
+            runtime.pre_go_once(policy.entries[0], policy)
+        prepared = {'baseline': runtime.original_baseline(runtime.state.ledger), 'account_read': account_read(runtime),
+                    'expires_utc': (NOW + timedelta(seconds=120)).isoformat()}
+        authority = ScheduledAuthority(runtime, {'attempt_id': 'a' * 32}, policy.entries[0], policy, prepared)
+        with pytest.raises(StateRefused, match='historical_money_ambiguity_requires_owner_recovery'):
+            authority.start_gates(ledger=runtime.state.ledger, now=NOW, maker_address=MAKER, open_orders=[], positions=[])
+
+
+def test_owner_history_recovery_refuses_noninteractive_before_operational_paths(monkeypatch):
+    from weather.market import lfc_campaign_cli as cli
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: False)
+    monkeypatch.setattr(cli, 'pilot_root', lambda: pytest.fail('no operational path may be reached'))
+    with pytest.raises(StateRefused, match='owner_terminal_required'):
+        cli.main(['owner-recover-history', '--head', 'f' * 40, '--session', 'fixture'])
+
+
+def test_owner_history_command_is_explicit_readonly_and_retains_originals(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from weather.market import lfc_campaign_cli as cli, lfc_campaign_guard as guard
+    from weather.market import lfc_campaign_runtime as adapter, lfc_campaign_release as release
+    from weather.market import lfc_campaign_workload as workload
+    from weather import execution_host
+    from weather.market.lfc_campaign_history import history_refusals
+    from weather.market.lfc_ledger import Ledger
+    root = tmp_path / 'fixture pilot'
+    ledger = reconciled_legacy(root)
+    issue = history_refusals(ledger, root)['S0c-1']
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr('builtins.input', lambda: 'recover legacy ' + issue[:12])
+    monkeypatch.setattr(cli, 'pilot_root', lambda: root)
+    monkeypatch.setattr(adapter, 'CampaignClock', Clock)
+    monkeypatch.setattr(release, 'git_identity', lambda _: 'f' * 40)
+    monkeypatch.setattr(execution_host, 'require_current_portable_execution_assignment', lambda: None)
+    monkeypatch.setattr(cli, 'account_lease', lambda maker: account_lease(maker, backend=Mutexes()))
+    monkeypatch.setattr(guard, 'HOLD_PATH', tmp_path / 'HOLD')
+    poison = tmp_path / 'poison'
+    poison.mkdir()
+    @contextmanager
+    def lease(_):
+        yield SimpleNamespace(poison_root=poison)
+    monkeypatch.setattr(guard, 'ExclusiveWorkload', lease)
+    marker_type = workload.WorkloadMarker
+    monkeypatch.setattr(workload, 'WorkloadMarker', lambda **kwargs: marker_type(**kwargs, boot_id=7))
+    def read(runtime):
+        row = account_read(runtime)
+        row['since'] = str(int(datetime.fromisoformat(runtime.state.ledger.rows[0]['recorded_at_utc']).timestamp()))
+        return row
+    monkeypatch.setattr(adapter.Runtime, 'account_read_once', read)
+    assert cli.main(['owner-recover-history', '--head', 'f' * 40, '--session', 'S0c-1']) == 0
+    reopened = Ledger.open(ledger.path, clock=Clock().now)
+    assert reopened.rows[-1]['event'] == 'owner_history_recovery'
+    assert reopened.sessions['S0c-1']['end']['unknown_submit'] is True
+    assert history_refusals(reopened, root) == {}
+    assert not (tmp_path / 'HOLD').exists() and not (poison / 'heavy_workload_v1.poison').exists()

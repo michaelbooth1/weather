@@ -538,6 +538,9 @@ class Session:
         self.submit_snapshot = snapshot
         self.authorize_post(leg, price, size, rule)
         self.control()
+        # Polymarket's documented 60 s GTD security threshold makes this raw
+        # end+60 timestamp expire effectively at end (not one minute after it):
+        # https://docs.polymarket.com/trading/place-orders#limit-orders
         request = dict(token_id=self.tokens[leg], side=side, size=str(size), price=str(price),
                        post_only=post_only, expiration=int(self.end.timestamp()) + 60)
         self.submits += 1  # consume before signing, including ambiguous failures

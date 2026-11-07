@@ -207,3 +207,86 @@ def test_strict_child_container_teardown_proves_entire_job_empty(tmp_path):
         assert child.wait() != 0
     finally:
         child.close()
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize('refuse_check', [False, True])
+def test_real_registrar_binding_with_mocked_scheduler_and_python(tmp_path, refuse_check):
+    from datetime import datetime, timedelta, timezone
+    from weather.market.lfc_recording_io import file_sha
+    import hashlib
+    import shutil
+    import subprocess
+    from weather.paths import REPO_ROOT
+    root = tmp_path / 'fixture pin'
+    ops = root / 'scripts' / 'ops'
+    ops.mkdir(parents=True)
+    for name in ('register_lfc_campaign_task.ps1','lfc_campaign_task_contract.ps1','workstation_pregate_receipt.ps1'):
+        shutil.copyfile(REPO_ROOT / 'scripts' / 'ops' / name, ops / name)
+    # Mock only the OS interactivity predicate in this isolated test copy.
+    # The first unmodified attempt refused in this noninteractive agent session;
+    # no Scheduler function was reached. No production code is changed.
+    registrar = ops / 'register_lfc_campaign_task.ps1'
+    text = registrar.read_text()
+    assert text.count('[Environment]::UserInteractive') == 1
+    registrar.write_text(text.replace('[Environment]::UserInteractive', '$true'))
+    examples = root / 'docs' / 'examples'
+    examples.mkdir(parents=True)
+    shutil.copyfile(REPO_ROOT / 'docs/examples/lfc-campaign.example.json', examples / 'lfc-campaign.example.json')
+    xml = tmp_path / 'suite.xml'
+    xml.write_text('<testsuite tests="1" errors="0" failures="0"/>')
+    log = tmp_path / 'suite.log'
+    log.write_text(''.join('0'*21 + m + '\n' for m in (
+        'planned chunks=1 files=1 max_files=25', f'chunk 1/1 starting files=1 junit={xml}',
+        'chunk 1/1 exit=0','VERDICT: ALL CHUNKS PASSED (1/1)')))
+    now = datetime.now(timezone.utc)
+    receipt = {'schema':'weather.workstation_pregate_receipt.v1','head':'a'*40,'verdict':'PASS',
+        'failure_reasons':[],'driver_exit_code':0,'worktree_removed':True,'basetemp_removed':True,
+        'started_at':(now-timedelta(minutes=1)).isoformat(),'finished_at':(now-timedelta(seconds=1)).isoformat(),
+        'chunk_plan':[['tests/test_fixture.py']], 'chunks':[{'ordinal':1,'files':1,'logged_files':1,'exit_code':0}],
+        'inventory_files':1,'max_files_per_chunk':25,'skipped_host_checks':['fixture']*5,'log_path':str(log),
+        'log_sha256':file_sha(log),'junit_paths':[str(xml)],'junit_files':[{'path':str(xml),'sha256':file_sha(xml)}]}
+    receipt_path = tmp_path / 'receipt.json'
+    receipt_path.write_text(json.dumps(receipt))
+    campaign, release = tmp_path / 'campaign.json', tmp_path / 'release.json'
+    def q(value): return "'" + str(value).replace("'", "''") + "'"
+    harness = r'''
+$ErrorActionPreference='Stop'
+$global:calls=New-Object System.Collections.ArrayList
+$global:xml=$null; $global:registered=0; $global:enabled=0
+function Get-ScheduledTask { param($TaskName,$TaskPath) return $null }
+function Register-ScheduledTask { param($TaskName,$TaskPath,$Xml) $global:xml=$Xml; $global:registered++ }
+function Export-ScheduledTask { param($TaskName,$TaskPath) return $global:xml }
+function Enable-ScheduledTask { param($TaskName,$TaskPath) $global:enabled++; $global:xml=$global:xml.Replace('<Enabled>false</Enabled>','<Enabled>true</Enabled>') }
+function FixturePython {
+    [void]$global:calls.Add(@{argv=@($args);cwd=(Get-Location).Path})
+    $global:LASTEXITCODE=0
+    if($args -contains 'seal') {
+        @{schema_version='lfc_campaign_release_v0.1';task_name='WeatherLFCCampaign';root=$global:pin;python='FixturePython';campaign_path=$global:campaign} |
+            ConvertTo-Json | Set-Content -Encoding ASCII -LiteralPath $global:release
+    } elseif($args -contains '--require-enabled' -and $global:refuse) { $global:LASTEXITCODE=3 }
+}
+'''
+    harness += f"\n$global:pin={q(root)}; $global:campaign={q(campaign)}; $global:release={q(release)}; $global:refuse=${str(refuse_check).lower()}\n"
+    script = q(ops / 'register_lfc_campaign_task.ps1')
+    harness += f"& {script} -Action Register -RepoRoot $global:pin -CampaignPath $global:campaign -ReleasePath $global:release -PythonPath FixturePython -PregateReceipt {q(receipt_path)} -QualifiedHead ('a'*40) | Out-Null\n"
+    harness += f"& {script} -Action Verify -CampaignPath $global:campaign -ReleasePath $global:release | Out-Null\n"
+    harness += "$p=Get-Content -Raw -LiteralPath $global:campaign | ConvertFrom-Json; $p.enabled=$true; $p | ConvertTo-Json -Depth 10 | Set-Content -Encoding ASCII -LiteralPath $global:campaign\n"
+    harness += f"$failed=$false; try {{ & {script} -Action Enable -CampaignPath $global:campaign -ReleasePath $global:release | Out-Null }} catch {{ $failed=$true }}\n"
+    harness += "@{calls=@($global:calls);registered=$global:registered;enabled=$global:enabled;failed=$failed} | ConvertTo-Json -Depth 8 -Compress"
+    path = tmp_path / 'harness.ps1'
+    path.write_text(harness)
+    result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(path)],
+                            capture_output=True,text=True,timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    observed = json.loads(result.stdout)
+    assert observed['registered'] == 1
+    assert observed['enabled'] == (0 if refuse_check else 1)
+    assert observed['failed'] == refuse_check
+    calls = observed['calls']
+    assert len(calls) == 3
+    assert all(c['cwd'] == str(root) for c in calls)
+    assert calls[0]['argv'] == ['-m','weather.market.lfc_campaign_cli','seal','--campaign',str(campaign),
+        '--release',str(release),'--pregate',str(receipt_path),'--head','a'*40,'--python','FixturePython']
+    assert calls[1]['argv'][:4] == ['-m','weather.market.lfc_campaign_cli','check','--release']
+    assert '--require-enabled' not in calls[1]['argv'] and calls[2]['argv'][-1] == '--require-enabled'

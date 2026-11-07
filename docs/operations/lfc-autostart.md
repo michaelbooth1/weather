@@ -110,6 +110,12 @@ interpreter after frozen F0. This terminal-confirmed, GET-only operation takes
 account/all-slot exclusion, proves current quantities and no resting orders,
 and appends a hash-bound recovery without changing failed flags or used dates.
 It neither registers nor enables a task. Missing recovery evidence refuses.
+The enrollment identity also anchors retained legacy private files. Normal F0
+history must have a complete chained private proof; untyped failed legacy proof
+needs explicit owner review rather than a guessed ancillary exemption. Recovery
+binds the original journal/intent evidence and never synthesizes a lost journal.
+Missing or changed legacy originals after enrollment record a sticky evidence
+fault, including if the ledger's old unknown-submit flag was false.
 
 One coordinator thread owns the account guard, exclusive workload barrier,
 legacy heavy slot and all newer compatibility slots through cleanup and owned
@@ -158,6 +164,16 @@ existing cancel-known-IDs, account-wide cancel-all and verification. The owner
 removes it only after reviewing cleanup. No agent edits the armed pin or owner
 control/state files. Clock discontinuity or a long live-loop gap records an
 incident and ends through cleanup; the absolute and monotonic ends remain.
+
+Orders retain the original signed GTD timestamp of session end plus 60 seconds.
+[Polymarket's GTD contract](https://docs.polymarket.com/trading/place-orders#limit-orders)
+applies a one-minute security threshold, so effective venue expiry is the session
+end; the documented raw timestamp must also be at least three minutes ahead.
+The added minute is not permission to quote beyond the stop. Expiry/deadman is a
+venue backstop, never local cancellation proof. Cleanup journals requests and
+acknowledgements separately; full outcomes expose `cancellation_requested` and
+`cancellation_proven` separately. An outage retains reserves and non-success
+until complete terminal/account evidence proves cleanup, even after time passes.
 
 ## Outcomes and optional public capture
 

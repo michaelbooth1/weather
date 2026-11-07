@@ -69,10 +69,13 @@ class AccountState:
         if self.ledger.open_sessions() or self.ledger.unresolved_legs() or self.ledger.halted:
             raise StateRefused('enrollment_unresolved_money')
         self.require_history()
+        from weather.market.lfc_campaign_history import history_manifest
+        retained_history = history_manifest(self.ledger, self.ledger.path.parent)
         self.root.mkdir(parents=True, exist_ok=False)
         validate_nonreparse_directory(self.root.absolute())
         row = {'account': str(self.maker).lower(), 'genesis_sha256': self.ledger.row_sha256(0),
                'ledger_path': str(self.ledger.path.resolve()), 'state_id': uuid.uuid4().hex,
+               'historical_private_evidence': retained_history,
                'enrolled_at_utc': now.isoformat(), 'previous_ledger_sha256': self.ledger.previous}
         sha = self.save('identity.json', row)
         self.ledger.record('autostart_enroll', state_id=row['state_id'], identity_sha256=sha,
@@ -83,9 +86,23 @@ class AccountState:
         from weather.market.lfc_campaign_history import history_refusals
         try:
             refused = history_refusals(self.ledger, self.ledger.path.parent)
-        except (OSError, ValueError, RuntimeError):
+            if self.ledger.enrollment is not None:
+                identity = self.read(self.root / 'identity.json')
+                from weather.operations.live_path_security import validate_contained_regular_file
+                originals = identity['historical_private_evidence']
+                if not isinstance(originals, dict):
+                    raise ValueError('history_manifest')
+                for name, sha in originals.items():
+                    if file_sha(validate_contained_regular_file(self.ledger.path.parent,
+                            self.ledger.path.parent / name)) != sha:
+                        raise ValueError('history_original_changed')
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            if self.ledger.enrollment is not None:
+                self.evidence_fault('legacy-history')
             raise StateRefused('historical_recovery_evidence_fault') from None
         if refused:
+            if self.ledger.enrollment is not None:
+                self.evidence_fault('legacy-history')
             raise StateRefused('historical_money_ambiguity_requires_owner_recovery')
 
     def verify(self):
