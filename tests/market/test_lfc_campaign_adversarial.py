@@ -293,3 +293,49 @@ def test_actual_inert_controller_produces_qualifiable_chained_private_evidence(t
                                       ('journal.jsonl', 'prediction.json', 'session_end.json')}}
         proof = local_money_proof(directory, ledger=ledger, session_id='s', attempt_id=claim['attempt_id'], outcome=outcome)
         assert proof['complete'] == (faults != 'scoring_and_core'), proof
+
+
+def test_witness_recovered_public_gap_becomes_complete(tmp_path):
+    import hashlib
+    from weather.market.lfc_campaign_sidecar import health_receipt
+    row = health(tmp_path, gap=False, final=True)
+    row['counts'].update(gaps=1, coverage_gap_end=1)
+    row['secondary_errors'] = ['a retained recorder error']
+    body = {k: v for k, v in row.items() if k != 'health_receipt_sha256'}
+    row['health_receipt_sha256'] = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    (tmp_path / 'health.json').write_text(json.dumps(row))
+    proof = health_receipt(tmp_path, event_slug='event', health_schema='fixture', final=True)
+    assert proof['ready_now'] and proof['source_gaps'] and proof['historical_gaps']
+    assert not proof['research_evidence_complete'] and not proof['whole_session_coverage_proven']
+    assert proof['writer_counts']['gaps'] == 1 and proof['errors']
+
+
+def test_enabled_sidecar_refuses_before_date_claim_or_process_start(tmp_path):
+    from weather.market.lfc_campaign_policy import PolicyRefused, parameter_support
+    from weather.market.lfc_campaign_sidecar import Sidecar
+    row = policy_row()
+    row['sidecar'] = {'enabled': True, 'release_manifest': str(tmp_path / 'manifest.json')}
+    with pytest.raises(PolicyRefused, match='unsupported_sidecar_interval_coverage'):
+        parse_policy(row)
+    assert parameter_support()['sidecar']['enabled_values'] == [False]
+    with pytest.raises(ValueError, match='unsupported_sidecar_interval_coverage'):
+        Sidecar(manifest=tmp_path / 'absent.json', output=tmp_path / 'capture', scope={}, started=NOW, seconds=21600,
+                process_factory=lambda *a, **k: pytest.fail('no child may start'))
+    assert not (tmp_path / 'capture').exists()
+    row['sidecar']['enabled'] = False
+    assert parse_policy(row).raw['sidecar']['enabled'] is False
+
+
+def test_recovered_public_gap_remains_in_postcheck_quality_flags(tmp_path, monkeypatch):
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        policy = parse_policy(policy_row())
+        claim = runtime.state.claim(policy.entries[0], policy, NOW)
+        _, result = private_result(runtime, claim, faults=())
+        result['public_coverage'] = {'configured': True, 'gap': None, 'source_gaps': True,
+                                     'historical_gaps': True, 'research_evidence_complete': False}
+        runtime.save_result(claim, result)
+        runtime.lease = SimpleNamespace(check=lambda: None)
+        monkeypatch.setattr(runtime, 'read_account', lambda: account_read(runtime))
+        proof = runtime.postcheck(claim, runtime.saved_result(claim))
+        assert proof['money_accounting_complete'] and not proof['research_evidence_complete']

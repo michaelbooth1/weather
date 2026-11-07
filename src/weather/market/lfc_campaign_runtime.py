@@ -606,7 +606,10 @@ class Runtime:
                      result_sha256=result_sha, private_evidence_sha256=digest(local),
                      raw_evidence_flags=evidence_flags(result), account_read=read,
                      public_coverage=result.get('public_coverage'))
-        if result.get('public_coverage', {}).get('gap') not in (None, 'not_configured'):
+        public = result.get('public_coverage') or {}
+        if (public.get('gap') not in (None, 'not_configured') or public.get('source_gaps') is True or
+                public.get('historical_gaps') is True or public.get('configured') is True and
+                public.get('research_evidence_complete') is not True):
             proof['research_evidence_complete'] = False
         self.state.save('postchecks/' + uuid.uuid4().hex + '.json', {'attempt_id': claim['attempt_id'], 'proof': proof})
         return proof

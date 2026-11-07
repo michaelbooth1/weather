@@ -16,6 +16,7 @@ PROTOCOL = 'lfc_autostart_v1'
 ZONE = ZoneInfo('America/Toronto')
 EARLIEST = datetime(2026, 11, 10, tzinfo=timezone.utc)
 ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
+SIDECAR_SUPPORTED = False  # B032 R3: whole-private-session interval coverage is not qualified.
 
 
 class PolicyRefused(ValueError):
@@ -223,6 +224,8 @@ def parse_policy(row):
         exact_keys(row['sidecar'], ('enabled', 'release_manifest'))
         if type(row['sidecar']['enabled']) is not bool or not isinstance(row['sidecar']['release_manifest'], str):
             raise PolicyRefused('sidecar_policy')
+        if row['sidecar']['enabled'] and not SIDECAR_SUPPORTED:
+            raise PolicyRefused('unsupported_sidecar_interval_coverage')
     return Campaign(row, tuple(sorted(entries, key=lambda x: x.start)))
 
 
@@ -264,5 +267,6 @@ def parameter_support():
         'capital_mode': {'values': ['committed_cost_no_recycling']},
         'policy_name': {'format': 'identifier_1_to_64_characters'},
         'policy_revision': {'min': 1, 'economic_change_requires_increase': True},
-        'sidecar': {'nullable': True, 'scope': 'optional_reviewed_public_T017_manifest_failure_is_research_gap'},
+        'sidecar': {'nullable': True, 'enabled_values': [False],
+                    'scope': 'unsupported_until_private_session_interval_coverage_is_qualified'},
     }

@@ -57,10 +57,13 @@ def health_receipt(output, *, event_slug, health_schema, final=False, expected_c
     # Remote source timestamps do not determine whether the local receiver lives.
     observed = datetime.fromisoformat(row['receipt_utc'])
     age = (datetime.now(timezone.utc) - observed).total_seconds()
-    source_gaps = bool(coverage.get('open_intervals'))
     counts = row.get('counts')
     if not isinstance(counts, dict) or not 0 <= age <= 90:
         raise ValueError('sidecar_writer_stale')
+    if any(type(value) is not int or value < 0 for value in counts.values()):
+        raise ValueError('sidecar_counts_invalid')
+    historical_gaps = any(counts.get(key, 0) > 0 for key in ('gaps', 'coverage_gap_start', 'coverage_gap_end'))
+    source_gaps = bool(coverage.get('open_intervals')) or historical_gaps
     chunks, chunk_hashes = list(Path(output).glob('chunk-*.jsonl.gz.sha256.json')), {}
     if final:
         if row.get('final') is not True or type(row.get('sealed_chunks')) is not int or len(chunks) != row['sealed_chunks']:
@@ -76,9 +79,12 @@ def health_receipt(output, *, event_slug, health_schema, final=False, expected_c
             chunk_hashes[name] = receipt['sha256']
         if list(Path(output).glob('*.partial')):
             raise ValueError('sidecar_partial_chunk')
-    complete = (not row.get('storage_failed') and not source_gaps and coverage.get('coverage_ready') is True and
+    complete = (not row.get('storage_failed') and not source_gaps and not row.get('secondary_errors') and
+                coverage.get('coverage_ready') is True and
                 coverage.get('expected_tokens', 0) > 0 and coverage.get('baselines_taken') == coverage['expected_tokens'])
-    return {'research_evidence_complete': complete, 'source_gaps': source_gaps,
+    return {'research_evidence_complete': False, 'component_evidence_complete': complete,
+            'whole_session_coverage_proven': False, 'ready_now': coverage.get('coverage_ready') is True,
+            'historical_gaps': historical_gaps, 'source_gaps': source_gaps,
             'health_sha256': file_sha(Path(output) / 'health.json'), 'coverage': coverage,
             'writer_counts': counts, 'receipt_utc': row['receipt_utc'], 'chunk_sha256': chunk_hashes,
             'errors': row.get('secondary_errors'), 'native_sequence_completeness_proven': False}
@@ -86,6 +92,9 @@ def health_receipt(output, *, event_slug, health_schema, final=False, expected_c
 
 class Sidecar:
     def __init__(self, *, manifest, output, scope, started, seconds, process_factory=ChildProcess, policy_metadata=None):
+        from weather.market.lfc_campaign_policy import SIDECAR_SUPPORTED
+        if not SIDECAR_SUPPORTED:
+            raise ValueError('unsupported_sidecar_interval_coverage')
         self.output, self.scope, self.process = Path(output), scope, None
         self.report = {'schema_version': SIDECAR_SCHEMA, 'scope': scope, 'research_evidence_complete': False,
                        **({} if policy_metadata is None else policy_metadata),

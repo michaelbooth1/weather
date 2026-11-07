@@ -28,7 +28,7 @@ choice is represented by a named field; the parser is the support contract:
 | `max_sessions`, `last_start_local_date` | Reductions within the qualified source limits; previous counted sessions still count. |
 | Entry UTC windows and `duration_seconds` | Finite half-open windows and bounded duration inside the parser's qualified range. The complete duration must fit before the UTC hard stop. |
 | `fill_retires`, `unknown_settlement` | Own band and full loss respectively; the one-band controller ends on a fill. |
-| `sidecar` | Optional reviewed T017 manifest; capture failure records a research gap and cannot stop the private live session. |
+| `sidecar` | Only null/disabled is qualified. Enabling refuses before claim: whole-session interval coverage needs a reviewed adapter release. |
 | `policy_name`, `policy_revision` | Bound into each attempt's receipts, ledger rows, private journal and outcome; economic changes under one name require an increased revision. |
 | `local_event_dte` | A nonempty sorted subset of the reference horizons. Selection and every placement/requote use it; resting orders pull through normal cleanup at a disallowed market-local boundary. |
 | `band_limit_session`, `band_limit_concurrent`, `bands_per_event` | One each in this qualified controller, matching `k_max`. Unsupported expansion refuses. |
@@ -169,14 +169,15 @@ and capital values are not activated by shipping it. Unknown fields and any
 unsupported values fail explicitly; the runtime [reference example](../examples/lfc-campaign.example.json)
 retains the current F0 terms. Original historical evidence is never relabeled.
 
-The optional T017 adapter captures the selected event's all-band scope. It
-computes explicit slower metadata/terms/fee cadences with retry room below its
-hard request limit, records scope and achieved coverage, and retains source
-gaps, pending baselines, local transport receipts, writer progress and errors.
-An old remote book timestamp alone is not a dead local receiver. Final chunk
-counts and hashes must match physical files; missing/corrupt/partial chunks
-make capture incomplete. It never claims native sequence completeness. There
-is no automatic private-session restart for public capture recovery.
+The optional T017 capability is explicitly refused in this release, including
+at the adapter constructor. A manifest alone cannot enable it. Qualification
+must bind capture to the actual private-session interval and retain cumulative
+gaps/errors; current readiness cannot establish continuous historical coverage.
+The retained diagnostic reader preserves historical gap counts and errors and
+checks physical final chunks, but never labels that as whole-session completeness.
+A future adapter must also preserve the hard 2 rps budget and contained teardown.
+Public gaps remain separate from private money proof; no private session restarts
+for capture recovery. Null/disabled capture is supported without a public claim.
 
 `money_accounting_complete`, `cleanup_proven` and `unknown_submit` are distinct
 from `research_evidence_complete` and public coverage. A missed scoring read or
