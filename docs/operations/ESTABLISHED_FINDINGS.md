@@ -23,6 +23,14 @@ Status: canonical **reference depth**. Written for LLM agents. **Do not read thi
   [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md). **Read that file too.** Several of the
   costliest hours in this project were spent re-discovering something already known to be false.
 
+**Interpreting score closures (T034, 2026-11-07).** Every Brier, log-score, blend-weight or residual
+screen closure here is limited to its named rule/model, population and effect threshold (register
+§6 distinguishes Brier, R and residual units). An interval crossing a relevant effect is inconclusive
+at that effect; an unrun extension or failed coverage gate is not a measured null.
+The standard interpretation is: **a score kill is not a statement about trading profit.**
+Existing closures remain; economic claims use §0c. Review
+sources: `C:\archive\reviews\T013\REPORT.md` #10; `C:\archive\reviews\T029\REVIEW.md` §3.
+
 ## Section index
 
 Ids are stable; headings are long, so search by id (`^## 1c\.`). Mission ids such as `-09-56a` are
@@ -34,12 +42,12 @@ sequence numbers, not calendar dates.
 | 0 | Objective order: capture and settlement evidence, maker economics, then forecast |
 | 0a | The point-in-time 21-field wall is real on the free tier; 12 of 21 fields are available, 9 are not (`-09-55a`) |
 | 0b | Owner decision 2026-08-09: aim for a better model, not a qualified one; release machinery leaves the critical path (partly superseded) |
-| 0c | Central goal: a better forecast from our own information, never by consuming the benchmark (MM ordering superseded) |
+| 0c | Product criterion: executable, capital-bounded net cash profit; forecast scores are component diagnostics (11-05 supersedes the earlier goal) |
 | 0d | The streak gates nothing on the critical path; countable date volume is what matters |
 | **Model versus market** | |
 | 1 | We do not beat the market; four legacy headline numbers retired |
 | 1b | Five audit assumptions: primary objective unmeasurable, nowhere we win, gate stricter than economics, no executions on tape, gap decomposition |
-| 1c | The gap is information, not calibration (`-09-56a`) |
+| 1c | Tested monotone calibration families recover at most about 16.5% of the historical B/C gap (`-09-56a`); not a profit bound |
 | 1d | What the panel can certify: a floor set by 12 markets, not dates (`-09-57a`) |
 | 1e | The point-in-time source stops 2026-06-23; the `-09-58a` null is blind, not precise |
 | 1f | The tail is centre overconfidence and is predictable ex ante (`-09-59a`) |
@@ -132,7 +140,7 @@ sequence numbers, not calendar dates.
 | 10ap | B's false PASS at the null is 0.041-0.065 against a nominal 0.025 under the measured serial dependence (dev, descriptive, ledger rows 83/84); B unchanged |
 | 10aq | Market prices are calibrated by bin at dev (US11, ECE 0.0067, slope 1.030 [1.014, 1.045]); market-only recalibration is KILL at edge size on all three arms; row 106 (K), register X92 |
 | 10ar | Station pooling: R-P (L48) KILLED at LOYO gate 1 (Los Angeles CI-worse); class-matched R-P2 screen PASS, PARKED (confirmation needs 3-5 seasons); rows 108/109, register X94/X95 |
-| 10as | R28a DSC-NWS P0 at 07-12 (dev, US11): all three arms positive but far below the 0.2236 edge; NWS adds a little information beyond the market, not a tradable amount; row 107 (K), register X96-X101 |
+| 10as | R28a DSC-NWS P0 at 07-12 (dev, US11): all three point estimates below the 0.2236 score bar; no net-cash-profit inference; row 107 (K), register X96-X101 |
 | 10at | R28b: 88a never held a complete 11-band ladder 09-25..10-08 (census 0/0/0); C3 T+1 kill tier closed untestable, a design gap not a kill; row 100 note, register X86 |
 | 10au | X36-v5: raw NBM 2026 Jan-May warm +0.74°F pooled equally under v4.3 and v5.0; the dev warm bias is seasonal plus a 2026 shift, not a v5.0 artefact; row 111 (C), register X36 |
 | 10av | WS 2026-11-01 22:06-22:08Z: all 10 recorders died together under one dead parent; 4 of 7 capture workers had dead parent PIDs; cause unverified; L34 live-parent design |
@@ -140,6 +148,7 @@ sequence numbers, not calendar dates.
 | 10ax | E1 (L59, ledger row 119 D, 2026-11-04): at 07-12 the served stack beats B (d̄ +0.0028); E3 DON'T ADD; 4a OFF, 4b B-arm CLOSED; no live S lever from the season-2026 fetches |
 | 10ay | Known defect (master 2026-11-05): a rare train/serve mismatch, the trainer keeps a null last pre-cutoff temperature that serve and replay skip (2 of 28,936 keys); not fixed, not a lever; item 344 |
 | 10az | Climatology window and floor defects (leap reference, no year wrap, spring-forward row-count floor; master 2026-11-05): lever UNTESTABLE (SD bound 0.080, power about 0.10); fix = retrain + edge gates; register X108 |
+| 10ba | Astra/sol reviews: model timing, simulator/accounting, recorder, automation and evidence limits; archived pin-specific findings, not deployment qualification |
 
 ---
 
@@ -158,9 +167,10 @@ sequence numbers, not calendar dates.
    prerequisite for testing market-centred spread economics. Benchmark-consuming controls remain
    diagnostics rather than forecast improvements (§0c).
 
-**Ordering changed by the operator's 2026-08-13 maker-rebate pivot.** Sections §0b–§0c remain the
-canonical model-research standard, but their statement that market making is downstream of beating
-the market is superseded. The taker remains deprioritized.
+**Product criterion superseded 2026-11-05.** The owner's ~21:50 edge-definition row in
+[DECISION_LOG.md](DECISION_LOG.md) accepts maker and simulated reward profit in an accurately simulated
+fair trial; ~22:03 approves the plan. §0c owns the economic criterion. Earlier forecast-first ordering
+in §0b–§0c is historical; neither forecast superiority nor a diagnostic PASS gates an economic trial.
 
 **The primary model objective is the 09:00–14:00 local slice**, leakage-audited and walk-forward — not
 aggregate Brier. Aggregate-Brier chasing was explicitly abandoned: it hides the slice where the model
@@ -259,8 +269,9 @@ its own target. **The bar for believing a result is unchanged. Only the bar for 
 
 ### What it means in practice
 
-Work is now ranked by **measurable served improvement per unit of effort**, using the existing
-replay harness. The retrain remains desirable and is no longer the gate.
+The historical ranking was **measurable served improvement per unit of effort**, using the existing
+replay harness. That remains a component-research diagnostic, not the product's criterion or a
+forecast-first gate; the owner's 11-05 economic criterion is §0c. The retrain is not the gate.
 
 *(The instruction that stood here — "decompose the gap before picking improvements" — was **carried
 out**: `-09-56a` → §1c, and `-09-57a` → §1d. It is no longer a prerequisite; it is a result.)*
@@ -269,62 +280,76 @@ out**: `-09-56a` → §1c, and `-09-57a` → §1d. It is no longer a prerequisit
 
 ## 0c. THE CENTRAL GOAL — operator, 2026-08-09
 
-> **PARTLY SUPERSEDED — the "MM is downstream" bullet only.** Since 2026-08-13 the approved maker
-> experiment is market-centred and does not wait for a model that beats the market (§0 objective 2,
-> item 330). What stays binding: "better" means a better forecast **from our own information**, and a
-> benchmark-consuming control is a diagnostic, never an improvement.
+**SUPERSEDED 2026-11-05 — product criterion and forecast-first ordering.** The owner's ~21:50
+edge-definition row in [DECISION_LOG.md](DECISION_LOG.md), followed by ~22:03 plan approval, makes the
+product criterion **net cash profit from an executable, capital-bounded policy in an accurately
+simulated environment and a fair trial**. Maker trading profit, paid rebates and reward profit count,
+after acquisition, settlement/inventory losses, fees and operating costs, without double counting.
+[EDGE_TRIAL_CHARTER.md](EDGE_TRIAL_CHARTER.md) owns the existing trial/readiness gates.
 
-> **"We should always aim for a better forecast which in time should lead to a tradeable edge
-> somewhere."**
+Forecast scores diagnose a component; they neither authorize nor veto an economic trial. Keep
+independent forecasts as controls, and distinguish an own-information forecast gain from consuming
+market prices. A market-centred or market-informed policy is eligible for the economic test; its
+score against those prices does not itself establish profit. No live authority follows from this repair.
 
-**This is the standing goal of the project. It resolves the ambiguity in §0b — "better" means a
-better FORECAST.** Read it as the ordering rule for every future decision.
+The earlier aspiration and rationale below are preserved as **historical text, not current rules**.
+Their universal claims, including accuracy as the product outcome, the market-input prohibition and
+maker sequencing, were superseded by the 11-05 decision. T029 traces how an aspiration became a gate:
+`C:\archive\reviews\T029\REVIEW.md` §§1, 3; see also §10ba and RF §1.
 
-### Why it is right, stated so nobody re-opens it
-
-1. **It is the only axis we can measure today.** We have Brier, a market benchmark, crossed
-   clustering, and a panel with a known MDE per stratum (§1d). We have **zero** trading outcome
-   evidence — **no trade has ever been made and `fills.jsonl` has never been written** (§8b).
-   Optimising the unmeasurable is precisely how a month was spent on eligibility meters.
-2. **Forecast accuracy is an OUTCOME, not a proxy.** It is the one thing this project has ever
-   measured honestly, and it is immune to the dominant defect pattern (`HOW_WE_GET_THINGS_WRONG.md`
-   pattern 2).
-3. **"Somewhere" is load-bearing and correct.** Edge need not exist in every market or hour.
-   `-09-46a` found zero positive cells in 114 — **for the current model**. A materially better
-   forecast is what could open a cell that does not exist today.
-
-### The ONE qualifier, without which the goal misfires immediately
-
-**Better *from our own information* — never by consuming the benchmark.**
-
-This is not pedantry; it is load-bearing, and the evidence is one day old. On a pure
-forecast-accuracy criterion, the top-ranked candidate we currently hold is **market shrinkage:
-65.111% of the gap closed, confirmable today, and provably zero tradeable edge** (§1c). The goal as
-literally stated would select it first. **A forecast improvement obtained by moving toward the
-market cannot ever become an edge over that market.**
-
-Those controls keep their real value: they **localise where our information is missing** — the
-disagreement set. **Rank 1 is an instrument pointing at rank 4, not a candidate.**
-
-### And the conversion is not automatic — there is a threshold
-
-§1's standing caveat binds this goal: the 1.42x comparison is against **market mid**. A taker pays
-`5% × (1−p)` and cannot trade at mid; a maker is paid the spread. **Forecast improvement converts
-to edge only above transaction costs; below that threshold it converts to nothing at all.** So
-"in time" is honest, and **no accuracy gain may be reported as expected P&L without re-deriving it
-in trading terms.**
-
-### What this changes in practice
-
-- **§0 objective 2 is now "a better forecast than the market", not "a model that beats the market"**
-  — the same target, stated as the thing we can measure.
-- Rank work by **expected served accuracy gain from own-information sources**, per unit of effort.
-- **Benchmark-consuming controls are diagnostics.** Never rank, ship, or book them as improvement.
-- The MM track is **not cancelled** — it is downstream. §1c's open MM hypothesis (a maker needs a
-  fair value that is not *worse* than the market's, not one that beats it) remains a legitimate
-  question and is unaffected by this ordering.
-
----
+> ### Historical aspiration and rationale (superseded 2026-11-05)
+>
+> > **"We should always aim for a better forecast which in time should lead to a tradeable edge
+> > somewhere."**
+>
+> **This is the standing goal of the project. It resolves the ambiguity in §0b — "better" means a
+> better FORECAST.** Read it as the ordering rule for every future decision.
+>
+> ### Historical rationale: "Why it is right, stated so nobody re-opens it" (superseded)
+>
+> 1. **It is the only axis we can measure today.** We have Brier, a market benchmark, crossed
+>    clustering, and a panel with a known MDE per stratum (§1d). We have **zero** trading outcome
+>    evidence — **no trade has ever been made and `fills.jsonl` has never been written** (§8b).
+>    Optimising the unmeasurable is precisely how a month was spent on eligibility meters.
+> 2. **Forecast accuracy is an OUTCOME, not a proxy.** It is the one thing this project has ever
+>    measured honestly, and it is immune to the dominant defect pattern (`HOW_WE_GET_THINGS_WRONG.md`
+>    pattern 2).
+> 3. **"Somewhere" is load-bearing and correct.** Edge need not exist in every market or hour.
+>    `-09-46a` found zero positive cells in 114 — **for the current model**. A materially better
+>    forecast is what could open a cell that does not exist today.
+>
+> ### The ONE qualifier, without which the goal misfires immediately
+>
+> **Better *from our own information* — never by consuming the benchmark.**
+>
+> This is not pedantry; it is load-bearing, and the evidence is one day old. On a pure
+> forecast-accuracy criterion, the top-ranked candidate we currently hold is **market shrinkage:
+> 65.111% of the gap closed, confirmable today, and provably zero tradeable edge** (§1c). The goal as
+> literally stated would select it first. **A forecast improvement obtained by moving toward the
+> market cannot ever become an edge over that market.**
+>
+> Those controls keep their real value: they **localise where our information is missing** — the
+> disagreement set. **Rank 1 is an instrument pointing at rank 4, not a candidate.**
+>
+> ### And the conversion is not automatic — there is a threshold
+>
+> §1's standing caveat binds this goal: the 1.42x comparison is against **market mid**. A taker pays
+> `5% × (1−p)` and cannot trade at mid; a maker is paid the spread. **Forecast improvement converts
+> to edge only above transaction costs; below that threshold it converts to nothing at all.** So
+> "in time" is honest, and **no accuracy gain may be reported as expected P&L without re-deriving it
+> in trading terms.**
+>
+> ### What this changes in practice
+>
+> - **§0 objective 2 is now "a better forecast than the market", not "a model that beats the market"**
+>   — the same target, stated as the thing we can measure.
+> - Rank work by **expected served accuracy gain from own-information sources**, per unit of effort.
+> - **Benchmark-consuming controls are diagnostics.** Never rank, ship, or book them as improvement.
+> - The MM track is **not cancelled** — it is downstream. §1c's open MM hypothesis (a maker needs a
+>   fair value that is not *worse* than the market's, not one that beats it) remains a legitimate
+>   question and is unaffected by this ordering.
+>
+> ---
 
 ## 0d. THE STREAK GATES NOTHING ON THE CRITICAL PATH — operator challenge, 2026-08-10
 
@@ -392,8 +417,8 @@ live clock.**
 
 ## 1. We do not beat the market
 
-This is the central finding of the project. Treat any result claiming otherwise as suspect until it
-survives the method rules in §5.
+This is a forecast-score finding for the named panels, not a project-wide profit verdict. Any claim
+of forecast superiority still needs the method rules in §5; the product criterion is §0c.
 
 | Finding | Value |
 | --- | --- |
@@ -415,7 +440,7 @@ that no longer exists. `-09-44a` re-measured on the sealed pre-boundary replay c
 
 | Legacy number | Status | Current surface |
 | --- | --- | --- |
-| **98.88% / 1.12%** resolution / reliability | superseded | **84.772% / 15.228%** |
+| **98.88% / 1.12%** resolution / reliability | superseded 2026-08-09 | **84.772% / 15.228%** served-loss split; current gap recovery: `-09-56a`, §1c, at most about 16.5% for tested mappings |
 | **−0.6641 C-eq** cool bias | superseded | **−0.64387 C-eq** (§2) |
 | **4.26% / 60.2%** severity tail | superseded | **4.387% / 64.140%** — concentration is *higher* |
 | **74.97%** centre oracle ceiling | **unciteable, and NO replacement exists** | none authorised |
@@ -437,7 +462,8 @@ justification for anything** until it is re-derived; the retrain's remaining arg
 measured −0.8346 C-eq seasonal centre defect, which is *smaller*. The mechanism is untouched:
 too-cool mass below the trusted floor is truncated and shifts served centre. **Never weaken the floor.**
 
-**The reliability share is the number to look at.** `1.12%` said calibration was worth nothing.
+**Historical decomposition, not a calibration prohibition.** The superseded `1.12%` rationale is
+replaced by `-09-56a`'s gap-recovery bound (§1c: at most about 16.5% for tested mappings).
 The current-surface figure is **15.228%** — over an order of magnitude larger. The repair did not
 cause the change — paired delta **+0.076pp [−0.246, +0.452], power 0.074**.
 
@@ -497,8 +523,9 @@ full implementation and tests, four commits before any result — so the method 
 measurement. Note the guardrails were built to stop a false *positive*; a uniformly negative result
 is not that failure mode, and the tight overall interval says this is a precise null, not a blind one.
 
-**This retires model-skewed quoting as a strategy.** Do not commission further work premised on
-finding a window where the model beats the market. It was searched, exhaustively and honestly.
+**This retired quoting premised on this model's tested score cells.** It did not test every selective
+policy, later model or maker mechanism. A score kill is not a statement about trading profit.
+The 114-cell search and its numerical results remain closed historical evidence; no study is reopened.
 
 ### 3. The promotion gate is stricter than the ECONOMICS require
 
@@ -661,6 +688,13 @@ mid-price accuracy comparison into a profitability conclusion without re-derivin
 
 ## 1c. THE GAP IS INFORMATION, NOT CALIBRATION — measured, `-09-56a`, 2026-08-09
 
+**Scope correction (T034, 2026-11-07).** The heading is a historical shorthand. This is a Brier
+gap-recovery bound for the four tested monotone mapping families on the old B/C surface, not all
+calibration, conditioning or policies. Register §1 row 3 marks that surface tainted for post-10-09
+claims. It supersedes the old 98.88% / 1.12% gap split: calibration at most about 16.5% here.
+A score kill is not a statement about trading profit. The workstream closure stands; no rerun is authorized.
+Source checks: `C:\archive\reviews\T029\REVIEW.md` §3; `C:\archive\reviews\T016\VERIFY.md` #10.
+
 Closes §1b.5 and the §1 "establish the denominator" question. **Fit on in-season B (D=23), score on
 out-of-season C (D=27, the stratum we actually serve).** Method frozen before any result at
 predeclaration `d8e49409`; source is the `-09-44a` repaired export, SHA-256 `9a70ac80`. Verifier
@@ -677,7 +711,8 @@ Power **0.458**, 80%-power MDE **13.344pp** — below the binding bar.
 
 **Cite the BOUND, never the point.** 8.829% is underpowered and may be zero. What the interval
 licenses is that **even at its most favourable endpoint, calibration is at most 16.494% of the
-gap** — a minority throughout. That is enough to close calibration as a workstream and not enough
+gap** for the tested mappings on this panel — a minority throughout. That supported closing those
+variants as a workstream and is not enough
 to claim a recoverable 8.829%. **`8.829%` must not become a headline number**; four of those were
 retired in one day on 2026-08-09 already.
 
@@ -710,13 +745,12 @@ the disagreement set**. They are not evidence of edge — `-09-46a` found **zero
 model-skew cells in 114 — and they cannot be cited as a route to beating the market.
 **Never book a market-shrinkage delta as model improvement.**
 
-**But the MM question is OPEN, not closed — do not let the paragraph above be read as forbidding
-it.** A maker does not need to *beat* the market; it earns the spread and needs a fair value that
-is not *worse* than the market's, i.e. it needs to avoid adverse selection. A market-shrunk fair
-value is exactly that shape, and `-09-48a` found the harvest path blocked on **having** a fair
-value at all. **This is a hypothesis to trace, not a finding**, and §1's standing caveat binds it:
-a mid-price accuracy comparison must be re-derived before it becomes a profitability conclusion.
-Anyone testing it must price adverse selection and the maker's actual fill economics, not Brier.
+**The MM question stays OPEN.** The earlier hypothesis said a maker needs fair value "not worse"
+than the market's. That is not a forecast-score admission gate under the 11-05 criterion (§0c):
+spread, incentives, adverse selection, inventory and costs jointly determine net profit. A
+market-shrunk fair value is a policy input that can be tested; `-09-48a`'s historical harvest path
+was blocked on having any fair value. Neither observation proves profit. Anyone testing it must
+price the maker's executable fill economics rather than infer income from Brier.
 
 **Citation hazard — two "blending" results that do not contradict each other.** §1's *"blending
 model with market HURTS on clean data"* is an older panel, clean regime, global blend. This is the
@@ -734,6 +768,11 @@ stratum, different gate. **Neither refutes the other; cite the one whose stratum
 ---
 
 ## 1d. WHAT THE PANEL CAN CERTIFY — `-09-57a`, 2026-08-09
+
+**Scope:** the following MDE floor concerns inference across the historical market population under
+crossed clustering. It is not an impossibility bound for a fixed-market portfolio's net profit.
+Date/serial dependence still matters; multiple snapshots or cities on one date are not independent
+portfolio days. No bound test's inference is changed here (`C:\archive\reviews\T029\REVIEW.md` §3).
 
 `-09-56a` says what to improve. **This says whether we could ever tell that we did.** Positive
 control reproduced to `6.1e-18`: `-09-44a`'s in-season MDE is exactly `0.0030551161`.
@@ -4380,8 +4419,9 @@ orders, International venue only, nothing dated after 2026-09-29 read, no oracle
   - **P3d_N's dev emitter is `last_in_hour`:** `pooled_residual_model.scan_replay_n` takes `high_so_far` and
     `current_temp` from the last replay snapshot captured in [h:00, h+1:00) and emits them for every row with
     `cutoff_hour = h`. Exposed rows, a lower bound at 10-minute receipt: **1,793 of 28,770 (6.2%) at 07-12 and
-    1,057 of 18,591 (5.7%) at 13-16**. The look-ahead can only favour the candidate, so the P3d_N nulls above are
-    firmer. Any positive result built on these vectors needs a no-look-ahead re-emission first.
+    1,057 of 18,591 (5.7%) at 13-16**. The original "can only favour / firmer nulls" inference is superseded:
+    later inputs can hurt a misspecified predictor (T013 #11; §10ba). Deployable-score claims require
+    receipt-causal inputs; the numerical findings and frozen rules remain as recorded.
   - MG-1, the L6 captured re-spec and the market side are clean: each uses the row's own captured fields.
 - **Not claimed:** no edge, no forward result, no claim for Denver under KDEN labels, no claim that a blend with
   w > 0 adds information at this MDE. The market-blend and dead-bucket multiplicity belongs to the dev-window ledger.
@@ -4819,7 +4859,7 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   "fragile" (master ruling); B's verdict stands either way.
 - **Do not** cite 0.025 as B's delivered false-PASS rate, or row 83's block-3 0.0692.
 
-### 10aq. Market prices are calibrated by bin at dev; market-only recalibration is below edge size on every arm: lane L21, ledger row 106 (K), 2026-11-02
+### 10aq. Market prices are calibrated by bin at dev; tested market-only recalibration is below the specified Brier effect size: lane L21, ledger row 106 (K), 2026-11-02
 
 - **Fact.** Market prices are calibrated by bin at dev (US11, 08-01..09-29): ECE 0.0067, calibration slope
   **1.030 [1.014, 1.045]** (widest of three date bootstraps), intercept −0.0027.
@@ -4830,7 +4870,9 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   - A1 linear tilt toward uniform: **0.0344 [0.0156, 0.0534]**.
   - A2 binned leave-one-date-out (LODO) mean residual: **0.0400 [−0.0320, 0.0793]**.
   - A3 LODO power recalibration q ∝ m̃^β: **0.0430 [−0.0875, 0.0868]**, with LODO β 1.11-1.14.
-  - The verdict is **KILL at edge size** on all three arms: not an exploitable lever.
+  - The recorded verdict **KILL at edge size** means below the specified 5%-Brier-sized effect on these
+    three arms/population. **A score kill is not a statement about trading profit.** Executable prices,
+    spreads, selective policies and net dollars were not tested (`C:\archive\reviews\T029\REVIEW.md` §3).
 - **Controls.** All PASS, in the order the prereg enforces in code:
   - Served vs market R 1.7739 / 1.5263, against 1.774 / 1.526.
   - Synthetic null: every arm's interval covers 0.
@@ -4858,11 +4900,12 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
 - **Reading.**
   - The squared point estimates put the oracle Brier gain from recalibrating the market alone at about
     0.12-0.18%, against the 5% bar. This is a derived quantity, not a separate test.
-  - Like §1c (the gap is information, not calibration), it leaves no calibration lever: here, on the market's
-    side.
+  - Like §1c, it deprioritizes the tested calibration forms at the named score threshold; it does not
+    exclude every calibration mechanism or economic policy.
   - A1's interval lies above 0. Master ruled that it stays without comment: no follow-up row, and a KILL earns no
     screen label.
-  - Silent on the overround, which is a fee (maker economics CLOSED).
+  - Silent on the overround and maker profit; the earlier "maker economics CLOSED" inference is
+    superseded by the owner's 11-05 reopening (§0c).
   - The history-tier follow-up on public price history (ledger row 113, register X93) is UNTESTABLE at its label
     cap with no successor; this section stays the record for the lever.
 - **Do not** cite this as a model or edge result, as a statement about our 12 beyond US11, or as a measurement of
@@ -4892,7 +4935,7 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
 - **Do not** cite R-P2's screen as a model win: it is a design-informed screen, necessary only, with no dev or
   market read.
 
-### 10as. NWS adds a little information beyond the market at 07-12, not a tradable amount: R28a DSC-NWS market-residual P0, lane L40, ledger row 107 (K), 2026-11-01
+### 10as. R28a NWS market-residual P0 is below the specified score effect at 07-12: lane L40, ledger row 107 (K), 2026-11-01
 
 - **Scope.** Dev 08-15..09-29, US11, hours 07-12, against the market's own error; layout `C:/swarm/v3layout`.
   Rule `rule_dsc_nws_p0.md` sha256 `aaa8d5f36404d721d97984fb74afcb51cf1ef58233ad76476c62665ba1f0fe86`
@@ -4901,6 +4944,9 @@ after 09-29 read. Ledger row 71 and register X43 hold the full record; it is cit
   W1-0712 d +0.0080 [−0.0123, +0.0373]; BH none (q 0.211 / 0.193 / 0.193); C0-C3 PASS. W1-0712's planted
   control reaches only 0.2207 < 0.2236 (C5), so it is UNTESTABLE at edge; W1-0006 was dropped before any read.
 - **Master's reading (2026-11-01):** "All three R28a arms had positive point estimates (+0.008 / +0.033 / +0.028) but nowhere near the 0.2236 edge: NWS adds a little information beyond the market, not a tradable amount."
+- **Scope correction (T034):** "not a tradable amount" is superseded as an economic inference. The
+  threshold is the specified market-residual/Brier effect, not net cash profit; W1's failed plant is
+  UNTESTABLE, not a kill. **A score kill is not a statement about trading profit.** No study is reopened.
 - **Do not** read the positive points as a lever: each interval spans zero and every upper bound is below the
   edge bar. Register X96-X101; archive `C:\archive\ruled-out\r28a-dsc-nws-p0\`.
 
@@ -5110,6 +5156,98 @@ Any fix means a retrain plus the edge gates; there is no serve-only fix. Line nu
 - **Evidence (343b grid holes).** 81 holes = 33 leap + 48 `row_count < 20` (44 spring-forward plus 4 Denver).
 - **Lever verdict: UNTESTABLE.** SD bound 0.080, power about 0.10; register X108.
 
+
+### 10ba. Astra and sol review learnings — archived November 2026 reviews, recorded by T034
+
+These are source/specification reviews and documented planning results at their named pins, not new
+empirical measurements or proof that a repair is deployed. Recommendations remain proposals unless
+the owner/master adopted them. Frozen trials, access boundaries and live authority are unchanged.
+Floor-contract wording awaits T032; the entries here do not adjudicate it.
+
+- **T013, model and evaluation:** a receipt clock is distinct from request start, observation time and
+  book-update time; a log-pool weight near zero tests that fitted family, not every conditional use.
+  A one-cent reserve or longer latency is not automatically an upper/lower profit bound. Per-date
+  notional limits do not prove continuous portfolio cash feasibility through settlement. Sequential
+  looks plus Holm need a specified valid trial-level p-value; feedback from shared dates can expose
+  a later candidate even if its own task has not read them. These are unfrozen design gaps, not an
+  amendment here. Source: `C:\archive\reviews\T013\REPORT.md` #2–3, #6–7, #10–13.
+- **T016, independent verification:** six selected T013 claims were confirmed at the reviewed source
+  pin, without measuring frequency or score/profit effect. Training selects the nearest 07:00
+  reference from the full day while serving filters at cutoff; historical interpolation can use a
+  later row. MG-1's countability depends on outcome reconciliation, unlike B's amended mask. Raw
+  MG-2 exports and scorecard-masked vectors are different instruments. Book capture starts before
+  receipt; T2 lacks a specified continuous cash ledger; RF's old decomposition was stale. Source:
+  `C:\archive\reviews\T016\VERIFY.md` #9, #5, #8, #2, #7, #10. A bound mask is not amended here.
+- **T014, simulator:** at `c391004d1e39dbd41afbf01f908a9c6559db6ae2` the accuracy PASS did not compare
+  predicted cash, positions, settlement or total net P&L. Excluding losing fills can raise simulated
+  profit while leaving rewards; complementary-token/mint fills and queue depletion need coherent
+  representation. Anonymous books do not identify wallet-level reward scores or the competition
+  response to our posting. The implemented f-times-cost reserve is not an identified informed-fill
+  fraction. Category-pooled rebates did not establish per-market allocation/eligibility; distinct
+  sessions could reuse capital or a shared payout without campaign-level checks. Conditional
+  arithmetic, actual reconciliation and predictive accuracy are separate claims.
+  Source: `C:\archive\reviews\T014\REPORT.md` F01–F08, F11–F19; RF §4a.
+- **T018, public sidecar:** the reviewed pin was NO-GO: desired polling overloaded the shared 2 rps
+  contract; socket allocation preceded its memory check, output caps did not protect free disk,
+  handshake backoff and bounded shutdown had holes, and health did not prove full-universe valid
+  baselines/coverage. Configured cadence and sampled RSS are not continuous guarantees. Public
+  evidence alone cannot identify own fills or complete cash. Source: `C:\archive\reviews\T018\REPORT.md`
+  B1–B6, N1–N2; no verdict on a successor pin follows.
+- **T021, validation freeze:** FREEZE-WITH-EDITS applied to calibration only. A useful freeze names
+  implemented claims, modes, sources, checkpoints, dependency/NQ rules and the design lock before
+  exposure. Session, earned UTC account-day and report cutoff are different scopes; shared timing
+  uncertainty needs joint feasible histories. Polls/trades do not prove absence of brief unfilled
+  foreign orders. Coverage floors are not precision or edge proof. Source:
+  `C:\archive\reviews\T021\REVIEW.md` F01–F08, F10, F13–F16; replacement text is a proposal, not adoption.
+- **T022, F0 money path:** the review's PROCEED-WITH-MITIGATIONS was session-specific and required
+  attendance/independent visibility, not a live GO. SDK `expires_at` versus expected `expiration`,
+  incomplete successful order responses, unbounded pagination and unacknowledged orders missed by
+  cancel-ours weaken recovery. Cleanup/PASS is not complete money accounting; exposure caps are not
+  a calendar-day realized-loss gate. Source: `C:\archive\reviews\T022\REPORT.md` F01–F05, F10.
+- **T023, path to verdict:** no reviewed configuration established a credible powered December PASS.
+  T002's reward-response assumption could flip the NYC two-band stress-model sign; the reported
+  46-date figure was not 80% power (104 dates were needed before look/multiplicity penalties).
+  f and the reward multiplier were stress assumptions, not identified population parameters. Whole
+  policy qualification and power are different from session calibration; inconclusive/unqualified
+  evidence is not an economic FAIL. Policy rankings and dates were recommendations. Source:
+  `C:\archive\reviews\T023\PLAN-TO-VERDICT.md` §§2–4, recommendation.
+- **T024, F2:** no M/R2 safety regression was found under unchanged 100 pUSD terms, but complete
+  F2/T1 evidence qualification was held. A failed D+1 pass could suppress D+2; partial create-only
+  JSON could occupy its final name. A retained interruption witness returned exit 0 with a FAIL
+  pregate receipt. Terminal receipt identity and content matter; process exit alone is insufficient.
+  Source: `C:\archive\reviews\T024\REPORT.md` B1, F1–F5. Later repairs require their own proof.
+- **T026, self-start review:** IMPLEMENT-WITH-CHANGES identified unknown order statuses releasing
+  reserves and account claims/latches that must survive policy edits, reboot and reinstall. Monetary
+  ambiguity differs from an ancillary evidence gap; automatic reconciliation must not silently clear
+  an ambiguous placement. Wallet verification had a missing-holding false PASS witness. The simpler
+  one-task/one-file design is a recommendation under B019, not authority granted here. Archived
+  handback: `C:\archive\reviews\T026r1\last.md`; it points to the full T026 review, absent from that
+  archive snapshot. No claim of complete archived reproducibility is made.
+- **T027, cloud:** the current maker needs neither the weather archive nor trained models; deployment
+  state and retained evidence are the material transfers. Core six-hour evidence 30–100 MB and
+  full-day sidecar 1.26–1.42 GB were estimates/projections, not measured steady-state traffic. Cloud
+  cannot fix recorder scheduling or prove simulator validity; no region or deployment was cleared.
+  Source: `C:\archive\reviews\T027\CLOUD.md`, data and compliance sections. Cost/provider choices remain proposals.
+- **T028, sources:** MRMS's adapter produces metadata, zero weather rows, and looks up the wrong UTC
+  partition after local midnight. Marine capture and the disabled training sidecar are separate paths;
+  configured sources and HTTP success do not prove useful fields or current health. Receipt-timed
+  replay differs from MOSMIX's default provider-availability selection; ECCC's first period is not
+  checked against the target date, and full-day versus remaining-day forecast highs are mixed votes.
+  A scheduled information clock is not proof of actual receipt or atomic quote withdrawal. Receipt-timed
+  observation joins, Scribe, TAF, RTMA-RU, cloud movement and sub-hourly HRRR are hypotheses, not
+  demonstrated edge or reopened source studies. Correction/max and station-support hazards are
+  recorded for T032's contract work. Source: `C:\archive\reviews\T028\DATA-SOURCES.md` D1–D13 and lead table.
+- **T029, whole project:** eight artifact hashes matched, verifying identity, not a rerun of the
+  empirical findings. Calibration, centre/width and market-reliability results are local to their
+  models, populations and thresholds. “All free information is priced” is an inference, not a theorem.
+  A frozen rule is not proof of statistical validity, and a retained result is not immune to a traced
+  instrument contradiction. Backup, automation, inference and workflow proposals await their owners;
+  this entry does not adopt questions 2–12. Source: `C:\archive\reviews\T029\REVIEW.md` §§1–3, 11.
+- **T003, negRisk:** PARKED, not killed: 393 of 900 event-days were covered before a CSV field-limit
+  error stopped the scan. The best displayed opportunity used crossed quotes; sparse screen positives
+  did not establish latency-surviving, capital-feasible execution. Too rare and incomplete for a
+  December verdict, not evidence that structural arbitrage cannot exist. Source:
+  `C:\archive\reviews\T003r1r1r1r1\last.md`; register §7 owns the disposition.
 
 ## Related
 

@@ -55,10 +55,46 @@ not the centre mechanism. The actual mechanism is floor truncation (`ESTABLISHED
 
 On the clean regime it is **1.24x**. The larger figure came from windows mixing artifact regimes.
 
-### "Recalibration will close the gap" — FALSE BY DECOMPOSITION
+### "Recalibration will close the gap" — OLD EXPLANATION SUPERSEDED
 
-98.88% resolution / 1.12% reliability. There is almost no calibration error left to harvest. The gap
-is information. Calibration work is not a path to edge.
+The earlier explanation was: "98.88% resolution / 1.12% reliability. There is almost no calibration
+error left to harvest. The gap is information. Calibration work is not a path to edge."
+**Superseded 2026-08-09 by `-09-56a`** ([EF §1c](ESTABLISHED_FINDINGS.md#section-index)): the tested
+monotone families recover at most about 16.5% (16.494%) of the historical B/C Brier gap; the interval
+includes zero. The old split is a different panel/estimand and is not a standing prohibition.
+This bound is not universal over calibration or economic policies, and that surface is tainted for
+post-10-09 claims (register §1 row 3). **A score kill is not a statement about trading profit.**
+The tested workstream stays closed. T016 confirmed the stale paragraph; T029 checked the source
+identities, without rerunning outcomes: `C:\archive\reviews\T016\VERIFY.md` #10;
+`C:\archive\reviews\T029\REVIEW.md` §3.
+
+### "Forecast accuracy is the product outcome; superiority must precede maker trials" — SUPERSEDED 2026-11-05
+
+EF §0c hardened the August forecast aspiration into a project-wide sequencing rule. The owner's
+11-05 ~21:50 [DECISION_LOG](DECISION_LOG.md) row defines edge as profit in an accurately simulated
+fair trial, including maker/reward profit; ~22:03 approves the plan. Forecast scores remain component
+diagnostics and independent controls, not authorization or veto for a capital-bounded executable
+policy's economic trial. The historical wording remains labelled in EF §0c. Trace:
+`C:\archive\reviews\T029\REVIEW.md` §§1, 3, rank 7; no other owner proposal is adopted here.
+
+### "Score kills prove no tradable lever or that all free information is priced" — OVERGENERALIZED
+
+X92 rejects the specified 5%-Brier-sized market-reliability effect on three US11 dev arms; it does
+not test executable-price profit. R28a's 0.2236 score threshold likewise is not a cash threshold.
+X31/X32 are underpowered; X35 is a gate closure with an interval reaching its reference effect;
+unrun family extensions are scheduling/rule dispositions, not empirical nulls. **A score kill is not
+a statement about trading profit.** Keep numbers, study closures and reopen conditions; distinguish
+no demonstrated gain, a precise null at a named effect, UNTESTABLE and CLOSED-BY-RULE. Sources:
+`C:\archive\reviews\T013\REPORT.md` #10; `C:\archive\reviews\T029\REVIEW.md` §3; register §6.
+
+### "Later information can only flatter a model, so its null is firmer" — FALSE IN GENERAL
+
+A misspecified predictor can get worse on a later input; receipt selection can change the sampled
+distribution. A particular paired correction may show optimism, but it supplies no monotonicity
+theorem for other models, filters or economic policies. MG-2 and MG-1 sharing snapshot keys does
+not give them identical information sets. Preserve the recorded results and bound test rules;
+date any deployability claim by actual receipt. Sources: `C:\archive\reviews\T013\REPORT.md` #11;
+`C:\archive\reviews\T029\REVIEW.md` §3; EF §10ba.
 
 ### "Production served 0.0 on the realized band" (Denver 2026-06-08) — REPLAY ARTIFACT
 
@@ -601,6 +637,38 @@ the outcome, not the vocabulary of the modules near it.**
 ---
 
 ## 4a. Maker-economics traps
+
+### "Conservative fills or f imply conservative net profit" — FALSE IN GENERAL
+
+Removing a losing fill can increase profit and leave simulated rewards accruing; removing a winning
+fill does the reverse. Queue, complementary-token executions, inventory, cash and reward response
+must form a coherent policy path. A reserve proportional to filled purchase cost is not the latent
+informed-fill fraction and cannot cover an omitted fill. Anonymous L2 reward scenarios do not form
+a universal two-sided bracket or model the competition our posting induces. These are analytical
+and source-trace findings, not measured loss rates. Sources: `C:\archive\reviews\T013\REPORT.md`
+#1, #4; `C:\archive\reviews\T014\REPORT.md` F02–F05, F07–F08; `C:\archive\reviews\T023\PLAN-TO-VERDICT.md` §2.
+
+### "Accuracy PASS, cleanup or exit 0 certifies the whole experiment" — FALSE
+
+T014's reviewed gate did not compare predicted cash, positions, settlement and net P&L; receipt
+reconciliation was narrower than predictive validation. T021 separates those claims and conditional
+lifecycle arithmetic, with missing/unsupported dependencies retained as NQ. T022 found cleanup
+could omit fill evidence. T024 retained an interruption witness with exit 0 and a FAIL receipt;
+T026's archived handback reports wallet PASS despite a missing holding. Preserve the failing attempt
+and exact pin; a later review or source fix is not evidence of deployment. Sources:
+`C:\archive\reviews\T014\REPORT.md` F01, F14, F18–F19; `C:\archive\reviews\T021\REVIEW.md` F02, F07, F14;
+`C:\archive\reviews\T022\REPORT.md` F05; `C:\archive\reviews\T024\REPORT.md` F1;
+`C:\archive\reviews\T026r1\last.md`.
+
+### "Recorder configuration or cloud hosting proves usable evidence" — FALSE
+
+T018's desired workload exceeded its fixed request budget, with memory/disk/shutdown gaps and weak
+coverage predicates. Cadence targets, a live process and sampled RSS are not proof of valid complete
+books or bounded shutdown. T027's cloud traffic/cost scenarios are planning evidence; hosting does
+not repair scheduling or qualify a strategy. T028's MRMS path emits no weather rows, while its
+"marine dark" narrative conflated capture with a disabled training sidecar. Sources:
+`C:\archive\reviews\T018\REPORT.md` B1–B6; `C:\archive\reviews\T027\CLOUD.md`;
+`C:\archive\reviews\T028\DATA-SOURCES.md` D8–D9. No successor or present runtime is certified here.
 
 ### "Liquidity rewards are about $16 a day — a subsidy, not a business" — TRUE FOR 2026-06-13, STALE SINCE (2026-09-19)
 
