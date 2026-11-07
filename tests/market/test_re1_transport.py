@@ -164,6 +164,7 @@ def fixture():
     calls = []
     venue = object.__new__(OwnerVenue)
     venue.readonly, venue.maker, venue.condition, venue.fields = False, MAKER, CONDITION, {'SIGNATURE_TYPE': '2'}
+    venue.tokens = tuple(TOKENS)  # The real constructor always binds its pair.
     def create(**kwargs):
         calls.append(('sign', kwargs))
         return signed
@@ -180,6 +181,20 @@ def test_gtd_post_only_preserves_exact_expiry_and_actual_sdk_book_alias():
     checkpoints = []
     assert venue.submit(request, checkpoint=lambda: checkpoints.append(True))['ok']
     assert calls == [('sign', request), ('post', signed)] and checkpoints == [True]
+
+
+@pytest.mark.parametrize('mode', ['missing_pair', 'foreign_token', 'unselected_leg'])
+def test_unbound_or_unselected_token_refuses_before_synthetic_signing(mode):
+    venue, request, _, _, calls = fixture()
+    if mode == 'missing_pair':
+        del venue.tokens
+    elif mode == 'foreign_token':
+        request['token_id'] = 'unselected-foreign-token'
+    else:
+        venue.allowed_trade_tokens = (TOKENS[1],)
+    with pytest.raises(RuntimeError, match='signed_order_binding'):
+        venue.submit(request, checkpoint=lambda: None)
+    assert calls == []
 
 
 @pytest.mark.parametrize('change', [{'side': 'SELL'}, {'post_only': False}, {'order_type': 'GTC'},
