@@ -2,7 +2,9 @@
 
 Guards: B036 account cleanup independent of closed band journals; R2 typed GET gaps.
 """
-from types import SimpleNamespace
+from types import SimpleNamespace, MethodType
+import json
+from datetime import timedelta
 
 import httpx
 import pytest
@@ -55,3 +57,28 @@ def test_final_account_read_outage_stays_pending_with_retained_private_proof(tmp
     (controller.bands[0].directory / 'journal.jsonl').unlink()
     assert not local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
                                 attempt_id=controller.attempt_id, outcome=outcome)['complete']
+
+
+def test_shared_real_heartbeat_keeps_other_band_running_after_primary_journal_closes(tmp_path):
+    controller, account, status, ledger, clock = setup(tmp_path)
+    account.filled_band, account.fill_at = 0, 12
+    primary = account.raws[0]
+    sends = []
+    def send():
+        sends.append(clock.seconds)
+        return {'status': 'ok'}
+    primary.readonly = False
+    primary.journal = controller.bands[0].journal
+    primary.sender = SimpleNamespace(send=send, last_response={'heartbeat_id': 'fixture-heartbeat'})
+    primary.heartbeat = MethodType(OwnerVenue.heartbeat, primary)
+    result = controller.run()
+    assert controller.bands[0].journal.handle.closed
+    assert controller.results[controller.bands[1].session_id]['reason'] == 'fixed_end'
+    assert result['cleanup_ok'] and max(sends) >= 290
+    rows = [json.loads(line) for line in controller.journal.path.read_bytes().splitlines()]
+    acks = [row for row in rows if row['event'] == 'heartbeat_v1_acknowledgment']
+    assert any(row['recorded_at_utc'] > (clock.base + timedelta(seconds=12)).isoformat()
+               for row in acks)
+    outcome = status.finish(success=True)
+    assert local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
+                            attempt_id=controller.attempt_id, outcome=outcome)['complete']

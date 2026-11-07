@@ -203,6 +203,9 @@ class F2Coordinator:
         if not 1 <= len(self.bands) <= self.policy.raw['band_limit_concurrent']:
             raise RuntimeError('f2_band_count')
         primary = self.bands[0].venue.raw
+        # The account heartbeat outlives any individual band. Its adapter's
+        # raw acknowledgement must never target a retired/closed band journal.
+        primary.heartbeat_journal = self.journal
         loop = HeartbeatLoop(self.clock, primary.heartbeat, self.journal,
                              threaded=getattr(self.clock, 'realtime', False))
         steps, due = {}, {}

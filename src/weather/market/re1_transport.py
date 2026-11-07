@@ -422,8 +422,9 @@ class OwnerVenue:
         try:
             return self.sender.send()
         finally:
-            if hasattr(self, 'journal') and self.sender.last_response is not None:
-                self.journal.record('heartbeat_v1_acknowledgment', response=self.sender.last_response)
+            journal = getattr(self, 'heartbeat_journal', getattr(self, 'journal', None))
+            if journal is not None and self.sender.last_response is not None:
+                journal.record('heartbeat_v1_acknowledgment', response=self.sender.last_response)
     def scoring(self, ids): return self.readers.scoring(ids)
     def accrual(self, day):
         if self.condition is None:
