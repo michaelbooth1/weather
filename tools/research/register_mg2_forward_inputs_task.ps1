@@ -11,7 +11,9 @@
 # retry at 07:00; the receiver's deadline is 23:59 workstation local on D+1, and the first run on D+2 records the
 # date's late/missing line. A not_ready, refused or quarantined result stops that run; the next trigger is the only
 # retry.
-# Principal: current user, Interactive / Limited (as the L6_G daily task): the share \\192.168.1.247\mg2-inputs is
+# Share: -ShareRoot (default \\192.168.1.192\mg2-inputs, the capture host's Ethernet address since 2026-11-06) is
+# passed to the launcher explicitly, so the registered action names the share it reads.
+# Principal: current user, Interactive / Limited (as the L6_G daily task): the share is
 # reached with the workstation's stored credential, which an S4U session cannot use. Neither script handles a
 # credential. The task runs only while the user is logged on.
 # MultipleInstances IgnoreNew; StartWhenAvailable on (a slot missed while asleep runs at wake; mg2_inputs' own
@@ -24,6 +26,7 @@ param(
     [string]$Worktree = 'C:\wt\mg2-forward-pinned',
     [string]$WorkingDirectory = 'C:\t\mg2\forward\task',
     [string]$ExpectedLauncherSha256 = '',
+    [string]$ShareRoot = '\\192.168.1.192\mg2-inputs',
     [switch]$Build
 )
 $ErrorActionPreference = 'Stop'
@@ -40,6 +43,10 @@ if ($env:WEATHER_TASK_TEST -eq '1') {
 if ([string]::IsNullOrWhiteSpace($TaskName) -or $TaskName -ne $TaskName.Trim() -or $TaskName.Length -gt 200 -or
     $TaskName.IndexOfAny([char[]]'/\:*?"<>|') -ge 0) {
     throw "invalid task name: '$TaskName' (no / \ : * ? `" < > | and no leading/trailing space)"
+}
+# Share validation: a plain UNC share root (\\server\share[\...]) with no quote or wildcard characters.
+if ($ShareRoot -notmatch '^\\\\[A-Za-z0-9._-]+\\[A-Za-z0-9._$-]+(\\[A-Za-z0-9._ -]+)*$') {
+    throw "invalid share root: '$ShareRoot' (expected \\server\share)"
 }
 $opsDir = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts\ops'
 . (Join-Path $opsDir 'scheduled_task_local_trigger.ps1')
@@ -58,6 +65,7 @@ $workDir = $WorkingDirectory
 $triggerTimes = @('06:30', '07:30', '08:30', '09:30', '10:30', '11:30', '12:30', '13:30', '14:30', '15:30', '16:30', '17:30', '18:30', '19:30', '20:30', '21:30', '22:30', '23:00')
 $argument = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -Worktree `"$Worktree`" -LogRoot `"$workDir`""
 if ($Build) { $argument += ' -Build' }
+$argument += " -ShareRoot `"$ShareRoot`""
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument -WorkingDirectory $workDir
 $triggers = @(foreach ($at in $triggerTimes) { New-WeatherLocalDailyTrigger -At $at })
 foreach ($i in 0..($triggerTimes.Count - 1)) {
@@ -76,6 +84,7 @@ Write-Output "Principal        : $user, LogonType Interactive, RunLevel Limited"
 Write-Output "Triggers         : daily (local, unzoned) at $($triggerTimes -join ', ')"
 Write-Output "Action           : powershell.exe $argument (working dir $workDir)"
 Write-Output "Build stage      : $([bool]$Build)"
+Write-Output "Share root       : $ShareRoot"
 Write-Output "Settings         : MultipleInstances $($settings.MultipleInstances), StartWhenAvailable $($settings.StartWhenAvailable), ExecutionTimeLimit $($settings.ExecutionTimeLimit), Priority $($settings.Priority)"
 Write-Output "Launcher sha256  : $launcherSha"
 $head = try { $ErrorActionPreference = 'Continue'; [string](& git -C $Worktree rev-parse HEAD 2>$null) } catch { '' } finally { $ErrorActionPreference = 'Stop' }
