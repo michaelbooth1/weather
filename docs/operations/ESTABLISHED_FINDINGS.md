@@ -149,6 +149,8 @@ sequence numbers, not calendar dates.
 | 10ay | Known defect (master 2026-11-05): a rare train/serve mismatch, the trainer keeps a null last pre-cutoff temperature that serve and replay skip (2 of 28,936 keys); not fixed, not a lever; item 344 |
 | 10az | Climatology window and floor defects (leap reference, no year wrap, spring-forward row-count floor; master 2026-11-05): lever UNTESTABLE (SD bound 0.080, power about 0.10); fix = retrain + edge gates; register X108 |
 | 10ba | Astra/sol reviews: model timing, simulator/accounting, recorder, automation and evidence limits; archived pin-specific findings, not deployment qualification |
+| 10bb | T032: SPECI floor support mismatch, verified routine/COR label selection, pilot isolation and metadata-only MRMS; serving repair undone |
+| 10bc | T030: ten scoped processing defects and sizes; subjective remaining-gap planning range, no score; census PARKED |
 
 ---
 
@@ -460,7 +462,8 @@ data are incompatible. Do not let someone later notice the provenance claim is w
 as licence to reinstate the number. **"Centre is 74.97% of oracle excess loss" is unavailable as a
 justification for anything** until it is re-derived; the retrain's remaining argument is §2's
 measured −0.8346 C-eq seasonal centre defect, which is *smaller*. The mechanism is untouched:
-too-cool mass below the trusted floor is truncated and shifts served centre. **Never weaken the floor.**
+too-cool mass below the trusted floor is truncated and shifts served centre. The old **"never weaken
+the floor"** instruction is superseded where an anchor would zero a possible outcome; use §10bb.
 
 **Historical decomposition, not a calibration prohibition.** The superseded `1.12%` rationale is
 replaced by `-09-56a`'s gap-recovery bound (§1c: at most about 16.5% for tested mappings).
@@ -1320,7 +1323,8 @@ Only **two** B zeros are attributable to a floor actually served: Chicago 2026-0
 settled 69) and San Francisco 2026-06-09 (68, 67). The third (NYC 2026-06-22) has a blank served
 floor. At 2 crossings in 204 market-days a fail-on-any-row gate fires with probability 62.66% at 100
 market-days, **86.60% on the observed panel**, 99.27% at 500, whatever the candidate. **Never
-re-register that gate unchanged**, never weaken the serving floor to pass it, never add epsilon mass.
+re-register that gate unchanged**; do not alter an admissible floor merely to pass it or add arbitrary
+epsilon mass. An inadmissible hard zero is a different defect governed by §10bb.
 Limit: independent-market-day plug-in projection; the crossed 95% interval on the rate is [0%,
 4.04%]. Source: `agent-report-2026-08-23-workstation-gate-3-satisfiability.md`; trace
 [GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md](GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md).
@@ -1612,8 +1616,9 @@ Established sub-findings:
   because the bias concentrates there.
 - **Mechanism of centre displacement:** the too-cool HGB puts probability mass below the floor;
   truncation at the floor then yanks the centre warm. **Trace this, do not infer it.**
-- **Never weaken the trusted observed-high floor** to relieve the symptom. The floor is load-bearing
-  and is the only absorption result whose interval excludes zero.
+- **Preserve admissible observed-high support constraints** rather than relaxing them to relieve the
+  symptom. The historical floor absorption result remains; the old unconditional "never weaken"
+  wording is superseded by the dated-rule constraint in §10bb.
 
 ---
 
@@ -3760,7 +3765,8 @@ whole table (57 dates, 08-01..09-29); the ladder's 1.73x is the from stratum onl
   when local time is past sunset or (hour >= 15 and the latest routine METAR is >= 1 °F below the METAR running max), bands
   1-3 °F above the floor band B keep a historical residual rate q(k) and the rest of the mass above B moves into B. Floor
   interaction: the 81a mask (max of `guidance_physical_floor`, `high_so_far`, `trusted_current_max`; B = round_half_up)
-  is lower-side, T1 upper-side; both act on B, never conflict, and never weaken the floor. Inserted before calibration it
+  is lower-side, T1 upper-side; both act on B, never conflict, and preserve the historical floor.
+  Admissibility of any future hard zero is governed by §10bb. Inserted before calibration it
   needs an S7 gate (it does not feed the taper). 17-23 −0.0264, but the unconditional collapse scores −0.0287 and the restored lock-in −0.0254: the
   "decided" condition carries none of the effect.
 - **Tail lens, this table's definition:** band rows with served SE > market SE and |p_served − p_market| >= 0.30 are
@@ -4514,7 +4520,8 @@ the R-F and R-G score summaries are the `rung0712/rf_summary.txt` and `rg_summar
   after the [lever inventory](LEVER_INVENTORY_2026-10-26.md) flags F3 and F4. They replace the wider wording above:
   - **R-I (R9):** the kill covers only fitted temperature or scale spread maps on NBM-anchored arms. Spread
     *information* (ensemble spread, NBS TXNSD, other day-specific predictors of spread) is a new family that needs its
-    own pre-registration and the full ladder. Hard limits: no global sharpening, and the floor is never weakened.
+    own pre-registration and the full ladder. Hard limits: no global sharpening; preserve admissible dated-rule support (§10bb). The old
+    unconditional floor wording is superseded, not a licence to zero possible outcomes.
   - **R-G and R-J (R10):** the kills cover the Aug-Sep development window only. An Oct-Dec rung needs a fresh
     pre-registration plus LOYO on Oct-Dec 2021-25 (where §10ac shows the overnight low and dewpoint help), and it can
     promote only through a forward test.
@@ -5162,7 +5169,7 @@ Any fix means a retrain plus the edge gates; there is no serve-only fix. Line nu
 These are source/specification reviews and documented planning results at their named pins, not new
 empirical measurements or proof that a repair is deployed. Recommendations remain proposals unless
 the owner/master adopted them. Frozen trials, access boundaries and live authority are unchanged.
-Floor-contract wording awaits T032; the entries here do not adjudicate it.
+The later T032 floor trace and B022 support correction are recorded separately in §10bb.
 
 - **T013, model and evaluation:** a receipt clock is distinct from request start, observation time and
   book-update time; a log-pool weight near zero tests that fitted family, not every conditional use.
@@ -5236,7 +5243,8 @@ Floor-contract wording awaits T032; the entries here do not adjudicate it.
   A scheduled information clock is not proof of actual receipt or atomic quote withdrawal. Receipt-timed
   observation joins, Scribe, TAF, RTMA-RU, cloud movement and sub-hourly HRRR are hypotheses, not
   demonstrated edge or reopened source studies. Correction/max and station-support hazards are
-  recorded for T032's contract work. Source: `C:\archive\reviews\T028\DATA-SOURCES.md` D1–D13 and lead table.
+  further traced by T032 (§10bb); the serving repair is undone and COR incidence unmeasured. Source:
+  `C:\archive\reviews\T028\DATA-SOURCES.md` D1–D13 and lead table.
 - **T029, whole project:** eight artifact hashes matched, verifying identity, not a rerun of the
   empirical findings. Calibration, centre/width and market-reliability results are local to their
   models, populations and thresholds. “All free information is priced” is an inference, not a theorem.
@@ -5248,6 +5256,74 @@ Floor-contract wording awaits T032; the entries here do not adjudicate it.
   did not establish latency-surviving, capital-feasible execution. Too rare and incomplete for a
   December verdict, not evidence that structural arbitrage cannot exist. Source:
   `C:\archive\reviews\T003r1r1r1r1\last.md`; register §7 owns the disposition.
+
+### 10bb. T032 floor support and MRMS trace — source-specific findings, 2026-11-07
+
+**Rule, clarified by B022:** hard-zero only outcomes impossible under the event's dated resolution
+rule and admissible observations. "Never weaken the floor" is superseded as an unconditional
+prohibition: it was never a licence to zero a possible outcome. [AGENT_CONTEXT.md](AGENT_CONTEXT.md)
+owns the domain constraint; historical floor improvements do not validate every later anchor.
+
+- **Serving exposure:** the traced hard floor counts SPECI. On the reused observation-only dev
+  study (2026-07-31..09-29, 11 US registry stations), **15 of 671 station-days (2.24%)** have a
+  SPECI-inclusive rounded maximum above routine-only. This is neither a snapshot exposure rate nor
+  a measured score/profit loss; Toronto and KDEN were absent, historical Denver used KBKF.
+- **Real witness:** Atlanta 2026-08-10 has an all-report anchor **94°F versus routine-only 92°F**.
+  Extracted current methods on retained observations demonstrate that the higher anchor can remove
+  mass from the lower band. Under the venue's highest-routine-METAR rule from **2026-10-23**, that
+  can zero the band that wins. This mechanism witness does not relabel the pre-cutover August payout
+  or prove that August deployment ran the later code.
+- **Labels:** the selector was verified to exclude SPECI and select accepted COR instead of the
+  original. The Atlanta routine selector returns 92°F; the COR selector check used a synthetic
+  original/COR/original sequence. No real max-changing COR pair or population incidence was measured;
+  receipt-less history and correction/finality order remain limits. **COR census PARKED** by B022.
+- **Pilot boundary:** inspected F0 and F2 opening/replacement prices use the book, not the serving
+  forecast/floor; they have **no direct exposure** to this defect. The planned Monday daytime
+  T+1/T+2 session precedes target-day observations. This is a source-path conclusion, not deployment,
+  readiness or a guarantee for every later campaign window.
+- **Repair disposition:** the dated-rule/report/correction/station-aware serving fix is a
+  **roll-sensitive repair item, not done**. No code or artifact is repaired here. The actual branch
+  still needs the mechanical roll verdict, parity/replay, release and frozen-test gates.
+- **MRMS:** the live adapter returns **zero weather rows on every call**, even a successful fresh
+  listing; it is metadata-only/unavailable, not a precipitation signal. After UTC midnight, using
+  the local target date can also list the wrong UTC partition. The retained Atlanta sample was
+  fetched Aug 11 00:01:54Z for local Aug 10 and had `available=false`, `row_count=0`; the code proves
+  the date construction, while the sample omitted the actual listing URL. Fixing that date alone
+  would not populate weather rows. The research reflectivity decoder is a separate path; its old
+  screens remain closed. Neither live MRMS nor this floor feeds the inspected pilot quote path.
+
+Source: `C:\archive\reviews\T032\TRACE.md` §§2–5 and exposure table; prior MRMS trace:
+`C:\archive\reviews\T028\DATA-SOURCES.md` D8. No census, replay, score or live call was run for this canon repair.
+
+### 10bc. T030 processing defect hunt — ten scoped defects, no score measured
+
+The source review at its named pin and bounded Toronto/Atlanta records identifies the following
+defects or design limitations. Sizes are sample observations, structural conditions or earlier
+results as labelled; they are not fleet prevalence or causal score effects. Items overlap and
+must not be added. Source: `C:\archive\reviews\T030\DEFECT-HUNT.md` §§3–6, 9.
+
+| Rank | Defect / limitation | Size and scope retained from T030 |
+| --- | --- | --- |
+| 1 | Day-high and duration use different state definitions | Prior high-so-far defect: 29.8% of dev snapshots, 41.6% at 00–16; Toronto's 10h example misses an overnight high by 0.36°F while peak age says 10h. Overlaps fix 10, not a second additive gain. |
+| 2 | Latest current/high mixed with cutoff trend vector | All WU-empty station-fallback routes structurally exposed when a post-cutoff update occurs; trends may lag until the next hourly cutoff. Fleet rate and degree distribution unmeasured. |
+| 3 | Training's nearest-07 reference can see beyond cutoff | At 07 where a later nearest report is selected; structural synthetic example changes rise by −5°F. Not an observed typical size; fleet rate unmeasured. Inherited T013/T016. |
+| 4 | Training interpolates from the next observation | Intra-hour proxy when last observation is >10 minutes old and a future bracket exists; no bracket-gap ceiling. Sign and observed typical size unmeasured. Inherited T013/T016. |
+| 5 | Observed wind/cloud categories lost or forecast-substituted | Toronto 5/5 feature vectors have null wind and forecast `Precip`; all 10 input samples retain METAR wind/cloud but lack the primary category sources. Six wind one-hots disappear; no temperature or score delta inferred. |
+| 6 | Continuation uses a fixed duration and a different threshold | Exactly 30 minutes in 100% of eligible WU-empty calls at 15–17; Toronto 15h history implies 2 minutes, a +28-minute discrepancy. Pre-downstream blend-weight bounds 0.35 at 15/16 and 0.45 at 17 are not measured moved mass. |
+| 7 | Feature and post-processing forecast views disagree | 5/5 Toronto snapshots; downstream high exceeds HGB input by 0.855–2.475°F. Score sign unknown; broader source coverage is not automatically better. |
+| 8 | Recoverable humidity discarded | Latest METAR RH null in 10/10 samples despite temperature/dewpoint; SWOB rescues Toronto, Atlanta lacks RH in 5/5. Derived-RH and score deltas unmeasured. |
+| 9 | Source-age preference and trigger input are weakly bound | First usable SWOB wins regardless of relative age; same-bucket weather changes do not trigger, and trigger evidence is re-fetched. SWOB was older in 0/5 Toronto samples: structural risk, no observed stale-priority failure or population rate. |
+| 10 | Seasonal/prior coordinate limitation | Earlier base seasonal centre contrast −0.8346°C-eq; sampled prior pulls −0.0427..−1.1076°C. Known design limitation, not a newly identified share of the remaining Brier gap. |
+
+**Planning judgment, not a measurement:** Astra's central processing/design allocation is **about
+25% of the remaining gap, subjective range 10–35%**. No score was measured and no causal recovery
+share is identified. The master's earlier **40–55%** judgment is **plausible but not supported as
+an estimate of the remaining gap**; old repair gains concern another baseline/slice and are already
+spent. Do not use prevalence, the range or the overlapping table as a promised score/P&L effect.
+
+**Census PARKED (B022):** no December consumer under the T033 proposal. The review's earlier request
+for census GO is not authority to launch it. This status is a resource disposition, not a finding
+that defects are harmless or a decision adopting T033. No repair, retrain or frozen-arm change is done.
 
 ## Related
 

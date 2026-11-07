@@ -28,8 +28,9 @@ generated reports for dynamic state.
   for target dates on or after 2026-10-23:** the highest routine METAR
   temperature on the local date (SPECI excluded, remark T-group tenths with a
   body fallback, half-up in the native unit), from the dated per-market label
-  station, with WU only as the fallback. Earlier dates keep the WU label. Serving
-  and its WU floor are unchanged. Contract:
+  station, with WU only as the fallback. Earlier dates keep the WU label. That
+  label amendment did not repair serving floors; the support constraint below
+  still binds. Contract:
   [venue-rule labels](venue-rule-labels.md).
 - The venue's own source is declared per location in `config/locations.json`
   `settlement`. Hong Kong settles on a 0.1 °C HKO value that the venue
@@ -43,11 +44,19 @@ generated reports for dynamic state.
   only those new cities. Owner 2026-10-25 ("Switching to the venue's own labels"):
   the built-ins label as the venue resolves each date; history is not relabelled
   with the routine-only rule (8 band flips 08-11..09-29, all paid on the WU band).
-- WU history is the serving floor source and may establish a hard observed floor.
+- **Hard-floor support constraint:** hard-zero only outcomes impossible under the event's dated resolution rule and admissible observations.
+  The old "never weaken the floor" rule is superseded in this sense: it was
+  never a licence to zero a possible outcome. Report class, station, rounding,
+  accepted corrections and actual receipt/cutoff determine admissibility;
+  supporting observations alone do not prove impossibility under another rule.
+  [EF §10bb](ESTABLISHED_FINDINGS.md#section-index) records T032's trace and
+  separates the required serving repair from implemented behavior.
+- The following describes the existing serving path, not blanket permission
+  for its hard zeros. WU history is the serving floor source.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a
   target-date, cutoff-aligned current station observation or its captured
-  max-since-07:00 summary. This is the hard floor for every stage. This
+  max-since-07:00 summary. This is the implemented hard floor for every stage. This
   exception never admits forecast, climatology, post-cutoff, unit-implausible,
   or missing evidence.
 - The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
@@ -65,9 +74,10 @@ generated reports for dynamic state.
     floor reads only the current reading and the max since 07:00. SWOB rows
     keep their warm-bias hedge until lock-in; implausible readings never
     anchor. The calibration floor is `max(hard floor, observed floor bucket)`.
-  - The owner accepted both trades: an exact zero below a METAR-derived anchor
+  - Historically the owner accepted both trades: an exact zero below a METAR-derived anchor
     (a non-resolution source), and the pre-07:00 widening of the observed
-    floor for these stages.
+    floor for these stages. This acceptance does not override the dated-rule
+    support constraint; an inadmissible anchor cannot justify a hard zero.
   - With WU history present, the stages keep the WU high, unchanged.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently

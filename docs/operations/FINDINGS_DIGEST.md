@@ -35,7 +35,7 @@ All score kills below retain the metric, population and effect bar in the cited 
 - The model was blind on 10 of 19 live features all day, fleet-wide; 9 are repaired (two stay dead in Fahrenheit markets by design) and the repair did **not** move the gap — a precise null. EF §4.
 - Loss is concentrated: **4.387%** of band rows carry **64.140%** of excess loss. EF §1, §1f.
 - That tail is centre overconfidence and is predictable ex ante (AUROC **0.90260**), but conditional reshaping loses to global on its own training score: knowing where the loss is does not make a fix. Distribution reshaping is closed. EF §1f, §1g.
-- The centre, not the width, is the lever; never sharpen globally; never weaken the floor. EF §1, §2, §1g.
+- Floor rule: **hard-zero only outcomes impossible under the event's dated resolution rule and admissible observations**; unconditional "never weaken the floor" is superseded. T032: SPECI lifts 15/671 dev rounded maxima (2.24%), Atlanta 94°F vs 92°F; labels exclude SPECI/select COR; COR census PARKED; F0/F2 book pricing unexposed; roll-sensitive serving repair undone. EF §10bb; `C:\archive\reviews\T032\TRACE.md`.
 - The forecast archive covers the wrong days for a retrain, no target-year row is ever in-sample, and the retrain blocks on 14 cells whose floor of 18 is not a knob. EF §4a-bis, §4b, §4c, §4g.
 - The free tier offers 12 of the 21 declared point-in-time fields; the other 9 are a real wall, and sourcing them from stitched history would re-create a named contamination defect. EF §0a, §4f.
 - The point-in-time source stops at 2026-06-23 in production, so the `-09-58a` null is blind, not precise; the staged 12-field fetch is not adopted (adopting it is a serving change); a sealed copy was the research lineage's 2026 evaluation input. EF §1e, §1m.
@@ -191,9 +191,7 @@ All score kills below retain the metric, population and effect bar in the cited 
 | Historical reproduction of served output | Exactly reconstructable: 0 of 368 decision rows, 111 of 28,254 B rows; the bytes were never committed; current code on dev dates: 4-22% within 1e-9 | EF §1k, §10v; [trace](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md) |
 | Observation-recovery candidate | Floor-safe but unpowered: MDE 0.1571 exceeds the most favourable effect 0.1385; α kept | EF §1k (`-09-78a`) |
 | Tested recalibration / global sharpening | Historical B/C tested-family bound 16.494% of the gap, interval includes zero; not every mapping or profit policy | EF §1c |
-| Conditional distribution reshaping | Lost to global on its own training score | EF §1g |
 | Searching for a quotable model edge | 114 cells, zero positive (per-cell map TAINTED, register §1 row 5) | EF §1b |
-| Input repair as the gap explanation | Precise null: in-season ratio moved 1.423260 → 1.423246 (frozen June artifacts; TAINTED for today's served path, register §1 row 1) | EF §4 |
 | Age-curve explanation of the cool bias; blindness as the centre mechanism | Both rejected by measurement | RF §1 |
 | A better free point-in-time source under the v2 contract | No provider documents historical first-availability; no archive/forward parity | EF §1m (research `2026-09-82a`) |
 | NBM guidance at all hours for the US markets | Afternoon harm cancels the morning gain; pooled −0.000924 [−0.006083, +0.003924] misses the line; both falsifiers fire | EF §10p (`2026-09-111h`) |
@@ -238,8 +236,10 @@ All score kills below retain the metric, population and effect bar in the cited 
 - T018/T024: desired sidecar polling exceeded its budget; configured cadence/health did not prove coverage or resource bounds; failed D+1 could suppress D+2; interruption exit 0 coexisted with a FAIL receipt. Pin-specific, not current deployment verdicts. EF §10ba.
 - T022/T026: lost-ack/schema gaps, unknown terminal status and weak wallet checks can invalidate monetary closure; account claims survive policy changes, while ancillary gaps are a different evidence issue. Recommendations grant no live authority. EF §10ba; RF §4a.
 - T023/T027: no reviewed policy established a powered December PASS; reward-response assumptions can flip stress-model profit, and cloud traffic estimates neither qualify a strategy nor clear a region. EF §10ba; register §7.
-- T028/T029: MRMS is metadata-only with a UTC-partition defect; marine capture differs from its disabled sidecar; source leads remain hypotheses, score kills are scoped, and hash identity is not empirical replication. EF §10ba; RF §1/§4a; register §7.
+- T028/T032/T029: live MRMS returns zero weather rows on every call and can list the wrong UTC partition after midnight; it is metadata-only/unavailable (EF §10bb); marine capture differs from its disabled sidecar; source leads remain hypotheses, score kills are scoped, and hash identity is not empirical replication. EF §10ba; RF §1/§4a; register §7.
 - T003 negRisk: **PARKED, not killed**; 393/900 event-days, stopped on a CSV field-limit error, best case on crossed quotes, too rare/incomplete for a December verdict. EF §10ba; register §7; `C:\archive\reviews\T003r1r1r1r1\last.md`.
+- T030: ten processing defects and outcome-blind sizes in EF §10bc; about 25% (10–35%) of the remaining gap is Astra's subjective planning range, no score measured; prior 40–55% is plausible but unsupported as an estimate of that gap; census PARKED, no December consumer under the T033 proposal. `C:\archive\reviews\T030\DEFECT-HUNT.md`.
+- T033: **PROPOSAL, awaiting the owner**, primary `DT-T1-Paired20-K2`; powered edge claim not testable by the deadline on current evidence, audited realized cash achievable; learning 11-09..11-15, freeze 11-16, confirmation 11-17..12-22, final look 12-28. These are proposed dates/policy, not decisions or live authority. `C:\archive\reviews\T033\CONTRACT.md`.
 
 ## Update this file when
 
