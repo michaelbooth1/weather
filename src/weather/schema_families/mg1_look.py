@@ -15,7 +15,8 @@ SCHEMAS = (
         "MG-1's look receipt, written once (mode x) at data/mg1_look/receipt-<mg1_rule_sha256>.json by the "
         "registered MG-1 look entry point: entry point and source sha, rule sha, window, dates scored, the "
         "code-stamped looked_at_utc, completion time, result sha, mg1.py sha, commit, host, the R24 label "
-        "freeze receipt sha, the raised flags (label_refusal_unpredicted_by_metadata) and body_sha256. "
+        "freeze receipt sha, pinned clarifications_sha256, the raised flags "
+        "(label_refusal_unpredicted_by_metadata) and body_sha256. "
         "Rule B-1 reads it first and checks it in VOID 5.",
     ),
     SchemaSpec(
@@ -34,17 +35,26 @@ SCHEMAS = (
         "MG-1's single look result (pre-registration sections 4 and 6), written once (mode x) as "
         "mg1_look_result.json under the look's --out and bound by sha256 in the look receipt: counted dates, "
         "outcome-blind VOID checks, the primary 00-16 MG-1 minus served estimate and interval, the decision and "
-        "every reported quantity.",
+        "every reported quantity, including the guarded NONDECIDING promotion_mask_sensitivity.",
     ),
     SchemaSpec(
         "mg1_countable",
-        "mg1_countable/1",
+        "mg1_countable/2",
         "weather.calibration.mg1_look",
         "active",
         "The MG-1 look's countable-date list, written once by master (write_countable) before the look: one row "
-        "per calendar date from D0 through the 45th promotion-countable date, with per-market promotion_countable "
-        "flags over the support (markets; a date counts iff one does, MG-1 Clarification 2 A3) and the "
+        "per calendar date from D0 through the 45th primary-countable date, with per-market outcome-blind "
+        "flags (markets; one qualifying market-day counts a date, Clarification 4), separate frozen old-mask "
+        "sensitivity_markets flags, label_freeze_receipt_sha256 and ledger_sha256, and the "
         "Clarification 1 reporting caveats (null with a text reason allowed). No label or price.",
+    ),
+    SchemaSpec(
+        "mg1_countable_v1_legacy",
+        "mg1_countable/1",
+        "weather.calibration.mg1_look",
+        "legacy",
+        "Former promotion-selected MG-1 date list. Clarification 4's primary reader refuses this version; "
+        "it is registered only to identify retained historical artifacts.",
     ),
     SchemaSpec(
         "mg1_check_keys",

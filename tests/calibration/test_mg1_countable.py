@@ -1,9 +1,9 @@
 """MG-1 countability, counts-only (R11 Head 2; rulings A3/T5 2026-11-03), on synthetic ledgers only.
 
-Guards: A3 (a date counts iff at least one support market-day is promotion_countable in the ledger's latest
+Guards: A3 (a date counts iff at least one support market-day satisfies Clarification 4 in the latest
 revision); the 0 / 1 / all / pending cases; pending is non-countable in --final; the clock refusal before
 2026-11-14T00:00Z; only ended dates are read; report mode carries per-date status only; --final writes
-``mg1_countable/1`` with ``markets{m: bool}`` through ``mg1_look.write_countable`` and round-trips through
+``mg1_countable/2`` with ``markets{m: bool}`` through ``mg1_look.write_countable`` and round-trips through
 ``read_countable``; it refuses when the 45th date is after the recorded MG1_LAST; no sentinel label byte reaches
 any output.
 """
@@ -11,6 +11,7 @@ import json
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from functools import partial
 
 import pytest
 
@@ -30,6 +31,8 @@ SENTINEL_NUMBER = 987654.125
 def _row(m, d, countable, revision=1, slug=None):
     return {"event_slug": slug or f"highest-temperature-in-{m}-on-{d.isoformat()}", "market_id": m,
             "target_date": d.isoformat(), "revision_number": revision, "promotion_countable": countable,
+            "material_coverage_grade": "strict_complete" if countable else "insufficient",
+            "polymarket_reconciliation": {"event_closed": True, "winning_markets": [{"label": SENTINEL}]},
             "settlement_high": SENTINEL_NUMBER, "winning_band": SENTINEL, "settlement_bucket": SENTINEL_NUMBER}
 
 
@@ -52,6 +55,42 @@ def write_ledger(root, through, override=None):
     return root
 
 
+
+def freeze_keys(root, now, missing=()):
+    """Real hashed R24 metadata, but sentinel CSV bytes: no label reader may be called."""
+    through = mg1_look.latest_final_date(now)
+    frozen = mg1_look.settled_at(through)
+    folder = root / "frozen"
+    entries = {}
+    for m in MARKETS:
+        keys = [d.isoformat() for d in _days(through) if (m, d.isoformat()) not in missing]
+        paths = {"label_csv": folder / m / "daily/daily_summary.csv",
+                 "wu_daily_summary": folder / m / "wu/daily_summary.csv",
+                 "manifest": folder / m / "manifest.json"}
+        for path in paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(SENTINEL, encoding="utf-8")
+        paths["manifest"].write_text(json.dumps({"label_dates": keys, "skipped_dates": {},
+                "label_source_counts": {"synthetic": len(keys)}}), encoding="utf-8")
+        entries[m] = {k: {"sha256": c.sha256_file(v)} for k, v in paths.items()}
+        entries[m].update(label_dates=keys, skipped_dates={}, label_csv_matches_manifest=True,
+                          wu_daily_summary_matches_manifest=True)
+    path = folder / "freeze_receipt.json"
+    path.write_text(json.dumps({"schema_version": mg1_look.FREEZE_RECEIPT_SCHEMA, "look_id": "mg1",
+        "through": through.isoformat(), "frozen_at_utc": frozen.isoformat(), "audit_status": "OK",
+        "markets": entries}), encoding="utf-8")
+    return path
+
+
+def _call(name, *, ledger_root, now=None, **kwargs):
+    now = now or FINAL_NOW
+    return getattr(c, name)(ledger_root=ledger_root, label_freeze=freeze_keys(ledger_root, now), now=now, **kwargs)
+
+
+_report = partial(_call, "report")
+_final_rows = partial(_call, "final_rows")
+_final = partial(_call, "final")
+
 def _status(result, d):
     return {r["date"]: r["status"] for r in result["dates"]}[d.isoformat()]
 
@@ -59,9 +98,9 @@ def _status(result, d):
 def test_report_refuses_before_the_p1_instant(tmp_path):
     root = write_ledger(tmp_path, LAST)
     with pytest.raises(c.CountableRefused, match="opens at"):
-        c.report(ledger_root=root, now=c.NOT_BEFORE_UTC - timedelta(seconds=1))
+        _report(ledger_root=root, now=c.NOT_BEFORE_UTC - timedelta(seconds=1))
     with pytest.raises(c.CountableRefused, match="opens at"):
-        c.final_rows(ledger_root=root, now=c.NOT_BEFORE_UTC - timedelta(seconds=1))
+        _final_rows(ledger_root=root, now=c.NOT_BEFORE_UTC - timedelta(seconds=1))
 
 
 @pytest.mark.parametrize("case, override, status", [
@@ -75,7 +114,7 @@ def test_report_refuses_before_the_p1_instant(tmp_path):
 def test_a3_date_status(tmp_path, case, override, status):
     target = D0 + timedelta(days=10)
     root = write_ledger(tmp_path, REPORT_NOW.date(), lambda m, d: override(m) if d == target else True)
-    result = c.report(ledger_root=root, now=REPORT_NOW)
+    result = _report(ledger_root=root, now=REPORT_NOW)
     assert _status(result, target) == status, case
     assert _status(result, target - timedelta(days=1)) == c.COUNTABLE
 
@@ -92,21 +131,21 @@ def test_latest_revision_decides_and_two_events_are_not_countable(tmp_path):
             return [_row(m, d, True), _row(m, d, True, slug="another-event")]
         return True
 
-    result = c.report(ledger_root=write_ledger(tmp_path, REPORT_NOW.date(), override), now=REPORT_NOW)
+    result = _report(ledger_root=write_ledger(tmp_path, REPORT_NOW.date(), override), now=REPORT_NOW)
     assert [_status(result, d) for d in (up, down, twin)] == [c.COUNTABLE, c.NON_COUNTABLE, c.NON_COUNTABLE]
 
 
 def test_report_reads_only_ended_dates_and_says_when_mg1_last_must_move(tmp_path):
     bad = {D0 + timedelta(days=2), D0 + timedelta(days=20)}
     root = write_ledger(tmp_path, LAST + timedelta(days=5), lambda m, d: d not in bad)
-    result = c.report(ledger_root=root, now=REPORT_NOW)
+    result = _report(ledger_root=root, now=REPORT_NOW)
     assert result["through"] == (REPORT_NOW.date() - timedelta(days=1)).isoformat()  # 11-20 has not ended in LA
     assert result["counts"][c.NON_COUNTABLE] == 2
     assert result["required_mg1_last"] == (LAST + timedelta(days=2)).isoformat()
     assert result["extend_mg1_last"] is True and result["recorded_mg1_last"] == LAST.isoformat()
     assert set(result["ledger_sha256"]) == set(MARKETS)
     assert all(set(r) == {"date", "status"} for r in result["dates"])  # nothing per market
-    clean = c.report(ledger_root=write_ledger(tmp_path / "clean", LAST), now=REPORT_NOW)
+    clean = _report(ledger_root=write_ledger(tmp_path / "clean", LAST), now=REPORT_NOW)
     assert clean["extend_mg1_last"] is False and clean["required_mg1_last"] == LAST.isoformat()
 
 
@@ -115,10 +154,10 @@ def test_final_writes_the_masked_list_and_it_round_trips(tmp_path):
     root = write_ledger(tmp_path, LAST + timedelta(days=3),
                         lambda m, d: (m == FIRST or None) if d == partial else True)
     out = tmp_path / "mg1_countable.json"
-    result = c.final(ledger_root=root, out=out, now=FINAL_NOW)
+    result = _final(ledger_root=root, out=out, now=FINAL_NOW)
     body = json.loads(out.read_text(encoding="utf-8"))
     assert body["schema"] == mg1_look.COUNTABLE_SCHEMA and result["last"] == LAST.isoformat()
-    assert len(body["dates"]) == mg1_look.N_DATES and all(r["promotion_countable"] for r in body["dates"])
+    assert len(body["dates"]) == mg1_look.N_DATES and all(r["countable"] for r in body["dates"])
     row = {r["date"]: r for r in body["dates"]}[partial.isoformat()]
     assert row["markets"] == {m: m == FIRST for m in MARKETS}  # pending market-days are masked out
     assert all(r["parser_v2_verified"] is None and r["shadow_stage_captured"] is None for r in body["dates"])
@@ -130,7 +169,7 @@ def test_final_writes_the_masked_list_and_it_round_trips(tmp_path):
     assert flags[(partial.isoformat(), FIRST)] is True
     assert not any(flags[(partial.isoformat(), m)] for m in MARKETS[1:])
     with pytest.raises(c.CountableRefused, match="written once"):
-        c.final(ledger_root=root, out=out, now=FINAL_NOW)
+        _final(ledger_root=root, out=out, now=FINAL_NOW)
 
 
 @pytest.mark.parametrize("missing", [False, None])  # a non-countable date, or a pending one
@@ -139,7 +178,7 @@ def test_final_refuses_until_mg1_last_is_extended(tmp_path, missing):
     root = write_ledger(tmp_path, LAST + timedelta(days=5), lambda m, d: missing if d == hole else True)
     out = tmp_path / "list.json"
     with pytest.raises(c.CountableRefused, match="extend the window"):
-        c.final(ledger_root=root, out=out, now=FINAL_NOW)
+        _final(ledger_root=root, out=out, now=FINAL_NOW)
     assert not out.exists()
 
 
@@ -147,30 +186,30 @@ def test_final_refuses_too_early(tmp_path):
     root = write_ledger(tmp_path, LAST + timedelta(days=3))
     out = tmp_path / "x.json"
     with pytest.raises(c.CountableRefused, match="at least 2 days"):
-        c.final(ledger_root=root, out=out, now=datetime(2026, 11, 29, 20, tzinfo=timezone.utc))
+        _final(ledger_root=root, out=out, now=datetime(2026, 11, 29, 20, tzinfo=timezone.utc))
     assert not out.exists()
 
 
 def test_no_sentinel_label_byte_in_any_output(tmp_path, capsys):
     root = write_ledger(tmp_path, LAST + timedelta(days=3))
-    texts = [json.dumps(c.report(ledger_root=root, now=REPORT_NOW))]
+    texts = [json.dumps(_report(ledger_root=root, now=REPORT_NOW))]
     out = tmp_path / "list.json"
-    c.final(ledger_root=root, out=out, now=FINAL_NOW)
+    _final(ledger_root=root, out=out, now=FINAL_NOW)
     texts.append(out.read_text(encoding="utf-8"))
     for text in texts:
         assert SENTINEL not in text and str(SENTINEL_NUMBER) not in text and "987654" not in text
 
 
 def test_the_cli_reports_a_refusal_with_exit_2(tmp_path, capsys):
-    assert c.main(["--ledger-root", str(tmp_path / "absent")]) == 2  # clock or missing ledger, both refuse
+    assert c.main(["--ledger-root", str(tmp_path / "absent"), "--label-freeze", str(tmp_path / "absent.json")]) == 2  # clock or missing ledger, both refuse
     assert json.loads(capsys.readouterr().out)["status"] == "refused"
-    assert c.main(["--ledger-root", str(tmp_path), "--final"]) == 2
+    assert c.main(["--ledger-root", str(tmp_path), "--label-freeze", str(tmp_path / "absent.json"), "--final"]) == 2
 
 
 def test_report_schema_is_registered():
     from weather.schema_families import schema_version
 
-    assert c.REPORT_SCHEMA == schema_version("mg1_countable_report") == "mg1_countable_report/1"
+    assert c.REPORT_SCHEMA == schema_version("mg1_countable_report") == "mg1_countable_report/2"
 
 
 def test_import_refuses_from_a_production_package():
@@ -192,5 +231,5 @@ def test_the_module_reads_no_label_reader_or_panel():
 def test_support_follows_the_owner_a1_constant(tmp_path, monkeypatch):
     root = write_ledger(tmp_path, LAST)
     monkeypatch.setattr(mg1_look, "A1_DENVER_SCORED", False)
-    result = c.report(ledger_root=root, now=REPORT_NOW)
+    result = _report(ledger_root=root, now=REPORT_NOW)
     assert "denver" not in result["ledger_sha256"] and result["support_market_count"] == 10

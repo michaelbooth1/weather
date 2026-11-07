@@ -195,9 +195,11 @@ def _countable(path, rows=None, markets=None):
     dates = []
     for d, c in rows:
         flags = dict((markets or {}).get(d) or _flags(c))
-        dates.append({"date": d.isoformat(), "promotion_countable": any(flags.values()), "markets": flags,
+        dates.append({"date": d.isoformat(), "countable": any(flags.values()), "markets": flags, "sensitivity_markets": dict(flags),
                       "parser_v2_verified": True, "shadow_stage_captured": None})
-    path.write_text(json.dumps({"schema": m.COUNTABLE_SCHEMA, "dates": dates}), encoding="utf-8")
+    path.write_text(json.dumps({"schema": m.COUNTABLE_SCHEMA, "dates": dates, "label_freeze_receipt_sha256":
+        m.sha256_file(path.parent / "frozen/mg1/freeze_receipt.json")
+        if (path.parent / "frozen/mg1/freeze_receipt.json").is_file() else "f" * 64}), encoding="utf-8")
     return path
 
 
@@ -650,7 +652,8 @@ def test_a1_without_denver_scores_the_ten(tmp_path, monkeypatch):
     assert payload["inputs"]["market_day_mask"]["countable_market_days"] == 45 * 10
     with pytest.raises(m.MG1LookRefused, match="exactly the support"):
         m._parse_countable({"schema": m.COUNTABLE_SCHEMA, "dates": [
-            {"date": D0.isoformat(), "promotion_countable": True, "markets": _flags(True, m.MARKETS),
+            {"date": D0.isoformat(), "countable": True, "markets": _flags(True, m.MARKETS),
+             "sensitivity_markets": _flags(True, m.MARKETS),
              "parser_v2_verified": None, "shadow_stage_captured": None}]})
 
 
@@ -790,7 +793,7 @@ def test_a_date_counts_iff_some_support_market_day_counts(tmp_path):
     counted, rows = m.read_countable(_countable(tmp_path / "a.json", markets={day: one}))
     assert day in counted and m.market_day_flags(rows)[(day.isoformat(), "nyc")] is False
     body = json.loads((tmp_path / "a.json").read_text(encoding="utf-8"))
-    body["dates"][4]["promotion_countable"] = False
+    body["dates"][4]["countable"] = False
     with pytest.raises(m.MG1LookRefused, match="true iff some support market-day"):
         m._parse_countable(body)
 
@@ -826,21 +829,24 @@ def test_a_countable_market_day_without_layout_rows_holds_the_look(tmp_path, mon
 
 
 def test_write_countable_round_trips_once(tmp_path):
-    dates = [{"date": D0 + timedelta(days=k), "markets": _flags(k != 3), "parser_v2_verified": None,
+    dates = [{"date": D0 + timedelta(days=k), "markets": _flags(k != 3),
+              "sensitivity_markets": _flags(k != 3), "parser_v2_verified": None,
               "shadow_stage_captured": None,
               "caveat_reasons": {"parser_v2_verified": "no outcome-blind source"} if k == 0 else None}
              for k in range(46)]
     monkey_last = D0 + timedelta(days=45)
     path = tmp_path / "countable.json"
-    sha = m.write_countable(path, dates)
+    sha = m.write_countable(path, dates, label_freeze_receipt_sha256="f" * 64)
     assert sha == m.sha256_file(path) and schema_version("mg1_countable") == m.COUNTABLE_SCHEMA
     counted, rows = m._parse_countable(json.loads(path.read_text(encoding="utf-8")))
     assert len(counted) == 45 and counted[-1] == monkey_last and rows[3]["countable"] is False
     assert rows[0]["caveat_reasons"] == {"parser_v2_verified": "no outcome-blind source"}
     with pytest.raises(m.MG1LookRefused, match="written once"):
-        m.write_countable(path, dates)
+        m.write_countable(path, dates, label_freeze_receipt_sha256="f" * 64)
     with pytest.raises(m.MG1LookRefused, match="44 countable"):
-        m.write_countable(tmp_path / "short.json", dates[:45] + [dict(dates[45], markets=_flags(False))])
+        m.write_countable(tmp_path / "short.json",
+                          dates[:45] + [dict(dates[45], markets=_flags(False), sensitivity_markets=_flags(False))],
+                          label_freeze_receipt_sha256="f" * 64)
     assert not (tmp_path / "short.json").exists()
 
 

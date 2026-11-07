@@ -1,29 +1,20 @@
-r"""MG-1 countability, counts-only (master ruling R11 Head 2; 2026-11-03 rulings A3 and T5).
+r"""MG-1 outcome-blind countability (owner-approved Clarification 4, 2026-11-06).
 
-Host, research only. Master runs it under the lease: P1 (2026-11-14) and P2 (11-27) in report mode, P3 (the
-first admitted morning at least two days after the 45th date) with ``--final``. It reads only the settlement
-ledger's stored ``promotion_countable`` (latest revision per market-date, ``settlement_ledger``'s readers) for
-the support markets ``mg1_look.support_markets()`` (A1 is the owner's open question, answered by the one
-constant ``mg1_look.A1_DENVER_SCORED``). It never reads a label, a price, a settlement value or a panel.
+Research only. The primary uses the latest unique event's admitted material coverage, closed/one-winner
+metadata and the look-morning R24 frozen label key, never WU reconciliation or the winning band's identity.
+A date counts iff at least one support market-day qualifies. A missing row is pending; multiple event slugs are
+non-countable. Pending is false in the final mask. Report mode emits date statuses and provenance only.
 
-* **Date rule (R11 (1), A3).** Local date D counts toward MG-1's 45 iff at least one support market-day has
-  ``promotion_countable`` true in the ledger's latest revision. A market-day with no ledger row is *pending*;
-  a market-day with rows for more than one event is not countable. A date with no countable market-day and at
-  least one pending one is pending; pending counts as non-countable in ``--final`` (DL:226).
-* **Report mode** prints, per calendar date from D0 through the latest date that has ended in every support
-  market, its status only (``countable`` / ``non_countable`` / ``pending``), the required ``MG1_LAST``, whether
-  the recorded ``MG1_LAST`` must move, each market ledger's sha256 and the run time. Nothing per market.
-* **--final** writes the ``mg1_countable/1`` list (``mg1_look.read_countable``'s format) from D0 through the
-  45th countable date with ``markets{m: bool}`` per date (true iff that market-day is countable; pending is
-  false) and both Clarification 1 caveats, which have no wired outcome-blind source and are therefore null with
-  a ``caveat_reasons`` text. It goes through ``mg1_look.write_countable`` (the L8 scoring head), which derives
-  ``promotion_countable`` and checks the list; the ledger shas and run time go to stdout.
+Both modes require frozen key metadata; P1/P2 may use immutable mg1-countability-* preview freezes, leaving
+the one mg1 look freeze for P3 after 45 dates are ready. Before metadata exists they refuse. No CSV,
+label, price or panel is parsed. The final writer alone freezes the old promotion flags separately for the
+NONDECIDING sensitivity within the primary population. It writes mg1_countable/2 once through write_countable,
+binding the exact freeze receipt and ledger hashes, with the Clarification 1 caveats null with a reason.
 
-Refusals: before 2026-11-14T00:00Z, on a date that has not ended in every support market, on a final list
-whose 45th date is after the recorded ``MG1_LAST`` (extend first, R11 (4)), and on ``--final`` earlier than two
-days after the 45th date.
+Refuses before P1 (2026-11-14), before 45 primary dates exist in frozen keys, when MG1_LAST needs extension,
+or for a final list before 2026-11-30 / two local days after the actual 45th date. MG1_LAST never shortens.
 
-    python -m weather.calibration.mg1_countable --ledger-root <settlements root> [--final --out <file>]
+    python -m weather.calibration.mg1_countable --ledger-root <frozen ledgers> --label-freeze <receipt> [--final --out <file>]
 """
 from __future__ import annotations
 
@@ -57,9 +48,9 @@ from weather.schema_families import schema_version  # noqa: E402
 NAME = "mg1_countable"
 REPORT_SCHEMA = schema_version("mg1_countable_report")
 NOT_BEFORE_UTC = datetime(2026, 11, 14, tzinfo=timezone.utc)  # R11 (3): P1, after the panel closed
-FINAL_MIN_DAYS_AFTER = 2  # R11 (3): P3 runs at least two days after the 45th date
 COUNTABLE, NON_COUNTABLE, PENDING = "countable", "non_countable", "pending"
 CAVEAT_REASON = "no outcome-blind source is wired for this flag (R11 unresolved); null by ruling"
+PREVIEW_LOOK_PREFIX = "mg1-countability-"
 
 
 class CountableRefused(RuntimeError):
@@ -103,11 +94,11 @@ def _jsonl_rows(raw):
     return rows
 
 
-def market_day_flags(ledger_root, days, markets):
-    """Per (market, ISO date): True / False from the latest revision, or None (pending: no ledger row).
+def market_day_flags(ledger_root, days, markets, label_keys, *, sensitivity_flags=None):
+    """Primary flags from coverage, closed/one-winner metadata and frozen label keys (Clarification 4).
 
-    Each market ledger is read once from bytes whose sha256 is returned. Only ``event_slug``, ``target_date``,
-    ``revision_number`` and ``promotion_countable`` are used.
+    No winner identity, bucket or reconciliation status enters the primary. Only the final writer requests
+    ``sensitivity_flags``: the old promotion flags, frozen separately for NONDECIDING reporting at the look.
     """
     from weather.backtesting import settlement_ledger as sl
 
@@ -124,6 +115,7 @@ def market_day_flags(ledger_root, days, markets):
         for r in rows:
             events.setdefault(str(r.get("target_date"))[:10], set()).add(r.get("event_slug"))
         for day in sorted(wanted):
+            latest = None
             slugs = events.get(day, set())
             if not slugs:
                 flags[(market, day)] = None
@@ -131,8 +123,39 @@ def market_day_flags(ledger_root, days, markets):
                 flags[(market, day)] = False
             else:
                 latest = sl.current_ledger_label(rows, next(iter(slugs)))
-                flags[(market, day)] = bool(latest) and latest.get("promotion_countable") is True
+                reconciliation = (latest or {}).get("polymarket_reconciliation") or {}
+                winners = reconciliation.get("winning_markets")
+                flags[(market, day)] = bool(
+                    latest and latest.get("material_coverage_grade") in sl.MATERIAL_COUNTABLE_COVERAGE_GRADES
+                    and reconciliation.get("event_closed") is True
+                    and isinstance(winners, list) and len(winners) == 1
+                    and day in label_keys[market])
+            if sensitivity_flags is not None:
+                # This branch never selects a date or a primary row. Freeze only the intersection; a legacy
+                # true flag cannot admit a market-day rejected by the primary.
+                sensitivity_flags[(market, day)] = (flags[(market, day)] is True
+                                                    and latest.get("promotion_countable") is True)
     return flags, shas
+
+
+def frozen_keys(label_freeze, now, *, allow_preview=False):
+    """Validate the R24 freeze and key metadata without calling a label reader or parsing a CSV."""
+    from weather.calibration import mg1_look
+
+    try:
+        raw = json.loads(Path(label_freeze).read_text(encoding="utf-8"))
+        through = datetime.fromisoformat(raw["through"]).date()
+        frozen = datetime.fromisoformat(raw["frozen_at_utc"].replace("Z", "+00:00"))
+        if frozen.tzinfo is None or frozen > now:
+            raise CountableRefused("the label freeze is future-dated or lacks a timezone")
+        look_id = raw.get("look_id")
+        expected = (look_id if allow_preview and isinstance(look_id, str)
+                    and look_id.startswith(PREVIEW_LOOK_PREFIX) else mg1_look.FREEZE_LOOK_ID)
+        freeze = mg1_look.read_freeze_receipt(label_freeze, through, mg1_look.settled_at(through), look_id=expected)
+        mg1_look.label_key_check(freeze, [])  # consistency checks, with no countable population yet
+    except (OSError, KeyError, TypeError, ValueError, mg1_look.MG1LookRefused) as exc:
+        raise CountableRefused(f"frozen label keys unavailable: {exc}") from exc
+    return {m: set(freeze["keys"][m][mg1_look.FREEZE_LABEL_KEYS]) for m in support_markets()}, freeze
 
 
 def date_status(flags, day, markets):
@@ -173,7 +196,7 @@ def _ended_dates(start, now):
     return days
 
 
-def report(*, ledger_root, now=None):
+def report(*, ledger_root, label_freeze, now=None):
     """Report mode: per-date status only, the required MG1_LAST and the ledger shas."""
     from weather.calibration import mg1_look
 
@@ -181,26 +204,30 @@ def report(*, ledger_root, now=None):
     if now < NOT_BEFORE_UTC:
         raise CountableRefused(f"MG-1 countability opens at {NOT_BEFORE_UTC.isoformat()} (R11 (3), P1)")
     d0, recorded_last = _window()
-    days = _ended_dates(d0, now)
+    keys, freeze = frozen_keys(label_freeze, now, allow_preview=True)
+    days = [d for d in _ended_dates(d0, now) if d.isoformat() <= freeze["through"]]
     if not days:
         raise CountableRefused(f"no date from D0 {d0} has ended in every support market")
     markets = support_markets()
-    flags, shas = market_day_flags(ledger_root, days, markets)
+    flags, shas = market_day_flags(ledger_root, days, markets, keys)
     statuses = [(d, date_status(flags, d.isoformat(), markets)) for d in days]
     counted, required = plan(statuses, d0, mg1_look.N_DATES)
     return {
         "schema": REPORT_SCHEMA, "run_utc": now.isoformat(), "d0": d0.isoformat(),
-        "through": days[-1].isoformat(), "rule": "A3: at least one support market-day promotion_countable",
+        "through": days[-1].isoformat(),
+        "rule": "Clarification 4: admitted coverage, closed/one winner, frozen label key; "
+                "at least one support market-day",
         "support_market_count": len(markets),
         "dates": [{"date": d.isoformat(), "status": s} for d, s in statuses],
         "counts": {k: sum(1 for _, s in statuses if s == k) for k in (COUNTABLE, NON_COUNTABLE, PENDING)},
         "countable_reached": len(counted), "required_mg1_last": required.isoformat(),
         "recorded_mg1_last": recorded_last.isoformat(), "extend_mg1_last": required > recorded_last,
-        "ledger_sha256": shas, "module_sha256": module_sha256(), "host": socket.gethostname(),
+        "ledger_sha256": shas, "label_freeze_receipt_sha256": freeze["sha256"],
+        "module_sha256": module_sha256(), "host": socket.gethostname(),
     }
 
 
-def final_rows(*, ledger_root, now=None):
+def final_rows(*, ledger_root, label_freeze, now=None):
     """``(rows, ledger_shas)``: the ``write_countable`` rows from D0 through the 45th countable date, masked."""
     from weather.calibration import mg1_look
 
@@ -208,9 +235,11 @@ def final_rows(*, ledger_root, now=None):
     if now < NOT_BEFORE_UTC:
         raise CountableRefused(f"MG-1 countability opens at {NOT_BEFORE_UTC.isoformat()} (R11 (3), P1)")
     d0, recorded_last = _window()
-    days = _ended_dates(d0, now)
+    keys, freeze = frozen_keys(label_freeze, now)
+    days = [d for d in _ended_dates(d0, now) if d.isoformat() <= freeze["through"]]
     markets = support_markets()
-    flags, shas = market_day_flags(ledger_root, days, markets)
+    sensitivity = {}
+    flags, shas = market_day_flags(ledger_root, days, markets, keys, sensitivity_flags=sensitivity)
     statuses = [(d, date_status(flags, d.isoformat(), markets)) for d in days]
     counted, _ = plan(statuses, d0, mg1_look.N_DATES)
     if len(counted) < mg1_look.N_DATES:
@@ -219,25 +248,34 @@ def final_rows(*, ledger_root, now=None):
     if last > recorded_last:
         raise CountableRefused(f"the 45th countable date {last} is after the recorded MG1_LAST {recorded_last}: "
                                "extend the window first (R11 (4))")
-    if now.date() < last + timedelta(days=FINAL_MIN_DAYS_AFTER):
-        raise CountableRefused(f"--final runs at least {FINAL_MIN_DAYS_AFTER} days after the 45th date {last}")
+    try:
+        mg1_look.look_timing_check(last, now)
+    except mg1_look.MG1LookRefused as exc:
+        raise CountableRefused(str(exc)) from exc
     rows = [{"date": d.isoformat(), "markets": {m: flags.get((m, d.isoformat())) is True for m in markets},
+             "sensitivity_markets": {m: sensitivity.get((m, d.isoformat())) is True for m in markets},
              "parser_v2_verified": None, "shadow_stage_captured": None,
              "caveat_reasons": {"parser_v2_verified": CAVEAT_REASON, "shadow_stage_captured": CAVEAT_REASON}}
             for d, _ in statuses if d <= last]
     return rows, shas
 
 
-def final(*, ledger_root, out, now=None):
+def final(*, ledger_root, label_freeze, out, now=None):
     """--final (P3): write the masked list once through ``mg1_look.write_countable``."""
     from weather.calibration import mg1_look
 
     if Path(out).exists():
         raise CountableRefused(f"{out} exists: the final list is written once")
     now = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
-    rows, shas = final_rows(ledger_root=ledger_root, now=now)
     try:
-        sha = mg1_look.write_countable(out, rows)
+        freeze_sha = sha256_file(label_freeze)
+    except OSError as exc:
+        raise CountableRefused(f"frozen label keys unavailable: {exc}") from exc
+    rows, shas = final_rows(ledger_root=ledger_root, label_freeze=label_freeze, now=now)
+    if sha256_file(label_freeze) != freeze_sha:
+        raise CountableRefused("the label freeze receipt changed while constructing the final mask")
+    try:
+        sha = mg1_look.write_countable(out, rows, label_freeze_receipt_sha256=freeze_sha, ledger_sha256=shas)
     except mg1_look.MG1LookRefused as exc:
         raise CountableRefused(f"write_countable refused: {exc}") from exc
     return {"status": "ok", "out": str(out), "sha256": sha, "dates": len(rows), "last": rows[-1]["date"],
@@ -248,7 +286,9 @@ def final(*, ledger_root, out, now=None):
 def build_parser():
     parser = argparse.ArgumentParser(prog=f"python -m weather.calibration.{NAME}", description=__doc__.split("\n")[0])
     parser.add_argument("--ledger-root", required=True)
-    parser.add_argument("--final", action="store_true", help="write the mg1_countable/1 list (P3)")
+    parser.add_argument("--label-freeze", required=True,
+                        help="R24 freeze receipt; report also accepts mg1-countability-* previews; keys only")
+    parser.add_argument("--final", action="store_true", help="write the mg1_countable/2 list (P3)")
     parser.add_argument("--out", help="the final list's path (with --final)")
     return parser
 
@@ -259,9 +299,9 @@ def main(argv=None):
         if args.final:
             if not args.out:
                 raise CountableRefused("--final needs --out")
-            result = final(ledger_root=args.ledger_root, out=args.out)
+            result = final(ledger_root=args.ledger_root, label_freeze=args.label_freeze, out=args.out)
         else:
-            result = report(ledger_root=args.ledger_root)
+            result = report(ledger_root=args.ledger_root, label_freeze=args.label_freeze)
     except CountableRefused as exc:
         print(json.dumps({"status": "refused", "reason": str(exc)}))
         return exc.exit_code

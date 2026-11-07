@@ -21,11 +21,11 @@ How a look uses it (``python -m weather.calibration.mg1_look``, registered by mo
 The fixed path is per checkout (``data/`` is local), so the looks run from the production root and the receipt and
 markers are copied into the repository record the same day (B-1 clarification of 2026-10-26).
 
-The MG-1 scoring (pre-registration sections 4 and 6, Clarifications 1 and 2) is ``score``, run by ``main run``.
+The MG-1 scoring (pre-registration sections 4 and 6, Clarifications 1-4) is ``score``, run by ``main run``.
 Its sha256 is re-registered in ``MG1_CONFIRMATION_ENTRY_POINTS`` by a reviewed edit. ``score`` reads, in this
 order:
 
-1. the rule and the countable-date list (``mg1_countable/1``, per-market flags);
+1. the rule and the countable-date list (``mg1_countable/2``, per-market flags);
 2. the R24 label freeze receipt (A4: refused until it exists, after the 45th date has ended in every scored market;
    only file hashes are read). It holds unless its ``audit_status`` is ``OK``, and unless its ``through`` is
    FREEZE_THROUGH: the latest date that had ended in every scored market at ``frozen_at_utc`` (master,
@@ -39,6 +39,7 @@ Non-countable market-days are dropped from the layout (A3). Then come the holds,
   the freeze receipt's ``label_dates`` key list and the frozen manifest's ``skipped_dates`` and
   ``label_source_counts``. It parses no CSV and calls no reader. A missing key list is refused by name;
 - a used row whose ``v2_status`` is not "available" (A6);
+- a countability list bound to a different label freeze (Clarification 4);
 - the ``--market`` check (``market_check``, master 2026-11-03 ruling 3). The file must exist, its parquet schema
   must name exactly ``row_key, band_index, p_market_yes``, and its sha must equal the host producer's
   ``mg1_market/1`` manifest beside it, which must also be MG-1's and name this layout. A missing or mismatched
@@ -53,6 +54,10 @@ frozen copy, A2) and the capture-time prices. A label the reader refuses that th
 that market-day (T2). It is disclosed in ``label_masked`` and raises the receipt flag
 ``label_refusal_unpredicted_by_metadata``. Every exit after that first join writes the result and the receipt (a
 verdict, a VOID, or ABORTED).
+
+Clarification 4 selects primary market-days by coverage, closed/one-winner metadata and frozen label keys.
+The separately frozen old promotion mask is scored only after the primary decision, on its same joined inputs,
+as ``promotion_mask_sensitivity``. It cannot select dates, enter a gate or lose the primary receipt on error.
 
 ``main check-keys`` is the dry run (master, 2026-11-03). It runs every pre-stamp check except the A6 status count:
 
@@ -93,10 +98,21 @@ STARTED_SCHEMA = "mg1_look_started/1"
 # docs/research/morning-guidance-read-mg1-preregistration-2026-10-04.md at 02c410a5, signed 2026-10-04T16:10Z.
 MG1_RULE_SHA256 = "b044e0f196512379d2f74a22a2a97a10cf58fdbcf5a255c4eb6a470f7f6ba665"
 MG1_FILE = "src/weather/reporting/scorecards/free_source_candidates/mg1.py"
+# Raw amendment bytes pinned before any look: unchanged Clarifications 1-3 and new Clarification 4.
+CLARIFICATIONS_SHA256 = {
+    'docs/research/morning-guidance-read-mg1-clarification-1-2026-10-16.md':
+        'be3b6e576870e14aaafa89d858a3157df058d43c6d73fb303690be8c3b0df99b',
+    'docs/research/morning-guidance-read-mg1-clarification-2-2026-11-03.md':
+        '923db27b6f84dbddb9893badc16df0c687835fa98ac9856efae022ed672fe1c4',
+    'docs/research/morning-guidance-read-mg1-clarification-3-2026-11-04.md':
+        '76c02566963e4a8b00fb018b3ba98c58c0deedf12fc41c46ed75de7ab0b5c60d',
+    'docs/research/morning-guidance-read-mg1-clarification-4-2026-11-06.md':
+        'aa15d6fe791a657967b5b22ca38190c09842429df03b4032e0297d3e3a7fe563',
+}
 LOOK_ROOT = paths.data_path("mg1_look")
 RECEIPT_FIELDS = ("schema", "entry_point", "mg1_rule_sha256", "window", "dates_scored", "looked_at_utc",
                   "completed_at_utc", "result", "mg1_py_sha256", "repo_commit", "host", "label_freeze_receipt_sha256",
-                  "flags",
+                  "flags", "clarifications_sha256",
                   "body_sha256")
 
 
@@ -160,6 +176,9 @@ class Look:
         if self.rule_sha256 != MG1_RULE_SHA256:
             raise MG1LookRefused(f"the MG-1 rule {rule} hashes to {self.rule_sha256}, not the signed "
                                  f"{MG1_RULE_SHA256}")
+        for name, expected in CLARIFICATIONS_SHA256.items():
+            if sha256_file(paths.repo_path(name)) != expected:
+                raise MG1LookRefused(f"MG-1 clarification bytes differ from the pinned sha256: {name}")
         for path in (started_path(self.rule_sha256), receipt_path(self.rule_sha256)):
             if path.exists():
                 raise MG1LookRefused(f"{path} already exists: MG-1 has exactly one look")
@@ -208,6 +227,7 @@ class Look:
                    "result": {"path": str(Path(result).resolve()), "sha256": sha256_file(result)},
                    "mg1_py_sha256": sha256_file(root / MG1_FILE), "repo_commit": head_commit(root),
                    "host": socket.gethostname(), "label_freeze_receipt_sha256": label_freeze_receipt_sha256,
+                   "clarifications_sha256": dict(CLARIFICATIONS_SHA256),
                    "flags": sorted({str(f) for f in flags})}
         receipt["body_sha256"] = body_sha256(receipt)
         path = receipt_path(self.rule_sha256)
@@ -235,6 +255,8 @@ def receipt_problems(path):
         problems.append("MG-1 look receipt body_sha256 does not match its fields (edited by hand)")
     if receipt.get("mg1_rule_sha256") != MG1_RULE_SHA256:
         problems.append("MG-1 look receipt does not name the signed MG-1 rule")
+    if receipt.get("clarifications_sha256") != CLARIFICATIONS_SHA256:
+        problems.append("MG-1 look receipt does not bind the pinned clarifications")
     entry = receipt.get("entry_point") or {}
     registered = window.MG1_CONFIRMATION_ENTRY_POINTS.get(entry.get("module"))
     if entry.get("module") != MODULE or not registered or registered != entry.get("source_sha256"):
@@ -253,7 +275,11 @@ def receipt_problems(path):
 
 RESULT = "mg1_look_result.json"
 RESULT_SCHEMA = "mg1_look_result/1"
-COUNTABLE_SCHEMA = "mg1_countable/1"
+COUNTABLE_SCHEMA = "mg1_countable/2"
+SENSITIVITY_WORDING = (
+    "NONDECIDING sensitivity: old promotion_countable mask within the primary's first 45 countable dates, "
+    "on the same frozen inputs at the same single look. Outcome-selected subset; cannot change the primary "
+    "verdict, dates, MG1_LAST, pass rule, falsifiers or VOID conditions.")
 # Section 4 "US11", section 7 "the fixed 11-market support": B-1's ten plus Denver, which settles on KDEN from
 # 2026-10-23 while MG-1 reads KBKF guidance. Whether Denver stays in is A1 (``A1_DENVER_SCORED``).
 MARKETS = ("atlanta", "austin", "chicago", "dallas", "denver", "houston", "los-angeles", "miami", "nyc",
@@ -304,7 +330,7 @@ MARKET_TZ = {"atlanta": "America/New_York", "miami": "America/New_York", "nyc": 
              "austin": "America/Chicago", "chicago": "America/Chicago", "dallas": "America/Chicago",
              "houston": "America/Chicago", "denver": "America/Denver", "los-angeles": "America/Los_Angeles",
              "san-francisco": "America/Los_Angeles", "seattle": "America/Los_Angeles"}
-N_DATES = 45                      # section 3: 45 promotion-countable dates from D0, no skipping
+N_DATES = 45                      # Clarification 4: 45 primary-countable dates from D0, no skipping
 PRIMARY = ("00-16", 0, 16)        # section 4: local 00:00-16:59
 DRAWS = 2000                      # section 4: multinomial date bootstrap, 2,000 draws
 SEED = 20261004                   # section 4: seed 20261004 (fixed-market, date-clustered)
@@ -351,13 +377,14 @@ def support_markets():
 
 
 def _parse_countable(body):
-    """``mg1_countable/1`` rows checked for structure, D0, no skipping and the 45th countable date (no window)."""
+    """Clarification 4 primary and sensitivity flags; refuse legacy promotion-selected lists."""
     if not isinstance(body, dict) or body.get("schema") != COUNTABLE_SCHEMA:
         raise MG1LookRefused(f"the countable-date list is not {COUNTABLE_SCHEMA}")
     support = set(support_markets())
     try:
-        rows = [{"date": date.fromisoformat(str(r["date"])), "countable": r["promotion_countable"],
-                 "markets": dict(r["markets"]), "parser_v2_verified": r["parser_v2_verified"],
+        rows = [{"date": date.fromisoformat(str(r["date"])), "countable": r["countable"],
+                 "markets": dict(r["markets"]), "sensitivity_markets": dict(r["sensitivity_markets"]),
+                 "parser_v2_verified": r["parser_v2_verified"],
                  "shadow_stage_captured": r["shadow_stage_captured"],
                  "caveat_reasons": dict(r.get("caveat_reasons") or {})}
                 for r in body["dates"]]
@@ -365,12 +392,16 @@ def _parse_countable(body):
         raise MG1LookRefused(f"the countable-date list is malformed: {exc}") from exc
     for r in rows:
         if not isinstance(r["countable"], bool):
-            raise MG1LookRefused("promotion_countable must be true or false on every date")
+            raise MG1LookRefused("countable must be true or false on every date")
         if set(r["markets"]) != support or any(not isinstance(v, bool) for v in r["markets"].values()):
             raise MG1LookRefused(f"{r['date']}: markets must give true or false for exactly the support "
                                  f"{sorted(support)} (A1, A3)")
         if r["countable"] != any(r["markets"].values()):  # A3: D counts iff >= 1 support market-day counts
-            raise MG1LookRefused(f"{r['date']}: promotion_countable must be true iff some support market-day is")
+            raise MG1LookRefused(f"{r['date']}: countable must be true iff some support market-day is")
+        if (set(r["sensitivity_markets"]) != support
+                or any(not isinstance(v, bool) for v in r["sensitivity_markets"].values())
+                or any(v and not r["markets"][m] for m, v in r["sensitivity_markets"].items())):
+            raise MG1LookRefused("sensitivity_markets must be boolean flags within the primary market-day mask")
         for key in ("parser_v2_verified", "shadow_stage_captured"):
             if r[key] not in (True, False, None):
                 raise MG1LookRefused(f"{key} must be true, false or null on every date")
@@ -391,14 +422,21 @@ def _parse_countable(body):
     return counted, rows
 
 
-def read_countable(path):
-    """The counted dates (section 3, Clarifications 1 and 2), the per-market flags and the reporting caveats.
+def countable_freeze_check(path, freeze):
+    """The primary mask must have been constructed from this exact look-morning frozen key set."""
+    body = json.loads(Path(path).read_text(encoding="utf-8"))
+    if body.get("label_freeze_receipt_sha256") != freeze["sha256"]:
+        raise MG1LookHeld("held: countable mask names another label freeze receipt; nothing was consumed")
 
-    ``mg1_countable/1``: ``{"schema", "dates": [{"date", "promotion_countable", "markets": {market: bool},
-    "parser_v2_verified", "shadow_stage_captured", "caveat_reasons"?}]}``. Master writes it with
-    ``write_countable``, since master owns the countability check (A3). It holds one row per calendar date from D0
-    through the 45th countable date, and no label or price. A date counts iff at least one support market-day
-    has the ledger's promotion_countable true (R11 (1)), and section 4 scores only the countable market-days.
+
+def read_countable(path):
+    """The counted dates, primary and sensitivity flags, and reporting caveats (Clarification 4).
+
+    ``mg1_countable/2`` carries one row per calendar date from D0 through the 45th primary-countable date,
+    with ``countable``, ``markets`` and ``sensitivity_markets`` ({market: bool}), ``parser_v2_verified``,
+    ``shadow_stage_captured`` and optional ``caveat_reasons``. It binds ``label_freeze_receipt_sha256`` and
+    the ledger hashes. Master writes it with ``write_countable``. A date counts iff at least one support
+    market-day satisfies Clarification 4; section 4 scores only those primary market-days. No label or price.
     """
     counted, rows = _parse_countable(json.loads(Path(path).read_text(encoding="utf-8")))
     _, last = window.window()
@@ -410,12 +448,13 @@ def read_countable(path):
     return counted, rows
 
 
-def write_countable(path, dates):
-    """Write ``mg1_countable/1`` once (mode "x") and return its sha256 (R11 Head 2's ``--final``).
+def write_countable(path, dates, *, label_freeze_receipt_sha256, ledger_sha256=None):
+    """Write ``mg1_countable/2`` once (mode "x") and return its sha256 (R11 Head 2's ``--final``).
 
     ``dates``: one mapping per calendar date from D0, in order, with ``date``, ``markets`` ({support market:
-    promotion_countable}), ``parser_v2_verified`` and ``shadow_stage_captured`` (true, false or null), and
-    optionally ``caveat_reasons`` (why a caveat is null). ``promotion_countable`` is derived (A3). The list must
+    primary flag}), ``parser_v2_verified`` and ``shadow_stage_captured`` (true, false or null), and
+    optionally ``caveat_reasons`` (why a caveat is null). ``countable`` is derived from primary flags.
+    Separate ``sensitivity_markets`` flags are required. The list must
     end at the 45th countable date. Checking it against MG1_LAST is the look's job, not the writer's.
     """
     if Path(path).exists():
@@ -423,20 +462,26 @@ def write_countable(path, dates):
     rows = []
     for r in dates:
         row = {"date": str(r["date"]), "markets": {str(k): v for k, v in dict(r["markets"]).items()},
+               "sensitivity_markets": dict(r["sensitivity_markets"]),
                "parser_v2_verified": r.get("parser_v2_verified"),
                "shadow_stage_captured": r.get("shadow_stage_captured")}
-        row["promotion_countable"] = any(v is True for v in row["markets"].values())
+        row["countable"] = any(v is True for v in row["markets"].values())
         if r.get("caveat_reasons"):
             row["caveat_reasons"] = dict(r["caveat_reasons"])
         rows.append(row)
-    body = {"schema": COUNTABLE_SCHEMA, "dates": rows}
+    if (not isinstance(label_freeze_receipt_sha256, str) or len(label_freeze_receipt_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in label_freeze_receipt_sha256)):
+        raise MG1LookRefused("the primary mask needs the frozen label receipt sha256")
+    body = {"schema": COUNTABLE_SCHEMA, "dates": rows,
+            "label_freeze_receipt_sha256": label_freeze_receipt_sha256,
+            "ledger_sha256": dict(ledger_sha256 or {})}
     _parse_countable(json.loads(json.dumps(body)))
     _write_x(path, body)
     return sha256_file(path)
 
 
 def market_day_flags(rows):
-    """{(date iso, market): promotion_countable} over the counted dates (the A3 mask)."""
+    """{(date iso, market): primary flag} over the primary's counted dates (Clarification 4)."""
     return {(r["date"].isoformat(), m): flag for r in rows if r["countable"] for m, flag in r["markets"].items()}
 
 
@@ -458,7 +503,7 @@ def latest_final_date(at, markets=None):
     return day
 
 
-def read_freeze_receipt(path, last_date, settled):
+def read_freeze_receipt(path, last_date, settled, *, look_id=FREEZE_LOOK_ID):
     """A4's second half and A2's source: the R24 look-morning label freeze, checked by file hashes only.
 
     The receipt (``venue_label_freeze_receipt_v1``, ``freeze --look mg1``) must:
@@ -484,9 +529,9 @@ def read_freeze_receipt(path, last_date, settled):
         entries = receipt["markets"]
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise MG1LookRefused(f"the label freeze receipt is unreadable: {exc}") from exc
-    if receipt.get("schema_version") != FREEZE_RECEIPT_SCHEMA or receipt.get("look_id") != FREEZE_LOOK_ID:
+    if receipt.get("schema_version") != FREEZE_RECEIPT_SCHEMA or receipt.get("look_id") != look_id:
         raise MG1LookRefused(f"the label freeze receipt is not a {FREEZE_RECEIPT_SCHEMA} freeze for look "
-                             f"{FREEZE_LOOK_ID!r}")
+                             f"{look_id!r}")
     if receipt.get("audit_status") != FREEZE_AUDIT_OK:
         raise MG1LookHeld(f"held: the label freeze's audit status is {receipt.get('audit_status')!r}, not "
                           f"{FREEZE_AUDIT_OK!r}; nothing was consumed (master rules it outcome-blind)")
@@ -1034,6 +1079,32 @@ def score_rows(table, p_mg1, used, priced, segments=()):
             "priced_snapshot_share": float(priced.mean()) if len(priced) else None}
 
 
+def promotion_sensitivity(table, p_mg1, rows):
+    """Report the old mask on the already joined primary population; never call ``decide`` or a loader."""
+    import numpy as np
+
+    flags = {(r["date"].isoformat(), m): flag for r in rows if r["countable"]
+             for m, flag in r["sensitivity_markets"].items()}
+    included = np.array([flags.get((str(d), str(m))) is True
+                         for d, m in zip(table.snaps.date, table.snaps.market)], bool)
+    cells = {k for k in table.keys if flags.get(k) is True}
+    contrast = _contrast(table, _fixed_weights(table), table.brier(p_mg1), table.brier(table.p_served),
+                         _mask(table, PRIMARY[1], PRIMARY[2]) & included)
+    return {"wording": SENSITIVITY_WORDING, "status": "ok" if contrast is not None else "unavailable",
+            "primary_market_days": len(table.keys), "included_market_days": len(cells),
+            "excluded_market_days": len(table.keys) - len(cells),
+            "primary_dates": len({r["date"] for r in rows if r["countable"]}),
+            "dates_represented": len({d for d, _ in cells}), "contrast_00_16": contrast}
+
+
+def guarded_promotion_sensitivity(table, p_mg1, rows):
+    """A secondary error cannot replace a primary decision or prevent its receipt."""
+    try:
+        return promotion_sensitivity(table, p_mg1, rows)
+    except Exception as exc:
+        return {"wording": SENSITIVITY_WORDING, "status": "error", "error": f"{type(exc).__name__}: {exc}"}
+
+
 def served_releases(snaps):
     """Section 4 reported: served release ids (the first release column the layout carries)."""
     for column in SERVED_RELEASE_COLUMNS:
@@ -1060,7 +1131,17 @@ def finality_and_freeze(counted, label_freeze, now):
     if now < settled:
         raise MG1LookRefused(f"the 45th countable date {counted[-1]} has not ended in every scored market "
                              f"(until {settled.isoformat()})")
+    look_timing_check(counted[-1], now)
     return read_freeze_receipt(label_freeze, counted[-1], settled)
+
+
+def look_timing_check(last_date, now):
+    """R11 P3: on/after Nov 30 and at least two Toronto calendar days after the actual 45th date."""
+    from zoneinfo import ZoneInfo
+
+    earliest = max(date(2026, 11, 30), last_date + timedelta(days=2))
+    if now.astimezone(ZoneInfo("America/Toronto")).date() < earliest:
+        raise MG1LookRefused(f"the look runs at least 2 days after the 45th date, on or after {earliest}")
 
 
 def check_keys(*, rule, countable, label_freeze, out, layout_root=None, market=None, now=None):
@@ -1090,6 +1171,7 @@ def check_keys(*, rule, countable, label_freeze, out, layout_root=None, market=N
         if layout_root is not None:
             read_inputs(layout_root, rows)
         record["label_key_check"] = label_key_check(freeze, rows)
+        countable_freeze_check(countable, freeze)
         if market is not None:
             record["market_check"] = market_check(market, layout_root)
         record["verdict"] = "pass"
@@ -1121,6 +1203,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
     changes = sorted({date.fromisoformat(str(d)) for d in serving_changes})
     snaps, bands, input_shas = read_inputs(layout_root, rows)  # A3 mask and hole check (a hole holds)
     label_keys = label_key_check(freeze, rows)  # Q2: metadata-only; a countable day without a label key holds
+    countable_freeze_check(countable, freeze)
     market_inputs = market_check(market, layout_root)  # ruling 3: schema, shas and booleans; no price is read
     frame = mg1_vector(snaps, bands)
     checks, reasons, reason_of = outcome_blind_checks(snaps, bands, frame, shadow, look.absence)
@@ -1129,6 +1212,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
         raise MG1LookHeld(f"held: {bad_status} used rows have a v2_status other than \"available\"; nothing was "
                           "consumed (A6)")
     base = {"schema": RESULT_SCHEMA, "mg1_rule_sha256": look.rule_sha256, "entry_sha256": module_sha256(),
+            "clarifications_sha256": dict(CLARIFICATIONS_SHA256),
             "owner_constants": owners,
             "counted_dates": {"count": len(counted), "first": counted[0].isoformat(),
                               "last": counted[-1].isoformat()},
@@ -1167,6 +1251,7 @@ def score(*, rule, layout_root, countable, label_freeze, market, out, shadow=Non
         priced = pd.Series(priced, index=kept.row_key.to_numpy()).reindex(table.snaps.row_key).to_numpy(bool)
         rows_out = score_rows(table, p, reason == "candidate", priced, changes)
         payload = {**base, **rows_out, "decision": _verdict(checks, rows_out["decision"])}
+        payload["promotion_mask_sensitivity"] = guarded_promotion_sensitivity(table, p, rows)
     except BaseException as exc:
         if look.looked_at_utc is None:
             raise
