@@ -130,7 +130,8 @@ def two_leg_session(index, allocation):
     p['events'] = [opening_book, term,
                     {**trade, 'id': f't-yes-{index}', 'consumption_id': f't-yes-{index}'},
                     {**trade, 'id': f't-no-{index}', 'consumption_id': f't-no-{index}', 'aggressor': 'BUY',
-                     'price': '.52', 'execution_route': 'complementary_mint', 'route_source_sha256': 'a' * 64},
+                     'price': '.52', 'at': at(offset + 4.5), 'traded_at': at(offset + 4.5),
+                     'execution_route': 'complementary_mint', 'route_source_sha256': 'a' * 64},
                     *[book(offset + t, '.45', '.47', condition=cid) for t in (304, 305, 306)],
                     {'kind': 'settlement', 'condition_id': cid, 'at': at(offset + 306), 'yes_payout': '0', 'source': 'venue', 'source_sha256': 'c' * 64},
                     {'kind': 'redemption', 'id': f'redeem-{index}', 'condition_id': cid, 'at': at(offset + 306),
@@ -139,7 +140,7 @@ def two_leg_session(index, allocation):
     r = receipts(raw)
     r['scope'] = {'condition_id': cid, 'account_id': 'synthetic-account', 'session_id': sid, 'reward_day': '2026-10-12'}
     amount = D(13) / 21  # .25 * 1/7 + 1.75 * 1/3, reward rate 1 per second
-    r['clob']['rows'] = [{'id': f'private-{oid}', 'market': cid, 'status': 'CONFIRMED', 'match_time': at(offset + 4),
+    r['clob']['rows'] = [{'id': f'private-{oid}', 'market': cid, 'status': 'CONFIRMED', 'match_time': at(offset + (4 if token == yes else 4.5)),
                          'match_time_precision_seconds': '0', 'asset_id': token,
                          'maker_orders': [{'order_id': oid, 'asset_id': token, 'side': 'BUY', 'maker_address': 'synthetic-account',
                                            'price': '.49', 'matched_amount': '10'}]} for oid, token in ((oy, yes), (on, no))]
@@ -158,8 +159,33 @@ def two_leg_session(index, allocation):
              other_attributed_cashflows=[{'id': f'other-session-cash-{index}', 'session_id': f's{3-index}',
                                            'amount': str(amount + (D('.2') if index == 1 else D(0))), 'source_sha256': 'a' * 64}])
     r['payment_ids'] = w['payment_ids']
+    w.update(cash_followup_complete=True, payment_scope_complete=True, closing_open_orders=[])
+    w['redemptions'][0].update(status='CONFIRMED', finalized_at=at(offset + 306))
+    pay_at = '2026-10-13T09:00:00+00:00'
+    w['cash_events'] = [{'id': 'shared-day-payment', 'kind': 'REWARD', 'amount': str(amount),
+                         'at': pay_at, 'finalized_at': pay_at, 'status': 'CONFIRMED', 'source_sha256': 'a' * 64},
+                       {'id': f'other-session-cash-{index}', 'kind': 'EXTERNAL',
+                         'amount': w['other_attributed_cashflows'][0]['amount'], 'at': pay_at,
+                         'finalized_at': pay_at, 'status': 'CONFIRMED', 'source_sha256': 'a' * 64}]
+    outside_at = '2026-10-13T09:00:01+00:00'
+    w['cash_events'][1].update(at=outside_at, finalized_at=outside_at)
     r['state_checkpoints'] = [{'id': 'terminal', 'at': at(offset + 6), 'cash': str(D(w['start_cash']) - D('9.8')),
                                'reserved': '0', 'cost_at_risk': '9.8', 'positions': {yes: '10', no: '10'}, 'source_sha256': 'a' * 64}]
+
+    def point(key, when, cash, reserve, risk, y, n):
+        return {'id': key, 'at': when, 'cash': str(cash), 'reserved': str(reserve), 'cost_at_risk': str(risk),
+                'positions': {yes: str(y), no: str(n)}, 'source_sha256': 'a' * 64}
+
+    opening_cash = D(w['start_cash'])
+    r['state_checkpoints'] += [point('opening', at(offset), opening_cash, 0, 0, 0, 0),
+        point('post:' + oy, at(offset + 2), opening_cash, '4.9', '4.9', 0, 0),
+        point('post:' + on, at(offset + 2.25), opening_cash, '9.8', '9.8', 0, 0),
+        point('fill:' + oy + ':1', at(offset + 4), opening_cash - D('4.9'), '4.9', '9.8', 10, 0),
+        point('fill:' + on + ':1', at(offset + 4.5), opening_cash - D('9.8'), 0, '9.8', 10, 10),
+        point('settlement:' + cid, at(offset + 306), opening_cash - D('9.8'), 0, 0, 10, 10),
+        point('redemption:redeem-' + str(index), at(offset + 306), opening_cash + D('.2'), 0, 0, 0, 0),
+        point('cash:shared-day-payment', pay_at, opening_cash + D('.2') + amount, 0, 0, 0, 0),
+        point('cash:other-session-cash-' + str(index), outside_at, D(w['end_cash']), 0, 0, 0, 0)]
     r['mark_books'] = [book(offset + t, '.45', '.47', condition=cid) for t in (304, 305, 306)]
     for read in r['rewards']:
         read.update(r['scope'], session_exclusive=False, allocation=deepcopy(allocation), paid_reward=str(amount))
@@ -455,7 +481,7 @@ def test_common_closing_cash_independently_checks_actual_campaign_net():
 def test_campaign_envelope_cannot_be_changed_after_certificate_binding():
     # A deliberately fabricated, invalid envelope exercises a guard only. No
     # real or qualifying receipt is created by setting this nonsynthetic flag.
-    envelope = {'synthetic': False, 'code': {'worktree_clean': True}, 'result': {}, 'inputs': {},
+    envelope = {'synthetic': False, 'code': {'worktree_clean': True}, 'result': {'scope': {'session_id': 's1'}}, 'inputs': {},
                 'accuracy_certificate': {'status': 'PASS', 'result_sha256': 'a' * 64}}
     with pytest.raises(ValueError, match='changed after receipt certification'):
         certify_campaign([envelope], expected_session_ids=['s1'], min_sessions=1, min_filled_orders=1, min_paid_reward='1')

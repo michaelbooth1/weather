@@ -96,6 +96,27 @@ def replay(payload, config: ReplayConfig):
     settlement_values, settled_fractions, redeemed = {}, {}, defaultdict(lambda: ZERO)
     redemption_quantities = defaultdict(lambda: defaultdict(lambda: ZERO))
     redemption_ids, checkpoints, sampled_minutes = set(), {}, set()
+    transitions, fill_ordinals = {}, defaultdict(int)
+    observed_cashflows = ZERO
+    accounting_end = utc(payload.get('accounting_end', payload['end']))
+    if accounting_end < end:
+        raise ValueError('accounting follow-up precedes session end')
+
+    def state(at):
+        holdings = {}
+        for condition, meta in conditions.items():
+            _, holdings[condition] = predicted_positions(
+                [f for f in fills if f['condition_id'] == condition], meta['token_ids'], redemption_quantities[condition])
+        return {'at': at, 'cash': opening_cash - spent + cash_paid + observed_cashflows,
+                'reserved': sum((r['price'] * r['remaining'] for r in active.values()), ZERO),
+                'cost_at_risk': sum(used.values(), ZERO), 'positions': holdings}
+
+    def emit(key, at):
+        if key in transitions:
+            raise ValueError('duplicate economic transition identity')
+        transitions[key] = state(at)
+
+    emit('opening', start)
     reasons, rejected, settled = set(), [], set()
     if payload.get('account_scope_complete') is not True:
         reasons.add('incomplete_account_incentive_scope')
@@ -109,7 +130,7 @@ def replay(payload, config: ReplayConfig):
     schedule = []
     for i, checkpoint in enumerate(payload.get('checkpoints', [])):
         checkpoint_at = utc(checkpoint['at'])
-        if not start <= checkpoint_at <= end:
+        if not start <= checkpoint_at <= accounting_end:
             raise ValueError('checkpoint outside capital period')
         schedule.append((checkpoint_at, 8, i, {'kind': 'checkpoint', **checkpoint}))
     if payload.get('close_all_at') is not None:
@@ -123,6 +144,7 @@ def replay(payload, config: ReplayConfig):
         schedule.append((midnight, 8, 0, {'kind': 'boundary'}))
         midnight += timedelta(days=1)
     trade_ids = {}
+    sample_denominators, sample_counts = {}, defaultdict(int)
     for i, event in enumerate(payload['events']):
         event = deepcopy(event)
         source_hash(event['source_sha256'])
@@ -131,6 +153,17 @@ def replay(payload, config: ReplayConfig):
             raise ValueError('unknown condition')
         available = utc(event['at'])
         at = utc(event['traded_at']) if event['kind'] == 'trade' else available
+        if event['kind'] == 'reward_sample':
+            count = number(event['epoch_active_sample_count'], minimum=ONE, maximum=D(1440))
+            if count != count.to_integral_value():
+                raise ValueError('reward sample denominator must be an integer')
+            sample_key = (cid, at.date())
+            if sample_key in sample_denominators and sample_denominators[sample_key] != count:
+                raise ValueError('inconsistent condition-day sample denominator')
+            sample_denominators[sample_key] = count
+            sample_counts[sample_key] += 1
+            if sample_counts[sample_key] > count:
+                raise ValueError('observed samples exceed condition-day denominator')
         if event['kind'] == 'trade':
             if at > available:
                 raise ValueError('trade precedes availability incorrectly')
@@ -162,10 +195,11 @@ def replay(payload, config: ReplayConfig):
                     raise ValueError('conflicting duplicate trade')
                 continue
             trade_ids[key] = event
-        priority = {'book': 0, 'terms': 1, 'trade': 2, 'reward_sample': 5, 'settlement': 6, 'redemption': 7}.get(event['kind'])
+        priority = {'book': 0, 'terms': 1, 'trade': 2, 'reward_sample': 5, 'settlement': 6, 'redemption': 7, 'cashflow': 7}.get(event['kind'])
         if priority is None:
             raise ValueError('unknown event kind')
-        if at < start or at > end:
+        bound = accounting_end if event['kind'] in ('cashflow', 'settlement', 'redemption') else end
+        if at < start or at > bound:
             raise ValueError('event outside declared interval')
         schedule.append((at, priority, i, event))
     post_arrivals, cancels = {}, []
@@ -199,7 +233,7 @@ def replay(payload, config: ReplayConfig):
         schedule.append((at, 3 if command['kind'] == 'cancel' else 4, i, command))
     if any(oid not in post_arrivals or at < post_arrivals[oid] for oid, at in cancels):
         raise ValueError('cancel precedes or lacks its submitted order')
-    schedule.append((end, 9, 0, {'kind': 'end'}))
+    schedule.append((accounting_end, 9, 0, {'kind': 'end'}))
 
     def accrue(left, right):
         for cid in conditions:
@@ -256,24 +290,20 @@ def replay(payload, config: ReplayConfig):
         if kind == 'checkpoint':
             if event['id'] in checkpoints:
                 raise ValueError('duplicate accounting checkpoint')
-            holdings = {}
-            for condition, meta in conditions.items():
-                _, holdings[condition] = predicted_positions(
-                    [f for f in fills if f['condition_id'] == condition], meta['token_ids'], redemption_quantities[condition])
-            checkpoints[event['id']] = {'at': at, 'cash': opening_cash - spent + cash_paid - operating_cost,
-                'reserved': sum((r['price'] * r['remaining'] for r in active.values()), ZERO),
-                'cost_at_risk': sum(used.values(), ZERO), 'positions': holdings}
+            checkpoints[event['id']] = state(at)
             continue
         if kind == 'session_close':
             for order in active.values():
                 used[order['condition_id']] -= order['price'] * order['remaining']
             active.clear()
             session_closed = True
+            emit('terminal', at)
             continue
         if kind in ('cancel', 'expiry'):
             order = active.pop(event['id'], None)
             if order:
                 used[order['condition_id']] -= order['price'] * order['remaining']
+            emit(kind + ':' + event['id'], at)
             continue
         cid = event['condition_id']
         if kind == 'book':
@@ -351,10 +381,13 @@ def replay(payload, config: ReplayConfig):
                 if row['price'] >= p:
                     ahead[row['price']] += row['size']
             order = {**event, 'price': p, 'size': size, 'remaining': size,
-                     'queue_ahead_levels': ahead, 'at': at}
+                     'queue_ahead_levels': ahead, 'at': at,
+                     'queue_ahead_ids': {r['order_id'] for r in book.get('reward_orders', [])
+                                         if r['outcome'] == outcome and r['side'] == 'BUY' and number(r['price']) >= p}}
             orders[event['id']] = order
             active[event['id']] = order
             used[cid] += reserve
+            emit('post:' + event['id'], at)
         elif kind == 'trade':
             if event['outcome'] not in ('YES', 'NO') or event['aggressor'] not in ('BUY', 'SELL'):
                 raise ValueError('unknown trade side or outcome')
@@ -368,6 +401,7 @@ def replay(payload, config: ReplayConfig):
                                 key=lambda r: (-r['price'], r['at'], r['id']))
             # T1 permits one live order per native outcome. A physical print
             # therefore never supplies residual volume to multiple own orders.
+            own_consumed = ZERO
             for order in candidates:
                 executable = volume
                 # Better-price prints retire their actual price levels too.
@@ -385,6 +419,7 @@ def replay(payload, config: ReplayConfig):
                 quantity = min(order['remaining'], executable)
                 if quantity <= ZERO:
                     continue
+                own_consumed += quantity
                 pre_fill_remaining = order['remaining']
                 order['remaining'] -= quantity
                 cost = quantity * order['price']
@@ -412,14 +447,18 @@ def replay(payload, config: ReplayConfig):
                               'fee_weight': weight, 'maker_fee': ZERO, 'entry_mid': reference_mid})
                 if order['remaining'] == ZERO:
                     active.pop(order['id'])
+                fill_ordinals[order['id']] += 1
+                emit(f"fill:{order['id']}:{fill_ordinals[order['id']]}", at)
             # Keep the captured external book coherent until its next snapshot;
             # a cancel/repost must not rebuild queue from already consumed depth.
             current = books.get(cid)
             if current is not None:
                 current = deepcopy(current)
+                external_volume = volume - own_consumed
+                ahead_ids = set().union(*(r['queue_ahead_ids'] for r in candidates)) if candidates else set()
                 other = 'NO' if event['outcome'] == 'YES' else 'YES'
                 for outcome, side, threshold in ((event['outcome'], 'bids', p), (other, 'asks', ONE - p)):
-                    remaining = volume
+                    remaining = external_volume
                     rows = sorted(current[outcome][side], key=lambda r: number(r['price']), reverse=side == 'bids')
                     for row in rows:
                         price = number(row['price'])
@@ -428,13 +467,24 @@ def replay(payload, config: ReplayConfig):
                             row['size'] = number(row['size']) - consumed
                             remaining -= consumed
                     current[outcome][side] = [r for r in rows if number(r['size']) > ZERO]
+                    if remaining:
+                        reasons.add('external_consumption_exceeds_displayed_depth')
                 if current.get('reward_orders_complete'):
-                    remaining = volume
+                    remaining = external_volume
                     eligible = sorted((r for r in current['reward_orders']
                                        if r['outcome'] == event['outcome'] and r['side'] == 'BUY'
-                                       and number(r['price']) >= p), key=lambda r: (-number(r['price']), r['order_id']))
-                    if len({r['maker_id'] for r in eligible}) > 1 and remaining < sum((number(r['size']) for r in eligible), ZERO):
-                        reasons.add('unidentified_competitor_queue_assignment')
+                                       and number(r['price']) >= p),
+                                      key=lambda r: (-number(r['price']), r['order_id'] not in ahead_ids,
+                                                     r.get('arrived_at', ''), r['order_id']))
+                    cohorts = defaultdict(list)
+                    for row in eligible:
+                        cohorts[(number(row['price']), row['order_id'] in ahead_ids)].append(row)
+                    frontier = remaining
+                    for cohort in cohorts.values():
+                        total = sum((number(r['size']) for r in cohort), ZERO)
+                        if ZERO < frontier < total and len(cohort) > 1 and not all(r.get('arrived_at') for r in cohort):
+                            reasons.add('unidentified_competitor_queue_assignment')
+                        frontier = max(ZERO, frontier - total)
                     for row in eligible:
                         consumed = min(remaining, number(row['size']))
                         row['size'] = number(row['size']) - consumed
@@ -477,6 +527,7 @@ def replay(payload, config: ReplayConfig):
             used[cid] = ZERO
             active = {oid: r for oid, r in active.items() if r['condition_id'] != cid}
             settled.add(cid)
+            emit('settlement:' + cid, at)
         elif kind == 'redemption':
             if cid not in settled or event['source'] != 'venue' or event.get('id') and event['id'] in redemption_ids:
                 raise ValueError('unsettled or duplicate cash redemption')
@@ -500,6 +551,12 @@ def replay(payload, config: ReplayConfig):
                               for i, t in enumerate(tokens)), ZERO)
             if event.get('id'):
                 redemption_ids.add(event['id'])
+                emit('redemption:' + event['id'], at)
+        elif kind == 'cashflow':
+            if event['flow_kind'] not in ('REWARD', 'REBATE', 'EXTERNAL', 'MAKER_FEE', 'OPERATING_COST'):
+                raise ValueError('unsupported cashflow kind')
+            observed_cashflows += number(event['amount'], minimum=None)
+            emit('cash:' + event['id'], at)
     if any(r['condition_id'] not in settled for r in fills):
         reasons.add('unsettled_inventory')
     if active:
@@ -594,11 +651,14 @@ def replay(payload, config: ReplayConfig):
             'reward_accrued': reward_total, 'rebate_accrued': rebates,
             'reward_payable': reward_paid, 'rebate_payable': rebate_paid,
             'cost': spent, 'venue_payout': payouts, 'raw_net_pnl': raw_pnl,
+            'economic_net_pnl': raw_pnl,
+            'cash_net_pnl': cash_paid - spent + reward_paid + rebate_paid - operating_cost,
             'cash_redemptions_pusd': cash_paid, 'unredeemed_venue_value': payouts - cash_paid,
             'cash_available': opening_cash - spent + cash_paid - operating_cost,
             'wallet_end_cash': opening_cash - spent + cash_paid + reward_paid + rebate_paid - operating_cost,
             'terminal_positions': terminal_positions, 'end_positions': end_positions,
             'checkpoints': checkpoints,
+            'transitions': transitions,
             'operating_cost': operating_cost,
             'spread_capture_pusd': reference_value - spent if references_complete else None,
             'inventory_move_pusd': payouts - reference_value if references_complete else None,

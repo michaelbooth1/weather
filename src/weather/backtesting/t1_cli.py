@@ -117,7 +117,7 @@ def main(argv=None):
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('xb') as handle:
         handle.write(canonical(report))
-    return 0 if args.mode == 'simulate' or (result['status'] == 'PASS'
+    return 0 if args.mode == 'simulate' or (result.get('metrics_pass')
                  and report['accuracy_certificate']['status'] == 'PASS' and not report['synthetic']) else 2
 
 

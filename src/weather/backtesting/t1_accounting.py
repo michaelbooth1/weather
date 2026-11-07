@@ -79,12 +79,39 @@ def actual_accounts(fills, wallet, tokens, *, yes_payout, session_id, epsilon=ZE
     cash = start_cash - cost - fees - operating + redemption_credit + rewards + rebates + outside
     remaining_value = payout - redemption_credit
     net = payout - cost - fees - operating + rewards + rebates
+    cash_net = redemption_credit - cost - fees - operating + rewards + rebates
     # This second identity uses balances and residual economic assets, not the
     # fill-cost identity above. Both must reconcile to independently read cash.
     balance_net = number(wallet['end_cash']) - start_cash - outside + remaining_value
+    completion_gaps = []
+    if yes_payout is None and fills:
+        completion_gaps.append('unresolved_inventory')
+    if remaining_value != ZERO:
+        completion_gaps.append('unredeemed_venue_value')
+    if any(ending.values()):
+        completion_gaps.append('unredeemed_token_positions')
+    if wallet.get('cash_followup_complete') is not True or wallet.get('payment_scope_complete') is not True:
+        completion_gaps.append('cash_or_payment_followup_incomplete')
+    if wallet.get('closing_open_orders') != []:
+        completion_gaps.append('closing_reservations_not_proven_empty')
+    cash_events = wallet.get('cash_events', [])
+    for kind, expected, payment_kind in (('REWARD', rewards, 'reward'), ('REBATE', rebates, 'rebate')):
+        credits = [r for r in cash_events if r['kind'] == kind]
+        if (sum((number(r['amount']) for r in credits), ZERO) != expected
+                or sorted(r['id'] for r in credits) != sorted(payments[payment_kind])):
+            completion_gaps.append(kind.lower() + '_payment_timing_not_reconciled')
+    for row in [*cash_events, *wallet['redemptions']]:
+        if (row.get('status') != 'CONFIRMED' or not row.get('finalized_at')
+                or not utc(row['at']) <= utc(row['finalized_at']) <= utc(wallet['as_of_utc'])):
+            completion_gaps.append('payment_or_redemption_not_final')
+    cash_completion = {'status': 'COMPLETE' if not completion_gaps else 'NOT COMPLETE',
+                       'gaps': sorted(set(completion_gaps)), 'net_pnl': cash_net,
+                       'as_of_utc': wallet['as_of_utc']}
     return {'cost': cost, 'venue_payout': payout, 'cash_redemptions_pusd': redemption_credit,
             'unredeemed_venue_value': remaining_value, 'cash_available': start_cash - cost - fees - operating + redemption_credit,
             'wallet_end_cash': cash, 'raw_net_pnl': net, 'balance_net_pnl': balance_net,
+            'cash_net_pnl': cash_net, 'cash_balance_net_pnl': number(wallet['end_cash']) - start_cash - outside,
+            'economic_net_pnl': net, 'completed_cash': cash_completion,
             'maker_fees_pusd': fees, 'operating_cost': operating, 'outside_cash': outside,
             'terminal_positions': terminal, 'end_positions': ending, 'payment_ids': payment_ids,
             'opening_cash': start_cash, 'opening_positions': opening,

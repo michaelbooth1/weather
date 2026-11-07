@@ -103,7 +103,7 @@ def receipts(raw):
     rebate = D(0)  # accrued .0312375 is below the venue's $1 daily payout floor
     scope = {'condition_id': 'c1', 'account_id': 'synthetic-account', 'session_id': 'synthetic-session',
              'reward_day': '2026-10-12'}
-    return {'scope': scope, 'journal_pin': '124603578f393827fa1b67bd978f6e3b02048ae9',
+    result = {'scope': scope, 'journal_pin': '124603578f393827fa1b67bd978f6e3b02048ae9',
             'journal_sha256': hashlib.sha256(raw).hexdigest(),
             'payment_ids': {'reward': ['reward-day-1'], 'rebate': [], 'redemption': []},
             'mark_books': [book(t, '.45', '.47') for t in (304, 305, 306)],
@@ -143,6 +143,37 @@ def receipts(raw):
             'rewards': [{**scope, 'as_of_utc': f'2026-10-{day}T10:00:00+00:00',
                          'complete': True, 'session_exclusive': True, 'source_sha256': str(day % 10) * 64,
                          'paid_reward': str(reward)} for day in (13, 14)]}
+    pay_at = '2026-10-13T09:00:00+00:00'
+    result['wallet'].update(cash_followup_complete=True, payment_scope_complete=True, closing_open_orders=[],
+        cash_events=[{'id': 'reward-day-1', 'kind': 'REWARD', 'at': pay_at, 'finalized_at': pay_at,
+                      'status': 'CONFIRMED', 'amount': str(reward), 'source_sha256': 'a' * 64}])
+
+    def point(key, when, cash, reserve, risk, size):
+        return {'id': key, 'at': when, 'cash': str(cash), 'reserved': str(reserve), 'cost_at_risk': str(risk),
+                'positions': {'yes1': str(size), 'no1': '0'}, 'source_sha256': 'a' * 64}
+
+    result['state_checkpoints'] += [point('opening', at(0), 100, 0, 0, 0),
+        point('post:o1', at(2), 100, '4.9', '4.9', 0), point('fill:o1:1', at(4), '97.55', '2.45', '4.9', 5),
+        point('fill:o1:2', at(5), '95.1', 0, '4.9', 10), point('settlement:c1', at(306), '95.1', 0, 0, 10),
+        point('cash:reward-day-1', pay_at, D('95.1') + reward, 0, 0, 10)]
+    return result
+
+
+def no_fill_checkpoints(receipt, reward, *, settlement=True):
+    """Independent zero-fill path: reservation exists only from ACK to terminal."""
+    points = receipt['state_checkpoints']
+    points[:] = [p for p in points if not p['id'].startswith('fill:') and (settlement or not p['id'].startswith('settlement:'))]
+    for p in points:
+        p.update(cash='100', reserved='4.9' if p['id'] == 'post:o1' else '0',
+                 cost_at_risk='4.9' if p['id'] == 'post:o1' else '0', positions={'yes1': '0', 'no1': '0'})
+        if p['id'].startswith('cash:'):
+            p['cash'] = str(D(100) + D(reward))
+    if D(reward):
+        receipt['wallet']['cash_events'][0]['amount'] = str(reward)
+    else:
+        receipt['wallet']['cash_events'] = []
+        receipt['wallet']['payment_ids']['reward'] = []
+        points[:] = [p for p in points if not p['id'].startswith('cash:')]
 
 
 def tolerance(**changes):

@@ -108,19 +108,43 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
 
     gaps = []
     population_hash = None
+    projection = {'status': 'NOT QUALIFIED', 'reason': 'raw financial roles missing'}
+    idle = (result.get('metrics_pass') is True and result.get('order_ids') == []
+            and result.get('actual_filled_orders') == 0
+            and number(result.get('rewards', {}).get('actual', '0')) == ZERO
+            and number(result.get('rewards', {}).get('predicted', '0')) == ZERO
+            and number(result.get('rebates', {}).get('actual', '0')) == ZERO
+            and number(result.get('rebates', {}).get('predicted', '0')) == ZERO
+            and number(result.get('simulation', {}).get('reward_accrued', '0')) == ZERO
+            and number(result.get('simulation', {}).get('rebate_accrued', '0')) == ZERO)
     if result.get('synthetic'):
         gaps.append('synthetic_receipts')
     if not code['worktree_clean']:
         gaps.append('dirty_source')
-    if result.get('status') != 'PASS' or not result.get('metrics_pass'):
+    if not result.get('metrics_pass') or not result.get('simulator_complete'):
         gaps.append('session_metrics_not_passed')
+    if not result.get('accounting_complete'):
+        gaps.append('economic_transition_coverage_or_state_not_verified')
+    if result.get('completed_cash', {}).get('status') != 'COMPLETE':
+        gaps.append('completed_cash_not_final')
     if result.get('simulation', {}).get('competition_estimate') == 'aggregate_upper_bound':
         gaps.append('one_sided_bound_is_not_point_pnl_accuracy')
+    if result.get('receipts_sha256') != digest(receipts) or result.get('payload_sha256') != digest(payload):
+        gaps.append('arithmetic_inputs_changed_before_certification')
+    tolerance = result.get('tolerance', {})
+    for name, ceiling in (('cash_conservation_absolute', '.00001'), ('joint_monetary_absolute', '.01'), ('monetary_absolute', '.01')):
+        if name not in tolerance or number(tolerance[name]) > number(ceiling):
+            gaps.append(name + '_exceeds_certificate_ceiling')
+    if number(tolerance.get('position_absolute_shares', '0')) != ZERO:
+        gaps.append('exact_native_positions_require_zero_tolerance')
     if receipts.get('journal_pin') not in COMPATIBLE_RECORDER_PINS:
         gaps.append('unreviewed_actual_recorder_pin')
     required = ('journal', 'profile', 'ledger', 'clob', 'wallet', 'reward_d1', 'reward_d2',
                 'books', 'marks', 'terms', 'settlement', 'redemptions', 'rebates', 'preregistration', 'exporter',
                 'reward_samples', 'market_state', 'clock', 'rebate_rounding', 'recorder_manifest')
+    if idle:
+        required = tuple(role for role in required if role not in (
+            'books', 'marks', 'terms', 'rebates', 'reward_samples', 'market_state', 'rebate_rounding'))
     bundle = receipts.get('evidence_bundle')
     if bundle is None:
         gaps.append('missing_raw_evidence_bundle')
@@ -128,6 +152,17 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
     else:
         verified = verify_bundle(bundle, root)
         gaps.extend('missing_raw_' + name for name in required if name not in verified)
+        from weather.backtesting.t1_raw_projection import verify_projection
+
+        try:
+            projection = verify_projection(verified, receipts, payload, result)
+            if projection['transitions']['status'] != 'PASS':
+                gaps.append('raw_economic_transition_projection_not_verified')
+            if not idle and projection['market_projection']['status'] != 'PASS':
+                gaps.append('raw_market_projection_not_verified')
+        except (ValueError, KeyError, TypeError) as exc:
+            projection = {'status': 'NOT QUALIFIED', 'reason': str(exc)}
+            gaps.append('raw_projection_not_verified: ' + str(exc))
         hashes = {v['sha256'] for v in verified.values()}
         def lineage(value):
             if isinstance(value, dict):
@@ -171,53 +206,74 @@ def session_certificate(result, code, receipts, payload, root, *, cli_inputs=Non
                 population_hash = digest(sorted(population))
             if not contract.get('frozen_at_utc') or utc(contract['frozen_at_utc']) > utc(result['period_start']):
                 gaps.append('contract_not_declared_before_session')
-    midpoint = payload.get('midpoint_rule_evidence')
-    verified_hashes = {v['sha256'] for v in verified.values()}
-    midpoint_ok = (isinstance(midpoint, dict)
-                   and midpoint.get('semantics') == result.get('simulation', {}).get('config', {}).get('midpoint_rule')
-                   and midpoint.get('basis') in ('dated_venue_rule', 'predeclared_controlled_comparison')
-                   and midpoint.get('source_sha256') in verified_hashes)
-    sampling = payload.get('reward_sample_evidence', {})
-    sample_ok = (payload.get('reward_realization') == 'observed_samples'
-                 and sampling.get('method') == 'venue_observed_samples'
-                 and sampling.get('source_sha256') in verified_hashes and sampling.get('day_complete') is True)
-    rounding = payload.get('fee_rounding_evidence', {})
-    rounding_ok = (rounding.get('rule') == result.get('simulation', {}).get('rebate_rounding_rule')
-                   and rounding.get('rule') != 'unrounded_diagnostic' and rounding.get('granularity') == 'per_match'
-                   and rounding.get('source_sha256') in verified_hashes)
+    # No authoritative midpoint-rule verifier is implemented. A hash-linked
+    # declaration or a basis label cannot substitute for one (T035 F09).
+    midpoint_ok = False
+    # Population consistency is checked by the raw projector. Authority for an
+    # actual venue sample feed is still unavailable, not established by labels.
+    sample_ok = False
+    # Projection of supplied condition/day totals or precision declarations is
+    # not independent verification of the unpublished global inputs/rule.
+    rounding_ok = False
     components = {}
     for component, qualified in (
-            ('realized_reward_sampling', sample_ok),
-            ('midpoint_semantics', midpoint_ok),
-            ('condition_day_rebates', result.get('simulation', {}).get('rebate_scope_qualification') == 'CONDITION_DAY_REQUIRES_RAW_PROOF'),
-            ('fee_rounding', rounding_ok)):
-        components[component] = {'status': 'PASS' if qualified and not gaps else 'NOT QUALIFIED',
+            ('realized_reward_sampling', idle or sample_ok),
+            ('midpoint_semantics', idle or midpoint_ok),
+            ('public_execution_identity', idle),
+            ('condition_day_rebates', idle),
+            ('fee_rounding', idle or rounding_ok)):
+        components[component] = {'status': 'NOT APPLICABLE' if idle else 'PASS' if qualified and not gaps else 'NOT QUALIFIED',
                                  'evidence_required': 'Retained raw evidence and the common reviewed prospective contract.'}
         if not qualified:
             gaps.append(component + '_not_qualified')
     components['passive_posting_response'] = {'status': 'NOT QUALIFIED',
         'bound': 'Zero incentive income; all commanded lots may fill and lose.',
         'evidence_required': 'Independent validated intervention/response envelope; public passive data does not identify this.'}
+    if not idle:
+        components['midpoint_semantics']['evidence_required'] = 'STILL OPEN F09: authoritative rule/comparison verification is not implemented; hash-linked declarations are insufficient.'
+        components['realized_reward_sampling']['evidence_required'] = 'STILL OPEN F08 authority: valid raw sample populations alone do not prove venue sampling; no authoritative feed adapter is implemented.'
+        components['public_execution_identity']['evidence_required'] = 'Independent native consumption/finality/route join; annotations on last_trade_price are insufficient.'
+        components['condition_day_rebates']['evidence_required'] = 'Independently verified full condition/day paid-fee pool, eligible maker-weight denominator and payment attribution.'
+        components['fee_rounding']['evidence_required'] = 'Dated authoritative precision rule or independently checked per-match receipt experiment; a hash-linked rule label is insufficient.'
     return {'status': 'PASS' if not gaps else 'NOT QUALIFIED', 'gaps': sorted(set(gaps)),
             'code_sha256': digest(code), 'raw_bundle_sha256': digest(bundle) if bundle else None,
             'result_sha256': digest(result), 'cli_inputs_sha256': digest(cli_inputs),
             'preregistration_sha256': verified.get('preregistration', {}).get('sha256'),
             'components': components,
             'population_sha256': population_hash,
-            'claim': 'CONDITIONAL_REAL_SESSION_ECONOMICS_ONLY',
+            'raw_projection': projection,
+            'claim': 'CONDITIONAL_REAL_SESSION_COMPLETED_CASH_REPRODUCTION',
             'passive_posting_response': 'NOT QUALIFIED', 'trial_can_pass': False}
 
 
-def certify_campaign(envelopes, *, expected_session_ids, min_sessions, min_filled_orders, min_paid_reward):
+def certify_campaign(envelopes, *, expected_session_ids, min_sessions, min_filled_orders, min_paid_reward,
+                     synthetic_diagnostic=False):
     """Consume complete CLI envelopes, never unbound result dictionaries."""
     from weather.backtesting.t1_accuracy import combine_session_gates
 
+    if any('result' not in e or 'scope' not in e['result'] for e in envelopes):
+        raise ValueError('real clean-code campaign envelopes required')
+    supplied = [e['result']['scope']['session_id'] for e in envelopes]
+    if sorted(supplied) != sorted(expected_session_ids) or len(set(supplied)) != len(supplied):
+        raise ValueError('campaign requires every frozen population member, including zero/interrupted sessions')
+    if synthetic_diagnostic:
+        if not envelopes or not all(e.get('synthetic') is True for e in envelopes):
+            raise ValueError('synthetic diagnostic cannot consume real or mixed envelopes')
+        if len({digest(e['code']) for e in envelopes}) != 1:
+            raise ValueError('mixed campaign source closure')
+        report = combine_session_gates([e['result'] for e in envelopes], min_sessions=min_sessions,
+            min_filled_orders=min_filled_orders, min_paid_reward=min_paid_reward, expected_session_ids=expected_session_ids)
+        report['status'] = 'SYNTHETIC_PASS' if report['status'] == 'PASS' else report['status']
+        report['qualification'] = 'SYNTHETIC_DIAGNOSTIC_ONLY'
+        report['synthetic'] = True
+        return report
     if not envelopes or any(e.get('synthetic') or e['code']['worktree_clean'] is not True for e in envelopes):
         raise ValueError('real clean-code campaign envelopes required')
     if len({digest(e['code']) for e in envelopes}) != 1:
         raise ValueError('mixed campaign source closure')
     if any(e.get('accuracy_certificate', {}).get('status') != 'PASS' for e in envelopes):
-        return {'status': 'NOT QUALIFIED', 'reason': 'Every population member needs a valid receipt certificate; retain failures.', 'trial_can_pass': False}
+        return {'status': 'NOT QUALIFIED', 'sessions': len(envelopes), 'session_ids': supplied,
+                'reason': 'Every population member needs a valid receipt certificate; retain failures.', 'trial_can_pass': False}
     for envelope in envelopes:
         certificate = envelope['accuracy_certificate']
         if (certificate.get('result_sha256') != digest(envelope['result'])

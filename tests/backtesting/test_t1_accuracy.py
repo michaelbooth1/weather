@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from tests.backtesting.t1_fixtures import at, book, config, journal_bytes, payload, receipts, tolerance
+from tests.backtesting.t1_fixtures import at, book, config, journal_bytes, payload, receipts, tolerance, no_fill_checkpoints
 from weather.backtesting.t1_accuracy import (accuracy_gate, clob_fills, combine_session_gates,
                                              pin_commands, pin_latency_evidence, read_pin_evidence, read_pin_journal)
 
@@ -13,7 +13,7 @@ from weather.backtesting.t1_accuracy import (accuracy_gate, clob_fills, combine_
 def test_synthetic_session_passes_independent_reward_fill_and_markout_arithmetic():
     raw = journal_bytes()
     report = accuracy_gate(payload(), config(), raw, receipts(raw), tolerance())
-    assert report['status'] == 'PASS'
+    assert report['status'] == 'CASH_PENDING'
     assert report['rewards']['absolute_error'] < report['rewards']['limit']
     assert report['fills']['o1']['absolute_error'] == 0
     assert report['markouts_per_share']['o1']['absolute_error'] == 0
@@ -25,7 +25,7 @@ def test_synthetic_session_passes_independent_reward_fill_and_markout_arithmetic
 def test_no_fill_or_tiny_reward_cannot_certify_accuracy():
     raw = journal_bytes()
     report = accuracy_gate(payload(), config(), raw, receipts(raw), tolerance(min_filled_orders=5))
-    assert report['status'] == 'INSUFFICIENT_EVIDENCE'
+    assert report['status'] == 'CASH_PENDING'
 
 
 def test_wrong_queue_prediction_fails_fill_and_markout_gates():
@@ -174,8 +174,14 @@ def test_independently_attributed_other_wallet_cashflows_reconcile_but_do_not_ch
     receipt['wallet']['other_attributed_cashflows'] = [{'id': 'external-1', 'session_id': 'other-session',
                                                        'amount': '-2', 'source_sha256': 'b' * 64}]
     receipt['wallet']['end_cash'] = str(D(receipt['wallet']['end_cash']) - 2)
+    cash_at = '2026-10-13T09:00:01+00:00'
+    receipt['wallet']['cash_events'].append({'id': 'external-1', 'kind': 'EXTERNAL', 'amount': '-2',
+        'at': cash_at, 'finalized_at': cash_at, 'status': 'CONFIRMED', 'source_sha256': 'b' * 64})
+    receipt['state_checkpoints'].append({'id': 'cash:external-1', 'at': cash_at,
+        'cash': receipt['wallet']['end_cash'], 'reserved': '0', 'cost_at_risk': '0',
+        'positions': {'yes1': '10', 'no1': '0'}, 'source_sha256': 'b' * 64})
     report = accuracy_gate(payload(), config(), raw, receipt, tolerance())
-    assert report['status'] == 'PASS'
+    assert report['status'] == 'CASH_PENDING'
     assert report['rewards']['actual'] == D(receipt['rewards'][1]['paid_reward'])
 
 
@@ -243,7 +249,7 @@ def test_integer_second_fill_markouts_are_bounded_over_timestamp_uncertainty():
         row['match_time'] = str(int(utc(row['match_time']).timestamp()))
         row['match_time_precision_seconds'] = '1'
     report = accuracy_gate(p, config(), raw, receipt, tolerance())
-    assert report['status'] == 'PASS'
+    assert report['status'] == 'CASH_PENDING'
     for index, event in enumerate(p['events']):
         if event['kind'] == 'book' and event['at'] in (at(305), at(306)):
             p['events'][index] = book(305 if event['at'] == at(305) else 306, '.55', '.57')
@@ -296,6 +302,7 @@ def test_true_zero_fill_session_agrees_but_cannot_certify_fill_accuracy():
                               reward_credit=str(reward), end_cash=str(D(100) + reward),
                               terminal_positions={'yes1': '0', 'no1': '0'}, end_positions={'yes1': '0', 'no1': '0'})
     receipt['state_checkpoints'][0].update(cash='100', cost_at_risk='0', positions={'yes1': '0', 'no1': '0'})
+    no_fill_checkpoints(receipt, reward)
     for read in receipt['rewards']:
         read['paid_reward'] = str(reward)
     report = accuracy_gate(p, config(), raw, receipt, tolerance())

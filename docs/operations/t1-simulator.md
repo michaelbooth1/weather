@@ -23,6 +23,9 @@ accuracy PASS additionally requires `accuracy_certificate.status=PASS`, nonsynth
 inputs, common clean source, the prospective evidence contract and campaign gates.
 The CLI returns zero for accuracy only under that certificate. Every output keeps
 `trial_can_pass=false`: agreement does not establish positive expected profit.
+`CASH_PENDING` separates matched economic accounting from completed cash. A
+reconciled zero-activity session can receive completeness certification; positive
+fill/reward floors apply to the frozen campaign, not each member.
 
 An anonymous-book lower bound has a one-sided coverage comparison. It is never an
 exact reward or net-P&L certificate. Continuous reward integration is an expectation
@@ -76,6 +79,9 @@ Events carry availability `at` and `source_sha256`:
   `epoch_active_sample_count`; `reward_realization=observed_samples` enables this
   path. Duplicate condition/minute samples refuse. Retain the complete sampling
   and denominator evidence; a declared count is not proof of venue sampling.
+  All samples for one condition/day use the same denominator, and represented
+  samples cannot exceed it. The raw projector checks the full epoch population
+  and the exact in-window subset.
 
 `rebate_pools[UTC day].conditions[condition]` carries condition identity, eligibility,
 total taker fees, maker fee-weight denominator, coefficient, rebate fraction,
@@ -158,7 +164,10 @@ journal hash, profile hash and:
   `end_cash_source_sha256` identifies the common independent closing account read.
 - `state_checkpoints`: independently observed `id`, `at`, cash, reserved commitment,
   cost at risk, token positions and source hash. The engine produces predictions
-  at those clocks; both intermediate and terminal financial states are compared.
+  at those clocks. Required IDs cover opening/terminal, each post, cancel, actual
+  fill, applicable expiry, settlement, redemption and timed cash movement; a
+  caller-chosen terminal-only subset cannot certify. `transition_id` may name
+  that required ID when `id` identifies an observation separately.
 - `lfc_ledger`: actual cap-ledger snapshot. The certificate replays its full retained
   chained history and compares every leg and terminal hash. This is not wallet cash.
 - `rewards`: genuinely distinct reads collected during UTC D+1 and D+2. Exclusive
@@ -166,6 +175,10 @@ journal hash, profile hash and:
   `allocation` names the actual payment ID, full day total, every session amount,
   source hash and `method=independent_venue_accrual_deltas`. Amounts sum to the
   independently observed credit. Simulated shares cannot allocate actual rewards.
+  D+1 pending/zero followed by D+2 paid is valid. Optional `reward_followups`
+  retain later immutable observations at D+3 or later; do not rewrite earlier
+  reads. Paid amounts must agree with finalized cash movements by each read's
+  own clock, and the wallet follow-up must cover the latest observation.
 - `mark_books`: independent retained raw two-token horizon books. Own subtraction
   is reconstructed from acknowledged orders/cancels and confirmed fill intervals;
   raw and removed depth must sum exactly once to the supplied competitor book.
@@ -174,10 +187,20 @@ journal hash, profile hash and:
 
 The gate compares predicted purchase cost, fees/costs, payout, redemption, residual
 venue value, available cash, wallet ending cash, terminal/end positions and raw
-net P&L. The actual cash-plus-residual-assets identity independently reconciles net
-profit. Each monetary component has a predeclared absolute budget; campaign net
-has a separate budget, preventing accumulated per-order share allowances from
-hiding a material missing losing fill. Reserve arithmetic is checked separately.
+economic and cash net P&L. The actual cash-plus-residual-assets identity
+independently reconciles economic profit. Completed cash additionally requires
+no remaining selected tokens/reservations and finalized redemption/paid credits
+by the follow-up clock. Pending money is not completed cash profit.
+
+Each monetary component has a predeclared absolute budget. The total absolute
+error across disjoint cost, proceeds, reward, rebate, fee and operating-cost
+groups also has a joint budget, summed across campaign sessions; opposite errors
+cannot cancel into PASS. Proceeds use the larger of total payout error and the
+sum of disjoint redeemed-cash/residual-asset errors. Certificate ceilings are one cent
+for money/joint error, .00001 pUSD for cash conservation and zero shares for
+native positions. These are implementation ceilings, not owner adoption of a
+trial amendment. Campaign net has a separate budget. Reserve arithmetic is
+checked separately and is not deducted from completed cash.
 
 Markout comparisons measure distance to the actual timestamp interval. An interval
 wider than twice the tolerance is insufficient time resolution, not measured model
@@ -195,7 +218,8 @@ The supported conservative capital alternative is verified flat, nonoverlapping
 funded periods with exact cash continuity. Prior unredeemed inventory prevents a
 new period. Interperiod deposits/withdrawals must have independent unique IDs,
 clocks and source evidence. Settled residual assets in a final period are reported
-explicitly. Persistent unsettled opening lots remain NOT QUALIFIED.
+explicitly and prevent completed-cash PASS. Persistent unsettled opening lots
+and overlapping daily exposure remain NOT QUALIFIED.
 
 The combiner rejects repeated sessions, order IDs, redemption/payment IDs, false
 exclusive day claims, overlapping capital and cash resets. A shared reward credit
@@ -206,6 +230,10 @@ its own tolerance. Evidence floors are coverage requirements, not power claims.
 All session exports must reference the same independently observed closing cash
 snapshot and its source hash. The sum of actual session profits must equal whole
 account cash change, less external flows, plus remaining venue assets.
+The campaign consumer decodes persisted decimal fields by their schema location;
+numeric-looking token IDs and hashes remain strings. Older accounting exports
+must be regenerated. Idle, zero-fill and interrupted IDs remain in the frozen
+population; an incomplete member makes the whole campaign NOT QUALIFIED.
 
 `receipts.evidence_bundle.files` lists explicit safe relative paths, roles and
 SHA256s beneath the staged receipt directory. Files are streamed and verified;
@@ -216,6 +244,30 @@ recorder manifest binds the clean actual recorder commit, journal/profile hashes
 and session identity. Every declared source hash must bind
 retained bytes. Hashes establish byte identity, not venue authenticity.
 
+The internal raw projector checks content as well as hashes. Its financial
+receipt binds exact role hashes, normalized input hashes and independently
+recomputed accounts. An exporter is retained for identity, never executed as
+proof of its output. Unsupported raw shapes are NOT QUALIFIED. Supported roles:
+
+| Role | Retained body and verification |
+| --- | --- |
+| `wallet` | `format=t1_raw_projection_v1`, account/session, opening/terminal/closing snapshots, ordered confirmed `activity`, final `activity_cursor`, and raw checkpoints. Snapshots retain integer micro-unit `collateral_evidence.balance`, native v2 `position_walks` for OPEN/REDEEMABLE_LOST and cursor-complete `order_pages`. Optional aggregate cash/positions must match native bodies. |
+| `clob` | Native request-cursor/response pages for `/data/trades` ending LTE=; confirmed maker quantities, identity and costs are independently reconstructed. |
+| `settlement` / `redemptions` | Final resolution token mapping, payout numerators/denominator, availability clock; independently retained transaction IDs, burned tokens, credit and finality clocks. |
+| `reward_d1`, `reward_d2`, `reward_followup_N` | Original collection clock, account/condition/day, individually identified pending/confirmed credits and full session allocation. Latest pending credits cannot certify completed payment. |
+| `books`, `marks`, `terms` | Exact raw two-token books/collection clocks/own manifest; native census when claimed; F0 snapshot terms and original availability/validity clocks. Acceptance state is checked against raw fields. |
+| `reward_samples`, `market_state`, `rebates` | Full sample epochs/population, raw public prints, condition/day fee inputs. Projection consistency does not establish sampling, execution-route or global-fee authority. |
+
+Each `position_walks` status holds a list of complete walk attempts, each a list
+of `{request_cursor,response}` pages. Response bodies retain `data` and
+`pagination.next_cursor/has_more`; multipage positions require two agreeing
+complete walks. Selected token/account/condition identities and other holdings
+are checked. Raw activity rows retain ID, kind, clock, confirmed status, cash
+delta, native BUY price/quantity or REDEEM burned quantities, and payment
+finality. Unknown manual exits, other terminal holdings or uncovered activity
+cannot qualify this flat BUY/hold projection. These envelopes require retained
+native bodies; copying normalized totals into them is not a native export.
+
 The JSON preregistration binds the common clean CLI source envelope, configuration,
 tolerances, exporter, `expected_session_ids`, a prospective `frozen_at_utc`, and
 `missing_session_rule=FAIL_WHOLE_CAMPAIGN_RETAIN_FULL_LOSS_ROWS`.
@@ -224,9 +276,13 @@ unqualified components. Actual venue sampling, midpoint semantics and condition-
 rebate precision require their own retained evidence. A passed conditional pilot
 cannot identify posting-induced competition: the passive incentive floor remains
 zero until a defensible intervention/response envelope is independently validated.
-Retained `midpoint_rule_evidence`, `reward_sample_evidence` and
-`fee_rounding_evidence` must name the actual rule/method/granularity and verified
-raw sources; merely choosing a candidate config does not qualify the component.
+No authoritative sample-feed, midpoint-rule, public execution-identity,
+global rebate-input or precision-rule verifier is implemented. Active sessions
+therefore retain those NOT QUALIFIED components even with internally consistent
+raw projections. Hash-linked `midpoint_rule_evidence`, `reward_sample_evidence`
+or `fee_rounding_evidence` labels cannot override this. Qualification needs a
+reviewed authoritative/independent adapter or a separately frozen uncertainty
+design. Irrelevant market components are NOT APPLICABLE for proven idle sessions.
 
 ## Native F0 intake and command
 

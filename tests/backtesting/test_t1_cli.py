@@ -37,7 +37,7 @@ def test_full_fixture_accuracy_cli_and_source_origin(tmp_path):
     args, output = inputs(tmp_path)
     assert t1_cli.main(['accuracy', *args]) == 2
     report = json.loads(output.read_bytes())
-    assert report['result']['status'] == 'PASS'
+    assert report['result']['status'] == 'CASH_PENDING'
     assert report['synthetic'] is True
     assert report['accuracy_certificate']['status'] == 'NOT QUALIFIED'
     assert len(report['code']['git_commit']) == 40
@@ -97,6 +97,6 @@ def test_canonical_module_process_binds_shared_interpreter_to_worktree(tmp_path)
                            cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=30)
     assert child.returncode == 2, child.stderr
     report = json.loads(output.read_bytes())
-    assert report['result']['status'] == 'PASS'
+    assert report['result']['status'] == 'CASH_PENDING'
     assert report['code']['source_sha256']['maker_core.quoting.book'] == hashlib.sha256(
         (REPO_ROOT / 'src/maker_core/quoting/book.py').read_bytes()).hexdigest()
