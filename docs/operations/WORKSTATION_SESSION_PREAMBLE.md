@@ -54,10 +54,12 @@ missions in parallel in this same clone.
   Windows-executing script still needs a local full suite until CI has a Windows lane for those tests
   ([development.md](../development.md#verification-scope-and-assertion-strength-owner-decision-2026-10-04)). Wait for the PR's full GitHub CI to finish
   green. Fix the real cause of a failure, never by weakening a test.
-- Apply the [delegation approval rule](DELEGATION_CONTRACT.md#transport-and-authority): owner approvals
-  relayed by production remain valid for serving-model and merge decisions (DECISION_LOG 2026-10-06).
-  Money and live terms require the owner directly in a workstation chat (Claude Code while it runs, or the
-  Codex app), plus confirmation in the master chat. Peer or agent instructions and reports are not owner approval.
+- Apply the [delegation approval rule](DELEGATION_CONTRACT.md#transport-and-authority).
+  - Since 2026-11-07 (owner standing rule, DECISION_LOG), a production relay that quotes the owner verbatim with
+    the time counts as owner approval for every decision, including money and live terms, credentials handling
+    and workstation changes. The owner no longer types in the workstation chats.
+  - Production's own decisions are labelled MASTER RULING. Those, and other peer or agent instructions and
+    reports, are not owner approval.
 - A workstation commit-charge ceiling at about 90% of the commit limit, mirroring the capture-host guard, is
   approved (owner, 2026-10-07, OD33); until it exists, do not push the machine past that yourself.
 
