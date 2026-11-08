@@ -130,8 +130,12 @@ def maintenance(runtime, policy):
                 from weather.market.lfc_capital import CapitalRefused
                 if isinstance(exc, CapitalRefused) and str(exc) in {
                         'capital_cash_unreconciled', 'capital_inventory_unreconciled'}:
-                    runtime.state.latch(uuid.uuid4().hex, 'followup_money_contradiction', runtime.clock.now())
-                    raise StateRefused('followup_money_contradiction') from None
+                    from weather.market.lfc_capital_consistency import observe
+                    from weather.market.lfc_campaign import TransientPrecheck
+                    try:
+                        observe(runtime.state, runtime.clock.now(), reason=str(exc))
+                    except TransientPrecheck:
+                        pass
                 money_gap = 'cash_followup_' + type(exc).__name__
             facts = collect(runtime)
             if money_gap:

@@ -2,7 +2,7 @@
 
 ERC-20 Transfer: https://eips.ethereum.org/EIPS/eip-20
 Receipt: https://ethereum.org/en/developers/docs/apis/json-rpc/#eth_gettransactionreceipt
-Only chain identity, token decimals and transaction receipts can be requested.
+Only chain identity, token decimals, receipts and historical CTF views can be requested.
 No transaction submission, signing, allowance or wallet mutation exists here.
 """
 from collections import defaultdict
@@ -20,16 +20,19 @@ from weather.market.wallet_reader_transport import direct_opener
 TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 MAX_BYTES = 2_000_000
 MAX_NEW_RECEIPTS = 200
+MAX_NEW_VIEWS = 100
 
 
 def rpc_read(method, params, *, opener=None):
     from weather.market.re1_transport import RPC
     from weather.market.lfc_capital import ASSET
     from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
+    from weather.market.lfc_redemption_native import permitted_call
     if not isinstance(params, list):
         raise ValueError('capital_rpc_method_refused')
     allowed = (method == 'eth_chainId' and params == [] or
                method == 'eth_call' and params == [{'to': ASSET, 'data': '0x313ce567'}, 'latest'] or
+               method == 'eth_call' and permitted_call(params) or
                method == 'eth_getTransactionReceipt' and len(params) == 1 and
                isinstance(params[0], str) and re.fullmatch('0x[0-9a-fA-F]{64}', params[0]))
     if not allowed:
@@ -84,11 +87,12 @@ def validate_asset(proof):
 def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep):
     """Retain raw receipts, reusing ledger-anchored historical observations."""
     from weather.market.lfc_capital import ASSET
-    cache = {}
+    cache, cached_views = {}, {}
     for event in ledger.capital_rows:
         proof = event.get('proof') if event['event'] == 'capital_native_group' else event.get('native_evidence')
         if proof is not None and proof.get('receipt') is not None and result(proof['receipt']) is not None:
             cache[proof['transaction_hash']] = proof['receipt']
+            cached_views[proof['transaction_hash']] = proof.get('ctf_views', {})
     chain = rpc('eth_chainId', [])
     sleep(.5)
     decimals = rpc('eth_call', [{'to': ASSET, 'data': '0x313ce567'}, 'latest'])
@@ -100,7 +104,7 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep):
         grouped[str(row['transaction_hash']).lower()].append(row)
     if len(set(grouped) - set(cache)) > MAX_NEW_RECEIPTS:
         raise ValueError('capital_native_receipt_budget')
-    proofs, byte_count = {}, 0
+    proofs, byte_count, new_views = {}, 0, 0
     known_groups = {row['proof_sha256'] for row in ledger.capital_rows if row['event'] == 'capital_native_group'}
     for tx, rows in grouped.items():
         receipt, failure, failed_response = cache.get(tx), None, None
@@ -120,6 +124,22 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep):
         proof = {'transaction_hash': tx, 'rows': rows, 'rows_sha256': digest(rows),
                  'receipt': receipt, 'failure_type': failure,
                  **({} if failed_response is None else {'failed_response': failed_response})}
+        if receipt is not None and result(receipt) is not None and any(r['type'] == 'REDEEM' for r in rows):
+            from weather.market.lfc_redemption_native import CTF, ctf_requests
+            views = dict(cached_views.get(tx, {}))
+            try:
+                for data in ctf_requests(result(receipt)):
+                    if data not in views:
+                        if new_views >= MAX_NEW_VIEWS:
+                            raise ValueError('capital_native_view_budget')
+                        new_views += 1
+                        try:
+                            views[data] = rpc('eth_call', [{'to': CTF, 'data': data}, result(receipt)['blockNumber']])
+                        finally:
+                            sleep(.5)
+                proof['ctf_views'] = views
+            except Exception as exc:
+                proof['redemption_failure_type'] = type(exc).__name__
         sha = digest(proof)
         if sha not in known_groups:
             ledger.record('capital_native_group', proof=proof, proof_sha256=sha)
@@ -225,6 +245,15 @@ def cash_native(source, proof):
         return 'OUT' if row['type'] == 'WITHDRAWAL' else 'IN'
     side = direction(source)
     rows = [row for row in proof['rows'] if str(row['proxy_wallet']).lower() == maker and direction(row) == side]
+    if source['type'] == 'REDEEM':
+        from weather.market.lfc_redemption_native import positions, REDEEM, POSITION
+        bundle = positions(source, proof)
+        if bundle is not None and all(row['type'] == 'REDEEM' for row in rows):
+            return sum(p['cash_native'] for p in bundle['positions'])
+        # A partial chain redemption is not a single-position proof merely
+        # because the API collapsed it to one row or supplied outcome 999.
+        if any(log.get('topics', [None])[0] in (REDEEM, POSITION) for log in receipt['logs']):
+            return None
     if side == 'IN' and len(rows) > 1:
         return None
     if len(rows) == 1 and side == 'OUT':

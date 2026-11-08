@@ -1,0 +1,23 @@
+{
+  "proxy_wallet": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "timestamp": 1794405600,
+  "condition_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+  "type": "REDEEM",
+  "size": 20.0,
+  "usdc_size": 20.0,
+  "transaction_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "price": 1.0,
+  "token_id": "101",
+  "side": "",
+  "outcome_index": 999,
+  "title": "Synthetic paired redemption",
+  "slug": "synthetic-paired-redemption",
+  "icon": "",
+  "event_slug": "synthetic",
+  "outcome": "",
+  "name": "fixture",
+  "pseudonym": "fixture",
+  "bio": "",
+  "profile_image": "",
+  "profile_image_optimized": ""
+}

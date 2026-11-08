@@ -154,6 +154,9 @@ def synchronize(ledger, baseline, read, *, funding='300'):
     book = CapitalBook(ledger)
     if inventory['changed']:
         raise CapitalRefused('capital_inventory_unreconciled')
+    if any(book.activities[key].get('principal_unproved') and item['cash_native'] is not None and
+           item['cost_basis_released_native'] for key, item in book.redemptions.items()):
+        raise CapitalRefused('capital_redemption_allocation_unproved')
     if book.bridge is not None:
         expected_cash = book.expected_cash()
         if cash < expected_cash:

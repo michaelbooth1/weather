@@ -45,12 +45,14 @@ def integer(value):
 
 def fill_lots(ledger):
     terminal_at = {r['order_id']: r['sequence'] for r in ledger.rows if r['event'] == 'leg_terminal'}
+    intent_at = {r['intent_key']: r['recorded_at_utc'] for r in ledger.rows if r['event'] == 'leg_intent'}
     return {key: {'token_id': leg['token_id'], 'condition_id': leg['condition_id'],
                   'quantity': quantity(leg['size_matched']),
                   'remaining_quantity': quantity(leg['size_matched']),
                   'basis': native(quantity(leg['size_matched']) * quantity(leg['price']), ceil=True),
                   'remaining_basis': native(quantity(leg['size_matched']) * quantity(leg['price']), ceil=True),
-                  'session_id': leg['session_id'], 'terminal_sequence': terminal_at.get(leg['order_id'], len(ledger.rows))}
+                  'session_id': leg['session_id'], 'intent_at_utc': intent_at[key],
+                  'terminal_sequence': terminal_at.get(leg['order_id'], len(ledger.rows))}
             for key, leg in ledger.legs.items() if leg['status'] == 'terminal' and quantity(leg['size_matched'])}
 
 
@@ -65,6 +67,8 @@ class CapitalBook:
         self.cash_in = self.cash_out = self.returned_principal = 0
         self.seen = set()
         self.removed = {}
+        self.removal_events = []
+        self.redeemed_transactions = {}
         self.unknown = []
         self.allocations = []
         self.activities, self.sources, self.activity_sequences, self.redemptions = {}, {}, {}, {}
@@ -87,6 +91,8 @@ class CapitalBook:
             if proof.get('failed_response'):
                 from weather.market.lfc_recording_io import response_bytes
                 encoded += len(response_bytes(proof['failed_response']))
+            from weather.market.lfc_recording_io import response_bytes
+            encoded += sum(len(response_bytes(v)) for v in proof.get('ctf_views', {}).values())
             if self.native_bytes + encoded > 64_000_000:
                 raise CapitalRefused('capital_native_storage_budget')
             for source in proof['rows']:
@@ -193,31 +199,24 @@ class CapitalBook:
                 raise CapitalRefused('capital_native_evidence_required')
             item = normalize_activity(row['source'], evidence)
             old = self.activities.get(item['id'])
-            if (old is None or old['cash_native'] is not None or item['cash_native'] is None or
+            if (old is None or item['cash_native'] is None or
+                    old['cash_native'] is not None and not ('native_redemption' not in old and 'native_redemption' in item) or
                     row.get('source_sha256') != digest(row['source']) or
                     row.get('previous_source_sha256') != self.sources[item['id']] or
-                    {k: v for k, v in item.items() if k != 'cash_native'} !=
-                    {k: v for k, v in old.items() if k != 'cash_native'}):
+                    {k: v for k, v in item.items() if k not in {'cash_native', 'native_redemption', 'principal_unproved'}} !=
+                    {k: v for k, v in old.items() if k not in {'cash_native', 'native_redemption', 'principal_unproved'}}):
                 raise CapitalRefused('capital_resolution_scope')
             cash, kind = item['cash_native'], item['type']
             before_bridge = self.bridge is not None and (self.activity_sequences[item['id']] < self.bridge['sequence'] or
                                                         self.cash_before_bridge(item))
-            if before_bridge and self.incoming(item) and kind != 'DEPOSIT':
+            if before_bridge and old['cash_native'] is None and self.incoming(item) and kind != 'DEPOSIT':
                 # The first balance already contains this previously unknown
                 # incoming credit. Reclassify its quarantined cash; never add
                 # the same receipt to the bridge a second time.
                 self.reclassify_legacy_credit(cash)
             if kind == 'REDEEM':
-                redemption = self.redemptions[item['id']]
-                basis = redemption['cost_basis_released_native']
-                principal = min(cash, basis)
-                self.losses -= principal
-                self.returned_principal += principal
-                if basis:
-                    self.credit('profit', cash - principal, item)
-                if not basis:
-                    self.credit('external', cash, item)
-                redemption.update(cash_native=cash, returned_principal_native=principal)
+                self.undo_redemption(old)
+                self.redeem(item, row['sequence'])
             elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
                 self.credit('incentives', cash, item)
             elif kind == 'DEPOSIT' or kind == 'TIP' and item['direction'] == 'IN':
@@ -225,9 +224,10 @@ class CapitalBook:
                     self.credit('external', cash, item)
             elif kind in {'WITHDRAWAL', 'TIP'}:
                 self.withdraw(cash, item, counted=not before_bridge)
-            if not before_bridge and self.incoming(item):
+            if kind != 'REDEEM' and not before_bridge and self.incoming(item):
                 self.cash_in += cash
-            self.unknown.remove(item['id'])
+            if item['id'] in self.unknown:
+                self.unknown.remove(item['id'])
             self.activities[item['id']], self.sources[item['id']] = item, row['source_sha256']
         elif event == 'capital_cost':
             if row.get('evidence_sha256') != digest(row.get('evidence')) or row.get('cost_id') in self.seen:
@@ -263,7 +263,7 @@ class CapitalBook:
         self.legacy_reclassified += reduction
 
     def credit(self, pool, cash, activity, *, sequence=None):
-        movement = {'kind': 'credit', 'pool': pool, 'amount': cash,
+        movement = {'kind': 'credit', 'pool': pool, 'amount': cash, 'activity_id': activity['id'],
                     'timestamp': activity['timestamp'],
                     'sequence': self.activity_sequences[activity['id']] if sequence is None else sequence}
         self.pool_movements.append(movement)
@@ -301,57 +301,103 @@ class CapitalBook:
         self.external, self.profit, self.incentives = (pools[k] for k in ('external', 'profit', 'incentives'))
         self.pools_dirty = False
 
+    def undo_redemption(self, activity):
+        key = activity['id']
+        redemption = self.redemptions.pop(key)
+        self.losses -= redemption['cost_basis_released_native'] - redemption['returned_principal_native']
+        self.returned_principal -= redemption['returned_principal_native']
+        if activity['cash_native'] is not None and not self.cash_before_bridge(activity) and not redemption.get('duplicate_of'):
+            self.cash_in -= activity['cash_native']
+        for allocation in self.allocations:
+            if allocation['activity_id'] == key:
+                lot = self.lots[allocation['intent_key']]
+                lot['remaining_quantity'] += quantity(allocation['quantity'])
+                lot['remaining_basis'] += allocation['cost_basis_released_native']
+        self.allocations = [a for a in self.allocations if a['activity_id'] != key]
+        for removal in self.removal_events:
+            if removal['activity_id'] == key:
+                self.removed[removal['token_id']] -= quantity(removal['quantity'])
+        self.removal_events = [r for r in self.removal_events if r['activity_id'] != key]
+        self.pool_movements = [m for m in self.pool_movements if m.get('activity_id') != key]
+        self.pools_dirty = True
+        for tx, owner in list(self.redeemed_transactions.items()):
+            if owner == key:
+                del self.redeemed_transactions[tx]
+
     def redeem(self, activity, sequence):
-        remaining = quantity(activity['quantity'])
-        lots = [(key, lot) for key, lot in self.lots.items()
-                if lot['token_id'] == activity['token_id'] and lot['condition_id'] == activity['condition_id']
-                and lot['remaining_quantity'] and lot['terminal_sequence'] < sequence]
-        # Do not allocate unrelated wallet redemption to our sleeve.
-        outside = quantity((self.anchor or {}).get('positions', {}).get(activity['token_id'], 0))
-        outside -= self.removed.get(activity['token_id'], Decimal(0))
-        if not lots and outside >= remaining > 0:
-            cash = activity['cash_native']
-            self.removed[activity['token_id']] = self.removed.get(activity['token_id'], Decimal(0)) + remaining
-            if cash is None:
-                self.unknown.append(activity['id'])
-            else:
-                self.credit('external', cash, activity)
-                if not self.cash_before_bridge(activity):
-                    self.cash_in += cash
-            self.redemptions[activity['id']] = {'activity_id': activity['id'], 'cash_native': cash,
-                'cost_basis_released_native': 0, 'returned_principal_native': 0, 'outside_campaign': True}
-            return
-        if not lots or remaining <= 0 or remaining > sum((lot['remaining_quantity'] for _, lot in lots), Decimal(0)):
-            raise CapitalRefused('capital_redemption_lot_scope')
-        basis = 0
-        for key, lot in lots:
-            take = min(remaining, lot['remaining_quantity'])
-            if not take:
-                break
-            release = (lot['remaining_basis'] if take == lot['remaining_quantity'] else
-                       int(Decimal(lot['remaining_basis']) * take / lot['remaining_quantity']))
-            lot['remaining_quantity'] -= take
-            lot['remaining_basis'] -= release
-            basis += release
-            remaining -= take
-            self.removed[lot['token_id']] = self.removed.get(lot['token_id'], Decimal(0)) + take
-            self.allocations.append({'activity_id': activity['id'], 'intent_key': key,
-                                     'quantity': str(take), 'cost_basis_released_native': release})
-        cash = activity['cash_native']
-        self.redemptions[activity['id']] = {'activity_id': activity['id'], 'cash_native': cash,
-            'cost_basis_released_native': basis, 'returned_principal_native': 0, 'outside_campaign': False}
-        if cash is None:
-            # Burned quantity is known, cash is not. Retain ALL basis at risk.
-            self.losses += basis
-            self.unknown.append(activity['id'])
-            return
-        principal = min(basis, cash)
-        self.returned_principal += principal
-        self.redemptions[activity['id']]['returned_principal_native'] = principal
+        key, cash = activity['id'], activity['cash_native']
+        bundle = activity.get('native_redemption')
+        if bundle is not None:
+            tx = bundle['transaction_hash']
+            if tx in self.redeemed_transactions:
+                self.redemptions[key] = {'activity_id': key, 'cash_native': 0,
+                    'cost_basis_released_native': 0, 'returned_principal_native': 0,
+                    'duplicate_of': self.redeemed_transactions[tx], 'outside_campaign': True}
+                return
+            self.redeemed_transactions[tx] = key
+            parts = bundle['positions']
+        else:
+            parts = [{'token_id': activity['token_id'], 'quantity': activity['quantity'], 'cash_native': cash}]
+        basis = principal = outside_cash = 0
+        refused = []
+        for part in parts:
+            token, remaining = part['token_id'], quantity(part['quantity'])
+            lots = [(k, lot) for k, lot in self.lots.items() if lot['token_id'] == token and
+                    (bundle is not None or lot['condition_id'] == activity['condition_id']) and
+                    lot['remaining_quantity'] and lot['terminal_sequence'] < sequence and
+                    utc(lot['intent_at_utc']).timestamp() <= activity['timestamp']]
+            total = remaining
+            # The snapshot already includes older campaign lots. Do not count
+            # their quantity a second time as unrelated owner holdings.
+            anchor = self.anchor or {}
+            cut = next((r['sequence'] for r in self.ledger.baselines if r['sha256'] == digest(anchor)), -1)
+            outside = max(Decimal(0), quantity(anchor.get('positions', {}).get(token, 0)) -
+                sum((lot['quantity'] for lot in self.lots.values() if lot['token_id'] == token and lot['terminal_sequence'] < cut), Decimal(0)))
+            outside -= sum((quantity(r['outside_quantity']) for r in self.removal_events if r['token_id'] == token), Decimal(0))
+            capacity = outside + sum((lot['remaining_quantity'] for _, lot in lots), Decimal(0))
+            if (remaining <= 0 or remaining > capacity or
+                    anchor and activity['timestamp'] < utc(anchor['at_utc']).timestamp()):
+                refused.append({'token_id': token, 'reason': 'unproved_or_pre_snapshot_redemption'})
+                outside_cash += part['cash_native'] or 0
+                continue
+            # Fungible outside inventory is consumed first: no unproved choice
+            # of which principal lot was redeemed can create sleeve headroom.
+            owner_take = min(max(outside, Decimal(0)), remaining)
+            remaining -= owner_take
+            outside_cash += (int(Decimal(part['cash_native']) * owner_take / total)
+                             if part['cash_native'] is not None else 0)
+            self.removed[token] = self.removed.get(token, Decimal(0)) + total
+            self.removal_events.append({'activity_id': key, 'token_id': token, 'quantity': str(total),
+                'outside_quantity': str(owner_take), 'timestamp': activity['timestamp']})
+            for intent, lot in lots:
+                take = min(remaining, lot['remaining_quantity'])
+                if not take:
+                    break
+                release = (lot['remaining_basis'] if take == lot['remaining_quantity'] else
+                           int(Decimal(lot['remaining_basis']) * take / lot['remaining_quantity']))
+                payout = (int(Decimal(part['cash_native']) * take / total)
+                          if part['cash_native'] is not None and not activity.get('principal_unproved') else 0)
+                returned = min(release, payout)
+                lot['remaining_quantity'] -= take
+                lot['remaining_basis'] -= release
+                basis += release
+                principal += returned
+                remaining -= take
+                self.allocations.append({'activity_id': key, 'intent_key': intent, 'quantity': str(take),
+                    'cost_basis_released_native': release, 'payout_native': payout, 'returned_principal_native': returned})
+        self.redemptions[key] = {'activity_id': key, 'cash_native': cash,
+            'cost_basis_released_native': basis, 'returned_principal_native': principal,
+            'outside_campaign': basis == 0, 'unallocated': refused}
         self.losses += basis - principal
-        self.credit('profit', cash - principal, activity)
-        if not self.cash_before_bridge(activity):
-            self.cash_in += cash
+        self.returned_principal += principal
+        if cash is None:
+            self.unknown.append(key)
+        else:
+            self.credit('external', outside_cash, activity)
+            self.credit('profit' if basis and not activity.get('principal_unproved') else 'external',
+                        max(0, cash - principal - outside_cash), activity)
+            if not self.cash_before_bridge(activity):
+                self.cash_in += cash
 
     def figures(self):
         self.refresh_pools()
@@ -441,13 +487,16 @@ def prefix_inventory(ledger, baseline, sequence):
             after[row['order_id']] = quantity(row['size_matched'])
             if row['sequence'] < cut:
                 before[row['order_id']] = quantity(row['size_matched'])
-        elif (event == 'capital_activity' and row['activity']['type'] == 'REDEEM' and
-              row['activity']['timestamp'] >= utc(baseline['at_utc']).timestamp()):
-            token = row['activity']['token_id']
-            expected[token] = expected.get(token, Decimal(0)) - quantity(row['activity']['quantity'])
     for oid, size in after.items():
         token = intents[orders[oid]]
         expected[token] = expected.get(token, Decimal(0)) + size - before.get(oid, Decimal(0))
+    from types import SimpleNamespace
+    prefix = SimpleNamespace(rows=ledger.rows[:sequence], capital_rows=[r for r in ledger.capital_rows if r['sequence'] < sequence and r['event'] != 'capital_bridge'],
+        legs=ledger.legs, baselines=ledger.baselines, enrollment=ledger.enrollment)
+    for removal in CapitalBook(prefix).removal_events:
+        if removal['timestamp'] >= utc(baseline['at_utc']).timestamp():
+            token = removal['token_id']
+            expected[token] = expected.get(token, Decimal(0)) - quantity(removal['quantity'])
     if any(size < 0 for size in expected.values()):
         raise CapitalRefused('capital_bridge_inventory')
     return {token: str(size) for token, size in expected.items() if size}
@@ -471,7 +520,13 @@ def normalize_activity(row, native_evidence=None):
     else:
         from weather.market.lfc_capital_native import cash_native
         cash = cash_native(row, native_evidence)
-    return {'id': digest(identity), 'wallet': str(row['proxy_wallet']).lower(), 'type': row['type'],
+    bundle = None
+    if native_evidence is not None and row['type'] == 'REDEEM' and cash is not None:
+        from weather.market.lfc_redemption_native import positions
+        bundle = positions(row, native_evidence)
+    allocation = ({'native_redemption': bundle} if bundle is not None else
+                  {'principal_unproved': True} if native_evidence is not None and row['type'] == 'REDEEM' else {})
+    return {**allocation, 'id': digest(identity), 'wallet': str(row['proxy_wallet']).lower(), 'type': row['type'],
             'token_id': str(row['token_id']), 'condition_id': str(row['condition_id']).lower(),
             'quantity': str(quantity(row['size'])),
             'cash_native': cash,

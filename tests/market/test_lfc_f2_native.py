@@ -88,14 +88,15 @@ def test_non_native_reward_never_funds_trading_and_outgoing_is_native_cost():
 def test_native_redemption_bridges_legacy_lots_and_cached_receipt_is_not_refetched(tmp_path):
     from tests.market.test_lfc_f2_capital_reads import setup_read, packet
     from weather.market.lfc_capital_reads import read_activity, synchronize
-    ledger, baseline, read = setup_read(tmp_path)
-    row = source(cash='20')
+    from tests.market.test_lfc_redemption_native import paired
+    ledger, baseline, read = setup_read(tmp_path, token='101')
+    row, position_proof, _ = paired()
     raw = read_activity(MAKER, int(row['timestamp']), int(row['timestamp']),
                         get=lambda *a: packet([row]), sleep=lambda _: None)
     calls = []
     def rpc(method, params):
         calls.append(method)
-        return rpc_packet('0x89') if method == 'eth_chainId' else rpc_packet('0x6') if method == 'eth_call' else proof([row])['receipt']
+        return rpc_packet('0x89') if method == 'eth_chainId' else rpc_packet('0x6') if method == 'eth_call' else position_proof['receipt']
     read['capital_activity'] = collect(raw, ledger=ledger, rpc=rpc, sleep=lambda _: None)
     read['positions'] = []
     read['balances'] = {'available_collateral': '310', 'assets': {ASSET: '310'},

@@ -28,14 +28,14 @@ def native_packet(packet):
                                            'decimals': rpc_packet('0x6')}, 'native_receipts': {}}
 
 
-def setup_read(tmp_path):
+def setup_read(tmp_path, *, token='yes'):
     ledger = ledger_at(tmp_path)
     now = ledger.clock()
     baseline = take_baseline(label='t40', now=now, maker_address=MAKER, positions=[], open_orders=[], available_collateral='100')
     write_baseline(ledger.path.parent, baseline, ledger)
-    filled(ledger, 'legacy')
+    filled(ledger, 'legacy', token=token)
     read = {'complete': True, 'maker_address': MAKER, 'open_orders': [],
-            'positions': [{'asset': 'yes', 'size': '20'}],
+            'positions': [{'asset': token, 'size': '20'}],
             'balances': {'available_collateral': '290', 'assets': {ASSET: '290'},
                          'collateral_evidence': {'balance': '290000000'}},
             'ended_at_utc': now.isoformat(), 'capital_activity': native_packet(read_activity(MAKER, int(now.timestamp()),

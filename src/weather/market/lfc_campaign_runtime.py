@@ -382,7 +382,15 @@ class Runtime:
         capital = None
         if 'capital_activity' in read:
             from weather.market.lfc_capital_reads import synchronize
-            capital = synchronize(ledger, self.original_baseline(ledger), read)
+            from weather.market.lfc_capital import CapitalRefused
+            from weather.market.lfc_capital_consistency import observe, REASONS
+            try:
+                capital = synchronize(ledger, self.original_baseline(ledger), read)
+            except CapitalRefused as exc:
+                if str(exc) not in REASONS:
+                    raise
+                observe(self.state, self.clock.now(), reason=str(exc), read_sha256=digest(read))
+            observe(self.state, self.clock.now(), read_sha256=digest(read))
         elif any(r['event'] == 'capital_bridge' for r in ledger.capital_rows):
             raise StateRefused('capital_activity_missing')
         inventory = inventory_delta(ledger, self.original_baseline(ledger), normalize_positions(read['positions']))

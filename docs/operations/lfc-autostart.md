@@ -335,6 +335,21 @@ a new immutable incident and needs its own owner decision. Prior incident and
 closure receipts and consumed dates remain intact; an old closure never clears a
 future occurrence or a different artifact. Final start gates check active incidents.
 
+Native redemption allocation is position scoped. CTF payout vectors at the
+receipt block, ERC-1155 quantities and native pUSD transfers must agree; v2
+module/AutoRedeemer events bind each position payout. A collapsed paired API row
+can cover both tokens; repeated rows cannot credit the transaction twice. Every
+lot retains its own cost ceiling. Unmatched or pre-snapshot reads are quarantined
+outside principal. A native transfer without a position allocation returns no
+principal. Unknown legacy cash still refuses enrollment of the capital bridge.
+The public contract sources are [CTF](https://github.com/gnosis/conditional-tokens-contracts/blob/master/contracts/ConditionalTokens.sol)
+and [Polymarket v2](https://github.com/Polymarket/polymarket-v2-external).
+
+A cash or inventory mismatch first defers as propagation pending. A second
+mismatch at least 15 minutes after the first latches a monetary incident. A
+consistent read clears only this candidate; it never clears an incident, a
+claimed date or an ambiguous placement. These observations survive a reboot.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

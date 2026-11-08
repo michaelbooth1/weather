@@ -202,19 +202,21 @@ def test_real_synchronize_refuses_unknown_legacy_payout_under_300_then_reconcile
     from tests.market.test_lfc_f2_native import TX
     from weather.market.lfc_capital import ASSET
     from weather.market.lfc_capital_reads import read_activity, synchronize
-    ledger, baseline, read = setup_read(tmp_path)
-    row = source(cash='20')
+    from tests.market.test_lfc_redemption_native import paired
+    ledger, baseline, read = setup_read(tmp_path, token='101')
+    row, position_proof, _ = paired()
     raw = native_packet(read_activity(MAKER, int(NOW.timestamp()), int(NOW.timestamp()),
                         get=lambda *a: packet([row]), sleep=lambda _: None))
     unknown = {**proof([row]), 'receipt': None}
     read['capital_activity'] = {**raw, 'native_receipts': {TX: unknown}}
-    read['positions'] = []
+    read['positions'] = [{'asset': '101', 'size': '20'}]
     read['balances'] = {'available_collateral': '200', 'assets': {ASSET: '200'},
                         'collateral_evidence': {'balance': '200000000'}}
     with pytest.raises(CapitalRefused, match='capital_bridge_unknown_cash'):
         synchronize(ledger, baseline, read)
     assert CapitalBook(ledger).bridge is None and ledger.L() == 10
-    read['capital_activity']['native_receipts'][TX] = proof([row])
+    read['capital_activity']['native_receipts'][TX] = position_proof
+    read['positions'] = []
     result = synchronize(ledger, baseline, read)
     assert result['cash_bridge_complete'] and result['funding_native'] == 190_000_000
     assert result['returned_principal_native'] == result['segregated_profit_native'] == 10_000_000
