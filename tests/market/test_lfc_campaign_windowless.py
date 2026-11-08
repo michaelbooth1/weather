@@ -52,7 +52,7 @@ def test_windowless_binding_refuses_before_any_wrapper_executes(tmp_path, change
     env = dict(os.environ)
     if changed == 'environment': env['PYTHONPATH'] = 'forbidden-override'
     if changed == 'receipt_hash': command[-1] = 'f' * 64
-    child = subprocess.run(command, env=env, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+    child = subprocess.run(command, env=env, timeout=15)
     assert child.returncode == 1 and not marker.exists()
 
 
@@ -68,7 +68,7 @@ def test_killing_windowless_parent_tears_down_its_wrapper_and_grandchild(tmp_pat
 Start-Sleep -Seconds 60
 """
     pythonw, launcher, release, _ = fixture(tmp_path, body)
-    child = subprocess.Popen(argv(pythonw, launcher, release), creationflags=subprocess.CREATE_NO_WINDOW)
+    child = subprocess.Popen(argv(pythonw, launcher, release))
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     from ctypes import wintypes
     kernel.OpenProcess.argtypes, kernel.OpenProcess.restype = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD), wintypes.HANDLE
