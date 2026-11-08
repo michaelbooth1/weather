@@ -23,7 +23,7 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$Worktree = '',
-    [string]$ShareRoot = '\\192.168.1.247\mg2-inputs',
+    [string]$ShareRoot = '\\192.168.1.192\mg2-inputs',
     [string]$Inbox = 'C:\Users\Michael\Documents\github\weather\data\inbox\mg2-inputs',
     [string]$Ledger = 'C:\t\mg2\forward\input_receipts.jsonl',
     [string]$LogRoot = 'C:\t\mg2\forward\task',

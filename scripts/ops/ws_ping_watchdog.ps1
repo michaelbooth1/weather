@@ -13,7 +13,7 @@
 # no import from the repository's Python code. Design: docs/operations/WS_PING_WATCHDOG.md.
 [CmdletBinding()]
 param(
-    [string]$TargetHost = "192.168.1.247",
+    [string]$TargetHost = "192.168.1.192",
     [ValidateRange(0, 65535)][int]$TcpPort = 22,          # 0 disables the TCP check
     [ValidateRange(1, 100)][int]$MissThreshold = 2,
     [ValidateRange(5, 1440)][int]$ReminderMinutes = 60,

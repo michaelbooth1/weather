@@ -335,6 +335,17 @@ loss 2026-11-02, five `reward-*.jsonl` journals, about six hours dark.
 Never truncate, repair or rewrite a journal, and never touch a sealed segment.
 Quarantined files are retained evidence: never delete them.
 
+The same failure mode also reaches the order-book tapes. Each of four 2026-09-03 `order_books_summary.csv` files
+(austin, dallas and houston at line 1432, nyc at line 6712) has one row whose `capture_id` is a NUL-filled run of
+about 205-212 K characters. The row's other 51 columns are intact, and the bytes are as captured (they match the
+2026-11-06 re-copy's batch 1 sha256 values). This is likely an unclean-shutdown preallocation. Python's `csv` module
+refuses such a row (field limit 131072), which stopped the WS-3 dev projection on 2026-11-06. The workstation's
+byte-level NUL scan of B's 10 markets found NUL lines only on 2026-09-02 and 09-03; its scan hash and per-window
+counts are in [the dated scan report](../roadmap/agent-report-2026-11-06-order-book-nul-scan.md).
+
+WS-3 drops exactly the NUL lines through one pinned shared filter (C14 Clarification 2 in
+`docs/research/ws3-early-warning-prereg-signature-2026-11-06.md`). Never repair the tapes themselves.
+
 ## Commands and registration
 
 From an integrated checkout with the pinned dependencies installed:

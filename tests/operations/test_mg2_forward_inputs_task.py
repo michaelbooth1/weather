@@ -269,10 +269,12 @@ def _pinned_worktree(tmp_path):
     return tmp_path / "pinned", hashlib.sha256(launcher.read_bytes()).hexdigest()
 
 
-def register(tmp_path, *, whatif=True, build=False, new_exists=False, sha=None, name=NAME):
+def register(tmp_path, *, whatif=True, build=False, new_exists=False, sha=None, name=NAME, share=None):
     wt, real_sha = _pinned_worktree(tmp_path)
     params = {"Worktree": str(wt), "WorkingDirectory": str(tmp_path / "work"), "TaskName": name,
               "ExpectedLauncherSha256": real_sha if sha is None else sha}
+    if share is not None:
+        params["ShareRoot"] = share
     env = {**os.environ, "REGISTRAR": str(REGISTRAR), "REGISTRAR_PARAMS": json.dumps(params),
            "WHATIF": "1" if whatif else "0", "BUILD": "1" if build else "0", "NEW_NAME": NAME,
            "NEW_EXISTS": "1" if new_exists else "0"}
@@ -301,6 +303,20 @@ def test_registrar_whatif_prints_the_schedule_and_registers_nothing(tmp_path):
     assert "-Build" not in out and "Build stage      : False" in out
     assert f"Launcher sha256  : {sha}" in out
     assert "nothing registered" in out and not (tmp_path / "work").exists()
+
+
+def test_registrar_passes_the_default_share_root_explicitly(tmp_path):
+    payload, _, _ = register(tmp_path)
+    assert payload["error"] == ""
+    assert f'-LogRoot "{tmp_path / "work"}" -ShareRoot "\\\\192.168.1.192\\mg2-inputs"' in payload["output"]
+    assert "192.168.1.247" not in payload["output"]
+
+
+def test_registrar_takes_a_share_root_and_refuses_a_malformed_one(tmp_path):
+    payload, _, _ = register(tmp_path / "a", share=r"\\host-b\mg2-inputs")
+    assert payload["error"] == "" and r'-ShareRoot "\\host-b\mg2-inputs"' in payload["output"]
+    payload, _, _ = register(tmp_path / "b", share='\\\\host\\share" -Build')
+    assert "invalid share root" in payload["error"] and payload["mutations"] == []
 
 
 def test_registrar_build_switch_adds_the_stage_to_the_action(tmp_path):
