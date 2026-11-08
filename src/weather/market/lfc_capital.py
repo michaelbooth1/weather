@@ -17,7 +17,8 @@ SCALE = 10 ** DECIMALS
 ASSET = '0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb'
 MODE = 'fixed_sleeve_redeemed_principal_only'
 CEILING = 300 * SCALE
-EVENTS = {'capital_anchor', 'capital_bridge', 'capital_native_group', 'capital_activity', 'capital_resolution', 'capital_cost'}
+EVENTS = {'capital_anchor', 'capital_bridge', 'capital_native_group', 'capital_activity', 'capital_resolution',
+          'capital_cost', 'capital_zero_resolution'}
 
 
 class CapitalRefused(ValueError):
@@ -71,7 +72,9 @@ class CapitalBook:
         self.redeemed_transactions = {}
         self.unknown = []
         self.allocations = []
+        self.zero_resolutions = []
         self.activities, self.sources, self.activity_sequences, self.redemptions = {}, {}, {}, {}
+        self.activity_transactions = {}
         self.native_groups, self.native_bytes = {}, 0
         self.bridge_quarantine = None
         self.legacy_reclassified = self.withdrawal_costs = 0
@@ -156,10 +159,12 @@ class CapitalBook:
             self.activities[key] = activity
             self.sources[key] = row['source_sha256']
             self.activity_sequences[key] = row['sequence']
+            self.activity_transactions[key] = str(row['source']['transaction_hash']).lower()
             cash = activity['cash_native']
             kind = activity['type']
             included = self.cash_before_bridge(activity)
-            if included and cash is not None and self.incoming(activity) and kind != 'DEPOSIT':
+            if (included and cash is not None and self.incoming(activity) and kind != 'DEPOSIT' and
+                    not self.known_redemption_cash(activity)):
                 self.reclassify_legacy_credit(cash)
             if kind == 'REDEEM':
                 self.redeem(activity, row['sequence'])
@@ -175,7 +180,7 @@ class CapitalBook:
                     self.unknown.append(key)
                 else:
                     # Every later contribution is segregated, never new principal.
-                    if self.bridge is not None and not included:
+                    if self.deposit_is_external(activity):
                         self.credit('external', cash, activity)
                     if not included:
                         self.cash_in += cash
@@ -201,6 +206,7 @@ class CapitalBook:
             old = self.activities.get(item['id'])
             if (old is None or item['cash_native'] is None or
                     old['cash_native'] is not None and not ('native_redemption' not in old and 'native_redemption' in item) or
+                    old['cash_native'] is not None and old['cash_native'] != item['cash_native'] or
                     row.get('source_sha256') != digest(row['source']) or
                     row.get('previous_source_sha256') != self.sources[item['id']] or
                     {k: v for k, v in item.items() if k not in {'cash_native', 'native_redemption', 'principal_unproved'}} !=
@@ -209,7 +215,8 @@ class CapitalBook:
             cash, kind = item['cash_native'], item['type']
             before_bridge = self.bridge is not None and (self.activity_sequences[item['id']] < self.bridge['sequence'] or
                                                         self.cash_before_bridge(item))
-            if before_bridge and old['cash_native'] is None and self.incoming(item) and kind != 'DEPOSIT':
+            if (before_bridge and old['cash_native'] is None and self.incoming(item) and kind != 'DEPOSIT' and
+                    not self.known_redemption_cash(item)):
                 # The first balance already contains this previously unknown
                 # incoming credit. Reclassify its quarantined cash; never add
                 # the same receipt to the bridge a second time.
@@ -219,9 +226,11 @@ class CapitalBook:
                 self.redeem(item, row['sequence'])
             elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
                 self.credit('incentives', cash, item)
-            elif kind == 'DEPOSIT' or kind == 'TIP' and item['direction'] == 'IN':
-                if not before_bridge or kind != 'DEPOSIT':
+            elif kind == 'DEPOSIT':
+                if self.deposit_is_external(item):
                     self.credit('external', cash, item)
+            elif kind == 'TIP' and item['direction'] == 'IN':
+                self.credit('external', cash, item)
             elif kind in {'WITHDRAWAL', 'TIP'}:
                 self.withdraw(cash, item, counted=not before_bridge)
             if kind != 'REDEEM' and not before_bridge and self.incoming(item):
@@ -229,6 +238,29 @@ class CapitalBook:
             if item['id'] in self.unknown:
                 self.unknown.remove(item['id'])
             self.activities[item['id']], self.sources[item['id']] = item, row['source_sha256']
+        elif event == 'capital_zero_resolution':
+            from weather.market.lfc_settlement_record import validate_settlement_row, envelope
+            from weather.market.lfc_recording_io import response_bytes
+            record = validate_settlement_row(row['settlement'], row['condition_id'])
+            if record.get('terminal') is not True or row.get('settlement_sha256') != digest(record):
+                raise CapitalRefused('capital_zero_resolution_evidence')
+            payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']
+            zero_tokens = {token for token, payout in zip(record['token_ids'], payouts) if payout == 0}
+            keys = row.get('intent_keys')
+            if not isinstance(keys, list) or not keys or len(keys) != len(set(keys)):
+                raise CapitalRefused('capital_zero_resolution_scope')
+            for key in keys:
+                lot = self.lots[key]
+                if (lot['condition_id'] != row['condition_id'] or lot['token_id'] not in zero_tokens or
+                        lot['terminal_sequence'] >= row['sequence'] or lot['remaining_basis'] <= 0 or
+                        lot['remaining_quantity'] <= 0 or lot.get('zero_payout_evidence_sha256')):
+                    raise CapitalRefused('capital_zero_resolution_scope')
+                self.losses += lot['remaining_basis']
+                self.zero_resolutions.append({'intent_key': key, 'token_id': lot['token_id'],
+                    'realized_loss_native': lot['remaining_basis'], 'settlement_sha256': row['settlement_sha256']})
+                lot['remaining_basis'] = 0
+                lot['zero_payout_evidence_sha256'] = row['settlement_sha256']
+                # Physical quantity remains until an actual burn is proved.
         elif event == 'capital_cost':
             if row.get('evidence_sha256') != digest(row.get('evidence')) or row.get('cost_id') in self.seen:
                 raise CapitalRefused('capital_cost_evidence')
@@ -250,6 +282,19 @@ class CapitalBook:
         # Same-second rows require fresh cash reconciliation; their ordering
         # cannot be proved from the Data API's whole-second timestamp.
         return self.bridge is not None and activity['timestamp'] < int(utc(self.bridge['recorded_at_utc']).timestamp())
+
+    def known_redemption_cash(self, activity):
+        if activity['type'] != 'REDEEM':
+            return False
+        tx = self.activity_transactions[activity['id']]
+        return any(key != activity['id'] and self.activity_transactions[key] == tx and
+                   prior['type'] == 'REDEEM' and prior['cash_native'] == activity['cash_native']
+                   for key, prior in self.activities.items())
+
+    def deposit_is_external(self, activity):
+        enrollment = self.ledger.enrollment
+        return (enrollment is not None and activity['timestamp'] >= utc(enrollment['recorded_at_utc']).timestamp() or
+                self.bridge is not None and not self.cash_before_bridge(activity))
 
     def reclassify_legacy_credit(self, cash):
         # Consume ONLY quarantine originating at the bridge, never a later
@@ -334,6 +379,20 @@ class CapitalBook:
                     'cost_basis_released_native': 0, 'returned_principal_native': 0,
                     'duplicate_of': self.redeemed_transactions[tx], 'outside_campaign': True}
                 return
+            # A late receipt proves the whole transaction, not one API row at
+            # a time. Undo provisional same-transaction removals before assigning
+            # its positions, or another row's unknown burn would hide a lot.
+            for other, old in list(self.activities.items()):
+                if (other != key and self.activity_transactions[other] == tx and old['type'] == 'REDEEM' and
+                        other in self.redemptions and not self.redemptions[other].get('duplicate_of')):
+                    if old['cash_native'] not in (None, cash):
+                        raise CapitalRefused('capital_redemption_cash_contradiction')
+                    self.undo_redemption(old)
+                    self.redemptions[other] = {'activity_id': other, 'cash_native': 0,
+                        'cost_basis_released_native': 0, 'returned_principal_native': 0,
+                        'duplicate_of': key, 'outside_campaign': True}
+                    if other in self.unknown:
+                        self.unknown.remove(other)
             self.redeemed_transactions[tx] = key
             parts = bundle['positions']
         else:
@@ -373,6 +432,8 @@ class CapitalBook:
                 take = min(remaining, lot['remaining_quantity'])
                 if not take:
                     break
+                if lot.get('zero_payout_evidence_sha256') and part['cash_native'] not in (None, 0):
+                    raise CapitalRefused('capital_zero_payout_contradiction')
                 release = (lot['remaining_basis'] if take == lot['remaining_quantity'] else
                            int(Decimal(lot['remaining_basis']) * take / lot['remaining_quantity']))
                 payout = (int(Decimal(part['cash_native']) * take / total)
@@ -416,6 +477,7 @@ class CapitalBook:
                 'segregated_external_cash_native': self.external, 'charged_native': charged,
                 'headroom_native': max(0, funding - charged), 'returned_principal_native': self.returned_principal,
                 'unknown_payouts': list(self.unknown), 'cost_basis_releases': list(self.allocations),
+                'zero_payout_losses': list(self.zero_resolutions),
                 'redemptions': list(self.redemptions.values())}
 
     def gate(self, *, reserve, available_cash=None, own_resting=0):
@@ -491,8 +553,10 @@ def prefix_inventory(ledger, baseline, sequence):
         token = intents[orders[oid]]
         expected[token] = expected.get(token, Decimal(0)) + size - before.get(oid, Decimal(0))
     from types import SimpleNamespace
+    prefix_keys = {r['intent_key'] for r in ledger.rows[:sequence] if r['event'] == 'leg_intent'}
     prefix = SimpleNamespace(rows=ledger.rows[:sequence], capital_rows=[r for r in ledger.capital_rows if r['sequence'] < sequence and r['event'] != 'capital_bridge'],
-        legs=ledger.legs, baselines=ledger.baselines, enrollment=ledger.enrollment)
+        legs={key: leg for key, leg in ledger.legs.items() if key in prefix_keys},
+        baselines=ledger.baselines, enrollment=ledger.enrollment)
     for removal in CapitalBook(prefix).removal_events:
         if removal['timestamp'] >= utc(baseline['at_utc']).timestamp():
             token = removal['token_id']

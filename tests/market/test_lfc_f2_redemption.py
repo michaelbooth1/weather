@@ -126,4 +126,3 @@ def test_prebridge_unknown_payout_must_not_become_an_owner_contribution(tmp_path
     assert facts['funding_native'] == 100_000_000, facts
     assert facts['headroom_native'] == 90_000_000, facts
     assert extra_admitted is False
-

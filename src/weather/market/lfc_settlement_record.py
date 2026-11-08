@@ -180,6 +180,11 @@ def record_settlement(root, condition, *, clock=None, get=public_get, traded_tok
 
 def validate_settlement(path, condition):
     row = strict_json(read_bytes(path, MAX_BYTES * 6))
+    return validate_settlement_row(row, condition)
+
+
+def validate_settlement_row(row, condition):
+    """Pure replay validator for the retained recorder evidence in the ledger."""
     if row.get('schema_version') != SETTLEMENT_SCHEMA or row.get('condition_id') != condition:
         raise ValueError('settlement_record_scope')
     terminal, winner, pair = resolution_result(condition, response_bytes(row['resolution']),

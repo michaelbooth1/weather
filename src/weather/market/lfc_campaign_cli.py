@@ -34,10 +34,12 @@ def parser():
     history = commands.add_parser('owner-recover-history', help='owner-only explicit pre-enrollment money recovery')
     history.add_argument('--head', required=True)
     history.add_argument('--session', required=True)
-    for command in ('check', 'tick', 'owner-recover', 'owner-clear-workload'):
+    for command in ('check', 'tick', 'owner-recover', 'owner-clear-workload', 'final-look'):
         item = commands.add_parser(command)
         item.add_argument('--release', required=True)
         item.add_argument('--release-sha256', required=True)
+        if command == 'final-look':
+            item.add_argument('--output', type=Path, required=True)
         if command == 'check':
             item.add_argument('--require-enabled', action='store_true')
         if command == 'owner-recover':
@@ -203,6 +205,11 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         with account_lease(release['maker_address']):
             root, state = bound_state(release, clock)
             load = lambda: load_policy(release['campaign_path'])
+            if args.command == 'final-look':
+                from weather.market.lfc_f2_final import write_final
+                row = write_final(state, load(), root=root, output=args.output, now=clock.now())
+                print(json.dumps({'state': row['assessment']['state'], 'accounting_complete': row['accounting_complete']}))
+                return 0
             if args.command == 'check':
                 state.require_history()
                 state.require_retained_evidence()
@@ -211,6 +218,10 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                 policy = load()
                 if args.require_enabled and not policy.raw['enabled']:
                     raise StateRefused('campaign_disabled')
+                if args.require_enabled and policy.f2:
+                    runtime = Runtime(state=state, pilot_root=root, policy_path=release['campaign_path'], release=release,
+                        clock=clock, control_root=CONTROL_ROOT, task_enabled=lambda: False)
+                    print(json.dumps({'state': 'ENROLLMENT_FUNDING', **runtime.confirm_funding()}))
                 print('Campaign policy and immutable identity valid; no live action performed.')
                 return 0
             runtime = Runtime(state=state, pilot_root=root, policy_path=release['campaign_path'], release=release,

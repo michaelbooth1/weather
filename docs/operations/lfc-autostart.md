@@ -368,6 +368,38 @@ Each tick appends its exit code and sanitized traceback frames to
 `status/campaign-ticks.jsonl`, rotating at 1 MiB and retaining archives. No
 exception messages, source text, prices, market IDs or private paths enter it.
 
+Manual or automatic redemption is not manual trading. The owner chooses a
+manual redemption cadence or the separately authorized auto-redeem facility;
+this task only records their evidence and never triggers redemption. Top up
+BEFORE enrolling. Deposits after enrollment stay separate forever and cannot
+increase trading principal. The owner's pre-enable check now performs the
+read-only bridge and prints ENROLLMENT_FUNDING with the actual `funding_native`.
+For the intended fully funded sleeve, confirm `funding_native = 300000000` and
+`capital_bridge_complete = true`; a configured ceiling is not proof of funding.
+
+A retained resolution with an exact zero payout books that lot's remaining basis
+as realized loss without requiring a burn. Its unswept physical quantity remains
+in account inventory reconciliation and appears separately from carried economic
+inventory. A later burn cannot charge the same basis twice. Prices never settle
+these lots; a conflicting positive payout refuses.
+
+After the December evidence cutoff, the cleared owner/custodian may create one
+read-only snapshot with the qualified interpreter:
+
+```powershell
+& '<qualified-python>' -m weather.market.lfc_campaign_cli final-look --release '<release.json>' --release-sha256 '<sha256>' --output '<new-final-cash.json>'
+```
+
+The command refuses before the configured cutoff, writes create-only and calls
+`final_cash_assessment` at the final-look time. Between noon and 18:00 Toronto it
+labels the look not open. Unredeemed winners at cutoff are a separate quantity
+and payout-evidence table, never cash; later receipts remain supplements. Known
+purchase/redemption cash subtotals are MEASURED and exclude PLANNING predictions.
+The current automatic evidence does not prove earned-session links for paid
+rewards, all fee/cost attribution, family closure or an independent cutoff cash
+bridge. These remain explicit gaps and the snapshot is INCONCLUSIVE; the command's
+zero exit means the report was written, not that a scientific PASS was proved.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

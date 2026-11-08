@@ -37,8 +37,14 @@ def measured(ledger, sessions):
                  'campaign_paid_or_reserved_costs_native': book.costs},
         'carried_inventory': [{'intent_key': key, 'token_id': lot['token_id'],
             'quantity': str(lot['remaining_quantity']), 'cost_basis_native': lot['remaining_basis']}
-            for key, lot in book.lots.items() if lot['session_id'] in sessions and lot['remaining_quantity']],
+            for key, lot in book.lots.items() if lot['session_id'] in sessions and lot['remaining_quantity'] and
+            not lot.get('zero_payout_evidence_sha256')],
+        'unswept_zero_payout_positions': [{'intent_key': key, 'token_id': lot['token_id'],
+            'quantity': str(lot['remaining_quantity']), 'settlement_sha256': lot['zero_payout_evidence_sha256']}
+            for key, lot in book.lots.items() if lot['session_id'] in sessions and lot['remaining_quantity'] and
+            lot.get('zero_payout_evidence_sha256')],
         'settlement': {'cost_basis_releases': releases, 'redemptions': redemptions,
+                       'zero_payout_losses': [r for r in book.zero_resolutions if book.lots[r['intent_key']]['session_id'] in sessions],
                        'unknown_payouts': [key for key in book.unknown if key in ids]},
         'rewards': {'accruals': [], 'actually_paid_native': None, 'rebates_actually_paid_native': None,
                     'account_cash_credits': credits, 'earned_session_link_verified': False,

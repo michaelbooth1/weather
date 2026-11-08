@@ -138,6 +138,9 @@ def maintenance(runtime, policy):
                         pass
                 money_gap = 'cash_followup_' + type(exc).__name__
             facts = collect(runtime)
+            from weather.market.lfc_capital_settlement import record_zero_payouts
+            facts['zero_payout_lots_realized'] = (record_zero_payouts(runtime.state.ledger, runtime.pilot_root)
+                if getattr(runtime.state.ledger, 'capital_rows', ()) else 0)
             if money_gap:
                 facts['gaps'].append(money_gap)
             runtime.state.save('followups/' + now.strftime('%Y%m%dT%H%M%S%fZ') + '.json', facts)

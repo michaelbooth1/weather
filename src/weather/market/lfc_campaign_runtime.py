@@ -233,6 +233,24 @@ class Runtime:
         from weather.market.lfc_campaign_visibility import notify_control
         return notify_control(self, row)
 
+    def confirm_funding(self):
+        """Owner pre-enable enrollment read; no session/date/order capability."""
+        with self.admission():
+            ledger = self.reload_ledger()
+            self.state.require_history()
+            self.state.require_retained_evidence()
+            proof = self.core_proof(ledger, self.read_account())
+            capital = proof.get('capital') or {}
+            if (proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
+                    proof.get('unknown_submit') is not False or capital.get('cash_bridge_complete') is not True or
+                    self.state.incidents()):
+                raise StateRefused('enrollment_funding_unreconciled')
+            row = {'funding_native': capital['funding_native'], 'cash_asset': 'pUSD', 'native_decimals': 6,
+                   'capital_bridge_complete': True, 'ledger_head_sha256': ledger.previous,
+                   'proof': proof, 'observed_at_utc': self.clock.now().isoformat()}
+            self.state.save('funding/' + uuid.uuid4().hex + '.json', row)
+            return {key: row[key] for key in ('funding_native', 'cash_asset', 'native_decimals', 'capital_bridge_complete')}
+
     def task_enabled(self):
         now = self.clock.monotonic()
         if self._task_checked is None or now - self._task_checked >= 5:

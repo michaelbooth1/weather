@@ -212,3 +212,44 @@ def test_native_half_payout_preserves_each_mixed_basis_lots_loss(tmp_path, late)
     from weather.market.lfc_capital import CapitalRefused
     with pytest.raises(CapitalRefused, match='capital_total_ceiling'):
         book.gate(reserve='296.000001', available_cash='300')
+
+
+def test_late_pair_receipt_replaces_all_provisional_rows_as_one_transaction(tmp_path):
+    row, native, tokens = paired()
+    row.update(token_id=tokens[0], condition_id='c')
+    second = {**row, 'token_id': tokens[1]}
+    native.update(rows=[row, second], rows_sha256=digest([row, second]))
+    ledger = ledger_at(tmp_path)
+    for key, token in zip(('winner', 'loser'), tokens): filled(ledger, key, token=token)
+    install(ledger, cash='280')
+    absent = {**native, 'receipt': rpc_packet(None)}
+    for source in (row, second): record_activity(ledger, source, native_evidence=absent)
+    assert CapitalBook(ledger).losses == 20_000_000
+    for source in (row, second):
+        book = CapitalBook(ledger)
+        ledger.record('capital_resolution', source=source, source_sha256=digest(source),
+            previous_source_sha256=book.sources[normalize_activity(source)['id']], native_evidence=native)
+    book = CapitalBook(ledger)
+    assert book.losses == book.returned_principal == 10_000_000
+    assert book.cash_in == 20_000_000 and not book.unknown
+    assert len(book.removal_events) == 2 and all(not lot['remaining_quantity'] for lot in book.lots.values())
+
+
+def test_historical_duplicate_bundle_reclassifies_bridge_credit_once(tmp_path):
+    from tests.market.test_lfc_f2_capital import NOW
+    from weather.market.lfc_ledger import take_baseline, write_baseline
+    row, native, tokens = paired()
+    ledger = ledger_at(tmp_path)
+    baseline = take_baseline(label='t40', now=NOW, maker_address=MAKER, positions=[], open_orders=[], available_collateral='300')
+    write_baseline(tmp_path, baseline, ledger)
+    ledger.record('capital_anchor', baseline=baseline, baseline_sha256=digest(baseline))
+    for key, token in zip(('winner', 'loser'), tokens): filled(ledger, key, token=token, condition=row['condition_id'])
+    ledger.clock = lambda: NOW + timedelta(seconds=10)
+    install(ledger, cash='300')
+    row['timestamp'] += 1
+    second = {**row, 'token_id': tokens[1]}
+    native.update(rows=[row, second], rows_sha256=digest([row, second]))
+    for source in (row, second): record_activity(ledger, source, native_evidence=native)
+    book = CapitalBook(ledger)
+    assert book.legacy_reclassified == 0 and book.figures()['funding_native'] == 300_000_000
+    assert book.cash_in == 0 and book.returned_principal == 10_000_000

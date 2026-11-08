@@ -19,7 +19,7 @@ from weather.paths import REPO_ROOT
 RELEASE_SCHEMA = 'lfc_campaign_release_v0.1'
 TASK_NAME = 'WeatherLFCCampaign'
 BOUND_PACKAGES = ('polymarket-client', 'websocket-client', 'httpx', 'httpcore', 'eth-account',
-                  'eth-keys', 'eth-abi', 'pydantic', 'pydantic-core')
+                  'eth-keys', 'eth-abi', 'eth-utils', 'pydantic', 'pydantic-core')
 
 
 def package_binding(name):

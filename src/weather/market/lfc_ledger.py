@@ -59,7 +59,7 @@ POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filte
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
            'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result', 'autostart_freeze',
            'owner_history_recovery', 'capital_anchor', 'capital_bridge', 'capital_native_group',
-           'capital_activity', 'capital_resolution', 'capital_cost'}
+           'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution'}
 
 
 class LedgerUnavailable(RuntimeError):

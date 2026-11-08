@@ -244,7 +244,7 @@ venue settlement and `python -m weather.market.lfc_cli rewards-record --date YYY
 for the D+1/D+2 incentive reads.
 
 The [LFC campaign contract](docs/operations/lfc-autostart.md) owns scheduled
-sessions. Its owner-only `register_lfc_campaign_task.ps1` registrar has separate
+sessions and its read-only `weather.market.lfc_campaign_cli final-look` cash snapshot. Its owner-only `register_lfc_campaign_task.ps1` registrar has separate
 Register, Verify and Enable actions; the shipped example policy is disabled.
 Agents never invoke those actions or create the owner STOP file.
 
