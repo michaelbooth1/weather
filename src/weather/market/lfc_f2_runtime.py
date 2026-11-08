@@ -9,11 +9,12 @@ from weather.market.lfc_recording_io import write_new
 from weather.market.mm_stage2_hold import digest
 
 
-def stream_factory(registry):
+def stream_factory(registry, *, retain_trade_identity=False):
     from weather.market.re1_transport import PairStream
     class CampaignPairStream(PairStream):
         def __init__(self, **kwargs):
             super().__init__(**kwargs)
+            self.retain_trade_identity = retain_trade_identity
             registry[self.condition_id] = self
 
         def _normalize_event(self, item):
@@ -23,9 +24,19 @@ def stream_factory(registry):
                 # Validate another selected band's exact pair before ignoring
                 # it here. That band's own account stream supplies its events.
                 # Unknown/foreign/malformed events still fail the whole stream.
-                PairStream._normalize_event(peer, item)
+                peer._normalize_event(item)
                 return []
-            return super()._normalize_event(item)
+            rows = super()._normalize_event(item)
+            if (self.retain_trade_identity and isinstance(item, dict) and
+                    str(item.get('event_type') or '').lower() == 'trade'):
+                # PairStream historically retained the order and raw hash only.
+                # Breadth continuation must bind the wire trade ID to fresh REST
+                # evidence. Keep the old protocol's journal shape unchanged.
+                trade_id = item.get('id')
+                if not isinstance(trade_id, str) or not trade_id.strip() or len(trade_id) > 256:
+                    raise RuntimeError('repost_trade_identity_unproven')
+                rows = [dict(row, trade_id=trade_id) for row in rows]
+            return rows
     return CampaignPairStream
 
 
@@ -86,7 +97,7 @@ def run_live(runtime, authority, status):
         status.session = coordinator
         public = LfcPublicBooks(clock=runtime.clock.now)
         registry = {}
-        factory = stream_factory(registry)
+        factory = stream_factory(registry, retain_trade_identity=breadth)
         number = ledger.counted_sessions() + 1
         for index, row in enumerate(selected, 1):
             sid = root_id + '-b' + str(index)

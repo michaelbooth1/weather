@@ -68,6 +68,7 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
             return Reader(client)
         raw = FundedRaw(snapshots[kwargs['condition']], kwargs['directory'], clock=clock,
                         account=account, index=len(raws))
+        raw.fixture_stream_factory = kwargs['stream_factory']
         raw.start = lambda: None
         raw.close = client.close
         raws.append(raw)

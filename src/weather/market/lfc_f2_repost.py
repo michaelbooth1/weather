@@ -80,14 +80,34 @@ def bounded_read_progress(band):
         band.progress()
 
 
+def trade_identity(event):
+    """Normalized matched rows use trade_id; unmatched rows retain raw payload.id.
+
+    A normalized order's id is never a trade identity. Conflicting aliases do
+    not authorize a replay exemption, even if one alias was already proved.
+    """
+    payload = event.get('payload')
+    values = [event.get('trade_id')]
+    if isinstance(payload, dict):
+        values.append(payload.get('id'))
+    values = [value for value in values if value is not None]
+    if (not values or any(not isinstance(value, str) or not value.strip() or len(value) > 256
+                          for value in values) or len(set(values)) != 1):
+        raise ValueError('repost_trade_identity_unproven')
+    return values[0]
+
+
 def observe_trade_ids(band, rows):
     for event in rows:
         if event.get('official_event_type') != 'trade':
             continue
-        payload = event.get('payload') or {}
-        tid = str(payload.get('id') or event.get('id') or '')
-        if not tid:
-            raise HoldEnd('repost_trade_identity_unproven')
+        try:
+            tid = trade_identity(event)
+        except ValueError:
+            band.note_evidence_fault('repost_trade_identity_unproven')
+            band.journal.record('repost_trade_identity_unproven',
+                                raw_event_sha256=event.get('raw_event_sha256'))
+            raise HoldEnd('repost_trade_identity_unproven') from None
         band.observed_trade_ids.add(tid)
         if len(band.observed_trade_ids) > 4096:
             raise HoldEnd('repost_user_event_budget')
@@ -99,8 +119,7 @@ def filtered_events(band, rows):
     result = []
     for event in rows or []:
         if event.get('official_event_type') == 'trade':
-            payload = event.get('payload') or {}
-            tid = str(payload.get('id') or event.get('id') or '')
+            tid = trade_identity(event)
             if tid and tid in getattr(band, 'proven_trade_ids', set()):
                 band.journal.record('proved_trade_replay', trade_id=tid,
                                     raw_event_sha256=event.get('raw_event_sha256'))

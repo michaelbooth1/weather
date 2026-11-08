@@ -22,6 +22,88 @@ from weather.market.lfc_recording_io import strict_json, write_new
 from weather.market.mm_stage2_hold import HoldEnd, digest
 
 
+def wire_trade(row, condition):
+    return {'event_type': 'trade', 'id': 'fill-' + row['id'], 'market': condition,
+        'asset_id': row['asset_id'], 'trader_side': 'MAKER', 'status': 'CONFIRMED',
+        'maker_orders': [{'order_id': row['id'], 'asset_id': row['asset_id'],
+            'maker_address': MAKER, 'side': 'BUY', 'price': row['price'],
+            'matched_amount': row['size_matched']}]}
+
+
+def campaign_stream(raw, *, retain=True):
+    from weather.market.lfc_f2_runtime import stream_factory
+    from weather.market.re1_attended import SecretGuard
+    factory = getattr(raw, 'fixture_stream_factory', stream_factory({}, retain_trade_identity=retain))
+    return factory(tokens=raw.memory.tokens, maker_address=MAKER, condition_id=raw.memory.condition,
+        known_order_ids=set(raw.memory.orders), guard=SecretGuard(),
+        api_key='inert-fixture', secret='inert-fixture', passphrase='inert-fixture',
+        journal_path=raw.fixture_directory / 'inert-normalizer.jsonl',
+        websocket_factory=lambda *a, **k: pytest.fail('No WebSocket in this fixture'))
+
+
+def test_official_normalized_trade_identity_is_proved_and_replay_filtered(tmp_path):
+    from weather.market.mm_official_adapter import normalize_official_user_event
+    from weather.market.lfc_f2_repost import filtered_events
+    band = SimpleNamespace(observed_trade_ids=set(), proven_trade_ids={'trade-1'},
+        journal=SimpleNamespace(record=lambda *a, **k: None))
+    raw = {'event_type': 'trade', 'id': 'trade-1', 'market': 'condition', 'asset_id': 'yes',
+        'trader_side': 'MAKER', 'status': 'CONFIRMED', 'maker_orders': [
+            {'order_id': 'order-1', 'asset_id': 'yes', 'maker_address': MAKER}]}
+    normalized = normalize_official_user_event(raw, maker_address=MAKER,
+        condition_id='condition', token_id='yes')
+    assert filtered_events(band, normalized) == []
+    assert band.observed_trade_ids == {'trade-1'}
+
+
+@pytest.mark.parametrize('wire_type', ['trade', 'TRADE'])
+def test_campaign_pair_stream_retains_exact_wire_trade_identity(tmp_path, wire_type):
+    controller, account, status, ledger, clock, runtime, read = fixture(tmp_path)
+    raw = account.raws[0]
+    order = {'id': 'order-1', 'asset_id': raw.memory.tokens[0], 'price': '.30', 'size_matched': '20'}
+    raw.memory.orders['order-1'] = order
+    wire = wire_trade(order, raw.memory.condition)
+    wire['event_type'] = wire_type
+    normalized = campaign_stream(raw)._normalize_event(wire)
+    assert normalized[0]['trade_id'] == 'fill-order-1'
+    assert normalized[0]['order_id'] == 'order-1'
+    legacy = campaign_stream(raw, retain=False)._normalize_event(wire)
+    assert 'trade_id' not in legacy[0]
+
+
+@pytest.mark.parametrize('event', [
+    {'id': 'order-1'}, {}, {'trade_id': 1}, {'trade_id': ''},
+    {'trade_id': 'proved', 'payload': {'id': 'different'}},
+])
+def test_missing_or_conflicting_trade_identity_is_evidence_fault_never_complete(tmp_path, event):
+    controller, account, status, ledger, clock, runtime, read = fixture(tmp_path)
+    raw = account.raws[0]
+    ordinary = raw.events
+    sent = []
+    def events():
+        rows = ordinary()
+        if clock.seconds >= 12 and not sent:
+            sent.append(True)
+            rows.append(dict(event, official_event_type='trade', event_type='trade',
+                             raw_event_sha256=digest(event)))
+        return rows
+    raw.events = events
+    result = controller.run()
+    assert sent and controller.bands[0].submits == 2
+    assert 'repost_trade_identity_unproven' in controller.bands[0]._evidence_faults
+    assert not result['cleanup_ok']
+    assert status.finish(success=True)['state'] != 'COMPLETE'
+
+
+def test_unmatched_payload_identity_cannot_be_confused_with_order_id():
+    from weather.market.lfc_f2_repost import filtered_events
+    band = SimpleNamespace(observed_trade_ids=set(), proven_trade_ids={'trade-1'},
+        journal=SimpleNamespace(record=lambda *a, **k: None))
+    event = {'event_type': 'unmatched_trade_event', 'official_event_type': 'trade',
+             'payload': {'id': 'trade-1'}, 'id': 'different-order'}
+    assert filtered_events(band, [event]) == []
+    assert band.observed_trade_ids == {'trade-1'}
+
+
 class FillingAccount(Account):
     def __init__(self, clock):
         super().__init__(clock)
@@ -43,6 +125,10 @@ class FillingAccount(Account):
 
 class FundedRaw(Raw):
     maker = MAKER
+    def __init__(self, snapshot, directory, **kwargs):
+        super().__init__(snapshot, directory, **kwargs)
+        self.fixture_directory = directory
+
     def balances(self):
         spent = sum((Decimal(row['price']) * Decimal(row['size_matched'])
                      for raw in self.account.raws for row in raw.memory.orders.values()), Decimal(0))
@@ -57,8 +143,7 @@ class FundedRaw(Raw):
             tid = 'fill-' + row['id']
             if Decimal(row['size_matched']) and tid not in emitted:
                 emitted.add(tid)
-                result.append({'official_event_type': 'trade', 'event_type': 'trade',
-                    'condition_id': self.memory.condition, 'payload': {'id': tid}, 'raw_event_sha256': digest(tid)})
+                result.extend(campaign_stream(self)._normalize_event(wire_trade(row, self.memory.condition)))
         self.emitted = emitted
         return result
 
@@ -250,7 +335,7 @@ def test_buffered_trade_missing_from_complete_read_never_reposts(tmp_path):
         if clock.seconds >= 25 and not sent:
             sent.append(True)
             rows.append({'official_event_type': 'trade', 'event_type': 'trade',
-                'condition_id': raw.memory.condition, 'payload': {'id': 'unproved-trade'},
+                'condition_id': raw.memory.condition, 'trade_id': 'unproved-trade',
                 'raw_event_sha256': digest('unproved-trade')})
         return rows
     raw.events = events
