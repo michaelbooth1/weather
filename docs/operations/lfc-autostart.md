@@ -20,10 +20,12 @@ It creates no console, waits for the PowerShell wrapper, and returns that wrappe
 exit code. The wrapper is assigned suspended to a kill-on-close Job before it
 can execute; the wrapper also contains the campaign child. The Interactive/Limited
 owner session remains available for toasts. Registration seals the interpreter
-and launcher hashes; a changed binding refuses.
+and launcher hashes; a changed binding refuses. Seal and register from the final
+pinned tip only: a seal made against earlier launcher bytes refuses with
+`campaign_windowless_binding`.
 Environment/binding refusals before the child starts write one sanitized line
 to a UTC-timestamp-prefixed `status/control/*-launcher-refusals-*.jsonl` file.
-Each file is one atomically published, create-only JSON line, so filename-sorted
+Normal publication is one atomic, create-only JSON line, so filename-sorted
 watches cannot be pinned to an old daily log or read a multi-record object.
 If hard-link publication fails, the launcher uses a direct create-only write.
 If that also fails, it appends the same safe line to the fixed
@@ -55,7 +57,7 @@ an actual POST or partial/unreadable ledger write cannot use this exemption.
 A real fill seen at the post-signing checkpoint ends that band as
 `pre_post_abort`, without post-fill continuation. This is deliberate: the
 unposted request grants no new order authority. Other safe bands continue.
-An unexplained peer cash shortfall waits at most24 cooperative five-second
+An unexplained peer cash shortfall waits at most 24 cooperative five-second
 deferrals. Other bands' bounded GET work does not consume those turns. Polls run at
 least five seconds apart and no submit-budget consumption. It then retires
 the waiting band through ordinary cleanup; it never retries an uncertain POST.
