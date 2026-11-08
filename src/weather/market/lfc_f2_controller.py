@@ -101,23 +101,30 @@ class F2Band(PilotSession):
         yield from continue_quotes(self, super().quote_steps, rehearsal_seconds=rehearsal_seconds)
 
     def submit_steps(self, leg, price):
-        waiting = False
+        began = None
         while True:
+            previous_submits = self.submits
             try:
-                if waiting:
+                if began is not None:
                     self.control()
+                    if self.clock.monotonic() - began >= 120:
+                        raise HoldEnd('peer_cash_wait_expired')
                     own = sum((self.size * p for _, p in self.active.values()), Decimal(0))
                     reserve, _ = self._gate(own_resting=own)
                     self._cash(self.required('f2_wait_balances', self.venue.balances), reserve)
                 self.submit(leg, price)
                 return
             except PeerCashPending:
-                if not waiting:
+                if began is None:
+                    began = self.clock.monotonic()
                     self.journal.record('f2_peer_cash_wait', reason='capital_cash_changed')
-                waiting = True
+                # authorize_post failed before counting, or call() proved that
+                # its counted attempt acquired no durable POST authority.
+                # Polling/retrying this exact request spends no submit budget.
+                self.submits = previous_submits
                 # No posting thread or recursive peer driver. The account's
                 # ordinary cooperative loop advances every band on this yield.
-                yield 1
+                yield min(5, max(0, 120 - (self.clock.monotonic() - began)))
 
     def call(self, name, fn, **request):
         previous_posts = self.posts
