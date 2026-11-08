@@ -15,6 +15,13 @@ This credential-dependent owner task is an explicit exception to the ordinary
 S4U operations convention. There is no signature, ARM receipt, mandatory
 owner-started validation day, or per-policy-edit pregate.
 
+The task uses the release-bound `pythonw.exe` and repository windowless launcher.
+It creates no console, waits for the PowerShell wrapper, and returns that wrapper's
+exit code. The wrapper is assigned suspended to a kill-on-close Job before it
+can execute; the wrapper also contains the campaign child. The Interactive/Limited
+owner session remains available for toasts. Registration seals the interpreter
+and launcher hashes; a changed binding refuses.
+
 The checked-in [F2 example](../examples/lfc-campaign.example.json) and
 [alternate filename](../examples/campaign.proposed.json) are disabled runtime
 policies. The breadth v0.3 rules below govern those files. The

@@ -45,7 +45,7 @@ def test_dot_sourced_contract_preserves_registrar_and_wrapper_arguments():
 
 
 BASE = r"""
-$r=[pscustomobject]@{root='C:\fixture pin';task_name='WeatherLFCCampaign'}
+$r=[pscustomobject]@{root='C:\fixture pin';task_name='WeatherLFCCampaign';windowless=@{python='C:\fixture python\pythonw.exe'}}
 $xml=New-LfcCampaignTaskXml -Release $r -ReleasePath 'C:\fixture\release.json' -ReleaseSha256 ('a'*64) -OwnerSid 'S-1-5-21-1-2-3-1001'
 """
 
@@ -263,7 +263,7 @@ function FixturePython {
     [void]$global:calls.Add(@{argv=@($args);cwd=(Get-Location).Path})
     $global:LASTEXITCODE=0
     if($args -contains 'seal') {
-        @{schema_version='lfc_campaign_release_v0.1';task_name='WeatherLFCCampaign';root=$global:pin;python='FixturePython';campaign_path=$global:campaign} |
+        @{schema_version='lfc_campaign_release_v0.1';task_name='WeatherLFCCampaign';root=$global:pin;python='FixturePython';campaign_path=$global:campaign;windowless=@{python='C:\fixture python\pythonw.exe'}} |
             ConvertTo-Json | Set-Content -Encoding ASCII -LiteralPath $global:release
     } elseif($args -contains '--require-enabled' -and $global:refuse) { $global:LASTEXITCODE=3 }
 }

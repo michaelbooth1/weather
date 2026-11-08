@@ -25,9 +25,12 @@ function New-LfcCampaignTaskXml {
     param([Parameter(Mandatory=$true)]$Release,[Parameter(Mandatory=$true)][string]$ReleasePath,
           [Parameter(Mandatory=$true)][string]$ReleaseSha256,[Parameter(Mandatory=$true)][string]$OwnerSid)
     if($ReleaseSha256 -cnotmatch '^[0-9a-f]{64}$' -or $OwnerSid -notmatch '^S-1-5-21-[0-9-]+$') { throw 'task binding' }
-    $psPath=Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\v1.0\powershell.exe'
-    $wrapper=Join-Path $Release.root 'scripts\ops\lfc_campaign_task.ps1'
-    $tokens=@('-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',$wrapper,'-ReleasePath',$ReleasePath,'-ReleaseSha256',$ReleaseSha256)
+    # A GUI-subsystem interpreter creates no console at all. Its repository
+    # launcher waits for a CREATE_NO_WINDOW wrapper and returns its exit code.
+    # InteractiveToken keeps owner toasts in the owner's desktop session.
+    $hostPath=$Release.windowless.python
+    $launcher=Join-Path $Release.root 'scripts\ops\lfc_campaign_windowless.py'
+    $tokens=@('-I',$launcher,'--release',$ReleasePath,'--release-sha256',$ReleaseSha256)
     $arguments=ConvertTo-LfcTaskArguments -Tokens $tokens
     $escape={param($value) [Security.SecurityElement]::Escape([string]$value)}
     # Finite generic ticks permit supported policy edits without re-registration.
@@ -40,7 +43,7 @@ function New-LfcCampaignTaskXml {
   <Triggers><TimeTrigger><Repetition><Interval>PT5M</Interval><Duration>P52D</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>2026-11-10T00:00:00</StartBoundary><EndBoundary>2027-01-01T00:00:00</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers>
   <Principals><Principal id="Owner"><UserId>$(& $escape $OwnerSid)</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><AllowStartOnDemand>false</AllowStartOnDemand><Enabled>false</Enabled><Hidden>true</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>PT9H</ExecutionTimeLimit><Priority>7</Priority></Settings>
-  <Actions Context="Owner"><Exec><Command>$(& $escape $psPath)</Command><Arguments>$(& $escape $arguments)</Arguments><WorkingDirectory>$(& $escape $Release.root)</WorkingDirectory></Exec></Actions>
+  <Actions Context="Owner"><Exec><Command>$(& $escape $hostPath)</Command><Arguments>$(& $escape $arguments)</Arguments><WorkingDirectory>$(& $escape $Release.root)</WorkingDirectory></Exec></Actions>
 </Task>
 "@
     return $xml

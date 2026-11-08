@@ -73,6 +73,9 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
         raise RuntimeError('enrollment_waits_until_after_frozen_F0')
     ledger = Ledger.open(ledger_path(pilot_root()), clock=lambda: datetime.now(timezone.utc))
     state = AccountState(DEFAULT_STATE_ROOT, ledger)
+    windowless_python = validate_regular_nonreparse_file(Path(python_path).resolve().with_name('pythonw.exe'))
+    windowless = {'python': str(windowless_python), 'sha256': file_sha(windowless_python),
+                  'launcher_sha256': file_sha(root / 'scripts/ops/lfc_campaign_windowless.py')}
     state.policy_binding = policy.labels()
     with account_lease(state.maker):
         if ledger.enrollment is None:
@@ -83,6 +86,7 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
                **policy.labels(),
                'parameter_support': parameter_support(),
                'python': str(Path(python_path).resolve()), 'campaign_path': str(policy_path.resolve()),
+               'windowless': windowless,
                'python_root': str(Path(python_path).resolve().parent.parent.parent),
                'host_id': current_execution_host_id(), 'principal_id': current_execution_principal_id(),
                'assignment_sha256': file_sha(root / 'config/international_live_execution_host.json'),
@@ -122,6 +126,12 @@ def validate_release(row):
             file_sha(REPO_ROOT / 'config/international_live_execution_host.json') != row['assignment_sha256']):
         raise RuntimeError('campaign_release_identity')
     validate_nonreparse_directory(REPO_ROOT)
+    windowless = row.get('windowless', {})
+    expected = Path(row['python']).with_name('pythonw.exe')
+    if (Path(windowless.get('python', '')).resolve() != expected.resolve() or
+            file_sha(validate_regular_nonreparse_file(expected)) != windowless.get('sha256') or
+            file_sha(REPO_ROOT / 'scripts/ops/lfc_campaign_windowless.py') != windowless.get('launcher_sha256')):
+        raise RuntimeError('campaign_windowless_binding')
     # Pending money postchecks use their immutable claim snapshot, even if the
     # editable policy is absent/broken. Validate that file only when it is read.
     if not Path(row['campaign_path']).is_absolute() or Path(row['campaign_path']).suffix.lower() != '.json':

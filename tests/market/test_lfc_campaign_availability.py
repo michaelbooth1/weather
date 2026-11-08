@@ -109,8 +109,11 @@ def test_missing_freeze_toast_contains_only_the_safe_reason(tmp_path):
 
 @pytest.mark.spawns
 @pytest.mark.skipif(os.name != 'nt', reason='native headless Windows process contract')
-def test_headless_console_has_no_visible_window_and_preserves_process_session(tmp_path):
+@pytest.mark.parametrize('exit_code', [0, 17])
+def test_headless_console_has_no_visible_window_and_preserves_process_session(tmp_path, exit_code):
     import ctypes
+    import shutil
+    import sys
     from tests.operations.test_lfc_campaign_task import powershell, BASE
     result = powershell(BASE + '$xml')
     assert result.returncode == 0, result.stderr
@@ -119,11 +122,18 @@ def test_headless_console_has_no_visible_window_and_preserves_process_session(tm
     ns = {'t': 'http://schemas.microsoft.com/windows/2004/02/mit/task'}
     command = tree.findtext('.//t:Exec/t:Command', namespaces=ns)
     arguments = tree.findtext('.//t:Exec/t:Arguments', namespaces=ns)
-    assert Path(command).name.lower() == 'powershell.exe'
-    assert '"-WindowStyle" "Hidden"' in arguments
+    assert Path(command).name.lower() == 'pythonw.exe'
+    assert '"-I"' in arguments and 'lfc_campaign_windowless.py' in arguments
     assert tree.findtext('.//t:LogonType', namespaces=ns) == 'InteractiveToken'
     marker = tmp_path / 'headless-child.json'
-    helper = tmp_path / 'headless-fixture.ps1'
+    root = tmp_path / 'fixture pin'
+    scripts = root / 'scripts' / 'ops'
+    scripts.mkdir(parents=True)
+    launcher = scripts / 'lfc_campaign_windowless.py'
+    from weather.paths import REPO_ROOT
+    from weather.market.lfc_recording_io import file_sha
+    shutil.copyfile(REPO_ROOT / 'scripts/ops/lfc_campaign_windowless.py', launcher)
+    helper = scripts / 'lfc_campaign_task.ps1'
     helper.write_text('''Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -137,15 +147,36 @@ $session=[uint32]0
 if(-not [FixtureConsole]::ProcessIdToSessionId($PID,[ref]$session)){throw 'fixture session'}
 Start-Sleep -Milliseconds 600
 @{session=$session;visible=[FixtureConsole]::IsWindowVisible([FixtureConsole]::GetConsoleWindow())} | ConvertTo-Json -Compress | Set-Content -LiteralPath 'REPLACE_MARKER'
-'''.replace('REPLACE_MARKER', str(marker).replace("'", "''")))
+'''.replace('REPLACE_MARKER', str(marker).replace("'", "''")) + '\nexit ' + str(exit_code))
+    pythonw = Path(sys.executable).with_name('pythonw.exe')
+    release = {'schema_version': 'lfc_campaign_release_v0.1', 'task_name': 'WeatherLFCCampaign',
+        'root': str(root), 'windowless': {'python': str(pythonw), 'sha256': file_sha(pythonw),
+                                        'launcher_sha256': file_sha(launcher)}}
+    release_path = tmp_path / 'release.json'
+    release_path.write_text(json.dumps(release))
+    body = "$r=ConvertFrom-Json -InputObject '" + json.dumps(release).replace("'", "''") + "'; "
+    result = powershell(body + f"New-LfcCampaignTaskXml -Release $r -ReleasePath '{release_path}' " +
+        f"-ReleaseSha256 '{file_sha(release_path)}' -OwnerSid 'S-1-5-21-1-2-3-1001'")
+    assert result.returncode == 0, result.stderr
+    tree = ET.fromstring(result.stdout)
+    command = tree.findtext('.//t:Exec/t:Command', namespaces=ns)
+    arguments = tree.findtext('.//t:Exec/t:Arguments', namespaces=ns)
+    from ctypes import wintypes
+    split = ctypes.windll.shell32.CommandLineToArgvW
+    split.argtypes, split.restype = (wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)), ctypes.POINTER(wintypes.LPWSTR)
+    count = ctypes.c_int()
+    parsed = split('fixture.exe ' + arguments, ctypes.byref(count))
+    try: argv = [command] + [parsed[index] for index in range(1, count.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree.argtypes = (ctypes.c_void_p,)
+        ctypes.windll.kernel32.LocalFree(parsed)
     import time
     started = time.monotonic()
-    child = subprocess.run([command, '-NoProfile', '-NonInteractive',
-                            '-WindowStyle', 'Hidden', '-File', str(helper)], timeout=20,
+    child = subprocess.run(argv, timeout=20,
                            creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True)
     (tmp_path / 'headless-stdout.txt').write_bytes(child.stdout)
     (tmp_path / 'headless-stderr.txt').write_bytes(child.stderr)
-    assert child.returncode == 0 and marker.exists()
+    assert child.returncode == exit_code and marker.exists()
     assert time.monotonic() - started >= .6
     observed = json.loads(marker.read_text())
     session = ctypes.c_ulong()
