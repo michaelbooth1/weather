@@ -12,4 +12,5 @@ committed; regenerate after their first commit.
 - [2026-08](correspondence-index/2026-08.md)
 - [2026-09](correspondence-index/2026-09.md)
 - [2026-10](correspondence-index/2026-10.md)
+- [2026-11](correspondence-index/2026-11.md)
 - [uncommitted](correspondence-index/uncommitted.md)
