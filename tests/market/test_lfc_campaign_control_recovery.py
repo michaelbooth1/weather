@@ -195,20 +195,49 @@ def test_latched_pending_attempt_still_records_followup_without_account_or_place
 
 
 @pytest.mark.spawns
+@pytest.mark.parametrize('schema', ['lfc_campaign_policy_v0.2', 'lfc_campaign_policy_v0.3'])
 @pytest.mark.parametrize('stamp,seconds,expected', [
     ('2026-11-11T14:14:50Z', 21600, '2026-11-11T20:30:00+00:00'),
     ('2026-11-11T14:14:50Z', 300, '2026-11-11T14:49:50+00:00'),
     ('2026-11-11T13:59:59Z', 21600, '2026-11-11T14:29:59+00:00'),
     ('2026-11-11T14:15:00Z', 21600, '2026-11-11T14:45:00+00:00')])
-def test_wrapper_deadline_uses_effective_end_plus_thirty_minutes(tmp_path, stamp, seconds, expected):
+def test_wrapper_deadline_uses_effective_end_plus_thirty_minutes(tmp_path, stamp, seconds, expected, schema):
     from tests.operations.test_lfc_campaign_task import powershell
     from weather.market.lfc_f2_policy import example_policy
+    if schema == 'lfc_campaign_policy_v0.3':
+        from weather.market.lfc_f2_breadth import example_policy
     row = example_policy(); row['max_session_seconds'] = seconds
     path = tmp_path / 'campaign.json'; path.write_text(json.dumps(row))
     result = powershell("(Get-LfcCampaignDeadline -CampaignPath '" + str(path).replace("'", "''") +
         "' -NowUtc ([DateTimeOffset]'" + stamp + "')).ToString('o')")
     assert result.returncode == 0, result.stderr
     assert datetime.fromisoformat(result.stdout.strip()) == datetime.fromisoformat(expected)
+
+
+@pytest.mark.spawns
+def test_every_child_policy_schema_has_a_wrapper_deadline_after_its_session_end(tmp_path):
+    import ast
+    import inspect
+    from tests.operations.test_lfc_campaign_task import powershell
+    from weather.market import lfc_campaign_policy as child
+    from weather.market.lfc_f2_policy import example_policy as f2
+    from weather.market.lfc_f2_breadth import example_policy as breadth
+    examples = [policy_row(), f2(), breadth()]
+    accepted = {node.value for node in ast.walk(ast.parse(inspect.getsource(child.parse_policy)))
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and node.value.startswith('lfc_campaign_policy_v')}
+    accepted.add(child.POLICY_SCHEMA)
+    assert {row['schema_version'] for row in examples} == accepted
+    for number, row in enumerate(examples):
+        policy = child.parse_policy(row)
+        entry = policy.entries[0]
+        now = entry.start
+        assert entry.permits(now)
+        path = tmp_path / f'campaign-{number}.json'; path.write_text(json.dumps(row))
+        result = powershell("(Get-LfcCampaignDeadline -CampaignPath '" + str(path).replace("'", "''") +
+            "' -NowUtc ([DateTimeOffset]'" + now.isoformat() + "')).ToString('o')")
+        assert result.returncode == 0, result.stderr
+        assert datetime.fromisoformat(result.stdout.strip()) >= entry.session_end(now) + timedelta(minutes=30), row['schema_version']
 
 
 @pytest.mark.spawns

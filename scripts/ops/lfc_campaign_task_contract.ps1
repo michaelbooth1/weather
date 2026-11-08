@@ -69,7 +69,7 @@ function Get-LfcCampaignDeadline {
         $localNow=[TimeZoneInfo]::ConvertTime($NowUtc,$zone)
         $culture=[Globalization.CultureInfo]::InvariantCulture
         $end=$null
-        if($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.2') {
+        if($policyRow.schema_version -cin @('lfc_campaign_policy_v0.2','lfc_campaign_policy_v0.3')) {
             if(@($policyRow.start_window_toronto).Count -ne 2) { return $fallback }
             $begin=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[0],'hh\:mm\:ss',$culture)
             $finish=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[1],'hh\:mm\:ss',$culture)
