@@ -7,7 +7,7 @@ from weather.market.lfc_completion import evidence_flags
 from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json
 from weather.market.mm_account_reads import order_terminal
 from weather.market.mm_official_adapter import sdk_field_value
-from weather.market.mm_stage2_hold import SCHEMA_VERSION, canonical_bytes, utc
+from weather.market.mm_stage2_hold import SCHEMA_VERSION, canonical_bytes, utc, digest
 from weather.operations.live_path_security import validate_regular_nonreparse_file
 
 
@@ -50,6 +50,13 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 responses.append(row['response'])
                 if len(responses) > 10:
                     raise ValueError('private_submit_limit')
+            elif event == 'submit_deferred':
+                if (row.get('durable_intent_present') is not False or
+                        len(requests) != len(responses) + 1 or
+                        row.get('attempted_number') != len(responses) + 1 or
+                        digest(requests[-1]) != row.get('request_sha256')):
+                    raise ValueError('private_submit_deferral_binding')
+                requests.pop()  # Exact proved pre-POST attempt; originals remain in the journal.
             elif event == 'terminal_order':
                 order = row['order']
                 oid = sdk_field_value(order, 'id', 'order_id', 'orderID')

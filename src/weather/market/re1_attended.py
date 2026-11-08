@@ -730,9 +730,13 @@ class Session:
     def final_reason(self, reason):
         return 'fill' if self.fill_seen else reason
 
+    def submit_steps(self, leg, price):
+        self.submit(leg, price)
+        yield from ()
+
     def quote_steps(self, *, rehearsal_seconds=None):
         for leg in self.TRADE_LEGS:
-            self.submit(leg, self.prices[leg])
+            yield from self.submit_steps(leg, self.prices[leg])
         self.after_open()
         next_minute = self.clock.monotonic()
         next_accrual = next_minute
@@ -786,7 +790,7 @@ class Session:
                 for leg in observation['requote_legs']:
                     self.prices[leg] = replacement_price(observation['adjusted_mid'], leg, self.OFFSET)
                 for leg in observation['requote_legs']:
-                    self.submit(leg, self.prices[leg])
+                    yield from self.submit_steps(leg, self.prices[leg])
             yield min(1, max(0, stop_at - self.clock.monotonic()))
 
     def run_steps(self, *, rehearsal_seconds=None):

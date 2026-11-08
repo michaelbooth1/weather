@@ -19,6 +19,10 @@ from weather.market.re1_attended import GuardedJournal, SecretGuard, observe
 from weather.market.re1_resilience import HeartbeatLoop
 
 
+class PeerCashPending(RuntimeError):
+    """No POST: give peer controllers time to reconcile a possible fill."""
+
+
 class SharedHeartbeat:
     """A retired band cannot stop the other band's account heartbeat."""
     def __init__(self, loop):
@@ -95,6 +99,40 @@ class F2Band(PilotSession):
         from weather.market.lfc_f2_repost import continue_quotes
         yield from continue_quotes(self, super().quote_steps, rehearsal_seconds=rehearsal_seconds)
 
+    def submit_steps(self, leg, price):
+        waiting = False
+        while True:
+            try:
+                if waiting:
+                    self.control()
+                    own = sum((self.size * p for _, p in self.active.values()), Decimal(0))
+                    reserve, _ = self._gate(own_resting=own)
+                    self._cash(self.required('f2_wait_balances', self.venue.balances), reserve)
+                self.submit(leg, price)
+                return
+            except PeerCashPending:
+                if not waiting:
+                    self.journal.record('f2_peer_cash_wait', reason='capital_cash_changed')
+                waiting = True
+                # No posting thread or recursive peer driver. The account's
+                # ordinary cooperative loop advances every band on this yield.
+                yield 1
+
+    def call(self, name, fn, **request):
+        previous_posts = self.posts
+        try:
+            return super().call(name, fn, **request)
+        except PeerCashPending:
+            if name == 'submit':
+                number = self.posts + 1
+                if (self.posts != previous_posts or previous_posts != len(self.known) or
+                        not self.ledger.intent_proven_absent(f'{self.session_id}:{number}') or
+                        (self.directory / f'submit-{number}.intent.json').exists()):
+                    raise HoldEnd('peer_cash_defer_not_proven') from None
+                self.journal.record('submit_deferred', attempted_number=number,
+                    request_sha256=digest(request), durable_intent_present=False)
+            raise
+
     def final_reason(self, reason):
         return reason if self.breadth else super().final_reason(reason)
 
@@ -161,6 +199,10 @@ class F2Band(PilotSession):
             figures = CapitalBook(self.ledger).gate(reserve=reserve, own_resting=own,
                                                    available_cash=balances['available_collateral'])
         except CapitalRefused as exc:
+            peers = {band.session_id for band in self.venue.coordinator.bands if band is not self}
+            if (self.breadth and str(exc) == 'capital_cash_changed' and
+                    any(leg['session_id'] in peers and leg['status'] != 'terminal' for leg in self.ledger.legs.values())):
+                raise PeerCashPending() from None
             raise HoldEnd(str(exc)) from None
         return quantity(balances['available_collateral']), Decimal(figures['resting_reserve_native']) / SCALE
 

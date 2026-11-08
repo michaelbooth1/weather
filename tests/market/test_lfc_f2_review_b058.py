@@ -124,3 +124,52 @@ def test_delayed_replay_exemption_never_releases_live_or_foreign_reserves(case):
         event['id'] = 'foreign'
     assert filtered_events(band, [event]) == [event]
     assert leg['status'] == ('posted' if case == 'live_leg' else 'terminal')
+
+
+@pytest.mark.parametrize('phase', ['authorize', 'raw_before_post'])
+def test_peer_partial_fill_defers_a_post_then_resumes_after_reconciliation(tmp_path, monkeypatch, phase):
+    controller, account, status, ledger, clock, runtime, read = fixture(tmp_path, seconds=300)
+    account.fills_enabled = False
+    first, second = controller.bands
+    triggered = []
+    def fill():
+        if not triggered:
+            order = next(r for r in account.raws[0].memory.orders.values() if r['status'] == 'LIVE')
+            order.update(size_matched='1', associate_trades=['fill-' + order['id']])
+            triggered.append(clock.seconds)
+    if phase == 'authorize':
+        ordinary = second.authorize_post
+        def authorize(*args, **kwargs):
+            fill()
+            return ordinary(*args, **kwargs)
+        monkeypatch.setattr(second, 'authorize_post', authorize)
+    else:
+        ordinary = account.raws[1].before_post
+        def before_post(*args, **kwargs):
+            fill()
+            return ordinary(*args, **kwargs)
+        monkeypatch.setattr(account.raws[1], 'before_post', before_post)
+    result = controller.run()
+    assert triggered and second.posts >= 2, (result, controller.results)
+    assert controller.results[second.session_id]['reason'] == 'fixed_end'
+    assert account.cancel_all_calls == [300]
+    assert result['cleanup_ok'] and not result['unknown_submit'], result
+    assert any(leg['size_matched'] == '1' for leg in ledger.legs.values())
+    assert all(band.submits <= 10 for band in controller.bands)
+
+
+def test_peer_cash_deferral_cannot_waive_an_already_durable_intent(tmp_path, monkeypatch):
+    from weather.market.lfc_f2_controller import PeerCashPending
+    controller, account, status, ledger, clock, runtime, read = fixture(tmp_path)
+    account.fills_enabled = False
+    original = ledger.intent
+    attempts = []
+    def recorded(**kwargs):
+        attempts.append(kwargs['intent_key'])
+        original(**kwargs)
+        raise PeerCashPending()
+    monkeypatch.setattr(ledger, 'intent', recorded)
+    result = controller.run()
+    assert len(attempts) == 1 and result['unknown_submit'], (attempts, result)
+    assert ledger.unacknowledged_intents()
+    assert all(raw.memory.orders == {} for raw in account.raws)
