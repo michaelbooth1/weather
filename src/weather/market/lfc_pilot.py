@@ -642,6 +642,8 @@ class PilotSession(Session):
                 # call() binds the exact pending request and private packet.
                 # A controlled band end avoids manufacturing a core failure.
                 if isinstance(exc, Exception):
+                    if isinstance(exc, HoldEnd) and exc.reason != 'fill':
+                        raise
                     raise HoldEnd('pre_post_abort') from None
             raise
 
@@ -738,6 +740,11 @@ class PilotSession(Session):
                 self.journal.record('pre_post_abort', attempted_number=previous_posts + 1,
                     request_sha256=digest(request), intent_sha256=intent_sha,
                     durable_intent_present=False, exception_type=type(exc).__name__)
+                # Preserve an existing policy/STOP/horizon reason. A fill
+                # checkpoint before POST ends this band rather than entering
+                # the post-fill repost protocol without a proved fill.
+                if isinstance(exc, HoldEnd) and exc.reason != 'fill':
+                    raise
                 raise HoldEnd('pre_post_abort') from None
             raise
 

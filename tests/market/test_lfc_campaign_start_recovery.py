@@ -56,7 +56,8 @@ def test_actual_start_check_failure_is_retained_and_empty_claim_recovers(tmp_pat
         assert coordinator.start(entry, policy, lambda: policy) == 'FAILED_NO_ORDERS'
         claim = runtime.state.claims()[0]
         result = runtime.saved_result(claim)
-        assert result and result['unknown_submit'] is True  # Original failed flags stay intact.
+        assert result and result['unknown_submit'] is False  # No intent or POST exists.
+        assert not result['evidence_complete'] and not result['inventory_proven']
         assert result['outcome']['halt_reason'] == 'exception_RuntimeError'
         assert not runtime.state.pending() and not runtime.state.incidents()
         closed = runtime.state.read(runtime.state.root / 'closed' / (claim['attempt_id'] + '.json'))
