@@ -13,12 +13,13 @@ from weather.backtesting.t1_types import digest
 
 
 @pytest.mark.parametrize('pin,supported,native', [
-    ('27f169cef80aa93d6c9c52551a040694e8d2a5f5', True, True),
+    ('57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1', True, True),
     ('124603578f393827fa1b67bd978f6e3b02048ae9', True, False),
+    ('27f169cef80aa93d6c9c52551a040694e8d2a5f5', False, False),
     ('f531395522d0b0a37495185b2750164008fe586a', False, False),
 ])
 def test_reviewed_recorder_identity_across_intake_latency_and_certificate(tmp_path, pin, supported, native):
-    """T043: F0 prime replaces F0; the original LFC normalized lane remains accepted."""
+    """T043/B053: only F0 double-prime and the original LFC normalized lane remain accepted."""
     raw, p = journal_bytes(), payload()
     r = receipts(raw)
     baseline = accuracy_gate(p, config(), raw, r, tolerance())
