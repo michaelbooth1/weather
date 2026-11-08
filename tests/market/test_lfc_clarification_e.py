@@ -5,6 +5,7 @@ Toronto+Denver band universe, R6 dropped for the campaign only, last start 2026-
 limits stay as signed (L budget 100, 8 sessions of 360 minutes, the leg price range, earliest start, 23:50Z hard stop,
 RE-1 submit/requote limits, post-only GTD submits); the review follow-ups: a counted session refuses a non-pilot
 band itself, and the campaign selection refuses a leg above the 15.80 order cap before session_start (RE-1 unchanged).
+Owner B 2026-11-07 rescales the lower reward-share floor for size 20, keeping the upper bound.
 """
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
@@ -18,6 +19,7 @@ from tests.market.stage2_fakes import CONDITION, TOKENS
 from weather.market import lfc_constants as LFC
 from weather.market import mm_stage2_selection
 from weather.market import re1_attended
+from weather.market import re1_sizing
 from weather.market.lfc_pilot import PilotProfile, start_refusals
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
@@ -42,7 +44,7 @@ def test_every_other_signed_limit_is_unchanged():
     assert LFC.MIN_FEASIBLE_LEG_SUM == Decimal('.96') and LFC.MIN_FEASIBLE_RESERVE == Decimal('19.2')
     assert LFC.EARLIEST_START_UTC == datetime(2026, 10, 15, tzinfo=timezone.utc)
     assert LFC.HARD_STOP_UTC == time(23, 50) and LFC.OWNER_TIMEZONE == 'America/Toronto'
-    assert LFC.SHARE_MANY_RANGE == (Decimal('.15'), Decimal('.70')) and LFC.FOREIGN_CHECK_SECONDS == 30
+    assert LFC.FOREIGN_CHECK_SECONDS == 30
     assert LFC.RE1_OFFSET == Decimal('.015') and LFC.RE1_REQUOTE_WINDOW == (Decimal('1'), Decimal('3'))
     assert LFC.TREATMENT == 'LFC-40' and LFC.PROTOCOL == 'LFC-live-fill-calibration-v1'
     assert re1_attended.MAX_SUBMITS == 10 and re1_attended.MAX_REQUOTES == 4
@@ -77,6 +79,32 @@ def _band(clock, market_id):
 def _table(clock, market_id, **kwargs):
     return select_table([_band(clock, market_id)], now=clock.now(), available_collateral='500',
                         ledger={'L': '0', 'L_resting': '0'}, held_conditions=[], **kwargs)
+
+
+@pytest.mark.parametrize('share_many,eligible', [(.09, True), (.07, False), (.70, True), (.71, False)])
+def test_owner_b_share_floor_filters_twenty_share_bands(monkeypatch, share_many, eligible):
+    price_quote = re1_sizing.price_sized_reward_quote
+
+    def priced_share(*args, **kwargs):
+        quote = price_quote(*args, **kwargs)
+        assert quote.size == Decimal('20')
+        return replace(quote, share_many=share_many,
+                       predicted_per_minute_many=100 / 1440 * share_many)
+
+    monkeypatch.setattr(re1_sizing, 'price_sized_reward_quote', priced_share)
+    table = _table(Clock(), 'denver', treatment=LFC.TREATMENT)
+    row = table['rows'][0]
+    assert table['pilot_size'] == '20'
+    assert row['eligible'] is eligible
+    assert table['selected_condition_id'] == (CONDITION if eligible else None)
+    if eligible:
+        assert row['quote']['size'] == '20' and row['quote']['share_many'] == share_many
+    else:
+        assert row['refusal'] == 'share_many_outside_range'
+
+
+def test_owner_b_share_range_is_exactly_the_ruling():
+    assert LFC.SHARE_MANY_RANGE == (Decimal('.08'), Decimal('.70'))
 
 
 def test_campaign_selects_only_toronto_and_denver_bands():

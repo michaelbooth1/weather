@@ -59,7 +59,8 @@ MIN_FEASIBLE_LEG_SUM = Decimal('.96')
 MIN_FEASIBLE_RESERVE = PILOT_SIZE * MIN_FEASIBLE_LEG_SUM
 
 # PR section 3: selection filters the RE-1 quote function does not already enforce.
-SHARE_MANY_RANGE = (Decimal('.15'), Decimal('.70'))
+# rescaled for size 20 (0.15 at 40 = 0.0811 at 20) under owner B 2026-11-07; clarification F
+SHARE_MANY_RANGE = (Decimal('.08'), Decimal('.70'))
 
 # PR section 4 dates. No campaign order may rest before EARLIEST_START_UTC (replaces RE-1 LAST_DAY); a hard stop at
 # 23:50Z keeps every session inside its UTC day; counted sessions are on distinct owner-local dates and the last
