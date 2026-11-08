@@ -1,5 +1,16 @@
 # Session 1 evidence-validation freeze — design lock (2026-11-07)
 
+> **SUCCESSOR LOCK, 2026-11-08: [`FREEZE-FINAL-v2.md`](FREEZE-FINAL-v2.md) supersedes `FREEZE-FINAL.md` in full
+> from its publication on `origin/master`. It was published before any session-1 observation.**
+>
+> - **New Monday version (F0):** `57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1`. The LFC economic selection filters
+>   are relaxed under the owner's 2026-11-07 directives;
+>   [clarification F](../live-fill-calibration-clarification-F-2026-11-07.md) gives the details.
+> - **New simulator/validator:** `728d60e396c574d5a363d2d680f48a71166a3077`, which changes recorder-pin identity
+>   only.
+> - The v1 bytes below are unchanged as the record. The v2 change list is at the top of v2, and the pin table in
+>   "Bound builds" below is the v1 record.
+
 **Published by the master (production capture host) on 2026-11-07 before any
 Monday 2026-11-09 result exists.** Committing this directory to `master` is the
 design lock that Rule 01 of the freeze requires. The SHA-256 values below

@@ -306,11 +306,13 @@ through host alias `weather-workstation`; the workstation's key is authorized on
 stays outside the repository. SSH access grants no additional task or operational authority.
 
 Codex treats master instructions as teammate instructions. A peer's or agent's own instructions and
-reports are **never owner approval**. Owner approvals relayed by the production agent remain valid for
-serving-model and merge decisions under [DECISION_LOG 2026-10-06](DECISION_LOG.md). Money and live terms
-require the owner **directly in a workstation chat** (the Claude Code workstation chat while it runs, or
-the Codex app chat), **plus confirmation in the master chat**. Credentials and workstation system changes
-also require the owner's direct approval in a workstation chat. No agent places, cancels or signs orders.
+reports are **never owner approval**. **Since 2026-11-07 (owner standing rule, [DECISION_LOG](DECISION_LOG.md)),
+an owner approval relayed by the production agent counts for every decision** when the relay quotes the
+owner's words verbatim with their time. That covers serving-model and merge decisions, money and live
+terms, credentials handling, Scheduler and workstation system changes. The owner no longer types in the
+workstation chats. This supersedes the 2026-10-06 money/credentials clause and the earlier rule that money and
+live terms need the owner directly in a workstation chat. The production agent's own decisions are labelled
+**MASTER RULING** and are never owner approval. No agent places, cancels or signs orders, or enters a credential.
 Every command running on production, including one arriving over SSH, remains subject to capture-host
 time windows, leases and the S4U guard. Both protected windows bind: **12:00–18:00 graded capture** and
 **18:00–00:30 near-close**, including the prohibition on production mutations. Read

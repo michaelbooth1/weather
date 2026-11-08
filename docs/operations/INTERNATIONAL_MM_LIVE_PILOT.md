@@ -2,6 +2,7 @@
 
 | | |
 | --- | --- |
+| **LFC maker pilot (2026-11-06/07, DECISION_LOG)** | **This file does not govern the live fill-calibration (LFC) pilot.** That pilot is session 1, owner-started on 2026-11-09, and the unattended F2 self-start campaign registered and armed by the owner. Read: STATE_OF_PLAY critical path 0; the [session-1 freeze](../research/session1-freeze-2026-11-07/README.md) and its successor lock; the [LFC pre-registration](../research/live-fill-calibration-preregistration-2026-10-09.md) with clarifications C–F; and the DECISION_LOG rows of 2026-11-06/07. For the LFC pilot, those owner rows supersede the pause statement below. Agents still never place, cancel or sign orders. |
 | **Current authority** | **NO live trading is authorized: the owner paused all live trading, including RE-1, on 2026-09-25 while the informed maker is built (see STATE_OF_PLAY).** Read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) before anything else; nothing in this file grants authority, and absence of an explicit dated authorization means HOLD. |
 | **Owns** | The staged protocol for a bounded International Polymarket live test: envelope and caps, prerequisites, Stage 0–3 procedure, SDK decision, stop conditions. |
 | **Read when** | You are changing live-path code or its tests, preparing or reviewing an attended session, or checking what a live claim must prove. Load one section (table below), not the file. |

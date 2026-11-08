@@ -18,7 +18,16 @@ This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
 and replay outside this timetable and without the capture-host resource/time
-admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
+admission.
+
+**One workstation exception: self-start campaign entry dates** (master ruling 2026-11-07, see DECISION_LOG).
+- **Which dates:** every date in the enrolled F2 campaign's learning or confirmation list, from 2026-11-10 to
+  2026-12-22. If unsure whether today is one, treat it as one.
+- **The rule:** on those dates no agent starts a heavy command on the workstation after 08:30 America/Toronto
+  until that day's session has finished (about 15:30). Light work is fine.
+- **Why:** the session takes the same workload mutex and its own work lock in its only start window,
+  09:00–09:15. A heavy job holding the mutex then makes it DEFER and then MISS the day.
+- **Also on those dates:** no agent creates `C:\t\codex\HOLD_HEAVY`. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).
 Its `weather_heavy` kind admits only exact module names from
 `Get-WeatherWorkstationOfflineModule` (module, not subcommand: a module that also
