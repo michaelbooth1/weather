@@ -335,6 +335,7 @@ def test_deleted_claim_or_incident_is_not_a_fresh_install(tmp_path):
 def test_scheduled_entrypoint_synthetic_end_to_end_and_skip_after_reboot(tmp_path, monkeypatch):
     from weather.market import lfc_campaign_cli as cli
     from weather.market import lfc_campaign_runtime as runtime_module
+    from weather.market.lfc_campaign_policy import load_policy
     import json
     clock = Clock()
     with account_lease(MAKER, backend=Mutexes()):
@@ -349,7 +350,13 @@ def test_scheduled_entrypoint_synthetic_end_to_end_and_skip_after_reboot(tmp_pat
     monkeypatch.setattr(runtime_module, 'CampaignClock', lambda: clock)
     runtime = StubRuntime(state, clock, transient=2)
     monkeypatch.setattr(runtime_module, 'Runtime', lambda **kwargs: runtime)
-    args = ['tick', '--release', str(tmp_path / 'fixture-release.json'), '--release-sha256', 'a' * 64]
+    def wrapper_args():
+        policy = load_policy(policy_path)
+        entry = policy.entries[0]
+        return ['tick', '--release', str(tmp_path / 'fixture-release.json'), '--release-sha256', 'a' * 64,
+                '--wrapper-deadline-utc', (entry.session_end(entry.end) + timedelta(minutes=30)).isoformat(),
+                '--wrapper-policy-sha256', policy.source_sha256]
+    args = wrapper_args()
     assert cli.main(args) == 0
     assert runtime.go_count == 1 and not state.pending()
     # Reboot creates a new runtime and verifies persisted account state. The
@@ -364,6 +371,7 @@ def test_scheduled_entrypoint_synthetic_end_to_end_and_skip_after_reboot(tmp_pat
                               window_end_utc='2026-11-12T17:00:00Z')
     policy_path.write_text(json.dumps(row))
     clock.value = NOW + timedelta(days=1, hours=1)
+    args = wrapper_args()
     assert cli.main(args) == 0 and runtime2.go_count == 0
     assert rebooted.skips()[0]['local_date'] == '2026-11-12'
 
