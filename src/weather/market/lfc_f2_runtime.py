@@ -139,7 +139,8 @@ def run_live(runtime, authority, status):
             if digest(go_evidence['read']) != authority.go_proof['read_sha256']:
                 raise RuntimeError('go_read_redaction_changed_proof')
             go_path = directory / 'go_account.json'
-            write_new(go_path, go_evidence)
+            from weather.market.lfc_recording_io import STATE_JSON_LIMIT
+            write_new(go_path, go_evidence, max_bytes=STATE_JSON_LIMIT)
             coordinator.scope['go_account_sha256'] = file_sha(go_path)
             coordinator.journal.record('go_account_proven', sha256=coordinator.scope['go_account_sha256'])
         for index, row, band_directory, raw in bindings:

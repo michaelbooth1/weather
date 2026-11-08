@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from weather.market.lfc_capital import ASSET, CapitalBook, native
-from weather.market.lfc_recording_io import file_sha, write_new
+from weather.market.lfc_recording_io import file_sha, write_new, STATE_JSON_LIMIT
 from weather.market.mm_stage2_hold import digest
 
 
@@ -128,10 +128,11 @@ def publish_supplements(runtime):
             raise ValueError('economics_supplement_collision')
         target = runtime.control_root.parent / (result['session_id'] + '.e-' + sha[:16] + '.json')
         if not target.exists():
-            write_new(target, dict(schema_version='lfc_economics_supplement_v0.1', content_sha256=sha, **content))
+            write_new(target, dict(schema_version='lfc_economics_supplement_v0.1', content_sha256=sha, **content),
+                      max_bytes=STATE_JSON_LIMIT)
         else:
             from weather.market.lfc_recording_io import read_bytes, strict_json
-            if strict_json(read_bytes(target, 2_000_000)).get('content_sha256') != sha:
+            if strict_json(read_bytes(target, STATE_JSON_LIMIT)).get('content_sha256') != sha:
                 raise ValueError('economics_supplement_collision')
 
 

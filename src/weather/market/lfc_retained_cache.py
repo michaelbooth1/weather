@@ -96,6 +96,13 @@ class RetainedCache:
             raise ValueError('retained_evidence_changed_during_read')
         if signature[-1] is None:
             return value
+        if weight > 16 * 1024**2:
+            # An exhaustive late-campaign receipt may be large. Never double
+            # its memory merely to evict the copy immediately afterward.
+            if old is not None:
+                self.bytes -= old[2]
+                del self.values[key]
+            return value
         if old is not None:
             self.bytes -= old[2]
         self.values[key] = (signature, deepcopy(value), weight)
@@ -111,7 +118,8 @@ class RetainedCache:
 
     def json(self, path):
         def load():
-            raw = read_bytes(path, 16_000_000)
+            from weather.market.lfc_recording_io import STATE_JSON_LIMIT
+            raw = read_bytes(path, STATE_JSON_LIMIT)
             return strict_json(raw), max(256, len(raw) * 5)
         return self.get('json', path, load)
 

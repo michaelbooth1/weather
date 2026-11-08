@@ -534,6 +534,14 @@ rewards, all fee/cost attribution, family closure or an independent cutoff cash
 bridge. These remain explicit gaps and the snapshot is INCONCLUSIVE; the command's
 zero exit means the report was written, not that a scientific PASS was proved.
 
+Retained campaign JSON uses the shared `STATE_JSON_LIMIT` for both writes and
+reads, including the private go packet and public economics supplements. Writers
+refuse an oversized record before publishing it. The bounded retention cache
+returns larger valid records without copying them into its cache; native receipt
+bodies remain hash references rather than repeated account snapshots. The
+synthetic year-end capacity test covers every cumulative state family with
+twelve bands per day, SDK trade rows, paged activity and capital allocations.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

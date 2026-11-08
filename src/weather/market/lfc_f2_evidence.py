@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from weather.market.lfc_completion import evidence_flags
-from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json
+from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, STATE_JSON_LIMIT
 from weather.market.lfc_session_status import SessionStatus
 from weather.market.lfc_f2_economics import economics
 from weather.market.mm_stage2_hold import digest, _order_id
@@ -43,7 +43,7 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
     if go_sha is not None:
         if hashes.get('go_account.json') != go_sha or file_sha(directory / 'go_account.json') != go_sha:
             raise ValueError('f2_go_account_hash')
-        go = strict_json(read_bytes(directory / 'go_account.json', 16 * 1024 * 1024))
+        go = strict_json(read_bytes(directory / 'go_account.json', STATE_JSON_LIMIT))
         proof = go['proof']
         if (go.get('attempt_id') != attempt_id or digest(go['read']) != proof.get('read_sha256') or
                 proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or

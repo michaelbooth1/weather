@@ -5,7 +5,7 @@ import uuid
 
 from weather.market.lfc_campaign_guard import account_key, require_account
 from weather.market.lfc_campaign_incidents import EvidenceArtifactError, latch_occurrence, occurrence_closed
-from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new
+from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new, STATE_JSON_LIMIT
 from weather.market.mm_stage2_hold import digest
 from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
 
@@ -61,7 +61,7 @@ class AccountState:
             current = current / part
             current.mkdir(exist_ok=True)
             validate_nonreparse_directory(current.absolute())
-        write_new(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields})
+        write_new(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields}, max_bytes=STATE_JSON_LIMIT)
         return self.file_sha(path)
 
     def enroll(self, now):

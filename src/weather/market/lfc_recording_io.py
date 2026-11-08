@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 
 RECOVERY_SCHEMA = 'lfc_recording_recovery_v0.1'
 READ_SCHEMA = 'lfc_recording_read_v0.1'
+# Cumulative campaign observations through Dec31 (12 bands/day) can exceed
+# the original 16 MB state cap. All state writers/readers share this bound.
+STATE_JSON_LIMIT = 96_000_000
 
 
 def clock_text(clock):
@@ -105,13 +108,15 @@ def file_sha(path):
     return digest.hexdigest()
 
 
-def write_new(path, row):
+def write_new(path, row, *, max_bytes=None):
     """Flush a same-directory attempt, then atomically publish without overwrite.
 
     The hard link is an exclusive create on NTFS and POSIX. Failed temporary
     attempts survive; only a successfully published duplicate link is removed.
     """
     raw = (json.dumps(row, sort_keys=True, separators=(',', ':'), allow_nan=False, default=str) + '\n').encode('utf-8')
+    if max_bytes is not None and len(raw) > max_bytes:
+        raise ValueError('recording_file_budget')
     # canonical_bytes uses json.dumps; reject nonstandard constants before I/O.
     strict_json(raw)
     path = Path(path)
