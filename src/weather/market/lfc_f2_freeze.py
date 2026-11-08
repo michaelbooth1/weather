@@ -33,7 +33,9 @@ def verify(state):
         captured = datetime.fromisoformat(row['captured_at_utc'])
         deadline = datetime.fromisoformat(policy.raw['freeze_deadline_toronto'])
         if (file_sha(path) != event['file_sha256'] or row['economic_sha256'] != economic_digest(policy) or
-                row['policy_sha256'] != policy.sha256 or row['ledger_sha256'] != event['previous_sha256'] or
+                row['policy_sha256'] != policy.sha256 or
+                row['ledger_sha256'] != event.get('receipt_ledger_sha256', event['previous_sha256']) or
+                row['ledger_sha256'] not in {state.ledger.row_sha256(i) for i in range(event['sequence'])} or
                 row['on_time'] != (capture_window(policy)[0] <= captured <= capture_window(policy)[1])):
             raise ValueError('freeze_binding')
         return row
@@ -54,10 +56,25 @@ def capture(state, policy, now):
     """
     if not policy.f2 or verify(state) is not None:
         return
-    if (state.root / 'policies' / 'freeze.json').exists():
-        # A crash between create and ledger anchor cannot be adopted as a
-        # timely freeze. Preserve the partial receipt and label later trading
-        # as learning instead of blocking useful funded sessions.
+    path = state.root / 'policies' / 'freeze.json'
+    if path.exists():
+        # Complete only a valid original transaction, during the same capture
+        # window. Never rewrite its bytes or backdate the recovery anchor.
+        from weather.market.lfc_campaign_policy import parse_policy
+        try:
+            row = state.read(path)
+            original = parse_policy(row['policy'])
+            captured = datetime.fromisoformat(row['captured_at_utc'])
+            begin, end = capture_window(original)
+            valid = (begin <= captured <= now <= end and row['on_time'] is True and
+                row['policy_sha256'] == original.sha256 and
+                row['economic_sha256'] == economic_digest(original) == economic_digest(policy) and
+                row['ledger_sha256'] in {state.ledger.row_sha256(i) for i in range(len(state.ledger.rows))})
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            valid = False
+        if valid:
+            state.ledger.record('autostart_freeze', attempt_id='campaign-freeze', file_sha256=file_sha(path),
+                receipt_ledger_sha256=row['ledger_sha256'], recovered_partial=True)
         return
     deadline = datetime.fromisoformat(policy.raw['freeze_deadline_toronto'])
     if now < deadline - timedelta(minutes=5):
