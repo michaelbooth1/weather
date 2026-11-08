@@ -17,6 +17,48 @@ from weather.market.mm_stage2_hold import digest
 from weather.operations.live_path_security import validate_contained_regular_file
 
 
+def confirmation_sessions(ledger, frozen):
+    """Classify by retained claims and frozen economics, never revision number."""
+    if not frozen or frozen.get('on_time') is not True or ledger.enrollment is None:
+        return set()
+    from weather.market.lfc_campaign_policy import parse_policy, ZONE
+    from weather.market.lfc_f2_freeze import economic_digest
+    from weather.market.lfc_recording_io import read_bytes, strict_json
+    root = Path(ledger.enrollment['state_root'])
+    claims = {}
+    for anchor in ledger.autostart_claims:
+        path = validate_contained_regular_file(root, root / 'claims' / (anchor['local_date'] + '.json'))
+        claim = strict_json(read_bytes(path, 2 * 1024 * 1024))
+        policy_path = validate_contained_regular_file(root, root / 'policies' / (anchor['attempt_id'] + '.json'))
+        retained = strict_json(read_bytes(policy_path, 2 * 1024 * 1024))
+        policy = parse_policy(retained['policy'])
+        if (file_sha(path) != anchor['file_sha256'] or claim['attempt_id'] != anchor['attempt_id'] or
+                claim['ledger_sha256'] != anchor['previous_sha256'] or
+                file_sha(policy_path) != claim['policy_snapshot_sha256'] or
+                policy.sha256 != claim['policy_sha256'] or retained['sha256'] != policy.sha256):
+            raise ValueError('final_confirmation_claim_binding')
+        if (claim.get('evidence_lane') == 'confirmation' and
+                economic_digest(policy) == frozen['economic_sha256']):
+            claims[anchor['attempt_id']] = (anchor, claim)
+    result = set()
+    for sid, session in ledger.sessions.items():
+        start = session['start']
+        attempt = start.get('autostart_attempt_id')
+        # Earlier campaign fixtures/journals bind through the active claim and
+        # date; current runtime also writes the explicit attempt identifier.
+        if attempt is None:
+            prior = [a for a in ledger.autostart_claims if a['sequence'] < start['sequence']]
+            attempt = prior[-1]['attempt_id'] if prior else None
+        if attempt not in claims:
+            continue
+        anchor, claim = claims[attempt]
+        day = datetime.fromisoformat(start['recorded_at_utc']).astimezone(ZONE).date().isoformat()
+        if (anchor['sequence'] < start['sequence'] and day == claim['local_date'] and
+                all(start.get(key) == claim.get(key) for key in ('policy_name', 'policy_revision', 'evidence_lane'))):
+            result.add(sid)
+    return result
+
+
 def snapshot(ledger, policy, *, root, now, frozen=None):
     cutoff = datetime.fromisoformat(policy.raw['evidence_cutoff_toronto'])
     if now < cutoff:
@@ -50,10 +92,7 @@ def snapshot(ledger, policy, *, root, now, frozen=None):
             zeros.append(row)
         else:
             winners.append({**row, 'unredeemed_payout_native': int(left * payout), 'state': 'UNREDEEMED_AT_CUTOFF'})
-    confirmation = {sid for sid, session in ledger.sessions.items()
-                    if session['start'].get('evidence_lane') == 'confirmation' and
-                    session['start'].get('policy_name') == policy.raw['policy_name'] and
-                    session['start'].get('policy_revision') == policy.raw['policy_revision']}
+    confirmation = confirmation_sessions(ledger, frozen)
     purchases = {lane: sum(lot['basis'] for lot in book.lots.values() if (lot['session_id'] in confirmation) ==
                           (lane == 'confirmation')) for lane in ('confirmation', 'learning_and_legacy')}
     proceeds = dict.fromkeys(purchases, 0)
