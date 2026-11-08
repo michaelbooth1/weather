@@ -82,7 +82,11 @@ function Get-LfcCampaignDeadline {
             $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
             $seconds=[int]$policyRow.max_session_seconds
             if($seconds -lt 300 -or $seconds -gt 21600) { return $fallback }
-            $end=$NowUtc.AddSeconds($seconds)
+            # Admission and client setup may use any part of this window.
+            # Bound the latest possible child end, never wrapper launch time.
+            $latestLocal=[DateTime]::SpecifyKind($localNow.Date.Add($finish),[DateTimeKind]::Unspecified)
+            $latest=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($latestLocal,$zone))
+            $end=$latest.AddSeconds($seconds)
             if($fixed -lt $end) { $end=$fixed }
         } elseif($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.1') {
             foreach($entry in $policyRow.entries) {
@@ -91,7 +95,7 @@ function Get-LfcCampaignDeadline {
                 if($start -le $NowUtc -and $NowUtc -lt $finish) {
                     $seconds=[math]::Min([int]$entry.duration_seconds,[int]$policyRow.max_session_seconds)
                     if($seconds -lt 300 -or $seconds -gt 21600) { return $fallback }
-                    $end=$NowUtc.AddSeconds($seconds)
+                    $end=$finish.AddSeconds($seconds)
                     if($policyRow.trading_end_toronto) {
                         $stop=[TimeSpan]::ParseExact([string]$policyRow.trading_end_toronto,'hh\:mm\:ss',$culture)
                         $localStop=[DateTime]::SpecifyKind($localNow.Date.Add($stop),[DateTimeKind]::Unspecified)

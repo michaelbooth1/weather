@@ -198,7 +198,7 @@ def test_latched_pending_attempt_still_records_followup_without_account_or_place
 @pytest.mark.parametrize('schema', ['lfc_campaign_policy_v0.2', 'lfc_campaign_policy_v0.3'])
 @pytest.mark.parametrize('stamp,seconds,expected', [
     ('2026-11-11T14:14:50Z', 21600, '2026-11-11T20:30:00+00:00'),
-    ('2026-11-11T14:14:50Z', 300, '2026-11-11T14:49:50+00:00'),
+    ('2026-11-11T14:14:50Z', 300, '2026-11-11T14:50:00+00:00'),
     ('2026-11-11T13:59:59Z', 21600, '2026-11-11T14:29:59+00:00'),
     ('2026-11-11T14:15:00Z', 21600, '2026-11-11T14:45:00+00:00')])
 def test_wrapper_deadline_uses_effective_end_plus_thirty_minutes(tmp_path, stamp, seconds, expected, schema):
@@ -237,7 +237,10 @@ def test_every_child_policy_schema_has_a_wrapper_deadline_after_its_session_end(
         result = powershell("(Get-LfcCampaignDeadline -CampaignPath '" + str(path).replace("'", "''") +
             "' -NowUtc ([DateTimeOffset]'" + now.isoformat() + "')).ToString('o')")
         assert result.returncode == 0, result.stderr
-        assert datetime.fromisoformat(result.stdout.strip()) >= entry.session_end(now) + timedelta(minutes=30), row['schema_version']
+        deadline = datetime.fromisoformat(result.stdout.strip())
+        for actual_start in (now, entry.end - timedelta(microseconds=1)):
+            if entry.permits(actual_start):
+                assert deadline >= entry.session_end(actual_start) + timedelta(minutes=30), row['schema_version']
 
 
 @pytest.mark.spawns
@@ -247,7 +250,7 @@ def test_reference_deadline_and_malformed_policy_are_bounded_without_silent_admi
     row = policy_row(); row['max_session_seconds'] = maximum
     policy = parse_policy(row); now = policy.entries[0].start
     path = tmp_path / 'campaign.json'; path.write_text('{' if malformed else json.dumps(row))
-    expected = now + timedelta(minutes=30) if malformed else policy.entries[0].session_end(now) + timedelta(minutes=30)
+    expected = now + timedelta(minutes=30) if malformed else policy.entries[0].session_end(policy.entries[0].end) + timedelta(minutes=30)
     result = powershell("(Get-LfcCampaignDeadline -CampaignPath '" + str(path).replace("'", "''") +
         "' -NowUtc ([DateTimeOffset]'" + now.isoformat() + "')).ToString('o')")
     assert result.returncode == 0, result.stderr
