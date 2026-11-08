@@ -310,8 +310,11 @@ def test_claimed_setup_error_still_publishes_policy_bound_outcome(tmp_path, monk
     monkeypatch.setattr(lfc_session_status, 'OWNER_STOP_FILE', tmp_path / 'owner-stop-fixture')
     with account_lease(MAKER, backend=Mutexes()):
         runtime = runtime_at(tmp_path)
-        policy = parse_policy(policy_row())
+        from weather.market.lfc_campaign_policy import load_policy
+        from weather.market.lfc_campaign_launch import launch_packet
+        policy = load_policy(runtime.policy_path)
         entry = policy.entries[0]
+        runtime.wrapper_launch = launch_packet((entry.session_end(entry.end)+timedelta(minutes=30)).isoformat(), policy.source_sha256)
         claim = runtime.state.claim(entry, policy, NOW)
         runtime.lease = SimpleNamespace(check=lambda: None)
         def failed(*args, **kwargs):

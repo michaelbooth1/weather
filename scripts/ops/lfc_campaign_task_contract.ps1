@@ -58,16 +58,41 @@ function ConvertTo-LfcSafeXml {
     finally { $reader.Dispose() }
 }
 
+function Read-LfcCampaignPolicyBytes {
+    param([Parameter(Mandatory=$true)][string]$CampaignPath)
+    $file=Get-Item -LiteralPath $CampaignPath -ErrorAction Stop
+    if($file.Length -gt 65536 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'campaign file' }
+    $stream=[IO.File]::Open($CampaignPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $reader=[IO.BinaryReader]::new($stream)
+        $bytes=$reader.ReadBytes(65537)
+        if($bytes.Length -gt 65536) { throw 'campaign file size' }
+        return ,$bytes
+    } finally { $stream.Dispose() }
+}
+
+function Get-LfcCampaignLaunch {
+    param([Parameter(Mandatory=$true)][string]$CampaignPath,[DateTimeOffset]$NowUtc=[DateTimeOffset]::UtcNow)
+    # The digest and deadline use ONE bounded byte snapshot. An unreadable
+    # policy gets a short reporting budget and can never authorize admission.
+    try { $bytes=Read-LfcCampaignPolicyBytes -CampaignPath $CampaignPath } catch { $bytes=[byte[]]@() }
+    $hasher=[Security.Cryptography.SHA256]::Create()
+    try { $sha=([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-','').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+    $deadline=Get-LfcCampaignDeadline -CampaignPath $CampaignPath -NowUtc $NowUtc -PolicyBytes $bytes
+    return [pscustomobject]@{deadline_utc=$deadline.ToString('o');policy_bytes_sha256=$sha}
+}
+
 function Get-LfcCampaignDeadline {
     param([Parameter(Mandatory=$true)][string]$CampaignPath,
-          [DateTimeOffset]$NowUtc=[DateTimeOffset]::UtcNow)
+          [DateTimeOffset]$NowUtc=[DateTimeOffset]::UtcNow,[AllowEmptyCollection()][byte[]]$PolicyBytes)
     # This only bounds the wrapper. The child independently parses every field
     # before admission; malformed policy gets at most 30 minutes to report REFUSED.
     $fallback=$NowUtc.AddMinutes(30)
     try {
-        $file=Get-Item -LiteralPath $CampaignPath -ErrorAction Stop
-        if($file.Length -gt 65536 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $fallback }
-        $policyRow=ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($CampaignPath))
+        $bytes=if($PSBoundParameters.ContainsKey('PolicyBytes')){$PolicyBytes}else{Read-LfcCampaignPolicyBytes -CampaignPath $CampaignPath}
+        if($bytes.Length -gt 65536) { return $fallback }
+        $policyRow=ConvertFrom-Json -InputObject ([Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF))
         $zone=[TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
         $localNow=[TimeZoneInfo]::ConvertTime($NowUtc,$zone)
         $culture=[Globalization.CultureInfo]::InvariantCulture

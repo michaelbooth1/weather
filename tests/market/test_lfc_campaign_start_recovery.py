@@ -32,6 +32,10 @@ def test_actual_start_check_failure_is_retained_and_empty_claim_recovers(tmp_pat
                                   window_end_utc='2026-11-11T14:15:00Z')
         policy = parse_policy(row); entry = policy.entries[0]
         runtime.policy_path.write_text(json.dumps(row))
+        from weather.market.lfc_campaign_policy import load_policy
+        from weather.market.lfc_campaign_launch import launch_packet
+        policy = load_policy(runtime.policy_path)
+        runtime.wrapper_launch = launch_packet((entry.session_end(entry.end)+timedelta(minutes=30)).isoformat(), policy.source_sha256)
         runtime.clock.value = entry.end - timedelta(seconds=5) if fault == 'late_go' else entry.start
         runtime.lease = SimpleNamespace(check=lambda: None)
         read = account_read(runtime)

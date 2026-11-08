@@ -548,6 +548,15 @@ decision, terminal identities and retained artifacts, then creates only the
 missing receipt. It does not repeat the decision, replace evidence, or waive a
 later fault occurrence. Research gaps remain gaps.
 
+Each wrapper launch reads one bounded policy-byte snapshot. Its deadline and
+that exact snapshot's SHA256 are passed to the child, which checks them before
+claim and again at the live boundary and placement checkpoints. The entire
+permitted start window plus cleanup must fit the parent budget. An early tick
+crossing into a window, or an edit between parent and child reads, defers without
+an incident or a new date claim. A new tick can admit the revised policy. Once
+claimed, a session retains its original admitted snapshot; a supported edit is
+for the next unclaimed session. The prepared receipt retains the launch envelope.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

@@ -13,6 +13,7 @@ import re
 
 from weather.market.lfc_campaign_visibility import safe_traceback, tick_log
 from weather.market.lfc_campaign import CampaignCoordinator
+from weather.market.lfc_campaign_launch import launch_packet, LaunchDeferred
 from weather.market.lfc_campaign_control import CONTROL_ROOT, control_record, stable_id, active_incidents, orders_unproven
 from weather.market.lfc_campaign_guard import AdmissionBusy, account_lease
 from weather.market.lfc_campaign_policy import PolicyRefused, load_policy
@@ -38,6 +39,9 @@ def parser():
         item = commands.add_parser(command)
         item.add_argument('--release', required=True)
         item.add_argument('--release-sha256', required=True)
+        if command == 'tick':
+            item.add_argument('--wrapper-deadline-utc')
+            item.add_argument('--wrapper-policy-sha256')
         if command == 'final-look':
             item.add_argument('--output', type=Path, required=True)
         if command == 'check':
@@ -210,6 +214,8 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
     try:
         release = load_release(args.release, args.release_sha256)
         validate_release(release)
+        wrapper_launch = (launch_packet(args.wrapper_deadline_utc, args.wrapper_policy_sha256)
+                          if args.command == 'tick' else None)
         from weather.market.lfc_campaign_runtime import CampaignClock, Runtime
         clock = CampaignClock()
         with account_lease(release['maker_address']):
@@ -240,7 +246,7 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                 print('Campaign policy and immutable identity valid; no live action performed.')
                 return 0
             runtime = Runtime(state=state, pilot_root=root, policy_path=release['campaign_path'], release=release,
-                              clock=clock, control_root=CONTROL_ROOT,
+                              clock=clock, control_root=CONTROL_ROOT, wrapper_launch=wrapper_launch,
                               task_enabled=lambda: task_enabled(release, args.release, args.release_sha256))
             if args.command == 'owner-recover':
                 return owner_recover(runtime, args.incident)
@@ -258,8 +264,11 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                     owner_release_hold_only(path=runtime.hold_path, expected_sha=file_sha(runtime.hold_path))
                 return 0
             result = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=CONTROL_ROOT,
-                                         followup=runtime.followup).tick(load)
+                                         followup=runtime.followup, wrapper_launch=wrapper_launch).tick(load)
             return 1 if result in {'INCIDENT', 'REFUSED', 'FAILED_NO_ORDERS'} or state.incidents() else 0
+    except LaunchDeferred as exc:
+        emit('DEFERRED', reason=str(exc))
+        return 0
     except AdmissionBusy as exc:
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')

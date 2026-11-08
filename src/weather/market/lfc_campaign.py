@@ -20,8 +20,9 @@ class OwnerStopRequested(RuntimeError):
 
 
 class CampaignCoordinator:
-    def __init__(self, *, state, runtime, clock, control_root, followup=None):
+    def __init__(self, *, state, runtime, clock, control_root, followup=None, wrapper_launch=None):
         self.state, self.runtime, self.clock, self.control_root = state, runtime, clock, control_root
+        self.wrapper_launch = wrapper_launch
         self.policy_binding = {}
         self.record_followups = followup  # Only the qualified owner dispatcher supplies GET capability.
 
@@ -183,13 +184,19 @@ class CampaignCoordinator:
             if self.clock.now().astimezone(ZONE).date().isoformat() != entry.local_date:
                 break
             try:
+                from weather.market.lfc_campaign_launch import require_launch, LaunchDeferred
+                if self.wrapper_launch is not None:
+                    require_launch(self.wrapper_launch, current, entry)
                 with self.runtime.admission():
                     prepared = self.runtime.pre_go(entry, policy)
                     # No claim before all transient checks pass. Actual go
                     # revalidates time, policy and task state after slow reads.
                     if not entry.permits(self.clock.now()):
                         break
-                    if load_policy().sha256 != policy.sha256 or not self.runtime.task_enabled():
+                    latest = load_policy()
+                    if self.wrapper_launch is not None:
+                        require_launch(self.wrapper_launch, latest, entry)
+                    if latest.sha256 != policy.sha256 or not self.runtime.task_enabled():
                         self.status('DEFERRED', entry.id, reason='policy_changed')
                         return 'DEFERRED'
                     claim = self.state.claim(entry, policy, self.clock.now(), prepared=prepared)
@@ -214,6 +221,11 @@ class CampaignCoordinator:
                         self.status('INCIDENT', claim['attempt_id'], incident=True, postchecks_pending=True)
                         raise
                     return 'STARTED'
+            except LaunchDeferred as exc:
+                if claim is not None:
+                    raise
+                self.status('DEFERRED', entry.id, reason=str(exc))
+                return 'DEFERRED'
             except (TransientPrecheck, AdmissionBusy) as exc:
                 if claim is not None:
                     # Never turn a post-claim transport failure into permission

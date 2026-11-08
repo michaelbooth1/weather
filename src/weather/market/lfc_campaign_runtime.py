@@ -107,6 +107,14 @@ class ScheduledAuthority:
             self.protocol = BREADTH_PROTOCOL if enabled(policy) else 'lfc_autostart_v2'
 
     def check(self, *, starting=False):
+        from weather.market.lfc_campaign_launch import require_launch, LaunchDeferred
+        bound = getattr(self.runtime, 'wrapper_launch', None)
+        if bound is not None:
+            try:
+                require_launch(bound, self.policy, self.entry)
+            except LaunchDeferred as exc:
+                from weather.market.mm_stage2_hold import HoldEnd
+                raise HoldEnd(str(exc)) from None
         self.runtime.lease.check()
         self.runtime.state.verify()
         now, mono = self.runtime.clock.now(), self.runtime.clock.monotonic()
@@ -290,7 +298,7 @@ class ScheduledAuthority:
 
 
 class Runtime:
-    def __init__(self, *, state, pilot_root, policy_path, release, clock, control_root, task_enabled, hold_path=CAMPAIGN_WORK_LOCK, heavy_hold_path=None):
+    def __init__(self, *, state, pilot_root, policy_path, release, clock, control_root, task_enabled, hold_path=CAMPAIGN_WORK_LOCK, heavy_hold_path=None, wrapper_launch=None):
         self.state, self.pilot_root, self.policy_path = state, Path(pilot_root), Path(policy_path)
         self.release, self.clock, self.control_root = release, clock, Path(control_root)
         self._read_task_enabled = task_enabled
@@ -299,6 +307,7 @@ class Runtime:
         self.hold_path = Path(hold_path)
         self.heavy_hold_path = Path(HOLD_PATH if heavy_hold_path is None else heavy_hold_path)
         self.sidecar = None
+        self.wrapper_launch = wrapper_launch
 
     def notify_control(self, row):
         from weather.market.lfc_campaign_visibility import notify_control
@@ -672,7 +681,7 @@ class Runtime:
         baseline.update(self.state.policy_labels(policy, entry.local_date))
         filename, sha = write_baseline(self.pilot_root, baseline, ledger)
         from weather.market.re1_owner_checks import code_identity
-        prepared = {'baseline': baseline, 'baseline_file': filename, 'baseline_sha256': sha, 'headroom': resources,
+        prepared = {'wrapper_launch': self.wrapper_launch, 'baseline': baseline, 'baseline_file': filename, 'baseline_sha256': sha, 'headroom': resources,
                     'entry_id': entry.id, 'local_date': entry.local_date, 'policy_sha256': policy.sha256,
                     'account_read': read, 'money_proof': proof,
                     'preflight': {'commit': code_identity(), 'maker_address': self.state.maker,
@@ -684,6 +693,8 @@ class Runtime:
         return {**prepared, 'file': relative, 'sha256': digest_file}
 
     def run_session(self, claim, entry, policy, prepared):
+        from weather.market.lfc_campaign_launch import require_launch
+        require_launch(self.wrapper_launch, policy, entry)
         from weather.market.lfc_cli import _run_live, parser
         from weather.market.lfc_session_status import SessionStatus
         if policy.f2:

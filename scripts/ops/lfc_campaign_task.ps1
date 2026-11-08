@@ -10,10 +10,12 @@ $job=New-WeatherKillOnCloseJob
 $child=$null; $exitCode=1
 try {
     $began=[DateTimeOffset]::UtcNow
-    $deadline=Get-LfcCampaignDeadline -CampaignPath $release.campaign_path -NowUtc $began
+    $launch=Get-LfcCampaignLaunch -CampaignPath $release.campaign_path -NowUtc $began
+    $deadline=[DateTimeOffset]::Parse($launch.deadline_utc)
     $maxSeconds=($deadline-$began).TotalSeconds
     $elapsed=[Diagnostics.Stopwatch]::StartNew()
-    $tokens=@('-m','weather.market.lfc_campaign_cli','tick','--release',$ReleasePath,'--release-sha256',$ReleaseSha256)
+    $tokens=@('-m','weather.market.lfc_campaign_cli','tick','--release',$ReleasePath,'--release-sha256',$ReleaseSha256,
+              '--wrapper-deadline-utc',$launch.deadline_utc,'--wrapper-policy-sha256',$launch.policy_bytes_sha256)
     $child=Start-WeatherProcessInJob -Job $job -FilePath $release.python -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens $tokens) -WorkingDirectory $release.root
     while(-not $child.WaitForExit(500)) {
         if([DateTimeOffset]::UtcNow -ge $deadline -or $elapsed.Elapsed.TotalSeconds -ge $maxSeconds) { throw 'campaign child deadline; cancellation unproven' }

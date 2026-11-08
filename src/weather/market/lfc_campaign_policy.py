@@ -1,7 +1,8 @@
 """Owner-editable autostart policy. Parsing grants no exchange capability."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+import hashlib
 import re
 from zoneinfo import ZoneInfo
 
@@ -66,6 +67,7 @@ class Entry:
 class Campaign:
     raw: dict
     entries: tuple
+    source_sha256: str | None = field(default=None, compare=False, repr=False)
 
     @property
     def f2(self):
@@ -246,7 +248,8 @@ def parse_policy(row):
 
 def load_policy(path):
     from weather.operations.live_path_security import validate_regular_nonreparse_file
-    return parse_policy(strict_json(read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), 65536)))
+    raw = read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), 65536)
+    return replace(parse_policy(strict_json(raw)), source_sha256=hashlib.sha256(raw).hexdigest())
 
 
 def parameter_support():

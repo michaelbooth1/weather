@@ -10,7 +10,8 @@ from weather.market.lfc_recording_io import write_new
 CONTROL_SCHEMA = 'lfc_campaign_control_v0.1'
 CONTROL_ROOT = Path(r'C:\t\pilot\status\control')
 SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_PENDING', 'COMPLETE', 'INCIDENT', 'REFUSED', 'EVIDENCE_GAP'}
-SAFE_REASONS = {'idle', 'transport_deferred', 'window_missed', 'campaign_disabled', 'running', 'postcheck_pending',
+SAFE_REASONS = {
+    'wrapper_launch_missing_or_invalid', 'wrapper_policy_changed', 'wrapper_cleanup_budget_insufficient','idle', 'transport_deferred', 'window_missed', 'campaign_disabled', 'running', 'postcheck_pending',
                 'completed', 'account_incident', 'policy_refused', 'release_refused', 'policy_changed',
                 'owner_stop', 'market_local_horizon', 'admission_busy', 'hold_retained',
                 'disk_free_below_floor', 'session_stalled', 'claim_no_intents', 'freeze_missing', 'no_qualifying_band'}
