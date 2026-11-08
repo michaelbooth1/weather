@@ -70,6 +70,7 @@ qualifying quantity.
   metadata for UTC 2026-09-26..10-12.
   - Under the edge trial charter §3.2, the released 09-30..10-14 window may describe.
   - Under the reserved-confirmation-window embargo row, maker-economics reads of 09-30..10-14 stay closed.
-  - The read is recorded as an exposure in [DECISION_LOG](../operations/DECISION_LOG.md), and the owner rules which
-    text governs. F does not depend on that estimate.
+  - The read is recorded as an exposure in [DECISION_LOG](../operations/DECISION_LOG.md). On 2026-11-08 the owner
+    ruled that maker data in this window may describe and rule out, so it was a permitted describe-read. F does not
+    depend on that estimate.
 - No data for event dates on or after 2026-10-15 was read.
