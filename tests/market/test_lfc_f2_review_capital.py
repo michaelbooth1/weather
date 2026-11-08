@@ -316,15 +316,21 @@ def test_real_submit_reaches_durable_intent_gate_after_a_stale_plan(tmp_path, mo
                       evidence=bill, evidence_sha256=digest(bill))
         return actual_post_intent(request)
     monkeypatch.setattr(second, 'post_intent', late_fact)
-    seen, actual_intent = [], ledger.intent
+    seen, refusals, actual_intent = [], [], ledger.intent
     def intent(**kw):
         seen.append(kw['session_id'])
-        return actual_intent(**kw)
+        try:
+            return actual_intent(**kw)
+        except CapitalRefused as exc:
+            refusals.append(str(exc))
+            raise
     monkeypatch.setattr(ledger, 'intent', intent)
     try:
         first.submit(0, first.prices[0])
-        with pytest.raises(CapitalRefused, match='capital_total_ceiling'):
+        with pytest.raises(HoldEnd, match='pre_post_abort'):
             second.submit(0, second.prices[0])
+        assert refusals == ['capital_total_ceiling']  # The actual durable gate still refuses.
+        assert second.posts == 0 and not ledger.unacknowledged_intents()
         assert seen == [first.session_id, second.session_id]
         assert [len(raw.calls) for raw in account.raws] == [1, 0]
         assert len(ledger.legs) == 1
