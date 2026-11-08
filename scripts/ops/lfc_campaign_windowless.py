@@ -19,6 +19,13 @@ STATUS_ROOT = Path(r'C:\t\pilot\status\control')
 IMPORT_OVERRIDES = ('PYTHONPATH', 'PYTHONHOME', 'WEATHER_MARKET_REGISTRY')
 
 
+def flush_refusal(path, raw, mode='xb'):
+    with path.open(mode) as stream:
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def refusal_row(reason):
     """One atomic UTC-named record; names/codes only, no private values."""
     now = datetime.now(timezone.utc)
@@ -26,7 +33,7 @@ def refusal_row(reason):
         'at_utc': now.isoformat(),
         'observed_at_utc': now.isoformat(), 'reason': reason, 'exit_code': 1,
         'variable_names': sorted(name for name in IMPORT_OVERRIDES if name in os.environ)}
-    STATUS_ROOT.mkdir(parents=True, exist_ok=True)
+    raw = (json.dumps(row, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii')
     name = (now.strftime('%Y%m%dT%H%M%S%fZ') + '-launcher-refusals-' +
             now.date().isoformat() + '-' + uuid.uuid4().hex + '.jsonl')
     path = STATUS_ROOT / name
@@ -35,15 +42,29 @@ def refusal_row(reason):
     temporary = STATUS_ROOT.parent / ('.' + name + '.tmp')
     created = False
     try:
-        with temporary.open('xb') as stream:
-            created = True
-            stream.write((json.dumps(row, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii'))
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.link(temporary, path)
+        try:
+            STATUS_ROOT.mkdir(parents=True, exist_ok=True)
+            with temporary.open('xb') as stream:
+                created = True
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.link(temporary, path)
+        except OSError:
+            try:
+                # A filesystem may refuse hard links but permit ordinary files.
+                # Never truncate an existing record, including on collision.
+                STATUS_ROOT.mkdir(parents=True, exist_ok=True)
+                flush_refusal(path, raw)
+            except OSError:
+                STATUS_ROOT.parent.mkdir(parents=True, exist_ok=True)
+                flush_refusal(STATUS_ROOT.parent / 'launcher-refusals-fallback.jsonl', raw, 'ab')
     finally:
         if created:
-            temporary.unlink(missing_ok=True)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass  # The complete refusal is retained; cleanup cannot erase it.
 
 
 

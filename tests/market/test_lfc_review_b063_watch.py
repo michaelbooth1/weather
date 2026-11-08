@@ -68,9 +68,11 @@ def test_refusal_publication_is_atomic_and_preserves_an_existing_name(tmp_path,m
     monkeypatch.setattr(module.os,'link',publish)
     module.refusal_row('campaign_import_environment')
     final=next(tmp_path.iterdir()); original=final.read_bytes()
-    with pytest.raises(FileExistsError): module.refusal_row('campaign_windowless_refused')
+    module.refusal_row('campaign_windowless_refused')
     assert final.read_bytes()==original and len(list(tmp_path.iterdir()))==1
     assert len(observed)==2
+    fallback=tmp_path.parent/'launcher-refusals-fallback.jsonl'
+    assert json.loads(fallback.read_text().splitlines()[-1])['reason']=='campaign_windowless_refused'
     assert not (tmp_path.parent/('.'+final.name+'.tmp')).exists()
 
 
@@ -80,6 +82,7 @@ def test_preexisting_temporary_file_is_never_removed(tmp_path,monkeypatch):
     name=now.strftime('%Y%m%dT%H%M%S%fZ')+'-launcher-refusals-'+now.date().isoformat()+'-'+'b'*32+'.jsonl'
     temporary=tmp_path.parent/('.'+name+'.tmp')
     temporary.write_bytes(b'pre-existing synthetic evidence')
-    with pytest.raises(FileExistsError): module.refusal_row('campaign_import_environment')
+    module.refusal_row('campaign_import_environment')
     assert temporary.read_bytes()==b'pre-existing synthetic evidence'
-    assert not list(tmp_path.iterdir())
+    assert len(list(tmp_path.iterdir()))==1
+    assert json.loads(next(tmp_path.iterdir()).read_text())['phase']=='REFUSED'

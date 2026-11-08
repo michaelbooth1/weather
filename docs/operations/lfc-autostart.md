@@ -25,6 +25,9 @@ Environment/binding refusals before the child starts write one sanitized line
 to a UTC-timestamp-prefixed `status/control/*-launcher-refusals-*.jsonl` file.
 Each file is one atomically published, create-only JSON line, so filename-sorted
 watches cannot be pinned to an old daily log or read a multi-record object.
+If hard-link publication fails, the launcher uses a direct create-only write.
+If that also fails, it appends the same safe line to the fixed
+`status/launcher-refusals-fallback.jsonl` log, preserving previous refusals.
 It contains phase/time aliases, reason codes and variable names only, with no
 values, paths or exception text. The launcher
 still exits nonzero and never starts the wrapper after a refusal.
