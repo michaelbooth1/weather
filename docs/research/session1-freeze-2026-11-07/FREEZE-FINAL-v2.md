@@ -15,17 +15,30 @@ Rule 01 bans simulator and adapter changes after lock. This owner-directed succe
 
 ## Changes from v1 (exhaustive)
 
-1. **Rule 02, F0 executor/recorder:** `57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1` ([clarification F](../live-fill-calibration-clarification-F-2026-11-07.md)). For the LFC profile only, the share filter is off, any rewarded band qualifies, and the depth guard is 20. Every money cap and price range is unchanged.
+**A. Substitutions in the body.** These are the only lines that differ from v1:
+
+1. **Rule 02, F0 executor/recorder:** `57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1` ([clarification F](../live-fill-calibration-clarification-F-2026-11-07.md)), with its ancestors and its workstation pregate receipt (SHA-256 `c4aeb757`…, PASS). For the LFC profile only, the share filter is off, any rewarded band qualifies, and the depth guard is 20. Every money cap and price range is unchanged.
 2. **Rule 02, simulator/validator:** `728d60e396c574d5a363d2d680f48a71166a3077`. This is the base plus recorder-pin identity only.
-3. **Rule 02, P2 pin manifest:** the frozen bytes are unchanged. The annex `PINS-ANNEX-1.v4.md` (SHA-256 `d56377ce`…) is added.
+3. **Rule 02, P2 pin manifest:** the bound bytes (`PINS-FROZEN-B033.md`) are unchanged. The annex `PINS-ANNEX-1.v4.md` (SHA-256 `d56377ce`…) is added.
 4. **Rule 02, new row:** the evidence-staging script and runbook, by hash.
-5. **Rules 25–27 reads:** session 1's own records are opened by the owner's 21:19 named-test row in [reserved-confirmation-window](../../operations/reserved-confirmation-window.md). Every read is logged in the WS exposure log `C:\t\pilot1109\EXPOSURE_LOG.md`. All other closures stand.
-6. **Pin references:** the lines naming the v1 simulator pin read as the v2 pins (D3 row, closure receipt, the Rule 02/08/31 summary row).
+5. **Pin references:** the lines naming the v1 simulator pin read as the v2 pins (D3 row, closure receipt, the Rule 02/08/31 summary row).
+
+**B. Rules that bind on v2 from this header alone; the body is unchanged.**
+
+6. **Reads of session 1's own records** are opened by the owner's 21:19 named-test row in [reserved-confirmation-window](../../operations/reserved-confirmation-window.md), and every read is logged in the WS exposure log `C:\t\pilot1109\EXPOSURE_LOG.md`. Rules 25–27 still bind in full: the owner is the only Monday viewer, and research reads come only after Mon 18:00 under Rule 26. All other closures stand.
 7. **Reporting:** Stage 2 and every verdict report the selected population by selection-time `share_many` (< 0.08, 0.08–0.15, ≥ 0.15), reward rate (< 40, ≥ 40) and depth (< 75, ≥ 75) (clarification F, F3).
 
-Everything else is unchanged from v1, word for word: tolerances, the fixed NOT QUALIFIED categories, checkpoints, inclusion predicates, cost basis, primary scenario, roles, access and exposure rules.
+Apart from A and B, everything is unchanged from v1, word for word: tolerances, the fixed NOT QUALIFIED categories, checkpoints, inclusion predicates, cost basis, primary scenario, roles, and the access and exposure rules as amended by item 6.
 
-**Lock time:** the committer time of this file's landing merge on `origin/master`. The master records it in DECISION_LOG and the PINS annex.
+**Reading the inherited body.** Wherever the body says "this file", its `.sha256` sidecar, `FREEZE-FINAL.md.sha256`, or Rule 01's hash publication, read it for v2:
+
+- the file is `FREEZE-FINAL-v2.md`;
+- its SHA-256 is the one in the [README](README.md) table;
+- the lock time is given below.
+
+The "Source and finalization receipt" text is v1's, verbatim.
+
+**Lock time:** the committer time of this file's landing merge on `origin/master`, as recorded in the light-path landing receipt. The master adds it to the next annex version (v5).
 
 ---
 
@@ -53,7 +66,7 @@ The governing source pins are:
 | --- | --- |
 | F0 executor/recorder | `57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1` (successor lock v2: [clarification F](../live-fill-calibration-clarification-F-2026-11-07.md), the LFC economic selection filters relaxed; ancestors `27f169cef80aa93d6c9c52551a040694e8d2a5f5`, never used live, and `f531395522d0b0a37495185b2750164008fe586a`); its actual profile/journal/account/session identities remain required in the runtime annex. Workstation pregate receipt `C:\t\codex\T042r1\out\pregate\pg-57fe4ce1eeb1-20261107T220446-24428\receipt.json`, SHA-256 `c4aeb75752deaca7f589478e4e91ad645c2daedce296bf965ad9e8cbcdd9c308`: verdict PASS, head `57fe4ce1`, 23/23 chunks, 11,134 passed and 53 skipped, finished 2026-11-07 23:02 Toronto. |
 | Public evidence sidecar/exporter | `55e2a0ff12ced1d128e962c09bf42b9e03008e6c`; B023's 180-second fee/metadata targets and B025's absolute end/terminal congestion policy apply. |
-| P2 pin manifest | `C:\t\pilot1109\PINS.md`, SHA-256 `39540f54f7e1beb589adbdb6a7029d72763c70c9b1471bf5cafcb3e08e491e27`; exact retained copy `PINS-FROZEN-B033.md` in this task folder. Its bytes were verified for this finalization. Append actual launch/host facts in a separately hashed annex rather than overwrite the bound bytes. v2 annex: `C:\t\pilot1109\PINS-ANNEX-1.v4.md`, SHA-256 `d56377cebacbafae3495954759f8c5c501597fde27b1c7625ff1b18a91ac236e` (annex versions are new files, never overwrites; v4 adds the F0 pregate row) (the F0 and simulator rows; the live `PINS.md` carries one appended publication row, recorded there as a custody note). |
+| P2 pin manifest | `C:\t\pilot1109\PINS.md`, SHA-256 `39540f54f7e1beb589adbdb6a7029d72763c70c9b1471bf5cafcb3e08e491e27`; exact retained copy `PINS-FROZEN-B033.md` in this task folder. Its bytes were verified for this finalization. Append actual launch/host facts in a separately hashed annex rather than overwrite the bound bytes. v2 annex: `C:\t\pilot1109\PINS-ANNEX-1.v4.md`, SHA-256 `d56377cebacbafae3495954759f8c5c501597fde27b1c7625ff1b18a91ac236e` (annex versions are new files, never overwrites). v4 carries the v2 F0 and simulator rows and the pregate row. The live `PINS.md` has one appended publication row, recorded as a custody note; the bound bytes are `PINS-FROZEN-B033.md`. |
 | Simulator and validator | `728d60e396c574d5a363d2d680f48a71166a3077` = `206664b6e91066e219c0e072f00c2d97ed3fb909` plus recorder-pin identity only: it accepts only the v2 F0 pin and echoes the validated input pin (`t1_accuracy.py`, `t1_recorder.py`; master-reviewed diff, Codex T043 tests). Astra T035 RECHECK3 reports **STAGE2-READY for partial offline intake, expecting NOT_QUALIFIED; no must-fix** for the base `206664b6`. This is source readiness, not a real-session or deployment verdict. |
 | Evidence staging (v2) | `C:\t\codex\T040\stage_session1_evidence.ps1` SHA-256 `52740fd97b66e0631b1f3de4d14a9d9bc8288869b77df70ed3fd9cc3ca0f2d4c`, `RUNBOOK.md` SHA-256 `fe498a4b7c3198a14f2b0b3e6a43472b0ab6dc81c6102341295baf74a95993fc`. It is a create-only, allowlisted byte copy to `C:\t\stage2-input\session1-<stamp>\`, run by the WS custodian on Mon at 20:00 Toronto or later, after the sidecar exits and the owner's post-run PASS, and again Wed ~20:30. |
 | Freeze and custody | This file and its `.sha256` sidecar, the short owner summary, B014, B033, and Rule 30's named roles/decisions. |

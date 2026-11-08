@@ -45,8 +45,7 @@ prospectively, from session 1 (2026-11-09) on. No session had been counted when 
   - the rate floor and the depth guard were RE-1's reward-economics choices.
 - **What still protects the money:** the caps, the price ranges, the spread limit, post-only quoting, GTD expiry and
   the venue's heartbeat dead-man.
-- **With the old filters,** a development-window estimate found no eligible band in about 90–95% of selection runs
-  (F4).
+- **With the old filters,** an informal estimate (F4) suggested most selection runs found no eligible band.
 
 ## F3. Effect on the measured quantities
 

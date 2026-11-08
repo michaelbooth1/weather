@@ -27,7 +27,9 @@ admission.
   until that day's session has finished (about 15:30). Light work is fine.
 - **Why:** the session takes the same workload mutex and its own work lock in its only start window,
   09:00–09:15. A heavy job holding the mutex then makes it DEFER and then MISS the day.
-- **Also on those dates:** no agent creates `C:\t\codex\HOLD_HEAVY`. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
+- **Also on those dates:** no agent creates `C:\t\codex\HOLD_HEAVY`.
+
+Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).
 Its `weather_heavy` kind admits only exact module names from
 `Get-WeatherWorkstationOfflineModule` (module, not subcommand: a module that also

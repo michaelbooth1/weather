@@ -36,7 +36,7 @@ it does not invent a signature.
   The depth guard applies to LFC only. RE-1 defaults are unchanged, and `re1_attended_cli cancel-only` is unaffected.
 - One noted gap: the RE-1 `collect-payout` replay (`re1_evidence.load_prediction`) still replays at the 40 floor. It
   is not used for LFC rewards, which come from the account flow.
-- The workstation pregate receipt at this sha is recorded in `C:\t\pilot1109\PINS-ANNEX-1.md` and in the session-1
+- The workstation pregate receipt at this sha is recorded in `C:\t\pilot1109\PINS-ANNEX-1.v4.md` (SHA-256 `d56377ce`…) and in the session-1
   successor lock.
 
 **Money terms:** unchanged.

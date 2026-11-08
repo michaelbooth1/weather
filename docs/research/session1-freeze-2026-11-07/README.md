@@ -21,6 +21,7 @@ copies of the workstation originals.
 | --- | --- |
 | `FREEZE-FINAL.md` (full rules, decisions, closure table) | `c7dacf026997f5a6a2b984e3930ce837d941b3fd42514e29afc1df1f4fa92640` |
 | `FREEZE-SHORT.md` (one-page owner summary) | `22f0c2b4d176f42684731c041b8009651ad0d3c3292bf85a5abdc40feb8b0f67` |
+| `FREEZE-FINAL-v2.md` (successor lock, 2026-11-08; supersedes `FREEZE-FINAL.md` from its publication) | `5ecd79dac33195ed8f9b93711e41f4226d5082368ea961f036c36c074263ed69` |
 
 ## What this governs
 
