@@ -58,7 +58,7 @@ def test_windowless_binding_refuses_before_any_wrapper_executes(tmp_path, change
     if changed == 'receipt_hash': command[-1] = 'f' * 64
     child = subprocess.run(command, env=env, timeout=15)
     assert child.returncode == 1 and not marker.exists()
-    logs = list((tmp_path / 'public-status').glob('launcher-refusals-*.jsonl'))
+    logs = list((tmp_path / 'public-status').glob('*-launcher-refusals-*.jsonl'))
     assert len(logs) == 1
     rows = [json.loads(line) for line in logs[0].read_text().splitlines()]
     assert len(rows) == 1 and rows[0]['state'] == 'REFUSED' and rows[0]['exit_code'] == 1

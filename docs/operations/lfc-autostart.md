@@ -22,8 +22,11 @@ can execute; the wrapper also contains the campaign child. The Interactive/Limit
 owner session remains available for toasts. Registration seals the interpreter
 and launcher hashes; a changed binding refuses.
 Environment/binding refusals before the child starts write one sanitized line
-to `status/control/launcher-refusals-YYYY-MM-DD.jsonl`. It contains reason codes
-and variable names only, with no values, paths or exception text. The launcher
+to a UTC-timestamp-prefixed `status/control/*-launcher-refusals-*.jsonl` file.
+Each file is one atomically published, create-only JSON line, so filename-sorted
+watches cannot be pinned to an old daily log or read a multi-record object.
+It contains phase/time aliases, reason codes and variable names only, with no
+values, paths or exception text. The launcher
 still exits nonzero and never starts the wrapper after a refusal.
 
 A crash between a timely freeze receipt and its ledger anchor can complete on
@@ -44,6 +47,9 @@ evidence fault; it never invents an ambiguous placement or becomes a PASS.
 A proved pre-POST exit retires its band through ordinary cleanup. Its exact
 request and any written intent packet remain bound in the abort journal row;
 an actual POST or partial/unreadable ledger write cannot use this exemption.
+A real fill seen at the post-signing checkpoint ends that band as
+`pre_post_abort`, without post-fill continuation. This is deliberate: the
+unposted request grants no new order authority. Other safe bands continue.
 An unexplained peer cash shortfall waits at most24 cooperative five-second
 deferrals. Other bands' bounded GET work does not consume those turns. Polls run at
 least five seconds apart and no submit-budget consumption. It then retires

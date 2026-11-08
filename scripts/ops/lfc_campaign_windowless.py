@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 
 
@@ -19,17 +20,31 @@ IMPORT_OVERRIDES = ('PYTHONPATH', 'PYTHONHOME', 'WEATHER_MARKET_REGISTRY')
 
 
 def refusal_row(reason):
-    """Public daily log: names/codes only; never values, paths or exceptions."""
+    """One atomic UTC-named record; names/codes only, no private values."""
     now = datetime.now(timezone.utc)
-    row = {'schema_version': 'lfc_launcher_refusal_v0.1', 'state': 'REFUSED',
+    row = {'schema_version': 'lfc_launcher_refusal_v0.1', 'state': 'REFUSED', 'phase': 'REFUSED',
+        'at_utc': now.isoformat(),
         'observed_at_utc': now.isoformat(), 'reason': reason, 'exit_code': 1,
         'variable_names': sorted(name for name in IMPORT_OVERRIDES if name in os.environ)}
     STATUS_ROOT.mkdir(parents=True, exist_ok=True)
-    path = STATUS_ROOT / ('launcher-refusals-' + now.date().isoformat() + '.jsonl')
-    with path.open('ab') as stream:
-        stream.write((json.dumps(row, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii'))
-        stream.flush()
-        os.fsync(stream.fileno())
+    name = (now.strftime('%Y%m%dT%H%M%S%fZ') + '-launcher-refusals-' +
+            now.date().isoformat() + '-' + uuid.uuid4().hex + '.jsonl')
+    path = STATUS_ROOT / name
+    # A filename-sorted watch sees only complete one-line records. Stage in
+    # the parent directory, then publish create-only; never replace evidence.
+    temporary = STATUS_ROOT.parent / ('.' + name + '.tmp')
+    created = False
+    try:
+        with temporary.open('xb') as stream:
+            created = True
+            stream.write((json.dumps(row, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii'))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+    finally:
+        if created:
+            temporary.unlink(missing_ok=True)
+
 
 
 class ChildJob:
