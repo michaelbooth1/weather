@@ -55,6 +55,7 @@ class ScopedVenue:
 class F2Band(PilotSession):
     def __init__(self, *, policy, entry, **kwargs):
         self.campaign_policy, self.campaign_entry = policy, entry
+        self.MIN_REWARD_RATE = quantity(policy.raw['min_reward_rate'])
         chosen = next(row for row in kwargs['table']['rows']
                       if row['condition_id'] == kwargs['table']['selected_condition_id'])
         self.TRADE_LEGS = tuple(chosen['trade_legs'])
@@ -87,8 +88,16 @@ class F2Band(PilotSession):
                 type(self.attempt.get('session_number')) is int and self.attempt['session_number'] >= 1)
 
     def observe_snapshot(self, snapshot):
-        return observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=True,
-                       window=self.REQUOTE_WINDOW, trade_legs=self.TRADE_LEGS)
+        from weather.market.lfc_f2_selection import check_book
+        from weather.market.reward_quote import QuoteRefused
+        observation = observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=True,
+            window=self.REQUOTE_WINDOW, trade_legs=self.TRADE_LEGS, min_reward_rate=self.MIN_REWARD_RATE)
+        try:
+            check_book(snapshot['quote_inputs'], mid=observation['adjusted_mid'], size=self.size,
+                       share=observation['share_many'], policy=self.campaign_policy)
+        except QuoteRefused as exc:
+            raise HoldEnd(str(exc)) from None
+        return observation
 
     def _gate(self, *, own_resting=Decimal(0)):
         reserve = self.size * sum(self.reserve_prices(), Decimal(0))

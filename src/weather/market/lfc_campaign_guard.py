@@ -45,7 +45,8 @@ def workstation_headroom():
 
 _owned = threading.local()
 LEGACY_MUTEX = r'Global\WeatherProjectHeavyWorkloadV1'
-HOLD_PATH = Path(r'C:\t\codex\HOLD_HEAVY')
+HOLD_PATH = Path(r'C:\t\codex\HOLD_HEAVY')  # Manual agent/master hold; never owned by the campaign.
+CAMPAIGN_WORK_LOCK = Path(r'C:\t\pilot\status\campaign-work.lock')
 
 
 class OwnedHold:
@@ -54,7 +55,7 @@ class OwnedHold:
     Agents never manufacture this live marker. Tests always supply a temp path.
     A pre-existing holder is honored, never deleted or taken over.
     """
-    def __init__(self, path=HOLD_PATH, *, policy_metadata=None):
+    def __init__(self, path=CAMPAIGN_WORK_LOCK, *, policy_metadata=None):
         self.path, self.identity, self.sha256 = Path(path), uuid.uuid4().hex, None
         self.policy_metadata = {} if policy_metadata is None else dict(policy_metadata)
 

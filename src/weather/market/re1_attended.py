@@ -20,7 +20,7 @@ from weather.market.mm_stage2_hold import (
 from weather.market.mm_stage2_selection import validate_selection
 from weather.market.mm_official_adapter import sdk_field_value
 from weather.market.re1_resilience import Freshness, HeartbeatLoop, retry_read, transient
-from weather.market.reward_quote import QuoteRefused, _decimal as number, _levels
+from weather.market.reward_quote import QuoteRefused, _decimal as number, _levels, reward_rate_eligible
 from weather.market.reward_share_estimate import order_score, q_min, share_of, side_score
 from weather.market.re1_sizing import SIZES, reserve_budget, session_caps
 from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
@@ -72,7 +72,7 @@ class GuardedJournal(HoldJournal):
             super().record(event, **self.guard.clean(fields))
 
 
-def observe(snapshot, prices, size=SIZE, sizes=SIZES, *, reward_terms=True, window=(1, 3), trade_legs=(0, 1)):
+def observe(snapshot, prices, size=SIZE, sizes=SIZES, *, reward_terms=True, window=(1, 3), trade_legs=(0, 1), min_reward_rate=40):
     """84b scoring: hold prices may drift; drift requests a re-quote, not exit.
 
 Reuse the estimator formulas; do not invoke 80b's hold-only re-pricing gates.
@@ -88,7 +88,7 @@ the reward-term exits and the reward-share estimate are skipped and the mid uses
         ('reward_min_size', 'reward_max_spread_cents', 'reward_rate_per_day'))
     if reward_terms and minimum > size:
         raise HoldEnd('reward_minimum')
-    if reward_terms and (minimum <= 0 or maximum <= 0 or rate < 40):
+    if reward_terms and (minimum <= 0 or maximum <= 0 or not reward_rate_eligible(rate, min_reward_rate)):
         raise HoldEnd('reward_rate_or_terms')
     sides = ('yes_bids', 'yes_asks', 'no_bids', 'no_asks')
     if any(not values[k] for k in sides):
@@ -153,6 +153,7 @@ class Session:
     PROTOCOL = 'RE-1M-attended-84c'
     BAND_CEILING = Decimal(75)
     REWARD_TERMS = True  # session-0 mode of the calibration campaign skips only the reward-terms check
+    MIN_REWARD_RATE = Decimal(40)
     OFFSET = Decimal('.015')
     REQUOTE_WINDOW = (Decimal(1), Decimal(3))
     TRADE_LEGS = (0, 1)
@@ -179,7 +180,7 @@ class Session:
 
     def observe_snapshot(self, snapshot):
         return observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=self.REWARD_TERMS,
-                       window=self.REQUOTE_WINDOW)
+                       window=self.REQUOTE_WINDOW, min_reward_rate=self.MIN_REWARD_RATE)
 
     def before_first_post(self):
         """Called after the opening check and before the first submit (selection/exclusion records)."""
@@ -541,7 +542,7 @@ class Session:
         values = snapshot['quote_inputs']
         if self.REWARD_TERMS and ((number(values['reward_min_size']) > size if self.sized
                                    else number(values['reward_min_size']) != SIZE)
-                                  or number(values['reward_rate_per_day']) < 40):
+                                  or not reward_rate_eligible(values['reward_rate_per_day'], self.MIN_REWARD_RATE)):
             raise HoldEnd('reward_terms')
         self.observe_snapshot(snapshot)
         rule = snapshot['rules'][self.tokens[leg]]

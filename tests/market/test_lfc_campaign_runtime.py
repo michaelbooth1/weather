@@ -30,7 +30,7 @@ def runtime_at(tmp_path):
     path = tmp_path / 'campaign.json'
     path.write_text(json.dumps(policy_row()))
     runtime = Runtime(state=state, pilot_root=state.ledger.path.parent, policy_path=path, release={}, clock=clock,
-                      control_root=tmp_path / 'control', task_enabled=lambda: True, hold_path=tmp_path / 'HOLD')
+                      control_root=tmp_path / 'control', task_enabled=lambda: True, hold_path=tmp_path / 'HOLD', heavy_hold_path=tmp_path / 'agent-hold-fixture')
     return runtime
 
 

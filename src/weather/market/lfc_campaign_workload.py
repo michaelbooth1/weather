@@ -10,7 +10,7 @@ from pathlib import Path
 import os
 import sys
 
-from weather.market.lfc_campaign_guard import AdmissionUncertain, HOLD_PATH, LEGACY_MUTEX, WindowsMutexes, account_key
+from weather.market.lfc_campaign_guard import AdmissionUncertain, HOLD_PATH, LEGACY_MUTEX, WindowsMutexes, account_key, CAMPAIGN_WORK_LOCK
 from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new
 
 
@@ -67,7 +67,7 @@ def proved_owner_gone(row, now_boot):
 
 
 def owner_release_workload_after_reboot(*, path, expected_sha, state_id, maker, boot_id=None, backend=None,
-                             namespace=LEGACY_MUTEX, owner_terminal=None, confirmation=None, hold_path=HOLD_PATH):
+                             namespace=LEGACY_MUTEX, owner_terminal=None, confirmation=None, hold_path=CAMPAIGN_WORK_LOCK):
     """Never called by automatic admission or money reconciliation."""
     terminal = sys.stdin.isatty() if owner_terminal is None else owner_terminal
     if terminal is not True:

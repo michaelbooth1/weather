@@ -47,9 +47,9 @@ def test_economic_change_needs_new_revision_and_applies_next_unclaimed_session(t
         with pytest.raises(StateRefused, match='economic_policy_change_requires_revision'):
             state.claim(next_entry, parse_policy(changed), clock.now())
         assert '2026-11-12' not in state.consumed_dates()
-        changed['policy_revision'] = 2
+        changed['policy_revision'] = policy.raw['policy_revision'] + 1
         next_claim = state.claim(next_entry, parse_policy(changed), clock.now())
-        assert next_claim['policy_revision'] == 2 and next_claim['policy_sha256'] != claim['policy_sha256']
+        assert next_claim['policy_revision'] == policy.raw['policy_revision'] + 1 and next_claim['policy_sha256'] != claim['policy_sha256']
         assert (state.root / 'policies' / (claim['attempt_id'] + '.json')).read_bytes() == original
 
 
@@ -61,7 +61,7 @@ def test_automatic_freeze_and_successor_learning_persist_across_reboot(tmp_path)
         frozen = (state.root / 'policies' / 'freeze.json').read_bytes()
         assert state.policy_labels(policy, '2026-11-17')['evidence_lane'] == 'confirmation'
         changed = deepcopy(policy.raw)
-        changed.update(policy_revision=2, tokens=['YES'])
+        changed.update(policy_revision=policy.raw['policy_revision'] + 1, tokens=['YES'])
         changed = parse_policy(changed)
         clock.seconds = (datetime(2026, 11, 17, 14, tzinfo=timezone.utc) - now).total_seconds()
         entry = next(e for e in changed.entries if e.local_date == '2026-11-17')
@@ -72,7 +72,7 @@ def test_automatic_freeze_and_successor_learning_persist_across_reboot(tmp_path)
         state = AccountState(state.root.parent, ledger)
         state.verify()
         back = deepcopy(policy.raw)
-        back['policy_revision'] = 3
+        back['policy_revision'] = policy.raw['policy_revision'] + 2
         assert state.policy_labels(parse_policy(back), '2026-11-18')['evidence_lane'] == 'successor_learning'
         assert (state.root / 'policies' / 'freeze.json').read_bytes() == frozen
 

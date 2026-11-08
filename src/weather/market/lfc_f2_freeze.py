@@ -1,5 +1,5 @@
 """Automatic research binding, never another trading arm or owner ceremony."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time, date
 
 from weather.market.lfc_recording_io import file_sha
 from weather.market.mm_stage2_hold import digest
@@ -9,6 +9,13 @@ def economic_digest(policy):
     from weather.market.lfc_f2_policy import ECONOMIC_FIELDS
     # A revision of identical parameters does not invent a second economic policy.
     return digest({key: policy.raw[key] for key in sorted(ECONOMIC_FIELDS - {'policy_revision'})})
+
+
+def capture_window(policy):
+    from weather.market.lfc_campaign_policy import ZONE
+    begin = datetime.fromisoformat(policy.raw['freeze_deadline_toronto']) - timedelta(minutes=5)
+    end = datetime.combine(date.fromisoformat(policy.raw['confirmation_dates'][0]), time(8, 55), ZONE)
+    return begin, end
 
 
 def verify(state):
@@ -27,7 +34,7 @@ def verify(state):
         deadline = datetime.fromisoformat(policy.raw['freeze_deadline_toronto'])
         if (file_sha(path) != event['file_sha256'] or row['economic_sha256'] != economic_digest(policy) or
                 row['policy_sha256'] != policy.sha256 or row['ledger_sha256'] != event['previous_sha256'] or
-                row['on_time'] != (deadline - timedelta(minutes=5) <= captured <= deadline)):
+                row['on_time'] != (capture_window(policy)[0] <= captured <= capture_window(policy)[1])):
             raise ValueError('freeze_binding')
         return row
     except (OSError, ValueError, KeyError, TypeError, RuntimeError):
@@ -40,10 +47,10 @@ def verify(state):
 
 
 def capture(state, policy, now):
-    """First scheduled tick seals the configuration; late capture is labelled late.
+    """First healthy tick in the approved overnight window seals the version.
 
-    The final five-minute trigger before the deadline seals the version early.
-    A missed trigger is explicitly late; no receipt is ever backdated. Economic edits remain supported as successor learning.
+    Keep the actual capture time. A later observation is explicitly late;
+    economic edits remain supported as successor learning.
     """
     if not policy.f2 or verify(state) is not None:
         return
@@ -57,7 +64,7 @@ def capture(state, policy, now):
         return
     sha = state.save('policies/freeze.json', {'policy': policy.raw, 'policy_sha256': policy.sha256,
         'economic_sha256': economic_digest(policy), 'captured_at_utc': now.isoformat(),
-        'on_time': now <= deadline, 'ledger_sha256': state.ledger.previous})
+        'on_time': now <= capture_window(policy)[1], 'ledger_sha256': state.ledger.previous})
     state.ledger.record('autostart_freeze', attempt_id='campaign-freeze', file_sha256=sha)
 
 

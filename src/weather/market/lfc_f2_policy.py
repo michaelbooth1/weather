@@ -14,7 +14,7 @@ from weather.market.lfc_capital import CapitalBook, CapitalRefused, MODE
 
 
 SCHEMA = 'lfc_campaign_policy_v0.2'
-REFERENCE = 'f531395522d0b0a37495185b2750164008fe586a'
+REFERENCE = '57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1'  # F0 double-prime, owner B052.
 SELECTION = 'F0_eligible_then_max_predicted_360_minute_reward_per_city; ties_condition_id_ascending; same_rank_for_cash_admission'
 ELIGIBILITY = 'F0_reference_filters_restricted_to_configured_DTE; native_reward_minimum_must_fit_20_shares'
 FIXED = {'platform': 'polymarket_international', 'bands_per_event': 1, 'events_per_city': 1,
@@ -37,6 +37,7 @@ VARIABLE = {'schema_version', 'enabled', 'campaign_id', 'revision', 'timezone', 
             'policy_name', 'policy_revision', 'market_ids', 'band_limit_session',
             'band_limit_concurrent', 'tokens', 'quote_offset_pusd', 'requote_distance_cents',
             'leg_price_range', 'per_order_cap_pusd', 'per_band_cap_pusd', 'share_many_range',
+            'min_reward_rate', 'min_book_depth',
             'start_window_toronto', 'trading_end_toronto', 'max_session_seconds', 'learning_dates',
             'transition_no_entry_date', 'confirmation_dates', 'nominal_confirmation_dates', 'success_looks'}
 ECONOMIC_FIELDS = frozenset(FIXED) | (VARIABLE - {'schema_version', 'enabled', 'campaign_id', 'revision', 'sidecar'})
@@ -109,7 +110,11 @@ def parse_f2(row):
         refuse('unsupported_quote_offset_precision')
     bounds(row, 'requote_distance_cents', quantity('0.5'), quantity('6'))
     bounds(row, 'leg_price_range', quantity('.17'), quantity('.80'))
-    bounds(row, 'share_many_range', quantity('.15'), quantity('.70'))
+    bounds(row, 'share_many_range', quantity('0'), quantity('1'))
+    if not 0 <= quantity(row['min_reward_rate']) <= 1000000:
+        refuse('unsupported_min_reward_rate')
+    if not quantity(row['shares_per_leg']) <= quantity(row['min_book_depth']) <= 1000000:
+        refuse('unsupported_min_book_depth')
     for key, ceiling in [('per_order_cap_pusd', '15.80'), ('per_band_cap_pusd', '19.60')]:
         if not 0 < quantity(row[key]) <= quantity(ceiling):
             refuse('unsupported_' + key)
@@ -180,11 +185,11 @@ def parse_f2(row):
 def example_policy():
     return {**FIXED, 'schema_version': SCHEMA, 'enabled': False, 'campaign_id': 'lfc-f2-202611',
             'revision': 1, 'timezone': ZONE.key, 'sidecar': None, 'policy_name': 'DT-T1-Paired20-K2',
-            'policy_revision': 1, 'market_ids': ['denver', 'toronto'], 'local_event_dte': [1],
+            'policy_revision': 2, 'market_ids': ['denver', 'toronto'], 'local_event_dte': [1],
             'band_limit_session': 2, 'band_limit_concurrent': 2, 'tokens': ['YES', 'NO'],
             'quote_offset_pusd': '0.015', 'requote_distance_cents': ['1', '3'],
             'leg_price_range': ['0.17', '0.80'], 'per_order_cap_pusd': '15.80', 'per_band_cap_pusd': '19.60',
-            'share_many_range': ['0.15', '0.70'], 'start_window_toronto': ['09:00:00', '09:15:00'],
+            'share_many_range': ['0', '1'], 'min_reward_rate': '0', 'min_book_depth': '20', 'start_window_toronto': ['09:00:00', '09:15:00'],
             'trading_end_toronto': '15:00:00', 'max_session_seconds': 21600,
             'learning_dates': ['2026-11-09', '2026-11-15'], 'transition_no_entry_date': '2026-11-16',
             'confirmation_dates': ['2026-11-17', '2026-12-22'], 'nominal_confirmation_dates': 36,
@@ -198,7 +203,9 @@ def support_table():
             'tokens': [['YES', 'NO'], ['YES'], ['NO'], ['CHEAP']],
             'quote_offset_pusd': {'min': '.005', 'max': '.05', 'step': '.001'},
             'requote_distance_cents': {'min': '.5', 'max': '6', 'ordered_inclusive_pair': True},
-            'leg_price_range': ['.17', '.80'], 'share_many_range': ['.15', '.70'],
+            'leg_price_range': ['.17', '.80'], 'share_many_range': ['0', '1'],
+            'min_reward_rate': {'min': '0', 'max': '1000000', 'zero_is_exclusive': True},
+            'min_book_depth': {'min': '20', 'max': '1000000'},
             'per_order_cap_pusd_max': '15.80', 'per_band_cap_pusd_max': '19.60',
             'duration_seconds': [MIN_SESSION_SECONDS, 21600], 'late_start_shortens_fixed_end': True,
             'latest_session_end_utc': C.HARD_STOP_UTC.isoformat(), 'utc_date_crossing': False,

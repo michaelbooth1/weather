@@ -20,7 +20,7 @@ from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import SCHEMA_VERSION, digest, utc
 from weather.market.mm_stage2_selection import reward_rate
-from weather.market.reward_quote import QuoteRefused, _levels, price_sized_reward_quote
+from weather.market.reward_quote import QuoteRefused, _levels, price_sized_reward_quote, reward_rate_eligible
 
 
 DERIVED = {'eligible', 'refusal', 'quote', 'predicted_360_minutes', 'trade_legs'}
@@ -37,6 +37,32 @@ def trade_legs(policy, mid):
     if tokens == ['CHEAP']:
         return (0,) if quantity(mid) <= Decimal('.5') else (1,)
     raise QuoteRefused('unsupported_tokens')
+
+
+def check_book(inputs, *, mid, size, share, policy):
+    """The same campaign eligibility on selection and each fresh hold/POST read."""
+    if not reward_rate_eligible(inputs['reward_rate_per_day'], policy.raw['min_reward_rate']):
+        raise QuoteRefused('reward_rate_or_terms')
+    if quantity(inputs['reward_max_spread_cents']) < 3:
+        raise QuoteRefused('reward_rate_or_terms')
+    mid, size = quantity(mid), quantity(size)
+    if not quantity('.20') <= mid <= quantity('.80'):
+        raise QuoteRefused('midpoint_outside_treatment')
+    low, high = map(quantity, policy.raw['share_many_range'])
+    if not low <= quantity(share) <= high:
+        raise QuoteRefused('share_many_outside_range')
+    bids, asks = _levels(inputs['yes_bids']), _levels(inputs['yes_asks'])
+    for bid_key, ask_key in [('yes_bids', 'yes_asks'), ('no_bids', 'no_asks')]:
+        spread = min(p for p, _ in _levels(inputs[ask_key])) - max(p for p, _ in _levels(inputs[bid_key]))
+        if not 0 < spread <= quantity('.06'):
+            raise QuoteRefused('spread_too_wide')
+    reach = quantity(inputs['reward_max_spread_cents']) / 100
+    depth = min(sum((s for p, s in bids if mid - reach <= p <= mid), Decimal(0)),
+                sum((s for p, s in asks if mid <= p <= mid + reach), Decimal(0)))
+    if depth < max(quantity(policy.raw['min_book_depth']), size):
+        raise QuoteRefused('thin_book_depth')
+    return {'min_reward_rate': policy.raw['min_reward_rate'], 'min_book_depth': policy.raw['min_book_depth'],
+            'share_many_range': policy.raw['share_many_range'], 'depth': str(depth)}
 
 
 def candidate(band, *, now, policy, held):
@@ -75,17 +101,12 @@ def candidate(band, *, now, policy, held):
         quote = price_sized_reward_quote(**inputs, size=policy.raw['shares_per_leg'],
                     per_order_ceiling=policy.raw['per_order_cap_pusd'], per_band_ceiling=policy.raw['per_band_cap_pusd'],
                     quote_offset=policy.raw['quote_offset_pusd'],
-                    distance_window=policy.raw['requote_distance_cents'], trade_legs=legs)
+                    distance_window=policy.raw['requote_distance_cents'], trade_legs=legs,
+                    min_reward_rate=policy.raw['min_reward_rate'])
         low, high = map(quantity, policy.raw['leg_price_range'])
         if any(not low <= (quote.yes_buy, quote.no_buy)[leg] <= high for leg in legs):
             raise QuoteRefused('leg_price_outside_range')
-        low, high = map(quantity, policy.raw['share_many_range'])
-        if not low <= quantity(quote.share_many) <= high:
-            raise QuoteRefused('share_many_outside_range')
-        reach = quantity(inputs['reward_max_spread_cents']) / 100
-        if min(sum((s for p, s in bids if mid - reach <= p <= mid), Decimal(0)),
-               sum((s for p, s in asks if mid <= p <= mid + reach), Decimal(0))) < max(75, quote.size):
-            raise QuoteRefused('thin_book_depth')
+        check_book(inputs, mid=quote.adjusted_mid, size=quote.size, share=quote.share_many, policy=policy)
         row.update(eligible=True, trade_legs=list(legs),
                    quote={k: str(v) if isinstance(v, Decimal) else v for k, v in asdict(quote).items()},
                    predicted_360_minutes=quote.predicted_per_minute_many * 360)
@@ -175,7 +196,7 @@ def discover(public, policy, *, now, cash, capital, held_conditions):
                 reward = public.reward(cid)
                 if reward is None:
                     continue
-                if (quantity(reward['rewards_min_size']) > 20 or reward_rate(reward, now) < 40 or
+                if (quantity(reward['rewards_min_size']) > 20 or not reward_rate_eligible(reward_rate(reward, now), policy.raw['min_reward_rate']) or
                         quantity(reward['rewards_max_spread']) < 3):
                     continue
                 tokens = json.loads(band['clobTokenIds']) if isinstance(band['clobTokenIds'], str) else band['clobTokenIds']

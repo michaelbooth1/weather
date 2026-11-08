@@ -3,7 +3,7 @@
   "bands_per_event": 1,
   "events_per_city": 1,
   "selection": "F0_eligible_then_max_predicted_360_minute_reward_per_city; ties_condition_id_ascending; same_rank_for_cash_admission",
-  "selection_reference_git_sha": "f531395522d0b0a37495185b2750164008fe586a",
+  "selection_reference_git_sha": "57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1",
   "order_side": "BUY",
   "shares_per_leg": "20",
   "tick_pusd": "0.01",
@@ -39,7 +39,7 @@
   "timezone": "America/Toronto",
   "sidecar": null,
   "policy_name": "DT-T1-Paired20-K2",
-  "policy_revision": 1,
+  "policy_revision": 2,
   "market_ids": [
     "denver",
     "toronto"
@@ -65,8 +65,8 @@
   "per_order_cap_pusd": "15.80",
   "per_band_cap_pusd": "19.60",
   "share_many_range": [
-    "0.15",
-    "0.70"
+    "0",
+    "1"
   ],
   "start_window_toronto": [
     "09:00:00",
@@ -86,5 +86,7 @@
   "nominal_confirmation_dates": 36,
   "success_looks": [
     "2026-12-28T18:00:00-05:00"
-  ]
+  ],
+  "min_reward_rate": "0",
+  "min_book_depth": "20"
 }

@@ -6,6 +6,10 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("lfc_emergency_result", "lfc_emergency_result_v0.1", "weather.market.lfc_campaign_runtime", "active",
+               "Create-only interrupted-attempt receipt; explicitly incomplete and never cancellation proof."),
+    SchemaSpec("lfc_final_cash_snapshot", "lfc_final_cash_snapshot_v0.1", "weather.market.lfc_f2_final", "active",
+               "Immutable final cash assessment with cutoff inventory and named accounting gaps; predictions excluded."),
     SchemaSpec("lfc_economics_supplement", "lfc_economics_supplement_v0.1", "weather.market.lfc_f2_economics", "active",
                "Immutable measured-cash follow-up; preserves the original outcome and separates unlinked incentives."),
     SchemaSpec("lfc_f2_manifest", "lfc_f2_manifest_v0.1", "weather.market.lfc_f2_evidence", "active",

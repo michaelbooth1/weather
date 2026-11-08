@@ -103,6 +103,20 @@ class CampaignCoordinator:
         except StateRefused:
             self.status('INCIDENT', incident=True, postchecks_pending=True)
             return 'INCIDENT'
+        # Capture before pending/incident early returns. Broken current policy
+        # cannot prevent immutable pending money postchecks from running.
+        policy, policy_error = None, None
+        try:
+            policy = load_policy()
+        except (OSError, ValueError) as exc:
+            policy_error = exc
+        if policy is not None and policy.f2:
+            from weather.market.lfc_f2_freeze import capture, capture_window, verify
+            capture(self.state, policy, self.clock.now())
+            frozen = verify(self.state)
+            if self.clock.now() > capture_window(policy)[1] and (frozen is None or frozen['on_time'] is not True):
+                self.status('EVIDENCE_GAP', 'campaign-freeze', reason='freeze_missing', research_gaps=True,
+                            orders_open_unproven=False)
         # Incident state is durable and account scoped; readonly finalization is
         # allowed but automatic reconciliation can never close the incident.
         if self.pending():
@@ -115,10 +129,10 @@ class CampaignCoordinator:
         except StateRefused:
             self.status('INCIDENT', incident=True, postchecks_pending=True)
             return 'INCIDENT'
-        policy = load_policy()
-        if policy.f2:
-            from weather.market.lfc_f2_freeze import capture
-            capture(self.state, policy, self.clock.now())
+        if policy_error is not None:
+            raise policy_error
+        if policy is None:
+            raise StateRefused('policy_unavailable')
         self.policy_binding = self.state.policy_labels(policy, self.clock.now().astimezone(ZONE).date().isoformat())
         self.state.policy_binding = dict(self.policy_binding)
         if not policy.raw['enabled'] or not self.runtime.task_enabled():

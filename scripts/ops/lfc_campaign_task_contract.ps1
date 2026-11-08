@@ -27,7 +27,7 @@ function New-LfcCampaignTaskXml {
     if($ReleaseSha256 -cnotmatch '^[0-9a-f]{64}$' -or $OwnerSid -notmatch '^S-1-5-21-[0-9-]+$') { throw 'task binding' }
     $psPath=Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\v1.0\powershell.exe'
     $wrapper=Join-Path $Release.root 'scripts\ops\lfc_campaign_task.ps1'
-    $tokens=@('-NoProfile','-NonInteractive','-File',$wrapper,'-ReleasePath',$ReleasePath,'-ReleaseSha256',$ReleaseSha256)
+    $tokens=@('-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',$wrapper,'-ReleasePath',$ReleasePath,'-ReleaseSha256',$ReleaseSha256)
     $arguments=ConvertTo-LfcTaskArguments -Tokens $tokens
     $escape={param($value) [Security.SecurityElement]::Escape([string]$value)}
     # Finite generic ticks permit supported policy edits without re-registration.

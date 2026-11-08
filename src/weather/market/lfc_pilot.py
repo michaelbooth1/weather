@@ -369,14 +369,18 @@ def notify_owner(root, summary, *, runner=subprocess.run, printer=print, windows
     notification record (delivered or the recorded failure), which goes into session_end.json."""
     line = result_line(summary)
     if public_status is not None:
-        from weather.market.lfc_campaign_control import SAFE_STATES
-        if (set(public_status) != {'phase', 'attempt_id', 'orders_open_unproven'} or
+        from weather.market.lfc_campaign_control import SAFE_STATES, SAFE_REASONS
+        allowed = {'phase', 'attempt_id', 'orders_open_unproven'}
+        if (set(public_status) not in (allowed, allowed | {'reason'}) or
                 public_status['phase'] not in SAFE_STATES or
+                'reason' in public_status and public_status['reason'] not in SAFE_REASONS or
                 not re.fullmatch('[0-9a-f]{32}', str(public_status['attempt_id'])) or
                 type(public_status['orders_open_unproven']) is not bool):
             raise ValueError('notification_public_status')
         line = (f"LFC {public_status['phase']} attempt_id={public_status['attempt_id']} "
                 f"orders_open_unproven={str(public_status['orders_open_unproven']).lower()}")
+        if 'reason' in public_status:
+            line += ' reason=' + public_status['reason']
     record = {'channel': 'windows_toast+result_line', 'result_line': line, 'toast_delivered': False,
               'toast_error': None, 'at_utc': datetime.now(timezone.utc).isoformat()}
     if public_status is not None:

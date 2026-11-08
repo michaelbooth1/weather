@@ -15,7 +15,7 @@ import uuid
 from weather.market.lfc_accounting import inventory_delta, quantity
 from weather.market.lfc_campaign import OwnerStopRequested, TransientPrecheck
 from weather.market.lfc_campaign_control import control_record
-from weather.market.lfc_campaign_guard import (ExclusiveWorkload, OwnedHold, HOLD_PATH, AdmissionBusy,
+from weather.market.lfc_campaign_guard import (ExclusiveWorkload, OwnedHold, HOLD_PATH, CAMPAIGN_WORK_LOCK, AdmissionBusy,
                                                workstation_headroom)
 from weather.market.lfc_campaign_policy import PROTOCOL, ZONE, load_policy
 from weather.market.lfc_campaign_reads import ACCOUNT_READ_COMPONENTS, account_read_age
@@ -236,13 +236,14 @@ class ScheduledAuthority:
 
 
 class Runtime:
-    def __init__(self, *, state, pilot_root, policy_path, release, clock, control_root, task_enabled, hold_path=HOLD_PATH):
+    def __init__(self, *, state, pilot_root, policy_path, release, clock, control_root, task_enabled, hold_path=CAMPAIGN_WORK_LOCK, heavy_hold_path=None):
         self.state, self.pilot_root, self.policy_path = state, Path(pilot_root), Path(policy_path)
         self.release, self.clock, self.control_root = release, clock, Path(control_root)
         self._read_task_enabled = task_enabled
         self.lease = None
         self._task_checked, self._task_value = None, False
         self.hold_path = Path(hold_path)
+        self.heavy_hold_path = Path(HOLD_PATH if heavy_hold_path is None else heavy_hold_path)
         self.sidecar = None
 
     def notify_control(self, row):
@@ -291,6 +292,8 @@ class Runtime:
 
     @contextmanager
     def admission(self):
+        if self.heavy_hold_path.exists():
+            raise AdmissionBusy('agent_heavy_hold')
         if self.hold_path.exists():
             raise AdmissionBusy('hold_already_owned')
         with ExclusiveWorkload(self.state.maker) as lease:

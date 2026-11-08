@@ -70,6 +70,12 @@ def price_sized_reward_quote(*, size, **inputs) -> RewardQuote:
     return _price_reward_quote(**inputs, size=size)
 
 
+def reward_rate_eligible(rate, min_reward_rate=40):
+    """Keep the reference floor inclusive; zero explicitly requires a reward."""
+    rate, floor = map(_decimal, (rate, min_reward_rate))
+    return rate > floor if floor == 0 else rate >= floor
+
+
 def _price_reward_quote(
     *,
     yes_bids: Iterable[Mapping[str, object]],
@@ -87,6 +93,7 @@ def _price_reward_quote(
     quote_offset: object = "0.015",
     distance_window: tuple = ("1", "3"),
     trade_legs: tuple = (0, 1),
+    min_reward_rate: object = "40",
 ) -> RewardQuote:
     """Price a bounded RE-1 size, 1.5 cents outward from size-adjusted mid.
 
@@ -113,7 +120,7 @@ require explicit size and ceilings; no profile is selected by this calculation.
         raise QuoteRefused("invalid_treatment_size")
     if not 0 < minimum <= size:
         raise QuoteRefused("reward_minimum_outside_treatment")
-    if maximum < 3 or rate < 40:
+    if maximum < 3 or not reward_rate_eligible(rate, min_reward_rate):
         raise QuoteRefused("reward_terms_outside_treatment")
     if step != Decimal("0.01"):
         raise QuoteRefused("unsupported_tick")

@@ -65,10 +65,11 @@ own supported values. Unknown fields and unsupported values refuse explicitly.
 
 | Fields | Enforcement |
 | --- | --- |
-| Markets, native-date horizons and selection | F2 fixes `local_event_dte` to `[1]` (T+1 only); other sets refuse. Retain F0 public/depth/reward filters with the configured quote. Pick the highest planning reward per city, tie by condition ID; use that same rank when cash admits fewer bands. An absent city stays idle. |
+| Markets, native-date horizons and selection | F2 fixes `local_event_dte` to `[1]` (T+1 only); other sets refuse. Use the bound F0 reference with explicit campaign share, reward-rate and depth fields; retain the midpoint, spread, leg and money limits. Pick the highest planning reward per city, tie by condition ID; use that same rank when cash admits fewer bands. An absent city stays idle. |
 | Band/event limits | At most two concurrent bands, one event per city, no replacement. One cooperative process owns the account/date claim and all workload slots. Each band retains its own submit/requote limits. |
 | `tokens`, `order_side`, `shares_per_leg` | Paired YES+NO, YES, NO, or CHEAP (lower quoted probability; YES wins a tie). BUY only at the approved fixed size; no reward-minimum scaling. |
 | Offset, distance window, price/share ranges and caps | Applied to proposals and placement/requote checks, with final raw-POST and signed-order checks. Monetary caps dominate allowed prices. |
+| `share_many_range`, `min_reward_rate`, `min_book_depth` | Share bounds may span zero through one, disabling that screen. The rate floor requires a positive reward at zero and is inclusive above zero. Depth must cover at least the selected leg size. The same fields govern discovery, pre-go, fresh placement and requote reads; learning edits require a higher policy revision and cannot be pooled into the frozen confirmation lane. |
 | Fill, replacement and inventory-exit fields | First fill cancels that band's remaining orders and retires it. Other bands continue. Hold inventory for actual venue payout/redemption; own cancel-race fills. |
 | Start/end, duration and calendar fields | Derive finite Toronto entries, excluding transition and separately bound Monday F0. Late go shortens exposure, retaining the fixed end. No catch-up or second claim. |
 | Funding, capital mode, top-ups and reinvestment | Native-unit sleeve in the existing account ledger. Actual redemption releases at most lot basis. The reconciled bridge includes legacy L/inventory; no config/date/deposit reset. |
@@ -133,6 +134,13 @@ Outcomes separate PLANNING scenarios from MEASURED fills, fees, carried basis
 and redemption cash. Accrual and paid rewards are distinct; missing earned-scope
 or payment linkage stays unknown, never zero or predicted income. Rebates remain
 flagged separately from loss.
+
+The freeze captures at the first healthy tick from November 16 17:55 through
+November 17 08:55 Toronto, before pending-postcheck and incident early returns.
+This explicitly amends the earlier nominal 18:00 deadline for this lane. The
+receipt keeps its actual timestamp. A missing or late freeze emits an evidence
+gap notice, and later sessions remain successor learning rather than claiming
+confirmation. Policy edits cannot backdate or replace a freeze receipt.
 
 ## Claims, proof and recovery
 
@@ -218,7 +226,10 @@ fault, including if the ledger's old unknown-submit flag was false.
 One coordinator thread owns the account guard, exclusive workload barrier,
 legacy heavy slot and all newer compatibility slots through cleanup and owned
 sidecar teardown. It refuses abandoned/poisoned ownership without recovery.
-A pre-existing HOLD is honored; only its own marker can be released, and only
+The campaign owns `status/campaign-work.lock`, separate from the agents' manual
+`C:\t\codex\HOLD_HEAVY`. A pre-existing manual hold is honored and never owned
+or removed by the campaign; agents never create it on entry dates. Only the
+campaign's own marker can be released, and only
 after proved child containment. A busy job or transient pre-go read defers with
 bounded back-off inside the original start window. No claim or order is made
 before admission; no start occurs at or after the window end. A missed window
@@ -247,7 +258,9 @@ removes only that workload marker and its hash-bound HOLD; monetary incidents
 and date claims remain for separate owner-led recovery. Automatic admission and
 reconciliation never invoke it.
 
-The task is finite, `IgnoreNew`, no wake, no catch-up, no restart-on-failure,
+The task action launches PowerShell with its documented `-WindowStyle Hidden`;
+Interactive/Limited owner-session binding remains
+in place for desktop toasts. The task is finite, `IgnoreNew`, no wake, no catch-up, no restart-on-failure,
 no idle dependency, no demand start, InteractiveToken/LeastPrivilege, with a
 bounded execution limit. It needs the owner logged on and the PC awake and
 connected. It starts only on suitable power, but entering battery mode does not
@@ -291,9 +304,9 @@ v0.2 terms. The [v0.1 reference](../examples/lfc-campaign.reference.json) retain
 the compatibility contract. Shipping examples does not register or enable a task.
 Unsupported values refuse explicitly; original history is never reset or relabeled.
 
-The final scheduled tick in the five minutes preceding November 16 18:00 Toronto
-seals the economic parameters early, automatically. The immutable freeze records
-its actual observation time and hash. A missed deadline is late, never backdated;
+The first healthy tick in the capture window above seals the economic parameters
+automatically. The immutable freeze records its actual observation time and hash.
+A missed window is late, never backdated;
 trading may continue as learning. A changed economic revision after that seal
 abandons confirmation: its claimed dates and all subsequent dates are successor
 learning, even if parameters later revert. No extra owner action or pregate is

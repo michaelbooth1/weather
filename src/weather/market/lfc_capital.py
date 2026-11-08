@@ -296,10 +296,13 @@ class CapitalBook:
         return activity['type'] not in {'WITHDRAWAL', 'TIP'} or activity.get('direction') == 'IN'
 
     def cash_before_bridge(self, activity):
-        # Reclassify strictly older legacy cash within the immutable bridge.
-        # Same-second rows require fresh cash reconciliation; their ordering
-        # cannot be proved from the Data API's whole-second timestamp.
-        return self.bridge is not None and activity['timestamp'] < int(utc(self.bridge['recorded_at_utc']).timestamp())
+        # Rows already saved in the opening read belong to that cash anchor,
+        # including unknown receipts resolved later in the same UTC second.
+        # A later-discovered, strictly older row also reclassifies that anchor;
+        # same-second later rows still need fresh cash reconciliation.
+        return self.bridge is not None and (
+            self.activity_sequences[activity['id']] < self.bridge['sequence'] or
+            activity['timestamp'] < int(utc(self.bridge['recorded_at_utc']).timestamp()))
 
     def known_redemption_cash(self, activity):
         if activity['type'] != 'REDEEM':

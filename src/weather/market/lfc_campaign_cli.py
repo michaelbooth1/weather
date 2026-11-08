@@ -130,7 +130,7 @@ def owner_recover_history(args):
     from weather.market.lfc_campaign_history import history_refusals, record_owner_recovery
     from weather.market.lfc_campaign_policy import EARLIEST
     from weather.market.lfc_campaign_release import git_identity
-    from weather.market.lfc_campaign_guard import ExclusiveWorkload, OwnedHold, HOLD_PATH
+    from weather.market.lfc_campaign_guard import ExclusiveWorkload, OwnedHold, HOLD_PATH, CAMPAIGN_WORK_LOCK
     from weather.market.lfc_campaign_workload import WorkloadMarker
     from weather.market.lfc_campaign_runtime import CampaignClock, Runtime
     from weather.market.lfc_recording_io import write_new
@@ -156,7 +156,7 @@ def owner_recover_history(args):
         if HOLD_PATH.exists():
             raise AdmissionBusy('hold_already_owned')
         with ExclusiveWorkload(state.maker) as lease:
-            hold = OwnedHold(HOLD_PATH)
+            hold = OwnedHold(CAMPAIGN_WORK_LOCK)
             marker = WorkloadMarker(poison_root=lease.poison_root, maker=state.maker,
                                     state_id=ledger.row_sha256(0))
             hold.acquire()

@@ -38,7 +38,7 @@ REFUSALS = {'schema_version': 'unknown', 'enabled': 'yes', 'campaign_id': '../ba
             'band_limit_session': 3, 'band_limit_concurrent': 3, 'tokens': ['MAYBE'],
             'quote_offset_pusd': '.051', 'requote_distance_cents': ['3', '1'],
             'leg_price_range': ['.16', '.8'], 'per_order_cap_pusd': '15.800001',
-            'per_band_cap_pusd': '19.600001', 'share_many_range': ['.14', '.7'],
+            'per_band_cap_pusd': '19.600001', 'share_many_range': ['-.01', '1'], 'min_reward_rate': '-.01', 'min_book_depth': '19.99',
             'start_window_toronto': ['15:00:00', '15:15:00'], 'trading_end_toronto': '09:00:00',
             'max_session_seconds': 299, 'learning_dates': ['2026-11-09', '2026-11-17'],
             'transition_no_entry_date': '2026-11-15', 'confirmation_dates': ['2026-11-16', '2027-01-01'],
