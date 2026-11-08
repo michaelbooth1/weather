@@ -44,7 +44,8 @@ evidence fault; it never invents an ambiguous placement or becomes a PASS.
 A proved pre-POST exit retires its band through ordinary cleanup. Its exact
 request and any written intent packet remain bound in the abort journal row;
 an actual POST or partial/unreadable ledger write cannot use this exemption.
-An unexplained peer cash shortfall waits at most 120 seconds, with polls at
+An unexplained peer cash shortfall waits at most24 cooperative five-second
+deferrals. Other bands' bounded GET work does not consume those turns. Polls run at
 least five seconds apart and no submit-budget consumption. It then retires
 the waiting band through ordinary cleanup; it never retries an uncertain POST.
 
