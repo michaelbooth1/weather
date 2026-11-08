@@ -316,12 +316,12 @@ def test_band_twelve_original_loss_remains_sticky_after_reboot(tmp_path):
 
 @pytest.mark.parametrize('status', ['LIVE', 'UNKNOWN', '', None])
 def test_old_order_event_needs_validated_terminal_status_even_after_a_fill_proof(status):
+    """B058: terminal status is proved by the ledger, not a delayed WS frame."""
     from weather.market.lfc_f2_repost import filtered_events
     leg = {'session_id': 'band', 'status': 'terminal', 'size_matched': '0', 'size': '20'}
     band = SimpleNamespace(session_id='band', ledger=SimpleNamespace(by_order={'oid': 'key'}, legs={'key': leg}),
                            journal=SimpleNamespace(record=lambda *a, **k: None))
-    with pytest.raises(HoldEnd):
-        filtered_events(band, [{'id': 'oid', 'status': status, 'size_matched': '0'}])
+    assert filtered_events(band, [{'id': 'oid', 'status': status, 'size_matched': '0'}]) == []
     assert filtered_events(band, [{'id': 'oid', 'status': 'CANCELED', 'size_matched': '0'}]) == []
 
 

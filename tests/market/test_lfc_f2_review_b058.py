@@ -3,12 +3,14 @@
 Guards: B058 pre-POST aborts, delayed lifecycle events, peer cash, setup and owner terms.
 """
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from tests.market.test_lfc_f2_repost import fixture
 from weather.market.lfc_ledger import Ledger, LedgerUnavailable
 from weather.market.lfc_recording_io import strict_json
+from weather.market.mm_stage2_hold import HoldEnd
 
 
 @pytest.mark.parametrize('reason', ['ledger_clock_regressed', 'ledger_write_failed',
@@ -76,3 +78,49 @@ def test_intent_absence_never_waives_changed_or_unreadable_history(tmp_path, mut
         for band in controller.bands:
             band.journal.close()
         controller.journal.close()
+
+
+@pytest.mark.parametrize('transition,status,matched,proved', [
+    ('UPDATE', 'LIVE', '2', '2'), ('UPDATE', 'LIVE', '1', '2'),
+    ('CANCELLATION', None, '0', '0'), ('CANCELLATION', None, '2', '2')])
+def test_delayed_real_shaped_order_frame_cannot_end_a_proven_terminal_leg(transition, status, matched, proved):
+    # No recorded user-channel JSON fixture was found. These documented wire
+    # fields pass the real exact-scope normalizer; no fake normalized row hides
+    # the optional status field or the UPDATE/CANCELLATION transition.
+    from weather.market.mm_official_adapter import normalize_official_user_event
+    from weather.market.lfc_f2_repost import filtered_events
+    maker = '0x' + 'a' * 40
+    raw = {'event_type': 'order', 'id': 'ours', 'market': 'condition', 'asset_id': 'yes',
+           'maker_address': maker, 'type': transition, 'original_size': '20', 'size_matched': matched}
+    if status is not None:
+        raw['status'] = status
+    rows = normalize_official_user_event(raw, maker_address=maker, condition_id='condition', token_id='yes')
+    leg = {'session_id': 'band', 'status': 'terminal', 'size_matched': proved, 'size': '20'}
+    band = SimpleNamespace(session_id='band', ledger=SimpleNamespace(by_order={'ours': 'key'}, legs={'key': leg}),
+                           journal=SimpleNamespace(record=lambda *a, **k: None))
+    assert filtered_events(band, rows) == []
+    assert leg['size_matched'] == proved and leg['status'] == 'terminal'
+
+
+@pytest.mark.parametrize('matched', ['2.01', None, '-1', 'NaN'])
+def test_delayed_order_frame_never_hides_new_or_unreadable_fill_quantity(matched):
+    from weather.market.lfc_f2_repost import filtered_events
+    leg = {'session_id': 'band', 'status': 'terminal', 'size_matched': '2', 'size': '20'}
+    band = SimpleNamespace(session_id='band', ledger=SimpleNamespace(by_order={'ours': 'key'}, legs={'key': leg}),
+                           journal=SimpleNamespace(record=lambda *a, **k: None))
+    with pytest.raises(HoldEnd):
+        filtered_events(band, [{'order_id': 'ours', 'status': 'LIVE', 'size_matched': matched}])
+
+
+@pytest.mark.parametrize('case', ['live_leg', 'foreign_id', 'conflicting_id'])
+def test_delayed_replay_exemption_never_releases_live_or_foreign_reserves(case):
+    from weather.market.lfc_f2_repost import filtered_events
+    leg = {'session_id': 'band', 'status': 'posted' if case == 'live_leg' else 'terminal',
+           'size_matched': '2', 'size': '20'}
+    band = SimpleNamespace(session_id='band', ledger=SimpleNamespace(by_order={'ours': 'key'}, legs={'key': leg}),
+                           journal=SimpleNamespace(record=lambda *a, **k: None))
+    event = {'order_id': 'foreign' if case == 'foreign_id' else 'ours', 'size_matched': '2'}
+    if case == 'conflicting_id':
+        event['id'] = 'foreign'
+    assert filtered_events(band, [event]) == [event]
+    assert leg['status'] == ('posted' if case == 'live_leg' else 'terminal')

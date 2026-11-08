@@ -130,9 +130,19 @@ def filtered_events(band, rows):
             leg = band.ledger.legs.get(key)
             if leg is not None and leg['session_id'] == band.session_id and leg['status'] == 'terminal':
                 matched = event.get('size_matched')
-                if (order_terminal(event, order_id=oid, size=leg['size']) and
-                        matched is not None and 0 <= quantity(matched) <= quantity(leg['size_matched'])):
-                    band.journal.record('proved_order_replay', order_id=oid)
+                ids = {str(event[k]) for k in ('id', 'order_id', 'orderID') if event.get(k) is not None}
+                try:
+                    covered = matched is not None and 0 <= quantity(matched) <= quantity(leg['size_matched'])
+                except (ValueError, TypeError, ArithmeticError):
+                    covered = False
+                if ids == {oid} and covered:
+                    # The ledger's earlier terminal identity/quantity proof
+                    # owns reserve release. A delayed LIVE/UPDATE or status-less
+                    # cancellation cannot reopen it or add unproved inventory.
+                    from weather.market.mm_stage2_hold import digest
+                    band.journal.record('proved_order_replay', order_id=oid, size_matched=str(matched),
+                        observed_status=event.get('status', event.get('official_order_status')),
+                        event_sha256=digest(event))
                     continue
                 raise HoldEnd('repost_terminal_event_unproven')
         result.append(event)
