@@ -199,7 +199,8 @@ def test_latched_pending_attempt_still_records_followup_without_account_or_place
 @pytest.mark.parametrize('stamp,seconds,expected', [
     ('2026-11-11T14:14:50Z', 21600, '2026-11-11T20:30:00+00:00'),
     ('2026-11-11T14:14:50Z', 300, '2026-11-11T14:50:00+00:00'),
-    ('2026-11-11T13:59:59Z', 21600, '2026-11-11T14:29:59+00:00'),
+    ('2026-11-11T13:59:59Z', 21600, '2026-11-11T20:30:00+00:00'),
+    ('2026-11-11T13:44:59Z', 21600, '2026-11-11T14:14:59+00:00'),
     ('2026-11-11T14:15:00Z', 21600, '2026-11-11T14:45:00+00:00')])
 def test_wrapper_deadline_uses_effective_end_plus_thirty_minutes(tmp_path, stamp, seconds, expected, schema):
     from tests.operations.test_lfc_campaign_task import powershell
