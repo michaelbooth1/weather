@@ -450,6 +450,9 @@ class OwnerVenue:
 
     def submit(self, request, *, checkpoint):
         if self.readonly: raise RuntimeError('read_only')
+        before_post = getattr(self, 'before_post', None)
+        if not callable(before_post):
+            raise RuntimeError('before_post_required')
         from weather.market.re1_sizing import SIZES
         size = number(request['size'])
         profile = getattr(self, 'profile', None)
@@ -477,8 +480,7 @@ class OwnerVenue:
                 not book['asks'] or number(request['price']) >= min(number(r['price']) for r in book['asks'])):
             raise RuntimeError('signed_order_fresh_ask')
         # No place_limit_order/allowance recovery or retry: one raw post only.
-        if hasattr(self, 'before_post'):
-            self.before_post(request)
+        before_post(request)
         return plain_sdk_value(self.client.post_order(signed))
     def cancel(self, oid):
         if self.readonly: raise RuntimeError('read_only')
