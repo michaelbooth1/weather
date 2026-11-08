@@ -21,6 +21,7 @@ from weather.market.re1_resilience import HeartbeatLoop
 
 class PeerCashPending(RuntimeError):
     """No POST: give peer controllers time to reconcile a possible fill."""
+    retry_pre_post = True
 
 
 class SharedHeartbeat:

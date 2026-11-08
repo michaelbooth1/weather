@@ -280,7 +280,7 @@ def test_local_private_proof_keeps_explained_scoring_gap_and_refuses_unexplained
         (directory / 'journal.jsonl').write_text(json.dumps({'event': 'ordinary'}) + '\n')
         refused = local_money_proof(directory, ledger=runtime.state.ledger, session_id='s',
                                     attempt_id=claim['attempt_id'], outcome=result['outcome'])
-        assert not refused['complete'] and refused['unknown_submit']
+        assert not refused['complete'] and not refused['unknown_submit']
         assert refused['failure'] == 'private_evidence_unbound'
 
 

@@ -50,12 +50,18 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 responses.append(row['response'])
                 if len(responses) > 10:
                     raise ValueError('private_submit_limit')
-            elif event == 'submit_deferred':
+            elif event in {'submit_deferred', 'pre_post_abort'}:
                 if (row.get('durable_intent_present') is not False or
                         len(requests) != len(responses) + 1 or
                         row.get('attempted_number') != len(responses) + 1 or
                         digest(requests[-1]) != row.get('request_sha256')):
                     raise ValueError('private_submit_deferral_binding')
+                if event == 'pre_post_abort' and row.get('intent_sha256') is not None:
+                    packet_path = validate_regular_nonreparse_file(path.parent / f'submit-{row["attempted_number"]}.intent.json')
+                    packet = strict_json(read_bytes(packet_path, 2_000_000))
+                    if (file_sha(packet_path) != row['intent_sha256'] or packet.get('request') != requests[-1] or
+                            packet.get('number') != row['attempted_number'] or packet.get('scope') != prediction['scope']):
+                        raise ValueError('private_abort_intent_binding')
                 requests.pop()  # Exact proved pre-POST attempt; originals remain in the journal.
             elif event == 'terminal_order':
                 order = row['order']
@@ -163,7 +169,10 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
     Raw flags survive unchanged. A failure_type, or one scoring gap beside an
     unclassified core fault, cannot be used as a blanket evidence exemption.
     """
-    result = {'complete': False, 'unknown_submit': True, 'failure': 'private_evidence_unbound'}
+    # Evidence completeness and placement uncertainty are independent. Losing a
+    # journal never invents an order, and never makes the evidence complete.
+    result = {'complete': False, 'unknown_submit': bool(ledger.unacknowledged_intents()),
+              'failure': 'private_evidence_unbound'}
     try:
         directory = Path(directory).absolute()
         if outcome.get('f2_session') is True:

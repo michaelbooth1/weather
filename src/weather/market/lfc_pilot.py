@@ -639,8 +639,10 @@ class PilotSession(Session):
                 # private packet and the consumed submit budget, but do not
                 # invent an ambiguous placement when no durable intent exists.
                 self.posts = previous_posts
-                self.journal.record('pre_post_abort', attempted_number=number,
-                                    durable_intent_present=False, exception_type=type(exc).__name__)
+                # call() binds the exact pending request and private packet.
+                # A controlled band end avoids manufacturing a core failure.
+                if isinstance(exc, Exception):
+                    raise HoldEnd('pre_post_abort') from None
             raise
 
     def post_intent(self, request):
@@ -713,7 +715,31 @@ class PilotSession(Session):
         # sent; the 0g proof needs the count to be 0 (the cleanup's safety cancel follows the proof and is separate).
         if self.dropped and name in ('cancel', 'cancel_all'):
             self.cancels_since_drop += 1
-        return super().call(name, fn, **request)
+        previous_posts = self.posts
+        try:
+            return super().call(name, fn, **request)
+        except Exception as exc:
+            # The venue's signing/book/checkpoint phases may exit before its
+            # before_post hook. No durable intent and no counter increment
+            # proves this call never acquired authority to POST. A cash wait
+            # uses the subclass's existing bound submit_deferred protocol.
+            if (name == 'submit' and not getattr(exc, 'retry_pre_post', False) and
+                    self.posts == previous_posts and
+                    self.ledger.intent_proven_absent(f'{self.session_id}:{previous_posts + 1}')):
+                path = self.directory / f'submit-{previous_posts + 1}.intent.json'
+                intent_sha = None
+                if path.exists():
+                    from weather.market.lfc_recording_io import read_bytes, strict_json, file_sha
+                    packet = strict_json(read_bytes(path, 2_000_000))
+                    if (packet.get('number') != previous_posts + 1 or packet.get('request') != request or
+                            packet.get('scope') != self.scope):
+                        raise RuntimeError('pre_post_abort_packet_binding') from None
+                    intent_sha = file_sha(path)
+                self.journal.record('pre_post_abort', attempted_number=previous_posts + 1,
+                    request_sha256=digest(request), intent_sha256=intent_sha,
+                    durable_intent_present=False, exception_type=type(exc).__name__)
+                raise HoldEnd('pre_post_abort') from None
+            raise
 
     def cancel_leg(self, oid):
         if self.profile.run == '0g' and self.dropped:

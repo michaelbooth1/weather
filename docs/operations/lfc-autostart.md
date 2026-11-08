@@ -34,6 +34,13 @@ separate even after reverting its fields. Session redemption cash sums proved
 session-lot payout allocations; any owner holdings in the same transaction stay
 outside that session's measured cash. Unknown allocations remain unknown.
 
+Submission uncertainty comes from unacknowledged durable intents or a mismatch
+between POST counters and known order IDs. Missing private evidence stays an
+evidence fault; it never invents an ambiguous placement or becomes a PASS.
+A proved pre-POST exit retires its band through ordinary cleanup. Its exact
+request and any written intent packet remain bound in the abort journal row;
+an actual POST or partial/unreadable ledger write cannot use this exemption.
+
 The checked-in [F2 example](../examples/lfc-campaign.example.json) and
 [alternate filename](../examples/campaign.proposed.json) are disabled runtime
 policies. The breadth v0.3 rules below govern those files. The

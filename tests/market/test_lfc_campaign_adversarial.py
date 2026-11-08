@@ -162,7 +162,7 @@ def test_unproved_private_evidence_is_refused(tmp_path, rows, flags):
                                                ('journal.jsonl', 'prediction.json', 'session_end.json')}
         proof = local_money_proof(directory, ledger=runtime.state.ledger, session_id='s',
                                   attempt_id=claim['attempt_id'], outcome=result['outcome'])
-        assert not proof['complete'] and proof['unknown_submit']
+        assert not proof['complete'] and not proof['unknown_submit']
 
 
 @pytest.mark.parametrize('fault', ['unclassified_core_fault', 'unknown_private_error'])

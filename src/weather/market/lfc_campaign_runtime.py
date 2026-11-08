@@ -786,12 +786,13 @@ class Runtime:
         from weather.market.lfc_campaign_proof import local_money_proof
         local = (local_money_proof(status.evidence_directory, ledger=self.state.ledger, session_id=status.session_id,
                                    attempt_id=claim['attempt_id'], outcome=outcome)
-                 if status.evidence_directory is not None else {'complete': False, 'unknown_submit': True})
+                 if status.evidence_directory is not None else {'complete': False,
+                     'unknown_submit': bool(self.state.ledger.unacknowledged_intents())})
         result = {'exit_code': code, 'session_id': status.session_id, 'outcome': outcome,
                   'private_evidence_directory': (str(Path(status.evidence_directory).relative_to(self.pilot_root))
                                                  if status.evidence_directory is not None else None),
-                  **evidence_flags(outcome), 'unknown_submit': (session is None or session.posts != len(session.known) or
-                                                               local['unknown_submit']),
+                  **evidence_flags(outcome), 'unknown_submit': (bool(self.state.ledger.unacknowledged_intents()) or
+                      session is not None and session.posts != len(session.known)),
                   'local_money_proof': local,
                   'public_coverage': self.sidecar.report if self.sidecar is not None else
                                      {'configured': False, 'research_evidence_complete': False, 'gap': 'not_configured'}}
