@@ -134,7 +134,8 @@ function Get-LfcCampaignDeadline {
                     $end=$finish.AddSeconds($seconds)
                     if($policyRow.trading_end_toronto) {
                         $stop=[TimeSpan]::ParseExact([string]$policyRow.trading_end_toronto,'hh\:mm\:ss',$culture)
-                        $localStop=[DateTime]::SpecifyKind($localNow.Date.Add($stop),[DateTimeKind]::Unspecified)
+                        $entryLocal=[TimeZoneInfo]::ConvertTime($start,$zone)
+                        $localStop=[DateTime]::SpecifyKind($entryLocal.Date.Add($stop),[DateTimeKind]::Unspecified)
                         $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
                         if($fixed -lt $end) { $end=$fixed }
                     }

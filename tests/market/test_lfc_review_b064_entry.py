@@ -79,6 +79,14 @@ def test_midnight_window_lookback_is_bound_to_the_upcoming_entry_date(tmp_path, 
     assert wrapper_deadline(tmp_path, row, began) == entry.session_end(entry.end) + timedelta(minutes=30)
 
 
+@pytest.mark.spawns
+def test_legacy_midnight_fixed_end_uses_the_entry_date_not_the_launch_date(tmp_path):
+    row = policy_row(); row['trading_end_toronto'] = '06:30:00'
+    row['entries'][0].update(window_start_utc='2026-11-11T05:00:00Z', window_end_utc='2026-11-11T05:15:00Z')
+    entry = parse_policy(row).entries[0]
+    assert wrapper_deadline(tmp_path, row, entry.start-timedelta(minutes=5)) == entry.session_end(entry.end)+timedelta(minutes=30)
+
+
 @pytest.mark.parametrize('history_days', [1, 40])
 def test_healthy_near_entry_followup_cost_is_independent_of_retained_history(history_days):
     from weather.market.lfc_f2_followup import maintenance
