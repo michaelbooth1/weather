@@ -406,6 +406,7 @@ def write_session_end(directory, payload):
 
 # ----- the session ----------------------------------------------------------------------------------------------
 class PilotSession(Session):
+    MIN_REWARD_RATE = LFC.MIN_REWARD_RATE
     PROTOCOL = LFC.PROTOCOL
     MAX_SESSIONS = LFC.MAX_SESSIONS
 

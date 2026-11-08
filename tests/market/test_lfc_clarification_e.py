@@ -5,7 +5,7 @@ Toronto+Denver band universe, R6 dropped for the campaign only, last start 2026-
 limits stay as signed (L budget 100, 8 sessions of 360 minutes, the leg price range, earliest start, 23:50Z hard stop,
 RE-1 submit/requote limits, post-only GTD submits); the review follow-ups: a counted session refuses a non-pilot
 band itself, and the campaign selection refuses a leg above the 15.80 order cap before session_start (RE-1 unchanged).
-Owner B 2026-11-07 rescales the lower reward-share floor for size 20, keeping the upper bound.
+Owner B051 2026-11-07 removes the campaign's economic share screen.
 """
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
@@ -81,7 +81,7 @@ def _table(clock, market_id, **kwargs):
                         ledger={'L': '0', 'L_resting': '0'}, held_conditions=[], **kwargs)
 
 
-@pytest.mark.parametrize('share_many,eligible', [(.09, True), (.07, False), (.70, True), (.71, False)])
+@pytest.mark.parametrize('share_many,eligible', [(.09, True), (.07, True), (.70, True), (.71, True), (1.01, False)])
 def test_owner_b_share_floor_filters_twenty_share_bands(monkeypatch, share_many, eligible):
     price_quote = re1_sizing.price_sized_reward_quote
 
@@ -104,7 +104,8 @@ def test_owner_b_share_floor_filters_twenty_share_bands(monkeypatch, share_many,
 
 
 def test_owner_b_share_range_is_exactly_the_ruling():
-    assert LFC.SHARE_MANY_RANGE == (Decimal('.08'), Decimal('.70'))
+    assert LFC.SHARE_MANY_RANGE == (Decimal('0'), Decimal('1'))
+    assert LFC.MIN_REWARD_RATE == Decimal('0') and LFC.MIN_BOOK_DEPTH == LFC.PILOT_SIZE
 
 
 def test_campaign_selects_only_toronto_and_denver_bands():

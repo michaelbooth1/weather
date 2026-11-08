@@ -17,7 +17,7 @@ from weather.market.exchange_economics_sources import (
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import SCHEMA_VERSION, digest, public_quote, utc
-from weather.market.reward_quote import QuoteRefused, _decimal
+from weather.market.reward_quote import QuoteRefused, _decimal, reward_rate_eligible
 from weather.market.re1_sizing import pilot_quote, reserve_budget, sized_quote
 from weather.market import lfc_constants as LFC
 from weather.market.reward_quote import _levels as _book_levels
@@ -86,17 +86,18 @@ def select_table(universe, *, now, complete=True, source_records=(), available_c
                          pilot_quote(band['snapshot'], size=LFC.PILOT_SIZE, l_total=ledger['L'],
                                      l_resting=ledger['L_resting'], available_collateral=available_collateral,
                                      budget=LFC.BUDGET_PUSD, share_range=LFC.SHARE_MANY_RANGE,
+                                     min_reward_rate=LFC.MIN_REWARD_RATE,
                                      leg_range=(LFC.PER_LEG_PRICE_FLOOR, LFC.PER_LEG_PRICE_CEILING)))
                 # Clarification E: a leg costing more than the 15.80 order cap (a .80 leg at 20 = 16.00) would end
                 # the session on capital_cap at submit, after session_start; refuse it here. LFC only; RE-1 unchanged.
                 if treatment is not None and max(quote.yes_buy, quote.no_buy) * quote.size > LFC.PER_ORDER_CAP_PUSD:
                     raise QuoteRefused('lfc_leg_above_order_cap')
                 # Owner 2026-09-24 (92a): require existing displayed YES-book depth of at least max(75, size) on each
-                # side within the reward max spread of the adjusted midpoint; an empty book pays the same reward at
-                # any size, so size there buys only fill exposure.
+                # side within the reward max spread of the adjusted midpoint. Owner B051 uses the campaign's
+                # size-based MIN_BOOK_DEPTH for LFC only; RE-1 retains its existing floor.
                 inputs = band['snapshot']['quote_inputs']
                 reach = _decimal(inputs['reward_max_spread_cents']) / 100
-                need = max(Decimal(75), _decimal(quote.size))
+                need = max(LFC.MIN_BOOK_DEPTH if treatment is not None else Decimal(75), _decimal(quote.size))
                 mid = _decimal(quote.adjusted_mid)
                 bid_depth = sum((s for p, s in _book_levels(inputs['yes_bids']) if mid - reach <= p <= mid), Decimal(0))
                 ask_depth = sum((s for p, s in _book_levels(inputs['yes_asks']) if mid <= p <= mid + reach), Decimal(0))
@@ -300,7 +301,9 @@ class PublicBooks:
                     if outcomes != ['Yes', 'No'] or len(tokens) != 2 or len(set(tokens)) != 2:
                         raise ValueError('event does not bind the exact YES/NO token pair')
                     # The reward thresholds define the preregistered book universe.
-                    if (_decimal(reward['rewards_min_size']) > (20 if available_collateral is None else 75) or reward_rate(reward, self.clock()) < 40
+                    if (_decimal(reward['rewards_min_size']) > (20 if available_collateral is None else 75)
+                            or not reward_rate_eligible(reward_rate(reward, self.clock()),
+                                                       LFC.MIN_REWARD_RATE if treatment is not None else 40)
                             or _decimal(reward['rewards_max_spread']) < 3):
                         continue
                     snapshot = self.snapshot(condition, tokens, reward=reward)

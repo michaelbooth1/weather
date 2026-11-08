@@ -20,8 +20,8 @@ from decimal import Decimal
 # DECLARED DEVIATION (PR section 2, ruling R5): the desk study, replay v2 and shadow proxies simulate a 75-share
 # RE-1 quote. The campaign rests 20 shares per leg (clarification E; 40 as signed on 2026-10-09), the T+1/T+2 reward
 # minimum, so each leg costs at most 16 pUSD (20 x 0.80) and a double fill on one band plus the next band's reserve
-# never exceeds the 100 pUSD L budget. The RE-1 depth filter of 75 is kept. c_at/c_thr are ratios per offered share
-# and are compared to replay at the same size.
+# never exceeds the 100 pUSD L budget. The campaign depth floor is MIN_BOOK_DEPTH; RE-1 keeps 75.
+# c_at/c_thr are ratios per offered share and are compared to replay at the same size.
 PILOT_SIZE = Decimal('20')
 PROXY_SIZE = Decimal('75')  # the proxies' size the campaign deviates from; reporting only
 
@@ -59,8 +59,10 @@ MIN_FEASIBLE_LEG_SUM = Decimal('.96')
 MIN_FEASIBLE_RESERVE = PILOT_SIZE * MIN_FEASIBLE_LEG_SUM
 
 # PR section 3: selection filters the RE-1 quote function does not already enforce.
-# rescaled for size 20 (0.15 at 40 = 0.0811 at 20) under owner B 2026-11-07; clarification F
-SHARE_MANY_RANGE = (Decimal('.08'), Decimal('.70'))
+# Owner B051 2026-11-07: remove the campaign's share screen; any positive rewarded band may qualify.
+SHARE_MANY_RANGE = (Decimal('0'), Decimal('1'))
+MIN_REWARD_RATE = Decimal('0')  # exclusive: a zero/unrewarded band still refuses
+MIN_BOOK_DEPTH = PILOT_SIZE
 
 # PR section 4 dates. No campaign order may rest before EARLIEST_START_UTC (replaces RE-1 LAST_DAY); a hard stop at
 # 23:50Z keeps every session inside its UTC day; counted sessions are on distinct owner-local dates and the last

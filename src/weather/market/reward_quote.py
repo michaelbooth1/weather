@@ -62,12 +62,18 @@ class RewardQuote:
 
 def price_reward_quote(**inputs) -> RewardQuote:
     """Frozen twenty-share proposer for the sealed lane and historical replay."""
-    return _price_reward_quote(**inputs, size=20)
+    return _price_reward_quote(**inputs, size=20, min_reward_rate=40)
 
 
-def price_sized_reward_quote(*, size, **inputs) -> RewardQuote:
+def price_sized_reward_quote(*, size, min_reward_rate=40, **inputs) -> RewardQuote:
     """Explicit 84h pure proposal; size is still bounded to 20/30/50/75 (40: calibration pilot)."""
-    return _price_reward_quote(**inputs, size=size)
+    return _price_reward_quote(**inputs, size=size, min_reward_rate=min_reward_rate)
+
+
+def reward_rate_eligible(rate, min_reward_rate=40):
+    """RE-1's inclusive floor; the explicit zero-floor campaign requires positive rewards."""
+    rate, floor = map(_decimal, (rate, min_reward_rate))
+    return rate > floor if floor == 0 else rate >= floor
 
 
 def _price_reward_quote(
@@ -84,6 +90,7 @@ def _price_reward_quote(
     per_order_ceiling: object = "16",
     per_band_ceiling: object = "20",
     size: object = "20",
+    min_reward_rate: object = "40",
 ) -> RewardQuote:
     """Price a bounded RE-1 size, 1.5 cents outward from size-adjusted mid.
 
@@ -105,7 +112,7 @@ require explicit size and ceilings; no profile is selected by this calculation.
         raise QuoteRefused("invalid_treatment_size")
     if not 0 < minimum <= size:
         raise QuoteRefused("reward_minimum_outside_treatment")
-    if maximum < 3 or rate < 40:
+    if maximum < 3 or not reward_rate_eligible(rate, min_reward_rate):
         raise QuoteRefused("reward_terms_outside_treatment")
     if step != Decimal("0.01"):
         raise QuoteRefused("unsupported_tick")

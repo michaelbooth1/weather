@@ -1950,6 +1950,21 @@ fresh same-day preflight; the campaign root and attempt counts are shared across
 tips. Preparing or qualifying a candidate does not update the execution worktree
 or authorize an owner session.
 
+#### Live-fill calibration economic selection
+
+The LFC profile uses the economic selection constants in
+`weather.market.lfc_constants`: the full probability-share range, a strictly
+positive reward rate, and displayed two-sided depth of at least the pilot size.
+These replace only the campaign's economic share, reward-rate and depth screens
+under owner B051. Ranking still chooses the highest predicted reward among
+eligible bands. RE-1 and sealed profiles keep their existing economic rules.
+The LFC rate floor also governs selection reconstruction, opening submissions,
+minute observations and replacement submissions. Preflight and live share the
+same campaign selector. Quote geometry, reward qualification, market/date and
+position exclusions, prices, cash, capital, budget and execution gates remain
+in force. This selection policy does not establish a measured probability that
+a future session will find a band or trade.
+
 ### Stage 3: evidence and settlement
 
 For every accepted order, retain intent, signed-request hash (never the secret
