@@ -64,7 +64,7 @@ def recorder_report(payload, config, raw_journal, receipts, tolerance):
         except (ValueError, KeyError) as exc:
             gaps['snapshot_projection'] = {'status': 'NOT QUALIFIED', 'evidence_required': str(exc)}
     try:
-        latency = pin_latency_evidence(raw_journal, recorder_pin=F0_PIN)
+        latency = pin_latency_evidence(raw_journal, recorder_pin=payload['recorder_pin'])
     except (ValueError, KeyError):
         latency = None
     confirmed, pending = [], []
@@ -82,7 +82,7 @@ def recorder_report(payload, config, raw_journal, receipts, tolerance):
         supplemental = accuracy_gate(payload['normalized_payload'], config, raw_journal, receipts, tolerance)
     return {'status': 'NOT_QUALIFIED', 'qualification': 'F0_PARTIAL_CALIBRATION',
             'synthetic': opened['mode'] != 'live', 'trial_can_pass': False,
-            'recorder_pin': F0_PIN, 'profile_sha256': opened['profile_sha256'],
+            'recorder_pin': payload['recorder_pin'], 'profile_sha256': opened['profile_sha256'],
             'journal_sha256': evidence.sha256, 'journal_records': evidence.record_count,
             'journal_bytes': evidence.byte_count, 'scope': scope,
             'commands': commands, 'known_order_ids': sorted(known), 'snapshots': snapshots,

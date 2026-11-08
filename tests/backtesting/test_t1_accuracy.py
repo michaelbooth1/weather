@@ -8,6 +8,48 @@ import pytest
 from tests.backtesting.t1_fixtures import at, book, config, journal_bytes, payload, receipts, tolerance, no_fill_checkpoints
 from weather.backtesting.t1_accuracy import (accuracy_gate, clob_fills, combine_session_gates,
                                              pin_commands, pin_latency_evidence, read_pin_evidence, read_pin_journal)
+from weather.backtesting.t1_provenance import session_certificate
+from weather.backtesting.t1_types import digest
+
+
+@pytest.mark.parametrize('pin,supported,native', [
+    ('27f169cef80aa93d6c9c52551a040694e8d2a5f5', True, True),
+    ('124603578f393827fa1b67bd978f6e3b02048ae9', True, False),
+    ('f531395522d0b0a37495185b2750164008fe586a', False, False),
+])
+def test_reviewed_recorder_identity_across_intake_latency_and_certificate(tmp_path, pin, supported, native):
+    """T043: F0 prime replaces F0; the original LFC normalized lane remains accepted."""
+    raw, p = journal_bytes(), payload()
+    r = receipts(raw)
+    baseline = accuracy_gate(p, config(), raw, r, tolerance())
+    r['journal_pin'] = pin
+    if supported:
+        result = accuracy_gate(p, config(), raw, r, tolerance())
+        latency = pin_latency_evidence(raw, recorder_pin=pin)
+        assert latency['journal_pin'] == pin
+        assert result == {**baseline, 'recorder_pin': pin, 'receipts_sha256': digest(r)}
+    else:
+        with pytest.raises(ValueError, match='receipt/journal scope mismatch'):
+            accuracy_gate(p, config(), raw, r, tolerance())
+        with pytest.raises(ValueError, match='unreviewed recorder latency pin'):
+            pin_latency_evidence(raw, recorder_pin=pin)
+
+    # Rebind only the receipt digest so certification reaches the independent
+    # recorder allowlist without an unrelated changed-input diagnosis.
+    baseline['receipts_sha256'] = digest(r)
+    certificate = session_certificate(baseline, {'worktree_clean': True}, r, p, tmp_path)
+    assert ('unreviewed_actual_recorder_pin' in certificate['gaps']) is not supported
+    assert 'arithmetic_inputs_changed_before_certification' not in certificate['gaps']
+
+    native_payload = {'input_kind': 'f0_lfc_recording', 'recorder_pin': pin}
+    if native:
+        partial = accuracy_gate(native_payload, config(), raw, {}, tolerance())
+        assert partial['recorder_pin'] == pin
+        assert partial['submit_latency_evidence']['journal_pin'] == pin
+        assert partial['status'] == 'NOT_QUALIFIED' and partial['trial_can_pass'] is False
+    else:
+        with pytest.raises(ValueError, match='actual reviewed recorder pin'):
+            accuracy_gate(native_payload, config(), raw, {}, tolerance())
 
 
 def test_synthetic_session_passes_independent_reward_fill_and_markout_arithmetic():

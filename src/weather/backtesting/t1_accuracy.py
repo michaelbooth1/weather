@@ -21,7 +21,7 @@ from weather.backtesting.t1_types import (ONE, ZERO, canonical, decimal_context,
                                          number, source_hash, utc)
 
 LFC_PIN = '124603578f393827fa1b67bd978f6e3b02048ae9'
-F0_PIN = 'f531395522d0b0a37495185b2750164008fe586a'
+F0_PIN = '27f169cef80aa93d6c9c52551a040694e8d2a5f5'
 COMPATIBLE_RECORDER_PINS = frozenset((LFC_PIN, F0_PIN))
 # Wire identifier from schema_registry_data.py at LFC_PIN; do not import live code.
 PIN_JOURNAL_VERSION = 'mm_stage2_hold_v0.1'

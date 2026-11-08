@@ -332,6 +332,11 @@ identity, and explicit gap flags. It never sets invented coverage/complete flags
 An optional `normalized_payload` plus complete supplementary receipts runs the
 strict comparison beside this partial report. The native report remains partial.
 
+The reviewed F0 pin replaces its predecessor; native intake accepts only that
+exact identity. Normalized intake, latency binding and certification share
+`t1_accuracy.COMPATIBLE_RECORDER_PINS`, which also retains the legacy LFC pin.
+Journal byte compatibility alone does not authorize an additional recorder pin.
+
 F0 normally captures books each minute and stops soon after a fill. It lacks
 continuous post-fill books, unique confirmed public maker consumption, exact
 competing orders/random samples, complete day denominators, independent shared
