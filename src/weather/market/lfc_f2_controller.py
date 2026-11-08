@@ -140,6 +140,43 @@ class F2Band(PilotSession):
         self._retain('f2_band_cleanup_scope', session_id=self.session_id, account_wide=False)
         return True
 
+    def progress(self):
+        status = getattr(self, 'outcome_status', None)
+        try:
+            if status is not None:
+                status.progress()
+            loop = getattr(self, 'heartbeat_loop', None)
+            if loop is not None:
+                loop.tick()
+                if not loop.threaded:
+                    loop.step()
+        except Exception:
+            self.evidence_failed = True  # Observer failure cannot stop cancellation.
+
+    def _retain(self, event, **fields):
+        self.progress()
+        return super()._retain(event, **fields)
+
+    def _recover(self, name, fn):
+        def observed():
+            self.progress()
+            try:
+                return fn()
+            finally:
+                self.progress()
+        return super()._recover(name, observed)
+
+    def cleanup(self):
+        status = getattr(self, 'outcome_status', None)
+        previous = getattr(status, 'phase', None)
+        if status is not None:
+            status.phase = 'CLEANUP'
+        try:
+            return super().cleanup()
+        finally:
+            if status is not None:
+                status.phase = previous
+
 
 class F2Coordinator:
     def __init__(self, *, ledger, clock, directory, session_id, attempt_id, policy, entry, table,
@@ -198,6 +235,9 @@ class F2Coordinator:
                            'cancellation_scope': 'band', **flags, **self.status.policy_metadata})
         self.results[band.session_id] = result
         self.closed_bands.add(band.session_id)
+        if self.status.resync_hook is not None:
+            self.status.resync_hook()
+        self.status.progress()
 
     def run(self):
         if not 1 <= len(self.bands) <= self.policy.raw['band_limit_concurrent']:
@@ -211,6 +251,7 @@ class F2Coordinator:
         steps, due = {}, {}
         failed = None
         try:
+            self.status.phase = 'QUOTING'
             loop.start()
             for band in self.bands:
                 band.heartbeat_loop = SharedHeartbeat(loop)
@@ -246,6 +287,7 @@ class F2Coordinator:
             self.reason = (exc.reason if isinstance(exc, HoldEnd) else
                            'owner_interrupt' if isinstance(exc, KeyboardInterrupt) else 'f2_exception')
         finally:
+            self.status.phase = 'CLEANUP'
             # Inject the stop into each live band so it follows the ordinary
             # cancel, terminal read and private evidence path exactly once.
             for band in self.bands:
@@ -273,6 +315,8 @@ class F2Coordinator:
                 cancel_ack_ids(response)
                 self.retain('account_cleanup_cancel_all_response', response=response)
                 for _ in range(10):
+                    self.status.progress()
+                    loop.tick()
                     self.open_rows = primary.open_orders()
                     self.retain('account_cleanup_open_orders', rows=self.open_rows)
                     if self.open_rows == []:
@@ -282,6 +326,7 @@ class F2Coordinator:
                     loop.stop()
                 self.cancellation_ok = self.open_rows == []
                 stage = 'verify'
+                self.status.phase = 'VERIFY'
                 proof = self.verify()
                 self.final_money_proof = proof
                 self.cancellation_ok = self.open_rows == [] and proof.get('cleanup_proven') is True

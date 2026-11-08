@@ -103,7 +103,7 @@ def validate_packet(packet, *, maker, start, end):
     return rows
 
 
-def synchronize(ledger, baseline, read, *, funding='300'):
+def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False):
     """Reconcile before F2 admission. Repeated reads never repeat a cash credit."""
     if (read.get('complete') is not True or read.get('open_orders') != [] or ledger.unresolved_legs() or
             ledger.open_sessions() or read.get('maker_address', '').lower() != ledger.rows[0]['maker_address'].lower()):
@@ -154,9 +154,6 @@ def synchronize(ledger, baseline, read, *, funding='300'):
     book = CapitalBook(ledger)
     if inventory['changed']:
         raise CapitalRefused('capital_inventory_unreconciled')
-    if any(book.activities[key].get('principal_unproved') and item['cash_native'] is not None and
-           item['cost_basis_released_native'] for key, item in book.redemptions.items()):
-        raise CapitalRefused('capital_redemption_allocation_unproved')
     if book.bridge is not None:
         expected_cash = book.expected_cash()
         if cash < expected_cash:
@@ -169,8 +166,9 @@ def synchronize(ledger, baseline, read, *, funding='300'):
                  'asset': ASSET, 'decimals': 6, 'native_asset_proof': read['capital_activity']['native_asset_proof']}
         bridge(ledger, funding=funding, cash=balances['available_collateral'], proof=proof)
         book = CapitalBook(ledger)
-    book.gate(reserve='0', available_cash=balances['available_collateral'])
+    book.gate(reserve='0', available_cash=balances['available_collateral'], owner_fault_review=owner_fault_review)
     return {'complete': True, 'cash_native': cash, 'inventory': inventory, **book.figures(),
             'legacy_L_native': native(ledger.L(), ceil=True), 'bridge_sha256': digest(book.bridge),
-            'cash_bridge_complete': cash == book.expected_cash() and not book.unknown,
+            'cash_bridge_complete': (book.expected_cash() <= cash <= book.expected_cash() + book.quarantined_after_bridge()
+                                    and not book.blocking_unknown()),
             'quarantined_unattributed_incoming_native': max(0, cash - book.expected_cash())}

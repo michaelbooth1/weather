@@ -19,6 +19,23 @@ def occurrence_closed(state, path, row, sha):
     if not closure.exists():
         return False
     closed = state.read(closure)
+    if closed.get('authority') == 'owner_operational_close':
+        source = row.get('source_attempt_id', row['attempt_id'])
+        fields = ('artifact', 'detection_sequence')
+        if (closed.get('incident_sha256') != sha or closed.get('incident_id') != row['attempt_id'] or
+                closed.get('source_attempt_id') != source or any(closed.get(key) != row.get(key) for key in fields) or
+                not any(r['event'] == 'autostart_owner_close' and r.get('incident_id') == row['attempt_id'] and
+                        r.get('file_sha256') == file_sha(closure) for r in state.ledger.rows)):
+            raise StateRefused('incident_closure_invalid')
+        return True
+    if closed.get('authority') == 'automatic_no_intent':
+        from weather.market.lfc_campaign_recovery import empty_binding
+        source = row.get('source_attempt_id', row['attempt_id'])
+        binding = empty_binding(state, source)
+        if (binding is None or closed.get('incident_sha256') != sha or
+                closed.get('no_intent_close_sha256') != file_sha(state.root / 'closed' / (source + '.json'))):
+            raise StateRefused('incident_closure_invalid')
+        return True
     fields = ('incident_id', 'source_attempt_id', 'artifact', 'detection_sequence')
     identity = {**row, 'incident_id': row['attempt_id']}
     if (closed.get('incident_sha256') != sha or closed.get('authority') != 'owner_recovery' or

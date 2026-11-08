@@ -59,10 +59,13 @@ class OwnedHold:
         self.policy_metadata = {} if policy_metadata is None else dict(policy_metadata)
 
     def acquire(self):
+        from weather.operations.process_lock_identity import current_process_identity
+        from weather.market.lfc_campaign_workload import current_boot_id
         try:
             write_new(self.path, {'schema_version': 'lfc_campaign_hold_v0.1', 'owner': self.identity,
                                   **self.policy_metadata,
-                                  'pid': os.getpid()})
+                                  'pid': os.getpid(), 'owner_process_identity': current_process_identity(),
+                                  'boot_id': current_boot_id() if os.name == 'nt' else None})
         except FileExistsError:
             raise AdmissionBusy('hold_already_owned') from None
         self.sha256 = file_sha(self.path)
@@ -91,10 +94,11 @@ def require_account(maker):
 
 
 class WindowsMutexes:
-    def __init__(self):
+    def __init__(self, *, owner_recovery=False):
         if os.name != 'nt':
             raise AdmissionUncertain('windows_required')
         import ctypes
+        self.owner_recovery = owner_recovery
         from ctypes import wintypes
         self.ctypes = ctypes
         self.api = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -110,7 +114,7 @@ class WindowsMutexes:
         if not handle:
             raise AdmissionUncertain('mutex_open_failed')
         result = self.api.WaitForSingleObject(handle, 0)
-        if result == 0:
+        if result == 0 or result == 0x80 and self.owner_recovery:
             return handle
         if result == 0x80:
             # Release our acquired abandoned handle; the caller records a sticky

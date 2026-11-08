@@ -109,7 +109,7 @@ class AccountState:
                 self.evidence_fault('legacy-history', artifact='history/money-proof')
             raise StateRefused('historical_money_ambiguity_requires_owner_recovery')
 
-    def verify(self):
+    def verify(self, *, ignore_empty_result_errors=False, owner_fault_review=False):
         validate_nonreparse_directory(self.root.absolute())
         row = self.read(self.root / 'identity.json')
         event = self.ledger.enrollment
@@ -143,7 +143,16 @@ class AccountState:
             if file_sha(path) != event['file_sha256']:
                 raise StateRefused('incident_continuity')
         for event in list(self.ledger.autostart_results):
+            from weather.market.lfc_campaign_recovery import attempt_intents, empty_binding
+            from weather.market.lfc_campaign_owner_close import binding as operational_binding
+            if owner_fault_review or operational_binding(self, event['attempt_id']) is not None or empty_binding(self, event['attempt_id']) is not None or (
+                    ignore_empty_result_errors and not attempt_intents(self.ledger, event['attempt_id'])):
+                continue
             self.result_anchor(event['attempt_id'])
+        if not owner_fault_review:
+            from weather.market.lfc_campaign_owner_close import binding as operational_binding
+            for anchor in [r for r in self.ledger.rows if r['event'] == 'autostart_owner_close']:
+                operational_binding(self, anchor['source_attempt_id'])
         chain = {self.ledger.row_sha256(i) for i in range(len(self.ledger.rows))}
         for path in (self.root / 'closed').glob('*.json'):
             closed = self.read(path)
@@ -151,7 +160,8 @@ class AccountState:
                     closed.get('proof_sha256') != digest(closed['proof'])):
                 raise StateRefused('closeout_ledger_continuity')
         from weather.market.lfc_f2_freeze import verify
-        verify(self)
+        if not owner_fault_review:
+            verify(self)
         return row
 
     def evidence_fault(self, attempt, *, artifact='private-evidence'):
@@ -224,6 +234,12 @@ class AccountState:
         for claim in self.claims():
             path = self.root / 'closed' / (claim['attempt_id'] + '.json')
             if not path.exists():
+                continue
+            from weather.market.lfc_campaign_owner_close import binding as operational_binding
+            if operational_binding(self, claim['attempt_id']) is not None:
+                continue
+            from weather.market.lfc_campaign_recovery import empty_binding
+            if empty_binding(self, claim['attempt_id']) is not None:
                 continue
             has_session = any(s['start'].get('autostart_attempt_id') == claim['attempt_id']
                               for s in self.ledger.sessions.values())

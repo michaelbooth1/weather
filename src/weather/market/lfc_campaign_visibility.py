@@ -72,12 +72,19 @@ def notify_control(runtime, row):
         return notify_owner(runtime.control_root.parent, {}, public_status=signature)
 
 
-def stalled(runtime, claim, *, last_progress, now_mono, exit_process=os._exit):
-    if now_mono - last_progress <= STALL_SECONDS:
+def stalled(runtime, claim, *, last_progress, now_mono, exit_process=os._exit, phase='QUOTING'):
+    # Setup and teardown have separately bounded transport loops and the outer
+    # trading-end deadline. Never hard-exit while cancellations are in flight.
+    if phase != 'QUOTING' or now_mono - last_progress <= STALL_SECONDS:
         return False
     # The claim and workload markers remain. A watchdog cannot claim cleanup,
     # write concurrently to the money ledger, or authorize another attempt.
     try:
+        if hasattr(runtime, 'write_emergency_result'):
+            try:
+                runtime.write_emergency_result(claim)
+            except OSError:
+                pass  # Still attempt the public incident before hard exit.
         row = control_record(runtime.control_root, claim['attempt_id'], phase='INCIDENT', now=runtime.clock.now(),
             incident=True, postchecks_pending=True, reason='session_stalled', orders_open_unproven=True,
             policy_metadata=runtime.state.policy_binding)

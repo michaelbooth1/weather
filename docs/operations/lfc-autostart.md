@@ -90,16 +90,19 @@ unattributed cash is quarantined; an unexplained debit refuses another post.
 A later known payout appends a scoped resolution, retaining its original unknown
 read. Unknown outgoing costs refuse admission.
 
-The initial bridge refuses every unresolved cash observation, including legacy
-redemptions and outgoing payments. Later discovery of an older credit never
+The initial bridge refuses unresolved outgoing payments and incoming cash without
+a bounded label. An unresolved incoming label is rounded upward and quarantined
+outside principal; it returns no basis and does not block the bridge. Later discovery of an older credit never
 adds it to the bridge balance again: it reclassifies only the bridge's original
 unattributed quarantine, and reduces the effective allocation for any remainder.
 Known external funds and later deposits cannot replace that principal. The
-original bridge receipt is preserved. An unresolved older credit blocks admission
-until its native cash is known; no payout is guessed.
+original bridge receipt is preserved. An unresolved older credit remains quarantined until its native cash is known;
+no payout is guessed and the label never funds new risk.
 
 Withdrawals consume set-aside external cash, profit and incentives, in that order,
-before charging any excess to principal. Allocation follows cash-flow time, so a
+before charging any post-bridge excess to principal. Pre-bridge withdrawals are
+already reflected in the opening balance and never become campaign costs.
+Allocation follows cash-flow time, so a
 later deposit cannot cover an earlier withdrawal whose receipt resolves late.
 An outgoing flow is charged before a same-second incoming flow when the
 whole-second timestamps cannot prove their order.
@@ -121,9 +124,9 @@ principal. There is no assumed USD conversion. See the
 [v2 schema](https://data-api.polymarket.com/v2/openapi.json) and
 [ERC-20 transfer contract](https://eips.ethereum.org/EIPS/eip-20).
 When a transaction has more than one incoming activity row for this maker,
-every row's cash is UNKNOWN even when their labels sum to the native transfer.
-The total alone cannot prove the payout for each condition. Their complete
-cost bases remain charged; none of the batched proceeds is recycled.
+cash stays UNKNOWN unless retained per-position payout evidence binds the whole
+redemption bundle. The total alone cannot prove each condition's payout.
+Unproved cost bases remain charged; their incoming labels stay quarantined.
 There is no redemption, sale, top-up or transfer capability in this code.
 
 Outcomes separate PLANNING scenarios from MEASURED fills, fees, carried basis
@@ -148,6 +151,11 @@ state, a second writer, an unresolved claim or a corrupt continuity proof
 refuses. Config changes, ordinary reboot and reinstall cannot reset claims.
 Whole-trusted-state rollback is unsupported: keep the task disabled during a
 restore and perform owner-led continuity review before resuming.
+
+Every reachable post-claim exit persists a result in a finally block. After a
+hard exit, a durable claim with no leg intents automatically closes MISSED with
+research gaps, since that attempt could not have submitted an order. Its date
+stays consumed. A claim with intents cannot use this automatic closure.
 
 The dispatcher finishes pending money postchecks and returns before considering
 a fresh entry. Known acknowledged attempts may finish read-only postchecks on
@@ -174,6 +182,17 @@ lead-time requirement only for this lane. It first checks the previous accountin
 and original inventory anchor, then binds its own fresh baseline/pre-go receipt
 to the entry. Later global baseline files cannot override that binding. Existing
 manual/F0 gates keep their historical protocol.
+
+For an operational incident whose private evidence is missing, the owner may
+run `weather.market.lfc_campaign_cli owner-close --release <release.json>
+--release-sha256 <sha256> --incident <occurrence-id>`. One terminal confirmation
+names the exact incident hash. Fresh account-wide proof must establish every
+acknowledged order's validated terminal quantity, no resting orders and reconciled
+inventory/cash. Any unacknowledged intent refuses. This close preserves missing
+artifacts as research faults, original receipts and consumed dates; it never
+invents a journal or reports research PASS. Only a proved-dead workload marker
+may be released. A restored artifact is anchored, and a later loss or change
+creates a fresh N1 occurrence requiring another owner decision.
 
 ## Availability and containment
 
@@ -222,7 +241,8 @@ that schema instead of adopting it as an offline/Stage-0 lease. Normal contained
 completion removes only the matching marker and HOLD. A crash/uncertain teardown
 retains them. `weather.market.lfc_campaign_cli owner-clear-workload` is an explicit
 owner-terminal operation: it requires the incident's bound account/state, hash
-confirmation, a different proved Windows boot ID and all-slot exclusion. It
+confirmation, all-slot exclusion and proof that the recorded process is gone
+(either a different boot ID or exact process-creation identity). It
 removes only that workload marker and its hash-bound HOLD; monetary incidents
 and date claims remain for separate owner-led recovery. Automatic admission and
 reconciliation never invoke it.
@@ -326,8 +346,10 @@ unknown result after the owner has repaired its identities and current account
 proof is complete. Its separately hashed owner receipt binds every original,
 the resolved identities and fresh account proof. Original failure flags remain
 unchanged. Automatic closeout cannot select this authority or create that receipt;
-later admission still revalidates originals and the owner decision. Missing or
-changed originals cannot be waived, including by a terminal confirmation.
+later admission still revalidates originals and the owner decision. This
+`owner-recover` path refuses missing or changed originals. The separate
+`owner-close` path above acknowledges the evidence fault with research incomplete
+and independently proves money; it does not waive that fault into a PASS.
 Each detected fault occurrence binds its source attempt, affected artifact and a
 ledger-backed detection sequence. Repeated observations deduplicate only while
 that occurrence is open. A later loss, including after recovery or reboot, creates
@@ -341,7 +363,8 @@ module/AutoRedeemer events bind each position payout. A collapsed paired API row
 can cover both tokens; repeated rows cannot credit the transaction twice. Every
 lot retains its own cost ceiling. Unmatched or pre-snapshot reads are quarantined
 outside principal. A native transfer without a position allocation returns no
-principal. Unknown legacy cash still refuses enrollment of the capital bridge.
+principal. Unknown incoming labels remain segregated, including before the bridge;
+unknown outgoing cash or an incoming flow without a bounded label refuses.
 The public contract sources are [CTF](https://github.com/gnosis/conditional-tokens-contracts/blob/master/contracts/ConditionalTokens.sol)
 and [Polymarket v2](https://github.com/Polymarket/polymarket-v2-external).
 
@@ -357,12 +380,15 @@ missed/refused start window. Every control record includes
 existing incident always projects INCIDENT, including during pending postchecks.
 Busy workload admission and retained HOLD/marker state have distinct reasons.
 Automatic admission never guesses that a marker is stale or deletes it; the
-existing owner recovery still requires proved reboot/identity continuity.
+existing owner recovery requires proved process-exit/boot identity continuity.
 
 Before go, the session volume needs at least the code's 5 GiB free-space floor.
 The owner-only STOP checkpoint remains unchanged. A separate watchdog exits the
-process after 120 seconds without a successful main-loop checkpoint, first
-publishing an incident with cancellation unproved. The account claim and work
+process after 120 seconds without quoting-loop progress, first
+publishing an incident with cancellation unproved. Setup, cleanup and verification
+use bounded operations and the wrapper deadline; the stall watchdog never kills
+a cancellation in flight. Band cleanup keeps the account heartbeat ticking and
+resynchronizes the clock-gap guard without waiving wall/monotonic drift. The account claim and work
 markers remain retained; process teardown is not order-cancellation proof.
 Each tick appends its exit code and sanitized traceback frames to
 `status/campaign-ticks.jsonl`, rotating at 1 MiB and retaining archives. No

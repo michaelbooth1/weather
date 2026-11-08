@@ -12,7 +12,7 @@ SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_P
 SAFE_REASONS = {'idle', 'transport_deferred', 'window_missed', 'campaign_disabled', 'running', 'postcheck_pending',
                 'completed', 'account_incident', 'policy_refused', 'release_refused', 'policy_changed',
                 'owner_stop', 'market_local_horizon', 'admission_busy', 'hold_retained',
-                'disk_free_below_floor', 'session_stalled'}
+                'disk_free_below_floor', 'session_stalled', 'claim_no_intents'}
 
 
 def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_pending=False,

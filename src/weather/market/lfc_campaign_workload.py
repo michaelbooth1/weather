@@ -38,10 +38,12 @@ class WorkloadMarker:
         self.policy_metadata = {} if policy_metadata is None else dict(policy_metadata)
 
     def acquire(self, *, hold_sha256, hold_owner):
+        from weather.operations.process_lock_identity import current_process_identity
         write_new(self.path, {'schema_version': WORKLOAD_SCHEMA, 'state': 'ACTIVE', 'state_id': self.state_id,
                              **self.policy_metadata,
                              'account_key': account_key(self.maker), 'owner_pid': os.getpid(),
                              'hold_sha256': hold_sha256, 'hold_owner': hold_owner,
+                             'owner_process_identity': current_process_identity(),
                              'boot_id': self.boot_id, 'at_utc': datetime.now(timezone.utc).isoformat()})
         self.sha256 = file_sha(self.path)
 
@@ -49,6 +51,19 @@ class WorkloadMarker:
         if not contained or self.sha256 is None or file_sha(self.path) != self.sha256:
             raise AdmissionUncertain('campaign_workload_marker_retained')
         self.path.unlink()
+
+
+def proved_owner_gone(row, now_boot):
+    if type(row.get('boot_id')) is not int:
+        return False
+    if row['boot_id'] != now_boot:
+        return True
+    identity = row.get('owner_process_identity') or {}
+    pid = row.get('owner_pid', row.get('pid'))
+    if type(pid) is not int or pid <= 0 or identity.get('pid') != pid or not identity.get('creation_time_token'):
+        return False
+    from weather.operations.process_lock_identity import lock_owner_status
+    return lock_owner_status({'pid': pid, 'owner_process_identity': identity}).get('stale') is True
 
 
 def owner_release_workload_after_reboot(*, path, expected_sha, state_id, maker, boot_id=None, backend=None,
@@ -61,7 +76,7 @@ def owner_release_workload_after_reboot(*, path, expected_sha, state_id, maker, 
     now_boot = current_boot_id() if boot_id is None else boot_id
     if (file_sha(path) != expected_sha or row.get('schema_version') != WORKLOAD_SCHEMA or
             row.get('state_id') != state_id or row.get('account_key') != account_key(maker) or
-            type(row.get('boot_id')) is not int or row['boot_id'] == now_boot):
+            not proved_owner_gone(row, now_boot)):
         raise AdmissionUncertain('owner_reboot_continuity_required')
     phrase = 'clear workload ' + expected_sha[:12]
     if confirmation is None:
@@ -69,7 +84,7 @@ def owner_release_workload_after_reboot(*, path, expected_sha, state_id, maker, 
         confirmation = input().strip()
     if confirmation != phrase:
         raise AdmissionUncertain('owner_confirmation_refused')
-    backend = WindowsMutexes() if backend is None else backend
+    backend = WindowsMutexes(owner_recovery=True) if backend is None else backend
     # Acquire every real compatibility slot. This explicit owner recovery knows
     # only its one hash-bound marker; it never clears any other slot's poison.
     with ExitStack() as stack:
@@ -87,3 +102,29 @@ def owner_release_workload_after_reboot(*, path, expected_sha, state_id, maker, 
             hold.unlink()
     # The monetary incident/claimed date remains. Clearing a workload marker
     # does not authorize live admission or close an ambiguous placement.
+
+
+def owner_release_hold_only(*, path, expected_sha, boot_id=None, backend=None, owner_terminal=None, confirmation=None):
+    terminal = sys.stdin.isatty() if owner_terminal is None else owner_terminal
+    if terminal is not True:
+        raise AdmissionUncertain('owner_terminal_required')
+    path = Path(path)
+    row = strict_json(read_bytes(path, 65536))
+    now_boot = current_boot_id() if boot_id is None else boot_id
+    if (file_sha(path) != expected_sha or row.get('schema_version') != 'lfc_campaign_hold_v0.1' or
+            not proved_owner_gone(row, now_boot)):
+        raise AdmissionUncertain('hold_owner_not_proved_gone')
+    phrase = 'clear hold ' + expected_sha[:12]
+    if confirmation is None:
+        print('After proved owner exit only. Type: ' + phrase)
+        confirmation = input().strip()
+    if confirmation != phrase:
+        raise AdmissionUncertain('owner_confirmation_refused')
+    backend = WindowsMutexes(owner_recovery=True) if backend is None else backend
+    with ExitStack() as stack:
+        for suffix in ['.Exclusive', ''] + [f'.Slot{i}' for i in range(2, 9)]:
+            handle = backend.acquire(LEGACY_MUTEX + suffix)
+            stack.callback(backend.release, handle)
+        if file_sha(path) != expected_sha:
+            raise AdmissionUncertain('different_hold_owner')
+        path.unlink()

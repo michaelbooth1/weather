@@ -56,6 +56,11 @@ def test_pending_cannot_hide_existing_incident(tmp_path):
     runtime = StubRuntime(state, clock)
     policy = parse_policy(policy_row())
     claim = state.claim(policy.entries[0], policy, clock.now())
+    state.ledger.record('session_start', session_id='pending', counted=True,
+                        autostart_attempt_id=claim['attempt_id'])
+    state.ledger.intent(session_id='pending', intent_key='pending:1', token_id='111',
+                        condition_id='c', size='20', price='.4', fee_rate_bps='0')
+    state.ledger.ack('pending:1', 'known-order')
     state.latch(claim['attempt_id'], 'clock_or_resume_uncertain', clock.now())
     runtime.saved_result = lambda _: {'unknown_submit': False}
     def postcheck(*args): raise TransientPrecheck('read delayed')

@@ -45,6 +45,10 @@ class CampaignCoordinator:
 
     def pending(self):
         """Postcheck ticks return here; they cannot fall through to another live entry."""
+        from weather.market.lfc_campaign_recovery import recover_empty
+        for claim in recover_empty(self.state, self.clock.now()):
+            self.status('MISSED', claim['attempt_id'], reason='claim_no_intents', orders_open_unproven=False,
+                        research_gaps=True)
         pending = self.state.pending()
         if not pending:
             return False
@@ -91,6 +95,10 @@ class CampaignCoordinator:
 
     def tick(self, load_policy):
         try:
+            from weather.market.lfc_campaign_recovery import recover_empty
+            for claim in recover_empty(self.state, self.clock.now()):
+                self.status('MISSED', claim['attempt_id'], reason='claim_no_intents', orders_open_unproven=False,
+                            research_gaps=True)
             self.state.verify()
         except StateRefused:
             self.status('INCIDENT', incident=True, postchecks_pending=True)
@@ -167,14 +175,23 @@ class CampaignCoordinator:
                         return 'DEFERRED'
                     claim = self.state.claim(entry, policy, self.clock.now(), prepared=prepared)
                     self.status('RUNNING', claim['attempt_id'])
+                    result = None
                     try:
                         result = self.runtime.run_session(claim, entry, policy, prepared)
-                        self.runtime.save_result(claim, result)
+                        if not any(r['attempt_id'] == claim['attempt_id'] for r in self.state.ledger.autostart_results):
+                            self.runtime.save_result(claim, result)
                         if result.get('unknown_submit') is not False:
                             self.state.latch(claim['attempt_id'], 'ambiguous_placement', self.clock.now())
                         self.pending()
                     except BaseException:
-                        self.state.latch(claim['attempt_id'], 'claimed_attempt_interrupted', self.clock.now())
+                        from weather.market.lfc_campaign_recovery import failure_result, attempt_intents
+                        if not any(r['attempt_id'] == claim['attempt_id'] for r in self.state.ledger.autostart_results):
+                            self.runtime.save_result(claim, result or failure_result(self.state.ledger, claim, 'postclaim_failure'))
+                        if not attempt_intents(self.state.ledger, claim['attempt_id']):
+                            self.pending()
+                            return 'FAILED_NO_ORDERS'
+                        if self.state.ledger.unacknowledged_intents():
+                            self.state.latch(claim['attempt_id'], 'claimed_attempt_interrupted', self.clock.now())
                         self.status('INCIDENT', claim['attempt_id'], incident=True, postchecks_pending=True)
                         raise
                     return 'STARTED'

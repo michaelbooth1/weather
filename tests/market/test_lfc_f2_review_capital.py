@@ -39,7 +39,7 @@ def test_unknown_legacy_cash_refuses_underfunded_bridge_and_replay(tmp_path, kin
     install(ledger, cash='200')
     restored = CapitalBook(ledger)
     assert not restored.unknown and restored.bridge
-    assert restored.figures()['funding_native'] == (190_000_000 if kind == 'REDEEM' else 212_000_000)
+    assert restored.figures()['funding_native'] == (190_000_000 if kind == 'REDEEM' else 210_000_000)
     restored.gate(reserve='1', available_cash='200')
 
 
@@ -212,9 +212,12 @@ def test_real_synchronize_refuses_unknown_legacy_payout_under_300_then_reconcile
     read['positions'] = [{'asset': '101', 'size': '20'}]
     read['balances'] = {'available_collateral': '200', 'assets': {ASSET: '200'},
                         'collateral_evidence': {'balance': '200000000'}}
-    with pytest.raises(CapitalRefused, match='capital_bridge_unknown_cash'):
-        synchronize(ledger, baseline, read)
-    assert CapitalBook(ledger).bridge is None and ledger.L() == 10
+    # B046 A6: the bounded incoming label is held outside principal. Unknown
+    # outgoing cash and incoming cash without a label still refuse separately.
+    quarantined = synchronize(ledger, baseline, read)
+    assert quarantined['funding_native'] == 190_000_000
+    assert quarantined['returned_principal_native'] == 0 and quarantined['unknown_payouts']
+    assert ledger.L() == 10
     read['capital_activity']['native_receipts'][TX] = position_proof
     read['positions'] = []
     result = synchronize(ledger, baseline, read)

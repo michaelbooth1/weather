@@ -34,6 +34,12 @@ def native(value, *, ceil=False):
     return int(scaled)
 
 
+def label_native(value, *, quarantine=False):
+    """A label is a quarantine estimate, never proof of native cash income."""
+    scaled = quantity(value) * SCALE
+    return int(scaled.to_integral_value(rounding=ROUND_CEILING)) if quarantine else int(scaled)
+
+
 def pusd(value):
     return str(Decimal(value) / SCALE)
 
@@ -71,6 +77,7 @@ class CapitalBook:
         self.removal_events = []
         self.redeemed_transactions = {}
         self.unknown = []
+        self.incoming_quarantines = {}
         self.allocations = []
         self.zero_resolutions = []
         self.activities, self.sources, self.activity_sequences, self.redemptions = {}, {}, {}, {}
@@ -112,7 +119,7 @@ class CapitalBook:
         elif event == 'capital_bridge':
             if self.bridge is not None:
                 raise CapitalRefused('capital_bridge_already_exists')
-            if self.unknown != []:
+            if self.blocking_unknown():
                 raise CapitalRefused('capital_bridge_unknown_cash')
             if (row.get('mode') != MODE or row.get('asset') != ASSET or row.get('decimals') != DECIMALS or
                     integer(row['funding_native']) > CEILING or row['funding_native'] == 0 or
@@ -165,7 +172,7 @@ class CapitalBook:
             included = self.cash_before_bridge(activity)
             if (included and cash is not None and self.incoming(activity) and kind != 'DEPOSIT' and
                     not self.known_redemption_cash(activity)):
-                self.reclassify_legacy_credit(cash)
+                self.reclassify_legacy_credit(max(0, cash - self.quarantine_for(activity)))
             if kind == 'REDEEM':
                 self.redeem(activity, row['sequence'])
             elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
@@ -198,6 +205,12 @@ class CapitalBook:
                     self.withdraw(cash, activity, counted=not included)
             else:
                 raise CapitalRefused('capital_activity_type')
+            if cash is None and self.incoming(activity) and row['source'].get('usdc_size') is not None:
+                held = label_native(row['source']['usdc_size'], quarantine=True)
+                if included:
+                    self.reclassify_legacy_credit(held)
+                grant = self.credit('external', held, activity)
+                self.incoming_quarantines[key] = {'amount': held, 'grant': grant}
         elif event == 'capital_resolution':
             evidence = row.get('native_evidence', self.native_groups.get(row.get('native_group_sha256')))
             if self.ledger.enrollment is not None and evidence is None:
@@ -213,6 +226,11 @@ class CapitalBook:
                     {k: v for k, v in old.items() if k not in {'cash_native', 'native_redemption', 'principal_unproved'}}):
                 raise CapitalRefused('capital_resolution_scope')
             cash, kind = item['cash_native'], item['type']
+            previously_held = self.quarantine_for(item)
+            quarantine = self.incoming_quarantines.pop(item['id'], None)
+            if quarantine is not None:
+                self.pool_movements.remove(quarantine['grant'])
+                self.pools_dirty = True
             before_bridge = self.bridge is not None and (self.activity_sequences[item['id']] < self.bridge['sequence'] or
                                                         self.cash_before_bridge(item))
             if (before_bridge and old['cash_native'] is None and self.incoming(item) and kind != 'DEPOSIT' and
@@ -220,7 +238,7 @@ class CapitalBook:
                 # The first balance already contains this previously unknown
                 # incoming credit. Reclassify its quarantined cash; never add
                 # the same receipt to the bridge a second time.
-                self.reclassify_legacy_credit(cash)
+                self.reclassify_legacy_credit(max(0, cash - previously_held))
             if kind == 'REDEEM':
                 self.undo_redemption(old)
                 self.redeem(item, row['sequence'])
@@ -296,6 +314,13 @@ class CapitalBook:
         return (enrollment is not None and activity['timestamp'] >= utc(enrollment['recorded_at_utc']).timestamp() or
                 self.bridge is not None and not self.cash_before_bridge(activity))
 
+    def quarantine_for(self, activity):
+        if activity.get('native_redemption') is not None:
+            tx = self.activity_transactions[activity['id']]
+            return sum(q['amount'] for key, q in self.incoming_quarantines.items()
+                       if self.activity_transactions[key] == tx and self.activities[key]['type'] == 'REDEEM')
+        return self.incoming_quarantines.get(activity['id'], {}).get('amount', 0)
+
     def reclassify_legacy_credit(self, cash):
         # Consume ONLY quarantine originating at the bridge, never a later
         # deposit. Otherwise a top-up could replace misclassified principal.
@@ -317,7 +342,8 @@ class CapitalBook:
 
     def withdraw(self, cash, activity, *, counted=True):
         self.pool_movements.append({'kind': 'withdraw', 'amount': cash, 'timestamp': activity['timestamp'],
-                                    'sequence': self.activity_sequences[activity['id']]})
+                                    'sequence': self.activity_sequences[activity['id']],
+                                    'charge_excess': self.bridge is not None and not self.cash_before_bridge(activity)})
         self.pools_dirty = True
         if counted:
             self.cash_out += cash
@@ -340,7 +366,8 @@ class CapitalBook:
                 taken = min(remaining, pools[pool])
                 pools[pool] -= taken
                 remaining -= taken
-            costs += remaining
+            if move.get('charge_excess', True):
+                costs += remaining
         self.costs += costs - self.withdrawal_costs
         self.withdrawal_costs = costs
         self.external, self.profit, self.incentives = (pools[k] for k in ('external', 'profit', 'incentives'))
@@ -348,6 +375,7 @@ class CapitalBook:
 
     def undo_redemption(self, activity):
         key = activity['id']
+        self.incoming_quarantines.pop(key, None)
         redemption = self.redemptions.pop(key)
         self.losses -= redemption['cost_basis_released_native'] - redemption['returned_principal_native']
         self.returned_principal -= redemption['returned_principal_native']
@@ -477,19 +505,20 @@ class CapitalBook:
                 'segregated_external_cash_native': self.external, 'charged_native': charged,
                 'headroom_native': max(0, funding - charged), 'returned_principal_native': self.returned_principal,
                 'unknown_payouts': list(self.unknown), 'cost_basis_releases': list(self.allocations),
+                'quarantined_unknown_incoming_native': sum(q['amount'] for q in self.incoming_quarantines.values()),
                 'zero_payout_losses': list(self.zero_resolutions),
                 'redemptions': list(self.redemptions.values())}
 
-    def gate(self, *, reserve, available_cash=None, own_resting=0):
+    def gate(self, *, reserve, available_cash=None, own_resting=0, owner_fault_review=False):
         if self.bridge is None:
             raise CapitalRefused('capital_bridge_required')
-        if self.ledger.halted or self.ledger.mismatches:
+        if (self.ledger.halted or self.ledger.mismatches) and not owner_fault_review:
             raise CapitalRefused('capital_ledger_halted')
         if any(self.activities[key]['type'] == 'WITHDRAWAL' or
                self.activities[key]['type'] == 'TIP' and self.activities[key].get('direction') != 'IN'
                for key in self.unknown):
             raise CapitalRefused('capital_unknown_outgoing_cost')
-        if any(self.cash_before_bridge(self.activities[key]) for key in self.unknown):
+        if any(self.cash_before_bridge(self.activities[key]) for key in self.blocking_unknown()):
             raise CapitalRefused('capital_legacy_unknown_cash')
         reserve, own = native(reserve, ceil=True), native(own_resting)
         figures = self.figures()
@@ -506,12 +535,22 @@ class CapitalBook:
                 raise CapitalRefused('capital_cash_changed')
             # Unrecorded incoming profit/top-ups never become spendable merely
             # because the wallet balance increased during an active session.
-            cash = min(cash, expected)
+            cash = min(cash, expected + self.quarantined_after_bridge())
             segregated = self.profit + self.incentives + self.external
             # A reserve includes own still-resting legs exactly once.
             if cash - segregated < figures['resting_reserve_native'] - own + reserve:
                 raise CapitalRefused('capital_spendable_cash')
         return figures
+
+    def blocking_unknown(self):
+        return [key for key in self.unknown if key not in self.incoming_quarantines]
+
+    def quarantined_after_bridge(self):
+        if self.bridge is None:
+            return 0
+        return sum(q['amount'] for key, q in self.incoming_quarantines.items()
+                   if self.activity_sequences[key] > self.bridge['sequence'] and
+                   not self.cash_before_bridge(self.activities[key]))
 
     def expected_cash(self):
         if self.bridge is None:
@@ -580,7 +619,7 @@ def normalize_activity(row, native_evidence=None):
     if row['type'] == 'TIP' and row.get('side') not in ('IN', 'OUT'):
         raise CapitalRefused('capital_tip_direction')
     if native_evidence is None:
-        cash = None if row['usdc_size'] is None else native(row['usdc_size'])
+        cash = None if row['usdc_size'] is None else label_native(row['usdc_size'])
     else:
         from weather.market.lfc_capital_native import cash_native
         cash = cash_native(row, native_evidence)
@@ -611,7 +650,7 @@ def bridge(ledger, *, funding, cash, proof):
     if proof.get('complete') is not True or ledger.unresolved_legs() or ledger.open_sessions():
         raise CapitalRefused('capital_bridge_unreconciled')
     book = CapitalBook(ledger)
-    if book.unknown:
+    if book.blocking_unknown():
         raise CapitalRefused('capital_bridge_unknown_cash')
     charged = book.figures()['charged_native']
     ceiling = native(funding)

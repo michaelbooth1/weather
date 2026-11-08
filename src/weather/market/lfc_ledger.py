@@ -58,7 +58,8 @@ POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filte
                      'sort_direction': 'DESC'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
            'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result', 'autostart_freeze',
-           'owner_history_recovery', 'capital_anchor', 'capital_bridge', 'capital_native_group',
+           'owner_history_recovery', 'autostart_no_intent_close', 'autostart_owner_close',
+           'autostart_owner_artifact_restored', 'capital_anchor', 'capital_bridge', 'capital_native_group',
            'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution'}
 
 
@@ -213,6 +214,26 @@ class Ledger:
                     not isinstance(row.get('file_sha256'), str) or
                     any(r['event'] == event and r['sequence'] < row['sequence'] for r in self.rows)):
                 raise LedgerUnavailable('ledger_freeze_scope')
+        elif event == 'autostart_owner_close':
+            proof = row.get('proof', {})
+            if (self.enrollment is None or self.unresolved_legs() or self.unacknowledged_intents() or
+                    row.get('proof_sha256') != digest(proof) or proof.get('unknown_submit') is not False or
+                    proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
+                    any(r['event'] == event and r.get('incident_id') == row.get('incident_id') and
+                        r['sequence'] < row['sequence'] for r in self.rows)):
+                raise LedgerUnavailable('ledger_owner_close_unproved')
+            self.halted, self.mismatches = False, []
+        elif event == 'autostart_owner_artifact_restored':
+            if (not isinstance(row.get('artifact'), str) or not isinstance(row.get('file_sha256'), str) or
+                    not any(r['event'] == 'autostart_owner_close' and r.get('file_sha256') == row.get('closure_sha256') and
+                            r['sequence'] < row['sequence'] for r in self.rows)):
+                raise LedgerUnavailable('ledger_owner_restore_scope')
+        elif event == 'autostart_no_intent_close':
+            from weather.market.lfc_campaign_recovery import attempt_intents
+            if (self.enrollment is None or not any(r['attempt_id'] == row['attempt_id'] for r in self.autostart_claims) or
+                    attempt_intents(self, row['attempt_id']) or not isinstance(row.get('file_sha256'), str) or
+                    any(r['event'] == event and r['attempt_id'] == row['attempt_id'] and r['sequence'] < row['sequence'] for r in self.rows)):
+                raise LedgerUnavailable('ledger_no_intent_close_scope')
         elif event in ('autostart_claim', 'autostart_incident', 'autostart_result'):
             if self.enrollment is None:
                 raise LedgerUnavailable('ledger_not_enrolled')
@@ -228,6 +249,9 @@ class Ledger:
         elif event == 'baseline':
             self.baselines.append(row)
         elif event == 'session_start':
+            if any(r['event'] == 'autostart_no_intent_close' and r['attempt_id'] == row.get('autostart_attempt_id') and
+                   r['sequence'] < row['sequence'] for r in self.rows):
+                raise LedgerUnavailable('ledger_attempt_already_closed')
             if row['session_id'] in self.sessions:
                 raise LedgerUnavailable('ledger_session_repeated')
             self.sessions[row['session_id']] = {'start': row, 'end': None, 'legs': []}

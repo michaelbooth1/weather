@@ -213,9 +213,10 @@ def test_synthetic_trigger_pre_go_session_postchecks_and_control_status(tmp_path
         assert clock.value == NOW + timedelta(seconds=15)
         assert not state.pending() and not state.incidents()
         rows = [strict_json(path.read_bytes()) for path in (tmp_path / 'control').glob('*.json')]
-        assert {'DEFERRED', 'RUNNING', 'COMPLETE'} <= {r['phase'] for r in rows}
+        assert {'DEFERRED', 'RUNNING', 'MISSED'} <= {r['phase'] for r in rows}
         assert all(not {'tokens', 'event', 'fills', 'price', 'account'} & r.keys() for r in rows)
-        assert next(r for r in rows if r['phase'] == 'COMPLETE')['research_gaps'] is True
+        missed = next(r for r in rows if r['phase'] == 'MISSED')
+        assert missed['research_gaps'] is True and missed['orders_open_unproven'] is False
         assert coordinator.tick(lambda: parse_policy(policy_row())) == 'IDLE'
         assert runtime.go_count == 1
 
@@ -225,6 +226,14 @@ def test_crash_latch_survives_reboot_reinstall_and_campaign_rename(tmp_path):
     with account_lease(MAKER, backend=Mutexes()):
         state = state_at(tmp_path, clock)
         runtime = StubRuntime(state, clock, crash=True)
+        original_run = runtime.run_session
+        def placement_then_crash(claim, entry, policy, prepared):
+            state.ledger.record('session_start', session_id='lost-ack', counted=True,
+                                autostart_attempt_id=claim['attempt_id'])
+            state.ledger.intent(session_id='lost-ack', intent_key='lost-ack:1', token_id='111',
+                                condition_id='c', size='20', price='.4', fee_rate_bps='0')
+            return original_run(claim, entry, policy, prepared)
+        runtime.run_session = placement_then_crash
         coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
         with pytest.raises(RuntimeError, match='power_loss'):
             coordinator.tick(lambda: parse_policy(policy_row()))
@@ -408,19 +417,24 @@ def test_b021_policy_labels_and_economic_revision_are_immutable_per_claim(tmp_pa
         assert state.claim(third.entries[0], third, clock.now())['policy_revision'] == 2
 
 
-def test_pending_money_postchecks_ignore_missing_current_policy_and_never_fall_through(tmp_path):
-    clock = Clock()
+def test_pending_money_postchecks_ignore_missing_current_policy_and_never_fall_through(tmp_path, monkeypatch):
+    from tests.market.test_lfc_campaign_runtime import runtime_at
+    from tests.market.test_lfc_campaign_recurrence import configure_runtime
+    from tests.market.lfc_campaign_fixtures import private_result
     with account_lease(MAKER, backend=Mutexes()):
-        state = state_at(tmp_path, clock)
+        runtime = runtime_at(tmp_path)
+        state, clock = runtime.state, runtime.clock
+        configure_runtime(runtime, monkeypatch)
         policy = parse_policy(policy_row())
         claim = state.claim(policy.entries[0], policy, NOW)
-        runtime = StubRuntime(state, clock)
-        runtime.save_result(claim, {'unknown_submit': False, 'evidence_complete': False})
+        _, result = private_result(runtime, claim)
+        runtime.save_result(claim, result)
+        monkeypatch.setattr(runtime, 'run_session', lambda *a: pytest.fail('pending proof cannot start a session'))
         coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
         def missing_policy():
             raise FileNotFoundError('synthetic current config missing')
         assert coordinator.tick(missing_policy) == 'POSTCHECKS'
-        assert runtime.go_count == 0 and not state.pending()
+        assert not state.pending()
 
 
 def test_partial_ledger_rollback_is_detected_by_closeout_anchor(tmp_path):

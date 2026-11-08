@@ -193,7 +193,7 @@ def cash_native(source, proof):
     unknown and its full basis stays charged. A lone outgoing row conservatively
     charges the transaction's entire native debit.
     """
-    from weather.market.lfc_capital import ASSET, native
+    from weather.market.lfc_capital import ASSET, label_native
     if (proof.get('rows_sha256') != digest(proof['rows']) or source not in proof['rows'] or
             str(source['transaction_hash']).lower() != proof['transaction_hash']):
         raise ValueError('capital_native_row_scope')
@@ -263,7 +263,7 @@ def cash_native(source, proof):
     if any(row.get('usdc_size') is None for row in rows):
         return None
     try:
-        amounts = [native(row['usdc_size']) for row in rows]
+        amounts = [label_native(row['usdc_size']) for row in rows]
     except ValueError:
         return None
-    return native(source['usdc_size']) if sum(amounts) == total[side] else None
+    return label_native(source['usdc_size']) if sum(amounts) == total[side] else None

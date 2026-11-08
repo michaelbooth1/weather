@@ -32,6 +32,9 @@ def verify(state):
         return row
     except (OSError, ValueError, KeyError, TypeError, RuntimeError):
         from weather.market.lfc_campaign_state import StateRefused
+        from weather.market.lfc_campaign_owner_close import binding
+        if binding(state, 'campaign-freeze') is not None:
+            return None  # Owner accepted evidence loss; never a confirmation PASS.
         state.evidence_fault('campaign-freeze', artifact='policies/freeze.json')
         raise StateRefused('freeze_evidence_fault') from None
 

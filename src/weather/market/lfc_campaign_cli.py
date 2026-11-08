@@ -34,7 +34,7 @@ def parser():
     history = commands.add_parser('owner-recover-history', help='owner-only explicit pre-enrollment money recovery')
     history.add_argument('--head', required=True)
     history.add_argument('--session', required=True)
-    for command in ('check', 'tick', 'owner-recover', 'owner-clear-workload', 'final-look'):
+    for command in ('check', 'tick', 'owner-recover', 'owner-close', 'owner-clear-workload', 'final-look'):
         item = commands.add_parser(command)
         item.add_argument('--release', required=True)
         item.add_argument('--release-sha256', required=True)
@@ -42,19 +42,19 @@ def parser():
             item.add_argument('--output', type=Path, required=True)
         if command == 'check':
             item.add_argument('--require-enabled', action='store_true')
-        if command == 'owner-recover':
+        if command in ('owner-recover', 'owner-close'):
             item.add_argument('--incident', required=True)
     return result
 
 
-def bound_state(release, clock):
+def bound_state(release, clock, *, owner_fault_review=False):
     root = pilot_root()
     ledger = Ledger.open(validate_regular_nonreparse_file(ledger_path(root)), clock=clock.now,
                          maker_address=release['maker_address'])
     if ledger.row_sha256(0) != release['ledger_genesis_sha256']:
         raise StateRefused('ledger_genesis_changed')
     state = AccountState(DEFAULT_STATE_ROOT, ledger)
-    if state.verify()['state_id'] != release['state_id']:
+    if state.verify(owner_fault_review=owner_fault_review)['state_id'] != release['state_id']:
         raise StateRefused('account_state_changed')
     return root, state
 
@@ -203,7 +203,12 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         from weather.market.lfc_campaign_runtime import CampaignClock, Runtime
         clock = CampaignClock()
         with account_lease(release['maker_address']):
-            root, state = bound_state(release, clock)
+            if args.command == 'owner-close':
+                if not sys.stdin.isatty():
+                    raise StateRefused('owner_terminal_required')
+                root, state = bound_state(release, clock, owner_fault_review=True)
+            else:
+                root, state = bound_state(release, clock)
             load = lambda: load_policy(release['campaign_path'])
             if args.command == 'final-look':
                 from weather.market.lfc_f2_final import write_final
@@ -229,15 +234,21 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                               task_enabled=lambda: task_enabled(release, args.release, args.release_sha256))
             if args.command == 'owner-recover':
                 return owner_recover(runtime, args.incident)
+            if args.command == 'owner-close':
+                from weather.market.lfc_campaign_owner_close import owner_close
+                return owner_close(runtime, args.incident)
             if args.command == 'owner-clear-workload':
                 from weather.market.lfc_campaign_guard import ExclusiveWorkload
-                from weather.market.lfc_campaign_workload import owner_release_workload_after_reboot
+                from weather.market.lfc_campaign_workload import owner_release_hold_only, owner_release_workload_after_reboot
                 path = ExclusiveWorkload(state.maker).poison_root / 'heavy_workload_v1.poison'
-                owner_release_workload_after_reboot(path=path, expected_sha=file_sha(path),
-                                         state_id=state.verify()['state_id'], maker=state.maker)
+                if path.exists():
+                    owner_release_workload_after_reboot(path=path, expected_sha=file_sha(path),
+                                             state_id=state.verify()['state_id'], maker=state.maker)
+                else:
+                    owner_release_hold_only(path=runtime.hold_path, expected_sha=file_sha(runtime.hold_path))
                 return 0
             result = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=CONTROL_ROOT).tick(load)
-            return 1 if result in {'INCIDENT', 'REFUSED'} or state.incidents() else 0
+            return 1 if result in {'INCIDENT', 'REFUSED', 'FAILED_NO_ORDERS'} or state.incidents() else 0
     except AdmissionBusy as exc:
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')

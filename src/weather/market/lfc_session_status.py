@@ -49,6 +49,7 @@ class SessionStatus:
         self.related_session_ids = []
         self.last_tick, self.finished, self.stop_seen = None, False, False
         self.session, self.selection, self.evidence_directory, self.ledger = None, {}, None, None
+        self.phase, self.progress_hook, self.resync_hook = 'SETUP', None, None
         self.open_rows, self.reason, self.failed = None, None, False
         self.checkpoint_hook = checkpoint_hook
         self.policy_metadata = ({} if policy_metadata is None else
@@ -60,6 +61,11 @@ class SessionStatus:
             return self.clock().isoformat()
         except Exception:
             return now().isoformat()
+
+    def progress(self):
+        """Liveness only: bounded setup/cleanup must not run raising go gates."""
+        if self.progress_hook is not None:
+            self.progress_hook()
 
     def bind(self, session_id, *, directory, selection, ledger=None):
         if not public_id(session_id):

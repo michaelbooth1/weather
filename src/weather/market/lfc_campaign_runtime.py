@@ -135,6 +135,22 @@ class ScheduledAuthority:
                          account_read_age(self.prepared['account_read'], now) > 120):
             raise RuntimeError('go_window_or_freshness_expired')
 
+    def resync(self):
+        """A bounded band cleanup is progress, not a stalled quote loop.
+
+        Keep drift detection; leave a bad clock unchanged for normal cleanup.
+        This hook cannot raise while cancellation is finishing.
+        """
+        try:
+            now, mono = self.runtime.clock.now(), self.runtime.clock.monotonic()
+            elapsed = mono - self.last_mono
+            if elapsed < 0 or abs((now - self.last_wall).total_seconds() - elapsed) > 2:
+                return False
+            self.last_wall, self.last_mono = now, mono
+            return True
+        except Exception:
+            return False
+
     @contextmanager
     def owned_admission(self):
         self.check(starting=True)
@@ -233,6 +249,15 @@ class Runtime:
         from weather.market.lfc_campaign_visibility import notify_control
         return notify_control(self, row)
 
+    def write_emergency_result(self, claim):
+        # The watcher never writes the money ledger or claims absence of an
+        # intent. A hard-exit receipt is explicitly incomplete and create-only.
+        target = self.state.root / 'emergency' / (claim['attempt_id'] + '.json')
+        if not target.exists():
+            write_new(target, {'schema_version': 'lfc_emergency_result_v0.1', 'attempt_id': claim['attempt_id'],
+                'state': 'INTERRUPTED', 'reason': 'session_stalled', 'unknown_submit': True,
+                'evidence_complete': False, 'inventory_proven': False, 'at_utc': self.clock.now().isoformat()})
+
     def confirm_funding(self):
         """Owner pre-enable enrollment read; no session/date/order capability."""
         with self.admission():
@@ -261,7 +286,7 @@ class Runtime:
     def reload_ledger(self):
         self.state.ledger = Ledger.open(ledger_path(self.pilot_root), clock=self.clock.now, maker_address=self.state.maker)
         self.state.policy_binding = self.state.policy_binding
-        self.state.verify()
+        self.state.verify(owner_fault_review=getattr(self, 'owner_fault_review', False))
         return self.state.ledger
 
     @contextmanager
@@ -270,7 +295,8 @@ class Runtime:
             raise AdmissionBusy('hold_already_owned')
         with ExclusiveWorkload(self.state.maker) as lease:
             from weather.market.lfc_campaign_workload import WorkloadMarker
-            marker = WorkloadMarker(poison_root=lease.poison_root, state_id=self.state.verify()['state_id'],
+            marker = WorkloadMarker(poison_root=lease.poison_root, state_id=self.state.verify(
+                                    owner_fault_review=getattr(self, 'owner_fault_review', False))['state_id'],
                                     maker=self.state.maker, policy_metadata=self.state.policy_binding)
             hold = OwnedHold(self.hold_path, policy_metadata=self.state.policy_binding)
             hold.acquire()
@@ -380,7 +406,7 @@ class Runtime:
             raise StateRefused('original_baseline_hash')
         return strict_json(read_bytes(path, 2_000_000))
 
-    def core_proof(self, ledger, read):
+    def validate_account_read(self, ledger, read):
         if (read.get('schema_version') != 'lfc_campaign_account_read_v0.1' or read.get('complete') is not True or
                 read.get('maker_address', '').lower() != self.state.maker.lower() or
                 read.get('since') != str(int(datetime.fromisoformat(ledger.rows[0]['recorded_at_utc']).timestamp())) or
@@ -391,6 +417,9 @@ class Runtime:
                 not 0 <= (self.clock.now() - datetime.fromisoformat(read['ended_at_utc'])).total_seconds() <= 120 or
                 not datetime.fromisoformat(read['started_at_utc']) <= datetime.fromisoformat(read['ended_at_utc'])):
             raise StateRefused('account_read_binding')
+
+    def core_proof(self, ledger, read):
+        self.validate_account_read(ledger, read)
         traded = traded_shares(read['trades'], ledger.our_order_ids())
         if account_read_age(read, self.clock.now()) > 120:
             raise TransientPrecheck('account_read_stale')
@@ -407,7 +436,8 @@ class Runtime:
             from weather.market.lfc_capital import CapitalRefused
             from weather.market.lfc_capital_consistency import observe, REASONS
             try:
-                capital = synchronize(ledger, self.original_baseline(ledger), read)
+                capital = synchronize(ledger, self.original_baseline(ledger), read,
+                    **({'owner_fault_review': True} if getattr(self, 'owner_fault_review', False) else {}))
             except CapitalRefused as exc:
                 if str(exc) not in REASONS:
                     raise
@@ -582,13 +612,14 @@ class Runtime:
         # it. Tests inject a temporary status/STOP surface before any checkpoint.
         previous = {}
         progress = [time.monotonic()]
+        status.progress_hook = lambda: progress.__setitem__(0, time.monotonic())
         stop_watcher = threading.Event()
         def watch_owner_stop():
             # Observation only. The coordinator's normal checkpoint/cleanup is
             # the sole cancellation path; this thread never touches the venue.
             while not stop_watcher.wait(1):
                 from weather.market.lfc_campaign_visibility import stalled
-                stalled(self, claim, last_progress=progress[0], now_mono=time.monotonic())
+                stalled(self, claim, last_progress=progress[0], now_mono=time.monotonic(), phase=status.phase)
                 try:
                     status.owner_stop()
                 except OSError:
@@ -599,6 +630,7 @@ class Runtime:
         code = 1
         try:
             authority = ScheduledAuthority(self, claim, entry, policy, prepared)
+            status.resync_hook = authority.resync
             def progress_check():
                 authority.check()
                 progress[0] = time.monotonic()
@@ -633,16 +665,34 @@ class Runtime:
                 watcher.join(timeout=2)
             for number, handler in previous.items():
                 signal.signal(number, handler)
-            outcome = status.finish(success=code == 0)
-            unproven = outcome.get('cancellation_proven') is not True or outcome.get('orders_open_at_exit') != []
-            phase = 'INCIDENT' if outcome.get('unknown_submit') is not False else 'POSTCHECK_PENDING'
-            self.notify_control(control_record(self.control_root, claim['attempt_id'], phase=phase, now=self.clock.now(),
-                incident=phase == 'INCIDENT', postchecks_pending=True, orders_open_unproven=unproven,
-                reason='account_incident' if phase == 'INCIDENT' else 'postcheck_pending',
-                policy_metadata=claim_labels(policy, claim, entry)))
-            if self.sidecar is not None:
-                if not self.sidecar.stop():
+            status.phase = 'FINALIZE'
+            try:
+                outcome = status.finish(success=code == 0)
+            except BaseException:
+                from weather.market.lfc_campaign_recovery import failure_result
+                outcome = failure_result(self.state.ledger, claim, 'status_persistence_failed')['outcome']
+            try:
+                if self.sidecar is not None and not self.sidecar.stop():
                     self.state.latch(claim['attempt_id'], 'sidecar_teardown_unproved', self.clock.now())
+            finally:
+                try:
+                    result = self.session_result(claim, status, outcome, code)
+                except BaseException:
+                    from weather.market.lfc_campaign_recovery import failure_result
+                    result = failure_result(self.state.ledger, claim, 'postclaim_result_incomplete')
+                    result['outcome'] = outcome
+                if not any(row['attempt_id'] == claim['attempt_id'] for row in self.state.ledger.autostart_results):
+                    self.save_result(claim, result)
+            unproven = outcome.get('cancellation_proven') is not True or outcome.get('orders_open_at_exit') != []
+            incident = bool(self.state.incidents()) or outcome.get('unknown_submit') is not False
+            phase = 'INCIDENT' if incident else 'POSTCHECK_PENDING'
+            self.notify_control(control_record(self.control_root, claim['attempt_id'], phase=phase, now=self.clock.now(),
+                incident=incident, postchecks_pending=True, orders_open_unproven=unproven,
+                reason='account_incident' if incident else 'postcheck_pending',
+                policy_metadata=claim_labels(policy, claim, entry)))
+        return result
+
+    def session_result(self, claim, status, outcome, code):
         session = status.session
         self.reload_ledger()
         from weather.market.lfc_campaign_proof import local_money_proof
