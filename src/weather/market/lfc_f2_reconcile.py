@@ -68,7 +68,16 @@ def prove(runtime, band, read):
     validate_live(ledger, read, attempt=band.venue.coordinator.attempt_id, now=runtime.clock.now())
     from weather.market.lfc_f2_repost import private_fill_proof
     for peer in band.venue.coordinator.bands:
-        private_fill_proof(peer, require_terminal=peer is band)
+        try:
+            private_fill_proof(peer, require_terminal=peer is band)
+        except Exception as exc:
+            if peer is band:
+                raise
+            # A peer packet can lag its terminal ledger write. This grants no
+            # placement: the filled band waits for a fresh complete proof.
+            band.journal.record('repost_peer_proof_pending', peer_session_id=peer.session_id,
+                                exception_type=type(exc).__name__)
+            raise TransientPrecheck('repost_peer_private_unproven') from exc
     from weather.market.lfc_capital_reads import synchronize
     capital = synchronize(ledger, runtime.original_baseline(ledger), read,
                           live_proof={'attempt_id': band.venue.coordinator.attempt_id})

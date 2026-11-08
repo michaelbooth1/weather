@@ -197,6 +197,14 @@ class F2Band(PilotSession):
         self._retain('f2_band_cleanup_scope', session_id=self.session_id, account_wide=False)
         return True
 
+    def cancel_terminal_row(self, oid, row):
+        row = super().cancel_terminal_row(oid, row)
+        if self.breadth:
+            # Requotes and final cleanup retain the same terminal-order proof.
+            # Legacy protocol journals keep their original shape.
+            self.journal.record('terminal_order', order=row, source='requote_cancel_read')
+        return row
+
     def progress(self):
         status = getattr(self, 'outcome_status', None)
         try:

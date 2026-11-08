@@ -227,6 +227,8 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             band.proven_trade_ids = set(proof['proven_trade_ids'])
             band.journal.record('repost_inventory_proven', read_sha256=proof['read_sha256'],
                                 private_proof=private, filled_cap_pusd=band.campaign_policy.raw['per_band_daily_filled_cap_pusd'])
+            band._evidence_faults.discard('repost_inventory_unavailable')
+            band._evidence_failed = bool(band._evidence_faults)
             if proof_time is None:
                 proof_time = band.clock.monotonic()
             cooldown = band.campaign_policy.raw['fill_cooldown_seconds']

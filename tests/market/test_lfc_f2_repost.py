@@ -344,3 +344,42 @@ def test_buffered_trade_missing_from_complete_read_never_reposts(tmp_path):
     assert sent and first.submits == 2
     assert 'unproved-trade' in first.observed_trade_ids
     assert 'repost_inventory_unavailable' in first._evidence_faults
+
+
+def test_peer_requotes_before_first_fill_and_filled_band_still_reposts(tmp_path, monkeypatch):
+    controller, account, status, ledger, clock, runtime, read = fixture(tmp_path, seconds=360)
+    account.next_fill = 90
+    ordinary = account.advance
+    def advance():
+        if clock.seconds >= 40:
+            account.raws[1].memory.public_input['quote_inputs'].update(
+                yes_bids=[{'price': '.35', 'size': '300'}], yes_asks=[{'price': '.37', 'size': '300'}],
+                no_bids=[{'price': '.63', 'size': '300'}], no_asks=[{'price': '.65', 'size': '300'}])
+        ordinary()
+    monkeypatch.setattr(account, 'advance', advance)
+    result = controller.run()
+    first, peer = controller.bands
+    assert peer.requotes > 0 and account.fill_times[0] >= 90
+    assert first.submits > 2, (result, controller.results)
+    assert account.cancel_all_calls == [360]
+    rows = [strict_json(line) for line in peer.journal.path.read_bytes().splitlines()]
+    terminals = {r['order']['id'] for r in rows if r['event'] == 'terminal_order'}
+    assert set(peer.known) <= terminals
+
+
+def test_peer_private_proof_gap_waits_and_retries_without_account_teardown(tmp_path, monkeypatch):
+    from weather.market import lfc_f2_repost
+    controller, account, status, ledger, clock, runtime, read = fixture(tmp_path, seconds=300)
+    peer = controller.bands[1]
+    original = lfc_f2_repost.private_fill_proof
+    refused = []
+    def private(band, **kwargs):
+        if band is peer and not refused:
+            refused.append(clock.seconds)
+            raise ValueError('synthetic_peer_packet_not_yet_readable')
+        return original(band, **kwargs)
+    monkeypatch.setattr(lfc_f2_repost, 'private_fill_proof', private)
+    result = controller.run()
+    assert refused and controller.bands[0].submits > 2
+    assert account.cancel_all_calls == [300]
+    assert result['cleanup_ok'], result

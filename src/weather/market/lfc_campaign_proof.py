@@ -16,7 +16,7 @@ MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable
                    'terminal_trades_unavailable', 'cleanup_open_orders_unavailable',
                    'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable',
                    'f2_account_read_unavailable', 'f2_account_cancel_unavailable', 'f2_account_cleanup_pending',
-                   'repost_inventory_unavailable'}
+                   'repost_inventory_unavailable', 'repost_peer_proof_pending'}
 
 
 def journal_contract(path, prediction, *, legacy=False, owner_review=False, allow_open=False, expected_head=None):
@@ -63,6 +63,11 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 gaps.add('sample_' + row['sample'])
             elif event in MONEY_READ_GAPS:
                 money_gaps.add(event)
+            elif event == 'repost_inventory_proven':
+                # Only this completed live-read phase supersedes these exact
+                # retry gaps. Missing originals/ACKs and N1 faults still fail
+                # their independent bindings; no owner recovery is implied.
+                money_gaps.difference_update({'repost_inventory_unavailable', 'repost_peer_proof_pending'})
             elif event == 'read_unavailable' and isinstance(row.get('fact'), str):
                 money_gaps.add('read_' + row['fact'])
             elif not owner_review and (row.get('exception_type') is not None or event == 'unmatched_trade_event' or
