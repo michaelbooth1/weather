@@ -173,3 +173,11 @@ def test_peer_cash_deferral_cannot_waive_an_already_durable_intent(tmp_path, mon
     assert len(attempts) == 1 and result['unknown_submit'], (attempts, result)
     assert ledger.unacknowledged_intents()
     assert all(raw.memory.orders == {} for raw in account.raws)
+def test_b058_6_cooldown_one_second_is_rejected():
+    from weather.market.lfc_f2_breadth import example_policy
+    from weather.market.lfc_campaign_policy import parse_policy
+    row = example_policy()
+    row['fill_cooldown_seconds'] = 1
+    with pytest.raises((ValueError, RuntimeError)):
+        parse_policy(row)
+

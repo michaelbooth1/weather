@@ -56,7 +56,7 @@ def parse_breadth(row):
         legacy.refuse('unsupported_breadth_quantity')
     if not 0 < cap <= CEILING:
         legacy.refuse('unsupported_per_band_daily_filled_cap_pusd')
-    if type(row['fill_cooldown_seconds']) is not int or not 1 <= row['fill_cooldown_seconds'] <= 3600:
+    if type(row['fill_cooldown_seconds']) is not int or not 60 <= row['fill_cooldown_seconds'] <= 3600:
         legacy.refuse('unsupported_fill_cooldown_seconds')
     offsets = row['learning_quote_offsets_pusd']
     if (not isinstance(offsets, list) or not 1 <= len(offsets) <= 2 or
@@ -151,5 +151,5 @@ def support_table():
             'market_ids': captured_market_ids(), 'one_band_per_city_day': True,
             'band_limits': [1, len(captured_market_ids())], 'concurrent_equals_session': True,
             'on_first_band_fill': [RETIRE, CONTINUE], 'per_band_daily_filled_cap_pusd': {'exclusive_min': '0', 'max': '300'},
-            'fill_cooldown_seconds': [1, 3600], 'learning_quote_offsets_pusd': ['0.015', '0.025'],
+            'fill_cooldown_seconds': [60, 3600], 'learning_quote_offsets_pusd': ['0.015', '0.025'],
             'confirmation_offset_field': 'quote_offset_pusd', 'daily_cap_reserves_prospective_exposure': True}

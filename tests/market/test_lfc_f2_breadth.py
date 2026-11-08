@@ -96,7 +96,7 @@ def test_arms_are_repeatable_only_in_learning_and_confirmation_uses_field(day, l
 
 
 @pytest.mark.parametrize('key,value', [('market_ids', ['austin']), ('band_limit_session', 1),
-    ('per_band_daily_filled_cap_pusd', '20'), ('fill_cooldown_seconds', 1),
+    ('per_band_daily_filled_cap_pusd', '20'), ('fill_cooldown_seconds', 60), ('fill_cooldown_seconds', 3600),
     ('learning_quote_offsets_pusd', ['0.025']), ('on_first_band_fill', CONTINUE)])
 def test_each_new_field_accepts_supported_values(key, value):
     row = example_policy(); row[key] = value
@@ -108,6 +108,7 @@ def test_each_new_field_accepts_supported_values(key, value):
 @pytest.mark.parametrize('key,value', [('market_ids', ['london']), ('band_limit_session', 13),
     ('band_limit_concurrent', 0), ('per_band_daily_filled_cap_pusd', '300.000001'),
     ('per_band_daily_filled_cap_pusd', '0'), ('fill_cooldown_seconds', 0), ('fill_cooldown_seconds', True),
+    ('fill_cooldown_seconds', 1), ('fill_cooldown_seconds', 59), ('fill_cooldown_seconds', 3601),
     ('learning_quote_offsets_pusd', ['0.02']), ('learning_quote_offsets_pusd', []),
     ('on_first_band_fill', 'unproved_repost')])
 def test_each_new_field_refuses_unsupported_values(key, value):
