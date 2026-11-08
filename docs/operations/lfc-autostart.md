@@ -17,7 +17,8 @@ owner-started validation day, or per-policy-edit pregate.
 
 The checked-in [F2 example](../examples/lfc-campaign.example.json) and
 [alternate filename](../examples/campaign.proposed.json) are disabled runtime
-policies. F2's v0.2 rules below govern those files. The separate
+policies. The breadth v0.3 rules below govern those files. The
+[K2 reference](../examples/lfc-campaign.k2-reference.json) preserves v0.2. The separate
 [v0.1 reference](../examples/lfc-campaign.reference.json) retains the original
 one-band contract in the following table; those reference restrictions do not
 override F2. Parsing a file never activates it.
@@ -60,6 +61,32 @@ it is not a promise to place through an outage. Unsupported short durations refu
 at policy parsing and the final preclaim predicate, before any claim or skip is
 written. This reference protocol requires the full duration to fit. F2 explicitly
 shortens a late session at its fixed end instead.
+
+## F2 breadth v0.3 fields
+
+The disabled example uses every captured built-in registry city. A configured
+subset is supported. Selection admits one band per city and excludes the whole
+event when the original inventory baseline holds any of its conditions. Event
+T+1 uses each market's own zone; the session calendar and hard end use Toronto.
+Every placement, requote and resting-order check still enforces local T+1.
+
+| Fields | Enforcement |
+| --- | --- |
+| `market_ids`, `band_limit_session`, `band_limit_concurrent` | Captured built-in cities only; matching concurrent/session limits within that universe. One band per city/day and one account/date claim. No new city replaces an unavailable or retired city within the session. |
+| `on_first_band_fill` | The breadth value cancels the affected band's remaining orders, proves every original intent/ACK and terminal quantity, then reconciles fresh whole-account trades, inventory and native cash before continuation. The v0.2 retirement value remains supported. |
+| `per_band_daily_filled_cap_pusd` | Gross UTC-day filled cost basis plus all same-city resting reserve and proposed new reserve must fit. The single durable intent gate enforces it, including later policy revisions. Redemptions and profits never reduce this gross filled basis. |
+| `fill_cooldown_seconds` | Wait after inventory is first proved, then obtain another fresh proof before quoting. During the wait, other bands, shared heartbeat, STOP and the fixed end continue normally. Unknown ACKs, quantities or statuses never authorize continuation. |
+| `learning_quote_offsets_pusd` | Deterministic SHA-256 of Toronto date and market assigns a band-day arm during the learning dates only. The plan, band receipts, original intent and outcome retain that arm. Retries cannot change it. Prices still round outward to the venue tick. |
+| `quote_offset_pusd` | Single offset from the confirmation freeze onward. The owner/master's field value governs; a later economic edit requires a new revision and is labelled successor learning. Learning arms never restart after the learning window. |
+
+The existing per-order, resting-band and native sleeve caps dominate all these
+fields. Per-band submit/requote limits continue across fill cycles; continuation
+does not reset them. A proof while another band rests is separate from final
+cleanup: only exactly bound LIVE orders with zero matched quantity may remain,
+and final completion still requires an empty account and complete terminal proof.
+Private manifests retain every band packet and original file; missing evidence
+keeps the same occurrence-specific owner recovery rules. The previous schemas
+remain readable, with their original retirement and band-count restrictions.
 
 ## F2 v0.2 fields and admission
 

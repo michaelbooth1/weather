@@ -1,8 +1,9 @@
-"""One cooperative owner process, at most two independent F0-shaped bands.
+"""One cooperative owner process with independent F0-shaped bands.
 
 No thread posts orders. Each band retains its own 10-submit/4-requote budget,
-private journal and durable intents. A fill/horizon retirement cancels that
-band only; any monetary ambiguity, STOP or account fault cleans up the account.
+private journal and durable intents. Band cleanup cancels that band's orders;
+the explicit breadth protocol may continue only after inventory proof and cooldown.
+Any monetary ambiguity, STOP or account fault cleans up the account.
 The final account-wide cancel/verify remains distinct from band cancellation.
 """
 from decimal import Decimal
@@ -48,6 +49,17 @@ class ScopedVenue:
         self.coordinator.validate_account_orders(rows)
         return [row for row in rows if self.coordinator.order_session(row) == self.session_id]
 
+    def events(self):
+        rows = self.raw.events()
+        from weather.market.lfc_f2_breadth import enabled
+        if enabled(self.coordinator.policy):
+            from weather.market.lfc_f2_repost import filtered_events
+            band = next(b for b in self.coordinator.bands if b.session_id == self.session_id)
+            result = filtered_events(band, band.pending_repost_events + rows)
+            band.pending_repost_events, band.pending_repost_bytes = [], 0
+            return result
+        return rows
+
     def cancel_all(self):
         raise RuntimeError('band_has_no_account_cancel_all')
 
@@ -61,13 +73,47 @@ class F2Band(PilotSession):
         self.TRADE_LEGS = tuple(chosen['trade_legs'])
         self.LEG_PRICE_RANGE = tuple(map(quantity, policy.raw['leg_price_range']))
         super().__init__(**kwargs)
-        self.OFFSET = quantity(policy.raw['quote_offset_pusd'])
+        from weather.market.lfc_f2_breadth import enabled
+        self.breadth = enabled(policy)
+        self.OFFSET = quantity(chosen['quote_offset_pusd'] if self.breadth else policy.raw['quote_offset_pusd'])
+        self.repost_waiting = False
+        self.proven_trade_ids, self.observed_trade_ids = set(), set()
+        self.pending_repost_events, self.pending_repost_bytes = [], 0
         self.REQUOTE_WINDOW = tuple(map(quantity, policy.raw['requote_distance_cents']))
         self.SECONDS = self.planned_seconds  # Late entry keeps the absolute end.
         self.cap = quantity(policy.raw['owner_funding_ceiling_pusd'])
         self.scope.update(budget_pusd=str(self.cap), capital_mode=policy.raw['capital_mode'],
                           trade_legs=list(self.TRADE_LEGS), quote_offset_pusd=str(self.OFFSET),
                           requote_distance_cents=list(map(str, self.REQUOTE_WINDOW)))
+        if self.breadth:
+            self.scope.update({key: chosen[key] for key in ('quote_arm', 'arm_date_toronto', 'arm_market_id')})
+            self.scope['market_id'] = chosen['market_id']
+            self.journal.record('quote_arm', **{key: self.scope[key] for key in
+                ('quote_arm', 'arm_date_toronto', 'arm_market_id', 'quote_offset_pusd', 'market_id')})
+
+    def quote_steps(self, *, rehearsal_seconds=None):
+        from weather.market.lfc_f2_repost import continue_quotes
+        yield from continue_quotes(self, super().quote_steps, rehearsal_seconds=rehearsal_seconds)
+
+    def final_reason(self, reason):
+        return reason if self.breadth else super().final_reason(reason)
+
+    def check_fills(self, **kwargs):
+        if not self.repost_waiting:
+            return super().check_fills(**kwargs)
+        # All this band's orders are terminal. Fresh account proof is required
+        # before returning to the ordinary stream/REST checks and submit path.
+        from weather.market.lfc_f2_repost import poll_waiting_stream
+        return poll_waiting_stream(self)
+
+    def refresh_repost_prices(self):
+        from weather.market.re1_attended import replacement_price
+        snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
+        observation = self.observe_snapshot(snapshot)
+        self.minute_extra(snapshot)
+        self.prices = [replacement_price(observation['adjusted_mid'], leg, self.OFFSET) for leg in (0, 1)]
+        self.market_time = self.clock.monotonic()
+        self.journal.record('repost_market_snapshot', snapshot=snapshot, prices=list(map(str, self.prices)))
 
     def validate_table(self, table):
         from weather.market.lfc_f2_selection import validate_table
@@ -84,7 +130,7 @@ class F2Band(PilotSession):
                 self.start <= now <= self.end and self.start.date() == self.end.date())
 
     def session_number_ok(self):
-        return (bool(self.attempt) and self.attempt.get('protocol') == 'lfc_autostart_v2' and
+        return (bool(self.attempt) and self.attempt.get('protocol') == ('lfc_autostart_v3' if self.breadth else 'lfc_autostart_v2') and
                 type(self.attempt.get('session_number')) is int and self.attempt['session_number'] >= 1)
 
     def observe_snapshot(self, snapshot):
@@ -102,6 +148,8 @@ class F2Band(PilotSession):
     def _gate(self, *, own_resting=Decimal(0)):
         reserve = self.size * sum(self.reserve_prices(), Decimal(0))
         try:
+            from weather.market.lfc_f2_breadth import daily_gate
+            daily_gate(self.ledger, self.ledger.sessions[self.session_id]['start'], reserve=reserve, own_resting=own_resting)
             figures = CapitalBook(self.ledger).gate(reserve=reserve, own_resting=own_resting)
         except CapitalRefused as exc:
             raise HoldEnd(str(exc)) from None
@@ -189,10 +237,11 @@ class F2Band(PilotSession):
 
 class F2Coordinator:
     def __init__(self, *, ledger, clock, directory, session_id, attempt_id, policy, entry, table,
-                 status, verify, guard=None):
+                 status, verify, guard=None, repost_proof=None):
         self.ledger, self.clock, self.directory = ledger, clock, Path(directory)
         self.session_id, self.attempt_id, self.policy, self.entry = session_id, attempt_id, policy, entry
         self.table, self.status, self.verify = table, status, verify
+        self.repost_proof = repost_proof
         self.guard = guard or SecretGuard()
         self.bands, self.results, self.closed_bands = [], {}, set()
         self.cleanup_ok = self.cancellation_ok = self.inventory_proven = False
@@ -200,7 +249,9 @@ class F2Coordinator:
         self.reason, self.open_rows = 'fixed_end', None
         self.account_fault_reason = None
         self.account_evidence_faults = set()
-        self.scope = {'session_id': session_id, 'attempt_id': attempt_id, 'protocol': 'lfc_autostart_v2',
+        from weather.market.lfc_f2_breadth import enabled, PROTOCOL as BREADTH_PROTOCOL
+        self.scope = {'session_id': session_id, 'attempt_id': attempt_id,
+                      'protocol': BREADTH_PROTOCOL if enabled(policy) else 'lfc_autostart_v2',
                       'policy_sha256': policy.sha256, **status.policy_metadata}
         self.journal = GuardedJournal(self.directory / 'journal.jsonl', clock=clock.now,
                                      scope=self.scope, mode='live', guard=self.guard)
@@ -362,7 +413,7 @@ class F2Coordinator:
                  'unknown_submit': self.posts != len(self.known)}
         self.cleanup_ok = self.cancellation_ok and complete_evidence(flags)
         manifest = {'session_id': self.session_id, 'attempt_id': self.attempt_id,
-                    'schema_version': 'lfc_f2_manifest_v0.1', 'policy_sha256': self.policy.sha256, 'bands': []}
+                    'schema_version': ('lfc_f2_manifest_v0.2' if self.scope['protocol'] == 'lfc_autostart_v3' else 'lfc_f2_manifest_v0.1'), 'policy_sha256': self.policy.sha256, 'bands': []}
         for band in self.bands:
             hashes = {name: file_sha(band.directory / name) for name in
                       ('journal.jsonl', 'prediction.json', 'session_end.json', 'selection.json', 'attempt.json')
@@ -373,7 +424,9 @@ class F2Coordinator:
                 'directory': band.directory.relative_to(self.directory).as_posix(),
                 'condition_id': band.condition, 'token_ids': list(band.tokens), 'trade_legs': list(band.TRADE_LEGS),
                 'evidence_sha256': hashes, 'reason': self.results.get(band.session_id, {}).get('reason', 'unproved'),
-                'cancellation_scope': 'band'})
+                'cancellation_scope': 'band', **({key: band.scope[key] for key in
+                    ('market_id', 'quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
+                    if band.breadth else {})})
         write_new(self.directory / 'f2_manifest.json', manifest)
         terminal = {'reason': self.reason, 'failure_type': (type(failed).__name__ if failed is not None and
                     not isinstance(failed, HoldEnd) else None), 'cleanup_ok': self.cleanup_ok,

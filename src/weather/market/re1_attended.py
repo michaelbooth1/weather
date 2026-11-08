@@ -313,7 +313,7 @@ class Session:
                       'maker_address': venue.maker, 'end_at_utc': self.end.isoformat(),
                       'protocol': self.PROTOCOL}
         if scheduled_authority is not None:
-            if scheduled_authority.protocol == 'lfc_autostart_v2':
+            if scheduled_authority.protocol in {'lfc_autostart_v2', 'lfc_autostart_v3'}:
                 self.scope.update({key: attempt[key] for key in ('policy_name', 'policy_revision', 'evidence_lane')})
             else:
                 self.scope.update(scheduled_authority.policy.labels(scheduled_authority.entry.local_date))
@@ -727,6 +727,68 @@ class Session:
         finally:
             steps.close()
 
+    def final_reason(self, reason):
+        return 'fill' if self.fill_seen else reason
+
+    def quote_steps(self, *, rehearsal_seconds=None):
+        for leg in self.TRADE_LEGS:
+            self.submit(leg, self.prices[leg])
+        self.after_open()
+        next_minute = self.clock.monotonic()
+        next_accrual = next_minute
+        stop_at = self.deadline if rehearsal_seconds is None else min(self.deadline, self.clock.monotonic() + rehearsal_seconds)
+        while self.clock.monotonic() < stop_at:
+            self.heartbeat_loop.tick()
+            self.control()
+            if self.clock.monotonic() >= next_minute:
+                next_minute = max(next_minute + 60, self.clock.monotonic() + 1)
+                self.sample_scoring()
+                try:
+                    snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
+                except Exception as exc:
+                    if not transient(exc):
+                        raise
+                    self.note_evidence_fault('minute_missed')
+                    self.journal.record('minute_missed', exception_type=type(exc).__name__)
+                    continue
+                self.journal.record('market_snapshot', snapshot=snapshot)
+                if self.clock.monotonic() - self.market_time >= 300:
+                    raise HoldEnd('market_snapshot_stale')
+                self.market_time = self.clock.monotonic()
+                self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
+                    ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
+                observation = self.observe_snapshot(snapshot)
+                observation['requote_legs'] = [leg for leg in observation['requote_legs'] if leg in self.TRADE_LEGS]
+                self.minute_extra(snapshot)
+                self.control()
+                if self.clock.monotonic() >= next_accrual:
+                    self.sample('accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
+                    next_accrual = self.clock.monotonic() + 1800
+                    self.control()
+                # Match the reference's one-minute sampled sums exactly.
+                if observation['visible_two_sided']:
+                    self.totals['visible_two_sided_minutes'] += 1
+                    for suffix in ('many', 'single', 'many_plain_mid'):
+                        self.totals['P_' + suffix] += observation['per_minute_' + suffix]
+                self.journal.record('minute', snapshot=snapshot, prices=list(map(str, self.prices)),
+                                    observation=observation, **self.totals)
+                self.observed_minutes += 1
+                if observation['requote_legs']:
+                    if self.requotes >= MAX_REQUOTES:
+                        raise HoldEnd('fifth_requote')
+                    self.requotes += 1
+                for leg in observation['requote_legs']:
+                    oid = next(oid for oid, (i, _) in self.active.items() if i == leg)
+                    self.cancel_leg(oid)
+                # Retire all affected legs before replacing either. A
+                # mixed old/new pair can exceed the capital cap even
+                # though the new treatment pair is within it.
+                for leg in observation['requote_legs']:
+                    self.prices[leg] = replacement_price(observation['adjusted_mid'], leg, self.OFFSET)
+                for leg in observation['requote_legs']:
+                    self.submit(leg, self.prices[leg])
+            yield min(1, max(0, stop_at - self.clock.monotonic()))
+
     def run_steps(self, *, rehearsal_seconds=None):
         if self.started or self.mode not in {'live', 'rehearse'}:
             raise RuntimeError('one_session_per_process')
@@ -735,7 +797,7 @@ class Session:
         self.started = True
         atexit.register(self.cleanup)
         reason, failure = 'fixed_end', None
-        observed_minutes = 0
+        self.observed_minutes = 0
         try:
             if self.end.date() != self.start.date() or not self.start_allowed(self.start):
                 raise HoldEnd('session_duration_or_utc_day')
@@ -750,63 +812,7 @@ class Session:
             self.freshness.started = self.market_time = self.clock.monotonic()
             self.opening_check()
             self.before_first_post()
-            for leg in self.TRADE_LEGS:
-                self.submit(leg, self.prices[leg])
-            self.after_open()
-            next_minute = self.clock.monotonic()
-            next_accrual = next_minute
-            stop_at = self.deadline if rehearsal_seconds is None else min(self.deadline, self.clock.monotonic() + rehearsal_seconds)
-            while self.clock.monotonic() < stop_at:
-                self.heartbeat_loop.tick()
-                self.control()
-                if self.clock.monotonic() >= next_minute:
-                    next_minute = max(next_minute + 60, self.clock.monotonic() + 1)
-                    self.sample_scoring()
-                    try:
-                        snapshot = self.public.snapshot(self.condition, self.tokens, checkpoint=self.control)
-                    except Exception as exc:
-                        if not transient(exc):
-                            raise
-                        self.note_evidence_fault('minute_missed')
-                        self.journal.record('minute_missed', exception_type=type(exc).__name__)
-                        continue
-                    self.journal.record('market_snapshot', snapshot=snapshot)
-                    if self.clock.monotonic() - self.market_time >= 300:
-                        raise HoldEnd('market_snapshot_stale')
-                    self.market_time = self.clock.monotonic()
-                    self.terms_changed |= any(snapshot['quote_inputs'][k] != self.initial_terms[k] for k in
-                        ('reward_min_size', 'reward_rate_per_day', 'reward_max_spread_cents'))
-                    observation = self.observe_snapshot(snapshot)
-                    observation['requote_legs'] = [leg for leg in observation['requote_legs'] if leg in self.TRADE_LEGS]
-                    self.minute_extra(snapshot)
-                    self.control()
-                    if self.clock.monotonic() >= next_accrual:
-                        self.sample('accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
-                        next_accrual = self.clock.monotonic() + 1800
-                        self.control()
-                    # Match the reference's one-minute sampled sums exactly.
-                    if observation['visible_two_sided']:
-                        self.totals['visible_two_sided_minutes'] += 1
-                        for suffix in ('many', 'single', 'many_plain_mid'):
-                            self.totals['P_' + suffix] += observation['per_minute_' + suffix]
-                    self.journal.record('minute', snapshot=snapshot, prices=list(map(str, self.prices)),
-                                        observation=observation, **self.totals)
-                    observed_minutes += 1
-                    if observation['requote_legs']:
-                        if self.requotes >= MAX_REQUOTES:
-                            raise HoldEnd('fifth_requote')
-                        self.requotes += 1
-                    for leg in observation['requote_legs']:
-                        oid = next(oid for oid, (i, _) in self.active.items() if i == leg)
-                        self.cancel_leg(oid)
-                    # Retire all affected legs before replacing either. A
-                    # mixed old/new pair can exceed the capital cap even
-                    # though the new treatment pair is within it.
-                    for leg in observation['requote_legs']:
-                        self.prices[leg] = replacement_price(observation['adjusted_mid'], leg, self.OFFSET)
-                    for leg in observation['requote_legs']:
-                        self.submit(leg, self.prices[leg])
-                yield min(1, max(0, stop_at - self.clock.monotonic()))
+            yield from self.quote_steps(rehearsal_seconds=rehearsal_seconds)
         except HoldEnd as exc:
             reason = exc.reason
         except BaseException as exc:
@@ -816,8 +822,7 @@ class Session:
         finally:
             self.cleanup()
             atexit.unregister(self.cleanup)
-        if self.fill_seen:
-            reason = 'fill'
+        reason = self.final_reason(reason)
         try:
             self.sample('final_balances', self.venue.balances)
             self.sample('final_accrual', lambda: self.venue.accrual(self.start.date().isoformat()))
@@ -846,7 +851,7 @@ class Session:
                   'reason': reason, 'failure_type': failure, 'submits': self.submits,
                   'order_ids': list(self.known), 'unknown_submit': self.posts != len(self.known), 'post_count': self.posts,
                   'inventory_proven': self.inventory_proven,
-                  'requotes': self.requotes, 'minute_samples': observed_minutes, 'payout_read': False}
+                  'requotes': self.requotes, 'minute_samples': self.observed_minutes, 'payout_read': False}
         write_new(self.directory / 'prediction.json', self.guard.clean(result))
         self.guard.print({'prediction': str(self.directory / 'prediction.json'), 'sha256': digest(result),
                           'reason': reason, 'cleanup_ok': self.cleanup_ok})

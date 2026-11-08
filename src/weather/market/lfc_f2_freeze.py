@@ -6,9 +6,9 @@ from weather.market.mm_stage2_hold import digest
 
 
 def economic_digest(policy):
-    from weather.market.lfc_f2_policy import ECONOMIC_FIELDS
+    from weather.market.lfc_f2_breadth import economic_fields
     # A revision of identical parameters does not invent a second economic policy.
-    return digest({key: policy.raw[key] for key in sorted(ECONOMIC_FIELDS - {'policy_revision'})})
+    return digest({key: policy.raw[key] for key in sorted(economic_fields(policy) - {'policy_revision'})})
 
 
 def capture_window(policy):

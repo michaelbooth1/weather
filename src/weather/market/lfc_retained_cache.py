@@ -101,7 +101,7 @@ class RetainedCache:
         self.values[key] = (signature, deepcopy(value), weight)
         self.bytes += weight
         self.values.move_to_end(key)
-        while self.bytes > 16 * 1024**2 or len(self.values) > 4096:
+        while self.bytes > 16 * 1024**2 or len(self.values) > 16384:
             _, removed = self.values.popitem(last=False)
             self.bytes -= removed[2]
         return value
@@ -111,7 +111,7 @@ class RetainedCache:
 
     def json(self, path):
         def load():
-            raw = read_bytes(path, 2_000_000)
+            raw = read_bytes(path, 16_000_000)
             return strict_json(raw), max(256, len(raw) * 5)
         return self.get('json', path, load)
 

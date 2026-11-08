@@ -41,7 +41,7 @@ def manifest(state, attempt):
         relative = Path(str(session['start'].get('directory', '')))
         if relative.parts and not relative.is_absolute() and '..' not in relative.parts:
             directories.add(relative)
-            if relative.name in ('band-1', 'band-2'):
+            if relative.name in {'band-' + str(i) for i in range(1, 13)}:
                 directories.add(relative.parent)
     for directory in directories:
         for name in ('journal.jsonl', 'prediction.json', 'session_end.json', 'attempt.json', 'selection.json', 'f2_manifest.json'):

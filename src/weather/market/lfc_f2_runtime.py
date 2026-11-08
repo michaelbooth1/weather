@@ -37,6 +37,9 @@ def run_live(runtime, authority, status):
     from weather.market.re1_owner_checks import code_identity
     from weather.market.re1_transport import OwnerVenue, build_client, load_owner_credentials
     policy, entry, claim = authority.policy, authority.entry, authority.claim
+    from weather.market.lfc_f2_breadth import enabled, PROTOCOL as BREADTH_PROTOCOL
+    breadth = enabled(policy)
+    protocol = BREADTH_PROTOCOL if breadth else 'lfc_autostart_v2'
     authority.preflight(now=runtime.clock.now(), commit=code_identity())
     ledger = runtime.state.ledger
     ledger.policy_metadata = status.policy_metadata
@@ -65,15 +68,20 @@ def run_live(runtime, authority, status):
         directory.mkdir(parents=True, exist_ok=False)
         write_new(directory / 'selection.json', table)
         write_new(directory / 'attempt.json', {'session_id': root_id, 'attempt_id': claim['attempt_id'],
-                    'policy_sha256': policy.sha256, 'selection_sha256': digest(table), **status.policy_metadata})
+                    'policy_sha256': policy.sha256, 'selection_sha256': digest(table), **status.policy_metadata,
+                    **({'quote_arms': [{key: row[key] for key in ('market_id', 'quote_offset_pusd', 'quote_arm',
+                         'arm_date_toronto', 'arm_market_id')} for row in selected]} if breadth else {})})
         def verify():
             # Keep the same in-process ledger object until every band closes.
             # The later ordinary postcheck reopens/validates it independently.
             read = runtime.read_account()
             return runtime.core_proof(ledger, read)
+        def repost_proof(band):
+            from weather.market.lfc_f2_reconcile import prove
+            return prove(runtime, band, runtime.read_account())
         coordinator = F2Coordinator(ledger=ledger, clock=runtime.clock, directory=directory, session_id=root_id,
                       attempt_id=claim['attempt_id'], policy=policy, entry=entry, table=table,
-                      status=status, verify=verify, guard=guard)
+                      status=status, verify=verify, guard=guard, repost_proof=repost_proof)
         status.bind(root_id, directory=directory, selection={}, ledger=ledger)
         status.session = coordinator
         public = LfcPublicBooks(clock=runtime.clock.now)
@@ -84,13 +92,17 @@ def run_live(runtime, authority, status):
             sid = root_id + '-b' + str(index)
             band_directory = directory / ('band-' + str(index))
             band_directory.mkdir()
+            arm_fields = ({key: row[key] for key in ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
+                          if breadth else {})
+            day_fields = ({'quote_day_utc': runtime.clock.now().date().isoformat(),
+                           'per_band_daily_filled_cap_pusd': policy.raw['per_band_daily_filled_cap_pusd']} if breadth else {})
             attempt = {'session_id': sid, 'session_number': number, 'number': number,
-                       'counted': index == 1, 'protocol': 'lfc_autostart_v2', **status.policy_metadata}
+                       'counted': index == 1, 'protocol': protocol, **status.policy_metadata, **arm_fields, **day_fields}
             write_new(band_directory / 'attempt.json', attempt)
             ledger.record('session_start', session_id=sid, counted=index == 1, session_number=number,
                     owner_local_date=entry.local_date, directory=band_directory.relative_to(runtime.pilot_root).as_posix(),
                     condition_id=row['condition_id'], market_id=row['market_id'], event_date=row['target_date'],
-                    event_slug=row['event_slug'], selection_sha256=digest(table), protocol='lfc_autostart_v2',
+                    event_slug=row['event_slug'], selection_sha256=digest(table), protocol=protocol, **arm_fields, **day_fields,
                     autostart_attempt_id=claim['attempt_id'], autostart_policy_sha256=policy.sha256)
             client = build_client(fields, timeout=max(timeouts.values()))
             try:

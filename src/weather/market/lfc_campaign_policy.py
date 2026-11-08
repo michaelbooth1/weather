@@ -131,6 +131,9 @@ def wall_time(value):
 
 
 def parse_policy(row):
+    if isinstance(row, dict) and row.get('schema_version') == 'lfc_campaign_policy_v0.3':
+        from weather.market.lfc_f2_breadth import parse_breadth
+        return parse_breadth(row)
     if isinstance(row, dict) and row.get('schema_version') == 'lfc_campaign_policy_v0.2':
         from weather.market.lfc_f2_policy import parse_f2
         return parse_f2(row)
@@ -249,8 +252,9 @@ def load_policy(path):
 def parameter_support():
     """JSON support table sealed with the release, independent of policy edits."""
     from weather.market.lfc_f2_policy import support_table
+    from weather.market.lfc_f2_breadth import support_table as breadth_support
     return {
-        'f2': support_table(),
+        'f2': support_table(), 'f2_breadth': breadth_support(),
         'terms.budget_pusd': {'exclusive_min': '0', 'max': str(C.CAP_PUSD)},
         'terms.shares_per_leg': {'values': [str(C.PILOT_SIZE)]},
         'terms.k_max': {'values': [1]},

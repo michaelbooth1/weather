@@ -103,10 +103,16 @@ def validate_packet(packet, *, maker, start, end):
     return rows
 
 
-def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False):
+def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False, live_proof=None):
     """Reconcile before F2 admission. Repeated reads never repeat a cash credit."""
-    if (read.get('complete') is not True or read.get('open_orders') != [] or ledger.unresolved_legs() or
-            ledger.open_sessions() or read.get('maker_address', '').lower() != ledger.rows[0]['maker_address'].lower()):
+    live = live_proof is not None
+    if live:
+        from weather.market.lfc_f2_reconcile import validate_live
+        validate_live(ledger, read, attempt=live_proof['attempt_id'], now=ledger.clock())
+        if CapitalBook(ledger).bridge is None:
+            raise CapitalRefused('capital_bridge_required')
+    if (read.get('complete') is not True or (not live and (read.get('open_orders') != [] or ledger.unresolved_legs() or
+            ledger.open_sessions())) or read.get('maker_address', '').lower() != ledger.rows[0]['maker_address'].lower()):
         raise CapitalRefused('capital_bridge_money_unresolved')
     balances = read['balances']
     cash = native(balances['available_collateral'])
@@ -150,7 +156,8 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
         record_activity(ledger, source, native_evidence=evidence,
                         native_group_sha256=group_shas[evidence['transaction_hash']])
     from weather.market.lfc_ledger import normalize_positions
-    inventory = inventory_delta(ledger, baseline, normalize_positions(read['positions']))
+    inventory = inventory_delta(ledger, baseline, normalize_positions(read['positions']),
+                 **({'proven_resting': [leg['order_id'] for leg in ledger.unresolved_legs()]} if live else {}))
     book = CapitalBook(ledger)
     if inventory['changed']:
         raise CapitalRefused('capital_inventory_unreconciled')

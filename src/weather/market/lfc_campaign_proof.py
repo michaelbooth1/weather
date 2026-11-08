@@ -15,10 +15,11 @@ ANCILLARY_SAMPLES = {'scoring', 'accrual', 'final_accrual', 'final_balances'}
 MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable',
                    'terminal_trades_unavailable', 'cleanup_open_orders_unavailable',
                    'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable',
-                   'f2_account_read_unavailable', 'f2_account_cancel_unavailable', 'f2_account_cleanup_pending'}
+                   'f2_account_read_unavailable', 'f2_account_cancel_unavailable', 'f2_account_cleanup_pending',
+                   'repost_inventory_unavailable'}
 
 
-def journal_contract(path, prediction, *, legacy=False, owner_review=False):
+def journal_contract(path, prediction, *, legacy=False, owner_review=False, allow_open=False, expected_head=None):
     """Stream the exact chained journal; a gap name cannot replace core rows."""
     if path.stat().st_size > 256 * 1024 * 1024:
         raise ValueError('private_journal_limit')
@@ -70,9 +71,12 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False):
         else:
             raise ValueError('private_journal_limit')
     if (not first or first.get('event') != 'opened' or first.get('mode') != 'live' or
-            terminal.get('event') != 'terminal' or
+            (not allow_open and terminal.get('event') != 'terminal') or
+            (allow_open and (expected_head is None or previous != expected_head)) or
             any(prediction['scope'].get(key) != value for key, value in first['scope'].items())):
         raise ValueError('private_journal_scope')
+    if allow_open:
+        return requests, responses, orders, gaps, money_gaps
     for key in ('post_count', 'order_ids', 'unknown_submit', 'inventory_proven', 'evidence_complete',
                 'failure_type', 'cleanup_ok', 'reason', 'submits', 'requotes', 'evidence_faults'):
         if legacy and key == 'evidence_faults' and key not in prediction and key not in terminal:

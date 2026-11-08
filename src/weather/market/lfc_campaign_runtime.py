@@ -103,7 +103,8 @@ class ScheduledAuthority:
         self.last_wall, self.last_mono = runtime.clock.now(), runtime.clock.monotonic()
         self.last_control = None
         if policy.f2:
-            self.protocol = 'lfc_autostart_v2'
+            from weather.market.lfc_f2_breadth import enabled, PROTOCOL as BREADTH_PROTOCOL
+            self.protocol = BREADTH_PROTOCOL if enabled(policy) else 'lfc_autostart_v2'
 
     def check(self, *, starting=False):
         self.runtime.lease.check()
@@ -758,7 +759,7 @@ class Runtime:
                 from weather.market.lfc_f2_evidence import manifest_at
                 for band in manifest_at(directory)['bands']:
                     paths += [directory / band['directory'] / name for name in band['evidence_sha256']]
-            if len(paths) > 70:
+            if len(paths) > 306:  # 12 bands x (5 originals + 20 submit files), plus 6 root files.
                 raise StateRefused('private_file_count')
             for path in paths:
                 original_files[path.relative_to(directory).as_posix()] = file_sha(validate_contained_regular_file(self.pilot_root, path))

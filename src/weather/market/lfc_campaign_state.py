@@ -172,9 +172,8 @@ class AccountState:
                 operational_binding(self, anchor['source_attempt_id'])
         chain = {self.ledger.row_sha256(i) for i in range(len(self.ledger.rows))}
         for path in (self.root / 'closed').glob('*.json'):
-            closed = self.read(path)
-            if (not isinstance(closed.get('proof'), dict) or closed['proof'].get('ledger_head_sha256') not in chain or
-                    closed.get('proof_sha256') != digest(closed['proof'])):
+            closed = self.closed_binding(path)
+            if closed['proof'].get('ledger_head_sha256') not in chain:
                 raise StateRefused('closeout_ledger_continuity')
         from weather.market.lfc_f2_freeze import verify
         if not owner_fault_review:
@@ -243,7 +242,7 @@ class AccountState:
         for name, sha in hashes.items():
             parts = Path(name).parts
             f2_name = (result['outcome'].get('f2_session') is True and len(parts) == 2 and
-                       parts[0] in ('band-1', 'band-2') and parts[1] not in ('.', '..'))
+                       parts[0] in {'band-' + str(i) for i in range(1, 13)} and parts[1] not in ('.', '..'))
             if Path(name).name != name and not f2_name:
                 raise ValueError('private_original_name')
             try:
@@ -253,6 +252,24 @@ class AccountState:
             except (OSError, ValueError, RuntimeError):
                 raise EvidenceArtifactError('private/' + name) from None
         return hashes
+
+    def closed_binding(self, path):
+        """Validate the whole receipt once per file change; cache a small projection.
+
+        The original remains create-only and includes the exhaustive account
+        read. The cached projection never constitutes fresh inventory or cash
+        proof. Native USN/identity changes and missing files invalidate it.
+        """
+        def load():
+            closed = self.read(path)
+            proof = closed.get('proof')
+            if not isinstance(proof, dict) or closed.get('proof_sha256') != digest(proof):
+                raise StateRefused('closeout_proof_hash')
+            bulky = {'account_read', 'capital', 'inventory', 'trade_differences', 'public_coverage'}
+            projection = {key: value for key, value in proof.items() if key not in bulky}
+            compact = {**closed, 'proof': projection}
+            return compact, max(256, len(str(compact)) * 5)
+        return self._retained_cache.get('closed-binding', path, load)
 
     def require_retained_evidence(self):
         for claim in self.claims():
@@ -268,7 +285,7 @@ class AccountState:
             has_session = any(s['start'].get('autostart_attempt_id') == claim['attempt_id']
                               for s in self.ledger.sessions.values())
             if has_session or any(e['attempt_id'] == claim['attempt_id'] for e in self.ledger.autostart_results):
-                proof = self.read(path)['proof']
+                proof = self.closed_binding(path)['proof']
                 if proof.get('authority') == 'owner_recovery':
                     self.owner_close_binding(claim, proof)
                     continue
@@ -371,7 +388,7 @@ class AccountState:
             raise StateRefused('legacy_account_date_consumed')
         for previous in self.claims():
             old = self.read(self.root / 'policies' / (previous['attempt_id'] + '.json'))['policy']
-            same_f2_protocol = policy.f2 and old.get('schema_version') == 'lfc_campaign_policy_v0.2'
+            same_f2_protocol = policy.f2 and old.get('schema_version') in {'lfc_campaign_policy_v0.2', 'lfc_campaign_policy_v0.3'}
             if previous.get('policy_name') != policy.raw['policy_name'] and not same_f2_protocol:
                 continue
             old_revision = previous.get('policy_revision')
@@ -380,8 +397,8 @@ class AccountState:
             keys = ('terms', 'local_event_dte', 'band_limit_session', 'band_limit_concurrent', 'bands_per_event',
                     'start_window_toronto', 'trading_end_toronto', 'max_session_seconds')
             if same_f2_protocol:
-                from weather.market.lfc_f2_policy import ECONOMIC_FIELDS
-                keys = ECONOMIC_FIELDS
+                from weather.market.lfc_f2_breadth import economic_fields, FIELDS
+                keys = economic_fields(policy) | (FIELDS if old.get('schema_version') == 'lfc_campaign_policy_v0.3' else frozenset())
             if old_revision == policy.raw['policy_revision'] and any(old.get(key) != policy.raw.get(key) for key in keys):
                 raise StateRefused('economic_policy_change_requires_revision')
         attempt = uuid.uuid4().hex
@@ -402,9 +419,9 @@ class AccountState:
             if not path.exists():
                 result.append(row)
                 continue
-            closed = self.read(path)
+            closed = self.closed_binding(path)
             proof = closed.get('proof')
-            if (closed.get('attempt_id') != row['attempt_id'] or closed.get('proof_sha256') != digest(proof) or
+            if (closed.get('attempt_id') != row['attempt_id'] or
                     not isinstance(proof, dict) or proof.get('unknown_submit') is not False or
                     proof.get('cleanup_proven') is not True or proof.get('money_accounting_complete') is not True):
                 raise StateRefused('closeout_continuity')

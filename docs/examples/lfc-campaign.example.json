@@ -11,7 +11,7 @@
   "eligibility_profile": "F0_reference_filters_restricted_to_configured_DTE; native_reward_minimum_must_fit_20_shares",
   "predicted_reward_floor": null,
   "post_only": true,
-  "on_first_band_fill": "cancel_remaining_orders_in_band_and_retire_band",
+  "on_first_band_fill": "cancel_reconcile_cooldown_and_requote_same_band",
   "replace_retired_band": false,
   "inventory_exit": "hold_to_venue_resolution_and_redemption",
   "gtd_tail_seconds": 60,
@@ -32,23 +32,33 @@
   "freeze_deadline_toronto": "2026-11-16T18:00:00-05:00",
   "evidence_cutoff_toronto": "2026-12-28T12:00:00-05:00",
   "economic_changes_after_freeze": "successor_learning_only",
-  "schema_version": "lfc_campaign_policy_v0.2",
+  "schema_version": "lfc_campaign_policy_v0.3",
   "enabled": false,
   "campaign_id": "lfc-f2-202611",
   "revision": 1,
   "timezone": "America/Toronto",
   "sidecar": null,
-  "policy_name": "DT-T1-Paired20-K2",
-  "policy_revision": 2,
+  "policy_name": "Builtin-T1-Paired20-Continue40",
+  "policy_revision": 3,
   "market_ids": [
+    "atlanta",
+    "austin",
+    "chicago",
+    "dallas",
     "denver",
+    "houston",
+    "los-angeles",
+    "miami",
+    "nyc",
+    "san-francisco",
+    "seattle",
     "toronto"
   ],
   "local_event_dte": [
     1
   ],
-  "band_limit_session": 2,
-  "band_limit_concurrent": 2,
+  "band_limit_session": 12,
+  "band_limit_concurrent": 12,
   "tokens": [
     "YES",
     "NO"
@@ -88,5 +98,11 @@
     "2026-12-28T18:00:00-05:00"
   ],
   "min_reward_rate": "0",
-  "min_book_depth": "20"
+  "min_book_depth": "20",
+  "per_band_daily_filled_cap_pusd": "40",
+  "fill_cooldown_seconds": 60,
+  "learning_quote_offsets_pusd": [
+    "0.015",
+    "0.025"
+  ]
 }

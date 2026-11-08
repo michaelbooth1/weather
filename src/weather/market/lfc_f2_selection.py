@@ -23,7 +23,8 @@ from weather.market.mm_stage2_selection import reward_rate
 from weather.market.reward_quote import QuoteRefused, _levels, price_sized_reward_quote, reward_rate_eligible
 
 
-DERIVED = {'eligible', 'refusal', 'quote', 'predicted_360_minutes', 'trade_legs'}
+DERIVED = {'eligible', 'refusal', 'quote', 'predicted_360_minutes', 'trade_legs',
+           'quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id'}
 
 
 def trade_legs(policy, mid):
@@ -98,9 +99,13 @@ def candidate(band, *, now, policy, held):
             raise QuoteRefused('no_size_adjusted_midpoint')
         mid = (max(qualified_bids) + min(qualified_asks)) / 2
         legs = trade_legs(policy, mid)
+        from weather.market.lfc_f2_breadth import enabled, row_arm
+        assignment = row_arm(policy, utc(now), band['market_id'])
+        if enabled(policy):
+            row.update(assignment)
         quote = price_sized_reward_quote(**inputs, size=policy.raw['shares_per_leg'],
                     per_order_ceiling=policy.raw['per_order_cap_pusd'], per_band_ceiling=policy.raw['per_band_cap_pusd'],
-                    quote_offset=policy.raw['quote_offset_pusd'],
+                    quote_offset=assignment['quote_offset_pusd'],
                     distance_window=policy.raw['requote_distance_cents'], trade_legs=legs,
                     min_reward_rate=policy.raw['min_reward_rate'])
         low, high = map(quantity, policy.raw['leg_price_range'])
@@ -161,6 +166,10 @@ def validate_table(table, *, now, policy):
     selected = [next(row for row in table['rows'] if row['condition_id'] == cid) for cid in table['selected_condition_ids']]
     if any(not horizon_allowed(row, now, policy.raw['local_event_dte']) for row in selected):
         raise ValueError('market_local_horizon')
+    from weather.market.lfc_f2_breadth import enabled, row_arm
+    if enabled(policy) and any(any(row.get(key) != value for key, value in
+            row_arm(policy, utc(now), row['market_id']).items()) for row in selected):
+        raise ValueError('f2_quote_arm_day_changed')
     return selected
 
 

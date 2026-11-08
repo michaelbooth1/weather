@@ -112,8 +112,9 @@ class Raw(RehearsalVenue):
 
 
 def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_seconds=0, enrolled=False,
-          base=NOW, schedule=None, shared_ledger=None, shared_state=None, session_id='F2-fixture'):
-    row = example_policy()
+          base=NOW, schedule=None, shared_ledger=None, shared_state=None, session_id='F2-fixture',
+          policy_row=None, universe_rows=None, account_type=Account, raw_type=Raw):
+    row = deepcopy(policy_row) if policy_row is not None else example_policy()
     row.update(max_session_seconds=300, band_limit_session=k, band_limit_concurrent=k)
     if schedule:
         row.update(schedule)
@@ -140,7 +141,7 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
             state.enroll(clock.now())
         claim = state.claim(entry, policy, clock.now())
     attempt_id = claim['attempt_id'] if claim is not None else 'a' * 32
-    rows = universe()
+    rows = deepcopy(universe_rows) if universe_rows is not None else universe()
     if base != NOW:
         from zoneinfo import ZoneInfo
         for source in rows:
@@ -157,7 +158,7 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
             inputs['yes_asks'] = [{'price': '.35', 'size': '20'}, {'price': '.40', 'size': '55'}]
     table = build_table(rows, now=clock.now(), policy=policy, cash='300', capital=CapitalBook(ledger).figures())
     assert len(table['selected_condition_ids']) == k, table['rows']
-    account = Account(clock)
+    account = account_type(clock)
     account.prefix = '' if session_id == 'F2-fixture' else session_id + '-'
     account.state, account.claim, account.policy = state, claim, policy
     directory = tmp_path / ('session-' + session_id)
@@ -176,7 +177,10 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
     status.bind(coordinator.session_id, directory=directory, selection={}, ledger=ledger)
     status.session = coordinator
     authority = object.__new__(ScheduledAuthority)
-    authority.policy, authority.entry, authority.protocol = policy, entry, 'lfc_autostart_v2'
+    from weather.market.lfc_f2_breadth import enabled, PROTOCOL as BREADTH_PROTOCOL
+    breadth = enabled(policy)
+    protocol = BREADTH_PROTOCOL if breadth else 'lfc_autostart_v2'
+    authority.policy, authority.entry, authority.protocol = policy, entry, protocol
     authority.session_end = lambda start, seconds: entry.session_end(start)
     authority.confirmation_valid = lambda table, receipt: receipt == {'fixture_only': True}
     for index, cid in enumerate(table['selected_condition_ids'], 1):
@@ -184,14 +188,18 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
         sid = session_id + '-b' + str(index)
         child = directory / ('band-' + str(index))
         child.mkdir()
-        attempt = {'counted': index == 1, 'session_number': 1, 'protocol': 'lfc_autostart_v2',
+        attempt = {'counted': index == 1, 'session_number': 1, 'protocol': protocol,
                    **status.policy_metadata}
         write_new(child / 'attempt.json', attempt)
+        arm_fields = ({key: chosen[key] for key in ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
+                      if breadth else {})
+        day_fields = ({'quote_day_utc': clock.now().date().isoformat(), 'market_id': chosen['market_id'],
+                       'per_band_daily_filled_cap_pusd': policy.raw['per_band_daily_filled_cap_pusd']} if breadth else {})
         ledger.record('session_start', session_id=sid, counted=index == 1,
                     owner_local_date=entry.local_date, condition_id=cid, autostart_attempt_id=attempt_id,
-                    autostart_policy_sha256=policy.sha256, protocol='lfc_autostart_v2',
+                    autostart_policy_sha256=policy.sha256, protocol=protocol, **arm_fields, **day_fields,
                     directory=child.relative_to(tmp_path).as_posix())
-        raw = Raw(chosen['snapshot'], child, clock=clock, account=account, index=index - 1)
+        raw = raw_type(chosen['snapshot'], child, clock=clock, account=account, index=index - 1)
         band = F2Band(policy=policy, entry=entry, ledger=ledger, session_id=sid,
                     profile=ScheduledProfile(policy, entry), root=tmp_path,
                     exclusion={'event_slug': chosen['event_slug'], 'condition_ids': chosen['event_condition_ids'],

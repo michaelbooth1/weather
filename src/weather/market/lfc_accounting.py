@@ -16,7 +16,7 @@ def quantity(value):
     return result
 
 
-def inventory_delta(ledger, baseline, current):
+def inventory_delta(ledger, baseline, current, *, proven_resting=None):
     """All tokens, including pilot holdings and microfills, must reconcile.
 
     No automatic redemption/merge/sale inference. A missing API row is an
@@ -24,7 +24,11 @@ def inventory_delta(ledger, baseline, current):
     becomes an exact zero by tolerance or by observing a marked wallet value.
     """
     matches = [r for r in ledger.baselines if r['sha256'] == digest(baseline)]
-    if not matches or ledger.unresolved_legs():
+    resting = frozenset() if proven_resting is None else frozenset(proven_resting)
+    unresolved = ledger.unresolved_legs()
+    if (not matches or (unresolved and (proven_resting is None or
+            any(leg['order_id'] not in resting or quantity(leg['size_matched']) != 0 for leg in unresolved))) or
+            resting != {leg['order_id'] for leg in unresolved}):
         raise ValueError('inventory_baseline_or_terminal_missing')
     cut = matches[0]['sequence']
     settled_before = {r['order_id']: quantity(r['size_matched']) for r in ledger.rows[:cut]

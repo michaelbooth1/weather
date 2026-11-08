@@ -6,6 +6,12 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("lfc_breadth_policy", "lfc_campaign_policy_v0.3", "weather.market.lfc_f2_breadth", "active",
+               "Captured built-in cities, proved-fill continuation, UTC-day basis cap and learning quote arms."),
+    SchemaSpec("lfc_breadth_protocol", "lfc_autostart_v3", "weather.market.lfc_f2_controller", "active",
+               "Cooperative breadth protocol; ambiguity, account claims and native sleeve gates unchanged."),
+    SchemaSpec("lfc_breadth_manifest", "lfc_f2_manifest_v0.2", "weather.market.lfc_f2_evidence", "active",
+               "Bounded twelve-band aggregate retaining every original intent, ACK and chained journal."),
     SchemaSpec("lfc_emergency_result", "lfc_emergency_result_v0.1", "weather.market.lfc_campaign_runtime", "active",
                "Create-only interrupted-attempt receipt; explicitly incomplete and never cancellation proof."),
     SchemaSpec("lfc_final_cash_snapshot", "lfc_final_cash_snapshot_v0.1", "weather.market.lfc_f2_final", "active",

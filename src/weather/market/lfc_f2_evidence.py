@@ -1,4 +1,4 @@
-"""Aggregate two retained band packets without weakening per-band/N1 proofs."""
+"""Aggregate bounded retained band packets without weakening per-band/N1 proofs."""
 from pathlib import Path
 
 from weather.market.lfc_completion import evidence_flags
@@ -14,11 +14,14 @@ ROOT_FILES = ('journal.jsonl', 'prediction.json', 'session_end.json', 'attempt.j
 def manifest_at(directory):
     row = strict_json(read_bytes(Path(directory) / 'f2_manifest.json', 1_000_000))
     bands = row.get('bands')
-    if (row.get('schema_version') != 'lfc_f2_manifest_v0.1' or
-            not isinstance(bands, list) or not 1 <= len(bands) <= 2 or
+    from weather.market.lfc_f2_breadth import captured_market_ids
+    version = row.get('schema_version')
+    limit = len(captured_market_ids()) if version == 'lfc_f2_manifest_v0.2' else 2
+    if (version not in {'lfc_f2_manifest_v0.1', 'lfc_f2_manifest_v0.2'} or
+            not isinstance(bands, list) or not 1 <= len(bands) <= limit or
             len({b['session_id'] for b in bands}) != len(bands) or
             len({b['directory'] for b in bands}) != len(bands) or
-            any(b['directory'] not in ('band-1', 'band-2') for b in bands)):
+            any(b['directory'] not in {'band-' + str(i) for i in range(1, limit + 1)} for b in bands)):
         raise ValueError('f2_private_manifest')
     return row
 
@@ -37,7 +40,7 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
     ending = strict_json(read_bytes(directory / 'session_end.json', 2_000_000))
     attempt = strict_json(read_bytes(directory / 'attempt.json', 65536))
     if (prediction.get('f2_session') is not True or prediction['scope'].get('session_id') != session_id or
-            prediction['scope'].get('attempt_id') != attempt_id or prediction['scope'].get('protocol') != 'lfc_autostart_v2' or
+            prediction['scope'].get('attempt_id') != attempt_id or prediction['scope'].get('protocol') != ('lfc_autostart_v3' if manifest['schema_version'] == 'lfc_f2_manifest_v0.2' else 'lfc_autostart_v2') or
             prediction['scope'].get('policy_sha256') != manifest['policy_sha256'] or
             attempt.get('policy_sha256') != manifest['policy_sha256'] or attempt.get('attempt_id') != attempt_id or
             prediction.get('manifest_sha256') != hashes['f2_manifest.json'] or
@@ -99,7 +102,9 @@ class F2Status(SessionStatus):
             helper.open_rows = (None if coordinator.open_rows is None else
                                 [row for row in coordinator.open_rows if _order_id(row) in band.known])
             facts = helper._facts()
-            bands.append({'session_id': band.session_id, 'reason': coordinator.results.get(band.session_id, {}).get('reason'), **facts})
+            bands.append({'session_id': band.session_id, 'reason': coordinator.results.get(band.session_id, {}).get('reason'),
+                          **({key: band.scope[key] for key in ('market_id', 'quote_offset_pusd', 'quote_arm',
+                              'arm_date_toronto', 'arm_market_id')} if getattr(band, 'breadth', False) else {}), **facts})
             prefix = band.directory.relative_to(self.evidence_directory).as_posix() + '/'
             hashes.update({prefix + name: sha for name, sha in facts['evidence_sha256'].items()})
             hashes.update({prefix + path.name: file_sha(path) for pattern in ('submit-*.intent.json', 'submit-*.ack.json')

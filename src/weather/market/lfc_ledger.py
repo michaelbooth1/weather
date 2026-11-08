@@ -273,6 +273,18 @@ class Ledger:
                 raise LedgerUnavailable('ledger_intent_scope')
             for key in ('price', 'size'):
                 _num(row[key], key)
+            from weather.market.lfc_f2_breadth import daily_gate, PROTOCOL as BREADTH_PROTOCOL
+            if session['start'].get('protocol') == BREADTH_PROTOCOL:
+                start = session['start']
+                fields = ('market_id', 'quote_day_utc', 'quote_offset_pusd', 'quote_arm',
+                          'arm_date_toronto', 'arm_market_id', 'per_band_daily_filled_cap_pusd')
+                if (row['recorded_at_utc'][:10] != start['quote_day_utc'] or
+                        any(row.get(key) != start.get(key) for key in fields)):
+                    raise LedgerUnavailable('ledger_breadth_intent_binding')
+                try:
+                    daily_gate(self, start, reserve=_decimal(row['price']) * _decimal(row['size']))
+                except ValueError as exc:
+                    raise LedgerUnavailable(str(exc)) from None
             self.legs[row['intent_key']] = {**{k: row[k] for k in ('session_id', 'intent_key', 'token_id',
                                             'condition_id', 'price', 'size', 'fee_rate_bps')},
                                             'order_id': None, 'status': 'intent', 'size_matched': '0'}
@@ -365,9 +377,9 @@ class Ledger:
 
     def counted_sessions(self):
         legacy = sum(1 for s in self.sessions.values() if s['start']['counted'] and s['legs'] and
-                     s['start'].get('protocol') != 'lfc_autostart_v2')
+                     s['start'].get('protocol') not in {'lfc_autostart_v2', 'lfc_autostart_v3'})
         f2 = {s['start']['autostart_attempt_id'] for s in self.sessions.values() if s['legs'] and
-              s['start'].get('protocol') == 'lfc_autostart_v2'}
+              s['start'].get('protocol') in {'lfc_autostart_v2', 'lfc_autostart_v3'}}
         return legacy + len(f2)
 
     def open_sessions(self):
@@ -469,8 +481,14 @@ class Ledger:
             # Lowest durable boundary: concurrent bands cannot both spend the
             # same headroom even if an earlier planning gate was stale.
             CapitalBook(self).gate(reserve=_decimal(price) * _decimal(size))
+        from weather.market.lfc_f2_breadth import daily_gate, PROTOCOL as BREADTH_PROTOCOL
+        start = self.sessions[session_id]['start']
+        daily_gate(self, start, reserve=_decimal(price) * _decimal(size))
+        metadata = ({key: start[key] for key in ('market_id', 'quote_day_utc', 'quote_offset_pusd', 'quote_arm',
+                    'arm_date_toronto', 'arm_market_id', 'per_band_daily_filled_cap_pusd')}
+                    if start.get('protocol') == BREADTH_PROTOCOL else {})
         return self.record('leg_intent', session_id=session_id, intent_key=intent_key, token_id=token_id,
-                           condition_id=condition_id, price=str(price), size=str(size), fee_rate_bps=str(fee_rate_bps))
+                           condition_id=condition_id, price=str(price), size=str(size), fee_rate_bps=str(fee_rate_bps), **metadata)
 
     def ack(self, intent_key, order_id):
         return self.record('leg_ack', intent_key=intent_key, order_id=str(order_id))
