@@ -67,7 +67,7 @@ def test_joint_redemption_never_assigns_whole_payment_to_each_session(tmp_path):
     for sid in ('first', 'second'):
         redemption = measured(ledger, [sid])['settlement']['redemptions'][0]
         assert redemption['cash_native'] == 20_000_000
-        assert redemption['session_cash_native'] is None and not redemption['exclusive_session_scope']
+        assert redemption['session_cash_native'] == 10_000_000 and not redemption['exclusive_session_scope']
 
 
 def test_positive_cash_is_separate_from_expected_profit_qualification():

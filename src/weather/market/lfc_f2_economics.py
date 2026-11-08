@@ -25,9 +25,15 @@ def measured(ledger, sessions):
     redemptions = []
     for key in sorted(ids):
         all_allocations = [r for r in book.allocations if r['activity_id'] == key]
-        exclusive = all(book.lots[r['intent_key']]['session_id'] in sessions for r in all_allocations)
+        selected = [r for r in releases if r['activity_id'] == key]
+        known = book.activities[key]['cash_native'] is not None and not book.activities[key].get('principal_unproved')
+        session_cash = sum(r['payout_native'] for r in selected) if known else None
+        exclusive = (known and len(selected) == len(all_allocations) and
+                     session_cash == book.redemptions[key]['cash_native'] and
+                     not book.redemptions[key].get('unallocated'))
         redemptions.append({**book.redemptions[key], 'exclusive_session_scope': exclusive,
-            'session_cash_native': book.redemptions[key]['cash_native'] if exclusive else None})
+            'session_cash_native': session_cash,
+            'session_allocation_intent_keys': sorted(r['intent_key'] for r in selected)})
     credits = [{'activity_id': key, 'type': row['type'], 'cash_native': row['cash_native'],
                 'timestamp': row['timestamp'], 'attributed_session': None}
                for key, row in book.activities.items() if row['type'] in
