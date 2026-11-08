@@ -82,6 +82,7 @@ EXPECTED_SHARDS = {
             "tests/operations/test_workstation_pregate_script.py",
             "tests/operations/test_workstation_pregate_receipt.py",
             "tests/operations/test_lfc_campaign_task.py",
+            "tests/market/test_lfc_campaign_availability.py",
             "tests/operations/test_reconciler_surface.py",
             "tests/operations/test_powershell_host_guard.py",
             "tests/operations/test_merge_queue_driver_dry.py",
