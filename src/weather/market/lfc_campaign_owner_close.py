@@ -72,7 +72,8 @@ def binding(state, attempt):
     legs = legs_binding(state.ledger, attempt)
     if (file_sha(path) != anchor['file_sha256'] or row.get('authority') != 'owner_operational_close' or
             row.get('source_attempt_id') != attempt or row.get('incident_id') != anchor['incident_id'] or
-            row.get('ledger_head_sha256') != anchor['previous_sha256'] or
+            row.get('ledger_head_sha256') != anchor.get('receipt_ledger_sha256', anchor['previous_sha256']) or
+            row.get('ledger_head_sha256') not in {state.ledger.row_sha256(i) for i in range(anchor['sequence'])} or
             proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
             proof.get('unknown_submit') is not False or proof.get('read_sha256') != digest(row.get('account_read')) or
             row.get('terminal_legs_sha256') != digest(legs) or
@@ -105,7 +106,7 @@ def owner_close(runtime, incident):
     state = runtime.state
     path = state.root / 'incidents' / (incident + '.json')
     occurrence, sha = state.read(path), file_sha(path)
-    if (state.root / 'owner-closures' / (incident + '.json')).exists():
+    if any(row['event'] == 'autostart_owner_close' and row.get('incident_id') == incident for row in state.ledger.rows):
         raise StateRefused('incident_not_active')
     print('Close this occurrence with gaps retained; release only its proved-dead workload. Type: close ' + sha[:12])
     if input().strip() != 'close ' + sha[:12]:
@@ -162,9 +163,31 @@ def owner_close(runtime, incident):
                 'terminal_legs_sha256': digest(legs_binding(ledger, source)), 'artifact_manifest': manifest(state, source),
                 'research_evidence_complete': False, 'closed_at_utc': runtime.clock.now().isoformat()}
             fields['source_attempt_id'] = source
-            closure_sha = state.save(relative, fields)
+            target = state.root / relative
+            recovery = {}
+            if target.exists():
+                # A retry is still owner-confirmed and freshly proves money.
+                # Complete precisely the retained decision; never replace it
+                # or let it accept a later artifact loss/incident occurrence.
+                partial = state.read(target)
+                previous = partial.get('ledger_head_sha256')
+                retained = partial.get('proof', {})
+                keys = ('authority', 'incident_id', 'incident_sha256', 'source_attempt_id',
+                        'artifact', 'detection_sequence', 'terminal_legs_sha256', 'artifact_manifest',
+                        'research_evidence_complete')
+                if (any(partial.get(key) != fields.get(key) for key in keys) or
+                        previous not in {ledger.row_sha256(i) for i in range(len(ledger.rows))} or
+                        retained.get('money_accounting_complete') is not True or
+                        retained.get('cleanup_proven') is not True or retained.get('unknown_submit') is not False or
+                        retained.get('read_sha256') != digest(partial.get('account_read'))):
+                    raise StateRefused('owner_close_partial_binding')
+                closure_sha = file_sha(target)
+                recovery = {'receipt_ledger_sha256': previous, 'recovered_partial': True}
+            else:
+                closure_sha = state.save(relative, fields)
             ledger.record('autostart_owner_close', attempt_id=incident, incident_id=incident,
-                source_attempt_id=source, file=relative, file_sha256=closure_sha, proof=proof, proof_sha256=digest(proof))
+                source_attempt_id=source, file=relative, file_sha256=closure_sha, proof=proof, proof_sha256=digest(proof),
+                **recovery)
             for anchor in ledger.autostart_claims:
                 if anchor['attempt_id'] != source:
                     continue
