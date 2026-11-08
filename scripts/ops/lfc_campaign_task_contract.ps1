@@ -107,15 +107,20 @@ function Get-LfcCampaignDeadline {
             # Give near-window ticks the SAME latest-go cleanup envelope; this
             # extends their containment budget, never the child's entry window.
             $lookback=[TimeSpan]::FromMinutes([math]::Max(5,30-($finish-$begin).TotalMinutes))
-            if($localNow.TimeOfDay -lt ($begin-$lookback) -or $localNow.TimeOfDay -ge $finish) { return $fallback }
-            $localStop=[DateTime]::SpecifyKind($localNow.Date.Add($stop),[DateTimeKind]::Unspecified)
+            $entryDay=$localNow.Date
+            # A midnight window's lookback belongs to the previous local date.
+            if($begin -lt $lookback -and $localNow.TimeOfDay -ge $finish) { $entryDay=$entryDay.AddDays(1) }
+            $warmLocal=[DateTime]::SpecifyKind($entryDay.Add($begin).Subtract($lookback),[DateTimeKind]::Unspecified)
+            $latestLocal=[DateTime]::SpecifyKind($entryDay.Add($finish),[DateTimeKind]::Unspecified)
+            $warm=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($warmLocal,$zone))
+            $latest=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($latestLocal,$zone))
+            if($NowUtc -lt $warm -or $NowUtc -ge $latest) { return $fallback }
+            $localStop=[DateTime]::SpecifyKind($entryDay.Add($stop),[DateTimeKind]::Unspecified)
             $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
             $seconds=[int]$policyRow.max_session_seconds
             if($seconds -lt 300 -or $seconds -gt 21600) { return $fallback }
             # Admission and client setup may use any part of this window.
             # Bound the latest possible child end, never wrapper launch time.
-            $latestLocal=[DateTime]::SpecifyKind($localNow.Date.Add($finish),[DateTimeKind]::Unspecified)
-            $latest=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($latestLocal,$zone))
             $end=$latest.AddSeconds($seconds)
             if($fixed -lt $end) { $end=$fixed }
         } elseif($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.1') {

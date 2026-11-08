@@ -66,6 +66,19 @@ def test_all_wrapper_schemas_cover_only_the_calculated_pre_entry_lookback(tmp_pa
     assert wrapper_deadline(tmp_path, row, entry.end) == entry.end + timedelta(minutes=30)
 
 
+@pytest.mark.spawns
+@pytest.mark.parametrize('version', [1, 2, 3])
+def test_midnight_window_lookback_is_bound_to_the_upcoming_entry_date(tmp_path, version):
+    row = policy_row() if version == 1 else (two_band_policy() if version == 2 else example_policy())
+    if version == 1:
+        row['entries'][0].update(window_start_utc='2026-11-11T05:00:00Z', window_end_utc='2026-11-11T05:15:00Z')
+    else:
+        row.update(start_window_toronto=['00:00:00', '00:15:00'], trading_end_toronto='06:00:00')
+    entry = next(e for e in parse_policy(row).entries if e.local_date == '2026-11-11')
+    began = entry.start - timedelta(minutes=5)
+    assert wrapper_deadline(tmp_path, row, began) == entry.session_end(entry.end) + timedelta(minutes=30)
+
+
 @pytest.mark.parametrize('history_days', [1, 40])
 def test_healthy_near_entry_followup_cost_is_independent_of_retained_history(history_days):
     from weather.market.lfc_f2_followup import maintenance

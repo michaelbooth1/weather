@@ -569,6 +569,8 @@ permitted start window plus cleanup must fit the parent budget. An early tick
 within the calculated pre-entry lookback has the same latest-go cleanup budget
 as an in-window tick, so slow validation can still reach the window once.
 The lookback is max(five minutes, thirty minutes minus the window length).
+For a midnight window, that lookback can begin on the previous Toronto date;
+the child's actual entry date and half-open window still govern admission.
 Ticks outside it, or an edit between parent and child reads, defer without
 an incident or a new date claim. A new tick can admit the revised policy. Once
 claimed, a session retains its original admitted snapshot; a supported edit is
