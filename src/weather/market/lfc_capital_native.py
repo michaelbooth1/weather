@@ -128,7 +128,7 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep):
             from weather.market.lfc_redemption_native import CTF, ctf_requests
             views = dict(cached_views.get(tx, {}))
             try:
-                for data in ctf_requests(result(receipt)):
+                for data in ctf_requests(result(receipt), makers={str(r['proxy_wallet']).lower() for r in rows if r['type'] == 'REDEEM'}):
                     if data not in views:
                         if new_views >= MAX_NEW_VIEWS:
                             raise ValueError('capital_native_view_budget')

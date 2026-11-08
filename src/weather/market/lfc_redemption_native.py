@@ -79,11 +79,21 @@ def address(value):
     return '0x' + value[-40:].lower()
 
 
-def ctf_requests(receipt):
+def ctf_requests(receipt, *, makers=None):
+    relevant = set()
+    if makers is not None:
+        for log in receipt.get('logs', []):
+            topics = log.get('topics') or [None]
+            if str(log.get('address', '')).lower() == AUTO and topics[0] in (AUTO_BINARY, AUTO_NEG):
+                unpack(log, 3, ['uint256'])
+                if address(topics[1]) in makers:
+                    relevant.add(topics[2].lower())
     requests = set()
     for log in receipt.get('logs', []):
         if str(log.get('address', '')).lower() == CTF and log.get('topics', [None])[0] == REDEEM:
             cid, _, _ = unpack(log, 4, ['bytes32', 'uint256[]', 'uint256'])
+            if makers is not None and address(log['topics'][1]) not in makers and '0x' + cid.hex() not in relevant:
+                continue
             for data in ctf_calls('0x' + cid.hex()):
                 requests.add(data)
     if len(requests) > 100:
@@ -104,7 +114,8 @@ def positions(source, proof):
         return None
     receipt = result(proof['receipt'])
     maker, tx = source['proxy_wallet'].lower(), proof['transaction_hash']
-    burns, transfers, modules, auto, ctf, incoming, outgoing = {}, {}, [], [], [], 0, 0
+    moves, modules, auto, ctf, incoming, outgoing = [], [], [], [], 0, 0
+    last_auto = last_module = last_ctf = -1
     try:
         indices = set()
         for ordinal, log in enumerate(receipt['logs']):
@@ -138,30 +149,50 @@ def positions(source, proof):
                         raise ValueError('redemption_batch_shape')
                     pairs = list(zip(ids, amounts))
                 for token, amount in pairs:
-                    key = (contract, sender, recipient, token)
-                    transfers[key] = transfers.get(key, 0) + amount
-                    if recipient == ZERO:
-                        burns[(contract, token)] = burns.get((contract, token), 0) + amount
+                    moves.append((contract, sender, recipient, token, amount, ordinal))
             elif contract in MODULES and event == POSITION:
                 amount, payout = unpack(log, 4, ['uint256', 'uint256'])
-                modules.append((contract, address(topics[1]), int(topics[2], 16), address(topics[3]), amount, payout))
-            elif contract == AUTO and event == AUTO_POSITION:
+                modules.append((contract, address(topics[1]), int(topics[2], 16), address(topics[3]), amount, payout, last_module, ordinal))
+                last_module = ordinal
+            elif contract == AUTO and event in (AUTO_POSITION, AUTO_BINARY, AUTO_NEG):
                 (payout,) = unpack(log, 3, ['uint256'])
+                identity = int(topics[2], 16) if event == AUTO_POSITION else topics[2].lower()
                 if address(topics[1]) == maker:
-                    auto.append((int(topics[2], 16), payout))
+                    auto.append((event, identity, payout, last_auto, ordinal))
+                # Every owner ends a separate AutoRedeemer operation. Same
+                # token/amount in another wallet cannot mask or duplicate ours.
+                last_auto = ordinal
             elif contract == CTF and event == REDEEM:
                 cid, slots, payout = unpack(log, 4, ['bytes32', 'uint256[]', 'uint256'])
                 if int(topics[3], 16) == 0 and set(slots) == {1, 2} and len(slots) == 2:
-                    ctf.append((address(topics[1]), address(topics[2]), '0x' + cid.hex(), payout))
+                    ctf.append((address(topics[1]), address(topics[2]), '0x' + cid.hex(), payout, last_ctf, ordinal))
+                last_ctf = ordinal
+        def moved(contract, sender, recipient, token, begin, end):
+            return sum(amount for ledger, owner, to, asset, amount, ordinal in moves if ledger == contract and
+                       (sender is None or sender == owner) and (recipient is None or recipient == to) and
+                       asset == token and begin < ordinal < end)
         found = []
-        for contract, initiator, token, recipient, amount, payout in modules:
-            if recipient != maker and not (initiator == AUTO and recipient == AUTO and (token, payout) in auto):
-                continue
-            if (transfers.get((PM, maker, contract, token)) != amount or burns.get((PM, token)) != amount or amount <= 0):
+        for contract, initiator, token, recipient, amount, payout, begin, ordinal in modules:
+            end = ordinal + 1
+            if recipient != maker:
+                scopes = [(start, stop) for kind, identity, paid, start, stop in auto if kind == AUTO_POSITION and
+                          identity == token and paid == payout and start < ordinal < stop]
+                if initiator != AUTO or recipient != AUTO or len(scopes) != 1:
+                    continue
+                begin, end = scopes[0]
+            if (moved(PM, maker, contract, token, begin, end) != amount or
+                    moved(PM, contract, ZERO, token, begin, end) != amount or amount <= 0):
                 return None
-            found.append({'token_id': str(token), 'quantity': str(Decimal(amount) / 1_000_000), 'cash_native': payout})
+            found.append({'ledger': PM, 'token_id': str(token), 'quantity': str(Decimal(amount) / 1_000_000), 'cash_native': payout})
         views = proof.get('ctf_views', {})
-        for redeemer, collateral, cid, payout in ctf:
+        for redeemer, collateral, cid, payout, begin, ordinal in ctf:
+            end = ordinal + 1
+            if redeemer != maker:
+                scopes = [(start, stop) for kind, identity, paid, start, stop in auto if kind in (AUTO_BINARY, AUTO_NEG) and
+                          identity == cid and paid == payout and start < ordinal < stop]
+                if len(scopes) != 1:
+                    continue
+                begin, end = scopes[0]
             values = [result(views[data]) for data in ctf_calls(cid)]
             if any(re.fullmatch('0x[0-9a-fA-F]{64}', str(v)) is None for v in values):
                 return None
@@ -172,19 +203,33 @@ def positions(source, proof):
             for collection, numerator in zip(values[3:], (yes, no)):
                 token = int.from_bytes(keccak(bytes.fromhex(collateral[2:] + collection[2:])), 'big')
                 if redeemer == maker:
-                    amount = transfers.get((CTF, maker, ZERO, token), 0)
+                    amount = moved(CTF, maker, ZERO, token, begin, end)
                 else:
-                    amount = transfers.get((CTF, maker, AUTO, token), 0)
-                if amount and burns.get((CTF, token), 0) < amount:
+                    amount = moved(CTF, maker, AUTO, token, begin, end)
+                if amount and moved(CTF, None, ZERO, token, begin, end) != amount:
                     return None
                 if amount:
-                    parts.append({'token_id': str(token), 'quantity': str(Decimal(amount) / 1_000_000),
+                    parts.append({'ledger': CTF, 'token_id': str(token), 'quantity': str(Decimal(amount) / 1_000_000),
                                   'cash_native': amount * numerator // den})
             if parts and sum(p['cash_native'] for p in parts) == payout:
                 found.extend(parts)
-        if (not found or outgoing or len({p['token_id'] for p in found}) != len(found) or
-                sum(p['cash_native'] for p in found) != incoming):
+        owner_outgoing = {}
+        for ledger, owner, recipient, token, amount, _ in moves:
+            if owner == maker and recipient != maker and amount:
+                key = (ledger, str(token))
+                owner_outgoing[key] = owner_outgoing.get(key, 0) + amount
+        totals = {}
+        for part in found:
+            key = (part['ledger'], part['token_id'])
+            combined = totals.setdefault(key, {'token_id': part['token_id'], 'amount': 0, 'cash_native': 0})
+            combined['amount'] += int(Decimal(part['quantity']) * 1_000_000)
+            combined['cash_native'] += part['cash_native']
+        if (not totals or outgoing or len({key[1] for key in totals}) != len(totals) or
+                {key: part['amount'] for key, part in totals.items()} != owner_outgoing or
+                sum(p['cash_native'] for p in totals.values()) != incoming):
             return None
-        return {'transaction_hash': tx, 'positions': sorted(found, key=lambda p: p['token_id'])}
+        positions = [{'token_id': p['token_id'], 'quantity': str(Decimal(p['amount']) / 1_000_000),
+                      'cash_native': p['cash_native']} for p in totals.values()]
+        return {'transaction_hash': tx, 'positions': sorted(positions, key=lambda p: p['token_id'])}
     except (ValueError, TypeError, KeyError, IndexError, OverflowError):
         return None

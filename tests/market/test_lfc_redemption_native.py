@@ -18,12 +18,12 @@ from tests.market.test_lfc_f2_native import BLOCK, TX, log, proof
 from weather.market.lfc_campaign import TransientPrecheck
 from weather.market.lfc_campaign_guard import account_lease
 from weather.market.lfc_campaign_state import AccountState, MoneyContradiction
-from weather.market.lfc_capital import CapitalBook, normalize_activity, record_activity
+from weather.market.lfc_capital import ASSET, CapitalBook, normalize_activity, record_activity
 from weather.market.lfc_capital_consistency import observe
 from weather.market.lfc_capital_native import cash_native, rpc_read
 from weather.market.lfc_ledger import Ledger
-from weather.market.lfc_redemption_native import (AUTO, AUTO_POSITION, BATCH, CTF, MODULES, PM,
-    POSITION, REDEEM, SINGLE, ZERO, ctf_calls, permitted_call, positions)
+from weather.market.lfc_redemption_native import (AUTO, AUTO_BINARY, AUTO_POSITION, BATCH, CTF, MODULES, PM,
+    POSITION, REDEEM, SINGLE, ZERO, ctf_calls, ctf_requests, permitted_call, positions)
 from weather.market.mm_stage2_hold import digest
 
 
@@ -58,6 +58,9 @@ def paired(*, auto=False, ctf=False):
         logs.append(event(CTF, REDEEM, [AUTO if auto else MAKER, collateral, ZERO],
                     ['bytes32', 'uint256[]', 'uint256'], [bytes.fromhex(cid[2:]), [1, 2], 20_000_000], len(logs)))
         views = dict(zip(ctf_calls(cid), map(rpc_packet, [word(1), word(1), word(0), *collections])))
+        if auto:
+            logs.append(log(20_000_000, index=len(logs)))
+            logs.append(event(AUTO, AUTO_BINARY, [MAKER, cid], ['uint256'], [20_000_000], len(logs)))
     else:
         tokens, module = [101, 102], sorted(MODULES)[0]
         for token, payout in zip(tokens, [20_000_000, 0]):
@@ -67,8 +70,11 @@ def paired(*, auto=False, ctf=False):
             logs.append(event(module, POSITION, [AUTO if auto else MAKER, token, AUTO if auto else MAKER],
                               ['uint256', 'uint256'], [20_000_000, payout], len(logs)))
             if auto:
+                if payout:
+                    logs.append(log(payout, index=len(logs)))
                 logs.append(event(AUTO, AUTO_POSITION, [MAKER, token], ['uint256'], [payout], len(logs)))
-    logs.append(log(20_000_000, index=len(logs)))
+    if not auto:
+        logs.append(log(20_000_000, index=len(logs)))
     native = proof([source])
     native.update(receipt=rpc_packet({'transactionHash': TX, 'blockHash': BLOCK, 'blockNumber': '0x123',
                                       'status': '0x1', 'logs': logs}), ctf_views=views)
@@ -115,7 +121,8 @@ def test_unproved_native_allocation_returns_no_principal(defect):
     if defect == 'missing_burn': del logs[1]
     if defect == 'missing_auto': logs[:] = [l for l in logs if l['address'] != AUTO]
     if defect == 'missing_view': native['ctf_views'] = {}
-    if defect == 'wrong_cash': logs[-1]['data'] = word(21_000_000)
+    if defect == 'wrong_cash':
+        next(entry for entry in logs if entry['address'] == ASSET)['data'] = word(21_000_000)
     if defect == 'duplicate': logs.append(deepcopy(logs[0]))
     native['receipt'] = rpc_packet(raw['result'])
     assert cash_native(row, native) is None
@@ -253,3 +260,50 @@ def test_historical_duplicate_bundle_reclassifies_bridge_credit_once(tmp_path):
     book = CapitalBook(ledger)
     assert book.legacy_reclassified == 0 and book.figures()['funding_native'] == 300_000_000
     assert book.cash_in == 0 and book.returned_principal == 10_000_000
+
+
+@pytest.mark.parametrize('ctf', [False, True])
+def test_auto_batch_same_position_other_wallet_never_masks_our_redemption(ctf):
+    row, native, tokens = paired(auto=True, ctf=ctf)
+    raw = json.loads(native['receipt']['raw_response'])['result']
+    other = deepcopy(raw['logs'])
+    for entry in other:
+        entry['topics'] = [word('0x' + 'e' * 40) if t == word(MAKER) else t for t in entry['topics']]
+    raw['logs'] = other + raw['logs']
+    for index, entry in enumerate(raw['logs']): entry['logIndex'] = hex(index)
+    native['receipt'] = rpc_packet(raw)
+    assert cash_native(row, native) == 20_000_000
+    bundle = positions(row, native)
+    assert {p['token_id'] for p in bundle['positions']} == set(tokens)
+    assert all(p['quantity'] == '20' for p in bundle['positions'])
+
+
+def test_auto_ctf_owner_marker_is_required_for_the_allocation():
+    row, native, _ = paired(auto=True, ctf=True)
+    raw = json.loads(native['receipt']['raw_response'])['result']
+    raw['logs'] = [entry for entry in raw['logs'] if entry['address'] != AUTO]
+    native['receipt'] = rpc_packet(raw)
+    assert positions(row, native) is None and cash_native(row, native) is None
+
+
+def test_auto_ctf_views_are_scoped_cached_and_paced(tmp_path):
+    from weather.market.lfc_capital_native import collect
+    row, native, _ = paired(auto=True, ctf=True)
+    calls, waits = [], []
+    def rpc(method, params):
+        calls.append((method, params))
+        if method == 'eth_chainId': return rpc_packet('0x89')
+        if method == 'eth_getTransactionReceipt': return native['receipt']
+        if params[0]['data'] == '0x313ce567': return rpc_packet('0x6')
+        assert params[1] == '0x123'
+        return native['ctf_views'][params[0]['data']]
+    ledger = ledger_at(tmp_path)
+    packet = collect({'rows': [row]}, ledger=ledger, rpc=rpc, sleep=waits.append)
+    assert len(calls) == len(waits) == 8 and all(wait == .5 for wait in waits)
+    assert packet['native_receipts'][TX]
+    calls.clear()
+    collect({'rows': [row]}, ledger=ledger, rpc=rpc, sleep=waits.append)
+    assert len(calls) == 2  # Chain/asset only; receipt and all views retained.
+    raw = json.loads(native['receipt']['raw_response'])['result']
+    assert len(ctf_requests(raw, makers={MAKER})) == 5
+    assert ctf_requests(raw, makers={'0x' + 'e' * 40}) == []
