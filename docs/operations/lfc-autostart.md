@@ -31,6 +31,8 @@ If that also fails, it appends the same safe line to the fixed
 It contains phase/time aliases, reason codes and variable names only, with no
 values, paths or exception text. The launcher
 still exits nonzero and never starts the wrapper after a refusal.
+An invalid parent packet defers before account access with `account_not_read`;
+its notice says "account not read". It makes no cleanup or order-absence claim.
 
 A crash between a timely freeze receipt and its ledger anchor can complete on
 the next healthy tick within the original capture window. The original bytes

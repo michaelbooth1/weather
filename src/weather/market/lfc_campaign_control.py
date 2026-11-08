@@ -56,13 +56,15 @@ def orders_unproven(state, runtime=None):
 
 def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_pending=False,
                    evidence_sha256=None, research_gaps=False, reason=None, policy_metadata=None,
-                   orders_open_unproven=False):
+                   orders_open_unproven=False, account_not_read=False):
     if phase not in SAFE_STATES:
         raise ValueError('control_phase')
     if not isinstance(attempt_id, str) or not re.fullmatch(r'[0-9a-f]{32}', attempt_id):
         raise ValueError('control_opaque_id')
     if reason is not None and reason not in SAFE_REASONS:
         raise ValueError('control_reason')
+    if account_not_read is True and (phase != 'DEFERRED' or orders_open_unproven is not False):
+        raise ValueError('control_account_read_context')
     # Deliberate allowlist: no selection, token, event, price, fill, wallet,
     # credential path or raw exception message is allowed in the agent view.
     row = {'schema_version': CONTROL_SCHEMA, 'attempt_id': attempt_id, 'phase': phase,
@@ -70,6 +72,8 @@ def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_p
            'orders_open_unproven': orders_open_unproven is not False,
            'postchecks_pending': postchecks_pending is True, 'research_gaps': research_gaps is True,
            'evidence_sha256': evidence_sha256}
+    if account_not_read is True:
+        row['account_not_read'] = True
     row['reason'] = reason
     metadata = {} if policy_metadata is None else policy_metadata
     row.update({key: metadata.get(key) for key in ('policy_name', 'policy_revision', 'evidence_lane')})

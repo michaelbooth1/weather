@@ -53,6 +53,8 @@ def notify_control(runtime, row):
     """No detailed outcome, exception text or private path enters the toast."""
     from weather.market.lfc_pilot import notify_owner
     signature = {key: row[key] for key in ('attempt_id', 'phase', 'orders_open_unproven')}
+    if row.get('account_not_read') is True:
+        signature['account_not_read'] = True
     if row.get('reason') == 'freeze_missing':
         signature['reason'] = 'freeze_missing'
     previous = getattr(runtime, '_last_control_notice', None)

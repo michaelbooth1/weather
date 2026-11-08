@@ -267,7 +267,10 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                                          followup=runtime.followup, wrapper_launch=wrapper_launch).tick(load)
             return 1 if result in {'INCIDENT', 'REFUSED', 'FAILED_NO_ORDERS'} or state.incidents() else 0
     except LaunchDeferred as exc:
-        emit('DEFERRED', reason=str(exc))
+        if state is None:
+            emit('DEFERRED', reason=str(exc), account_not_read=True, orders_open_unproven=False)
+        else:
+            emit('DEFERRED', reason=str(exc))
         return 0
     except AdmissionBusy as exc:
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
