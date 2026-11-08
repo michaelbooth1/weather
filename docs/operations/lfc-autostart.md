@@ -542,6 +542,12 @@ bodies remain hash references rather than repeated account snapshots. The
 synthetic year-end capacity test covers every cumulative state family with
 twelve bands per day, SDK trade rows, paged activity and capital allocations.
 
+A committed owner operational close is idempotent across a crash before its
+attempt-close receipt. A later tick or owner retry revalidates the original
+decision, terminal identities and retained artifacts, then creates only the
+missing receipt. It does not repeat the decision, replace evidence, or waive a
+later fault occurrence. Research gaps remain gaps.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

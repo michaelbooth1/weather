@@ -57,9 +57,10 @@ def manifest(state, attempt):
     return {name: file_sha(path) if (path := artifact_path(state, name)) is not None else None for name in sorted(names)}
 
 
-def binding(state, attempt):
+def binding(state, attempt, *, incident=None):
     from weather.market.lfc_campaign_state import StateRefused
-    anchors = [row for row in state.ledger.rows if row['event'] == 'autostart_owner_close' and row.get('source_attempt_id') == attempt]
+    anchors = [row for row in state.ledger.rows if row['event'] == 'autostart_owner_close' and row.get('source_attempt_id') == attempt and
+               (incident is None or row.get('incident_id') == incident)]
     if not anchors:
         return None
     anchor = anchors[-1]
@@ -97,6 +98,47 @@ def binding(state, attempt):
     return row
 
 
+def complete_committed(state, attempt, now, *, incident=None):
+    """Finish only a retained, ledger-committed decision; never decide again.
+
+    Current artifacts and terminal legs still pass binding(), including N1.
+    The missing receipt points to the original anchor, not a fresh money read.
+    Existing receipts and the consumed claim/date are never replaced.
+    """
+    from weather.market.lfc_campaign_guard import require_account
+    from weather.market.lfc_campaign_state import StateRefused
+    require_account(state.maker)
+    closure = binding(state, attempt, incident=incident)
+    if closure is None:
+        return None
+    anchors = [row for row in state.ledger.rows if row['event'] == 'autostart_owner_close' and
+               row.get('source_attempt_id') == attempt and row.get('incident_id') == closure['incident_id']]
+    if len(anchors) != 1:
+        raise StateRefused('owner_committed_anchor_binding')
+    anchor = anchors[0]
+    if not any(row['attempt_id'] == attempt for row in state.ledger.autostart_claims):
+        return False  # An account/freeze incident has no session claim to close.
+    target = state.root / 'closed' / (attempt + '.json')
+    if target.exists():
+        saved = state.closed_binding(target)
+        proof = saved.get('proof', {})
+        if (saved.get('attempt_id') != attempt or proof.get('unknown_submit') is not False or
+                proof.get('cleanup_proven') is not True or proof.get('money_accounting_complete') is not True or
+                proof.get('ledger_head_sha256') not in {state.ledger.row_sha256(i) for i in range(len(state.ledger.rows))}):
+            raise StateRefused('owner_committed_close_binding')
+        return False
+    proof = anchor['proof']
+    if (anchor.get('proof_sha256') != digest(proof) or proof.get('unknown_submit') is not False or
+            proof.get('cleanup_proven') is not True or proof.get('money_accounting_complete') is not True):
+        raise StateRefused('owner_committed_anchor_binding')
+    closed_proof = {**proof, 'authority': 'owner_operational_close', 'research_evidence_complete': False,
+                    'ledger_head_sha256': state.ledger.row_sha256(anchor['sequence']),
+                    'owner_closure_sha256': anchor['file_sha256']}
+    state.save('closed/' + attempt + '.json', {'attempt_id': attempt, 'proof': closed_proof,
+        'proof_sha256': digest(closed_proof), 'closed_at_utc': closure['closed_at_utc']})
+    return True
+
+
 def owner_close(runtime, incident):
     from weather.market.lfc_campaign_state import StateRefused
     if not sys.stdin.isatty():
@@ -107,7 +149,9 @@ def owner_close(runtime, incident):
     path = state.root / 'incidents' / (incident + '.json')
     occurrence, sha = state.read(path), file_sha(path)
     if any(row['event'] == 'autostart_owner_close' and row.get('incident_id') == incident for row in state.ledger.rows):
-        raise StateRefused('incident_not_active')
+        source = occurrence.get('source_attempt_id', occurrence['attempt_id'])
+        complete_committed(state, source, runtime.clock.now(), incident=incident)
+        return 0
     print('Close this occurrence with gaps retained; release only its proved-dead workload. Type: close ' + sha[:12])
     if input().strip() != 'close ' + sha[:12]:
         raise StateRefused('owner_confirmation_refused')
@@ -188,15 +232,7 @@ def owner_close(runtime, incident):
             ledger.record('autostart_owner_close', attempt_id=incident, incident_id=incident,
                 source_attempt_id=source, file=relative, file_sha256=closure_sha, proof=proof, proof_sha256=digest(proof),
                 **recovery)
-            for anchor in ledger.autostart_claims:
-                if anchor['attempt_id'] != source:
-                    continue
-                target = state.root / 'closed' / (source + '.json')
-                if not target.exists():
-                    closed_proof = {**proof, 'authority': 'owner_operational_close', 'research_evidence_complete': False,
-                                    'ledger_head_sha256': ledger.previous, 'owner_closure_sha256': closure_sha}
-                    state.save('closed/' + source + '.json', {'attempt_id': source, 'proof': closed_proof,
-                        'proof_sha256': digest(closed_proof), 'closed_at_utc': runtime.clock.now().isoformat()})
+            complete_committed(state, source, runtime.clock.now(), incident=incident)
         return 0
     finally:
         runtime.owner_fault_review = False

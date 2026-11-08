@@ -80,8 +80,8 @@ def recover_empty(state, now):
     closed = []
     for anchor in list(state.ledger.autostart_claims):
         claim = state.read(state.root / 'claims' / (anchor['local_date'] + '.json'))
-        from weather.market.lfc_campaign_owner_close import binding as operational_binding
-        if operational_binding(state, claim['attempt_id']) is not None:
+        from weather.market.lfc_campaign_owner_close import complete_committed
+        if complete_committed(state, claim['attempt_id'], now) is not None:
             continue
         if not attempt_intents(state.ledger, claim['attempt_id']) and close_empty(state, claim, now):
             closed.append(claim)
