@@ -102,7 +102,12 @@ function Get-LfcCampaignDeadline {
             $begin=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[0],'hh\:mm\:ss',$culture)
             $finish=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[1],'hh\:mm\:ss',$culture)
             $stop=[TimeSpan]::ParseExact([string]$policyRow.trading_end_toronto,'hh\:mm\:ss',$culture)
-            if($begin -ge $finish -or $finish -ge $stop -or $localNow.TimeOfDay -lt $begin -or $localNow.TimeOfDay -ge $finish) { return $fallback }
+            if($begin -ge $finish -or $finish -ge $stop) { return $fallback }
+            # IgnoreNew drops timer ticks while a pre-entry child is working.
+            # Give near-window ticks the SAME latest-go cleanup envelope; this
+            # extends their containment budget, never the child's entry window.
+            $lookback=[TimeSpan]::FromMinutes([math]::Max(5,30-($finish-$begin).TotalMinutes))
+            if($localNow.TimeOfDay -lt ($begin-$lookback) -or $localNow.TimeOfDay -ge $finish) { return $fallback }
             $localStop=[DateTime]::SpecifyKind($localNow.Date.Add($stop),[DateTimeKind]::Unspecified)
             $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
             $seconds=[int]$policyRow.max_session_seconds
@@ -117,7 +122,8 @@ function Get-LfcCampaignDeadline {
             foreach($entry in $policyRow.entries) {
                 $start=[DateTimeOffset]::Parse([string]$entry.window_start_utc,$culture)
                 $finish=[DateTimeOffset]::Parse([string]$entry.window_end_utc,$culture)
-                if($start -le $NowUtc -and $NowUtc -lt $finish) {
+                $lookback=[TimeSpan]::FromMinutes([math]::Max(5,30-($finish-$start).TotalMinutes))
+                if($start.Subtract($lookback) -le $NowUtc -and $NowUtc -lt $finish) {
                     $seconds=[math]::Min([int]$entry.duration_seconds,[int]$policyRow.max_session_seconds)
                     if($seconds -lt 300 -or $seconds -gt 21600) { return $fallback }
                     $end=$finish.AddSeconds($seconds)

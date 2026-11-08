@@ -28,7 +28,9 @@ def guarded_runtime(tmp_path):
 def test_wrapper_read_and_child_admission_share_a_bound_deadline(tmp_path, monkeypatch, race):
     row = example_policy(); row.update(enabled=True, max_session_seconds=300 if race=='policy_edit' else 21600)
     entry = next(e for e in parse_policy(row).entries if e.local_date=='2026-11-11')
-    began = entry.start if race=='policy_edit' else entry.start-timedelta(minutes=5)
+    # B064 gives near-window ticks a full envelope. This earlier tick remains
+    # outside that bounded lookback and must still refuse after slow work.
+    began = entry.start if race=='policy_edit' else entry.start-timedelta(minutes=20)
     deadline = wrapper_deadline(tmp_path, row, began)
     path = tmp_path/'synthetic-policy.json'
     launch = {'deadline_utc': deadline.isoformat(), 'policy_bytes_sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -48,7 +50,7 @@ def test_wrapper_read_and_child_admission_share_a_bound_deadline(tmp_path, monke
             original = state.verify
             first = [True]
             def slow(*args, **kwargs):
-                if first[0]: first[0]=False; clock.sleep(301)
+                if first[0]: first[0]=False; clock.sleep(1201)
                 return original(*args, **kwargs)
             monkeypatch.setattr(state, 'verify', slow)
             outcome = coordinator.tick(lambda: load_policy(path))

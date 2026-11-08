@@ -559,7 +559,10 @@ Each wrapper launch reads one bounded policy-byte snapshot. Its deadline and
 that exact snapshot's SHA256 are passed to the child, which checks them before
 claim and again at the live boundary and placement checkpoints. The entire
 permitted start window plus cleanup must fit the parent budget. An early tick
-crossing into a window, or an edit between parent and child reads, defers without
+within the calculated pre-entry lookback has the same latest-go cleanup budget
+as an in-window tick, so slow validation can still reach the window once.
+The lookback is max(five minutes, thirty minutes minus the window length).
+Ticks outside it, or an edit between parent and child reads, defer without
 an incident or a new date claim. A new tick can admit the revised policy. Once
 claimed, a session retains its original admitted snapshot; a supported edit is
 for the next unclaimed session. The prepared receipt retains the launch envelope.
