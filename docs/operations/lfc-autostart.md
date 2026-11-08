@@ -21,6 +21,10 @@ exit code. The wrapper is assigned suspended to a kill-on-close Job before it
 can execute; the wrapper also contains the campaign child. The Interactive/Limited
 owner session remains available for toasts. Registration seals the interpreter
 and launcher hashes; a changed binding refuses.
+Environment/binding refusals before the child starts write one sanitized line
+to `status/control/launcher-refusals-YYYY-MM-DD.jsonl`. It contains reason codes
+and variable names only, with no values, paths or exception text. The launcher
+still exits nonzero and never starts the wrapper after a refusal.
 
 A crash between a timely freeze receipt and its ledger anchor can complete on
 the next healthy tick within the original capture window. The original bytes

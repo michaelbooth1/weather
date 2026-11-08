@@ -24,6 +24,10 @@ def fixture(tmp_path, body):
     ops.mkdir(parents=True)
     launcher = ops / 'lfc_campaign_windowless.py'
     shutil.copyfile(REPO_ROOT / 'scripts/ops/lfc_campaign_windowless.py', launcher)
+    text = launcher.read_text()
+    declaration = "STATUS_ROOT = Path(r'C:\\t\\pilot\\status\\control')"
+    assert text.count(declaration) == 1
+    launcher.write_text(text.replace(declaration, 'STATUS_ROOT = Path(' + repr(str(tmp_path / 'public-status')) + ')'))
     (ops / 'lfc_campaign_task.ps1').write_text(body)
     pythonw = Path(sys.executable).with_name('pythonw.exe')
     row = {'schema_version': 'lfc_campaign_release_v0.1', 'task_name': 'WeatherLFCCampaign',
@@ -54,6 +58,13 @@ def test_windowless_binding_refuses_before_any_wrapper_executes(tmp_path, change
     if changed == 'receipt_hash': command[-1] = 'f' * 64
     child = subprocess.run(command, env=env, timeout=15)
     assert child.returncode == 1 and not marker.exists()
+    logs = list((tmp_path / 'public-status').glob('launcher-refusals-*.jsonl'))
+    assert len(logs) == 1
+    rows = [json.loads(line) for line in logs[0].read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]['state'] == 'REFUSED' and rows[0]['exit_code'] == 1
+    text = json.dumps(rows)
+    assert not any(value in text for value in ('forbidden-override', str(tmp_path), 'release.json', 'pythonw.exe'))
+    assert rows[0]['variable_names'] == (['PYTHONPATH'] if changed == 'environment' else [])
 
 
 @pytest.mark.spawns

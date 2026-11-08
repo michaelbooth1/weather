@@ -11,6 +11,25 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from datetime import datetime, timezone
+
+
+STATUS_ROOT = Path(r'C:\t\pilot\status\control')
+IMPORT_OVERRIDES = ('PYTHONPATH', 'PYTHONHOME', 'WEATHER_MARKET_REGISTRY')
+
+
+def refusal_row(reason):
+    """Public daily log: names/codes only; never values, paths or exceptions."""
+    now = datetime.now(timezone.utc)
+    row = {'schema_version': 'lfc_launcher_refusal_v0.1', 'state': 'REFUSED',
+        'observed_at_utc': now.isoformat(), 'reason': reason, 'exit_code': 1,
+        'variable_names': sorted(name for name in IMPORT_OVERRIDES if name in os.environ)}
+    STATUS_ROOT.mkdir(parents=True, exist_ok=True)
+    path = STATUS_ROOT / ('launcher-refusals-' + now.date().isoformat() + '.jsonl')
+    with path.open('ab') as stream:
+        stream.write((json.dumps(row, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii'))
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 class ChildJob:
@@ -70,8 +89,7 @@ def file_sha(path):
 
 
 def run(release_path, expected_sha):
-    if os.name != 'nt' or any(name in os.environ for name in
-            ('PYTHONPATH', 'PYTHONHOME', 'WEATHER_MARKET_REGISTRY')):
+    if os.name != 'nt' or any(name in os.environ for name in IMPORT_OVERRIDES):
         raise ValueError('campaign_windowless_environment')
     release_path = Path(release_path).resolve(strict=True)
     if release_path.stat().st_size > 65536 or file_sha(release_path) != expected_sha:
@@ -112,7 +130,13 @@ def main():
     args = parser.parse_args()
     try:
         return run(args.release, args.release_sha256)
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        allowed = {'campaign_windowless_environment', 'campaign_release_hash', 'campaign_windowless_binding'}
+        reason = str(exc) if isinstance(exc, ValueError) and str(exc) in allowed else 'campaign_windowless_refused'
+        try:
+            refusal_row(reason)
+        except OSError:
+            pass  # An unwritable volume still returns nonzero; never leak its exception/path.
         return 1
 
 

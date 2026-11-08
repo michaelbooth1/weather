@@ -133,6 +133,10 @@ def test_headless_console_has_no_visible_window_and_preserves_process_session(tm
     from weather.paths import REPO_ROOT
     from weather.market.lfc_recording_io import file_sha
     shutil.copyfile(REPO_ROOT / 'scripts/ops/lfc_campaign_windowless.py', launcher)
+    text = launcher.read_text()
+    declaration = "STATUS_ROOT = Path(r'C:\\t\\pilot\\status\\control')"
+    assert text.count(declaration) == 1
+    launcher.write_text(text.replace(declaration, 'STATUS_ROOT = Path(' + repr(str(tmp_path / 'public-status')) + ')'))
     helper = scripts / 'lfc_campaign_task.ps1'
     helper.write_text('''Add-Type @'
 using System;
