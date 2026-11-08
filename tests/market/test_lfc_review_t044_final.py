@@ -1,4 +1,6 @@
-"""Independent T044 desired-behavior witnesses. Guards: retained campaign evidence.
+"""Independent T044 desired-behavior witnesses.
+
+Guards: retained campaign evidence.
 
 All inputs are synthetic. No account, venue, credential, reader or Scheduler call.
 """
@@ -76,5 +78,3 @@ def test_final_confirmation_requires_retained_frozen_economic_claim(tmp_path, ch
         report = snapshot(state.ledger, policy, root=tmp_path,
             now=datetime(2026, 12, 28, 23, tzinfo=timezone.utc), frozen=frozen)
         assert report['purchase_cost_native'] == {'confirmation': 0, 'learning_and_legacy': 10_000_000}
-
-

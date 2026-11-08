@@ -1,4 +1,6 @@
-"""Independent T044 desired-behavior witnesses. Guards: retained campaign evidence.
+"""Independent T044 desired-behavior witnesses.
+
+Guards: retained campaign evidence.
 
 All inputs are synthetic. No account, venue, credential, reader or Scheduler call.
 """
@@ -60,5 +62,3 @@ def test_mixed_owner_campaign_redemption_reports_only_campaign_payout(tmp_path):
     assert report['settlement']['redemptions'][0]['session_cash_native'] == 10_000_000, report['settlement']
     assert report['settlement']['redemptions'][0]['exclusive_session_scope'] is False
     assert report['settlement']['redemptions'][0]['session_allocation_intent_keys'] == ['campaign']
-
-

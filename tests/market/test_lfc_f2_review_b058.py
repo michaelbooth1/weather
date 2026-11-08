@@ -180,4 +180,3 @@ def test_b058_6_cooldown_one_second_is_rejected():
     row['fill_cooldown_seconds'] = 1
     with pytest.raises((ValueError, RuntimeError)):
         parse_policy(row)
-

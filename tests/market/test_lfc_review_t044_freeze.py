@@ -1,4 +1,6 @@
-"""Independent T044 desired-behavior witnesses. Guards: retained campaign evidence.
+"""Independent T044 desired-behavior witnesses.
+
+Guards: retained campaign evidence.
 
 All inputs are synthetic. No account, venue, credential, reader or Scheduler call.
 """
@@ -71,5 +73,3 @@ def test_partial_freeze_recovery_preserves_binding_and_window(tmp_path, monkeypa
     capture(state, policy, clock.now())
     assert file_sha(path) == original
     assert (verify(state) is not None) == (case == 'intervening_row')
-
-

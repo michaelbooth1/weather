@@ -1,4 +1,6 @@
-"""Independent T044 desired-behavior witnesses. Guards: retained campaign evidence.
+"""Independent T044 desired-behavior witnesses.
+
+Guards: retained campaign evidence.
 
 All inputs are synthetic. No account, venue, credential, reader or Scheduler call.
 """
@@ -84,4 +86,3 @@ def test_partial_owner_close_is_one_bound_decision_not_a_future_waiver(tmp_path,
         with pytest.raises(StateRefused, match='owner_close_partial_binding'): owner_close(runtime, incident)
         assert not any(r['event'] == 'autostart_owner_close' for r in runtime.state.ledger.rows)
     assert file_sha(path) == original
-

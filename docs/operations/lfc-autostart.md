@@ -22,6 +22,18 @@ can execute; the wrapper also contains the campaign child. The Interactive/Limit
 owner session remains available for toasts. Registration seals the interpreter
 and launcher hashes; a changed binding refuses.
 
+A crash between a timely freeze receipt and its ledger anchor can complete on
+the next healthy tick within the original capture window. The original bytes
+and capture time stay intact. A matching partial owner-close receipt can likewise
+complete after explicit owner confirmation and a fresh money proof; it accepts
+only that occurrence and its unchanged artifact manifest.
+
+Final confirmation totals use the retained confirmation claims and frozen economic
+identity, including revision-only edits. A successor economic policy remains
+separate even after reverting its fields. Session redemption cash sums proved
+session-lot payout allocations; any owner holdings in the same transaction stay
+outside that session's measured cash. Unknown allocations remain unknown.
+
 The checked-in [F2 example](../examples/lfc-campaign.example.json) and
 [alternate filename](../examples/campaign.proposed.json) are disabled runtime
 policies. The breadth v0.3 rules below govern those files. The
