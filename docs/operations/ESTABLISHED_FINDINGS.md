@@ -151,6 +151,7 @@ sequence numbers, not calendar dates.
 | 10ba | Astra/sol reviews: model timing, simulator/accounting, recorder, automation and evidence limits; archived pin-specific findings, not deployment qualification |
 | 10bb | T032: SPECI floor support mismatch, verified routine/COR label selection, pilot isolation and metadata-only MRMS; serving repair undone |
 | 10bc | T030: ten scoped processing defects and sizes; subjective remaining-gap planning range, no score; census PARKED |
+| 10bd | T038: December policy profitability UNIDENTIFIED; PLANNING ESTIMATE (not a measurement) per session; Nov 16 KEEP-paired rule |
 
 ---
 
@@ -5324,6 +5325,32 @@ spent. Do not use prevalence, the range or the overlapping table as a promised s
 **Census PARKED (B022):** no December consumer under the T033 proposal. The review's earlier request
 for census GO is not authority to launch it. This status is a resource disposition, not a finding
 that defects are harmless or a decision adopting T033. No repair, retrain or frozen-arm change is done.
+
+### 10bd. T038 December economics — profitability UNIDENTIFIED (PLANNING ESTIMATE, not a measurement)
+
+**Profitability of the adopted policy is UNIDENTIFIED.** Astra's T038 review (2026-11-07) gives only
+conditional budget-planning points for a six-hour session with two admitted, funded bands. They are
+**not** fitted expected returns, confidence intervals or loss bounds; fill process, payout-conditioned
+toxicity and competitive response are unmeasured for both policies. Source: `C:\archive\reviews\T038\REPORT.md` headline, §§4–5
+and the ranked MUST-FIX list.
+
+| Policy (six-hour, two-band session) | Planning net | Scenario range |
+| --- | ---: | ---: |
+| `DT-T1-Paired20-K2` (adopted) | −$0.30 | −$2.66 to +$0.97 |
+| One-sided cheap-token T+1, 20 shares, K2 | −$0.18 | −$1.87 to +$0.28 |
+
+Paying all the modelled central accrual moves the paired planning net to **+$0.06**: payment
+treatment alone flips its central sign. T002's negative net table is **T+0** event-day stress; it
+has **no T+1 execution evidence**, so it is not the adopted T+1 forecast.
+
+**Nov 16 rule:** KEEP paired unless a supported one-sided comparison covers both cities and **≥3
+mature T+1 dates**, with conservative net **>0** and an advantage **>$0.25/session**, using only
+evidence available by Nov 15 18:00 Toronto. KEEP is the least-bad default, not a profit forecast.
+
+**Decision artifacts required:** planning and measured economics labelled separately; a cash forecast
+from PAID rewards plus carried inventory (never accrual or terminal marks alone); counterfactual
+evidence before any switch (deleting the expensive leg from paired receipts does not qualify the
+one-sided policy). This entry changes neither F0 nor live authority.
 
 ## Related
 
