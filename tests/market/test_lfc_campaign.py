@@ -24,6 +24,19 @@ MAKER = '0x' + 'a' * 40
 NOW = datetime(2026, 11, 11, 16, tzinfo=timezone.utc)
 
 
+def bind_launch(coordinator, policy):
+    """Supply explicit inert parent bytes/budget to non-launch campaign tests."""
+    from dataclasses import replace
+    import hashlib
+    import json
+    raw = json.dumps(policy.raw).encode()
+    policy = replace(policy, source_sha256=policy.source_sha256 or hashlib.sha256(raw).hexdigest())
+    entry = next((entry for entry in policy.entries if entry.permits(coordinator.clock.now())), policy.entries[0])
+    deadline = entry.session_end(entry.end) + timedelta(minutes=30)
+    coordinator.wrapper_launch = {'deadline_utc': deadline.isoformat(), 'policy_bytes_sha256': policy.source_sha256}
+    return policy
+
+
 def policy_row():
     return {'schema_version': 'lfc_campaign_policy_v0.1', 'enabled': True, 'campaign_id': 'fixture',
             'revision': 1, 'timezone': 'America/Toronto', 'sidecar': None,
@@ -211,7 +224,8 @@ def test_synthetic_trigger_pre_go_session_postchecks_and_control_status(tmp_path
         state = state_at(tmp_path, clock)
         runtime = StubRuntime(state, clock, transient=2)
         coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
-        assert coordinator.tick(lambda: parse_policy(policy_row())) == 'STARTED'
+        policy = bind_launch(coordinator, parse_policy(policy_row()))
+        assert coordinator.tick(lambda: policy) == 'STARTED'
         assert runtime.go_count == 1 and runtime.prechecks == 3
         assert clock.value == NOW + timedelta(seconds=15)
         assert not state.pending() and not state.incidents()
@@ -238,8 +252,9 @@ def test_crash_latch_survives_reboot_reinstall_and_campaign_rename(tmp_path):
             return original_run(claim, entry, policy, prepared)
         runtime.run_session = placement_then_crash
         coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
+        policy = bind_launch(coordinator, parse_policy(policy_row()))
         with pytest.raises(RuntimeError, match='power_loss'):
-            coordinator.tick(lambda: parse_policy(policy_row()))
+            coordinator.tick(lambda: policy)
     # New ledger object, runtime, mutex and policy: no in-memory latch relied on.
     with account_lease(MAKER, backend=Mutexes()):
         ledger = Ledger.open(state.ledger.path, clock=clock.now)

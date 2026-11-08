@@ -194,8 +194,11 @@ class CampaignCoordinator:
                     if not entry.permits(self.clock.now()):
                         break
                     latest = load_policy()
-                    if self.wrapper_launch is not None:
-                        require_launch(self.wrapper_launch, latest, entry)
+                    # Bind the exact tick-start object used by run_session and
+                    # authority, including a byte-only A->B->A file edit. Missing
+                    # parent authority must defer BEFORE consuming this date.
+                    require_launch(self.wrapper_launch, policy, entry)
+                    require_launch(self.wrapper_launch, latest, entry)
                     if latest.sha256 != policy.sha256 or not self.runtime.task_enabled():
                         self.status('DEFERRED', entry.id, reason='policy_changed')
                         return 'DEFERRED'

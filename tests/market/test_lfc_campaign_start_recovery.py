@@ -56,7 +56,7 @@ def test_actual_start_check_failure_is_retained_and_empty_claim_recovers(tmp_pat
             pytest.fail('expired setup must never reach placement')
         monkeypatch.setattr(lfc_cli, '_run_live', opening_read)
         coordinator = CampaignCoordinator(state=runtime.state, runtime=runtime, clock=runtime.clock,
-                                           control_root=tmp_path / 'control')
+                                           control_root=tmp_path / 'control', wrapper_launch=runtime.wrapper_launch)
         assert coordinator.start(entry, policy, lambda: policy) == 'FAILED_NO_ORDERS'
         claim = runtime.state.claims()[0]
         result = runtime.saved_result(claim)

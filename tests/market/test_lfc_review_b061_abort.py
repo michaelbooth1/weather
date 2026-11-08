@@ -57,6 +57,8 @@ def test_submit_exit_has_only_proved_monetary_ambiguity_end_to_end(tmp_path, mon
             return result
         runtime.run_session = session
         campaign = CampaignCoordinator(state=runtime.state, runtime=runtime, clock=clock, control_root=runtime.control_root)
+        from tests.market.test_lfc_campaign import bind_launch
+        policy = bind_launch(campaign, policy)
         assert campaign.start(controller.entry, policy, lambda: policy) == 'STARTED'
         if exit_kind == 'post_ack_lost':
             assert results[0]['unknown_submit'] is True

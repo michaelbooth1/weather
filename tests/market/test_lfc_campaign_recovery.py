@@ -55,6 +55,8 @@ def test_reachable_postclaim_exception_is_saved_before_unposted_close(tmp_path):
     runtime = StubRuntime(state, clock, crash=True)
     policy = parse_policy(policy_row())
     coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
+    from tests.market.test_lfc_campaign import bind_launch
+    policy = bind_launch(coordinator, policy)
     assert coordinator.start(policy.entries[0], policy, lambda: policy) == 'FAILED_NO_ORDERS'
     claim = state.claims()[0]
     assert claim['attempt_id'] in runtime.results

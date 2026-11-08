@@ -148,6 +148,8 @@ def test_actual_tick_preserves_pre_post_vs_post_through_result_and_closure(tmp_p
             return result
         runtime.run_session = run_session
         campaign = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=runtime.control_root)
+        from tests.market.test_lfc_campaign import bind_launch
+        policy = bind_launch(campaign, policy)
         assert not state.claims()
         assert campaign.tick(lambda: policy) == 'STARTED'
         assert len(state.claims()) == len(runs) == 1
