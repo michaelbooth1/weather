@@ -33,9 +33,15 @@ class CampaignCoordinator:
                    'COMPLETE': 'completed', 'INCIDENT': 'account_incident'}
         opaque = (attempt if isinstance(attempt, str) and re.fullmatch(r'[0-9a-f]{32}', attempt) else
                   hashlib.sha256(str(attempt).encode()).hexdigest()[:32] if attempt else uuid.uuid4().hex)
-        return control_record(self.control_root, opaque, phase=phase,
+        if self.state.incidents():
+            phase, kwargs['incident'] = 'INCIDENT', True
+            reason = reason if reason in {'admission_busy', 'hold_retained'} else 'account_incident'
+        row = control_record(self.control_root, opaque, phase=phase,
                               now=self.clock.now(), reason=reason or reasons.get(phase),
                               policy_metadata=self.policy_binding, **kwargs)
+        if hasattr(self.runtime, 'notify_control'):
+            self.runtime.notify_control(row)
+        return row
 
     def pending(self):
         """Postcheck ticks return here; they cannot fall through to another live entry."""
@@ -76,6 +82,7 @@ class CampaignCoordinator:
                 reason = ('owner_stop' if outcome.get('halt_reason') == 'owner_stop' else
                           'market_local_horizon' if outcome.get('horizon_retirement') else 'completed')
                 self.status('COMPLETE', attempt, evidence_sha256=sha,
+                            orders_open_unproven=False,
                             research_gaps=proof.get('research_evidence_complete') is not True, reason=reason)
             else:
                 self.status('POSTCHECK_PENDING', attempt, postchecks_pending=True,
@@ -132,6 +139,7 @@ class CampaignCoordinator:
 
     def start(self, entry, policy, load_policy):
         delay = 5
+        last_deferral = 'window_missed'
         while self.clock.now() < entry.end:
             claim = None
             current = load_policy()
@@ -170,20 +178,25 @@ class CampaignCoordinator:
                         self.status('INCIDENT', claim['attempt_id'], incident=True, postchecks_pending=True)
                         raise
                     return 'STARTED'
-            except (TransientPrecheck, AdmissionBusy):
+            except (TransientPrecheck, AdmissionBusy) as exc:
                 if claim is not None:
                     # Never turn a post-claim transport failure into permission
                     # for a second order-capable invocation, even in this tick.
                     raise
-                self.status('DEFERRED', entry.id)
+                reason = ('hold_retained' if isinstance(exc, AdmissionBusy) and str(exc) in
+                          {'hold_already_owned', 'hold_retained'} else
+                          'admission_busy' if isinstance(exc, AdmissionBusy) else 'transport_deferred')
+                self.status('DEFERRED', entry.id, reason=reason)
+                last_deferral = reason
                 remaining = (entry.end - self.clock.now()).total_seconds()
                 if remaining <= 0:
                     break
                 self.clock.sleep(min(delay, remaining))
                 delay = min(120, delay * 2)
-            except AdmissionUncertain:
+            except AdmissionUncertain as exc:
                 self.state.latch(uuid.uuid4().hex, 'ownership_uncertain', self.clock.now())
-                self.status('INCIDENT', incident=True)
+                self.status('INCIDENT', incident=True, reason='hold_retained' if str(exc) in {
+                    'workload_poison', 'workload_marker_ownership_unknown', 'hold_retained_teardown_unproved'} else None)
                 return 'INCIDENT'
             except MoneyContradiction:
                 self.state.latch(uuid.uuid4().hex, 'pre_go_money_contradiction', self.clock.now())
@@ -192,9 +205,12 @@ class CampaignCoordinator:
             except OwnerStopRequested:
                 self.status('DISABLED', entry.id)
                 return 'DISABLED'
-            except StateRefused:
+            except StateRefused as exc:
+                if str(exc) == 'disk_free_below_floor':
+                    self.status('REFUSED', entry.id, reason='disk_free_below_floor')
+                    return 'REFUSED'
                 self.status('INCIDENT', incident=True)
                 raise
         self.runtime.record_skip(entry, policy, 'window_missed')
-        self.status('MISSED', entry.id)
+        self.status('MISSED', entry.id, reason=last_deferral)
         return 'MISSED'

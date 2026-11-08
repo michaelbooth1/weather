@@ -11,6 +11,7 @@ import uuid
 import json
 import re
 
+from weather.market.lfc_campaign_visibility import safe_traceback, tick_log
 from weather.market.lfc_campaign import CampaignCoordinator
 from weather.market.lfc_campaign_control import CONTROL_ROOT, control_record
 from weather.market.lfc_campaign_guard import AdmissionBusy, account_lease
@@ -177,7 +178,7 @@ def owner_recover_history(args):
     return 0
 
 
-def main(argv=None):
+def dispatch(argv=None, *, attempt=None, diagnostic=None):
     args = parser().parse_args(argv)
     if args.command == 'owner-recover-history':
         return owner_recover_history(args)
@@ -186,7 +187,14 @@ def main(argv=None):
                      python_path=args.python, output=args.release)
         print('Campaign release sealed; task activation remains owner-only.')
         return 0
-    attempt = uuid.uuid4().hex
+    attempt = attempt or uuid.uuid4().hex
+    state = None
+    def emit(phase, **fields):
+        from types import SimpleNamespace
+        from weather.market.lfc_campaign_visibility import notify_control
+        row = control_record(CONTROL_ROOT, attempt, phase=phase, now=datetime.now(timezone.utc), **fields)
+        if args.command == 'tick':
+            notify_control(SimpleNamespace(control_root=CONTROL_ROOT), row)
     try:
         release = load_release(args.release, args.release_sha256)
         validate_release(release)
@@ -218,22 +226,42 @@ def main(argv=None):
                                          state_id=state.verify()['state_id'], maker=state.maker)
                 return 0
             result = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=CONTROL_ROOT).tick(load)
-            return 1 if result == 'INCIDENT' or state.incidents() else 0
-    except AdmissionBusy:
-        control_record(CONTROL_ROOT, attempt, phase='DEFERRED', now=datetime.now(timezone.utc))
+            return 1 if result in {'INCIDENT', 'REFUSED'} or state.incidents() else 0
+    except AdmissionBusy as exc:
+        if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
+        emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')
         return 0
     except (PolicyRefused, StateRefused):
+        if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         code = str(sys.exc_info()[1])
         code = code if re.fullmatch(r'[a-z0-9_]{1,96}', code) else 'policy_refused'
         print(json.dumps({'state': 'REFUSED', 'code': code}))
-        control_record(CONTROL_ROOT, attempt, phase='REFUSED', now=datetime.now(timezone.utc), reason='policy_refused')
+        incident = state is not None and bool(state.incidents())
+        emit('INCIDENT' if incident else 'REFUSED', incident=incident,
+             reason='account_incident' if incident else 'disk_free_below_floor' if code == 'disk_free_below_floor' else 'policy_refused')
         return 1
     except BaseException:
+        if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         # Never expose credentials/paths/raw exception messages. Existing claims
         # retain their sticky incident; missing state is never bootstrapped here.
-        control_record(CONTROL_ROOT, attempt, phase='INCIDENT', now=datetime.now(timezone.utc), incident=True,
-                       postchecks_pending=True)
+        emit('INCIDENT', incident=True, postchecks_pending=True)
         return 130 if sys.exc_info()[0] is KeyboardInterrupt else 1
+
+
+def main(argv=None):
+    arguments = sys.argv[1:] if argv is None else argv
+    attempt, diagnostic, code = uuid.uuid4().hex, {}, 1
+    try:
+        code = dispatch(arguments, attempt=attempt, diagnostic=diagnostic)
+        return code
+    except BaseException as exc:
+        diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
+        code = exc.code if isinstance(exc, SystemExit) and type(exc.code) is int else 130 if isinstance(exc, KeyboardInterrupt) else 1
+        raise
+    finally:
+        if arguments and arguments[0] == 'tick':
+            tick_log(CONTROL_ROOT.parent, now=datetime.now(timezone.utc), attempt_id=attempt,
+                     exit_code=code, frames=diagnostic.get('traceback', ()))
 
 
 if __name__ == '__main__':

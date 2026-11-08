@@ -42,6 +42,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_FLOOR
 import hashlib
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -362,13 +363,24 @@ def result_line(summary):
     return 'LFC-RESULT ' + ' '.join(f'{k}={summary.get(k)}' for k in keys)
 
 
-def notify_owner(root, summary, *, runner=subprocess.run, printer=print, windows=None):
+def notify_owner(root, summary, *, runner=subprocess.run, printer=print, windows=None, public_status=None):
     """Default channel (owner ruling, P8): a Windows desktop toast on the workstation plus a one-line session result
     for the master agent to relay. No third-party service and no credential. Never raises; returns the
     notification record (delivered or the recorded failure), which goes into session_end.json."""
     line = result_line(summary)
+    if public_status is not None:
+        from weather.market.lfc_campaign_control import SAFE_STATES
+        if (set(public_status) != {'phase', 'attempt_id', 'orders_open_unproven'} or
+                public_status['phase'] not in SAFE_STATES or
+                not re.fullmatch('[0-9a-f]{32}', str(public_status['attempt_id'])) or
+                type(public_status['orders_open_unproven']) is not bool):
+            raise ValueError('notification_public_status')
+        line = (f"LFC {public_status['phase']} attempt_id={public_status['attempt_id']} "
+                f"orders_open_unproven={str(public_status['orders_open_unproven']).lower()}")
     record = {'channel': 'windows_toast+result_line', 'result_line': line, 'toast_delivered': False,
               'toast_error': None, 'at_utc': datetime.now(timezone.utc).isoformat()}
+    if public_status is not None:
+        record['public_status'] = dict(public_status)
     try:
         printer(line, flush=True)
         record['result_line_printed'] = True

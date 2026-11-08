@@ -229,6 +229,10 @@ class Runtime:
         self.hold_path = Path(hold_path)
         self.sidecar = None
 
+    def notify_control(self, row):
+        from weather.market.lfc_campaign_visibility import notify_control
+        return notify_control(self, row)
+
     def task_enabled(self):
         now = self.clock.monotonic()
         if self._task_checked is None or now - self._task_checked >= 5:
@@ -504,6 +508,8 @@ class Runtime:
         if OWNER_STOP_FILE.exists():
             raise OwnerStopRequested('owner_stop')
         resources = workstation_headroom()
+        from weather.market.lfc_campaign_visibility import disk_headroom
+        resources.update(disk_headroom(self.pilot_root))
         ledger = self.reload_ledger()
         self.state.require_history()
         self.state.require_retained_evidence()
@@ -557,11 +563,14 @@ class Runtime:
         # STOP remains the existing owner-only fixed path; agents never create
         # it. Tests inject a temporary status/STOP surface before any checkpoint.
         previous = {}
+        progress = [time.monotonic()]
         stop_watcher = threading.Event()
         def watch_owner_stop():
             # Observation only. The coordinator's normal checkpoint/cleanup is
             # the sole cancellation path; this thread never touches the venue.
             while not stop_watcher.wait(1):
+                from weather.market.lfc_campaign_visibility import stalled
+                stalled(self, claim, last_progress=progress[0], now_mono=time.monotonic())
                 try:
                     status.owner_stop()
                 except OSError:
@@ -572,7 +581,10 @@ class Runtime:
         code = 1
         try:
             authority = ScheduledAuthority(self, claim, entry, policy, prepared)
-            status.checkpoint_hook = authority.check
+            def progress_check():
+                authority.check()
+                progress[0] = time.monotonic()
+            status.checkpoint_hook = progress_check
             sidecar_policy = policy.raw['sidecar']
             if sidecar_policy is not None and sidecar_policy['enabled']:
                 from weather.market.lfc_campaign_sidecar import Sidecar
@@ -604,6 +616,12 @@ class Runtime:
             for number, handler in previous.items():
                 signal.signal(number, handler)
             outcome = status.finish(success=code == 0)
+            unproven = outcome.get('cancellation_proven') is not True or outcome.get('orders_open_at_exit') != []
+            phase = 'INCIDENT' if outcome.get('unknown_submit') is not False else 'POSTCHECK_PENDING'
+            self.notify_control(control_record(self.control_root, claim['attempt_id'], phase=phase, now=self.clock.now(),
+                incident=phase == 'INCIDENT', postchecks_pending=True, orders_open_unproven=unproven,
+                reason='account_incident' if phase == 'INCIDENT' else 'postcheck_pending',
+                policy_metadata=claim_labels(policy, claim, entry)))
             if self.sidecar is not None:
                 if not self.sidecar.stop():
                     self.state.latch(claim['attempt_id'], 'sidecar_teardown_unproved', self.clock.now())

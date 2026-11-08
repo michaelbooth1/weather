@@ -350,6 +350,24 @@ mismatch at least 15 minutes after the first latches a monetary incident. A
 consistent read clears only this candidate; it never clears an incident, a
 claimed date or an ambiguous placement. These observations survive a reboot.
 
+The runtime sends the existing Windows toast and appends a safe one-line record
+to `status/notifications.jsonl` on incident, pending cleanup, completion and a
+missed/refused start window. Every control record includes
+`orders_open_unproven`; true is a warning, never a cancellation proof. An
+existing incident always projects INCIDENT, including during pending postchecks.
+Busy workload admission and retained HOLD/marker state have distinct reasons.
+Automatic admission never guesses that a marker is stale or deletes it; the
+existing owner recovery still requires proved reboot/identity continuity.
+
+Before go, the session volume needs at least the code's 5 GiB free-space floor.
+The owner-only STOP checkpoint remains unchanged. A separate watchdog exits the
+process after 120 seconds without a successful main-loop checkpoint, first
+publishing an incident with cancellation unproved. The account claim and work
+markers remain retained; process teardown is not order-cancellation proof.
+Each tick appends its exit code and sanitized traceback frames to
+`status/campaign-ticks.jsonl`, rotating at 1 MiB and retaining archives. No
+exception messages, source text, prices, market IDs or private paths enter it.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

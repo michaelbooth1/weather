@@ -314,6 +314,8 @@ def test_claimed_setup_error_still_publishes_policy_bound_outcome(tmp_path, monk
         def failed(*args, **kwargs):
             raise RuntimeError('synthetic setup failure')
         monkeypatch.setattr(lfc_cli, '_run_live', failed)
+        notices = []
+        monkeypatch.setattr(runtime, 'notify_control', notices.append)
         with pytest.raises(RuntimeError, match='synthetic setup'):
             runtime.run_session(claim, entry, policy, {'baseline': {}})
         paths = list((runtime.state.root / 'owner-status').glob('*.json'))
@@ -322,6 +324,7 @@ def test_claimed_setup_error_still_publishes_policy_bound_outcome(tmp_path, monk
         assert row['state'] == 'ATTENTION' and row['unknown_submit'] is True
         assert row['policy_name'] == policy.raw['policy_name'] and row['policy_revision'] == 1
         assert row['halt_reason'] == 'exception_RuntimeError'
+        assert notices[0]['phase'] == 'INCIDENT' and notices[0]['orders_open_unproven']
 
 
 def test_regressed_clock_cannot_corrupt_ledger_history(tmp_path):
