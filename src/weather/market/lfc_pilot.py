@@ -629,7 +629,19 @@ class PilotSession(Session):
         self.check_horizon()
         own = sum((self.size * p for _, p in self.active.values()), Decimal(0))
         self._gate(own_resting=own)
-        super().before_post(request)
+        previous_posts = self.posts
+        try:
+            super().before_post(request)
+        except BaseException as exc:
+            number = self.posts
+            if number > previous_posts and self.ledger.intent_proven_absent(f'{self.session_id}:{number}'):
+                # before_post has not returned to the raw venue POST. Keep the
+                # private packet and the consumed submit budget, but do not
+                # invent an ambiguous placement when no durable intent exists.
+                self.posts = previous_posts
+                self.journal.record('pre_post_abort', attempted_number=number,
+                                    durable_intent_present=False, exception_type=type(exc).__name__)
+            raise
 
     def post_intent(self, request):
         # Persisted before the raw POST; a failed write raises inside the venue before anything is posted.

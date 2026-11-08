@@ -502,6 +502,21 @@ class Ledger:
     def unacknowledged_intents(self):
         return [leg for leg in self.legs.values() if leg['status'] != 'terminal' and leg['order_id'] is None]
 
+    def intent_proven_absent(self, intent_key):
+        """An unchanged verified history proves no durable placement intent.
+
+        A partial append, failed flush, unreadable file or external edit cannot
+        return this proof. No account authority or ledger write is granted.
+        """
+        if intent_key in self.legs:
+            return False
+        from weather.market.lfc_recording_io import file_sha
+        try:
+            return (self.path.stat().st_size == self._raw_len and
+                    file_sha(self.path) == self._history_hash.hexdigest())
+        except OSError:
+            return False
+
     def row_sha256(self, sequence):
         return self._row_hashes[sequence]
 
