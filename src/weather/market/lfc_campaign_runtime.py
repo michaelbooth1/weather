@@ -133,9 +133,61 @@ class ScheduledAuthority:
         if not load_policy(self.runtime.policy_path).raw['enabled'] or not self.runtime.task_enabled():
             from weather.market.re1_attended import HoldEnd
             raise HoldEnd('owner_campaign_disabled')
-        if starting and (not self.entry.permits(now) or datetime.fromisoformat(self.prepared['expires_utc']) < now or
-                         account_read_age(self.prepared['account_read'], now) > 120):
+        go_read = getattr(self, 'go_read', self.prepared.get('account_read'))
+        go_expiry = getattr(self, 'go_expires_utc', self.prepared.get('expires_utc'))
+        if starting and (not self.entry.permits(now) or datetime.fromisoformat(go_expiry) < now or
+                         account_read_age(go_read, now) > 120):
             raise RuntimeError('go_window_or_freshness_expired')
+
+    def refresh_go(self, *, progress=lambda: None):
+        """After breadth setup, re-prove money without replacing the T40 anchor.
+
+        No band session or intent may exist yet. This can retry reads inside
+        the original entry window; it grants no placement retry or new date.
+        """
+        from weather.market.lfc_f2_breadth import enabled
+        if not enabled(self.policy):
+            raise StateRefused('go_refresh_protocol')
+        ledger = self.runtime.state.ledger
+        if ledger.open_sessions() or ledger.unresolved_legs():
+            raise StateRefused('go_refresh_after_placement')
+        delay = 1
+        while self.entry.permits(self.runtime.clock.now()):
+            self.runtime.lease.check()
+            progress()
+            try:
+                read = self.runtime.read_account()
+                proof = self.runtime.core_proof(ledger, read)
+                if (not proof['money_accounting_complete'] or not proof['cleanup_proven'] or
+                        proof.get('unknown_submit') is not False or
+                        proof.get('capital', {}).get('cash_bridge_complete') is not True):
+                    raise TransientPrecheck('setup_money_not_yet_reconciled')
+            except Exception as exc:
+                if not transient_read_error(exc):
+                    raise
+                self.runtime.state.save('go-read-gaps/' + uuid.uuid4().hex + '.json', {
+                    'at_utc': self.runtime.clock.now().isoformat(), 'exception_type': type(exc).__name__,
+                    'attempt_id': self.claim['attempt_id'], 'monetary_placement_retried': False})
+                for _ in range(delay):
+                    progress()
+                    if not self.entry.permits(self.runtime.clock.now()):
+                        raise StateRefused('start_window_expired')
+                    self.runtime.clock.sleep(1)
+                delay = min(15, delay * 2)
+                continue
+            now = self.runtime.clock.now()
+            if not self.entry.permits(now):
+                raise StateRefused('start_window_expired')
+            self.runtime.state.save('go-refreshes/' + uuid.uuid4().hex + '.json', {
+                'attempt_id': self.claim['attempt_id'], 'policy_sha256': self.policy.sha256,
+                'source_prepared_file': self.prepared.get('file'),
+                'source_prepared_sha256': self.prepared.get('sha256'),
+                'read': read, 'proof': proof, 'at_utc': now.isoformat()})
+            self.go_read, self.go_proof = read, proof
+            self.go_expires_utc = (now + timedelta(seconds=120)).isoformat()
+            self.check(starting=True)
+            return read
+        raise StateRefused('start_window_expired')
 
     def resync(self):
         """A bounded band cleanup is progress, not a stalled quote loop.
@@ -756,10 +808,12 @@ class Runtime:
             paths += list(directory.glob('submit-*.intent.json')) + list(directory.glob('submit-*.ack.json'))
             if result['outcome'].get('f2_session') is True:
                 paths.append(directory / 'f2_manifest.json')
+                if 'go_account.json' in result['outcome'].get('evidence_sha256', {}):
+                    paths.append(directory / 'go_account.json')
                 from weather.market.lfc_f2_evidence import manifest_at
                 for band in manifest_at(directory)['bands']:
                     paths += [directory / band['directory'] / name for name in band['evidence_sha256']]
-            if len(paths) > 306:  # 12 bands x (5 originals + 20 submit files), plus 6 root files.
+            if len(paths) > 307:  # 12 bands x (5 originals + 20 submit files), plus 7 root files.
                 raise StateRefused('private_file_count')
             for path in paths:
                 original_files[path.relative_to(directory).as_posix()] = file_sha(validate_contained_regular_file(self.pilot_root, path))

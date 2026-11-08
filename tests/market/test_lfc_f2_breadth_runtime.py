@@ -5,6 +5,8 @@ No SDK client, signer, credential source, task, reader or network is exercised.
 """
 from copy import deepcopy
 from decimal import Decimal
+from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,21 +20,28 @@ from weather.market.lfc_campaign_guard import account_lease
 from weather.market.lfc_campaign_policy import parse_policy
 from weather.market.lfc_campaign_runtime import Runtime, ScheduledAuthority, ScheduledProfile
 from weather.market.lfc_campaign_state import AccountState
-from weather.market.lfc_capital import CapitalBook
+from weather.market.lfc_capital import CapitalBook, ASSET
 from weather.market.lfc_capital_reads import read_activity
 from weather.market.lfc_f2_breadth import example_policy, PROTOCOL
 from weather.market.lfc_f2_evidence import F2Status
 from weather.market.lfc_f2_runtime import run_live
 from weather.market.lfc_f2_selection import build_table
 from weather.market.lfc_ledger import Ledger
+from weather.market.lfc_recording_io import write_new
 from weather.market.lfc_session_driver import SPENDERS
 from weather.market.re1_attended import SecretGuard
 
 
 @pytest.mark.parametrize('fills', [False, True])
 def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capability(tmp_path, monkeypatch, fills):
+    owner_runtime_fixture(tmp_path, monkeypatch, fills=fills)
+
+
+def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0, audit=None):
     clock = Clock(NOW)
-    row = example_policy(); row['max_session_seconds'] = 900 if fills else 300
+    row = example_policy(); row['max_session_seconds'] = 900 if fills or setup_latency else 300
+    if setup_latency:
+        row['enabled'] = True
     policy = parse_policy(row)
     entry = next(e for e in policy.entries if e.local_date == '2026-11-11')
     ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=clock.now, maker_address=MAKER)
@@ -51,6 +60,7 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
         def order_signer(self):
             raise AssertionError('Fixture never exposes a signing path')
     def build(fields, *, readonly=False, **kwargs):
+        clock.sleep(setup_latency)
         client = Client(readonly); clients.append(client)
         return client
     class Reader:
@@ -69,7 +79,7 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
         raw = FundedRaw(snapshots[kwargs['condition']], kwargs['directory'], clock=clock,
                         account=account, index=len(raws))
         raw.fixture_stream_factory = kwargs['stream_factory']
-        raw.start = lambda: None
+        raw.start = lambda: clock.sleep(setup_latency / 4)
         raw.close = client.close
         raws.append(raw)
         return raw
@@ -94,6 +104,7 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
         claim = state.claim(entry, policy, clock.now())
         runtime = object.__new__(Runtime)
         runtime.state, runtime.clock, runtime.pilot_root = state, clock, tmp_path
+        runtime.lease = SimpleNamespace(check=lambda: None)
         def read():
             when = clock.now().isoformat()
             positions = {}
@@ -102,6 +113,10 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
                     if Decimal(order['size_matched']):
                         token = order['asset_id']
                         positions[token] = positions.get(token, Decimal(0)) + Decimal(order['size_matched'])
+            balances = account.raws[0].balances() if account.raws else {
+                'available_collateral': '300', 'assets': {ASSET: '300'},
+                'collateral_evidence': {'balance': '300000000'}}
+            balances['collateral_evidence']['allowances'] = {address.lower(): '300000000' for address in SPENDERS.values()}
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'complete': True, 'errors': [],
                 'maker_address': MAKER, 'since': str(int(NOW.timestamp())),
                 'scope': 'account_wide_sdk_trades_and_f0_v2_positions', 'started_at_utc': when, 'ended_at_utc': when,
@@ -110,7 +125,7 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
                 'open_orders': account.open_orders(),
                 'positions': [{'asset': token, 'size': str(size)} for token, size in positions.items()],
                 'trades': [row for raw in account.raws for row in raw.trades()], 'geography': {'blocked': False},
-                'balances': account.raws[0].balances(), 'terminal_orders': {leg['order_id']: {
+                'balances': balances, 'terminal_orders': {leg['order_id']: {
                     'row': next(raw for raw in account.raws if leg['order_id'] in raw.memory.orders).order(leg['order_id']),
                     'started_at_utc': when, 'ended_at_utc': when} for leg in ledger.unresolved_legs() if leg['order_id']},
                 'capital_activity': native_packet(read_activity(MAKER, int(NOW.timestamp()), int(clock.now().timestamp()),
@@ -123,7 +138,17 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
         authority.baseline = CapitalBook(ledger).anchor
         authority.prepared = {'preflight': {'timeouts_seconds': {'read': 2}}}
         authority.preflight = lambda **kwargs: None
-        authority.check = lambda **kwargs: account.checkpoint()
+        if setup_latency:
+            runtime.policy_path = tmp_path / 'inert-campaign.json'
+            write_new(runtime.policy_path, row)
+            runtime.lease = SimpleNamespace(check=lambda: None)
+            runtime.sidecar, runtime.control_root = None, tmp_path / 'inert-control'
+            runtime.task_enabled = lambda: True
+            authority.last_wall, authority.last_mono = clock.now(), clock.monotonic()
+            authority.last_control = None
+            authority.prepared.update(account_read=read(), expires_utc=(clock.now() + timedelta(seconds=120)).isoformat())
+        else:
+            authority.check = lambda **kwargs: account.checkpoint()
         authority.selection = lambda: table
         authority.confirmation = lambda *a: {'fixture_only': True}
         authority.confirmation_valid = lambda table, receipt: receipt == {'fixture_only': True}
@@ -146,3 +171,12 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
         proof = local_money_proof(status.evidence_directory, ledger=ledger, session_id=status.session_id,
                                  attempt_id=claim['attempt_id'], outcome=outcome)
         assert proof['complete'] and proof['unknown_submit'] is False, proof
+        if audit is not None:
+            audit(runtime, status, outcome, claim, proof)
+
+        first_post = min(when for band in status.session.bands for when in band.order_created.values())
+        go_read = getattr(authority, 'go_read', authority.prepared.get('account_read'))
+        return {'first_post_seconds': first_post, 'go_read_age_seconds': (
+            (NOW + timedelta(seconds=first_post)) - __import__('datetime').datetime.fromisoformat(go_read['started_at_utc'])
+            ).total_seconds() if go_read else None, 'claims': len(ledger.autostart_claims),
+            'incidents': state.incidents(), 'posts': len(ledger.legs)}

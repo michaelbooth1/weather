@@ -181,6 +181,7 @@ class Ledger:
     # ----- state --------------------------------------------------------------------------------------------
     def _replay(self):
         self.legs, self.by_order, self.sessions, self.baselines = {}, {}, {}, []
+        self._band_day_index = {}
         self.enrollment = None
         self.autostart_claims, self.autostart_incidents, self.history_recoveries = [], [], []
         self.autostart_results = []
@@ -289,6 +290,9 @@ class Ledger:
                                             'condition_id', 'price', 'size', 'fee_rate_bps')},
                                             'order_id': None, 'status': 'intent', 'size_matched': '0'}
             session['legs'].append(row['intent_key'])
+            from weather.market.lfc_f2_breadth import band_market
+            scope = (band_market(session['start']), row['recorded_at_utc'][:10])
+            self._band_day_index.setdefault(scope, set()).add(row['intent_key'])
         elif event in ('leg_ack', 'leg_adopt'):
             leg = self.legs.get(row['intent_key'])
             if leg is None or leg['order_id'] is not None or not row['order_id'] or row['order_id'] in self.by_order:
@@ -390,6 +394,18 @@ class Ledger:
 
     def our_order_ids(self):
         return set(self.by_order)
+
+    def band_day_legs(self, market, utc_day):
+        """Current leg quantities under immutable intent market/date keys.
+
+        Unmapped legacy intents conservatively count for every market that day.
+        Replay and validated append populate the same index; terminal reads
+        update the existing legs without changing the index key.
+        """
+        unknown = self._band_day_index.get((None, utc_day), set())
+        keys = self._band_day_index.get((market, utc_day), set()) | unknown
+        for key in sorted(keys):
+            yield self.legs[key], key in unknown
 
     def tokens(self):
         return {leg['token_id'] for leg in self.legs.values()}

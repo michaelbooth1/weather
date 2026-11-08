@@ -88,6 +88,16 @@ Private manifests retain every band packet and original file; missing evidence
 keeps the same occurrence-specific owner recovery rules. The previous schemas
 remain readable, with their original retirement and band-count restrictions.
 
+Breadth setup constructs all clients and starts all exact-pair streams before
+opening band sessions. It then obtains a fresh whole-account/native-cash proof
+inside the original start window. Known redemptions reconcile against existing
+lots and the original inventory anchor; neither the anchor nor the prepared
+receipt is replaced. Transient read gaps may retry within that window. A missed
+window creates no placement intent. The fresh `go_account.json` is hashed into
+the session outcome and retained result; missing or changed evidence follows
+the same occurrence-specific recovery rules as other originals. Band/day cost
+lookups use an index rebuilt from the verified ledger during replay.
+
 ## F2 v0.2 fields and admission
 
 The example owns exact defaults; `lfc_f2_policy` and the release's support table

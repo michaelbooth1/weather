@@ -5,7 +5,7 @@ from decimal import Decimal
 from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_f2_controller import F2Band, F2Coordinator, ScopedVenue
 from weather.market.lfc_f2_selection import band_table, validate_table
-from weather.market.lfc_recording_io import write_new
+from weather.market.lfc_recording_io import write_new, file_sha
 from weather.market.mm_stage2_hold import digest
 
 
@@ -64,16 +64,17 @@ def run_live(runtime, authority, status):
                         readonly=True, timeouts=timeouts)
     raws, coordinator = [], None
     try:
-        balances = reader.balances()
-        from weather.market.lfc_ledger import fetch_account_positions
-        refusals = authority.start_gates(ledger=ledger, now=runtime.clock.now(), maker_address=runtime.state.maker,
-                                          open_orders=reader.open_orders(), positions=fetch_account_positions(runtime.state.maker))
-        if refusals:
-            raise RuntimeError('f2_start_gates')
-        reserve = sum(Decimal(row['quote']['reserve_pusd']) for row in selected)
-        CapitalBook(ledger).gate(reserve=reserve, available_cash=balances['available_collateral'])
-        for row in selected:
-            selection_account_screen(band_table(table, row['condition_id']), balances)
+        if not breadth:
+            balances = reader.balances()
+            from weather.market.lfc_ledger import fetch_account_positions
+            refusals = authority.start_gates(ledger=ledger, now=runtime.clock.now(), maker_address=runtime.state.maker,
+                                              open_orders=reader.open_orders(), positions=fetch_account_positions(runtime.state.maker))
+            if refusals:
+                raise RuntimeError('f2_start_gates')
+            reserve = sum(Decimal(row['quote']['reserve_pusd']) for row in selected)
+            CapitalBook(ledger).gate(reserve=reserve, available_cash=balances['available_collateral'])
+            for row in selected:
+                selection_account_screen(band_table(table, row['condition_id']), balances)
         root_id = 'F2-' + claim['attempt_id']
         directory = runtime.pilot_root / ('session-' + root_id)
         directory.mkdir(parents=True, exist_ok=False)
@@ -99,22 +100,10 @@ def run_live(runtime, authority, status):
         registry = {}
         factory = stream_factory(registry, retain_trade_identity=breadth)
         number = ledger.counted_sessions() + 1
+        bindings = []
         for index, row in enumerate(selected, 1):
-            sid = root_id + '-b' + str(index)
             band_directory = directory / ('band-' + str(index))
             band_directory.mkdir()
-            arm_fields = ({key: row[key] for key in ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
-                          if breadth else {})
-            day_fields = ({'quote_day_utc': runtime.clock.now().date().isoformat(),
-                           'per_band_daily_filled_cap_pusd': policy.raw['per_band_daily_filled_cap_pusd']} if breadth else {})
-            attempt = {'session_id': sid, 'session_number': number, 'number': number,
-                       'counted': index == 1, 'protocol': protocol, **status.policy_metadata, **arm_fields, **day_fields}
-            write_new(band_directory / 'attempt.json', attempt)
-            ledger.record('session_start', session_id=sid, counted=index == 1, session_number=number,
-                    owner_local_date=entry.local_date, directory=band_directory.relative_to(runtime.pilot_root).as_posix(),
-                    condition_id=row['condition_id'], market_id=row['market_id'], event_date=row['target_date'],
-                    event_slug=row['event_slug'], selection_sha256=digest(table), protocol=protocol, **arm_fields, **day_fields,
-                    autostart_attempt_id=claim['attempt_id'], autostart_policy_sha256=policy.sha256)
             client = build_client(fields, timeout=max(timeouts.values()))
             try:
                 raw = OwnerVenue(client, fields, guard, condition=row['condition_id'], tokens=row['token_ids'],
@@ -126,6 +115,48 @@ def run_live(runtime, authority, status):
             raws.append(raw)
             raw.allowed_trade_tokens = tuple(row['token_ids'][leg] for leg in row['trade_legs'])
             guard_signed_orders(raw)
+            bindings.append((index, row, band_directory, raw))
+            status.progress()
+        # Every exact-pair stream exists before either can receive an event.
+        for raw in raws:
+            raw.start()
+            status.progress()
+        if breadth:
+            read = authority.refresh_go(progress=status.progress)
+            balances = read['balances']
+            refusals = authority.start_gates(ledger=ledger, now=runtime.clock.now(), maker_address=runtime.state.maker,
+                                            open_orders=read['open_orders'], positions=read['positions'])
+            if refusals:
+                raise RuntimeError('f2_start_gates')
+            selected = validate_table(table, now=runtime.clock.now(), policy=policy)
+            reserve = sum(Decimal(row['quote']['reserve_pusd']) for row in selected)
+            CapitalBook(ledger).gate(reserve=reserve, available_cash=balances['available_collateral'])
+            for row in selected:
+                selection_account_screen(band_table(table, row['condition_id']), balances)
+            go_evidence = guard.clean({'read': read, 'proof': authority.go_proof,
+                'attempt_id': claim['attempt_id'], 'source_prepared_file': authority.prepared.get('file'),
+                'source_prepared_sha256': authority.prepared.get('sha256')})
+            if digest(go_evidence['read']) != authority.go_proof['read_sha256']:
+                raise RuntimeError('go_read_redaction_changed_proof')
+            go_path = directory / 'go_account.json'
+            write_new(go_path, go_evidence)
+            coordinator.scope['go_account_sha256'] = file_sha(go_path)
+            coordinator.journal.record('go_account_proven', sha256=coordinator.scope['go_account_sha256'])
+        for index, row, band_directory, raw in bindings:
+            sid = root_id + '-b' + str(index)
+            arm_fields = ({key: row[key] for key in ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
+                          if breadth else {})
+            day_fields = ({'quote_day_utc': runtime.clock.now().date().isoformat(),
+                           'per_band_daily_filled_cap_pusd': policy.raw['per_band_daily_filled_cap_pusd']} if breadth else {})
+            attempt = {'session_id': sid, 'session_number': number, 'number': number,
+                       'counted': index == 1, 'protocol': protocol, **status.policy_metadata, **arm_fields, **day_fields}
+            write_new(band_directory / 'attempt.json', attempt)
+            ledger.record('session_start', session_id=sid, counted=index == 1, session_number=number,
+                    owner_local_date=entry.local_date, directory=band_directory.relative_to(runtime.pilot_root).as_posix(),
+                    condition_id=row['condition_id'], market_id=row['market_id'], event_date=row['target_date'],
+                    event_slug=row['event_slug'], selection_sha256=digest(table), protocol=protocol, **arm_fields, **day_fields,
+                    **({'go_account_sha256': coordinator.scope['go_account_sha256']} if breadth else {}),
+                    autostart_attempt_id=claim['attempt_id'], autostart_policy_sha256=policy.sha256)
             band = F2Band(policy=policy, entry=entry, ledger=ledger, session_id=sid, profile=authority.profile,
                     root=runtime.pilot_root, exclusion={'event_slug': row['event_slug'],
                         'condition_ids': row['event_condition_ids'], 'timezone_name': row['market_timezone']},
@@ -135,9 +166,6 @@ def run_live(runtime, authority, status):
                     confirmation=authority.confirmation(band_table(table, row['condition_id']), ledger),
                     attempt=attempt, scheduled_authority=authority)
             coordinator.bands.append(band)
-        # Every exact-pair stream exists before either can receive an event.
-        for raw in raws:
-            raw.start()
         authority.check(starting=True)
         result = coordinator.run()
         status.open_rows, status.reason = coordinator.open_rows, result['reason']

@@ -103,28 +103,25 @@ def row_arm(policy, now, market):
     return arm(policy, now.astimezone(ZONE).date().isoformat(), market)
 
 
+def band_market(start):
+    market = start.get('market_id')
+    if market is None:
+        slug = start.get('event_slug') or ''
+        market = next((spec.id for spec in BUILTIN_SPECS if slug.startswith(spec.slug_prefix + '-')), None)
+    return market
+
+
 def band_day_usage(ledger, market, utc_day):
-    """Gross filled basis never nets redemption, profit or another policy revision."""
-    intents = {row['intent_key']: row for row in ledger.rows if row['event'] == 'leg_intent'}
+    """Gross basis from replay-indexed legs, without re-scanning history."""
     filled = resting = unmapped = 0
-    for key, leg in ledger.legs.items():
-        intent = intents[key]
-        if intent['recorded_at_utc'][:10] != utc_day:
-            continue
-        start = ledger.sessions[leg['session_id']]['start']
-        observed_market = start.get('market_id')
-        if observed_market is None:
-            slug = start.get('event_slug') or ''
-            observed_market = next((spec.id for spec in BUILTIN_SPECS if slug.startswith(spec.slug_prefix + '-')), None)
-        if observed_market is not None and observed_market != market:
-            continue
+    for leg, unknown_market in ledger.band_day_legs(market, utc_day):
         terminal = leg['status'] == 'terminal'
         cost = native(quantity(leg['price']) * quantity(leg['size_matched'] if terminal else leg['size']), ceil=True)
         if terminal:
             filled += cost
         else:
             resting += cost
-        if observed_market is None:
+        if unknown_market:
             unmapped += cost  # Unknown legacy scope is conservatively charged to this band-day.
     return {'filled_native': filled, 'resting_native': resting, 'unmapped_legacy_native': unmapped}
 

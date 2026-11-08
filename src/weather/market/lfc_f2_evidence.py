@@ -39,6 +39,17 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
     prediction = strict_json(read_bytes(directory / 'prediction.json', 2_000_000))
     ending = strict_json(read_bytes(directory / 'session_end.json', 2_000_000))
     attempt = strict_json(read_bytes(directory / 'attempt.json', 65536))
+    go_sha = prediction.get('scope', {}).get('go_account_sha256')
+    if go_sha is not None:
+        if hashes.get('go_account.json') != go_sha or file_sha(directory / 'go_account.json') != go_sha:
+            raise ValueError('f2_go_account_hash')
+        go = strict_json(read_bytes(directory / 'go_account.json', 16 * 1024 * 1024))
+        proof = go['proof']
+        if (go.get('attempt_id') != attempt_id or digest(go['read']) != proof.get('read_sha256') or
+                proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
+                proof.get('unknown_submit') is not False or proof.get('capital', {}).get('cash_bridge_complete') is not True or
+                proof.get('ledger_head_sha256') not in {ledger.row_sha256(i) for i in range(len(ledger.rows))}):
+            raise ValueError('f2_go_account_binding')
     if (prediction.get('f2_session') is not True or prediction['scope'].get('session_id') != session_id or
             prediction['scope'].get('attempt_id') != attempt_id or prediction['scope'].get('protocol') != ('lfc_autostart_v3' if manifest['schema_version'] == 'lfc_f2_manifest_v0.2' else 'lfc_autostart_v2') or
             prediction['scope'].get('policy_sha256') != manifest['policy_sha256'] or
@@ -50,6 +61,10 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
     _, _, _, root_gaps, root_money_gaps = journal_contract(directory / 'journal.jsonl', prediction, owner_review=owner)
     expected_sessions = {sid for sid, s in ledger.sessions.items()
                          if s['start'].get('autostart_attempt_id') == attempt_id}
+    declared_go = {ledger.sessions[sid]['start']['go_account_sha256'] for sid in expected_sessions
+                   if ledger.sessions[sid]['start'].get('go_account_sha256') is not None}
+    if declared_go and declared_go != {go_sha}:
+        raise ValueError('f2_go_account_scope')
     if expected_sessions != {b['session_id'] for b in manifest['bands']}:
         raise ValueError('f2_private_band_coverage')
     proofs = []
@@ -114,6 +129,8 @@ class F2Status(SessionStatus):
             fills.extend(facts['fills'])
         for name in ROOT_FILES:
             hashes[name] = file_sha(self.evidence_directory / name)
+        if coordinator.scope.get('go_account_sha256') is not None:
+            hashes['go_account.json'] = file_sha(self.evidence_directory / 'go_account.json')
         flags = {'evidence_complete': not coordinator.evidence_failed and all(b['evidence_complete'] for b in bands),
                  'inventory_proven': coordinator.inventory_proven,
                  'unknown_submit': coordinator.posts != len(coordinator.known)}

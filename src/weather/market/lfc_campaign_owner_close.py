@@ -37,15 +37,20 @@ def manifest(state, attempt):
     if attempt == 'campaign-freeze':
         names.add('state/policies/freeze.json')
     directories = set()
+    go_directories = set()
     for session in attempt_sessions(state.ledger, attempt).values():
         relative = Path(str(session['start'].get('directory', '')))
         if relative.parts and not relative.is_absolute() and '..' not in relative.parts:
             directories.add(relative)
             if relative.name in {'band-' + str(i) for i in range(1, 13)}:
                 directories.add(relative.parent)
+                if session['start'].get('go_account_sha256') is not None:
+                    go_directories.add(relative.parent)
     for directory in directories:
         for name in ('journal.jsonl', 'prediction.json', 'session_end.json', 'attempt.json', 'selection.json', 'f2_manifest.json'):
             names.add('pilot/' + (directory / name).as_posix())
+        if directory in go_directories:
+            names.add('pilot/' + (directory / 'go_account.json').as_posix())
         for number in range(1, 11):
             for suffix in ('intent', 'ack'):
                 names.add('pilot/' + (directory / f'submit-{number}.{suffix}.json').as_posix())
