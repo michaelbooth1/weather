@@ -44,6 +44,29 @@ def test_failed_D1_does_not_block_D2_or_net_rebate_and_calls_are_bounded(tmp_pat
     assert row['gaps'] == ['d1_reward_TimeoutError'] and row['monetary_action'] is False
 
 
+def test_unfinished_session_still_gets_settlement_and_reward_followup(tmp_path, monkeypatch):
+    from weather.market import lfc_settlement_record as settlements, lfc_rewards_record as rewards
+    from tests.market.test_lfc_pilot import Clock
+    clock = Clock(datetime(2026, 11, 13, 18, tzinfo=timezone.utc))
+    ledger = SimpleNamespace(sessions={'s': {'start': {'recorded_at_utc': '2026-11-12T14:00:00+00:00'},
+                                            'end': None, 'legs': ['unknown']}},
+                             legs={'unknown': {'condition_id': 'c', 'token_id': 't'}})
+    runtime = SimpleNamespace(clock=clock, pilot_root=tmp_path, state=SimpleNamespace(ledger=ledger, maker=MAKER))
+    recorded, reads = [], []
+    def settlement(root, cid, **kw):
+        recorded.append(('settlement', cid)); kw['get']('/v2/tokens', {})
+        return {'terminal': False}
+    monkeypatch.setattr(settlements, 'record_settlement', settlement)
+    monkeypatch.setattr(rewards, 'latest_record', lambda *a, **kw: (None, None, -1))
+    monkeypatch.setattr(rewards, 'record_rewards', lambda root, day, **kw: (
+        recorded.append(('rewards', day)), kw['get']('/v2/activity', {})))
+    monkeypatch.setattr(rewards, 'record_rebates', lambda *a, **kw: kw['get']('/v2/activity', {}))
+    row = collect(runtime, get=lambda *a: reads.append(clock.monotonic()) or b'{}', reward_client=SimpleNamespace())
+    assert recorded == [('settlement', 'c'), ('rewards', '2026-11-12')]
+    assert not row['gaps'] and not row['monetary_action']
+    assert len(reads) == 3 and min(b - a for a, b in zip(reads, reads[1:])) >= .5
+
+
 def test_maintenance_near_start_has_no_read_or_date_claim(tmp_path):
     from weather.market.lfc_campaign_policy import parse_policy
     from weather.market.lfc_f2_policy import example_policy
@@ -88,7 +111,7 @@ def test_hourly_maintenance_refreshes_cash_and_preserves_transient_gaps(tmp_path
         if len(reads) == 2:
             raise TimeoutError('fixture gap')
         return {}
-    runtime = SimpleNamespace(clock=clock, state=State(), admission=admission, reload_ledger=lambda: None,
+    runtime = SimpleNamespace(clock=clock, state=State(), readonly_admission=admission, reload_ledger=lambda: None,
         read_account=read, core_proof=lambda *a: {'unknown_submit': False, 'money_contradiction': False})
     monkeypatch.setattr(followup, 'collect', lambda r: {'observed_at_utc': clock.now().isoformat(),
         'observations': [], 'gaps': [], 'monetary_action': False})

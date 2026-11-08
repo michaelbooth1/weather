@@ -4,11 +4,8 @@ This module has no exchange or credential imports. Only the qualified owner task
 constructs a production Runtime. A claimed opportunity never runs twice.
 """
 from datetime import timedelta
-import hashlib
-import re
-import uuid
 
-from weather.market.lfc_campaign_control import control_record
+from weather.market.lfc_campaign_control import control_record, active_incidents, stable_id, orders_unproven
 from weather.market.lfc_campaign_guard import AdmissionBusy, AdmissionUncertain
 from weather.market.lfc_campaign_policy import ZONE
 from weather.market.lfc_campaign_state import MoneyContradiction, StateRefused
@@ -23,19 +20,24 @@ class OwnerStopRequested(RuntimeError):
 
 
 class CampaignCoordinator:
-    def __init__(self, *, state, runtime, clock, control_root):
+    def __init__(self, *, state, runtime, clock, control_root, followup=None):
         self.state, self.runtime, self.clock, self.control_root = state, runtime, clock, control_root
         self.policy_binding = {}
+        self.record_followups = followup  # Only the qualified owner dispatcher supplies GET capability.
 
     def status(self, phase, attempt=None, *, reason=None, **kwargs):
         reasons = {'IDLE': 'idle', 'DEFERRED': 'transport_deferred', 'MISSED': 'window_missed',
                    'DISABLED': 'campaign_disabled', 'RUNNING': 'running', 'POSTCHECK_PENDING': 'postcheck_pending',
                    'COMPLETE': 'completed', 'INCIDENT': 'account_incident'}
-        opaque = (attempt if isinstance(attempt, str) and re.fullmatch(r'[0-9a-f]{32}', attempt) else
-                  hashlib.sha256(str(attempt).encode()).hexdigest()[:32] if attempt else uuid.uuid4().hex)
-        if self.state.incidents():
+        incidents = active_incidents(self.state)
+        if incidents:
+            attempt = incidents[0]['attempt_id']
             phase, kwargs['incident'] = 'INCIDENT', True
-            reason = reason if reason in {'admission_busy', 'hold_retained'} else 'account_incident'
+            reason = reason if reason in {'admission_busy', 'hold_retained', 'freeze_missing'} else 'account_incident'
+        enrollment = self.state.ledger.enrollment or {}
+        opaque = stable_id(enrollment.get('state_id', 'unbound'), phase, reason or reasons.get(phase),
+                           self.clock.now().astimezone(ZONE).date().isoformat(), attempt, incident=bool(incidents))
+        kwargs.setdefault('orders_open_unproven', orders_unproven(self.state, self.runtime))
         row = control_record(self.control_root, opaque, phase=phase,
                               now=self.clock.now(), reason=reason or reasons.get(phase),
                               policy_metadata=self.policy_binding, **kwargs)
@@ -101,6 +103,8 @@ class CampaignCoordinator:
                             research_gaps=True)
             self.state.verify()
         except StateRefused:
+            if self.record_followups is not None:
+                self.record_followups(load_policy, evidence_only=True)
             self.status('INCIDENT', incident=True, postchecks_pending=True)
             return 'INCIDENT'
         # Capture before pending/incident early returns. Broken current policy
@@ -119,6 +123,10 @@ class CampaignCoordinator:
                             orders_open_unproven=False)
         # Incident state is durable and account scoped; readonly finalization is
         # allowed but automatic reconciliation can never close the incident.
+        if self.record_followups is not None:
+            pending_claim = any(not (self.state.root / 'closed' / (row['attempt_id'] + '.json')).exists()
+                                for row in self.state.ledger.autostart_claims)
+            self.record_followups(load_policy, evidence_only=pending_claim or bool(active_incidents(self.state)))
         if self.pending():
             return 'POSTCHECKS'
         if self.state.incidents():
@@ -153,9 +161,6 @@ class CampaignCoordinator:
             if now < entry.start:
                 continue
             return self.start(entry, policy, load_policy)
-        if policy.f2:
-            from weather.market.lfc_f2_followup import maintenance
-            maintenance(self.runtime, policy)
         self.status('IDLE')
         return 'IDLE'
 
@@ -215,8 +220,10 @@ class CampaignCoordinator:
                     # for a second order-capable invocation, even in this tick.
                     raise
                 reason = ('hold_retained' if isinstance(exc, AdmissionBusy) and str(exc) in
-                          {'hold_already_owned', 'hold_retained'} else
-                          'admission_busy' if isinstance(exc, AdmissionBusy) else 'transport_deferred')
+                          {'hold_already_owned', 'hold_retained', 'agent_heavy_hold'} else
+                          'admission_busy' if isinstance(exc, AdmissionBusy) else
+                          'no_qualifying_band' if str(exc) in {'no_qualifying_band', 'no_qualifying_band_for_policy'} else
+                          'transport_deferred')
                 self.status('DEFERRED', entry.id, reason=reason)
                 last_deferral = reason
                 remaining = (entry.end - self.clock.now()).total_seconds()
@@ -225,12 +232,12 @@ class CampaignCoordinator:
                 self.clock.sleep(min(delay, remaining))
                 delay = min(120, delay * 2)
             except AdmissionUncertain as exc:
-                self.state.latch(uuid.uuid4().hex, 'ownership_uncertain', self.clock.now())
+                self.state.latch('workload-admission', 'ownership_uncertain', self.clock.now())
                 self.status('INCIDENT', incident=True, reason='hold_retained' if str(exc) in {
                     'workload_poison', 'workload_marker_ownership_unknown', 'hold_retained_teardown_unproved'} else None)
                 return 'INCIDENT'
             except MoneyContradiction:
-                self.state.latch(uuid.uuid4().hex, 'pre_go_money_contradiction', self.clock.now())
+                self.state.latch('pre-go-money', 'pre_go_money_contradiction', self.clock.now())
                 self.status('INCIDENT', incident=True)
                 return 'INCIDENT'
             except OwnerStopRequested:

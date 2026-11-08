@@ -13,7 +13,7 @@ import re
 
 from weather.market.lfc_campaign_visibility import safe_traceback, tick_log
 from weather.market.lfc_campaign import CampaignCoordinator
-from weather.market.lfc_campaign_control import CONTROL_ROOT, control_record
+from weather.market.lfc_campaign_control import CONTROL_ROOT, control_record, stable_id, active_incidents, orders_unproven
 from weather.market.lfc_campaign_guard import AdmissionBusy, account_lease
 from weather.market.lfc_campaign_policy import PolicyRefused, load_policy
 from weather.market.lfc_campaign_policy import ZONE
@@ -191,10 +191,20 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         return 0
     attempt = attempt or uuid.uuid4().hex
     state = None
+    runtime = None
     def emit(phase, **fields):
         from types import SimpleNamespace
         from weather.market.lfc_campaign_visibility import notify_control
-        row = control_record(CONTROL_ROOT, attempt, phase=phase, now=datetime.now(timezone.utc), **fields)
+        incidents = active_incidents(state)
+        if incidents:
+            phase, fields['incident'] = 'INCIDENT', True
+        now = datetime.now(timezone.utc)
+        enrollment = state.ledger.enrollment if state is not None else None
+        identity = (enrollment or {}).get('state_id', args.release_sha256)
+        opaque = stable_id(identity, phase, fields.get('reason'), now.astimezone(ZONE).date().isoformat(),
+                           incidents[0]['attempt_id'] if incidents else None, incident=bool(incidents))
+        fields.setdefault('orders_open_unproven', orders_unproven(state, runtime))
+        row = control_record(CONTROL_ROOT, opaque, phase=phase, now=now, **fields)
         if args.command == 'tick':
             notify_control(SimpleNamespace(control_root=CONTROL_ROOT), row)
     try:
@@ -203,12 +213,12 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         from weather.market.lfc_campaign_runtime import CampaignClock, Runtime
         clock = CampaignClock()
         with account_lease(release['maker_address']):
-            if args.command == 'owner-close':
-                if not sys.stdin.isatty():
-                    raise StateRefused('owner_terminal_required')
-                root, state = bound_state(release, clock, owner_fault_review=True)
-            else:
-                root, state = bound_state(release, clock)
+            if args.command == 'owner-close' and not sys.stdin.isatty():
+                raise StateRefused('owner_terminal_required')
+            # Tick binds core identity for read-only fault recording. Normal
+            # coordinator/pre-go verification still precedes every live claim.
+            root, state = bound_state(release, clock,
+                **({'owner_fault_review': True} if args.command in {'owner-close', 'tick'} else {}))
             load = lambda: load_policy(release['campaign_path'])
             if args.command == 'final-look':
                 from weather.market.lfc_f2_final import write_final
@@ -247,7 +257,8 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                 else:
                     owner_release_hold_only(path=runtime.hold_path, expected_sha=file_sha(runtime.hold_path))
                 return 0
-            result = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=CONTROL_ROOT).tick(load)
+            result = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=CONTROL_ROOT,
+                                         followup=runtime.followup).tick(load)
             return 1 if result in {'INCIDENT', 'REFUSED', 'FAILED_NO_ORDERS'} or state.incidents() else 0
     except AdmissionBusy as exc:
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
@@ -258,7 +269,7 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         code = str(sys.exc_info()[1])
         code = code if re.fullmatch(r'[a-z0-9_]{1,96}', code) else 'policy_refused'
         print(json.dumps({'state': 'REFUSED', 'code': code}))
-        incident = state is not None and bool(state.incidents())
+        incident = bool(active_incidents(state))
         emit('INCIDENT' if incident else 'REFUSED', incident=incident,
              reason='account_incident' if incident else 'disk_free_below_floor' if code == 'disk_free_below_floor' else 'policy_refused')
         return 1

@@ -90,6 +90,9 @@ class StubRuntime:
     def task_enabled(self):
         return self.enabled
 
+    def followup(self, load, *, evidence_only=False):
+        pass  # Closed session stub has no public or authenticated recorder.
+
     @contextmanager
     def admission(self):
         yield
@@ -320,12 +323,12 @@ def test_deleted_claim_or_incident_is_not_a_fresh_install(tmp_path):
         path = state.root / 'claims' / (claim['local_date'] + '.json')
         content = path.read_bytes()
         path.unlink()
-        with pytest.raises(OSError):
+        with pytest.raises((OSError, RuntimeError)):
             state.verify()
         path.write_bytes(content)
         state.latch(claim['attempt_id'], 'fixture', clock.now())
         (state.root / 'incidents' / (claim['attempt_id'] + '.json')).unlink()
-        with pytest.raises(OSError):
+        with pytest.raises((OSError, RuntimeError)):
             state.verify()
 
 
@@ -342,7 +345,7 @@ def test_scheduled_entrypoint_synthetic_end_to_end_and_skip_after_reboot(tmp_pat
     monkeypatch.setattr(cli, 'load_release', lambda *a: {'maker_address': MAKER, 'campaign_path': str(policy_path)})
     monkeypatch.setattr(cli, 'validate_release', lambda *a: None)
     monkeypatch.setattr(cli, 'account_lease', lambda maker: account_lease(maker, backend=Mutexes()))
-    monkeypatch.setattr(cli, 'bound_state', lambda *a: (state.ledger.path.parent, state))
+    monkeypatch.setattr(cli, 'bound_state', lambda *a, **kw: (state.ledger.path.parent, state))
     monkeypatch.setattr(runtime_module, 'CampaignClock', lambda: clock)
     runtime = StubRuntime(state, clock, transient=2)
     monkeypatch.setattr(runtime_module, 'Runtime', lambda **kwargs: runtime)
@@ -352,7 +355,7 @@ def test_scheduled_entrypoint_synthetic_end_to_end_and_skip_after_reboot(tmp_pat
     # Reboot creates a new runtime and verifies persisted account state. The
     # scheduled dispatcher still refuses to run the consumed account/date.
     rebooted = AccountState(tmp_path / 'state', Ledger.open(state.ledger.path, clock=clock.now))
-    monkeypatch.setattr(cli, 'bound_state', lambda *a: (rebooted.ledger.path.parent, rebooted))
+    monkeypatch.setattr(cli, 'bound_state', lambda *a, **kw: (rebooted.ledger.path.parent, rebooted))
     runtime2 = StubRuntime(rebooted, clock)
     monkeypatch.setattr(runtime_module, 'Runtime', lambda **kwargs: runtime2)
     assert cli.main(args) == 0 and runtime2.go_count == 0

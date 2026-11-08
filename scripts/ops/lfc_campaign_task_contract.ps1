@@ -55,6 +55,55 @@ function ConvertTo-LfcSafeXml {
     finally { $reader.Dispose() }
 }
 
+function Get-LfcCampaignDeadline {
+    param([Parameter(Mandatory=$true)][string]$CampaignPath,
+          [DateTimeOffset]$NowUtc=[DateTimeOffset]::UtcNow)
+    # This only bounds the wrapper. The child independently parses every field
+    # before admission; malformed policy gets at most 30 minutes to report REFUSED.
+    $fallback=$NowUtc.AddMinutes(30)
+    try {
+        $file=Get-Item -LiteralPath $CampaignPath -ErrorAction Stop
+        if($file.Length -gt 65536 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $fallback }
+        $policyRow=ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($CampaignPath))
+        $zone=[TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+        $localNow=[TimeZoneInfo]::ConvertTime($NowUtc,$zone)
+        $culture=[Globalization.CultureInfo]::InvariantCulture
+        $end=$null
+        if($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.2') {
+            if(@($policyRow.start_window_toronto).Count -ne 2) { return $fallback }
+            $begin=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[0],'hh\:mm\:ss',$culture)
+            $finish=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[1],'hh\:mm\:ss',$culture)
+            $stop=[TimeSpan]::ParseExact([string]$policyRow.trading_end_toronto,'hh\:mm\:ss',$culture)
+            if($begin -ge $finish -or $finish -ge $stop -or $localNow.TimeOfDay -lt $begin -or $localNow.TimeOfDay -ge $finish) { return $fallback }
+            $localStop=[DateTime]::SpecifyKind($localNow.Date.Add($stop),[DateTimeKind]::Unspecified)
+            $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
+            $seconds=[int]$policyRow.max_session_seconds
+            if($seconds -lt 300 -or $seconds -gt 21600) { return $fallback }
+            $end=$NowUtc.AddSeconds($seconds)
+            if($fixed -lt $end) { $end=$fixed }
+        } elseif($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.1') {
+            foreach($entry in $policyRow.entries) {
+                $start=[DateTimeOffset]::Parse([string]$entry.window_start_utc,$culture)
+                $finish=[DateTimeOffset]::Parse([string]$entry.window_end_utc,$culture)
+                if($start -le $NowUtc -and $NowUtc -lt $finish) {
+                    $seconds=[math]::Min([int]$entry.duration_seconds,[int]$policyRow.max_session_seconds)
+                    if($seconds -lt 300 -or $seconds -gt 21600) { return $fallback }
+                    $end=$NowUtc.AddSeconds($seconds)
+                    if($policyRow.trading_end_toronto) {
+                        $stop=[TimeSpan]::ParseExact([string]$policyRow.trading_end_toronto,'hh\:mm\:ss',$culture)
+                        $localStop=[DateTime]::SpecifyKind($localNow.Date.Add($stop),[DateTimeKind]::Unspecified)
+                        $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
+                        if($fixed -lt $end) { $end=$fixed }
+                    }
+                    break
+                }
+            }
+        }
+        if($null -eq $end -or $end -le $NowUtc) { return $fallback }
+        return $end.AddMinutes(30)
+    } catch { return $fallback }
+}
+
 function Assert-LfcCampaignTaskXml {
     param([Parameter(Mandatory=$true)][string]$Actual,[Parameter(Mandatory=$true)][string]$Expected)
     $actualDocument=ConvertTo-LfcSafeXml $Actual; $expectedDocument=ConvertTo-LfcSafeXml $Expected

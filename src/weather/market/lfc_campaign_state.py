@@ -1,5 +1,6 @@
 """Durable account-scoped claims and incidents. Policy revisions cannot reset it."""
 from pathlib import Path
+import re
 import uuid
 
 from weather.market.lfc_campaign_guard import account_key, require_account
@@ -26,6 +27,8 @@ class AccountState:
         self.root = Path(root) / account_key(ledger.rows[0]['maker_address'])
         self.ledger = ledger
         self.maker = ledger.rows[0]['maker_address']
+        from weather.market.lfc_retained_cache import RetainedCache
+        self._retained_cache = RetainedCache()
         self.policy_binding = {'policy_name': None, 'policy_revision': None, 'evidence_lane': None}
 
     @property
@@ -37,8 +40,11 @@ class AccountState:
         self._policy_binding = dict(value)
         self.ledger.policy_metadata = dict(value) if value.get('policy_name') is not None else {}
 
+    def file_sha(self, path):
+        return self._retained_cache.sha(path)
+
     def read(self, path):
-        row = strict_json(read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), 2_000_000))
+        row = self._retained_cache.json(validate_regular_nonreparse_file(Path(path).absolute()))
         if not isinstance(row, dict) or row.get('schema_version') != STATE_SCHEMA:
             raise StateRefused('state_schema')
         return row
@@ -56,7 +62,7 @@ class AccountState:
             current.mkdir(exist_ok=True)
             validate_nonreparse_directory(current.absolute())
         write_new(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields})
-        return file_sha(path)
+        return self.file_sha(path)
 
     def enroll(self, now):
         """Owner-run enrollment only, after the frozen F0 session is closed.
@@ -95,11 +101,22 @@ class AccountState:
                     raise ValueError('history_manifest')
                 for name, sha in originals.items():
                     artifact = 'history/' + Path(name).as_posix()
-                    if file_sha(validate_contained_regular_file(self.ledger.path.parent,
+                    if self.file_sha(validate_contained_regular_file(self.ledger.path.parent,
                             self.ledger.path.parent / name)) != sha:
                         raise ValueError('history_original_changed')
             artifact = 'history/recovery-proof'
-            refused = history_refusals(self.ledger, self.ledger.path.parent)
+            if self.ledger.enrollment is None:
+                refused = history_refusals(self.ledger, self.ledger.path.parent)
+            else:
+                files = [self.ledger.path.parent / name for name in sorted(originals)]
+                files.extend(self.ledger.path.parent / row['file'] for row in self.ledger.history_recoveries)
+                signatures = tuple(self._retained_cache.signature(path) for path in files)
+                legacy = {sid: {'session': session, 'legs': {k: self.ledger.legs[k] for k in session['legs']}}
+                          for sid, session in self.ledger.sessions.items()
+                          if not session['start'].get('autostart_attempt_id')}
+                key = ('history', digest([legacy, self.ledger.history_recoveries]), signatures)
+                refused = self._retained_cache.memo(key, lambda: history_refusals(self.ledger, self.ledger.path.parent),
+                    cacheable=all(signature[-1] is not None for signature in signatures))
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             if self.ledger.enrollment is not None:
                 self.evidence_fault('legacy-history', artifact=artifact)
@@ -113,7 +130,7 @@ class AccountState:
         validate_nonreparse_directory(self.root.absolute())
         row = self.read(self.root / 'identity.json')
         event = self.ledger.enrollment
-        if (event is None or event['identity_sha256'] != file_sha(self.root / 'identity.json') or
+        if (event is None or event['identity_sha256'] != self.file_sha(self.root / 'identity.json') or
                 row['state_id'] != event['state_id'] or row['account'] != str(self.maker).lower() or
                 row['genesis_sha256'] != self.ledger.row_sha256(0) or
                 row['previous_ledger_sha256'] != event['previous_sha256'] or
@@ -122,13 +139,13 @@ class AccountState:
             raise StateRefused('enrollment_continuity')
         for event in self.ledger.autostart_claims:
             claim_path = self.root / 'claims' / (event['local_date'] + '.json')
-            if file_sha(claim_path) != event['file_sha256']:
+            if self.file_sha(claim_path) != event['file_sha256']:
                 raise StateRefused('claim_continuity')
             claim = self.read(claim_path)
             if claim.get('ledger_sha256') != event['previous_sha256']:
                 raise StateRefused('claim_ledger_continuity')
             policy_path = self.root / 'policies' / (claim['attempt_id'] + '.json')
-            if file_sha(policy_path) != claim.get('policy_snapshot_sha256'):
+            if self.file_sha(policy_path) != claim.get('policy_snapshot_sha256'):
                 raise StateRefused('policy_snapshot_continuity')
             policy = self.read(policy_path)
             if digest(policy.get('policy')) != claim['policy_sha256'] or policy.get('sha256') != claim['policy_sha256']:
@@ -136,11 +153,11 @@ class AccountState:
             prepared_file, prepared_sha = claim.get('prepared_file'), claim.get('prepared_sha256')
             if prepared_file is not None or prepared_sha is not None:
                 relative = Path(str(prepared_file))
-                if relative.is_absolute() or '..' in relative.parts or file_sha(self.root / relative) != prepared_sha:
+                if relative.is_absolute() or '..' in relative.parts or self.file_sha(self.root / relative) != prepared_sha:
                     raise StateRefused('prepared_receipt_continuity')
         for event in self.ledger.autostart_incidents:
             path = self.root / 'incidents' / (event['attempt_id'] + '.json')
-            if file_sha(path) != event['file_sha256']:
+            if self.file_sha(path) != event['file_sha256']:
                 raise StateRefused('incident_continuity')
         for event in list(self.ledger.autostart_results):
             from weather.market.lfc_campaign_recovery import attempt_intents, empty_binding
@@ -176,7 +193,7 @@ class AccountState:
         events = [r for r in self.ledger.autostart_results if r['attempt_id'] == attempt]
         path = self.root / 'results' / (attempt + '.json')
         try:
-            if len(events) != 1 or file_sha(path) != events[0]['file_sha256']:
+            if len(events) != 1 or self.file_sha(path) != events[0]['file_sha256']:
                 raise ValueError('result_not_anchored')
             return self.read(path), events[0]['file_sha256']
         except (OSError, ValueError, RuntimeError):
@@ -190,10 +207,17 @@ class AccountState:
         try:
             if not relative.parts or relative.is_absolute() or '..' in relative.parts:
                 raise ValueError('private_evidence_path')
-            self.result_original_hashes(result, relative)
-            local = local_money_proof(self.ledger.path.parent / relative, ledger=self.ledger,
-                                      session_id=result['session_id'], attempt_id=claim['attempt_id'],
-                                      outcome=result['outcome'])
+            hashes = self.result_original_hashes(result, relative)
+            sessions = {sid: {'session': session, 'legs': {k: self.ledger.legs[k] for k in session['legs']}}
+                        for sid, session in self.ledger.sessions.items()
+                        if session['start'].get('autostart_attempt_id') == claim['attempt_id']}
+            signatures = tuple(self._retained_cache.signature(self.ledger.path.parent / relative / name)
+                               for name in sorted(hashes))
+            key = ('private', sha, digest(sessions), signatures)
+            local = self._retained_cache.memo(key, lambda: local_money_proof(
+                self.ledger.path.parent / relative, ledger=self.ledger,
+                session_id=result['session_id'], attempt_id=claim['attempt_id'], outcome=result['outcome']),
+                cacheable=all(signature[-1] is not None for signature in signatures))
             if local.get('complete') is not True or local != result.get('local_money_proof'):
                 raise ValueError('private_evidence_changed')
             return result, sha, local
@@ -223,7 +247,7 @@ class AccountState:
             if Path(name).name != name and not f2_name:
                 raise ValueError('private_original_name')
             try:
-                if file_sha(validate_contained_regular_file(self.ledger.path.parent,
+                if self.file_sha(validate_contained_regular_file(self.ledger.path.parent,
                         self.ledger.path.parent / relative / name)) != sha:
                     raise ValueError('private_original_hash_changed')
             except (OSError, ValueError, RuntimeError):
@@ -278,9 +302,9 @@ class AccountState:
             path = self.root / relative
             closure = self.read(path)
             binding = self.owner_result_binding(claim)
-            if (file_sha(path) != proof.get('owner_closure_sha256') or
+            if (self.file_sha(path) != proof.get('owner_closure_sha256') or
                     closure.get('authority') != 'owner_recovery' or
-                    closure.get('incident_sha256') != file_sha(self.root / 'incidents' / relative.name) or
+                    closure.get('incident_sha256') != self.file_sha(self.root / 'incidents' / relative.name) or
                     closure.get('bindings', {}).get(claim['attempt_id']) != binding or
                     proof.get('result_sha256') != binding['result_sha256'] or
                     proof.get('private_evidence_sha256') != digest(binding) or
@@ -318,14 +342,15 @@ class AccountState:
         pending = []
         for path in sorted((self.root / 'incidents').glob('*.json')):
             row = self.read(path)
-            if not occurrence_closed(self, path, row, file_sha(path)):
+            if not occurrence_closed(self, path, row, self.file_sha(path)):
                 pending.append(row)
         return pending
 
     def latch(self, attempt, reason, now):
         # Safe reason codes only; never serialize exception messages/credentials.
         self.verify()
-        return latch_occurrence(self, attempt, reason, 'attempt', now, initial_id=attempt)
+        initial = attempt if isinstance(attempt, str) and re.fullmatch('[0-9a-f]{32}', attempt) else None
+        return latch_occurrence(self, attempt, reason, 'attempt', now, initial_id=initial)
 
     def claim(self, entry, policy, now, *, prepared=None):
         require_account(self.maker)

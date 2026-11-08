@@ -32,7 +32,8 @@ def test_unposted_claim_after_hard_exit_closes_missed_and_keeps_date_consumed(tm
     policy = parse_policy(policy_row())
     claim = state.claim(policy.entries[0], policy, clock.now())
     state.ledger.record('session_start', session_id='empty-band', counted=True,
-                        autostart_attempt_id=claim['attempt_id'], owner_local_date=claim['local_date'])
+                        autostart_attempt_id=claim['attempt_id'], owner_local_date=claim['local_date'],
+                        synthetic_interruption=reason)
     # Simulate a hard kill: no run_session finally/result exists in this process.
     state = AccountState(tmp_path / 'state', Ledger.open(state.ledger.path, clock=clock.now))
     runtime = StubRuntime(state, clock)
@@ -44,6 +45,7 @@ def test_unposted_claim_after_hard_exit_closes_missed_and_keeps_date_consumed(tm
     assert closed['state'] == 'MISSED' and closed['proof']['authority'] == 'automatic_no_intent'
     assert closed['proof']['research_evidence_complete'] is False
     assert not attempt_intents(state.ledger, claim['attempt_id'])
+    assert state.ledger.sessions['empty-band']['start']['synthetic_interruption'] == reason
     with pytest.raises(StateRefused, match='account_date_consumed'): state.claim(policy.entries[0], policy, clock.now())
 
 
@@ -112,7 +114,8 @@ def test_real_elapsed_band_cleanup_keeps_other_band_heartbeat_and_authority_aliv
     incidents, heartbeats = [], []
     runtime = SimpleNamespace(clock=real, pilot_root=tmp_path, policy_path=policy_path,
         lease=SimpleNamespace(check=lambda: None), sidecar=None, control_root=tmp_path / 'control',
-        state=SimpleNamespace(verify=lambda: None, latch=lambda *a: incidents.append(a)), task_enabled=lambda: True)
+        state=SimpleNamespace(verify=lambda: None, latch=lambda *a: incidents.append(a), ledger=ledger,
+                              root=tmp_path / 'fixture-state'), task_enabled=lambda: True)
     authority = ScheduledAuthority(runtime, {'attempt_id': 'a' * 32, **controller.policy.labels('2026-11-11')},
                                    controller.entry, controller.policy, {'baseline': {}})
     status.checkpoint_hook = authority.check

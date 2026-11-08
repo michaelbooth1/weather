@@ -76,7 +76,7 @@ class Raw(RehearsalVenue):
     def submit(self, request, *, checkpoint=lambda: None):
         response = super().submit(request, checkpoint=checkpoint)
         old = response['order_id']
-        oid = str(self.index) + '-' + old
+        oid = getattr(self.account, 'prefix', '') + str(self.index) + '-' + old
         row = self.memory.orders.pop(old)
         row['id'] = oid
         self.memory.orders[oid] = row
@@ -112,7 +112,7 @@ class Raw(RehearsalVenue):
 
 
 def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_seconds=0, enrolled=False,
-          base=NOW, schedule=None):
+          base=NOW, schedule=None, shared_ledger=None, shared_state=None, session_id='F2-fixture'):
     row = example_policy()
     row.update(max_session_seconds=300, band_limit_session=k, band_limit_concurrent=k)
     if schedule:
@@ -123,16 +123,21 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
     if window is not None:
         row['requote_distance_cents'] = window
     policy = parse_policy(row)
-    entry = next(e for e in policy.entries if e.local_date == '2026-11-11')
+    from zoneinfo import ZoneInfo
+    local_date = base.astimezone(ZoneInfo('America/Toronto')).date().isoformat()
+    entry = next(e for e in policy.entries if e.local_date == local_date)
     clock = Clock(base)
     clock.seconds = late_seconds
-    ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=clock.now, maker_address=MAKER)
-    install(ledger, cash='300')
+    ledger = shared_ledger or Ledger.create(tmp_path / 'ledger.jsonl', clock=clock.now, maker_address=MAKER)
+    ledger.clock = clock.now
+    if shared_ledger is None:
+        install(ledger, cash='300')
     state, claim = None, None
     if enrolled:
         from weather.market.lfc_campaign_state import AccountState
-        state = AccountState(tmp_path / 'state', ledger)
-        state.enroll(clock.now())
+        state = shared_state or AccountState(tmp_path / 'state', ledger)
+        if ledger.enrollment is None:
+            state.enroll(clock.now())
         claim = state.claim(entry, policy, clock.now())
     attempt_id = claim['attempt_id'] if claim is not None else 'a' * 32
     rows = universe()
@@ -153,8 +158,9 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
     table = build_table(rows, now=clock.now(), policy=policy, cash='300', capital=CapitalBook(ledger).figures())
     assert len(table['selected_condition_ids']) == k, table['rows']
     account = Account(clock)
+    account.prefix = '' if session_id == 'F2-fixture' else session_id + '-'
     account.state, account.claim, account.policy = state, claim, policy
-    directory = tmp_path / 'session-F2-fixture'
+    directory = tmp_path / ('session-' + session_id)
     directory.mkdir()
     write_new(directory / 'selection.json', table)
     write_new(directory / 'attempt.json', {'attempt_id': attempt_id, 'policy_sha256': policy.sha256})
@@ -165,7 +171,7 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
     def verify():
         return {'money_accounting_complete': not ledger.unresolved_legs(),
                 'cleanup_proven': account.open_orders() == [] and not ledger.unresolved_legs()}
-    coordinator = F2Coordinator(ledger=ledger, clock=clock, directory=directory, session_id='F2-fixture',
+    coordinator = F2Coordinator(ledger=ledger, clock=clock, directory=directory, session_id=session_id,
                     attempt_id=attempt_id, policy=policy, entry=entry, table=table, status=status, verify=verify)
     status.bind(coordinator.session_id, directory=directory, selection={}, ledger=ledger)
     status.session = coordinator
@@ -175,7 +181,7 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
     authority.confirmation_valid = lambda table, receipt: receipt == {'fixture_only': True}
     for index, cid in enumerate(table['selected_condition_ids'], 1):
         chosen = next(r for r in table['rows'] if r['condition_id'] == cid)
-        sid = 'F2-fixture-b' + str(index)
+        sid = session_id + '-b' + str(index)
         child = directory / ('band-' + str(index))
         child.mkdir()
         attempt = {'counted': index == 1, 'session_number': 1, 'protocol': 'lfc_autostart_v2',

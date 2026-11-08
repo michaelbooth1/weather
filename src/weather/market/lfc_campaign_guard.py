@@ -150,9 +150,11 @@ def account_lease(maker, *, backend=None):
 
 class ExclusiveWorkload:
     """Barrier + legacy + all seven newer slots, not just the default slot."""
-    def __init__(self, maker, *, backend=None, namespace=LEGACY_MUTEX, poison_root=None):
+    def __init__(self, maker, *, backend=None, namespace=LEGACY_MUTEX, poison_root=None,
+                 read_only=False, state_id=None):
         self.maker = maker
-        self.backend = WindowsMutexes() if backend is None else backend
+        self.read_only, self.state_id = read_only, state_id
+        self.backend = (WindowsMutexes(owner_recovery=True) if read_only else WindowsMutexes()) if backend is None else backend
         self.namespace = namespace
         self.poison_root = Path(poison_root) if poison_root is not None else Path(
             os.environ.get('ProgramData', r'C:\ProgramData')) / 'WeatherProject'
@@ -161,6 +163,8 @@ class ExclusiveWorkload:
 
     def check(self):
         require_account(self.maker)
+        if self.read_only:
+            raise AdmissionUncertain('read_only_lease_has_no_live_authority')
         if self.thread != threading.get_ident() or len(self.handles) != 9:
             raise AdmissionUncertain('exclusive_lease_not_owned')
 
@@ -183,6 +187,10 @@ class ExclusiveWorkload:
                     continue
                 except OSError:
                     raise AdmissionUncertain('workload_state_unreadable') from None
+                if self.read_only and name == 'heavy_workload_v1.poison':
+                    from weather.market.lfc_campaign_workload import retained_read_allowed
+                    if retained_read_allowed(self.poison_root / name, maker=self.maker, state_id=self.state_id):
+                        continue  # Observe only: never clear or adopt its money authority.
                 raise AdmissionUncertain('workload_poison')
             self.thread = threading.get_ident()
             return self

@@ -24,8 +24,10 @@ from weather.market.lfc_campaign_guard import AdmissionUncertain, OwnedHold
 from tests.market.lfc_campaign_fixtures import private_result
 
 
-def runtime_at(tmp_path):
+def runtime_at(tmp_path, *, now=None):
     clock = Clock()
+    if now is not None:
+        clock.value = now
     state = state_at(tmp_path, clock)
     path = tmp_path / 'campaign.json'
     path.write_text(json.dumps(policy_row()))
@@ -304,7 +306,8 @@ def test_workload_marker_survives_uncertainty_and_requires_owner_proved_reboot(t
 
 
 def test_claimed_setup_error_still_publishes_policy_bound_outcome(tmp_path, monkeypatch):
-    from weather.market import lfc_cli
+    from weather.market import lfc_cli, lfc_session_status
+    monkeypatch.setattr(lfc_session_status, 'OWNER_STOP_FILE', tmp_path / 'owner-stop-fixture')
     with account_lease(MAKER, backend=Mutexes()):
         runtime = runtime_at(tmp_path)
         policy = parse_policy(policy_row())

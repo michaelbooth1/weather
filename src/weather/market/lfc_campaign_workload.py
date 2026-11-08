@@ -66,6 +66,13 @@ def proved_owner_gone(row, now_boot):
     return lock_owner_status({'pid': pid, 'owner_process_identity': identity}).get('stale') is True
 
 
+def retained_read_allowed(path, *, maker, state_id):
+    """GET recording may inspect a proved-dead own attempt, never clear it."""
+    row = strict_json(read_bytes(path, 65536))
+    return (row.get('schema_version') == WORKLOAD_SCHEMA and row.get('state_id') == state_id and
+            row.get('account_key') == account_key(maker) and proved_owner_gone(row, current_boot_id()))
+
+
 def owner_release_workload_after_reboot(*, path, expected_sha, state_id, maker, boot_id=None, backend=None,
                              namespace=LEGACY_MUTEX, owner_terminal=None, confirmation=None, hold_path=CAMPAIGN_WORK_LOCK):
     """Never called by automatic admission or money reconciliation."""

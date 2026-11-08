@@ -104,7 +104,8 @@ class Ledger:
         self.path, self.clock = Path(path), clock
         self.rows, self._raw_len = rows, len(raw)
         self._history_hash = hashlib.sha256(raw)
-        self.previous = hashlib.sha256(raw.splitlines(keepends=True)[-1]).hexdigest() if rows else None
+        self._row_hashes = [hashlib.sha256(line).hexdigest() for line in raw.splitlines(keepends=True)]
+        self.previous = self._row_hashes[-1] if rows else None
         self._replay()
 
     # ----- construction -------------------------------------------------------------------------------------
@@ -184,19 +185,30 @@ class Ledger:
         self.autostart_claims, self.autostart_incidents, self.history_recoveries = [], [], []
         self.autostart_results = []
         self.capital_rows = []
+        self._capital_checkpoint = None
         self.halted, self.mismatches = False, []
-        for row in self.rows:
-            self._apply(row)
+        self._replaying = True
+        try:
+            for row in self.rows:
+                self._apply(row)
+        finally:
+            self._replaying = False
 
     def _apply(self, row):
         event = row['event']
         if event.startswith('capital_'):
             from weather.market.lfc_capital import CapitalBook, CapitalRefused
             try:
-                CapitalBook(self).apply(row)
+                book = self._capital_checkpoint if getattr(self, '_replaying', False) else None
+                if book is None:
+                    book = CapitalBook(self)
+                else:
+                    book.sync_lots()
+                book.apply(row)
             except (ValueError, KeyError, TypeError) as exc:
                 raise LedgerUnavailable(str(exc) if isinstance(exc, CapitalRefused) else 'capital_event_invalid') from None
             self.capital_rows.append(row)
+            self._capital_checkpoint = book
         elif event == 'owner_history_recovery':
             if (row.get('session_id') not in self.sessions or self.sessions[row['session_id']]['end'] is None or
                     not all(isinstance(row.get(k), str) and row[k] for k in
@@ -416,6 +428,7 @@ class Ledger:
         self._history_hash.update(raw)
         self._raw_len += len(raw)
         self.previous = hashlib.sha256(raw).hexdigest()
+        self._row_hashes.append(self.previous)
         self.write_snapshot()
         return row
 
@@ -472,7 +485,7 @@ class Ledger:
         return [leg for leg in self.legs.values() if leg['status'] != 'terminal' and leg['order_id'] is None]
 
     def row_sha256(self, sequence):
-        return hashlib.sha256(canonical_bytes(self.rows[sequence])).hexdigest()
+        return self._row_hashes[sequence]
 
     def terminal(self, order_id, row, *, source):
         """Record a proven terminal read; a still-live or unreadable order stays at full resting cost.

@@ -5,6 +5,7 @@ rail. A terminal fill creates a cost-basis lot; only evidenced redemption can
 release that basis. Neither prices, predicted income nor an unknown payout can
 release money. All mutations are events of the existing single ledger writer.
 """
+from copy import deepcopy
 from decimal import Decimal, ROUND_CEILING
 import re
 
@@ -67,6 +68,14 @@ class CapitalBook:
     """Deterministic replay. No independent money file or in-memory credit."""
     def __init__(self, ledger):
         self.ledger = ledger
+        checkpoint = getattr(ledger, '_capital_checkpoint', None)
+        if checkpoint is not None:
+            # Callers receive a detached copy. Only the ledger's verified replay
+            # mutates its own checkpoint, and a rejected write rebuilds it.
+            self.__dict__.update(deepcopy({key: value for key, value in checkpoint.__dict__.items() if key != 'ledger'}))
+            self.sync_lots()
+            self.refresh_pools()
+            return
         self.lots = fill_lots(ledger)
         self.bridge = None
         self.anchor = None
@@ -89,6 +98,14 @@ class CapitalBook:
         for row in getattr(ledger, 'capital_rows', []):
             self.apply(row)
         self.refresh_pools()
+
+    def sync_lots(self):
+        for key, lot in fill_lots(self.ledger).items():
+            if key not in self.lots:
+                self.lots[key] = lot
+            elif any(self.lots[key][field] != lot[field] for field in
+                     ('basis', 'quantity', 'token_id', 'condition_id', 'terminal_sequence')):
+                raise CapitalRefused('capital_terminal_lot_changed')
 
     def apply(self, row):
         event = row['event']

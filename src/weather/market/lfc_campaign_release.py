@@ -141,7 +141,7 @@ def task_enabled(release, release_path, release_sha):
     script = REPO_ROOT / 'scripts/ops/lfc_campaign_task_contract.ps1'
     result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script),
                              '-Action', 'Read', '-ReleasePath', str(release_path), '-ReleaseSha256', release_sha],
-                            capture_output=True, text=True, timeout=15)
+                            capture_output=True, text=True, timeout=5)
     if result.returncode != 0:
         raise RuntimeError('campaign_task_readback_failed')
     row = strict_json(result.stdout)

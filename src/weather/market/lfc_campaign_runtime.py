@@ -14,10 +14,10 @@ import uuid
 
 from weather.market.lfc_accounting import inventory_delta, quantity
 from weather.market.lfc_campaign import OwnerStopRequested, TransientPrecheck
-from weather.market.lfc_campaign_control import control_record
+from weather.market.lfc_campaign_control import control_record, active_incidents, orders_unproven, stable_id
 from weather.market.lfc_campaign_guard import (ExclusiveWorkload, OwnedHold, HOLD_PATH, CAMPAIGN_WORK_LOCK, AdmissionBusy,
                                                workstation_headroom)
-from weather.market.lfc_campaign_policy import PROTOCOL, ZONE, load_policy
+from weather.market.lfc_campaign_policy import PROTOCOL, ZONE, load_policy, parse_policy
 from weather.market.lfc_campaign_reads import ACCOUNT_READ_COMPONENTS, account_read_age
 from weather.market.lfc_campaign_state import MoneyContradiction, StateRefused
 from weather.market.lfc_completion import evidence_flags
@@ -126,7 +126,8 @@ class ScheduledAuthority:
                 except OSError:
                     gaps = True
             control_record(self.runtime.control_root, self.claim['attempt_id'], phase='RUNNING', now=now,
-                           research_gaps=gaps, reason='running', policy_metadata=claim_labels(self.policy, self.claim, self.entry))
+                           research_gaps=gaps, reason='running', orders_open_unproven=orders_unproven(self.runtime.state, self.runtime),
+                           policy_metadata=claim_labels(self.policy, self.claim, self.entry))
             self.last_control = mono
         if not load_policy(self.runtime.policy_path).raw['enabled'] or not self.runtime.task_enabled():
             from weather.market.re1_attended import HoldEnd
@@ -279,7 +280,7 @@ class Runtime:
 
     def task_enabled(self):
         now = self.clock.monotonic()
-        if self._task_checked is None or now - self._task_checked >= 5:
+        if self._task_checked is None or now - self._task_checked >= 60:
             self._task_value = self._read_task_enabled()
             self._task_checked = now
         return self._task_value
@@ -289,6 +290,31 @@ class Runtime:
         self.state.policy_binding = self.state.policy_binding
         self.state.verify(owner_fault_review=getattr(self, 'owner_fault_review', False))
         return self.state.ledger
+
+    @contextmanager
+    def readonly_admission(self):
+        """All-slot GET exclusion with no crash-persistent live marker or lease."""
+        if self.heavy_hold_path.exists():
+            raise AdmissionBusy('agent_heavy_hold')
+        identity = self.state.verify(owner_fault_review=True)
+        with ExclusiveWorkload(self.state.maker, read_only=True, state_id=identity['state_id']):
+            # Do not set self.lease: a recorder can never satisfy live authority.
+            yield
+
+    def followup(self, load_current, *, evidence_only=False):
+        from weather.market.lfc_f2_followup import maintenance
+        try:
+            policy = load_current()
+        except (OSError, ValueError):
+            policy = None
+            for row in reversed(self.state.ledger.autostart_claims):
+                saved = self.state.read(self.state.root / 'policies' / (row['attempt_id'] + '.json'))
+                candidate = parse_policy(saved['policy'])
+                if candidate.f2:
+                    policy = candidate
+                    break
+        if policy is not None and policy.f2:
+            maintenance(self, policy, evidence_only=evidence_only)
 
     @contextmanager
     def admission(self):
@@ -422,10 +448,12 @@ class Runtime:
             raise StateRefused('account_read_binding')
 
     def core_proof(self, ledger, read):
+        self._orders_open_unproven = True
         self.validate_account_read(ledger, read)
         traded = traded_shares(read['trades'], ledger.our_order_ids())
         if account_read_age(read, self.clock.now()) > 120:
             raise TransientPrecheck('account_read_stale')
+        self._orders_open_unproven = read['open_orders'] != [] or bool(ledger.unacknowledged_intents())
         if ledger.unresolved_legs():
             return {'money_accounting_complete': False, 'cleanup_proven': False,
                     'unknown_submit': bool(ledger.unacknowledged_intents()), 'money_contradiction': False,
@@ -578,7 +606,7 @@ class Runtime:
         if not proof['money_accounting_complete'] or not proof['cleanup_proven']:
             raise MoneyContradiction('pre_go_money_contradiction')
         readiness = self.readiness(entry, policy, read)
-        if account_read_age(read, self.clock.now()) > 90:
+        if account_read_age(read, self.clock.now()) > 60:
             read = self.read_account()
             proof = self.core_proof(ledger, read)
             if not proof['money_accounting_complete'] or not proof['cleanup_proven']:
@@ -687,9 +715,13 @@ class Runtime:
                 if not any(row['attempt_id'] == claim['attempt_id'] for row in self.state.ledger.autostart_results):
                     self.save_result(claim, result)
             unproven = outcome.get('cancellation_proven') is not True or outcome.get('orders_open_at_exit') != []
-            incident = bool(self.state.incidents()) or outcome.get('unknown_submit') is not False
+            incidents = active_incidents(self.state)
+            incident = bool(incidents) or outcome.get('unknown_submit') is not False
             phase = 'INCIDENT' if incident else 'POSTCHECK_PENDING'
-            self.notify_control(control_record(self.control_root, claim['attempt_id'], phase=phase, now=self.clock.now(),
+            notice_attempt = incidents[0]['attempt_id'] if incidents else claim['attempt_id']
+            notice_attempt = stable_id((self.state.ledger.enrollment or {}).get('state_id'), phase, None, None,
+                                       notice_attempt, incident=bool(incidents))
+            self.notify_control(control_record(self.control_root, notice_attempt, phase=phase, now=self.clock.now(),
                 incident=incident, postchecks_pending=True, orders_open_unproven=unproven,
                 reason='account_incident' if incident else 'postcheck_pending',
                 policy_metadata=claim_labels(policy, claim, entry)))

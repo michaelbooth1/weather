@@ -9,11 +9,14 @@ $release=Read-LfcCampaignRelease -Path $ReleasePath -Sha256 $ReleaseSha256
 $job=New-WeatherKillOnCloseJob
 $child=$null; $exitCode=1
 try {
+    $began=[DateTimeOffset]::UtcNow
+    $deadline=Get-LfcCampaignDeadline -CampaignPath $release.campaign_path -NowUtc $began
+    $maxSeconds=($deadline-$began).TotalSeconds
+    $elapsed=[Diagnostics.Stopwatch]::StartNew()
     $tokens=@('-m','weather.market.lfc_campaign_cli','tick','--release',$ReleasePath,'--release-sha256',$ReleaseSha256)
     $child=Start-WeatherProcessInJob -Job $job -FilePath $release.python -ArgumentString (ConvertTo-WeatherWindowsArgumentString -Tokens $tokens) -WorkingDirectory $release.root
-    $deadline=[DateTimeOffset]::UtcNow.AddHours(8.5)
     while(-not $child.WaitForExit(500)) {
-        if([DateTimeOffset]::UtcNow -ge $deadline) { throw 'campaign child deadline; cancellation unproven' }
+        if([DateTimeOffset]::UtcNow -ge $deadline -or $elapsed.Elapsed.TotalSeconds -ge $maxSeconds) { throw 'campaign child deadline; cancellation unproven' }
     }
     $exitCode=$child.ExitCode
 } finally {

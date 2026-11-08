@@ -27,9 +27,14 @@ def collect(runtime, *, get=None, reward_client=None):
         return get(endpoint, params)
     conditions = {}
     for session in ledger.sessions.values():
-        if session['end'] is not None and session['legs']:
-            cid = session['start']['condition_id']
-            conditions.setdefault(cid, set()).update(ledger.legs[key]['token_id'] for key in session['legs'])
+        if session['legs']:
+            for key in session['legs']:
+                leg = ledger.legs[key]
+                cid = session['start'].get('condition_id') or leg.get('condition_id')
+                if not cid:
+                    gaps.append('followup_condition_scope_missing')
+                    continue
+                conditions.setdefault(cid, set()).add(leg['token_id'])
     for condition, tokens in sorted(conditions.items()):
         if runtime.clock.monotonic() >= stop:
             gaps.append('followup_time_budget')
@@ -45,8 +50,9 @@ def collect(runtime, *, get=None, reward_client=None):
     # D+2 runs independently even if the previous D+1 pass never completed.
     for lag in (1, 2):
         day = (observed.date() - timedelta(days=lag)).isoformat()
-        selected = sorted({s['start']['condition_id'] for s in ledger.sessions.values()
-            if s['end'] is not None and s['legs'] and s['start']['recorded_at_utc'][:10] == day})
+        selected = sorted(filter(None, {s['start'].get('condition_id') or ledger.legs[key].get('condition_id')
+            for s in ledger.sessions.values() for key in s['legs']
+            if s['start']['recorded_at_utc'][:10] == day}))
         if not selected or runtime.clock.monotonic() >= stop:
             continue
         try:
@@ -99,57 +105,66 @@ def collect(runtime, *, get=None, reward_client=None):
             'monetary_action': False}
 
 
-def maintenance(runtime, policy):
-    """At most hourly, outside all entry windows; never consumes a live date."""
+def maintenance(runtime, policy, *, evidence_only=False):
+    """Bounded GET recording survives incidents; it never closes money state."""
     from datetime import datetime
     from weather.market.lfc_campaign_guard import AdmissionBusy
     from weather.market.lfc_campaign_state import StateRefused
     from weather.market.lfc_f2_economics import publish_supplements
     now = runtime.clock.now()
-    if any(entry.start - timedelta(minutes=20) <= now < entry.end for entry in policy.entries):
+    if not evidence_only and any(entry.start - timedelta(minutes=20) <= now < entry.end for entry in policy.entries):
         return
     prior = sorted((runtime.state.root / 'followups').glob('*.json'))
     if prior:
         last = runtime.state.read(prior[-1])
-        if (now - datetime.fromisoformat(last['observed_at_utc'])).total_seconds() < 3600:
+        cadence = 300 if last.get('gaps') else 3600
+        if (now - datetime.fromisoformat(last['observed_at_utc'])).total_seconds() < cadence:
             return
     try:
-        with runtime.admission():
-            runtime.reload_ledger()
-            runtime.state.require_retained_evidence()
-            money_gap = None
-            try:
-                proof = runtime.core_proof(runtime.state.ledger, runtime.read_account())
-                if proof.get('money_contradiction') is True or proof.get('unknown_submit') is not False:
-                    from weather.market.lfc_campaign_state import MoneyContradiction
-                    runtime.state.latch(uuid.uuid4().hex, 'followup_money_contradiction', runtime.clock.now())
-                    raise MoneyContradiction('followup_money_contradiction')
-            except StateRefused:
-                raise
-            except Exception as exc:
-                from weather.market.lfc_capital import CapitalRefused
-                if isinstance(exc, CapitalRefused) and str(exc) in {
-                        'capital_cash_unreconciled', 'capital_inventory_unreconciled'}:
-                    from weather.market.lfc_capital_consistency import observe
-                    from weather.market.lfc_campaign import TransientPrecheck
-                    try:
-                        observe(runtime.state, runtime.clock.now(), reason=str(exc))
-                    except TransientPrecheck:
-                        pass
-                money_gap = 'cash_followup_' + type(exc).__name__
+        with runtime.readonly_admission():
+            money_gap, money_complete = None, False
+            if not evidence_only:
+                try:
+                    runtime.reload_ledger()
+                    runtime.state.require_retained_evidence()
+                    proof = runtime.core_proof(runtime.state.ledger, runtime.read_account())
+                    money_complete = (proof.get('money_accounting_complete') is True and
+                                      proof.get('cleanup_proven') is True and proof.get('unknown_submit') is False)
+                    if proof.get('money_contradiction') is True or proof.get('unknown_submit') is not False:
+                        runtime.state.latch('followup-money', 'followup_money_contradiction', runtime.clock.now())
+                    if not money_complete:
+                        money_gap = 'cash_followup_incomplete'
+                except Exception as exc:
+                    from weather.market.lfc_capital import CapitalRefused
+                    if isinstance(exc, CapitalRefused) and str(exc) in {
+                            'capital_cash_unreconciled', 'capital_inventory_unreconciled'}:
+                        from weather.market.lfc_capital_consistency import observe
+                        from weather.market.lfc_campaign import TransientPrecheck
+                        try:
+                            observe(runtime.state, runtime.clock.now(), reason=str(exc))
+                        except (TransientPrecheck, StateRefused):
+                            pass  # Keep the candidate/incident; continue only GET recording.
+                    money_gap = 'cash_followup_' + type(exc).__name__
             facts = collect(runtime)
-            from weather.market.lfc_capital_settlement import record_zero_payouts
-            facts['zero_payout_lots_realized'] = (record_zero_payouts(runtime.state.ledger, runtime.pilot_root)
-                if getattr(runtime.state.ledger, 'capital_rows', ()) else 0)
+            facts['money_proof_complete'] = money_complete
+            if evidence_only:
+                facts['gaps'].append('money_or_evidence_incident_retained')
             if money_gap:
                 facts['gaps'].append(money_gap)
+            try:
+                from weather.market.lfc_capital_settlement import record_zero_payouts
+                facts['zero_payout_lots_realized'] = (record_zero_payouts(runtime.state.ledger, runtime.pilot_root)
+                    if getattr(runtime.state.ledger, 'capital_rows', ()) else 0)
+            except Exception as exc:
+                facts['gaps'].append('zero_payout_' + type(exc).__name__)
+            try:
+                publish_supplements(runtime)
+            except Exception as exc:
+                facts['gaps'].append('supplement_' + type(exc).__name__)
             runtime.state.save('followups/' + now.strftime('%Y%m%dT%H%M%S%fZ') + '.json', facts)
-            publish_supplements(runtime)
     except AdmissionBusy:
-        return
-    except StateRefused:
-        raise
+        return  # Retry next tick, without consuming an hourly recording slot.
     except Exception as exc:
-        # Only a normalized type leaves the private root, never exception text.
         runtime.state.save('followups/' + now.strftime('%Y%m%dT%H%M%S%fZ') + '-' + uuid.uuid4().hex + '.json',
-            {'observed_at_utc': now.isoformat(), 'gaps': [type(exc).__name__], 'monetary_action': False})
+            {'observed_at_utc': now.isoformat(), 'gaps': [type(exc).__name__], 'monetary_action': False,
+             'money_proof_complete': False})

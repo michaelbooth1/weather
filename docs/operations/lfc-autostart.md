@@ -50,6 +50,9 @@ admitted attempt uses its immutable snapshot. Changing campaign ID/revision or
 lowering a count does not reset account history. Enabling/disabling the campaign
 file and actual task are independent owner controls. A disabled task does not
 prove cancellation of an already running session.
+The running process reads task enablement at most once per minute, with a
+five-second read timeout. Policy disablement and the owner-only STOP checkpoints
+remain independent of that cached Scheduler observation.
 
 The minimum leaves 120 seconds for opening reads before the controller's existing
 180-second pre-POST horizon. The boundary is tested with nonzero opening latency;
@@ -317,8 +320,11 @@ F2 outcomes distinguish PLANNING reward scenarios from MEASURED fills, fees,
 carried cost basis, actual native redemptions and incentives. Unknown fees or
 payments remain null. Account incentive credits are shown separately; a payment
 without a verified earned-session link is never booked as session income.
-Read-only hourly follow-up, outside entry windows, records independent D+1/D+2
-passes and venue settlement. Public calls are capped at two per second and the
+Read-only hourly follow-up records independent D+1/D+2 passes and venue settlement,
+including while an incident or pending attempt blocks further trading. It never
+clears an incident. A retained marker permits these reads only after its exact
+account/state owner is proved gone; the marker remains and no live lease is
+granted. Unavailable exclusion is retried on a later tick. Public calls are capped at two per second and the
 pass has a bounded read budget. Failures remain explicit gaps. It never redeems
 holdings, places orders or consumes another date. Redemption remains an owner or
 separately authorized facility action; until proved, its principal stays charged.
@@ -347,7 +353,16 @@ account. An unexplained missing core proof remains unknown and blocks starts.
 Private completion requires the chained session journal, matching submit intent
 and ACK files, terminal identities/quantities and prediction/end bindings. Each
 result has its own ledger hash anchor. Pending finalization reopens and hashes
-these originals; later admissions repeat the check for closed attempts. Missing,
+these originals; later admissions repeat the check for closed attempts. Process-local
+proof caching is bound to file identity, size, timestamps and the native NTFS
+per-file update sequence (USN). Timestamps alone can coalesce rapid edits. If
+the read-only USN query is unavailable, full content/proof reads replace caching;
+the code never creates or changes a volume journal. See the
+[Microsoft file-USN contract](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_read_file_usn_data).
+Deletion, replacement or a same-size edit with restored mtime invalidates the cache.
+A fresh process validates the full ledger
+chain and retained proofs again. Ledger appends still hash the complete on-disk
+history before every write; money/account reads are never cached. Missing,
 changed or unclassified core evidence records a sticky evidence fault. A generic
 exception type or a scoring gap cannot excuse it. The automatic lane retains
 explicit typed fault codes: supported scoring/public gaps affect research, while
@@ -389,9 +404,13 @@ claimed date or an ambiguous placement. These observations survive a reboot.
 The runtime sends the existing Windows toast and appends a safe one-line record
 to `status/notifications.jsonl` on incident, pending cleanup, completion and a
 missed/refused start window. Every control record includes
-`orders_open_unproven`; true is a warning, never a cancellation proof. An
+`orders_open_unproven`; it is true for unresolved intents, unclosed placed attempts
+or a failed fresh absence proof. Healthy unclaimed idle/deferred records are false.
+True is a warning, never a cancellation proof. An
 existing incident always projects INCIDENT, including during pending postchecks.
-Busy workload admission and retained HOLD/marker state have distinct reasons.
+Busy workload admission, retained HOLD/marker state and no qualifying band have
+distinct reasons. Repeated observations use the same open incident identity;
+only a new fault occurrence receives a new incident identity.
 Automatic admission never guesses that a marker is stale or deletes it; the
 existing owner recovery requires proved process-exit/boot identity continuity.
 
@@ -399,7 +418,9 @@ Before go, the session volume needs at least the code's 5 GiB free-space floor.
 The owner-only STOP checkpoint remains unchanged. A separate watchdog exits the
 process after 120 seconds without quoting-loop progress, first
 publishing an incident with cancellation unproved. Setup, cleanup and verification
-use bounded operations and the wrapper deadline; the stall watchdog never kills
+use bounded operations and the wrapper deadline, which is the effective trading
+end plus thirty minutes, also bounded by monotonic elapsed time. A malformed or
+out-of-window policy gets at most thirty minutes to report refusal. The stall watchdog never kills
 a cancellation in flight. Band cleanup keeps the account heartbeat ticking and
 resynchronizes the clock-gap guard without waiving wall/monotonic drift. The account claim and work
 markers remain retained; process teardown is not order-cancellation proof.
@@ -415,6 +436,10 @@ increase trading principal. The owner's pre-enable check now performs the
 read-only bridge and prints ENROLLMENT_FUNDING with the actual `funding_native`.
 For the intended fully funded sleeve, confirm `funding_native = 300000000` and
 `capital_bridge_complete = true`; a configured ceiling is not proof of funding.
+
+No manual trades, merges or splits on this wallet through 2026-12-31. Any one
+halts F2 because the account inventory/cash bridge no longer reconciles; deposits
+and withdrawals are fine. Redemption follows the separate rule above.
 
 A retained resolution with an exact zero payout books that lot's remaining basis
 as realized loss without requiring a burn. Its unswept physical quantity remains
