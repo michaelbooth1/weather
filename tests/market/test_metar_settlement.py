@@ -39,10 +39,9 @@ def test_all_station_raw_fixtures(row):
     assert sum(not r.routine for r in records) == int(row["speci"])
     assert sum(r.routine and r.t_group_c is not None for r in records) == int(row["tgroup_routine"])
     malformed = [r for r in records if any(key.startswith(("malformed", "ambiguous")) for key in r.flags)]
-    # The supplied UUWW stream contains one TAF-shaped validity-range report
-    # labelled METAR. It has no observed temperature and must remain unusable.
-    assert len(malformed) == (1 if station == "UUWW" else 0)
-    assert all(r.temperature_c is None for r in malformed)
+    # The UUWW TAF-shaped report has no observed temperature; validity ranges
+    # are unrelated tokens, not malformed temperature groups.
+    assert not malformed
     if not station.startswith("K"):
         assert all(r.t_group_c is None for r in records)
     if float(row["per_hour"]) >= 1.8:

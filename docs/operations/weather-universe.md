@@ -75,6 +75,19 @@ and returns `parse_incomplete` with running-style bounds, never a final single-b
 collapse; without any usable bound it returns `source_unavailable`. A malformed
 report replaced by an eligible valid revision no longer makes the day incomplete.
 Syntactically valid reports outside the fetch window are excluded separately.
+Only settlement-critical fields can make an attributed report incomplete;
+unrelated tokens such as TAF validity ranges (`0703/0803`), TX/TN forecasts and
+runway visibility do not. A line without a readable station belongs to no
+station, even in a single-station fetch: `unattributed_lines` counts it in
+fetch diagnostics, and it cannot affect any station-day.
+
+Unreadable observation times are counted as `unreadable_time_lines`. Without a
+receipt time they affect no date (`unreadable_time_without_receipt` diagnostics).
+With a receipt, a potentially qualifying routine line can affect only that
+station's receipt-local date and, through exactly two elapsed hours after local
+midnight, the preceding date. Receipt times after the evaluation instant or at
+or after the publication cutoff cannot affect the day. True temperature absence
+still does not count as a defect, even when its observation time is unreadable.
 
 `MetarSettlementAdapter.evaluate` selects the latest eligible receipt for each
 observation time, assigns station-local dates with DST, and returns both

@@ -18,6 +18,18 @@ from weather.market.weather_universe import BinInterval, WeatherCitySpec, load_w
 UTC = timezone.utc
 
 
+def unreadable_time_dates(report: MetarReport, zone: ZoneInfo) -> frozenset[date]:
+    """Receipt date, plus its predecessor within two elapsed hours of midnight."""
+    if not report.has_unreadable_time or report.receipt_time is None:
+        return frozenset()
+    received = report.receipt_time.astimezone(zone)
+    midnight = datetime.combine(received.date(), time.min, zone).astimezone(UTC)
+    dates = {received.date()}
+    if report.receipt_time - midnight <= timedelta(hours=2):
+        dates.add(received.date() - timedelta(days=1))
+    return frozenset(dates)
+
+
 @dataclass(frozen=True)
 class DailySettlement:
     city: str
@@ -114,15 +126,13 @@ class MetarSettlementAdapter:
         cutoff = fallback_deadline
         received = [r for r in reports if r.receipt_time is None or r.receipt_time <= as_of]
         station_reports = [r for r in received if r.station == spec.station_id]
-        unassigned_defects = [r for r in station_reports if r.routine and r.observation_time is None and r.has_parse_defect]
+        unassigned_defects = [r for r in station_reports if r.routine
+                              and local_date in unreadable_time_dates(r, zone)
+                              and (r.t_group_c is not None or r.body_temperature_c is not None or r.has_parse_defect)]
         records = [r for r in station_reports if r.observation_time is not None and r.observation_time <= as_of]
         next_reports = [r for r in records if r.routine and r.observation_time.astimezone(zone).date() == tomorrow]
         if next_reports:
             cutoff = min(cutoff, min(r.receipt_time or r.observation_time for r in next_reports))
-        unattributed_defects = [r for r in received if r.station is None and r.routine and r.has_parse_defect
-                               and (r.observation_time is None or r.observation_time <= as_of
-                                    and r.observation_time.astimezone(zone).date() == local_date)
-                               and (r.receipt_time is None or r.receipt_time < cutoff)]
         routine_day = [r for r in records if r.routine and r.observation_time.astimezone(zone).date() == local_date]
         eligible = [r for r in routine_day if r.receipt_time is None or r.receipt_time < cutoff]
         rejected = len(routine_day) - len(eligible)
@@ -136,8 +146,8 @@ class MetarSettlementAdapter:
                         corrected=r.corrected, receipt_utc=r.receipt_time, raw=r.raw, report=r) for r in eligible]
         selected, _ = select_reports(routine, snapshot_order=True, deadlines={local_date.isoformat(): cutoff})
         selected_reports = [item["report"] for item in selected]
-        parse_defects = [r for r in unassigned_defects if r.receipt_time is None or r.receipt_time < cutoff]
-        parse_defects += unattributed_defects + [r for r in selected_reports if r.has_parse_defect]
+        parse_defects = [r for r in unassigned_defects if r.receipt_time < cutoff]
+        parse_defects += [r for r in selected_reports if r.has_parse_defect]
         day_reports = [r for r in selected_reports if r.temperature_c is not None]
         if parse_defects:
             notes.append("routine_day_parse_defect")

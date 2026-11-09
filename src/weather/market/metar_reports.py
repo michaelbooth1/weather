@@ -52,9 +52,18 @@ class MetarReport:
 
     @property
     def has_parse_defect(self) -> bool:
-        """A missing value is not itself a defect; unusable malformed/ambiguous data is."""
-        return "outside_fetch_window" not in self.flags and self.temperature_c is None and any(
-            flag.startswith(("malformed_", "ambiguous_")) for flag in self.flags)
+        """Unusable settlement fields; station/time attribution is handled separately."""
+        critical = {"malformed_body_temperature", "ambiguous_body_temperature",
+                    "malformed_t_group", "ambiguous_t_group", "malformed_report_type",
+                    "malformed_correction_marker", "ambiguous_source_revision",
+                    "malformed_receipt_time"}
+        return "outside_fetch_window" not in self.flags and self.temperature_c is None and bool(
+            critical.intersection(self.flags))
+
+    @property
+    def has_unreadable_time(self) -> bool:
+        return self.observation_time is None and bool(
+            {"malformed_or_ambiguous_time", "ambiguous_observation_time"}.intersection(self.flags))
 
 
 def normalized_report_tokens(report: MetarReport) -> tuple[str, ...]:
@@ -161,7 +170,9 @@ def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) 
         match = re.fullmatch(r"(M?)(\d{2})/(?:M?\d{2}|//)?", token)
         if match:
             temps.append(int(match[2]) * (-1 if match[1] else 1))
-        elif "/" in token and re.match(r"M?\d", token) and not token.endswith(("SM", "KT", "FT")):
+        elif re.fullmatch(r"M?[A-Z0-9]{1,2}/(?:M?[A-Z0-9]{0,2}|//)", token) and re.search(r"\d", token):
+            # Temperature-shaped corruption (e.g. 2X/10), not TAF validity
+            # ranges, runway visibility, wind, fractional SM or TX/TN forecasts.
             flags.append("malformed_body_temperature")
     if len(temps) > 1:
         flags.append("ambiguous_body_temperature")
@@ -178,4 +189,12 @@ def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) 
 
 def parse_metar_text(text: str, start: datetime, end: datetime) -> tuple[list[MetarReport], dict[str, int]]:
     reports = [parse_metar(line, start, end) for line in text.splitlines() if line.strip()]
-    return reports, dict(Counter(flag for report in reports for flag in report.flags))
+    counts = Counter(flag for report in reports for flag in report.flags)
+    for report in reports:
+        if report.station is None:
+            counts["unattributed_lines"] += 1
+        if report.has_unreadable_time:
+            counts["unreadable_time_lines"] += 1
+            if report.receipt_time is None:
+                counts["unreadable_time_without_receipt"] += 1
+    return reports, dict(counts)

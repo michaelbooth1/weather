@@ -103,7 +103,7 @@ class PublicSettlementClient:
                 return
             parsed, counts = parse_metar_text(raw, stop - timedelta(hours=hours), stop)
             flags.update(counts)
-            reports.extend(r for r in parsed if (r.station in batch or r.station is None)
+            reports.extend(r for r in parsed if r.station in batch
                            and "outside_fetch_window" not in r.flags and (
                 r.observation_time is None or start <= r.observation_time <= stop))
 

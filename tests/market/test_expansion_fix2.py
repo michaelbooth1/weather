@@ -139,17 +139,18 @@ def test_outside_window_and_invalid_calendar_time_are_distinct():
     old = parse_metar("METAR CYYZ 071800Z 14/04", start, end)
     invalid = parse_metar("METAR CYYZ 311800Z 14/04", start, end)
     assert "outside_fetch_window" in old.flags and not old.has_parse_defect
-    assert invalid.has_parse_defect
+    assert invalid.has_unreadable_time
     result = evaluate([report("METAR CYYZ 081800Z 14/04"), invalid, report("METAR CYYZ 090500Z 10/04")])
-    assert result.status == "parse_incomplete"
+    assert result.status == "final"  # No receipt time can attribute this invalid stamp to a day.
 
 
-def test_unattributed_routine_parse_defects_are_not_discarded_by_the_client():
+def test_unattributed_lines_are_diagnostics_without_station_day_effects():
     text = "METAR CYYZ 081500Z 14/04\nMETAR ??? 081800Z 21/05\nMETAR CYYZ 090500Z 10/04"
-    reports, _ = PublicSettlementClient(get=lambda url: text).metars(["CYYZ"], NOW)
-    assert any(r.station is None and r.has_parse_defect for r in reports)
+    reports, diagnostics = PublicSettlementClient(get=lambda url: text).metars(["CYYZ"], NOW)
+    assert all(r.station == "CYYZ" for r in reports)
+    assert diagnostics["parse_flags"]["unattributed_lines"] == 1
     result = evaluate(reports)
-    assert (result.status, result.maximum) == ("parse_incomplete", 14)
+    assert (result.status, result.maximum) == ("final", 14)
 
 
 @pytest.mark.parametrize("order", list(itertools.permutations(range(3))))
