@@ -67,7 +67,8 @@ class ScheduledProfile(PilotProfile):
 
 
 def claim_labels(policy, claim, entry):
-    return ({key: claim[key] for key in ('policy_name', 'policy_revision', 'evidence_lane')}
+    return ({**{key: claim[key] for key in ('policy_name', 'policy_revision', 'evidence_lane')},
+             'sleeve_loss_basis': claim.get('sleeve_loss_basis', 'gross')}
             if policy.f2 else policy.labels(entry.local_date))
 
 

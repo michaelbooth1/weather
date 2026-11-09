@@ -61,6 +61,7 @@ class CampaignCoordinator:
             return False
         for claim in pending:
             self.policy_binding = {key: claim.get(key) for key in ('policy_name', 'policy_revision', 'evidence_lane')}
+            self.policy_binding['sleeve_loss_basis'] = claim.get('sleeve_loss_basis', 'gross')
             self.state.policy_binding = dict(self.policy_binding)
             attempt = claim['attempt_id']
             try:
@@ -195,6 +196,8 @@ class CampaignCoordinator:
                 from weather.market.lfc_campaign_launch import require_launch, LaunchDeferred
                 require_launch(self.wrapper_launch, policy, entry)
                 require_launch(self.wrapper_launch, current, entry)
+                from weather.market.lfc_f2_policy import require_live_loss_basis
+                require_live_loss_basis(policy)
                 with self.runtime.admission():
                     prepared = self.runtime.pre_go(entry, policy)
                     # No claim before all transient checks pass. Actual go

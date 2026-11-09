@@ -37,8 +37,13 @@ still exits nonzero and never starts the wrapper after a refusal.
 An invalid parent packet defers before account access with `account_not_read`;
 its notice says "account not read; attention required". `account_read` is false,
 and `incident` and `orders_open_unproven` are null (UNKNOWN). The control watch
-must treat null or missing values as not clean: only explicit false values prove
-those flags clear. `attention_required` is true; no order-absence claim is made.
+uses `weather.market.lfc_campaign_control.row_is_clean(row)`. A row is clean only
+when `attention_required` is explicitly false and both incident/order flags are
+explicitly false; null, missing and inconsistent fields require attention. Use
+this function in both host and workstation watches, never flag truthiness.
+`attention_required` is true on the unread row; no order-absence claim is made.
+The local-only watch CLI is `python -m weather.market.lfc_campaign_control --root
+'<control-folder>'`; its exit code is zero only for a clean latest record.
 
 A crash between a timely freeze receipt and its ledger anchor can complete on
 the next healthy tick within the original capture window. The original bytes
@@ -169,6 +174,16 @@ own supported values. Unknown fields and unsupported values refuse explicitly.
 | Policy identity/revision | Snapshot per attempt. Economic changes require a higher revision and apply only at the next unclaimed session, including changes of name. |
 | Evidence and economic-contract fields | Label cash population, final look, strict positive-cash hurdle and inference contract. A prediction is never income or a promotion decision. |
 | Sidecar | Null/disabled only; enabled capability still refuses until interval coverage is qualified. |
+
+Seal, enable-check and every new F2 claim require an explicit `sleeve_loss_basis`;
+an omitted field refuses with `explicit_sleeve_loss_basis_required`. Historical
+snapshots still read as gross without changing their hashes. Owner `check` and
+`status` print the effective basis; `status --release '<release>'
+--release-sha256 '<sha256>'` reports local capital figures and control cleanness
+without a venue read. New claim and control rows retain their effective basis.
+The public watch/toast projection carries basis and cleanness, without money.
+F0's proven lot gains count toward the same sleeve as the F0 losses charged
+through its bridge.
 
 The ledger advances its protocol before capital events. Genesis and historical
 L remain intact. F2 refuses the old L post gate after the bridge. In collateral

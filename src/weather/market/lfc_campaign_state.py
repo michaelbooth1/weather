@@ -200,7 +200,11 @@ class AccountState:
 
     def policy_labels(self, policy, local_date):
         from weather.market.lfc_f2_freeze import labels
-        return labels(self, policy, local_date)
+        result = labels(self, policy, local_date)
+        if policy.f2:
+            from weather.market.lfc_f2_policy import effective_loss_basis
+            result['sleeve_loss_basis'] = effective_loss_basis(policy)
+        return result
 
     def result_anchor(self, attempt, *, metadata_only=False):
         events = [r for r in self.ledger.autostart_results if r['attempt_id'] == attempt]
@@ -393,6 +397,8 @@ class AccountState:
         return latch_occurrence(self, attempt, reason, 'attempt', now, initial_id=initial)
 
     def claim(self, entry, policy, now, *, prepared=None):
+        from weather.market.lfc_f2_policy import require_live_loss_basis
+        require_live_loss_basis(policy)  # New claims cannot opt into legacy omission.
         require_account(self.maker)
         self.verify()
         self.require_history()

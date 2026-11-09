@@ -369,24 +369,28 @@ def notify_owner(root, summary, *, runner=subprocess.run, printer=print, windows
     notification record (delivered or the recorded failure), which goes into session_end.json."""
     line = result_line(summary)
     if public_status is not None:
-        from weather.market.lfc_campaign_control import SAFE_STATES, SAFE_REASONS
+        from weather.market.lfc_campaign_control import SAFE_STATES, SAFE_REASONS, row_is_clean
         allowed = {'phase', 'attempt_id', 'orders_open_unproven'}
         unread = public_status.get('account_not_read') is True
-        if (not allowed <= set(public_status) <= allowed | {'reason', 'account_not_read'} or
+        if (not allowed <= set(public_status) <= allowed | {'reason', 'account_not_read', 'incident', 'attention_required', 'sleeve_loss_basis'} or
                 public_status['phase'] not in SAFE_STATES or
                 'reason' in public_status and public_status['reason'] not in SAFE_REASONS or
                 not re.fullmatch('[0-9a-f]{32}', str(public_status['attempt_id'])) or
-                not (type(public_status['orders_open_unproven']) is bool or
-                     unread and public_status['orders_open_unproven'] is None)):
+                any(value is not None and type(value) is not bool for value in
+                    (public_status.get('orders_open_unproven'), public_status.get('incident'), public_status.get('attention_required'))) or
+                public_status.get('sleeve_loss_basis') not in (None, 'gross', 'net_of_retained_gains')):
             raise ValueError('notification_public_status')
         if 'account_not_read' in public_status and (public_status['account_not_read'] is not True or
                 public_status['phase'] != 'DEFERRED' or public_status['orders_open_unproven'] is not None):
             raise ValueError('notification_account_read_context')
         context = ('account not read; attention required' if unread else
+                   ('' if row_is_clean(public_status) else 'attention required; ') +
                    f"orders_open_unproven={str(public_status['orders_open_unproven']).lower()}")
         line = f"LFC {public_status['phase']} attempt_id={public_status['attempt_id']} {context}"
         if 'reason' in public_status:
             line += ' reason=' + public_status['reason']
+        if public_status.get('sleeve_loss_basis') is not None:
+            line += ' sleeve_loss_basis=' + public_status['sleeve_loss_basis']
     record = {'channel': 'windows_toast+result_line', 'result_line': line, 'toast_delivered': False,
               'toast_error': None, 'at_utc': datetime.now(timezone.utc).isoformat()}
     if public_status is not None:

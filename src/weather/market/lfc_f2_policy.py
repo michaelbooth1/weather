@@ -83,6 +83,17 @@ class F2Campaign(Campaign):
             raise PolicyRefused(str(exc)) from None
 
 
+def effective_loss_basis(policy):
+    """Read legacy snapshots without changing their bytes or economic hash."""
+    return policy.raw.get('sleeve_loss_basis', GROSS)
+
+
+def require_live_loss_basis(policy):
+    if policy.f2 and 'sleeve_loss_basis' not in policy.raw:
+        refuse('explicit_sleeve_loss_basis_required')
+    return effective_loss_basis(policy)
+
+
 def field_keys(row):
     # Retained v0.2/v0.3 snapshots predate B060. Their omitted field means
     # legacy gross accounting; preserve the original bytes and economic hash.

@@ -92,6 +92,9 @@ def test_omitting_the_field_cannot_hide_a_net_to_gross_change_from_revision_chec
     row = deepcopy(policy.raw); row.pop('sleeve_loss_basis')
     legacy = parse_policy(row); entry = next(e for e in legacy.entries if e.local_date == '2026-11-12')
     ledger.clock = lambda: entry.start
-    with pytest.raises(StateRefused, match='economic_policy_change_requires_revision'):
+    with pytest.raises(ValueError, match='explicit_sleeve_loss_basis_required'):
         state.claim(entry, legacy, ledger.clock())
+    explicit = parse_policy({**row, 'sleeve_loss_basis': 'gross'})
+    with pytest.raises(StateRefused, match='economic_policy_change_requires_revision'):
+        state.claim(entry, explicit, ledger.clock())
     assert ledger.sleeve_loss_basis == 'net_of_retained_gains'

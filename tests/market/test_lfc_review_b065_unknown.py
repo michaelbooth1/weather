@@ -21,10 +21,8 @@ def test_unread_refusal_is_unknown_and_needs_attention_in_the_watch(tmp_path, mo
     row = json.loads(sorted((tmp_path / 'control').iterdir())[-1].read_text())
     assert row['orders_open_unproven'] is None and row['incident'] is None
     assert row['account_read'] is False and row['attention_required'] is True
-    clean = row['orders_open_unproven'] is False and row['incident'] is False and row.get('account_read') is not False
-    assert not clean
-    from weather.market.lfc_campaign_control import needs_attention
-    assert needs_attention(row)
+    from weather.market.lfc_campaign_control import row_is_clean, needs_attention
+    assert not row_is_clean(row) and needs_attention(row)
     assert len(notices) == 1 and 'account not read' in notices[0]['result_line']
     assert 'attention required' in notices[0]['result_line']
     assert 'orders_open_unproven' not in notices[0]['result_line']

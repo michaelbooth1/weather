@@ -64,6 +64,8 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
     root = validate_nonreparse_directory(REPO_ROOT)
     policy_path = validate_policy_path(campaign_path)
     policy = load_policy(policy_path)
+    from weather.market.lfc_f2_policy import require_live_loss_basis
+    basis = require_live_loss_basis(policy)
     assignment = require_current_portable_execution_assignment()
     head = git_identity(root)
     if head != qualified_head:
@@ -83,6 +85,7 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
         else:
             state.verify()
         row = {'schema_version': RELEASE_SCHEMA, 'root': str(root.resolve()), 'head': head,
+               'sleeve_loss_basis': basis,
                **policy.labels(),
                'parameter_support': parameter_support(),
                'python': str(Path(python_path).resolve()), 'campaign_path': str(policy_path.resolve()),

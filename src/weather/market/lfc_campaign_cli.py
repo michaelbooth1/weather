@@ -35,7 +35,7 @@ def parser():
     history = commands.add_parser('owner-recover-history', help='owner-only explicit pre-enrollment money recovery')
     history.add_argument('--head', required=True)
     history.add_argument('--session', required=True)
-    for command in ('check', 'tick', 'owner-recover', 'owner-close', 'owner-clear-workload', 'final-look'):
+    for command in ('check', 'status', 'tick', 'owner-recover', 'owner-close', 'owner-clear-workload', 'final-look'):
         item = commands.add_parser(command)
         item.add_argument('--release', required=True)
         item.add_argument('--release-sha256', required=True)
@@ -228,17 +228,37 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
             root, state = bound_state(release, clock,
                 **({'owner_fault_review': True} if args.command in {'owner-close', 'tick'} else {}))
             load = lambda: load_policy(release['campaign_path'])
+            if args.command == 'status':
+                from weather.market.lfc_f2_policy import effective_loss_basis
+                from weather.market.lfc_campaign_control import latest_control, row_is_clean, public_status
+                from weather.market.lfc_capital import CapitalBook
+                policy = load()
+                control = latest_control(CONTROL_ROOT)
+                basis = effective_loss_basis(policy)
+                print(json.dumps({'state': 'STATUS', 'sleeve_loss_basis': basis,
+                    'basis_explicit': 'sleeve_loss_basis' in policy.raw,
+                    'active_sleeve_loss_basis': state.ledger.sleeve_loss_basis,
+                    'claims': [{'attempt_id': claim['attempt_id'],
+                        'sleeve_loss_basis': claim.get('sleeve_loss_basis', 'gross')} for claim in state.claims()],
+                    'capital': CapitalBook(state.ledger).figures(loss_basis=basis),
+                    'control': public_status(control), 'clean': row_is_clean(control)}))
+                return 0 if row_is_clean(control) else 1
             if args.command == 'final-look':
                 from weather.market.lfc_f2_final import write_final
                 row = write_final(state, load(), root=root, output=args.output, now=clock.now())
                 print(json.dumps({'state': row['assessment']['state'], 'accounting_complete': row['accounting_complete']}))
                 return 0
             if args.command == 'check':
+                from weather.market.lfc_f2_policy import effective_loss_basis, require_live_loss_basis
+                policy = load()
+                if args.require_enabled:
+                    require_live_loss_basis(policy)
+                print(json.dumps({'state': 'CHECK', 'sleeve_loss_basis': effective_loss_basis(policy),
+                    'basis_explicit': 'sleeve_loss_basis' in policy.raw}))
                 state.require_history()
                 state.require_retained_evidence()
                 if state.incidents():
                     raise StateRefused('account_incident_latched')
-                policy = load()
                 if args.require_enabled and not policy.raw['enabled']:
                     raise StateRefused('campaign_disabled')
                 if args.require_enabled and policy.f2:
