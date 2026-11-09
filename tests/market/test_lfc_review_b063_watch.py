@@ -84,5 +84,6 @@ def test_preexisting_temporary_file_is_never_removed(tmp_path,monkeypatch):
     temporary.write_bytes(b'pre-existing synthetic evidence')
     module.refusal_row('campaign_import_environment')
     assert temporary.read_bytes()==b'pre-existing synthetic evidence'
-    assert len(list(tmp_path.iterdir()))==1
-    assert json.loads(next(tmp_path.iterdir()).read_text())['phase']=='REFUSED'
+    assert not list(tmp_path.iterdir())
+    fallback=tmp_path.parent/'launcher-refusals-fallback.jsonl'
+    assert json.loads(fallback.read_text().splitlines()[-1])['phase']=='REFUSED'

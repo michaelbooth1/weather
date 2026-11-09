@@ -27,8 +27,9 @@ Environment/binding refusals before the child starts write one sanitized line
 to a UTC-timestamp-prefixed `status/control/*-launcher-refusals-*.jsonl` file.
 Normal publication is one atomic, create-only JSON line, so filename-sorted
 watches cannot be pinned to an old daily log or read a multi-record object.
-If hard-link publication fails, the launcher uses a direct create-only write.
-If that also fails, it appends the same safe line to the fixed
+If hard-link publication fails, the launcher atomically renames the same-volume,
+fully flushed staging file; Windows refuses an existing name. A failed write
+or rename appends the same safe line to the fixed
 `status/launcher-refusals-fallback.jsonl` log, preserving previous refusals.
 It contains phase/time aliases, reason codes and variable names only, with no
 values, paths or exception text. The launcher

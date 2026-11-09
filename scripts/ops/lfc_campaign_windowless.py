@@ -19,11 +19,19 @@ STATUS_ROOT = Path(r'C:\t\pilot\status\control')
 IMPORT_OVERRIDES = ('PYTHONPATH', 'PYTHONHOME', 'WEATHER_MARKET_REGISTRY')
 
 
-def flush_refusal(path, raw, mode='xb'):
-    with path.open(mode) as stream:
+def append_refusal(path, raw):
+    with path.open('ab') as stream:
         stream.write(raw)
         stream.flush()
         os.fsync(stream.fileno())
+
+
+def move_refusal(source, target):
+    # Production is Windows: rename is atomic and refuses an existing name.
+    # Other hosts cannot safely emulate that with a check-then-replace race.
+    if os.name != 'nt':
+        raise OSError('atomic_move_requires_windows')
+    os.rename(source, target)
 
 
 def refusal_row(reason):
@@ -49,16 +57,15 @@ def refusal_row(reason):
                 stream.write(raw)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.link(temporary, path)
-        except OSError:
             try:
-                # A filesystem may refuse hard links but permit ordinary files.
-                # Never truncate an existing record, including on collision.
-                STATUS_ROOT.mkdir(parents=True, exist_ok=True)
-                flush_refusal(path, raw)
+                os.link(temporary, path)
             except OSError:
-                STATUS_ROOT.parent.mkdir(parents=True, exist_ok=True)
-                flush_refusal(STATUS_ROOT.parent / 'launcher-refusals-fallback.jsonl', raw, 'ab')
+                move_refusal(temporary, path)
+        except OSError:
+            # Only a fully flushed stage can reach link/rename. A failed write
+            # stays outside the watched folder and falls directly to this log.
+            STATUS_ROOT.parent.mkdir(parents=True, exist_ok=True)
+            append_refusal(STATUS_ROOT.parent / 'launcher-refusals-fallback.jsonl', raw)
     finally:
         if created:
             try:

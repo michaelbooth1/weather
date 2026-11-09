@@ -1,6 +1,5 @@
 """Guards: B064 launcher publication failures retain a complete safe refusal."""
 import json
-from pathlib import Path
 
 import pytest
 
@@ -14,12 +13,12 @@ def test_link_failure_retains_one_complete_refusal_with_a_fixed_fallback(tmp_pat
     monkeypatch.setenv('PYTHONPATH', 'NEVER_LOG_THIS_VALUE')
     def no_link(*args): raise OSError('synthetic_link_unavailable')
     monkeypatch.setattr(module.os, 'link', no_link)
-    original_open = Path.open
+    original_move = module.os.rename
     if direct_write_fails:
-        def limited_open(path, mode='r', *args, **kwargs):
-            if path.parent == control and mode == 'xb': raise PermissionError('synthetic_control_unwritable')
-            return original_open(path, mode, *args, **kwargs)
-        monkeypatch.setattr(Path, 'open', limited_open)
+        def limited_move(source, target):
+            if target.parent == control: raise PermissionError('synthetic_control_unwritable')
+            return original_move(source, target)
+        monkeypatch.setattr(module.os, 'rename', limited_move)
     module.refusal_row('campaign_windowless_environment')
     files = list(tmp_path.rglob('*.jsonl'))
     assert len(files) == 1
@@ -27,8 +26,9 @@ def test_link_failure_retains_one_complete_refusal_with_a_fixed_fallback(tmp_pat
     assert row['phase'] == 'REFUSED' and row['variable_names'] == ['PYTHONPATH']
     assert len(files[0].read_text().splitlines()) == 1
     assert 'NEVER_LOG_THIS_VALUE' not in files[0].read_text()
-    assert files[0].parent == (tmp_path if direct_write_fails else control)
-    if direct_write_fails: assert files[0].name == 'launcher-refusals-fallback.jsonl'
+    fallback = direct_write_fails or module.os.name != 'nt'
+    assert files[0].parent == (tmp_path if fallback else control)
+    if fallback: assert files[0].name == 'launcher-refusals-fallback.jsonl'
     assert not list(tmp_path.glob('.*.tmp'))
 
 
@@ -36,11 +36,8 @@ def test_fixed_fallback_preserves_prior_refusals(tmp_path, monkeypatch):
     control = tmp_path / 'control'; module, _ = launcher(control, monkeypatch)
     def no_link(*args): raise OSError('synthetic_link_unavailable')
     monkeypatch.setattr(module.os, 'link', no_link)
-    original_open = Path.open
-    def limited_open(path, mode='r', *args, **kwargs):
-        if path.parent == control and mode == 'xb': raise PermissionError('synthetic_control_unwritable')
-        return original_open(path, mode, *args, **kwargs)
-    monkeypatch.setattr(Path, 'open', limited_open)
+    def limited_move(*args): raise PermissionError('synthetic_control_unwritable')
+    monkeypatch.setattr(module.os, 'rename', limited_move)
     module.refusal_row('campaign_release_hash')
     module.refusal_row('campaign_windowless_binding')
     path = tmp_path / 'launcher-refusals-fallback.jsonl'
