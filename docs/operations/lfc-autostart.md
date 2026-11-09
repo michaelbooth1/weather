@@ -173,6 +173,13 @@ it is never recorded as a terminal row. On fill continuation this retires the
 band as `repost_terminal_unreadable`, preserving the typed money-read gap and
 charged reserve for the next postcheck. This gap alone creates no private-evidence
 incident and permits no repost before proof. F0 and N1 keep their original reads.
+During F2 band cleanup, a repeat cancel's retained `not_canceled` entry for
+that order is non-fatal: the later empty open-orders read and terminal-order
+proof decide cleanup. An order that remains open still fails cancellation.
+Other callers keep strict cancel-acknowledgement validation.
+The shared heartbeat's `heartbeat_unavailable` rows are explained non-money
+gaps in retained proof. Heartbeat staleness or a non-transient send failure
+still ends the session through `heartbeat_stale` or `heartbeat_failed`.
 Private manifests retain every band packet and original file; missing evidence
 keeps the same occurrence-specific owner recovery rules. The previous schemas
 remain readable, with their original retirement and band-count restrictions.

@@ -254,6 +254,11 @@ class F2Band(PilotSession):
             self._retain('cleanup_cancel_request', order_id=oid)
             response = self._recover('cleanup_cancel', lambda: self.venue.cancel(oid))
             self._retain('cleanup_cancel_response', order_id=oid, response=response)
+            if (isinstance(response, dict) and isinstance(response.get('not_canceled'), dict)
+                    and oid in response['not_canceled']):
+                # The list can lag the first cancel or a match. The subsequent
+                # empty read and terminal proofs still have to establish cleanup.
+                continue
             if oid not in cancel_ack_ids(response):
                 return False
         self._retain('f2_band_cleanup_scope', session_id=self.session_id, account_wide=False)

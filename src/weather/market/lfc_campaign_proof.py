@@ -72,7 +72,9 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                     orders[str(oid)] = order
                     if len(orders) > submit_limit:
                         raise ValueError('private_order_limit')
-            elif event in {'scoring_missed', 'minute_missed'}:
+            elif event in {'scoring_missed', 'minute_missed', 'heartbeat_unavailable'}:
+                # A missed send is tolerated by the independent heartbeat
+                # freshness/failure checks; it is not missing money evidence.
                 gaps.add(event)
             elif event == 'missing_sample' and row.get('sample') in ANCILLARY_SAMPLES:
                 gaps.add('sample_' + row['sample'])
