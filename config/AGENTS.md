@@ -4,6 +4,10 @@ These instructions apply to `config/`.
 
 - Treat `locations.json` as the durable location, station, settlement, source
   plan, and Polymarket-series registry.
+- `weather_universe.json` is an inactive generated expansion registry. Use
+  `weather.market.generate_weather_universe`; its owning contract is
+  [weather universe](../docs/operations/weather-universe.md). It never overrides
+  `MarketSpec` or activates capture.
 - Do not hand-edit `location_market_events.json`. It is a generated Gamma-event
   snapshot; refresh it with
   `python -m weather.operations.location_config_refresh` and review the diff.

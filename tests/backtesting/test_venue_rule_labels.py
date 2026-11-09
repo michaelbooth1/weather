@@ -34,6 +34,23 @@ TORONTO = spec_for_id("toronto")
 REPO_STATION_CONFIG = Path(__file__).resolve().parents[2] / "config" / "venue_rule_stations.json"
 
 
+@pytest.fixture(autouse=True)
+def legacy_label_byte_parity(monkeypatch):
+    """Compare every existing fixture date/case to the pre-extraction implementation."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "weather_expansion" / "legacy_venue_functions.py.txt"
+    baseline = dict(vars(vrl))
+    exec(compile(fixture.read_text(encoding="utf-8"), str(fixture), "exec"), baseline)
+    current = vrl.venue_daily_labels
+
+    def checked(reports, spec):
+        result = current(reports, spec)
+        expected = baseline["venue_daily_labels"](reports, spec)
+        assert json.dumps(result, sort_keys=True) == json.dumps(expected, sort_keys=True)
+        return result
+
+    monkeypatch.setattr(vrl, "venue_daily_labels", checked)
+
+
 def _csv(rows):
     lines = ["station,valid,tmpf,tmpc,metar"]
     for valid, raw in rows:

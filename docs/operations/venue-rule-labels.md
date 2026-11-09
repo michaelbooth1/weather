@@ -47,6 +47,18 @@ Effective WU print cutoffs, intraday features, the observed floor and serving
 are untouched: this is a whole-day final label, read only by training and
 evaluation. Features keep train/serve parity because only the target moves.
 
+### Shared expansion rule
+
+`weather.market.venue_settlement_rules` owns the shared revision selector and
+exact Decimal native-unit bucket. `select_reports` is re-exported here with
+its legacy default policy; `venue_daily_labels` uses `settlement_bucket` while
+retaining its existing native-value CSV representation. Frozen baseline
+functions check serialized label parity for every existing fixture call.
+The legacy parser's malformed/shortened T-group handling remains as specified
+above. The strict eight-digit parser and authoritative last-shown revision
+policy for expansion diagnostics are separate compatibility settings described
+in [weather universe](weather-universe.md); they do not relabel historical data.
+
 ## Station
 
 For a market-date the first match wins:

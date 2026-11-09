@@ -314,6 +314,8 @@ Retryable failures remain pending, and terminal results are published to
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
 # Venue-rule labels for dates from 2026-10-23 (docs/operations/venue-rule-labels.md):
 .\venv\Scripts\python.exe -m weather.backtesting.venue_rule_labels build --market nyc
+# Public read-only expansion diagnostics (docs/operations/weather-universe.md):
+.\venv\Scripts\python.exe -m weather.market.metar_settlement now --family highest --cities toronto london
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize --label-rule venue
 .\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation

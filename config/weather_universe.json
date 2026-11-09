@@ -1,0 +1,1069 @@
+{
+  "schema_version": "weather-universe-v1",
+  "source_sha256": {
+    "city_icao.json": "beb877f217c2a15055256d61a3750de611933da08f5c5bedb61fb14b89c49d13",
+    "stations.json": "7ecdaeb6a0f2042ec9f8b790ff580d3d7bc5ced9b3a1fcb667b02c6d1a8900d4",
+    "rules_by_city_family.json": "71e7f2d4cf64cd5947dc0a2d6599174e9564b5fcf6128199594e57ed135efbe0"
+  },
+  "cities": [
+    {
+      "slug": "amsterdam",
+      "display_name": "Amsterdam",
+      "settlement_kind": "metar_routine",
+      "station_id": "EHAM",
+      "station_name": "Amsterdam/Schiphol Arpt",
+      "latitude": 52.315,
+      "longitude": 4.79,
+      "elevation_m": -2,
+      "timezone": "Europe/Amsterdam",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-amsterdam-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-amsterdam-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "ankara",
+      "display_name": "Ankara",
+      "settlement_kind": "metar_routine",
+      "station_id": "LTAC",
+      "station_name": "Ankara/Esenboğa Intl",
+      "latitude": 40.128,
+      "longitude": 32.995,
+      "elevation_m": 952,
+      "timezone": "Europe/Istanbul",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-ankara-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-ankara-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "atlanta",
+      "display_name": "Atlanta",
+      "settlement_kind": "metar_routine",
+      "station_id": "KATL",
+      "station_name": "Atlanta/Hartsfield-Jackson Intl",
+      "latitude": 33.62972,
+      "longitude": -84.44223,
+      "elevation_m": 309,
+      "timezone": "America/New_York",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-atlanta-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-atlanta-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "austin",
+      "display_name": "Austin",
+      "settlement_kind": "metar_routine",
+      "station_id": "KAUS",
+      "station_name": "Austin/Bergstrom Intl",
+      "latitude": 30.1831,
+      "longitude": -97.68063,
+      "elevation_m": 148,
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-austin-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-austin-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "beijing",
+      "display_name": "Beijing",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZBAA",
+      "station_name": "Beijing Intl",
+      "latitude": 40.082,
+      "longitude": 116.603,
+      "elevation_m": 31,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-beijing-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-beijing-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "buenos-aires",
+      "display_name": "Buenos Aires",
+      "settlement_kind": "metar_routine",
+      "station_id": "SAEZ",
+      "station_name": "Buenos Aires/Pistarini Arpt",
+      "latitude": -34.822,
+      "longitude": -58.536,
+      "elevation_m": 16,
+      "timezone": "America/Argentina/Buenos_Aires",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-buenos-aires-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-buenos-aires-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "busan",
+      "display_name": "Busan",
+      "settlement_kind": "metar_routine",
+      "station_id": "RKPK",
+      "station_name": "Busan/Gimhae Intl",
+      "latitude": 35.179,
+      "longitude": 128.938,
+      "elevation_m": 3,
+      "timezone": "Asia/Seoul",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-busan-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-busan-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "cape-town",
+      "display_name": "Cape Town",
+      "settlement_kind": "metar_routine",
+      "station_id": "FACT",
+      "station_name": "Capetown Intl",
+      "latitude": -33.965,
+      "longitude": 18.602,
+      "elevation_m": 48,
+      "timezone": "Africa/Johannesburg",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-cape-town-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-cape-town-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "chengdu",
+      "display_name": "Chengdu",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZUUU",
+      "station_name": "Chengdu/Shuangliu Intl",
+      "latitude": 30.576,
+      "longitude": 103.95,
+      "elevation_m": 494,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-chengdu-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-chengdu-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "chicago",
+      "display_name": "Chicago",
+      "settlement_kind": "metar_routine",
+      "station_id": "KORD",
+      "station_name": "Chicago/O'Hare Intl",
+      "latitude": 41.96017,
+      "longitude": -87.93161,
+      "elevation_m": 202,
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-chicago-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-chicago-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "chongqing",
+      "display_name": "Chongqing",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZUCK",
+      "station_name": "Chongqing/Jiangbei Intl",
+      "latitude": 29.718,
+      "longitude": 106.639,
+      "elevation_m": 416,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-chongqing-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-chongqing-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "dallas",
+      "display_name": "Dallas",
+      "settlement_kind": "metar_routine",
+      "station_id": "KDAL",
+      "station_name": "Dallas/Love Fld",
+      "latitude": 32.83836,
+      "longitude": -96.83584,
+      "elevation_m": 148,
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-dallas-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-dallas-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "denver",
+      "display_name": "Denver",
+      "settlement_kind": "metar_routine",
+      "station_id": "KDEN",
+      "station_name": "Denver Intl",
+      "latitude": 39.84657,
+      "longitude": -104.65623,
+      "elevation_m": 1656,
+      "timezone": "America/Denver",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-denver-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-denver-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "guangzhou",
+      "display_name": "Guangzhou",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZGGG",
+      "station_name": "Guangzhou/Baiyun Intl",
+      "latitude": 23.392,
+      "longitude": 113.307,
+      "elevation_m": 11,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-guangzhou-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-guangzhou-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "helsinki",
+      "display_name": "Helsinki",
+      "settlement_kind": "metar_routine",
+      "station_id": "EFHK",
+      "station_name": "Helsinki/Vantaa Arpt",
+      "latitude": 60.327,
+      "longitude": 24.957,
+      "elevation_m": 56,
+      "timezone": "Europe/Helsinki",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-helsinki-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-helsinki-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "hong-kong",
+      "display_name": "Hong Kong",
+      "settlement_kind": "hko_daily_extract",
+      "station_id": "HKO",
+      "station_name": "Hong Kong Observatory",
+      "latitude": 22.3022,
+      "longitude": 114.1742,
+      "elevation_m": 32,
+      "timezone": "Asia/Hong_Kong",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-hong-kong-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-hong-kong-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://www.weather.gov.hk/en/cis/climat.htm"
+    },
+    {
+      "slug": "houston",
+      "display_name": "Houston",
+      "settlement_kind": "metar_routine",
+      "station_id": "KHOU",
+      "station_name": "Houston/Hobby Arpt",
+      "latitude": 29.64582,
+      "longitude": -95.28214,
+      "elevation_m": 13,
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-houston-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-houston-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "istanbul",
+      "display_name": "Istanbul",
+      "settlement_kind": "metar_routine",
+      "station_id": "LTFM",
+      "station_name": "Istanbul Arpt",
+      "latitude": 41.262,
+      "longitude": 28.74,
+      "elevation_m": 99,
+      "timezone": "Europe/Istanbul",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-istanbul-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-istanbul-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "jeddah",
+      "display_name": "Jeddah",
+      "settlement_kind": "metar_routine",
+      "station_id": "OEJN",
+      "station_name": "Jeddah/King Abdulaziz Intl",
+      "latitude": 21.685,
+      "longitude": 39.166,
+      "elevation_m": 8,
+      "timezone": "Asia/Riyadh",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-jeddah-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-jeddah-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "jinan",
+      "display_name": "Jinan",
+      "settlement_kind": "wu_daily_history",
+      "station_id": "ZSJN",
+      "station_name": "Jinan Yaoqiang Intl",
+      "latitude": 36.856,
+      "longitude": 117.206,
+      "elevation_m": 22,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-jinan-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://www.wunderground.com/history/daily/cn/jinan/ZSJN"
+    },
+    {
+      "slug": "karachi",
+      "display_name": "Karachi",
+      "settlement_kind": "metar_routine",
+      "station_id": "OPKC",
+      "station_name": "Karachi/Jinnah Intl",
+      "latitude": 24.902,
+      "longitude": 67.139,
+      "elevation_m": 20,
+      "timezone": "Asia/Karachi",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-karachi-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-karachi-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "kuala-lumpur",
+      "display_name": "Kuala Lumpur",
+      "settlement_kind": "metar_routine",
+      "station_id": "WMKK",
+      "station_name": "Kuala Lumpur Intl",
+      "latitude": 2.747,
+      "longitude": 101.714,
+      "elevation_m": 21,
+      "timezone": "Asia/Kuala_Lumpur",
+      "market_unit": "C",
+      "families": [
+        "highest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-kuala-lumpur-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "london",
+      "display_name": "London",
+      "settlement_kind": "metar_routine",
+      "station_id": "EGLC",
+      "station_name": "London City Arpt",
+      "latitude": 51.505,
+      "longitude": 0.055,
+      "elevation_m": 10,
+      "timezone": "Europe/London",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-london-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-london-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "los-angeles",
+      "display_name": "Los Angeles",
+      "settlement_kind": "metar_routine",
+      "station_id": "KLAX",
+      "station_name": "Los Angeles Intl",
+      "latitude": 33.93817,
+      "longitude": -118.3866,
+      "elevation_m": 30,
+      "timezone": "America/Los_Angeles",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-los-angeles-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-los-angeles-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "lucknow",
+      "display_name": "Lucknow",
+      "settlement_kind": "metar_routine",
+      "station_id": "VILK",
+      "station_name": "Lucknow/Singh Arpt",
+      "latitude": 26.761,
+      "longitude": 80.889,
+      "elevation_m": 121,
+      "timezone": "Asia/Kolkata",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-lucknow-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-lucknow-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "madrid",
+      "display_name": "Madrid",
+      "settlement_kind": "metar_routine",
+      "station_id": "LEMD",
+      "station_name": "Madrid/Barajas Arpt",
+      "latitude": 40.466,
+      "longitude": -3.555,
+      "elevation_m": 589,
+      "timezone": "Europe/Madrid",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-madrid-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-madrid-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "manila",
+      "display_name": "Manila",
+      "settlement_kind": "metar_routine",
+      "station_id": "RPLL",
+      "station_name": "Manila/Aquino Intl",
+      "latitude": 14.507,
+      "longitude": 121.004,
+      "elevation_m": 15,
+      "timezone": "Asia/Manila",
+      "market_unit": "C",
+      "families": [
+        "highest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-manila-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "mexico-city",
+      "display_name": "Mexico City",
+      "settlement_kind": "metar_routine",
+      "station_id": "MMMX",
+      "station_name": "Mexico City Intl",
+      "latitude": 19.436,
+      "longitude": -99.072,
+      "elevation_m": 2224,
+      "timezone": "America/Mexico_City",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-mexico-city-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-mexico-city-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "miami",
+      "display_name": "Miami",
+      "settlement_kind": "metar_routine",
+      "station_id": "KMIA",
+      "station_name": "Miami Intl",
+      "latitude": 25.78806,
+      "longitude": -80.31692,
+      "elevation_m": 1,
+      "timezone": "America/New_York",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-miami-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-miami-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "milan",
+      "display_name": "Milan",
+      "settlement_kind": "metar_routine",
+      "station_id": "LIMC",
+      "station_name": "Milan/Malpensa Arpt",
+      "latitude": 45.631,
+      "longitude": 8.728,
+      "elevation_m": 221,
+      "timezone": "Europe/Rome",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-milan-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-milan-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "moscow",
+      "display_name": "Moscow",
+      "settlement_kind": "metar_routine",
+      "station_id": "UUWW",
+      "station_name": "Moscow/Vnukovo Arpt",
+      "latitude": 55.592,
+      "longitude": 37.261,
+      "elevation_m": 195,
+      "timezone": "Europe/Moscow",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-moscow-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-moscow-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "munich",
+      "display_name": "Munich",
+      "settlement_kind": "metar_routine",
+      "station_id": "EDDM",
+      "station_name": "Munich Intl",
+      "latitude": 48.348,
+      "longitude": 11.813,
+      "elevation_m": 445,
+      "timezone": "Europe/Berlin",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-munich-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-munich-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "nyc",
+      "display_name": "NYC",
+      "settlement_kind": "metar_routine",
+      "station_id": "KLGA",
+      "station_name": "New York/La Guardia Arpt",
+      "latitude": 40.77945,
+      "longitude": -73.88027,
+      "elevation_m": 9,
+      "timezone": "America/New_York",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-nyc-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-nyc-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "panama-city",
+      "display_name": "Panama City",
+      "settlement_kind": "metar_routine",
+      "station_id": "MPMG",
+      "station_name": "Panama/Gelabert Intl",
+      "latitude": 8.967,
+      "longitude": -79.555,
+      "elevation_m": 6,
+      "timezone": "America/Panama",
+      "market_unit": "C",
+      "families": [
+        "highest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-panama-city-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "paris",
+      "display_name": "Paris",
+      "settlement_kind": "metar_routine",
+      "station_id": "LFPB",
+      "station_name": "Paris/Le Bourge Arpt",
+      "latitude": 48.967,
+      "longitude": 2.428,
+      "elevation_m": 50,
+      "timezone": "Europe/Paris",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-paris-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-paris-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "qingdao",
+      "display_name": "Qingdao",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZSQD",
+      "station_name": "Qingdao/Jiaodong Arpt",
+      "latitude": 36.362,
+      "longitude": 120.087,
+      "elevation_m": 2,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-qingdao-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-qingdao-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "san-francisco",
+      "display_name": "San Francisco",
+      "settlement_kind": "metar_routine",
+      "station_id": "KSFO",
+      "station_name": "San Francisco Intl",
+      "latitude": 37.61961,
+      "longitude": -122.36561,
+      "elevation_m": 2,
+      "timezone": "America/Los_Angeles",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-san-francisco-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-san-francisco-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "sao-paulo",
+      "display_name": "Sao Paulo",
+      "settlement_kind": "metar_routine",
+      "station_id": "SBGR",
+      "station_name": "Sao Paulo Intl",
+      "latitude": -23.432,
+      "longitude": -46.469,
+      "elevation_m": 745,
+      "timezone": "America/Sao_Paulo",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-sao-paulo-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-sao-paulo-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "seattle",
+      "display_name": "Seattle",
+      "settlement_kind": "metar_routine",
+      "station_id": "KSEA",
+      "station_name": "Seattle-Tacoma Intl",
+      "latitude": 47.44467,
+      "longitude": -122.31442,
+      "elevation_m": 115,
+      "timezone": "America/Los_Angeles",
+      "market_unit": "F",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-seattle-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-seattle-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "seoul",
+      "display_name": "Seoul (Incheon)",
+      "settlement_kind": "metar_routine",
+      "station_id": "RKSI",
+      "station_name": "Seoul/Incheon Intl",
+      "latitude": 37.469,
+      "longitude": 126.451,
+      "elevation_m": 7,
+      "timezone": "Asia/Seoul",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-seoul-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-seoul-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "shanghai",
+      "display_name": "Shanghai",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZSPD",
+      "station_name": "Shanghai/Pudong Intl",
+      "latitude": 31.146,
+      "longitude": 121.8,
+      "elevation_m": 4,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-shanghai-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-shanghai-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "shenzhen",
+      "display_name": "Shenzhen",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZGSZ",
+      "station_name": "Shenzhen/Boan Intl",
+      "latitude": 22.639,
+      "longitude": 113.803,
+      "elevation_m": 18,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-shenzhen-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-shenzhen-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "singapore",
+      "display_name": "Singapore",
+      "settlement_kind": "metar_routine",
+      "station_id": "WSSS",
+      "station_name": "Singapore/Changi Intl",
+      "latitude": 1.368,
+      "longitude": 103.982,
+      "elevation_m": 17,
+      "timezone": "Asia/Singapore",
+      "market_unit": "C",
+      "families": [
+        "highest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-singapore-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "taipei",
+      "display_name": "Taipei",
+      "settlement_kind": "metar_routine",
+      "station_id": "RCSS",
+      "station_name": "Taipei/Songshan Arpt",
+      "latitude": 25.069,
+      "longitude": 121.552,
+      "elevation_m": 8,
+      "timezone": "Asia/Taipei",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-taipei-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-taipei-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "tel-aviv",
+      "display_name": "Tel Aviv",
+      "settlement_kind": "metar_routine",
+      "station_id": "LLBG",
+      "station_name": "Tel Aviv/Ben Gurion Arpt",
+      "latitude": 32.011,
+      "longitude": 34.887,
+      "elevation_m": 35,
+      "timezone": "Asia/Jerusalem",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-tel-aviv-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-tel-aviv-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "tokyo",
+      "display_name": "Tokyo",
+      "settlement_kind": "metar_routine",
+      "station_id": "RJTT",
+      "station_name": "Tokyo/Haneda Intl",
+      "latitude": 35.553,
+      "longitude": 139.781,
+      "elevation_m": 5,
+      "timezone": "Asia/Tokyo",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-tokyo-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-tokyo-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "toronto",
+      "display_name": "Toronto",
+      "settlement_kind": "metar_routine",
+      "station_id": "CYYZ",
+      "station_name": "Toronto/Pearson Intl",
+      "latitude": 43.679,
+      "longitude": -79.629,
+      "elevation_m": 171,
+      "timezone": "America/Toronto",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-toronto-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-toronto-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "warsaw",
+      "display_name": "Warsaw",
+      "settlement_kind": "metar_routine",
+      "station_id": "EPWA",
+      "station_name": "Warsaw/Chopin Arpt",
+      "latitude": 52.163,
+      "longitude": 20.961,
+      "elevation_m": 107,
+      "timezone": "Europe/Warsaw",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-warsaw-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-warsaw-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "wellington",
+      "display_name": "Wellington",
+      "settlement_kind": "metar_routine",
+      "station_id": "NZWN",
+      "station_name": "Wellington Intl",
+      "latitude": -41.331,
+      "longitude": 174.806,
+      "elevation_m": 12,
+      "timezone": "Pacific/Auckland",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-wellington-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-wellington-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "wuhan",
+      "display_name": "Wuhan",
+      "settlement_kind": "metar_routine",
+      "station_id": "ZHHH",
+      "station_name": "Wuhan/Tianhe Intl",
+      "latitude": 30.783,
+      "longitude": 114.205,
+      "elevation_m": 33,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest",
+        "lowest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-wuhan-on-{month}-{day}-{year}",
+        "lowest": "lowest-temperature-in-wuhan-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://aviationweather.gov/api/data/metar?ids={station_id}&format=raw&date={end_utc}&hours=30"
+    },
+    {
+      "slug": "zhengzhou",
+      "display_name": "Zhengzhou",
+      "settlement_kind": "wu_daily_history",
+      "station_id": "ZHCC",
+      "station_name": "Zhengzhou/Xinzheng Arpt",
+      "latitude": 34.52,
+      "longitude": 113.834,
+      "elevation_m": 149,
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "families": [
+        "highest"
+      ],
+      "slug_templates": {
+        "highest": "highest-temperature-in-zhengzhou-on-{month}-{day}-{year}"
+      },
+      "resolution_source_url_template": "https://www.wunderground.com/history/daily/cn/zhengzhou/ZHCC"
+    }
+  ]
+}
