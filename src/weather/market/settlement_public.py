@@ -101,7 +101,7 @@ class PublicSettlementClient:
                 else:
                     raise OSError(f"AWC response saturated for {batch[0]} after bounded splitting")
                 return
-            parsed, counts = parse_metar_text(raw, stop - timedelta(hours=hours), stop)
+            parsed, counts = parse_metar_text(raw, start, stop, station_ids=batch)
             flags.update(counts)
             reports.extend(r for r in parsed if r.station in batch
                            and "outside_fetch_window" not in r.flags and (

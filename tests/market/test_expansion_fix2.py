@@ -141,7 +141,7 @@ def test_outside_window_and_invalid_calendar_time_are_distinct():
     assert "outside_fetch_window" in old.flags and not old.has_parse_defect
     assert invalid.has_unreadable_time
     result = evaluate([report("METAR CYYZ 081800Z 14/04"), invalid, report("METAR CYYZ 090500Z 10/04")])
-    assert result.status == "final"  # No receipt time can attribute this invalid stamp to a day.
+    assert result.status == "parse_incomplete"  # No receipt: the fetched dates remain affected.
 
 
 def test_unattributed_lines_are_diagnostics_without_station_day_effects():

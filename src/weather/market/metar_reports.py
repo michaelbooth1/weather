@@ -29,15 +29,18 @@ class MetarReport:
     t_group_c: Decimal | None
     body_temperature_c: int | None
     flags: tuple[str, ...]
+    fetch_start: datetime
+    fetch_end: datetime
     receipt_time: datetime | None = None
 
     @property
     def temperature_c(self) -> Decimal | None:
         fatal = {"malformed_station", "malformed_or_ambiguous_time", "malformed_receipt_time",
-                 "ambiguous_t_group", "ambiguous_source_revision"}
+                 "ambiguous_t_group", "ambiguous_source_revision", "malformed_report_type",
+                 "malformed_correction_marker"}
         if self.observation_time is None or self.station is None or fatal.intersection(self.flags):
             return None
-        if self.t_group_c is None and "ambiguous_body_temperature" in self.flags:
+        if self.t_group_c is None and {"ambiguous_body_temperature", "malformed_body_temperature"}.intersection(self.flags):
             return None
         return self.t_group_c if self.t_group_c is not None else (
             Decimal(self.body_temperature_c) if self.body_temperature_c is not None else None)
@@ -121,7 +124,42 @@ def resolve_observation_time(group: str, start: datetime, end: datetime) -> date
     return candidates[0] if len(candidates) == 1 else None
 
 
-def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) -> MetarReport:
+def header_station(raw: str, station_ids=None) -> tuple[str | None, int | None, int | None]:
+    """Recover a header ICAO, preferring exact requested ids over token shape.
+
+    Only the first four tokens before the observation-time token or RMK may
+    identify a station. Unknown type/COR tokens must not shift its identity.
+    """
+    body = raw.strip().rstrip("=").split()
+    body = body[:body.index("RMK")] if "RMK" in body else body
+    stamp_index = next((i for i, token in enumerate(body[:6])
+                        if re.fullmatch(r"[A-Z0-9]{6}Z", token)), None)
+    limit = min(4, stamp_index) if stamp_index is not None else 4
+    requested = set(station_ids) if station_ids is not None else None
+    candidates = [(i, token) for i, token in enumerate(body[:limit])
+                  if (token in requested if requested is not None else
+                      re.fullmatch(r"[A-Z]{4}", token) and token not in {"AUTO"})]
+    if not candidates:
+        return None, None, stamp_index
+    index, station = candidates[-1]
+    return station, index, stamp_index
+
+
+def non_temperature_body_token(token: str) -> bool:
+    """Explicit exclusions for slash-bearing non-temperature METAR/TAF groups."""
+    return any(re.fullmatch(pattern, token) for pattern in (
+        r"\d{4}/\d{4}",                          # TAF validity, e.g. 0703/0803
+        r"[MP]?\d+(?:/\d+)?SM",                 # statute-mile visibility
+        r"R\d{2}[LCR]?/[A-Z0-9/]+",             # runway visual range/state
+        r"\d{2}[LCR]?/[MP]?\d+(?:V[MP]?\d+)?FT", # runway visibility without R, in feet
+        r"(?:FEW|SCT|BKN|OVC|VV)(?:\d{3}|///)(?:CB|TCU|///)?", # automated cloud groups
+        r"T[XN]M?\d{2}/\d{4}Z",                 # forecast maximum/minimum
+        r"(?:\d{3}|VRB|///)(?:P?\d{2,3}|//)(?:G(?:P?\d{2,3}|//))?(?:KT|MPS)",
+    ))
+
+
+def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None, station_ids=None) -> MetarReport:
+    start, end = aware_utc(start), aware_utc(end)
     tokens = raw.strip().rstrip("=").split()
     flags = []
     if "RMK" in tokens:
@@ -129,21 +167,32 @@ def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) 
         body, remarks = tokens[:split], tokens[split + 1:]
     else:
         body, remarks = tokens, []
-    # Only the report header carries station/time/indicators; remarks cannot change kind.
-    header = body[:6]
+    # Recover attribution before validating header order/type/correction markers.
+    station, station_index, stamp_index = header_station(raw, station_ids)
+    cursor = station_index + 1 if station_index is not None else 0
+    if stamp_index is None:
+        while cursor < len(body) and body[cursor] in {"COR", "AUTO"}:
+            cursor += 1
+        stamp_index = cursor
+    header = body[:stamp_index + 3]
     special = bool(tokens and tokens[0] == "SPECI")
     corrected, automatic = "COR" in header, "AUTO" in header
     kind = ("SPECI" if special else "COR" if corrected else "AUTO" if automatic else
             "METAR" if tokens and tokens[0] == "METAR" else "unlabelled")
-    cursor = 1 if tokens and tokens[0] in {"METAR", "SPECI"} else 0
-    if cursor < len(body) and body[cursor] == "COR":
-        cursor += 1
-    station = body[cursor] if cursor < len(body) and re.fullmatch(r"[A-Z]{4}", body[cursor]) else None
     if station is None:
         flags.append("malformed_station")
-    cursor += 1
-    if cursor < len(body) and body[cursor] == "COR":
-        cursor += 1
+    else:
+        prefix = body[:station_index]
+        if prefix and prefix[0] in {"METAR", "SPECI"}:
+            prefix = prefix[1:]
+        elif prefix and prefix[0] not in {"COR", "AUTO"} and not re.fullmatch(r"C[O0]R\w*", prefix[0]):
+            flags.append("malformed_report_type")
+            prefix = prefix[1:]
+        modifiers = prefix + body[station_index + 1:stamp_index]
+        if any(token not in {"COR", "AUTO"} for token in modifiers) or any(
+                token != "COR" and re.fullmatch(r"C[O0]R\w*", token) for token in body[stamp_index + 1:stamp_index + 3]):
+            flags.append("malformed_correction_marker")
+    cursor = stamp_index
     stamp = body[cursor] if cursor < len(body) else ""
     candidates = observation_time_candidates(stamp, start, end)
     observed = candidates[0] if len(candidates) == 1 else None
@@ -151,7 +200,7 @@ def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) 
         valid_stamp = observation_time_candidates(stamp, start, end, within_window=False)
         flags.append("ambiguous_observation_time" if len(candidates) > 1 else
                      "outside_fetch_window" if valid_stamp else "malformed_or_ambiguous_time")
-    t_tokens = [token for token in remarks if re.match(r"T\d", token)]
+    t_tokens = [token for token in remarks if re.match(r"T(?:\d|[OX](?=\d))", token)]
     t_values = []
     for token in t_tokens:
         # Exactly eight digits; the following four dew-point digits are unused.
@@ -170,9 +219,11 @@ def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) 
         match = re.fullmatch(r"(M?)(\d{2})/(?:M?\d{2}|//)?", token)
         if match:
             temps.append(int(match[2]) * (-1 if match[1] else 1))
-        elif re.fullmatch(r"M?[A-Z0-9]{1,2}/(?:M?[A-Z0-9]{0,2}|//)", token) and re.search(r"\d", token):
-            # Temperature-shaped corruption (e.g. 2X/10), not TAF validity
-            # ranges, runway visibility, wind, fractional SM or TX/TN forecasts.
+        elif not non_temperature_body_token(token) and (
+                "/" in token and (re.search(r"\d", token) or re.fullmatch(r"[MX]{2}/[MX]{2}", token))
+                or re.fullmatch(r"M?\d{1,3}-M?\d{1,3}", token)):
+            # Broader corruption guard: extra digits/slashes must not become
+            # true absence. Keep the explicit non-temperature exclusions above.
             flags.append("malformed_body_temperature")
     if len(temps) > 1:
         flags.append("ambiguous_body_temperature")
@@ -184,11 +235,12 @@ def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) 
         if observed is not None and receipt_time < observed:
             flags.append("malformed_receipt_time")
     return MetarReport(raw.strip(), station, observed, kind, not special, corrected, automatic,
-                       t_value, body_value, tuple(flags), receipt_time)
+                       t_value, body_value, tuple(flags), start, end, receipt_time)
 
 
-def parse_metar_text(text: str, start: datetime, end: datetime) -> tuple[list[MetarReport], dict[str, int]]:
-    reports = [parse_metar(line, start, end) for line in text.splitlines() if line.strip()]
+def parse_metar_text(text: str, start: datetime, end: datetime, *, station_ids=None) -> tuple[list[MetarReport], dict[str, int]]:
+    station_ids = tuple(station_ids) if station_ids is not None else None
+    reports = [parse_metar(line, start, end, station_ids=station_ids) for line in text.splitlines() if line.strip()]
     counts = Counter(flag for report in reports for flag in report.flags)
     for report in reports:
         if report.station is None:

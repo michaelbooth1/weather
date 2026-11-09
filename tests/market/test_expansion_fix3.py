@@ -86,14 +86,16 @@ def test_temperature_defects_still_prevent_final_single_bin_collapse(tokens):
     assert (result.status, result.maximum) == ("parse_incomplete", 14)
 
 
-def test_unreadable_time_without_receipt_is_diagnostic_only():
+def test_unreadable_time_without_receipt_guards_its_station_on_fetched_dates():
     raw = "METAR CYYZ 3X1800Z 14/04"
     reports, diagnostic = parse_metar_text(raw, START, END)
     assert diagnostic["unreadable_time_lines"] == diagnostic["unreadable_time_without_receipt"] == 1
     for day in (date(2026, 11, 7), DAY, date(2026, 11, 9)):
         records = normal_day("toronto", day)
-        before = ADAPTER.evaluate(U["toronto"], day, records, as_of=END)
-        assert ADAPTER.evaluate(U["toronto"], day, records + reports, as_of=END) == before
+        assert ADAPTER.evaluate(U["toronto"], day, records + reports, as_of=END).status == "parse_incomplete"
+        other = normal_day("nyc", day)
+        assert ADAPTER.evaluate(U["nyc"], day, other + reports, as_of=END) == ADAPTER.evaluate(
+            U["nyc"], day, other, as_of=END)
 
 
 @pytest.mark.parametrize("seconds,previous", [(0, True), (7199, True), (7200, True), (7201, False), (10800, False)])

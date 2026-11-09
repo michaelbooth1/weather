@@ -75,15 +75,34 @@ and returns `parse_incomplete` with running-style bounds, never a final single-b
 collapse; without any usable bound it returns `source_unavailable`. A malformed
 report replaced by an eligible valid revision no longer makes the day incomplete.
 Syntactically valid reports outside the fetch window are excluded separately.
-Only settlement-critical fields can make an attributed report incomplete;
-unrelated tokens such as TAF validity ranges (`0703/0803`), TX/TN forecasts and
-runway visibility do not. A line without a readable station belongs to no
+Only settlement-critical fields can make an attributed report incomplete.
+After the observation time, a slash-bearing token with a digit is a potential
+temperature/dew-point defect unless it matches an explicit non-temperature
+shape: TAF validity ranges (`0703/0803`), statute-mile visibility (`1/2SM`),
+runway range/state (`R24/290045`), TX/TN forecasts, or wind in KT/MPS. Other
+known exclusions are runway visibility without R in feet (`05R/2800FT`) and
+automated cloud groups (`BKN020///`). Extra
+digits or slashes (`210/04`, `21/100`, `21//04`, `21//`) cannot become true
+absence. A usable T-group still governs a malformed body; without one, a
+malformed additional body candidate also prevents choosing a single body value.
+Temperature-shaped letter/sign corruption is also flagged.
+
+Header recovery prefers exact requested ICAOs in the first four tokens before
+the observation time. Type and COR corruption (`MTAR`, `C0R`, `COR0`) is
+attributed to that station and flagged as `malformed_report_type` or
+`malformed_correction_marker`; it blocks finality even with a valid temperature.
+An invalid next-day header cannot establish the previous day's publication cutoff.
+The evaluator applies the same recovery to injected records. A line without a
+readable station belongs to no
 station, even in a single-station fetch: `unattributed_lines` counts it in
 fetch diagnostics, and it cannot affect any station-day.
 
 Unreadable observation times are counted as `unreadable_time_lines`. Without a
-receipt time they affect no date (`unreadable_time_without_receipt` diagnostics).
-With a receipt, a potentially qualifying routine line can affect only that
+receipt time, a potentially qualifying routine line blocks finality only for its
+own station, on every station-local date covered by its retained `fetch_start`
+and `fetch_end` (inclusive). `unreadable_time_without_receipt` remains a diagnostic
+counter; it does not authorize dropping the line. With a receipt, a potentially
+qualifying routine line can affect only that
 station's receipt-local date and, through exactly two elapsed hours after local
 midnight, the preceding date. Receipt times after the evaluation instant or at
 or after the publication cutoff cannot affect the day. True temperature absence

@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
-from weather.market.metar_reports import MetarReport, aware_utc, routine_revision_conflicts
+from weather.market.metar_reports import MetarReport, aware_utc, header_station, parse_metar, routine_revision_conflicts
 from weather.market.venue_settlement_rules import select_reports, settlement_bucket
 from weather.market.weather_universe import BinInterval, WeatherCitySpec, load_weather_universe, parse_bin_label
 
@@ -19,9 +19,12 @@ UTC = timezone.utc
 
 
 def unreadable_time_dates(report: MetarReport, zone: ZoneInfo) -> frozenset[date]:
-    """Receipt date, plus its predecessor within two elapsed hours of midnight."""
-    if not report.has_unreadable_time or report.receipt_time is None:
+    """Receipt-scoped dates, or fetched local dates when receipt order is unknown."""
+    if not report.has_unreadable_time:
         return frozenset()
+    if report.receipt_time is None:
+        first, last = report.fetch_start.astimezone(zone).date(), report.fetch_end.astimezone(zone).date()
+        return frozenset(first + timedelta(days=i) for i in range((last - first).days + 1))
     received = report.receipt_time.astimezone(zone)
     midnight = datetime.combine(received.date(), time.min, zone).astimezone(UTC)
     dates = {received.date()}
@@ -125,12 +128,26 @@ class MetarSettlementAdapter:
         fallback_deadline = datetime.combine(tomorrow, time(23, 59), ZoneInfo("America/New_York")).astimezone(UTC)
         cutoff = fallback_deadline
         received = [r for r in reports if r.receipt_time is None or r.receipt_time <= as_of]
-        station_reports = [r for r in received if r.station == spec.station_id]
+        station_reports = []
+        for report in received:
+            if report.station != spec.station_id:
+                # Injected records get the same requested-ICAO recovery as public
+                # batches. Never infer an identity for a stationless line.
+                station, _, _ = header_station(report.raw, (spec.station_id,))
+                if station is None:
+                    continue
+                recovered = parse_metar(report.raw, report.fetch_start, report.fetch_end,
+                                        receipt_time=report.receipt_time, station_ids=(spec.station_id,))
+                report = replace(recovered, flags=tuple(dict.fromkeys(recovered.flags + tuple(
+                    flag for flag in report.flags if flag == "ambiguous_source_revision"))))
+            station_reports.append(report)
         unassigned_defects = [r for r in station_reports if r.routine
                               and local_date in unreadable_time_dates(r, zone)
                               and (r.t_group_c is not None or r.body_temperature_c is not None or r.has_parse_defect)]
         records = [r for r in station_reports if r.observation_time is not None and r.observation_time <= as_of]
-        next_reports = [r for r in records if r.routine and r.observation_time.astimezone(zone).date() == tomorrow]
+        next_reports = [r for r in records if r.routine
+                        and not {"malformed_report_type", "malformed_correction_marker"}.intersection(r.flags)
+                        and r.observation_time.astimezone(zone).date() == tomorrow]
         if next_reports:
             cutoff = min(cutoff, min(r.receipt_time or r.observation_time for r in next_reports))
         routine_day = [r for r in records if r.routine and r.observation_time.astimezone(zone).date() == local_date]
@@ -146,7 +163,7 @@ class MetarSettlementAdapter:
                         corrected=r.corrected, receipt_utc=r.receipt_time, raw=r.raw, report=r) for r in eligible]
         selected, _ = select_reports(routine, snapshot_order=True, deadlines={local_date.isoformat(): cutoff})
         selected_reports = [item["report"] for item in selected]
-        parse_defects = [r for r in unassigned_defects if r.receipt_time < cutoff]
+        parse_defects = [r for r in unassigned_defects if r.receipt_time is None or r.receipt_time < cutoff]
         parse_defects += [r for r in selected_reports if r.has_parse_defect]
         day_reports = [r for r in selected_reports if r.temperature_c is not None]
         if parse_defects:
