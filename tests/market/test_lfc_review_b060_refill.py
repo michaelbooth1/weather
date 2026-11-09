@@ -143,6 +143,7 @@ def test_pending_redemption_has_zero_offset_until_native_resolution(tmp_path, ba
 
 @pytest.mark.parametrize('basis', BASES)
 def test_a_new_unknown_cash_observation_disables_even_previously_proven_offsets(tmp_path, basis):
+    """B066 supersedes the B060 name: unrelated incoming no longer erases G."""
     ledger, *_ = settled_pair(tmp_path, basis)
     before = CapitalBook(ledger).figures()
     assert before['retained_gains_available_native'] == 10_400_000
@@ -154,10 +155,11 @@ def test_a_new_unknown_cash_observation_disables_even_previously_proven_offsets(
     book = CapitalBook(ledger); row = book.figures()
     assert row['unknown_payouts']
     assert row['proven_campaign_profit_cumulative_native'] == before['proven_campaign_profit_cumulative_native']
-    assert row['retained_gains_available_native'] == row['retained_gains_offset_native'] == 0
-    assert row['headroom_native'] == 290_400_000
+    assert row['retained_gains_available_native'] == 10_400_000
+    assert row['retained_gains_offset_native'] == (9_600_000 if basis != 'gross' else 0)
+    assert row['headroom_native'] == (300_000_000 if basis != 'gross' else 290_400_000)
     with pytest.raises(CapitalRefused, match='capital_total_ceiling'):
-        book.gate(reserve='300', available_cash='1000')
+        book.gate(reserve='300.000001', available_cash='1000')
 
 
 @pytest.mark.parametrize('basis', BASES)

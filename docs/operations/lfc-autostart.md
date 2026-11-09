@@ -193,13 +193,30 @@ native units its disjoint lots require:
 
 Here `L` is gross realised losing-lot basis, `I` unrecovered inventory basis,
 `R` resting reserve, and `C` paid/reserved costs. `G_avail` contains only proven,
-retained campaign redemption gains; every unknown cash observation disables the
-offset until reconciled. The gross basis uses zero offset. Losses and costs are
+retained campaign gains. An unknown incoming amount contributes zero without
+erasing other proven gains. Unknown outgoing payments and unproved campaign
+redemptions still zero the offset; a transfer without lot allocation is not a
+proved redemption. The gross basis uses zero offset. Losses and costs are
 never erased: reports show gross loss, cumulative proven gain, retained gain,
 offset used, gross and net charges, the chosen basis and remaining headroom.
+Local `status` also shows `unknown_cash_held_native` and
+`retained_gains_reason_codes`. A null held amount means at least one incoming
+amount has no bound; `unknown_cash_bounded_native` and
+`unknown_cash_unbounded_count` retain the known subtotal and missing count.
+`unknown_incoming_excluded` excludes only that amount;
+`unknown_outgoing_cash`, `unknown_campaign_redemption` and
+`unknown_redemption_scope` zero the available offset. `gross_loss_basis`,
+`gains_not_retained` and `loss_cost_offset_limit` explain other reductions.
 Principal at risk (`I + R`) and headroom can never exceed the original funding,
 at most 300 pUSD. Deposits never count. Pending winnings and account incentive
-credits without proved campaign attribution count zero. The December actual-cash
+credits without proved campaign attribution count zero. Paid `REWARD` and
+`MAKER_REBATE` rows qualify only after the existing native transfer proof
+reconciles their cash, their official condition label matches a prior durable
+campaign intent, and their timestamp is strictly after that intent. Empty or
+unrelated conditions, same-second ambiguity, yield/referral credits, deposits
+and unproved receipts remain outside G. This retains the rail's existing trust
+in official activity type/condition labels and never infers income from prices.
+The December actual-cash
 P quantities and final-look verdict are unchanged by this admission-only basis.
 Each durable placement intent records its observed basis, gross loss, gains,
 offset, charge and headroom. Replays derive these figures from retained native

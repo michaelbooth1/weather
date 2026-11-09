@@ -197,7 +197,7 @@ class CapitalBook:
                 if cash is None:
                     self.unknown.append(key)
                 else:
-                    self.credit('incentives', cash, activity)
+                    self.credit('incentives', cash, activity, native_proven=evidence is not None)
                     if not included:
                         self.cash_in += cash
             elif kind == 'DEPOSIT':
@@ -261,7 +261,7 @@ class CapitalBook:
                 self.undo_redemption(old)
                 self.redeem(item, row['sequence'])
             elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
-                self.credit('incentives', cash, item)
+                self.credit('incentives', cash, item, native_proven=evidence is not None)
             elif kind == 'DEPOSIT':
                 if self.deposit_is_external(item):
                     self.credit('external', cash, item)
@@ -271,7 +271,9 @@ class CapitalBook:
                 self.withdraw(cash, item, counted=not before_bridge)
             if kind != 'REDEEM' and not before_bridge and self.incoming(item):
                 self.cash_in += cash
-            if item['id'] in self.unknown:
+            allocation_unknown = (kind == 'REDEEM' and (item.get('principal_unproved') or
+                                  self.redemptions[item['id']].get('unallocated')))
+            if item['id'] in self.unknown and not allocation_unknown:
                 self.unknown.remove(item['id'])
             self.activities[item['id']], self.sources[item['id']] = item, row['source_sha256']
         elif event == 'capital_zero_resolution':
@@ -353,13 +355,17 @@ class CapitalBook:
         self.pools_dirty = True
         self.legacy_reclassified += reduction
 
-    def credit(self, pool, cash, activity, *, sequence=None):
+    def credit(self, pool, cash, activity, *, sequence=None, native_proven=False):
         # Physical excess cash may contain an indivisible allocation remainder.
         # Only native payouts allocated to our individual lots prove a gain;
         # neither owner fractions nor a label-derived legacy profit qualify.
         gain = (min(cash, sum(max(0, a['payout_native'] - a['returned_principal_native'])
                     for a in self.allocations if a['activity_id'] == activity['id']))
                 if pool == 'profit' and activity.get('native_redemption') is not None else 0)
+        if pool == 'incentives':
+            from weather.market.lfc_capital_income import campaign_income
+            if campaign_income(self, activity, native_proven=native_proven):
+                gain = cash
         movement = {'kind': 'credit', 'pool': pool, 'amount': cash, 'activity_id': activity['id'],
                     'proven_campaign_gain_native': gain,
                     'timestamp': activity['timestamp'],
@@ -507,9 +513,10 @@ class CapitalBook:
             'outside_campaign': basis == 0, 'unallocated': refused}
         self.losses += basis - principal
         self.returned_principal += principal
-        if cash is None:
-            self.unknown.append(key)
-        else:
+        if cash is None or activity.get('principal_unproved') or refused:
+            if key not in self.unknown:
+                self.unknown.append(key)
+        if cash is not None:
             self.credit('external', outside_cash, activity)
             self.credit('profit' if basis and not activity.get('principal_unproved') else 'external',
                         max(0, cash - principal - outside_cash), activity)
@@ -521,13 +528,33 @@ class CapitalBook:
         inventory = sum(lot['remaining_basis'] for lot in self.lots.values())
         resting = native(self.ledger.L_resting(), ceil=True)
         basis = getattr(self.ledger, 'sleeve_loss_basis', GROSS) if loss_basis is None else loss_basis
-        cumulative, available = retained_gains(self.pool_movements, profit_pool=self.profit, unknown=self.unknown)
+        from weather.market.lfc_capital_income import unknown_cash
+        uncertainty = unknown_cash(self)
+        cumulative, available = retained_gains(self.pool_movements, profit_pool=self.profit + self.incentives,
+                                             unknown=uncertainty['blockers'])
+        reasons = set(uncertainty['reasons'])
+        if not cumulative:
+            reasons.add('no_proven_campaign_gains')
+        elif not uncertainty['blockers'] and available < cumulative:
+            reasons.add('gains_not_retained')
+        if basis == GROSS:
+            reasons.add('gross_loss_basis')
+        if available > self.losses + self.costs:
+            reasons.add('loss_cost_offset_limit')
         charged, offset = sleeve_charge(loss=self.losses, inventory=inventory, resting=resting,
             costs=self.costs, available_gains=available, basis=basis)
         funding = self.bridge['funding_native'] - self.legacy_reclassified if self.bridge else 0
         return {'funding_native': funding, 'realized_principal_losses_native': self.losses,
                 'sleeve_loss_basis': basis, 'proven_campaign_profit_cumulative_native': cumulative,
                 'retained_gains_available_native': available, 'retained_gains_offset_native': offset,
+                'proven_campaign_redemption_gains_native': sum(m.get('proven_campaign_gain_native', 0)
+                    for m in self.pool_movements if m.get('pool') == 'profit'),
+                'proven_campaign_paid_incentives_native': sum(m.get('proven_campaign_gain_native', 0)
+                    for m in self.pool_movements if m.get('pool') == 'incentives'),
+                'retained_gains_reason_codes': sorted(reasons),
+                'unknown_cash_held_native': uncertainty['held_native'],
+                'unknown_cash_bounded_native': uncertainty['bounded_native'],
+                'unknown_cash_unbounded_count': uncertainty['unbounded_count'],
                 'gross_charged_native': self.losses + inventory + resting + self.costs,
                 'net_charged_native': inventory + resting + max(0, self.losses + self.costs - available),
                 'legacy_cash_reclassified_native': self.legacy_reclassified,
@@ -580,7 +607,8 @@ class CapitalBook:
         return figures
 
     def blocking_unknown(self):
-        return [key for key in self.unknown if key not in self.incoming_quarantines]
+        return [key for key in self.unknown if key not in self.incoming_quarantines and not (
+            self.incoming(self.activities[key]) and self.activities[key]['cash_native'] is not None)]
 
     def quarantined_after_bridge(self):
         if self.bridge is None:
