@@ -621,6 +621,9 @@ class Session:
                     raise
                 self.clock.sleep(.5)
 
+    def terminal_order_read(self, oid, recover):
+        return recover('terminal_order', lambda: self.venue.order(oid))
+
     def cleanup(self):
         """Cancellation does not depend on a working journal, stream or geoblock."""
         if self.closed:
@@ -670,7 +673,7 @@ class Session:
         try:
             for oid in self.known:
                 try:
-                    row = recover('terminal_order', lambda: self.venue.order(oid))
+                    row = self.terminal_order_read(oid, recover)
                 except BaseException:
                     self.note_evidence_fault('terminal_order_unavailable')
                     continue

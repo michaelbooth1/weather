@@ -293,7 +293,31 @@ class F2Band(PilotSession):
                 self.progress()
         return super()._recover(name, observed)
 
+    def terminal_order_read(self, oid, recover):
+        """Share the F2 terminal-read budget across every known cleanup identity."""
+        from weather.market.mm_account_reads import order_terminal
+        if self._terminal_order_deadline is None:
+            self._terminal_order_deadline = self.clock.monotonic() + 10
+        exception_type = 'TerminalReadBudgetExpired'
+        while self.clock.monotonic() < self._terminal_order_deadline:
+            self.progress()
+            try:
+                row = self.venue.order(oid)
+                if order_terminal(row, order_id=oid, size=self.size):
+                    return row
+                exception_type = 'OrderNotTerminal'
+            except Exception as exc:
+                exception_type = type(exc).__name__
+            finally:
+                self.progress()
+            remaining = self._terminal_order_deadline - self.clock.monotonic()
+            if remaining > 0:
+                self.clock.sleep(min(1, remaining))
+        self._retain('terminal_order_unavailable', order_id=oid, exception_type=exception_type)
+        raise TimeoutError('terminal_order_unavailable')
+
     def cleanup(self):
+        self._terminal_order_deadline = None  # One shared budget for all known orders in this cleanup.
         status = getattr(self, 'outcome_status', None)
         previous = getattr(status, 'phase', None)
         if status is not None:

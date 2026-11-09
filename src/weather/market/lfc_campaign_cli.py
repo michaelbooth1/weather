@@ -37,6 +37,7 @@ def parser():
     history = commands.add_parser('owner-recover-history', help='owner-only explicit pre-enrollment money recovery')
     history.add_argument('--head', required=True)
     history.add_argument('--session', required=True)
+    history.add_argument('--campaign', type=Path, help='policy path; defaults to <pilot root>/campaign.json')
     for command in ('check', 'status', 'tick', 'owner-recover', 'owner-close', 'owner-clear-workload', 'final-look'):
         item = commands.add_parser(command)
         item.add_argument('--release', required=True)
@@ -129,9 +130,9 @@ def owner_recover(runtime, incident):
 def owner_recover_history(args):
     """Conditional owner repair, never part of registration or scheduled ticks.
 
-    Runs only GET account proof under full exclusion; it never adopts/cancels or
-    edits failed evidence. Missing/ambiguous identities require an earlier owner
-    repair. The explicit closure is permanently tied to that original history.
+    Runs GET account proof under full exclusion; an F2 policy also records its
+    capital bridge. It never adopts/cancels or edits failed evidence. Missing or
+    ambiguous identities require earlier owner repair. Recovery binds that history.
     """
     from weather.market.lfc_campaign_history import history_refusals, record_owner_recovery
     from weather.market.lfc_campaign_policy import EARLIEST
@@ -168,7 +169,7 @@ def owner_recover_history(args):
             hold.acquire()
             try:
                 marker.acquire(hold_sha256=hold.sha256, hold_owner=hold.identity)
-                runtime = Runtime(state=state, pilot_root=root, policy_path=root / 'campaign.json', release={}, clock=clock,
+                runtime = Runtime(state=state, pilot_root=root, policy_path=args.campaign or root / 'campaign.json', release={}, clock=clock,
                                   control_root=CONTROL_ROOT, task_enabled=lambda: False)
                 read = runtime.account_read_once()
                 proof = runtime.core_proof(ledger, read)

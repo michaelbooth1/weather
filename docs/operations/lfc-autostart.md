@@ -163,6 +163,13 @@ fields. Per-band submit/requote limits continue across fill cycles; continuation
 does not reset them. A proof while another band rests is separate from final
 cleanup: only exactly bound LIVE orders with zero matched quantity may remain,
 and final completion still requires an empty account and complete terminal proof.
+F2 cleanup re-reads known orders one second apart until their identities and
+quantities prove terminal, sharing one ten-second budget across all those orders.
+An unreadable or still-LIVE row at that budget is `terminal_order_unavailable`;
+it is never recorded as a terminal row. On fill continuation this retires the
+band as `repost_terminal_unreadable`, preserving the typed money-read gap and
+charged reserve for the next postcheck. This gap alone creates no private-evidence
+incident and permits no repost before proof. F0 and N1 keep their original reads.
 Private manifests retain every band packet and original file; missing evidence
 keeps the same occurrence-specific owner recovery rules. The previous schemas
 remain readable, with their original retirement and band-count restrictions.
@@ -382,10 +389,15 @@ Only the exact intentional S0 exercises named by the existing valid owner
 attestation use that qualification contract. Reconcile never clears ambiguity.
 If this gate refuses, the owner reviews and repairs the original identities and
 containment, then runs `weather.market.lfc_campaign_cli owner-recover-history
---head <qualified-sha> --session <original-session-id>` in the qualified pin's
-interpreter after frozen F0. This terminal-confirmed, GET-only operation takes
+--head <qualified-sha> --session <original-session-id> --campaign <absolute-policy.json>`
+in the qualified pin's interpreter after frozen F0. Without `--campaign`, the
+default is `<pilot root>/campaign.json`; registration does not implicitly create
+that default when a different campaign path is chosen.
+This terminal-confirmed operation takes
 account/all-slot exclusion, proves current quantities and no resting orders,
 and appends a hash-bound recovery without changing failed flags or used dates.
+Its venue operations are GET-only; with an F2 policy, the account proof also
+appends capital activity and the initial capital bridge to the local ledger.
 It neither registers nor enables a task. Missing recovery evidence refuses.
 The enrollment identity also anchors retained legacy private files. Normal F0
 history must have a complete chained private proof; untyped failed legacy proof
@@ -641,6 +653,26 @@ markers remain retained; process teardown is not order-cancellation proof.
 Each tick appends its exit code and sanitized traceback frames to
 `status/campaign-ticks.jsonl`, rotating at 1 MiB and retaining archives. No
 exception messages, source text, prices, market IDs or private paths enter it.
+
+For a failed pre-enrollment F0 session, use this owner setup order:
+
+1. Finish the last F0 session and its reconcile, wallet verification and baseline
+   comparison. Resolve identities and prove containment. Wait until the recovery
+   command's post-F0 time gate opens; use a clean qualified pin and its interpreter.
+2. Finalize funding before any F2 account proof, recovery or enrollment. Choose
+   the final F2 policy file explicitly; its configured ceiling does not prove cash.
+3. Run the terminal-confirmed `owner-recover-history` command above for each
+   refused session, passing that F2 file with `--campaign`. Inside this command,
+   the fresh account proof creates/reconciles the capital bridge **before** the
+   owner-history recovery receipt. Do not top up between these steps expecting
+   more trading principal. Failed flags and used dates stay recorded; recovery
+   grants no income, principal return or research credit.
+4. Run the owner registrar's `Register` with the same campaign path and qualified
+   pin. Its `seal` call first records `autostart_enroll`, then writes the release.
+   Thus funding finalization precedes bridge, bridge precedes recovery completion,
+   recovery precedes enrollment, and enrollment precedes release sealing.
+5. `Verify`, then perform the pre-enable check and `Enable` through the registrar.
+   Check the reconciled `ENROLLMENT_FUNDING` result described below.
 
 Manual or automatic redemption is not manual trading. The owner chooses a
 manual redemption cadence or the separately authorized auto-redeem facility;
