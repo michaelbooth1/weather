@@ -6,6 +6,7 @@ Checked-in files under `config/` are classified by owner and freshness policy:
 
 | File | Classification | Policy |
 | :--- | :--- | :--- |
+| `config/f3/` | Hand-authored F3-SIM research configuration | Policy, strata and NWP release schedule for the simulated fair trial F3-SIM-1 (`weather.market.f3_policy`). Read only by workstation simulation code; no capture loop reads it; not in CONFIG_POLICIES. Frozen copies are pinned by sha in the F3-SIM-1 prereg. |
 | `scheduled_tasks.json` | Hand-authored task lifecycle registry | Reviewed intent, never proof of Scheduler state or permission to re-arm. Owns nightly retired-bot monitoring and the generated task table; update with registrar and status classification changes. |
 | `locations.json` | Durable location registry | Hand-authored location, station, settlement, and source-plan facts. Volatile market-event fields are not stored here. |
 | `location_market_events.json` | Generated snapshot | Current Gamma API active-event metadata by location; stale after 7 days. |
