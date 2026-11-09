@@ -125,11 +125,12 @@ def test_sdk_terminal_strings_and_rejected_shapes():
     for status in ('LIVE', 'DELAYED', 'UNMATCHED', 'SOMETHING_NEW'):
         assert not order_terminal(plain_sdk_value(sdk_order(status)), order_id=row['id'], size='20')
     raw = sdk_order().model_dump(mode='json', by_alias=True)
-    # model_dump uses the model's names for validation-only aliases.
-    raw.update(asset_id=raw['token_id'], expiration=raw['expires_at'])
+    # Wire aliases and epoch-seconds expiry differ from model_dump's names/ISO output.
+    raw.update(asset_id=raw['token_id'], expiration=str(int(sdk_order().expires_at.timestamp())))
     assert OpenOrder.parse_response(raw).id == row['id']
     for damaged in (None, [], {'id': row['id'], 'status': 'MATCHED'},
                     {'data': raw}, dict(raw, price=1), dict(raw, size_matched=0),
-                    dict(raw, price='not-a-decimal'), dict(raw, created_at='bad-date')):
+                    dict(raw, price='not-a-decimal'), dict(raw, created_at='bad-date'),
+                    dict(raw, expiration=raw['expires_at'])):
         with pytest.raises(UnexpectedResponseError):
             OpenOrder.parse_response(damaged)
