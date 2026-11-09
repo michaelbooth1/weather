@@ -27,6 +27,8 @@ class CampaignCoordinator:
         self.wrapper_launch = wrapper_launch
         self.policy_binding = {}
         self.record_followups = followup  # Only the qualified owner dispatcher supplies GET capability.
+        from weather.market.lfc_campaign_control import observe_latches
+        observe_latches(state, runtime, control_root)
 
     def status(self, phase, attempt=None, *, reason=None, **kwargs):
         reasons = {'IDLE': 'idle', 'DEFERRED': 'transport_deferred', 'MISSED': 'window_missed',

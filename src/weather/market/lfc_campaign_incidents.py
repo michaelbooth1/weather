@@ -63,6 +63,7 @@ def latch_occurrence(state, attempt, reason, artifact, now, *, initial_id=None):
         old_artifact = row.get('artifact', 'private-evidence' if row['reason'] == 'private_evidence_fault' else 'attempt')
         if (row.get('source_attempt_id', row['attempt_id']) == attempt and row['reason'] == reason and
                 old_artifact == artifact and not occurrence_closed(state, path, row, sha)):
+            notify_latch(state, row['attempt_id'], now)
             return row['attempt_id']
     identity = {'source_attempt_id': attempt, 'artifact': artifact, 'reason': reason,
                 'detection_sequence': len(state.ledger.autostart_incidents) + 1,
@@ -75,4 +76,11 @@ def latch_occurrence(state, attempt, reason, artifact, now, *, initial_id=None):
     local_date = now.astimezone(ZONE).date().isoformat()
     sha = state.save(relative, {**identity, 'attempt_id': incident, 'at_utc': now.isoformat(), 'local_date': local_date})
     state.ledger.record('autostart_incident', attempt_id=incident, file_sha256=sha, local_date=local_date)
+    notify_latch(state, incident, now)
     return incident
+
+
+def notify_latch(state, incident, now):
+    observer = getattr(state, 'incident_observer', None)
+    if observer is not None:
+        observer(incident, now)

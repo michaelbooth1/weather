@@ -32,6 +32,7 @@ class AccountState:
         from weather.market.lfc_retained_cache import RetainedCache
         self._retained_cache = RetainedCache()
         self._closure_faults, self._closure_accepted, self._closure_completed = set(), set(), set()
+        self.incident_observer = None
         self.policy_binding = {'policy_name': None, 'policy_revision': None, 'evidence_lane': None}
 
     @property
@@ -74,8 +75,10 @@ class AccountState:
             current.mkdir(exist_ok=True)
             validate_nonreparse_directory(current.absolute())
         from weather.market.lfc_campaign_closures import write_closure
+        from weather.market.lfc_campaign_close_intent import bind
         writer = write_closure if relative.parts[0] == 'closed' else write_new
-        writer(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields}, max_bytes=STATE_JSON_LIMIT)
+        options = {'before_publish': lambda p, raw: bind(self, p, raw)} if relative.parts[0] == 'closed' else {}
+        writer(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields}, max_bytes=STATE_JSON_LIMIT, **options)
         return self.file_sha(path)
 
     def enroll(self, now):

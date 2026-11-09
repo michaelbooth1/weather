@@ -311,6 +311,9 @@ class Runtime:
         self.sidecar = None
         self.wrapper_launch = wrapper_launch
 
+        from weather.market.lfc_campaign_control import observe_latches
+        observe_latches(state, self, self.control_root)
+
     def notify_control(self, row):
         from weather.market.lfc_campaign_visibility import notify_control
         return notify_control(self, row)

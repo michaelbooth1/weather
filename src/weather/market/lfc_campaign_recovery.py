@@ -26,9 +26,12 @@ def empty_binding(state, attempt):
     path = state.root / 'closed' / (attempt + '.json')
     row = state.read(path)
     proof = row.get('proof', {})
+    from weather.market.lfc_campaign_close_intent import saved_intent
+    intent = saved_intent(state.ledger, attempt)
+    head = intent['close_ledger_sha256'] if intent else anchors[0]['previous_sha256']
     if (len(anchors) != 1 or file_sha(path) != anchors[0]['file_sha256'] or
             row.get('attempt_id') != attempt or proof.get('authority') != 'automatic_no_intent' or
-            row.get('proof_sha256') != digest(proof) or proof.get('ledger_head_sha256') != anchors[0]['previous_sha256'] or
+            row.get('proof_sha256') != digest(proof) or proof.get('ledger_head_sha256') != head or
             attempt_intents(state.ledger, attempt) or proof.get('scope') != 'attempt_only_no_placement'):
         raise StateRefused('no_intent_close_binding')
     return row
@@ -53,7 +56,10 @@ def close_empty(state, claim, now, *, reason='claim_no_intents'):
             return False
         # Repair only the create-before-ledger-anchor crash gap. No POST was
         # possible, and the immutable claim/date and original files are kept.
-        if saved['proof']['ledger_head_sha256'] != state.ledger.previous:
+        from weather.market.lfc_campaign_close_intent import saved_intent
+        intent = saved_intent(state.ledger, attempt)
+        head = intent['close_ledger_sha256'] if intent else state.ledger.previous
+        if saved['proof']['ledger_head_sha256'] != head:
             raise StateRefused('partial_no_intent_close_stale')
     else:
         proof = {'authority': 'automatic_no_intent', 'scope': 'attempt_only_no_placement',

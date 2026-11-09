@@ -5,14 +5,24 @@ import pytest
 from weather.market import lfc_campaign_control as control
 
 
-@pytest.mark.parametrize('field',['incident','orders_open_unproven','attention_required'])
+@pytest.mark.parametrize('field',['incident','orders_open_unproven','attention_required','postchecks_pending'])
 @pytest.mark.parametrize('value',['missing',None,False,True])
 def test_clean_rule_handles_every_unknown_or_boolean_field(field,value):
-    row={'incident':False,'orders_open_unproven':False,'attention_required':False,
+    row={'incident':False,'orders_open_unproven':False,'attention_required':False,'postchecks_pending':False,
          'phase':'IDLE','at_utc':datetime.now(timezone.utc).isoformat()}
     if value=='missing':row.pop(field)
     else:row[field]=value
     assert control.row_is_clean(row) is (value is False)
+
+
+@pytest.mark.parametrize('phase', ['IDLE', 'COMPLETE', 'RUNNING'])
+def test_producer_keeps_unknown_postchecks_visible(tmp_path, phase):
+    now = datetime.now(timezone.utc)
+    row = control.control_record(tmp_path, 'a'*32, phase=phase, now=now, postchecks_pending=None)
+    assert row['postchecks_pending'] is None
+    assert control.public_status(row, now=now)['postchecks_pending'] is None
+    assert control.watch_status(row, now=now)[1] == 1
+    assert not control.row_is_clean(row, now=now)
 
 
 def test_control_watch_and_public_projection_refuse_a_null_record(tmp_path,capsys):

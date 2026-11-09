@@ -18,11 +18,11 @@ from weather.market.mm_stage2_hold import canonical_bytes, digest, utc
 from weather.operations.live_path_security import validate_regular_nonreparse_file
 
 
-PROTOCOL = 'lfc_closure_anchor_v1'
+PROTOCOL = 'lfc_closure_intent_v2'
 KINDS = {'postcheck', 'automatic_no_intent', 'owner_recovery', 'owner_operational_close'}
 
 
-def validate_anchor(ledger, row):
+def validate_anchor(ledger, row, *, intent=False):
     """Replay checks only; filesystem validation belongs to account state."""
     from weather.market.lfc_ledger import LedgerUnavailable
     attempt = row.get('attempt_id')
@@ -50,9 +50,15 @@ def validate_anchor(ledger, row):
             raise ValueError('close_head')
     except (ValueError, TypeError, KeyError):
         raise LedgerUnavailable('ledger_closure_anchor_binding') from None
+    if not intent and ledger.enrollment.get('closure_anchor_protocol') == PROTOCOL:
+        from weather.market.lfc_campaign_close_intent import saved_intent
+        saved = saved_intent(ledger, attempt)
+        keys = ('attempt_id', 'file', 'file_size', 'close_kind', 'closed_at_utc', 'read_binding', *shas)
+        if saved is None or any(saved.get(key) != row.get(key) for key in keys):
+            raise LedgerUnavailable('ledger_closure_anchor_binding')
 
 
-def write_closure(path, row, *, max_bytes):
+def write_closure(path, row, *, max_bytes, before_publish=None):
     """Fsync first, then Windows atomic no-replace rename; never overwrite."""
     raw = canonical_bytes(row)
     if len(raw) > max_bytes:
@@ -64,6 +70,8 @@ def write_closure(path, row, *, max_bytes):
         if stream.write(raw) != len(raw):
             raise OSError('recording_short_write')
         stream.flush(); os.fsync(stream.fileno())
+    if before_publish is not None:
+        before_publish(path, raw)
     if os.name == 'nt':
         os.rename(temporary, path)  # Windows refuses an existing destination.
     else:
@@ -72,8 +80,12 @@ def write_closure(path, row, *, max_bytes):
 
 
 def fields(state, path):
-    from weather.market.lfc_campaign_state import StateRefused, STATE_SCHEMA
     raw = read_bytes(validate_regular_nonreparse_file(path.absolute()), STATE_JSON_LIMIT)
+    return fields_from_raw(path, raw)
+
+
+def fields_from_raw(path, raw):
+    from weather.market.lfc_campaign_state import StateRefused, STATE_SCHEMA
     row = strict_json(raw)
     if not isinstance(row, dict) or row.get('schema_version') != STATE_SCHEMA:
         raise StateRefused('closeout_schema')
@@ -96,6 +108,9 @@ def fields(state, path):
 def anchor(state, attempt):
     """File is already durable. The existing ledger writer fsyncs this anchor."""
     path = state.root / 'closed' / (attempt + '.json')
+    from weather.market.lfc_campaign_close_intent import require_match
+    item = fields(state, path)
+    require_match(state, item)
     existing = event_rows(state.ledger, 'autostart_close', field='attempt_id', value=attempt)
     if existing:
         try:
@@ -105,7 +120,7 @@ def anchor(state, attempt):
         if not matches:
             fault(state, attempt)
         return existing[0]
-    return state.ledger.record('autostart_close', **fields(state, path))
+    return state.ledger.record('autostart_close', **item)
 
 
 def fault(state, attempt, *, refuse=True):
@@ -156,6 +171,8 @@ def check(state, *, full=False, owner_fault_review=False):
         raise StateRefused('closure_anchor_protocol_required')
     generic = {r['attempt_id']: r for r in event_rows(ledger, 'autostart_close')}
     anchors = dict(generic)
+    for saved in event_rows(ledger, 'autostart_close_intent'):
+        anchors.setdefault(saved['attempt_id'], saved)
     # The older no-intent decision is itself proof that the file was already
     # published. Its hash must protect the tiny gap before the generic anchor.
     for saved in event_rows(ledger, 'autostart_no_intent_close'):
@@ -183,7 +200,7 @@ def check(state, *, full=False, owner_fault_review=False):
                 continue
             fault(state, attempt, refuse=not owner_fault_review)
     for path in (state.root/'closed').glob('*.json'):
-        if path.stem in generic:
+        if path.stem in generic or path.stem in state._closure_accepted:
             continue
         attempt = path.stem
         item = None
@@ -192,6 +209,8 @@ def check(state, *, full=False, owner_fault_review=False):
             if item['close_ledger_sha256'] not in {ledger.row_sha256(i) for i in range(len(ledger.rows))}:
                 state.evidence_fault(attempt, artifact='state/closed/' + attempt + '.json')
                 raise StateRefused('closeout_ledger_continuity')
+            from weather.market.lfc_campaign_close_intent import require_match
+            require_match(state, item)
             claims = [r for r in ledger.autostart_claims if r['attempt_id'] == attempt]
             if len(claims) != 1:
                 raise StateRefused('closeout_claim_binding')
@@ -250,7 +269,7 @@ def check(state, *, full=False, owner_fault_review=False):
                 anchor(state, attempt)
             except (OSError, LedgerUnavailable) as exc:
                 retry_failure(state, attempt, exc, expected=item)
-    state._closure_completed = set(anchors) | {r['attempt_id'] for r in event_rows(ledger, 'autostart_close')}
+    state._closure_completed = set(generic) | state._closure_accepted | {r['attempt_id'] for r in event_rows(state.ledger, 'autostart_close')}
     return state._closure_completed
 
 

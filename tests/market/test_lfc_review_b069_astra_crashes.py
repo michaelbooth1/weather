@@ -29,7 +29,11 @@ def test_crashes_never_erase_originals_or_allow_unverified_completion(tmp_path,m
         state=runtime.state; path=state.root/'closed'/(claim['attempt_id']+'.json')
         ledger_path=state.ledger.path; before=ledger_path.read_bytes()
         ordinary_open=Path.open; ordinary_fsync=os.fsync; ordinary_rename=os.rename
-        target_fd=[None]; hit=[]
+        target_fd=[None]; hit=[]; stage=[]
+        ordinary_record = state.ledger.record
+        def record(event, **fields):
+            stage[:] = [event]
+            return ordinary_record(event, **fields)
         class FaultWriter:
             def __init__(self,stream):self.stream=stream
             def __enter__(self):return self
@@ -41,7 +45,7 @@ def test_crashes_never_erase_originals_or_allow_unverified_completion(tmp_path,m
                 if point=='anchor_partial':raise OSError('synthetic_torn_append')
                 return len(raw)//2
         def opened(p,mode='r',*args,**kwargs):
-            selected=(p==ledger_path and mode=='ab') if point.startswith('anchor_') else ('.attempt-' in p.name and mode=='xb')
+            selected=(p==ledger_path and mode=='ab' and stage == ['autostart_close']) if point.startswith('anchor_') else ('.attempt-' in p.name and mode=='xb')
             if selected and point=='anchor_before':
                 hit.append(point);raise OSError('synthetic_before_append')
             stream=ordinary_open(p,mode,*args,**kwargs)
@@ -58,6 +62,7 @@ def test_crashes_never_erase_originals_or_allow_unverified_completion(tmp_path,m
             if b==path:
                 hit.append(point);raise OSError('synthetic_after_rename')
         with monkeypatch.context() as crash:
+            crash.setattr(state.ledger, 'record', record)
             crash.setattr(Path,'open',opened);crash.setattr(os,'fsync',fsync)
             if point=='rename_after':crash.setattr(os,'rename',rename)
             with pytest.raises((OSError,LedgerUnavailable)):

@@ -143,6 +143,9 @@ def test_closure_publishes_before_ledger_anchor_and_never_overwrites(tmp_path, m
         monkeypatch.setattr(os, 'fsync', flushed)
         monkeypatch.setattr(os, publish_name, published)
         def record(event, **fields):
+            if event == 'autostart_close_intent':
+                operations.append('intent')
+                assert not (runtime.state.root/fields['file']).exists()
             if event == 'autostart_close':
                 operations.append('anchor')
                 path = runtime.state.root/fields['file']
@@ -152,7 +155,7 @@ def test_closure_publishes_before_ledger_anchor_and_never_overwrites(tmp_path, m
         monkeypatch.setattr(runtime.state.ledger, 'record', record)
         runtime.state.close(claim, proof, NOW)
         assert len(seen) == 1
-        assert operations == ['fsync', 'publish', 'anchor', 'fsync']
+        assert operations == ['fsync', 'intent', 'fsync', 'publish', 'anchor', 'fsync']
         path = runtime.state.root/'closed'/(claim['attempt_id']+'.json'); saved = path.read_bytes()
         with pytest.raises(FileExistsError):
             closures.write_closure(path, {'changed': True}, max_bytes=1000)

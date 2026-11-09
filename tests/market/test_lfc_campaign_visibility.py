@@ -36,7 +36,7 @@ def test_phase_notification_is_safe_and_deduplicated(tmp_path, monkeypatch, phas
     notify_control(runtime, row)
     assert len(calls) == 1 and calls[0][1] == {}
     assert set(calls[0][2]['public_status']) == {'phase', 'attempt_id', 'orders_open_unproven',
-                                               'incident', 'attention_required', 'at_utc'}
+                                               'incident', 'attention_required', 'at_utc', 'postchecks_pending'}
     notify_control(runtime, {**row, 'phase': 'RUNNING'})
     notify_control(runtime, row)
     assert len(calls) == 2

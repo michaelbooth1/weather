@@ -38,8 +38,9 @@ An invalid parent packet defers before account access with `account_not_read`;
 its notice says "account not read; attention required". `account_read` is false,
 and `incident` and `orders_open_unproven` are null (UNKNOWN). The control watch
 uses `weather.market.lfc_campaign_control.row_is_clean(row)`. A row is clean only
-when `attention_required` is explicitly false and both incident/order flags are
-explicitly false; null, missing and inconsistent fields require attention. Use
+when `attention_required`, `incident`, `orders_open_unproven` and
+`postchecks_pending` are explicitly false; null, missing and inconsistent
+fields require attention. Use
 this function in both host and workstation watches, never flag truthiness.
 `attention_required` is true on the unread row; no order-absence claim is made.
 The local-only watch CLI is `python -m weather.market.lfc_campaign_control --root
@@ -52,7 +53,7 @@ postcheck qualify as normal live orders; unacknowledged intents never do.
 External watches must use this classifier and distinguish all three exit codes.
 An intact closure whose ledger anchor cannot be persisted is `RETRY_PENDING`
 with reason `retry_pending`, watch exit 1 and no evidence-loss incident. The
-owning tick retries the original file-first transaction; no new claim is allowed
+owning tick retries the original intent-bound transaction; no new claim is allowed
 until it succeeds. Repeated failures retain that state and one stable notice.
 A verified complete append is replayed once; torn ledger bytes still refuse
 reopen and are never truncated. A missing or changed original remains an
@@ -541,19 +542,26 @@ later admission still revalidates originals and the owner decision. This
 `owner-recover` path refuses missing or changed originals. The separate
 `owner-close` path above acknowledges the evidence fault with research incomplete
 and independently proves money; it does not waive that fault into a PASS.
-Completed attempt closures are published create-only from a flushed staging
-file, then bound by a flushed `autostart_close` ledger record. The record retains
+Completed attempt closures are staged and flushed, then bound by a flushed
+`autostart_close_intent` ledger record before create-only publication. Small
+closures retain their complete canonical bytes in that intent; larger ones
+retain the hash and size. A flushed `autostart_close` completes the transaction.
+Both records retain
 the original size, hash, close kind/time, proof hash, ledger head and account-read
 binding. This invariant is checked before pending processing and independently
-of the disposable IDLE manifest. A missing or changed anchored original latches
+of the disposable IDLE manifest or any future inventory cache. Every tick checks
+the intent's identity, including a retry, cold reopen or reboot. A missing or
+changed intent-bound original latches
 an evidence fault; a fresh postcheck never replaces it. Full retained validation
 hashes all originals; ordinary checks use streamed hashes and native file/change
 signatures. A valid file left by a crash before its anchor is validated against
 the retained claim, policy and private evidence and anchored exactly once,
-preserving its original close/read time. The existing no-intent hash anchor
-also protects the gap before the generic anchor.
+preserving its original close/read time. A crash after the intent but before
+publication latches rather than recreating a receipt; the retained inline bytes
+remain evidence for owner review. A staging failure before the intent leaves a
+genuine pending postcheck. No retry invents a new close time or account read.
 
-New enrollment records `closure_anchor_protocol=lfc_closure_anchor_v1`.
+New enrollment records `closure_anchor_protocol=lfc_closure_intent_v2`.
 Pre-protocol campaign roots refuse with `closure_anchor_protocol_required`;
 there is no automatic migration or backfill of historical roots. No F2
 production campaign predates this protocol. A single explicit `owner-close`
@@ -562,6 +570,12 @@ proved money. Its committed manifest binds the loss; the old file is never
 regenerated. Restoration and a later loss still require a new N1 occurrence.
 Status/check, runtime reopen and shared verify completion enforce the binding;
 unenrolled F0 verification keeps its existing behavior.
+
+A durable in-session latch publishes an INCIDENT control row and safe owner
+notice immediately, before cleanup. Cleanup failure cannot leave a live-orders
+row as the last observation. During fill cooldown with no resting order, the
+open-orders flag may temporarily reflect the last account read; the next proof
+refreshes it. This conservative cooldown notice does not authorize a new post.
 
 Each detected fault occurrence binds its source attempt, affected artifact and a
 ledger-backed detection sequence. Repeated observations deduplicate only while

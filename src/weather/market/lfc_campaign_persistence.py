@@ -22,6 +22,7 @@ def retry_failure(state, attempt, error, *, expected=None):
     as loss of the intact closure. The next owning tick retries the transaction.
     """
     from weather.market.lfc_campaign_closures import fields, fault
+    from weather.market.lfc_campaign_close_intent import saved_intent, require_match
     from weather.market.lfc_campaign_guard import require_account
     require_account(state.maker)
     if isinstance(error, LedgerUnavailable):
@@ -37,13 +38,13 @@ def retry_failure(state, attempt, error, *, expected=None):
     if len(fresh.rows) < prefix or fresh.row_sha256(prefix-1) != previous.row_sha256(prefix-1):
         raise LedgerUnavailable('ledger_changed_underneath')
     added = fresh.rows[prefix:]
-    if any(row['event'] not in {'autostart_close', 'autostart_no_intent_close'} or
+    if any(row['event'] not in {'autostart_close', 'autostart_no_intent_close', 'autostart_close_intent'} or
            row.get('attempt_id') != attempt for row in added):
         raise LedgerUnavailable('ledger_changed_underneath')
     fresh.policy_metadata = dict(getattr(previous, 'policy_metadata', {}))
     state.ledger = fresh
     path = state.root / 'closed' / (attempt + '.json')
-    anchored = any(row.get('attempt_id') == attempt for kind in
+    anchored = saved_intent(fresh, attempt) is not None or any(row.get('attempt_id') == attempt for kind in
                    ('autostart_close', 'autostart_no_intent_close') for row in fresh.event_rows(kind))
     try:
         actual = fields(state, path) if path.exists() else None
@@ -56,4 +57,6 @@ def retry_failure(state, attempt, error, *, expected=None):
     if actual is not None and any(row['event'] == 'autostart_close' and
             any(row.get(key) != value for key, value in actual.items()) for row in added):
         raise LedgerUnavailable('ledger_changed_underneath')
+    if actual is not None:
+        require_match(state, actual)
     raise ClosureRetryPending(state, attempt) from None

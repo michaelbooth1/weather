@@ -57,6 +57,21 @@ def orders_unproven(state, runtime=None):
     return False
 
 
+def observe_latches(state, runtime, root):
+    """Publish immediately after the durable latch, before unwinding to cleanup.
+
+    No state verification or account read here: those can themselves be the
+    failing operation. Notification uses only the embargo-safe control row.
+    """
+    def observed(incident, now):
+        row = control_record(root, incident, phase='INCIDENT', now=now, reason='account_incident',
+            incident=True, orders_open_unproven=orders_unproven(state, runtime),
+            policy_metadata=state.policy_binding)
+        if hasattr(runtime, 'notify_control'):
+            runtime.notify_control(row)
+    state.incident_observer = observed
+
+
 def needs_attention(row):
     """Compatibility consumer; use the single exported clean-row contract."""
     return evaluate_row(row)[1] == 1
@@ -83,13 +98,13 @@ def row_is_clean(row, *, now=None, max_age_seconds=900):
 def flags_are_clean(row):
     """Missing/null is UNKNOWN, including inconsistent or legacy projections."""
     return (isinstance(row, dict) and all(row.get(key) is False for key in
-            ('attention_required', 'incident', 'orders_open_unproven')) and row.get('account_read') is not False)
+            ('attention_required', 'incident', 'orders_open_unproven', 'postchecks_pending')) and row.get('account_read') is not False)
 
 
 def flags_need_attention(row):
     """Producer calculation, before the attention_required field is written."""
     return (row.get('phase') in {'INCIDENT', 'POSTCHECK_PENDING', 'REFUSED', 'DEFERRED', 'MISSED', 'EVIDENCE_GAP', 'RETRY_PENDING'} or
-            row.get('postchecks_pending') is True or row.get('account_read') is False or row.get('incident') is not False or
+            row.get('postchecks_pending') is not False or row.get('account_read') is False or row.get('incident') is not False or
             row.get('orders_open_unproven') is not False and not (
                 row.get('phase') == 'RUNNING' and row.get('orders_live') is True and
                 row.get('orders_open_unproven') is True and row.get('postchecks_pending') is False))
@@ -103,7 +118,7 @@ def public_status(row, *, now=None):
     result = {'attempt_id': identity if isinstance(identity, str) and re.fullmatch('[0-9a-f]{32}', identity) else None,
               'phase': phase if phase in SAFE_STATES else None,
               **{key: row.get(key) if type(row.get(key)) is bool else None
-                 for key in ('incident', 'orders_open_unproven')}}
+                 for key in ('incident', 'orders_open_unproven', 'postchecks_pending')}}
     age, code, reason, stamp = evaluate_row(row, now=now)
     result['attention_required'] = code == 1
     result['at_utc'] = stamp
@@ -201,14 +216,14 @@ def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_p
         raise ValueError('control_reason')
     if account_not_read is True and (phase != 'DEFERRED' or orders_open_unproven is not None or incident is not None):
         raise ValueError('control_account_read_context')
-    if any(value is not None and type(value) is not bool for value in (incident, orders_open_unproven)):
+    if any(value is not None and type(value) is not bool for value in (incident, orders_open_unproven, postchecks_pending)):
         raise ValueError('control_boolean_flags')
     # Deliberate allowlist: no selection, token, event, price, fill, wallet,
     # credential path or raw exception message is allowed in the agent view.
     row = {'schema_version': CONTROL_SCHEMA, 'attempt_id': attempt_id, 'phase': phase,
            'at_utc': now.isoformat(), 'incident': incident,
            'orders_open_unproven': orders_open_unproven,
-           'postchecks_pending': postchecks_pending is True, 'research_gaps': research_gaps is True,
+           'postchecks_pending': postchecks_pending, 'research_gaps': research_gaps is True,
            'evidence_sha256': evidence_sha256}
     if orders_live is True:
         if phase != 'RUNNING' or orders_open_unproven is not True:
