@@ -31,6 +31,7 @@ class AccountState:
         self.maker = ledger.rows[0]['maker_address']
         from weather.market.lfc_retained_cache import RetainedCache
         self._retained_cache = RetainedCache()
+        self._closure_faults, self._closure_accepted, self._closure_completed = set(), set(), set()
         self.policy_binding = {'policy_name': None, 'policy_revision': None, 'evidence_lane': None}
 
     @property
@@ -72,7 +73,9 @@ class AccountState:
             current = current / part
             current.mkdir(exist_ok=True)
             validate_nonreparse_directory(current.absolute())
-        write_new(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields}, max_bytes=STATE_JSON_LIMIT)
+        from weather.market.lfc_campaign_closures import write_closure
+        writer = write_closure if relative.parts[0] == 'closed' else write_new
+        writer(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields}, max_bytes=STATE_JSON_LIMIT)
         return self.file_sha(path)
 
     def enroll(self, now):
@@ -96,7 +99,8 @@ class AccountState:
                'historical_private_evidence': retained_history,
                'enrolled_at_utc': now.isoformat(), 'previous_ledger_sha256': self.ledger.previous}
         sha = self.save('identity.json', row)
-        self.ledger.record('autostart_enroll', state_id=row['state_id'], identity_sha256=sha,
+        from weather.market.lfc_campaign_closures import PROTOCOL
+        self.ledger.record('autostart_enroll', state_id=row['state_id'], identity_sha256=sha, closure_anchor_protocol=PROTOCOL,
                            state_root=str(self.root.resolve()), protocol='lfc_autostart_v1')
         return sha
 
@@ -148,6 +152,8 @@ class AccountState:
                 Path(row['ledger_path']).resolve() != self.ledger.path.resolve() or
                 Path(event['state_root']).resolve() != self.root.resolve()):
             raise StateRefused('enrollment_continuity')
+        from weather.market.lfc_campaign_closures import check as check_closures
+        check_closures(self, owner_fault_review=owner_fault_review)
         for event in self.ledger.autostart_claims:
             claim_path = self.root / 'claims' / (event['local_date'] + '.json')
             if self.file_sha(claim_path) != event['file_sha256']:
@@ -186,6 +192,8 @@ class AccountState:
                 operational_binding(self, anchor['source_attempt_id'])
         chain = {self.ledger.row_sha256(i) for i in range(len(self.ledger.rows))}
         for path in (self.root / 'closed').glob('*.json'):
+            if path.stem in self._closure_faults and (owner_fault_review or path.stem in self._closure_accepted):
+                continue  # Explicit owner review/decision retains a gap, never a replacement proof.
             closed = self.closed_binding(path)
             if closed['proof'].get('ledger_head_sha256') not in chain:
                 raise StateRefused('closeout_ledger_continuity')
@@ -299,6 +307,8 @@ class AccountState:
         return self._retained_cache.get('closed-binding', path, load)
 
     def require_retained_evidence(self):
+        from weather.market.lfc_campaign_closures import check as check_closures
+        check_closures(self, full=True)
         for claim in self.claims():
             path = self.root / 'closed' / (claim['attempt_id'] + '.json')
             if not path.exists():
@@ -448,6 +458,8 @@ class AccountState:
     def pending(self):
         result = []
         for row in self.claims():
+            if row['attempt_id'] in self._closure_accepted:
+                continue  # The committed owner decision retains this historical gap.
             path = self.root / 'closed' / (row['attempt_id'] + '.json')
             if not path.exists():
                 result.append(row)
@@ -476,5 +488,8 @@ class AccountState:
         if proof.get('ledger_head_sha256', self.ledger.previous) != self.ledger.previous:
             raise StateRefused('closeout_proof_stale')
         proof = {**proof, 'ledger_head_sha256': self.ledger.previous}
-        return self.save(f"closed/{claim['attempt_id']}.json", {'attempt_id': claim['attempt_id'],
+        sha = self.save(f"closed/{claim['attempt_id']}.json", {'attempt_id': claim['attempt_id'],
                          'proof': proof, 'proof_sha256': digest(proof), 'closed_at_utc': now.isoformat()})
+        from weather.market.lfc_campaign_closures import anchor
+        anchor(self, claim['attempt_id'])
+        return sha

@@ -6,6 +6,9 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("lfc_closure_anchor_protocol", "lfc_closure_anchor_v1", "weather.market.lfc_campaign_closures", "active",
+               "Durable completed-attempt closure hashes, kinds, times and read bindings, checked independently of idle caching.",
+               migration_notes="Pre-protocol campaign roots refuse; no automatic historical backfill or ledger reset."),
     SchemaSpec("lfc_breadth_policy", "lfc_campaign_policy_v0.3", "weather.market.lfc_f2_breadth", "active",
                "Captured built-in cities, proved-fill continuation, UTC-day basis cap and learning quote arms."),
     SchemaSpec("lfc_breadth_protocol", "lfc_autostart_v3", "weather.market.lfc_f2_controller", "active",

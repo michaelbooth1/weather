@@ -58,7 +58,7 @@ POSITIONS_FILTERS = {'include_archived': 'true', 'filter_type': 'TOKENS', 'filte
                      'sort_direction': 'DESC'}
 _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg_adopt', 'leg_terminal', 'session_end',
            'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result', 'autostart_freeze',
-           'owner_history_recovery', 'autostart_no_intent_close', 'autostart_owner_close',
+           'owner_history_recovery', 'autostart_no_intent_close', 'autostart_owner_close', 'autostart_close',
            'autostart_owner_artifact_restored', 'capital_anchor', 'capital_bridge', 'capital_native_group',
            'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution'}
 
@@ -224,6 +224,9 @@ class Ledger:
             if not all(isinstance(row.get(k), str) and row[k] for k in ('state_id', 'identity_sha256', 'state_root')):
                 raise LedgerUnavailable('ledger_enrollment_identity')
             self.enrollment = row
+        elif event == 'autostart_close':
+            from weather.market.lfc_campaign_closures import validate_anchor
+            validate_anchor(self, row)
         elif event == 'autostart_freeze':
             if (self.enrollment is None or row.get('attempt_id') != 'campaign-freeze' or
                     not isinstance(row.get('file_sha256'), str) or

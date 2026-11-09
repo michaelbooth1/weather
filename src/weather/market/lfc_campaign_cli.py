@@ -303,7 +303,7 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         code = str(sys.exc_info()[1])
         code = code if re.fullmatch(r'[a-z0-9_]{1,96}', code) else 'policy_refused'
         print(json.dumps({'state': 'REFUSED', 'code': code}))
-        incident = bool(active_incidents(state))
+        incident = code == 'anchored_closure_evidence_fault' or bool(active_incidents(state))
         emit('INCIDENT' if incident else 'REFUSED', incident=incident,
              reason='account_incident' if incident else 'disk_free_below_floor' if code == 'disk_free_below_floor' else 'policy_refused')
         return 1

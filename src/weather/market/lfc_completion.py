@@ -27,6 +27,13 @@ def session_prediction(directory):
 def ledger_completion(root, ledger):
     flags = {'evidence_complete': True, 'inventory_proven': True, 'unknown_submit': False}
     refused = []
+    campaign_refused = False
+    if getattr(ledger, 'enrollment', None) is not None:
+        from weather.market.lfc_campaign_closures import verify_enrolled
+        try:
+            campaign_refused = bool(verify_enrolled(ledger))
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            campaign_refused = True
     for session_id, session in ledger.sessions.items():
         try:
             relative = Path(session['start']['directory'])
@@ -45,4 +52,7 @@ def ledger_completion(root, ledger):
     if refused or ledger.unacknowledged_intents() or ledger.unresolved_legs():
         flags.update(evidence_complete=False, inventory_proven=False,
                      unknown_submit=bool(refused or ledger.unacknowledged_intents()))
+    if campaign_refused:
+        flags.update(evidence_complete=False, inventory_proven=False)
+        refused.append('campaign_closure_evidence')
     return dict(flags, evidence_refusals=refused)

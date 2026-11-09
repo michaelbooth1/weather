@@ -64,6 +64,8 @@ def close_empty(state, claim, now, *, reason='claim_no_intents'):
             'proof': proof, 'proof_sha256': digest(proof), 'closed_at_utc': now.isoformat()})
     state.ledger.record('autostart_no_intent_close', attempt_id=attempt, local_date=claim['local_date'],
                         file_sha256=file_sha(path))
+    from weather.market.lfc_campaign_closures import anchor as anchor_closure
+    anchor_closure(state, attempt)
     for anchor in state.ledger.autostart_incidents:
         incident_path = state.root / 'incidents' / (anchor['attempt_id'] + '.json')
         incident = state.read(incident_path)
@@ -83,6 +85,8 @@ def recover_empty(state, now):
     state.verify(ignore_empty_result_errors=True)
     closed = []
     for anchor in list(state.ledger.autostart_claims):
+        if anchor['attempt_id'] in state._closure_completed:
+            continue
         claim = state.read(state.root / 'claims' / (anchor['local_date'] + '.json'))
         from weather.market.lfc_campaign_owner_close import complete_committed
         if complete_committed(state, claim['attempt_id'], now) is not None:

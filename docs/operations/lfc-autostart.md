@@ -518,6 +518,28 @@ later admission still revalidates originals and the owner decision. This
 `owner-recover` path refuses missing or changed originals. The separate
 `owner-close` path above acknowledges the evidence fault with research incomplete
 and independently proves money; it does not waive that fault into a PASS.
+Completed attempt closures are published create-only from a flushed staging
+file, then bound by a flushed `autostart_close` ledger record. The record retains
+the original size, hash, close kind/time, proof hash, ledger head and account-read
+binding. This invariant is checked before pending processing and independently
+of the disposable IDLE manifest. A missing or changed anchored original latches
+an evidence fault; a fresh postcheck never replaces it. Full retained validation
+hashes all originals; ordinary checks use streamed hashes and native file/change
+signatures. A valid file left by a crash before its anchor is validated against
+the retained claim, policy and private evidence and anchored exactly once,
+preserving its original close/read time. The existing no-intent hash anchor
+also protects the gap before the generic anchor.
+
+New enrollment records `closure_anchor_protocol=lfc_closure_anchor_v1`.
+Pre-protocol campaign roots refuse with `closure_anchor_protocol_required`;
+there is no automatic migration or backfill of historical roots. No F2
+production campaign predates this protocol. A single explicit `owner-close`
+can acknowledge a lost or damaged closure with research gaps retained and fresh
+proved money. Its committed manifest binds the loss; the old file is never
+regenerated. Restoration and a later loss still require a new N1 occurrence.
+Status/check, runtime reopen and shared verify completion enforce the binding;
+unenrolled F0 verification keeps its existing behavior.
+
 Each detected fault occurrence binds its source attempt, affected artifact and a
 ledger-backed detection sequence. Repeated observations deduplicate only while
 that occurrence is open. A later loss, including after recovery or reboot, creates

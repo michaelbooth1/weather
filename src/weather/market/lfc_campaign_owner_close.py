@@ -34,6 +34,7 @@ def artifact_path(state, name):
 
 def manifest(state, attempt):
     names = {'state/results/' + attempt + '.json'}
+    names.add('state/closed/' + attempt + '.json')
     names.add('state/emergency/' + attempt + '.json')
     if attempt == 'campaign-freeze':
         names.add('state/policies/freeze.json')
@@ -120,6 +121,10 @@ def complete_committed(state, attempt, now, *, incident=None):
     if not any(row['attempt_id'] == attempt for row in state.ledger.autostart_claims):
         return False  # An account/freeze incident has no session claim to close.
     target = state.root / 'closed' / (attempt + '.json')
+    from weather.market.lfc_campaign_closures import anchor as anchor_closure, check as check_closures
+    check_closures(state)
+    if attempt in state._closure_accepted:
+        return False  # Lost anchored receipt acknowledged; never write over its old pathname.
     if target.exists():
         saved = state.closed_binding(target)
         proof = saved.get('proof', {})
@@ -127,6 +132,7 @@ def complete_committed(state, attempt, now, *, incident=None):
                 proof.get('cleanup_proven') is not True or proof.get('money_accounting_complete') is not True or
                 proof.get('ledger_head_sha256') not in {state.ledger.row_sha256(i) for i in range(len(state.ledger.rows))}):
             raise StateRefused('owner_committed_close_binding')
+        anchor_closure(state, attempt)
         return False
     proof = anchor['proof']
     if (anchor.get('proof_sha256') != digest(proof) or proof.get('unknown_submit') is not False or
@@ -137,6 +143,7 @@ def complete_committed(state, attempt, now, *, incident=None):
                     'owner_closure_sha256': anchor['file_sha256']}
     state.save('closed/' + attempt + '.json', {'attempt_id': attempt, 'proof': closed_proof,
         'proof_sha256': digest(closed_proof), 'closed_at_utc': closure['closed_at_utc']})
+    anchor_closure(state, attempt)
     return True
 
 
