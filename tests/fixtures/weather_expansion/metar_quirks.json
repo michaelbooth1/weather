@@ -1,0 +1,370 @@
+{
+  "schema_version": "synthetic-metar-quirks-v1",
+  "kind": "format_metadata_only",
+  "description": "Station cadence/rendering protocol plus global token classes only; no station-linked weather values, signs, timestamps or raw reports.",
+  "observed_formats": [
+    "auto",
+    "automated_cloud",
+    "cor",
+    "forecast_extrema",
+    "missing_fields",
+    "negative_body",
+    "off_hour",
+    "runway_feet_without_r",
+    "runway_state_or_range",
+    "speci",
+    "taf_validity",
+    "valid_t_group",
+    "visibility_fraction",
+    "wind_kt",
+    "wind_mps"
+  ],
+  "stations": [
+    {
+      "icao": "CYYZ",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "EDDM",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "EFHK",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "EGLC",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": [
+        "automated_cloud"
+      ]
+    },
+    {
+      "icao": "EHAM",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "EPWA",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "FACT",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "KATL",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KAUS",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KDAL",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KDEN",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KHOU",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KLAX",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KLGA",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KMIA",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KORD",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KSEA",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "KSFO",
+      "cadence_minutes": 60,
+      "t_groups": true,
+      "render_formats": []
+    },
+    {
+      "icao": "LEMD",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "LFPB",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": [
+        "automated_cloud"
+      ]
+    },
+    {
+      "icao": "LIMC",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "LLBG",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "LTAC",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "LTFM",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "MMMX",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "runway_feet_without_r"
+      ]
+    },
+    {
+      "icao": "MPMG",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "automated_cloud"
+      ]
+    },
+    {
+      "icao": "NZWN",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": [
+        "automated_cloud"
+      ]
+    },
+    {
+      "icao": "OEJN",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "OPKC",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "RCSS",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "RJTT",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "RKPK",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "RKSI",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "RPLL",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "SAEZ",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "SBGR",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "UUWW",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "VILK",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "WMKK",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "WSSS",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": []
+    },
+    {
+      "icao": "ZBAA",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZGGG",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZGSZ",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZHCC",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZHHH",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZSJN",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZSPD",
+      "cadence_minutes": 30,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZSQD",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZUCK",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    },
+    {
+      "icao": "ZUUU",
+      "cadence_minutes": 60,
+      "t_groups": false,
+      "render_formats": [
+        "wind_mps"
+      ]
+    }
+  ],
+  "regression_formats": [
+    "malformed_cor",
+    "malformed_type",
+    "shortened_t",
+    "nine_digit_t",
+    "sign_2_t",
+    "corrupted_body",
+    "sea_state_s",
+    "sea_state_h",
+    "missing_temperature",
+    "body_missing_dewpoint_12_slashes",
+    "stationless",
+    "unreadable_time"
+  ]
+}

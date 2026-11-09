@@ -1,6 +1,8 @@
 """Guards: global routine-METAR settlement, exact rounding, revision bounds and fallbacks."""
 
 import csv
+from collections import Counter
+import json
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -20,6 +22,9 @@ DAY = date(2026, 11, 8)
 NOW = datetime(2026, 11, 8, 22, tzinfo=timezone.utc)
 FIXTURE = repo_path("tests", "fixtures", "weather_expansion", "inputs", "metar-72h")
 SUMMARY = list(csv.DictReader((FIXTURE / "summary.csv").read_text().splitlines()))
+SYNTHETIC_START = datetime(2026, 9, 20, tzinfo=timezone.utc)
+SYNTHETIC_END = datetime(2026, 9, 24, tzinfo=timezone.utc)
+PROVENANCE = json.loads((FIXTURE / "provenance.json").read_text())
 
 
 def report(raw, **kwargs):
@@ -34,14 +39,14 @@ def evaluate(raws, city="toronto", **kwargs):
 def test_all_station_raw_fixtures(row):
     station = row["icao"]
     raw = (FIXTURE / "per-station" / f"{station}.txt").read_text(encoding="utf-8")
-    records, flags = parse_metar_text(raw, START, END)
+    records, flags = parse_metar_text(raw, SYNTHETIC_START, SYNTHETIC_END)
     assert len(records) == int(row["reports"])
     assert sum(not r.routine for r in records) == int(row["speci"])
     assert sum(r.routine and r.t_group_c is not None for r in records) == int(row["tgroup_routine"])
-    malformed = [r for r in records if any(key.startswith(("malformed", "ambiguous")) for key in r.flags)]
-    # The UUWW TAF-shaped report has no observed temperature; validity ranges
-    # are unrelated tokens, not malformed temperature groups.
-    assert not malformed
+    malformed = Counter(key for r in records for key in r.flags if key.startswith(("malformed", "ambiguous")))
+    # The seeded corpus deliberately contains regression defects. Counts come
+    # from named format cases, not the old real survey's report totals.
+    assert dict(malformed) == PROVENANCE["expected_parse_flags"][station]
     if not station.startswith("K"):
         assert all(r.t_group_c is None for r in records)
     if float(row["per_hour"]) >= 1.8:
@@ -232,13 +237,13 @@ def test_legacy_shortened_t_group_divergence_is_preserved():
     assert strict.value_basis == "body_t_group_malformed"
 
 
-def test_supplied_raw_fixture_label_dates_have_no_shortened_t_group_divergence():
+def test_synthetic_fixture_shortened_t_divergence_dates_are_documented():
     from weather.sources.metar_history import report_temperature_c
     changed_dates = set()
     for row in SUMMARY:
         station = row["icao"]
         raw = (FIXTURE / "per-station" / f"{station}.txt").read_text(encoding="utf-8")
-        reports, _ = parse_metar_text(raw, START, END)
+        reports, _ = parse_metar_text(raw, SYNTHETIC_START, SYNTHETIC_END)
         for item in reports:
             if not item.routine or item.temperature_c is None:
                 continue
@@ -247,4 +252,4 @@ def test_supplied_raw_fixture_label_dates_have_no_shortened_t_group_divergence()
                 item.temperature_c, "F" if station.startswith("K") else "C"
             ):
                 changed_dates.add((station, item.observation_time.date().isoformat()))
-    assert sorted(changed_dates) == []
+    assert [list(item) for item in sorted(changed_dates)] == PROVENANCE["synthetic_shortened_t_divergence_dates"]

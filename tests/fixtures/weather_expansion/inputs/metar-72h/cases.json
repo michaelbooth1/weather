@@ -1,0 +1,227 @@
+{
+  "cases": [
+    {
+      "expected_flags": [],
+      "name": "good_cor",
+      "raw": "METAR COR KLGA 211301Z 21/04 RMK T02060040",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_correction_marker"
+      ],
+      "name": "malformed_cor_before_station",
+      "raw": "METAR C0R KLGA 211302Z 21/04",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_correction_marker"
+      ],
+      "name": "malformed_cor_after_station",
+      "raw": "METAR KLGA COR0 211303Z 21/04",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_correction_marker"
+      ],
+      "name": "malformed_cor_after_time",
+      "raw": "METAR KLGA 211304Z C0R 21/04",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_report_type"
+      ],
+      "name": "malformed_type",
+      "raw": "MTAR KLGA 211305Z 21/04",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [],
+      "name": "unlabelled_off_hour",
+      "raw": "CYYZ 211337Z 16/04",
+      "station": "CYYZ"
+    },
+    {
+      "expected_flags": [],
+      "name": "auto",
+      "raw": "METAR CYYZ 211306Z AUTO 15/04",
+      "station": "CYYZ"
+    },
+    {
+      "expected_flags": [
+        "malformed_t_group"
+      ],
+      "name": "shortened_t",
+      "raw": "METAR KDEN 211307Z 06/M03 RMK T0056",
+      "station": "KDEN"
+    },
+    {
+      "expected_flags": [
+        "malformed_t_group"
+      ],
+      "name": "nine_digit_t",
+      "raw": "METAR KDEN 211308Z 06/M03 RMK T005600391",
+      "station": "KDEN"
+    },
+    {
+      "expected_flags": [
+        "malformed_t_group"
+      ],
+      "name": "invalid_t_sign_2",
+      "raw": "METAR KDEN 211309Z 06/M03 RMK T20560039",
+      "station": "KDEN"
+    },
+    {
+      "expected_flags": [],
+      "name": "unused_dew_sign_2",
+      "raw": "METAR KDEN 211310Z 06/M03 RMK T00562039",
+      "station": "KDEN"
+    },
+    {
+      "expected_flags": [],
+      "name": "negative_t",
+      "raw": "METAR KDEN 211311Z M03/M05 RMK T10251050",
+      "station": "KDEN"
+    },
+    {
+      "expected_flags": [
+        "malformed_body_temperature"
+      ],
+      "name": "corrupted_body_12",
+      "raw": "METAR KLGA 211312Z 210/04",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_body_temperature"
+      ],
+      "name": "corrupted_body_13",
+      "raw": "METAR KLGA 211313Z 21/100",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_body_temperature"
+      ],
+      "name": "corrupted_body_14",
+      "raw": "METAR KLGA 211314Z 21//04",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_body_temperature"
+      ],
+      "name": "corrupted_body_15",
+      "raw": "METAR KLGA 211315Z 21//",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_body_temperature"
+      ],
+      "name": "corrupted_body_16",
+      "raw": "METAR KLGA 211316Z 21/040000",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_body_temperature"
+      ],
+      "name": "malformed_body_valid_t",
+      "raw": "METAR KLGA 211317Z 2X/10 RMK T01830100",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [],
+      "name": "missing_dewpoint_12_slashes",
+      "raw": "METAR KLGA 211318Z 12/// RMK AO2",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [],
+      "name": "missing_temperature",
+      "raw": "METAR CYYZ 211319Z NIL",
+      "station": "CYYZ"
+    },
+    {
+      "expected_flags": [],
+      "name": "missing_fields",
+      "raw": "METAR MPMG 211320Z AUTO 13003KT //// R01///// // FEW019/// OVC200/// 27/24 Q1009",
+      "station": "MPMG"
+    },
+    {
+      "expected_flags": [
+        "malformed_station"
+      ],
+      "name": "stationless",
+      "raw": "METAR 211500Z 18/04",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "malformed_or_ambiguous_time"
+      ],
+      "name": "unreadable_time",
+      "raw": "CYYZ 2X1800Z 25/04",
+      "station": "CYYZ"
+    },
+    {
+      "expected_flags": [],
+      "name": "taf_validity",
+      "raw": "METAR UUWW 210209Z 2103/2203 31005MPS 6000 FEW007 BKN016 TX05/2112Z TNM03/2104Z BECMG 2112/2115 25005MPS",
+      "station": "UUWW"
+    },
+    {
+      "expected_flags": [],
+      "name": "sea_state_s",
+      "raw": "METAR LTFM 211321Z 15/10 W15/S4",
+      "station": "LTFM"
+    },
+    {
+      "expected_flags": [],
+      "name": "sea_state_h",
+      "raw": "METAR LTFM 211322Z 15/10 W15/H7",
+      "station": "LTFM"
+    },
+    {
+      "expected_flags": [],
+      "name": "runway_r",
+      "raw": "METAR MMMX 211323Z 15/10 R88/290050",
+      "station": "MMMX"
+    },
+    {
+      "expected_flags": [],
+      "name": "visibility_fraction",
+      "raw": "METAR KMIA 211324Z 04010KT 1 1/2SM BR 15/10",
+      "station": "KMIA"
+    },
+    {
+      "expected_flags": [
+        "ambiguous_t_group"
+      ],
+      "name": "ambiguous_t",
+      "raw": "METAR KLGA 211325Z 20/04 RMK T02060040 T02160040",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "ambiguous_body_temperature"
+      ],
+      "name": "ambiguous_body",
+      "raw": "METAR KLGA 211326Z 20/04 21/05",
+      "station": "KLGA"
+    },
+    {
+      "expected_flags": [
+        "ambiguous_body_temperature"
+      ],
+      "name": "ambiguous_body_valid_t",
+      "raw": "METAR KLGA 211327Z 20/04 21/05 RMK T02060040",
+      "station": "KLGA"
+    }
+  ],
+  "kind": "synthetic"
+}

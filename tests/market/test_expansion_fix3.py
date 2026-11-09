@@ -66,14 +66,15 @@ def test_unrelated_tokens_are_true_temperature_absence(tokens):
     assert not any(f.startswith(("malformed_", "ambiguous_")) for f in parsed.flags)
 
 
-def test_real_uuww_day_finalizes_without_discarding_observed_extrema():
+def test_synthetic_uuww_day_finalizes_without_discarding_observed_extrema():
     raw = repo_path("tests", "fixtures", "weather_expansion", "inputs", "metar-72h", "per-station", "UUWW.txt").read_text()
-    records, diagnostic = parse_metar_text(raw, START, END)
-    taf = next(r for r in records if "0703/0803" in r.raw)
+    start, end = datetime(2026, 9, 20, tzinfo=UTC), datetime(2026, 9, 24, tzinfo=UTC)
+    records, diagnostic = parse_metar_text(raw, start, end)
+    taf = next(r for r in records if "2103/2203" in r.raw)
     assert taf.temperature_c is None and not taf.has_parse_defect
     assert not diagnostic.get("malformed_body_temperature")
-    result = ADAPTER.evaluate(U["moscow"], date(2026, 11, 7), records, as_of=END)
-    assert (result.status, result.maximum, result.minimum) == ("final", 1, -1)
+    result = ADAPTER.evaluate(U["moscow"], date(2026, 9, 21), records, as_of=end)
+    assert (result.status, result.maximum, result.minimum) == ("final", 5, -3)
     assert "routine_day_parse_defect" not in result.notes
 
 
