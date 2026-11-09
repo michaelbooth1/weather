@@ -161,22 +161,21 @@ def test_breadth_examples_are_disabled_exact_defaults_and_k2_remains_readable():
     assert parse_policy(old).raw['band_limit_session'] == 2
 
 
-def test_large_closed_proof_is_fully_validated_but_only_compact_projection_is_cached(tmp_path):
+def test_large_closed_proof_is_fully_validated_but_only_compact_projection_is_cached(tmp_path, monkeypatch):
     import os
-    from weather.market.lfc_campaign_state import AccountState, StateRefused
-    from weather.market.lfc_recording_io import strict_json
+    from weather.market.lfc_campaign_state import StateRefused
     from weather.market.mm_stage2_hold import digest
-    ledger = ledger_at(tmp_path)
-    state = AccountState(tmp_path / 'state', ledger)
-    state.root.mkdir(parents=True)
-    proof = {'ledger_head_sha256': ledger.previous, 'money_accounting_complete': True,
-             'unknown_submit': False, 'cleanup_proven': True, 'account_read': {'fixture': 'x' * 3_000_000},
-             'capital': {'fixture': 'z' * 1_000_000}}
-    from tests.market.test_lfc_campaign import Mutexes
+    from tests.market.test_lfc_campaign import MAKER, Mutexes, NOW
+    from tests.market.test_lfc_review_b067_integrity import prepared
     from weather.market.lfc_campaign_guard import account_lease
-    with account_lease(ledger.rows[0]['maker_address'], backend=Mutexes()):
-        state.save('closed/fixture.json', {'attempt_id': 'fixture', 'proof': proof, 'proof_sha256': digest(proof)})
-    path = state.root / 'closed/fixture.json'
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime, policy, claim, proof = prepared(tmp_path, monkeypatch)
+        state = runtime.state
+        proof['account_read']['fixture'] = 'x' * 3_000_000
+        proof['capital'] = {'fixture': 'z' * 1_000_000}
+        proof['read_sha256'] = digest(proof['account_read'])
+        state.close(claim, proof, NOW)
+    path = state.root / 'closed' / (claim['attempt_id'] + '.json')
     first = state.closed_binding(path)
     assert 'account_read' not in first['proof'] and len(str(first)) < 2000
     assert state.closed_binding(path) == first
