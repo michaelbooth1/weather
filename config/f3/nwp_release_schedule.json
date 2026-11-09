@@ -1,0 +1,84 @@
+{
+  "schema_version": "f3_nwp_release_schedule_v1",
+  "source": "Sanitized nwp-catalog packet section 0 item 3 and section 2; measured 00Z availability",
+  "window_minutes": {
+    "before": 5,
+    "after": 30
+  },
+  "lengthen_only": true,
+  "releases": [
+    {
+      "model": "GFS",
+      "cycle_utc": "00",
+      "available_utc": "03:34",
+      "basis": "measured_00z"
+    },
+    {
+      "model": "GFS",
+      "cycle_utc": "06",
+      "available_utc": "09:34",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "GFS",
+      "cycle_utc": "12",
+      "available_utc": "15:34",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "GFS",
+      "cycle_utc": "18",
+      "available_utc": "21:34",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "AIFS",
+      "cycle_utc": "00",
+      "available_utc": "05:21",
+      "basis": "measured_00z"
+    },
+    {
+      "model": "AIFS",
+      "cycle_utc": "06",
+      "available_utc": "11:21",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "AIFS",
+      "cycle_utc": "12",
+      "available_utc": "17:21",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "AIFS",
+      "cycle_utc": "18",
+      "available_utc": "23:21",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "IFS_HRES_open",
+      "cycle_utc": "00",
+      "available_utc": "07:34",
+      "basis": "measured_00z"
+    },
+    {
+      "model": "IFS_HRES_open",
+      "cycle_utc": "06",
+      "available_utc": "13:34",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "IFS_HRES_open",
+      "cycle_utc": "12",
+      "available_utc": "19:34",
+      "basis": "assumed_plus_6h"
+    },
+    {
+      "model": "IFS_HRES_open",
+      "cycle_utc": "18",
+      "available_utc": "01:34",
+      "basis": "assumed_plus_6h",
+      "day_offset": 1
+    }
+  ]
+}
