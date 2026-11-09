@@ -824,6 +824,7 @@ class Runtime:
         original_files = {}
         relative = Path(str(result.get('private_evidence_directory', '')))
         if relative.parts and not relative.is_absolute() and '..' not in relative.parts:
+            file_limit = 307  # Retained single-band/non-F2 result contract.
             from weather.operations.live_path_security import validate_contained_regular_file
             directory = self.pilot_root / relative
             paths = [path for name in ('journal.jsonl', 'prediction.json', 'session_end.json', 'attempt.json', 'selection.json')
@@ -833,10 +834,11 @@ class Runtime:
                 paths.append(directory / 'f2_manifest.json')
                 if 'go_account.json' in result['outcome'].get('evidence_sha256', {}):
                     paths.append(directory / 'go_account.json')
-                from weather.market.lfc_f2_evidence import manifest_at
+                from weather.market.lfc_f2_evidence import manifest_at, result_file_limit
+                file_limit = result_file_limit(self.state.ledger, claim['attempt_id'])
                 for band in manifest_at(directory)['bands']:
                     paths += [directory / band['directory'] / name for name in band['evidence_sha256']]
-            if len(paths) > 307:  # 12 bands x (5 originals + 20 submit files), plus 7 root files.
+            if len(paths) > file_limit:
                 raise StateRefused('private_file_count')
             for path in paths:
                 original_files[path.relative_to(directory).as_posix()] = file_sha(validate_contained_regular_file(self.pilot_root, path))

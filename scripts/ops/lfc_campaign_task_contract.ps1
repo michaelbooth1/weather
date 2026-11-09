@@ -87,7 +87,8 @@ function Read-LfcCampaignPolicyBytes {
 }
 
 function Get-LfcCampaignLaunch {
-    param([Parameter(Mandatory=$true)][string]$CampaignPath,[DateTimeOffset]$NowUtc=[DateTimeOffset]::UtcNow)
+    param([Parameter(Mandatory=$true)][string]$CampaignPath,[DateTimeOffset]$NowUtc=[DateTimeOffset]::UtcNow,
+          [DateTimeOffset]$TaskStartedUtc=$NowUtc)
     # The digest and deadline use ONE bounded byte snapshot. An unreadable
     # policy gets a short reporting budget and can never authorize admission.
     try { $bytes=Read-LfcCampaignPolicyBytes -CampaignPath $CampaignPath } catch { $bytes=[byte[]]@() }
@@ -95,6 +96,9 @@ function Get-LfcCampaignLaunch {
     try { $sha=([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-','').ToLowerInvariant() }
     finally { $hasher.Dispose() }
     $deadline=Get-LfcCampaignDeadline -CampaignPath $CampaignPath -NowUtc $NowUtc -PolicyBytes $bytes
+    if($TaskStartedUtc.Offset -ne [TimeSpan]::Zero -or $TaskStartedUtc -gt $NowUtc) { throw 'campaign task start time' }
+    $schedulerEnd=$TaskStartedUtc.AddHours(11)
+    if($schedulerEnd -lt $deadline) { $deadline=$schedulerEnd }
     return [pscustomobject]@{deadline_utc=$deadline.ToString('o');policy_bytes_sha256=$sha}
 }
 
@@ -132,6 +136,12 @@ function Get-LfcCampaignDeadline {
             if($NowUtc -lt $warm -or $NowUtc -ge $latest) { return $fallback }
             $localStop=[DateTime]::SpecifyKind($entryDay.Add($stop),[DateTimeKind]::Unspecified)
             $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
+            if($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.4') {
+                # The earliest tick receiving a full envelope must also fit
+                # Scheduler PT11H. Python uses this same conservative bound.
+                $contained=$warm.AddHours(11).AddMinutes(-30)
+                if($contained -lt $fixed) { $fixed=$contained }
+            }
             $seconds=[int]$policyRow.max_session_seconds
             $maximum=if($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.4'){35100}else{21600}
             if($seconds -lt 300 -or $seconds -gt $maximum) { return $fallback }

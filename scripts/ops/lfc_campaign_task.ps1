@@ -1,6 +1,7 @@
 # Owner-activated task wrapper. Agents never invoke this script on an account.
 param([Parameter(Mandatory=$true)][string]$ReleasePath,
-      [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ReleaseSha256)
+      [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ReleaseSha256,
+      [Parameter(Mandatory=$true)][DateTimeOffset]$TaskStartedUtc)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'lfc_campaign_task_contract.ps1')
 . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')
@@ -10,8 +11,9 @@ $job=New-WeatherKillOnCloseJob
 $child=$null; $exitCode=1
 try {
     $began=[DateTimeOffset]::UtcNow
-    $launch=Get-LfcCampaignLaunch -CampaignPath $release.campaign_path -NowUtc $began
+    $launch=Get-LfcCampaignLaunch -CampaignPath $release.campaign_path -NowUtc $began -TaskStartedUtc $TaskStartedUtc
     $deadline=[DateTimeOffset]::Parse($launch.deadline_utc)
+    if($deadline -le $began) { throw 'campaign task containment budget expired' }
     $maxSeconds=($deadline-$began).TotalSeconds
     $elapsed=[Diagnostics.Stopwatch]::StartNew()
     $tokens=@('-m','weather.market.lfc_campaign_cli','tick','--release',$ReleasePath,'--release-sha256',$ReleaseSha256,

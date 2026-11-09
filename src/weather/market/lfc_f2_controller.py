@@ -294,30 +294,44 @@ class F2Band(PilotSession):
         return super()._recover(name, observed)
 
     def terminal_order_read(self, oid, recover):
-        """Share the F2 terminal-read budget across every known cleanup identity."""
+        """Probe every identity once before spending the shared retry budget."""
         from weather.market.mm_account_reads import order_terminal
-        if self._terminal_order_deadline is None:
-            self._terminal_order_deadline = self.clock.monotonic() + 10
-        exception_type = 'TerminalReadBudgetExpired'
-        while self.clock.monotonic() < self._terminal_order_deadline:
+        def probe(order_id):
             self.progress()
             try:
-                row = self.venue.order(oid)
-                if order_terminal(row, order_id=oid, size=self.size):
-                    return row
-                exception_type = 'OrderNotTerminal'
+                return self.venue.order(order_id), None
             except Exception as exc:
-                exception_type = type(exc).__name__
+                return None, type(exc).__name__
             finally:
                 self.progress()
+        if self._terminal_order_deadline is None:
+            self._terminal_order_deadline = self.clock.monotonic() + getattr(self, '_terminal_read_seconds', 10)
+            # A lagging first order must never prevent observing a later one.
+            self._terminal_first_reads = {order_id: probe(order_id) for order_id in self.known}
+        row, error = self._terminal_first_reads.pop(oid)
+        leg = self.ledger.legs.get(self.ledger.by_order.get(oid), {})
+        already_terminal = leg.get('status') == 'terminal'
+        while True:
+            if error is None and order_terminal(row, order_id=oid, size=self.size):
+                return row
+            exception_type = error or 'OrderNotTerminal'
             remaining = self._terminal_order_deadline - self.clock.monotonic()
-            if remaining > 0:
-                self.clock.sleep(min(1, remaining))
+            if already_terminal or remaining <= 0:
+                break
+            self.clock.sleep(min(1, remaining))
+            if self.clock.monotonic() >= self._terminal_order_deadline:
+                break
+            row, error = probe(oid)
         self._retain('terminal_order_unavailable', order_id=oid, exception_type=exception_type)
         raise TimeoutError('terminal_order_unavailable')
 
     def cleanup(self):
         self._terminal_order_deadline = None  # One shared budget for all known orders in this cleanup.
+        # Final teardown has no dependent repost: one probe per identity, no
+        # retry sleeps before the next band's cancellation can start.
+        final = (getattr(self.venue.coordinator, 'final_teardown', False) or
+                 self.clock.monotonic() >= self.deadline)
+        self._terminal_read_seconds = 10 if getattr(self, '_repost_terminal_reads', False) and not final else 0
         status = getattr(self, 'outcome_status', None)
         previous = getattr(status, 'phase', None)
         if status is not None:
@@ -441,6 +455,7 @@ class F2Coordinator:
             self.reason = (exc.reason if isinstance(exc, HoldEnd) else
                            'owner_interrupt' if isinstance(exc, KeyboardInterrupt) else 'f2_exception')
         finally:
+            self.final_teardown = True
             self.status.phase = 'CLEANUP'
             # Inject the stop into each live band so it follows the ordinary
             # cancel, terminal read and private evidence path exactly once.

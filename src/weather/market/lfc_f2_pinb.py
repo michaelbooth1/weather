@@ -16,6 +16,16 @@ SCHEDULE = {'learning_dates': ['2026-11-09', '2026-11-22'], 'transition_no_entry
 MAX_SECONDS = 35100
 
 
+def contained_end(start, end, fixed):
+    """Reserve cleanup inside PT11H from the earliest full-envelope tick.
+
+    Earlier ticks receive the short fallback and fail the whole-window launch
+    check. Wider windows can shorten exposure; they never extend a hard end.
+    """
+    lookback = max(timedelta(minutes=5), timedelta(minutes=30)-(end-start))
+    return min(fixed, start-lookback+timedelta(hours=11)-timedelta(minutes=30))
+
+
 def enabled(policy):
     return policy.raw.get('schema_version') == SCHEMA
 
@@ -82,7 +92,7 @@ def parse_pinb(row):
         while day <= last:
             start = datetime.combine(day, begin, ZONE).astimezone(timezone.utc)
             end = datetime.combine(day, finish, ZONE).astimezone(timezone.utc)
-            fixed = datetime.combine(day, stop, ZONE).astimezone(timezone.utc)
+            fixed = contained_end(start, end, datetime.combine(day, stop, ZONE).astimezone(timezone.utc))
             latest = min(end+timedelta(seconds=seconds), fixed)
             if latest > datetime.combine(start.date(), C.HARD_STOP_UTC, timezone.utc):
                 legacy.refuse('unsupported_utc_session_boundary')
@@ -105,6 +115,7 @@ def support_table():
     return {**breadth.support_table(), 'schema_version': SCHEMA,
         'fields': sorted(set(legacy.FIXED) | legacy.VARIABLE | breadth.FIELDS | FIELDS),
         'duration_seconds': [MIN_SESSION_SECONDS, MAX_SECONDS], 'trading_end_toronto_max': '18:45:00',
+        'scheduler_containment': 'earliest_full_envelope_tick_plus_PT11H_including_30_minute_cleanup',
         'max_submits_per_band': 40, 'max_requotes_per_band': 16, 'schedule': SCHEDULE,
         'learning_leg_arms': ['paired', 'cheap'], 'confirmation_leg_arm': ['paired', 'cheap']}
 

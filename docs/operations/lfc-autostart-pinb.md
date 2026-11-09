@@ -18,10 +18,25 @@ are unchanged. All twelve captured built-ins remain on the same local date
 from 09:00 through 18:45 Toronto during the approved campaign dates, so their
 selected T+1 events remain T+1 throughout. Per-order horizon checks remain.
 
+For a wider supported start window, the effective end is also bounded by the
+earliest tick receiving a full wrapper envelope plus eleven hours, less thirty
+minutes for cleanup. Both Python admission and PowerShell use that bound. For
+07:00–09:00 it is 17:25; the default window still ends at 18:45. Earlier ticks
+receive the short fallback and cannot admit against an insufficient envelope.
+Actual session ends and GTD timestamps use the effective end.
+The native creation time of the outer windowless task action also bounds the
+wrapper deadline at eleven elapsed hours. Slow release/startup I/O cannot move
+that deadline forward. A launch lacking the full cleanup margin defers before
+the date is claimed. Seal/register only the final qualified bytes.
+
 Only this schema uses 40 submits and 16 requotes per band. Exhaustion ends that
 band; every other band keeps its own budget. The reference/F0/N1 constants and
 older schema budgets remain 10 and 4. Ledger-bound start metadata carries the
 new private-evidence limit, including every request/ACK through number 40.
+The result-file allowance derives from those ledger-bound limits: seven root
+files plus five originals and two files per allowed submit for each band.
+Twelve bands at forty submits permit at most 1,027 files, including the go
+packet. Extra files still refuse; retained ten-submit bands retain their bound.
 
 | Field | Pin B contract |
 | --- | --- |

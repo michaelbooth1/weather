@@ -163,8 +163,11 @@ fields. Per-band submit/requote limits continue across fill cycles; continuation
 does not reset them. A proof while another band rests is separate from final
 cleanup: only exactly bound LIVE orders with zero matched quantity may remain,
 and final completion still requires an empty account and complete terminal proof.
-F2 cleanup re-reads known orders one second apart until their identities and
-quantities prove terminal, sharing one ten-second budget across all those orders.
+F2 cleanup probes every known order once before retrying any one order. Already
+terminal ledger legs get that single attempt; the remaining unproved identities
+may retry one second apart within one shared ten-second budget. Final teardown
+and the fixed end omit retry sleeps, so they do not spend a repost budget before
+the next band's cancellation. Ordinary per-GET transport bounds still apply.
 An unreadable or still-LIVE row at that budget is `terminal_order_unavailable`;
 it is never recorded as a terminal row. On fill continuation this retires the
 band as `repost_terminal_unreadable`, preserving the typed money-read gap and

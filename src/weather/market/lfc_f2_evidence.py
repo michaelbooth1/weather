@@ -12,6 +12,17 @@ from weather.market.mm_stage2_hold import digest, _order_id
 ROOT_FILES = ('journal.jsonl', 'prediction.json', 'session_end.json', 'attempt.json', 'selection.json', 'f2_manifest.json')
 
 
+def result_file_limit(ledger, attempt_id):
+    """Seven root originals plus each ledger-bound band's finite inventory."""
+    from weather.market.lfc_f2_breadth import captured_market_ids
+    from weather.market.lfc_f2_pinb import session_limits
+    sessions = [sid for sid, row in ledger.sessions.items()
+                if row['start'].get('autostart_attempt_id') == attempt_id]
+    if not 1 <= len(sessions) <= len(captured_market_ids()):
+        raise ValueError('f2_private_band_coverage')
+    return 7 + sum(5 + 2*session_limits(ledger, sid)[0] for sid in sessions)
+
+
 def manifest_at(directory):
     row = strict_json(read_bytes(Path(directory) / 'f2_manifest.json', 1_000_000))
     bands = row.get('bands')

@@ -193,7 +193,11 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
         except HoldEnd as exc:
             if exc.reason != 'fill':
                 raise
-        band.cleanup()
+        band._repost_terminal_reads = True
+        try:
+            band.cleanup()
+        finally:
+            band._repost_terminal_reads = False
         if band.outcome_status.resync_hook is not None:
             band.outcome_status.resync_hook()
         try:

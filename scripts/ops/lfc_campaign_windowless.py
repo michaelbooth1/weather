@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 STATUS_ROOT = Path(r'C:\t\pilot\status\control')
@@ -131,6 +131,22 @@ def file_sha(path):
     return sha.hexdigest()
 
 
+def task_started_utc():
+    """Creation of this Scheduler action, before any release/startup I/O."""
+    import ctypes as c
+    from ctypes import wintypes as w
+    kernel = c.WinDLL('kernel32', use_last_error=True)
+    kernel.GetCurrentProcess.restype = w.HANDLE
+    kernel.GetProcessTimes.argtypes = (w.HANDLE, *(c.POINTER(w.FILETIME),)*4)
+    kernel.GetProcessTimes.restype = w.BOOL
+    created, exited, kernel_time, user_time = (w.FILETIME() for _ in range(4))
+    if not kernel.GetProcessTimes(kernel.GetCurrentProcess(), c.byref(created), c.byref(exited),
+                                  c.byref(kernel_time), c.byref(user_time)):
+        raise OSError('campaign_task_start_unavailable')
+    ticks = (created.dwHighDateTime << 32) | created.dwLowDateTime
+    return datetime(1601, 1, 1, tzinfo=timezone.utc)+timedelta(microseconds=ticks//10)
+
+
 def run(release_path, expected_sha):
     if os.name != 'nt' or any(name in os.environ for name in IMPORT_OVERRIDES):
         raise ValueError('campaign_windowless_environment')
@@ -155,7 +171,8 @@ def run(release_path, expected_sha):
         try:
             child = subprocess.Popen([str(shell), '-NoProfile', '-NonInteractive', '-File',
                 str(root / 'scripts/ops/lfc_campaign_task.ps1'), '-ReleasePath', str(release_path),
-                '-ReleaseSha256', expected_sha], cwd=root, stdin=sink, stdout=sink, stderr=sink,
+                '-ReleaseSha256', expected_sha, '-TaskStartedUtc', task_started_utc().isoformat()],
+                cwd=root, stdin=sink, stdout=sink, stderr=sink,
                 creationflags=subprocess.CREATE_NO_WINDOW | 0x4, close_fds=True)
             job.resume(child)
             return child.wait()
