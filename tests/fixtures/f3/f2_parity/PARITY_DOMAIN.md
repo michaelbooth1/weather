@@ -18,12 +18,12 @@ by typed `F3NotReconciled(field)` assertions before any policy decision:
 
 | Check | Pinned F2 source |
 | --- | --- |
-| Bridge existence (`capital_bridge_required`) | `lfc_capital.py:579-580` |
-| Ledger halt/mismatch (`capital_ledger_halted`) | `lfc_capital.py:581-582` |
-| Unknown outgoing activity (`capital_unknown_outgoing_cost`) | `lfc_capital.py:583-586` |
-| Blocking legacy activity (`capital_legacy_unknown_cash`) | `lfc_capital.py:587-588` |
+| Bridge existence (`capital_bridge_required`) | `lfc_capital.py:580-581` |
+| Ledger halt/mismatch (`capital_ledger_halted`) | `lfc_capital.py:582-583` |
+| Unknown outgoing activity (`capital_unknown_outgoing_cost`) | `lfc_capital.py:584-587` |
+| Blocking legacy activity (`capital_legacy_unknown_cash`) | `lfc_capital.py:588-589` |
 | Unexplained debit (`capital_cash_changed`) | `lfc_capital.py:598-602` |
-| Spendable-cash restriction on unrecorded or quarantined incoming cash (`capital_spendable_cash`) | `lfc_capital.py:603-610` |
+| Spendable-cash restriction on unrecorded or quarantined incoming cash (`capital_spendable_cash`) | `lfc_capital.py:603-611` |
 
 The usual `capital_spendable_cash` comparison for segregated funds and existing
 resting reserves remains in F3. The four original stop witnesses are covered:

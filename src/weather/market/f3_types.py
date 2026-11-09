@@ -324,7 +324,7 @@ def policy_from_mapping(row: Mapping[str, object]) -> F3Params:
         if row[key][0] > row[key][1]:
             raise ValueError(key)
     row["retire_local_time"] = _clock(row["retire_local_time"])
-    if row["local_event_dte"] != [1] or row["tokens"] != ["YES", "NO"]:
+    if row["local_event_dte"] != [1] or type(row["local_event_dte"][0]) is not int or row["tokens"] != ["YES", "NO"]:
         raise ValueError("T5-R horizon/tokens")
     row["local_event_dte"], row["tokens"] = (1,), ("YES", "NO")
     source = row["f2_source"]
@@ -394,6 +394,9 @@ def load_strata(path: Path) -> Strata:
     _keys(row["universe_pin"], ("path", "schema_version", "sha256"))
     if row["universe_pin"]["schema_version"] != "weather-universe-v1":
         raise ValueError("universe schema")
+    pin = row["universe_pin"]["sha256"]
+    if pin is not None and (not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{64}", pin)):
+        raise ValueError("universe pin")
     for key in ("universe_pin", "region_of", "cluster_of"):
         row[key] = MappingProxyType(dict(row[key]))
     row.update(utc_blocks=blocks, cells=cells, arms=MappingProxyType(arms))
@@ -430,6 +433,8 @@ def load_universe(path: Path) -> dict[str, UniverseCity]:
         raise ValueError("universe schema")
     cities = {}
     for spec in row["cities"]:
+        if not isinstance(spec, dict) or not {"slug", "timezone", "station_id", "settlement_kind", "families"} <= set(spec):
+            raise ValueError("universe city fields")
         slug = spec["slug"]
         if not isinstance(slug, str) or not slug or slug in cities:
             raise ValueError("universe city identity")
