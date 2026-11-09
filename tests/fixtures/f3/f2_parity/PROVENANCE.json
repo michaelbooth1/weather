@@ -1,0 +1,113 @@
+{
+  "f2_git_sha": "c4c3216b1c98f74fd7dc1716c6cf8e45b70beb4f",
+  "f2_worktree_clean": true,
+  "generator_sha256": "8a964fb8a1b7067179b4a6c2b58c7398fa1040c6c6b29d0421b40be3fb87a92c",
+  "python_version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+  "decimal_context": "Context(prec=28, rounding=ROUND_HALF_EVEN, Emin=-999999, Emax=999999, capitals=1, clamp=0, flags=[], traps=[InvalidOperation, DivisionByZero, Overflow])",
+  "generated_utc": "2026-11-09T13:00:07.295443+00:00",
+  "case_counts": {
+    "quote.jsonl": 1200,
+    "check_book.jsonl": 1200,
+    "observe_held.jsonl": 1200,
+    "sleeve_charge.jsonl": 1200,
+    "gate.jsonl": 1200,
+    "daily_gate.jsonl": 1200,
+    "horizon.jsonl": 1200
+  },
+  "fixture_sha256": {
+    "quote.jsonl": "d9da246383c1412965f62741f88ede9e4e2764f49a8133283e80b757545a2e48",
+    "check_book.jsonl": "c53d22d74d23e69bcf3f9f3e05a5f2973b5e3a9d64299ed0f7c6bca40705a14e",
+    "observe_held.jsonl": "32e582d493b4431ee790bc9e1aeac84b174142cd5371b7ff9b1faf2b03fdd80b",
+    "sleeve_charge.jsonl": "370d6212573861cda8a18b521e9db7abcd14775323939a44a39f6e8bb1dda375",
+    "gate.jsonl": "dfeb2cf801f7dc0eff44a35d7d6456c30df1748b7d0d051a7d000bf7e7e55796",
+    "daily_gate.jsonl": "30289519f7383f0d1a7cc4fb7fc57459398eb571271bd03129e6f0c468e1b247",
+    "horizon.jsonl": "8c5173df62dcbdaf7587f29436c605fd4b3103090792fc534982ac46eae8f37b"
+  },
+  "case_mix": {
+    "quote.jsonl": {
+      "unsupported_quote_policy": 40,
+      "invalid_treatment_size": 40,
+      "reward_minimum_outside_treatment": 40,
+      "reward_terms_outside_treatment": 80,
+      "unsupported_tick": 40,
+      "post_only_unavailable": 40,
+      "invalid_capital_ceiling": 40,
+      "invalid_book": 40,
+      "one_sided_book": 40,
+      "off_tick_book": 40,
+      "crossed_book": 40,
+      "spread_too_wide": 40,
+      "no_size_adjusted_midpoint": 40,
+      "midpoint_outside_treatment": 116,
+      "would_cross_or_violate_touch_buffer": 40,
+      "capital_ceiling_exceeded": 40,
+      "outside_leave_alone_window": 40,
+      "leg_price_outside_range": 40,
+      "share_many_outside_range": 40,
+      "thin_book_depth": 40,
+      "invalid_number": 40,
+      "admit": 244
+    },
+    "check_book.jsonl": {
+      "thin_book_depth": 229,
+      "null": 371,
+      "spread_too_wide": 171,
+      "reward_rate_or_terms": 172,
+      "midpoint_outside_treatment": 86,
+      "share_many_outside_range": 86,
+      "one_sided_book": 85
+    },
+    "observe_held.jsonl": {
+      "requote": 322,
+      "retire": 539,
+      "hold": 339
+    },
+    "sleeve_charge.jsonl": {
+      "admit": 1200
+    },
+    "gate.jsonl": {
+      "null": 508,
+      "capital_total_ceiling": 366,
+      "capital_own_reserve": 100,
+      "capital_spendable_cash": 126,
+      "capital_native_precision": 100
+    },
+    "daily_gate.jsonl": {
+      "null": 434,
+      "per_band_daily_filled_cap": 466,
+      "band_day_own_reserve": 150,
+      "capital_native_precision": 150
+    },
+    "horizon.jsonl": {
+      "admit": 1200
+    }
+  },
+  "unique_input_counts": {
+    "quote.jsonl": 1200,
+    "check_book.jsonl": 1200,
+    "observe_held.jsonl": 1200,
+    "sleeve_charge.jsonl": 1200,
+    "gate.jsonl": 1200,
+    "daily_gate.jsonl": 1200,
+    "horizon.jsonl": 1200
+  },
+  "seed": 34701,
+  "source_sha256": {
+    "reward_quote.py": "f211ef08092c180d92a2f8b73b36ff1a8a1fe455bfd9f8f088543941da030d39",
+    "lfc_f2_selection.py": "d8a7ec046d8ae954c76e6d3b0b055a48a25a3ccbf14384d0307b631518aca639",
+    "mm_stage2_hold.py": "9561a94480b7c61914793228e92cdc34685e09ec82960273e4a4806ce60cb915",
+    "lfc_capital.py": "1362b0723bfd4a1948d78581ff40ee039bef9993075beaaf0f3e7c845d686686",
+    "lfc_sleeve_loss.py": "7c476a753adb56c701d58e2a518e00efa758a429e742ecb54abb8bbcd1aa64b7",
+    "lfc_f2_breadth.py": "3308869b731607c0e50b4c044661ef7d57cb730aee24ed26f5d49d6b8f04e6d6",
+    "lfc_horizon.py": "e441491719ca1a9abc65026f5848896aa463942fc239ee3e150b3d52d084b2d9",
+    "lfc_accounting.py": "5a0505de84fff854c2d917f5a0bf9ff6f044b62917577f9ebc1c22d6b5473efe",
+    "re1_attended.py": "9c9cd117fee14ea274684147cb893d19669ad50e9dcb810692054fbe3dbc6e7a",
+    "lfc_f2_controller.py": "96625e15199408cbacaa5a10fde943d489fc122bc26934a895f00a0b46af14d2",
+    "reward_share_estimate.py": "bb027ebb821af2fe4b2897e31d7d8750bc8d8d50786433d2d6dd48ace9a3df30"
+  },
+  "source_diff_from_ef3882d2": "src/weather/market/lfc_capital.py | 5 +++++\n 1 file changed, 5 insertions(+)",
+  "parity_domain": "reconciled clean simulation states only; expected cash equals available; no quarantine or unknown/external activity",
+  "gains_domain": "proved retained redemption gains only; reward/rebate accrual excluded from G",
+  "horizon_registry": "synthetic in-memory identity map across twelve zones; unchanged F2 horizon functions",
+  "command": "project-python.exe -I -B extract_f2_parity.py --f2-worktree <clean-pin> --out <fixtures> --count 1200"
+}

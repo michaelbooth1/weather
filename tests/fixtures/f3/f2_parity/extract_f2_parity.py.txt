@@ -1,0 +1,299 @@
+"""Offline synthetic extraction: execute F2 code in a clean detached worktree.
+
+Run with project Python -I -B. This script writes only the explicit output
+directory and the generator text there, never the F2 tree. No CLI, ledger replay,
+campaign state, network call, process loop, or real market record is used.
+"""
+import argparse
+from collections import Counter
+from copy import deepcopy
+from dataclasses import asdict
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal as D, getcontext
+import hashlib
+import json
+from pathlib import Path
+import random
+import subprocess
+import sys
+from types import SimpleNamespace
+
+PIN = "c4c3216b1c98f74fd7dc1716c6cf8e45b70beb4f"
+SEED = 34701
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--f2-worktree", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--count", type=int, default=1200)
+    args = parser.parse_args()
+    root, out = args.f2_worktree.resolve(), args.out.resolve()
+    assert args.count >= 1000 and not out.is_relative_to(root)
+    git = lambda *a: subprocess.check_output(["git", "-C", str(root), *a], text=True).strip()
+    assert git("rev-parse", "HEAD") == PIN and not git("status", "--porcelain")
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(root / "src"))
+    from weather.market.reward_quote import price_sized_reward_quote, QuoteRefused
+    from weather.market.lfc_f2_selection import check_book
+    from weather.market.lfc_f2_controller import F2Band
+    from weather.market.lfc_capital import CapitalBook, CapitalRefused, native
+    from weather.market.lfc_sleeve_loss import sleeve_charge
+    from weather.market.lfc_f2_breadth import daily_gate
+    from weather.market import lfc_horizon
+    from weather.market.mm_stage2_hold import HoldEnd
+
+    rng = random.Random(SEED)
+    out.mkdir(parents=True, exist_ok=True)
+    counts, hashes, mixes, unique_counts = {}, {}, {}, {}
+    policy = dict(shares_per_leg="20", per_order_cap_pusd="15.80", per_band_cap_pusd="19.60",
+                  quote_offset_pusd="0.015", requote_distance_cents=["1", "3"], tokens=["YES", "NO"],
+                  min_reward_rate="0", min_book_depth="20", share_many_range=["0", "1"], leg_price_range=["0.17", "0.80"])
+
+    def base_book(bid=D(".40"), ask=D(".43"), size=D(30)):
+        level = lambda p: [dict(price=str(p), size=str(size))]
+        return dict(yes_bids=level(bid), yes_asks=level(ask), no_bids=level(1-ask), no_asks=level(1-bid),
+                    reward_min_size="20", reward_max_spread_cents="4.5", reward_rate_per_day="24",
+                    tick="0.01", post_only_available=True)
+
+    def quote(inputs, p):
+        try:
+            legs = {("YES",): (0,), ("NO",): (1,), ("YES", "NO"): (0, 1)}.get(tuple(p["tokens"]), ())
+            q = price_sized_reward_quote(**inputs, size=p["shares_per_leg"],
+                per_order_ceiling=p["per_order_cap_pusd"], per_band_ceiling=p["per_band_cap_pusd"],
+                quote_offset=p["quote_offset_pusd"], distance_window=p["requote_distance_cents"],
+                trade_legs=legs, min_reward_rate=p["min_reward_rate"])
+            if any(not D(p["leg_price_range"][0]) <= (q.yes_buy, q.no_buy)[leg] <= D(p["leg_price_range"][1]) for leg in legs):
+                raise QuoteRefused("leg_price_outside_range")
+            check_book(inputs, mid=q.adjusted_mid, size=q.size, share=q.share_many, policy=SimpleNamespace(raw=p))
+            return dict(adjusted_mid=str(q.adjusted_mid), yes_buy=str(q.yes_buy), no_buy=str(q.no_buy), size=str(q.size),
+                reserve_pusd=str(q.reserve_pusd), own_q_min=str(q.own_q_min), share_many=q.share_many,
+                distances_cents=[str((q.adjusted_mid-q.yes_buy)*100), str((1-q.adjusted_mid-q.no_buy)*100)])
+        except QuoteRefused as exc:
+            return dict(code=str(exc))
+
+    def write(name, rows):
+        hist = Counter()
+        path = out / (name + ".jsonl")
+        count, unique = 0, set()
+        with path.open("w", encoding="utf-8", newline="\n") as target:
+            for count, row in enumerate(rows, 1):
+                unique.add(json.dumps({k:v for k,v in row.items() if k != "expected"}, sort_keys=True))
+                row = dict(id=f"{name}-{count:04d}", **row)
+                target.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
+                result = row["expected"]
+                hist[result.get("code", result.get("decision", "admit"))] += 1
+        counts[path.name], hashes[path.name], mixes[path.name] = count, sha(path.read_bytes()), dict(hist)
+        unique_counts[path.name] = len(unique)
+        assert len(unique) >= 1000, (name, "insufficient distinct inputs", len(unique))
+
+    def quotes():
+        for i in range(args.count):
+            p = deepcopy(policy)
+            inputs = base_book(size=D(30)+D(i)/10000)
+            k = i % 30
+            if k == 0: p["quote_offset_pusd"] = ".001"
+            elif k == 1: p["shares_per_leg"] = "19"
+            elif k == 2: inputs["reward_min_size"] = "21"
+            elif k == 3: inputs["reward_max_spread_cents"] = "2.9"
+            elif k == 4: inputs["tick"] = ".001"
+            elif k == 5: inputs["post_only_available"] = False
+            elif k == 6: p["per_order_cap_pusd"] = "16.01"
+            elif k == 7: inputs["yes_bids"][0]["price"] = "0"
+            elif k == 8: inputs["no_asks"] = []
+            elif k == 9: inputs["yes_bids"][0]["price"] = ".401"
+            elif k == 10: inputs["yes_bids"][0]["price"] = ".43"
+            elif k == 11: inputs = base_book(D(".40"), D(".47"))
+            elif k == 12: inputs["yes_bids"][0]["size"] = "19.999999"
+            elif k == 13: inputs = base_book(D(".18"), D(".21"))
+            elif k == 14: inputs.update(no_bids=[dict(price=".55",size="30")], no_asks=[dict(price=".57",size="30")])
+            elif k == 15: p["per_band_cap_pusd"] = "19.30"
+            elif k == 16: p["requote_distance_cents"] = ["2", "3"]
+            elif k == 17: p["leg_price_range"] = [".41", ".80"]
+            elif k == 18: p["share_many_range"] = [".99", "1"]
+            elif k == 19: p["min_book_depth"] = "31"
+            elif k == 20: inputs["reward_min_size"] = "NaN"
+            elif k == 21: inputs["reward_rate_per_day"] = "0"
+            else:
+                bid = D(rng.choice([18, 19, 20, 39, 40, 41, 77, 78, 79, 80])) / 100
+                inputs = base_book(bid, bid + D(rng.choice([1,2,3,4,5,6])) / 100, D(rng.randint(20, 160)))
+                p["quote_offset_pusd"] = rng.choice([".015", ".025"])
+            # Preserve every template's decision while making the admissible
+            # displayed depth vary in every independently extracted case.
+            for side in ("yes_asks", "no_bids", "no_asks"):
+                for level in inputs[side]:
+                    level["size"] = str(D(level["size"]) + D(i)/10000)
+            yield dict(inputs=inputs, policy=p, expected=quote(inputs, p))
+    write("quote", quotes())
+
+    def books():
+        for i in range(args.count):
+            inputs, p = base_book(size=D(30)+D(i)/10000), deepcopy(policy)
+            mid, size, share = ".415", "20", "0.5"
+            k = i % 14
+            if k == 0: inputs["yes_bids"][0]["size"] = "19.999999"
+            elif k == 1: inputs["yes_bids"][0]["size"] = "20"
+            elif k in (2,3): inputs = base_book(D(".40"), D(".46") if k == 2 else D(".47")); mid = ".43"
+            elif k in (4,5): inputs["reward_max_spread_cents"] = "2.9" if k == 4 else "3.0"
+            elif k in (6,7): inputs["reward_rate_per_day"] = "0" if k == 6 else ".0001"
+            elif k == 8: mid = ".805"
+            elif k == 9: p["share_many_range"] = [".6", "1"]
+            elif k == 10: inputs["no_bids"][0]["price"] = inputs["no_asks"][0]["price"]
+            elif k == 11: inputs["yes_bids"] = []
+            elif k == 12: p["min_book_depth"] = "31"
+            else: size = str(rng.randint(20, 60))
+            inputs["reward_rate_per_day"] = str(D(inputs["reward_rate_per_day"])+D(i)/1_000_000) if k != 6 else "0"
+            try:
+                check_book(inputs, mid=mid, size=size, share=share, policy=SimpleNamespace(raw=p))
+                result = dict(code=None)
+            except QuoteRefused as exc:
+                result = dict(code=str(exc))
+            yield dict(inputs=inputs, policy=p, mid=mid, size=size, share=share, expected=result)
+    write("check_book", books())
+
+    def held():
+        for i in range(args.count):
+            inputs, p = base_book(D(".40"), D(".42"), D(30)+D(i)/10000), deepcopy(policy)
+            distance = D([".99", "1", "1.5", "3", "3.01", "4.5"][i % 6])
+            prices = (D(".41") - distance/100, D(".59") - distance/100)
+            k = i % 13
+            if k == 0: inputs["reward_max_spread_cents"] = "3"
+            elif k == 1: inputs["reward_min_size"] = "21"
+            elif k == 2: inputs["reward_rate_per_day"] = "0"
+            elif k == 3: inputs["yes_bids"] = []
+            elif k == 4: inputs["yes_bids"][0]["price"] = ".42"
+            elif k == 5: p["min_book_depth"] = "31"
+            elif k == 6: p["share_many_range"] = [".99", "1"]
+            stub = SimpleNamespace(prices=prices, size=D(20), SIZES=(20,30,40,50,75),
+                REQUOTE_WINDOW=(D(1),D(3)), TRADE_LEGS=(0,1), MIN_REWARD_RATE=0, campaign_policy=SimpleNamespace(raw=p))
+            try:
+                result = F2Band.observe_snapshot(stub, dict(quote_inputs=inputs))
+                decision = "requote" if result["requote_legs"] else "hold"
+            except (HoldEnd, QuoteRefused):
+                decision = "retire"
+            yield dict(inputs=inputs, policy=p, prices=list(map(str,prices)), expected=dict(decision=decision))
+    write("observe_held", held())
+
+    def sleeves():
+        for i in range(args.count):
+            loss, costs = D(rng.randint(0,80)), D(rng.randint(0,9))
+            gains = (D(0), (loss+costs)/2, loss+costs+10)[i%3]
+            row = dict(loss=loss, inventory=D(rng.randint(0,200))+D(i)/1_000_000, resting=D(rng.randint(0,200)), costs=costs,
+                       available_gains=gains, basis=("gross", "net_of_retained_gains")[i%2])
+            charged, offset = sleeve_charge(**row)
+            yield dict(inputs={k:str(v) for k,v in row.items()}, expected=dict(charged=str(charged), offset=str(offset)))
+    write("sleeve_charge", sleeves())
+
+    def gates():
+        for i in range(args.count):
+            c = dict(funding="300", inventory="100", resting="150", losses="40", costs="0", available_gains="10",
+                     profit="10", incentives="0", external="0", basis="net_of_retained_gains")
+            reserve, own, cash = "19.60", "0", "500"
+            k = i%12
+            if k == 0: reserve = "20"
+            elif k == 1: reserve = "20.000001"
+            elif k == 2: own = "150.000001"
+            elif k == 3: cash = "169.60"
+            elif k == 4: cash = "169.599999"
+            elif k == 5: reserve = "19.6000001"
+            elif k == 6: own = ".0000001"
+            elif k == 7: c["basis"] = "gross"
+            elif k == 8: c.update(available_gains="50", profit="50"); reserve="50"
+            elif k == 9: c.update(available_gains="0", profit="0", incentives="50")
+            else:
+                c.update(inventory=str(rng.randint(0,250)), resting=str(rng.randint(0,150)),
+                    losses=str(rng.randint(0,80)), costs=str(rng.randint(0,9)), available_gains=str(rng.randint(0,25)))
+                c["profit"] = str(D(c["available_gains"])+D(rng.randint(0,10)))
+                c["basis"] = rng.choice(["gross", "net_of_retained_gains"])
+                cash, reserve = str(rng.randint(0,400)), str(D(rng.randint(0,40_000_000))/1_000_000)
+            c["incentives"] = str(D(c["incentives"])+D(i)/1_000_000)
+            if k in (3,4):
+                cash = str(D(cash)+D(i)/1_000_000)
+            charged, offset = sleeve_charge(loss=native(c["losses"]), inventory=native(c["inventory"]),
+                resting=native(c["resting"]), costs=native(c["costs"]), available_gains=native(c["available_gains"]), basis=c["basis"])
+            figures = dict(funding_native=native(c["funding"]), charged_native=charged,
+                resting_reserve_native=native(c["resting"]), retained_gains_offset_native=offset)
+            stub = SimpleNamespace(bridge={}, ledger=SimpleNamespace(halted=False,mismatches=[]), unknown=[], activities={},
+                figures=lambda **kw:dict(figures), profit=native(c["profit"]), incentives=native(c["incentives"]), external=0,
+                expected_cash=lambda:native(cash), quarantined_after_bridge=lambda:0,
+                cash_before_bridge=lambda activity:False, blocking_unknown=lambda:[])
+            try:
+                actual = CapitalBook.gate(stub, reserve=reserve, own_resting=own, available_cash=cash, loss_basis=c["basis"])
+                result = dict(ok=True, code=None, figures={k:str(v) for k,v in actual.items()})
+            except CapitalRefused as exc:
+                result = dict(ok=False, code=str(exc), figures={})
+            yield dict(capital=c, reserve=reserve, own_resting=own,
+                       cash=dict(available=cash,expected=cash,quarantined_after_bridge="0"), expected=result)
+    write("gate", gates())
+
+    def days():
+        for i in range(args.count):
+            filled, resting, reserve, own, cap = D(25), D("9.60"), "5.40", "0", "40"
+            k=i%8
+            if k==1: reserve="5.400001"
+            elif k==2: own="9.600001"
+            elif k==3: reserve="5.4000001"
+            elif k==4: own=".0000001"
+            elif k==5: cap="40.0000001"
+            else:
+                filled,resting=D(rng.randint(0,40)), D(rng.randint(0,20))
+            delta=D(i+1)/1_000_000
+            if resting >= delta:
+                filled,resting=filled+delta,resting-delta
+            elif filled >= delta:
+                filled,resting=filled-delta,resting+delta
+            else:
+                reserve=str(D(reserve)+delta)
+            legs = [(dict(status="terminal",price=".5",size=str(filled*2),size_matched=str(filled*2)), i%3==0),
+                    (dict(status="resting",price=".5",size=str(resting*2),size_matched="0"), False)]
+            ledger = SimpleNamespace(band_day_legs=lambda market,day:legs)
+            start = dict(protocol="lfc_autostart_v3",market_id="nyc",quote_day_utc="2026-09-20",
+                         recorded_at_utc="2026-09-20T12:00:00+00:00",per_band_daily_filled_cap_pusd=cap)
+            try:
+                result = daily_gate(ledger,start,reserve=reserve,own_resting=own)
+                expected=dict(ok=True,code=None,figures={k:str(v) for k,v in result.items()})
+            except CapitalRefused as exc:
+                expected=dict(ok=False,code=str(exc),figures={})
+            yield dict(usage=dict(filled=str(filled),resting=str(resting),unmapped_legacy=str(filled if i%3==0 else 0)),
+                       reserve=reserve,own_resting=own,cap=cap,expected=expected)
+    write("daily_gate", days())
+
+    def horizons():
+        zones = ["Pacific/Auckland","America/Toronto","America/New_York","America/Chicago","America/Denver",
+            "America/Los_Angeles","Europe/London","Europe/Paris","Europe/Helsinki","Asia/Karachi","Asia/Kolkata","Asia/Tokyo"]
+        # Registry injection is entirely synthetic and in memory. No fixture
+        # can use a misbound live identity; only the unchanged F2 DTE code runs.
+        lfc_horizon.REGISTRY = {f"synthetic-{i}":SimpleNamespace(timezone=z) for i,z in enumerate(zones)}
+        for i in range(args.count):
+            z = i%12
+            now=datetime(2026,11,1,tzinfo=timezone.utc)+timedelta(minutes=(i//12)*31)
+            from zoneinfo import ZoneInfo
+            target=now.astimezone(ZoneInfo(zones[z])).date()+timedelta(days=(i//12)%3)
+            row=dict(market_id=f"synthetic-{z}",market_timezone=zones[z],target_date=target.isoformat())
+            result=lfc_horizon.horizon_allowed(row,now,allowed=(1,))
+            yield dict(city=row["market_id"],zone=zones[z],target=target.isoformat(),now=now.isoformat(),expected=dict(allowed=result))
+    write("horizon", horizons())
+    sources = ["reward_quote.py","lfc_f2_selection.py","mm_stage2_hold.py","lfc_capital.py","lfc_sleeve_loss.py",
+               "lfc_f2_breadth.py","lfc_horizon.py","lfc_accounting.py","re1_attended.py","lfc_f2_controller.py","reward_share_estimate.py"]
+    source_shas={name:sha((root/"src/weather/market"/name).read_bytes()) for name in sources}
+    diff = git("diff","--stat","ef3882d2",PIN,"--",*["src/weather/market/"+name for name in sources])
+    assert not git("status", "--porcelain"), "F2 tree was mutated"
+    text=Path(__file__).read_bytes()
+    (out/"extract_f2_parity.py.txt").write_bytes(text)
+    provenance=dict(f2_git_sha=PIN,f2_worktree_clean=True,generator_sha256=sha(text),python_version=sys.version,
+        decimal_context=str(getcontext()), generated_utc=datetime.now(timezone.utc).isoformat(),case_counts=counts,
+        fixture_sha256=hashes,case_mix=mixes,unique_input_counts=unique_counts,seed=SEED,source_sha256=source_shas,source_diff_from_ef3882d2=diff,
+        parity_domain="reconciled clean simulation states only; expected cash equals available; no quarantine or unknown/external activity",
+        gains_domain="proved retained redemption gains only; reward/rebate accrual excluded from G",
+        horizon_registry="synthetic in-memory identity map across twelve zones; unchanged F2 horizon functions",
+        command="project-python.exe -I -B extract_f2_parity.py --f2-worktree <clean-pin> --out <fixtures> --count "+str(args.count))
+    (out/"PROVENANCE.json").write_text(json.dumps(provenance,indent=2)+"\n",encoding="utf-8",newline="\n")
+    print(json.dumps(dict(case_counts=counts,case_mix=mixes),indent=2))
+
+
+if __name__ == "__main__":
+    main()
