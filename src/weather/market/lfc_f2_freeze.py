@@ -8,7 +8,12 @@ from weather.market.mm_stage2_hold import digest
 def economic_digest(policy):
     from weather.market.lfc_f2_breadth import economic_fields
     # A revision of identical parameters does not invent a second economic policy.
-    return digest({key: policy.raw[key] for key in sorted(economic_fields(policy) - {'policy_revision'})})
+    keys = economic_fields(policy) - {'policy_revision'}
+    # Explicit gross and retained pre-field gross have the same economics.
+    # Preserve those historical hashes; net adds its distinct identity field.
+    if policy.raw.get('sleeve_loss_basis', 'gross') == 'gross':
+        keys -= {'sleeve_loss_basis'}
+    return digest({key: policy.raw[key] for key in sorted(keys)})
 
 
 def capture_window(policy):

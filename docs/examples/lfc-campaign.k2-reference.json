@@ -21,6 +21,7 @@
   "topups": false,
   "capital_mode": "fixed_sleeve_redeemed_principal_only",
   "profit_reinvestment": false,
+  "sleeve_loss_basis": "net_of_retained_gains",
   "daily_loss_stop": null,
   "cumulative_loss_stop_below_total": null,
   "evidence_route": "actual_live_cash_proposed_amendment",
@@ -39,7 +40,7 @@
   "timezone": "America/Toronto",
   "sidecar": null,
   "policy_name": "DT-T1-Paired20-K2",
-  "policy_revision": 2,
+  "policy_revision": 3,
   "market_ids": [
     "denver",
     "toronto"

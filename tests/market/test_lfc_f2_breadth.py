@@ -153,7 +153,9 @@ def test_breadth_examples_are_disabled_exact_defaults_and_k2_remains_readable():
     from weather.paths import REPO_ROOT
     for name in ('lfc-campaign.example.json', 'campaign.proposed.json'):
         row = json.loads((REPO_ROOT / 'docs/examples' / name).read_text(encoding='utf-8'))
-        assert row == example_policy() and row['enabled'] is False
+        # Files ship the owner's refill default even when the regression
+        # plugin deliberately runs generated fixtures under the gross basis.
+        assert row == {**example_policy(), 'sleeve_loss_basis': 'net_of_retained_gains'} and row['enabled'] is False
         assert parse_policy(row).f2
     old = json.loads((REPO_ROOT / 'docs/examples/lfc-campaign.k2-reference.json').read_text(encoding='utf-8'))
     assert parse_policy(old).raw['band_limit_session'] == 2

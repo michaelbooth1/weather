@@ -11,9 +11,11 @@ from weather.market.lfc_accounting import quantity
 from weather.market.lfc_campaign_policy import (Campaign, Entry, EARLIEST, ID, MIN_SESSION_SECONDS,
                                                PolicyRefused, ZONE, exact_keys, wall_time)
 from weather.market.lfc_capital import CapitalBook, CapitalRefused, MODE
+from weather.market.lfc_sleeve_loss import BASES, GROSS, NET
 
 
 SCHEMA = 'lfc_campaign_policy_v0.2'
+DEFAULT_SLEEVE_LOSS_BASIS = NET
 REFERENCE = '57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1'  # F0 double-prime, owner B052.
 SELECTION = 'F0_eligible_then_max_predicted_360_minute_reward_per_city; ties_condition_id_ascending; same_rank_for_cash_admission'
 ELIGIBILITY = 'F0_reference_filters_restricted_to_configured_DTE; native_reward_minimum_must_fit_20_shares'
@@ -26,6 +28,8 @@ FIXED = {'platform': 'polymarket_international', 'bands_per_event': 1, 'events_p
          'replace_retired_band': False, 'inventory_exit': 'hold_to_venue_resolution_and_redemption',
          'gtd_tail_seconds': 60, 'max_sessions_per_day': 1, 'concurrent_sessions': 1,
          'owner_funding_ceiling_pusd': '300', 'topups': False, 'capital_mode': MODE,
+         # This legacy flag forbids increasing the principal ceiling. B060 loss
+         # offsets are controlled separately by sleeve_loss_basis.
          'profit_reinvestment': False, 'daily_loss_stop': None, 'cumulative_loss_stop_below_total': None,
          'evidence_route': 'actual_live_cash_proposed_amendment', 'secondary_policy': None,
          'economic_minimum_total_pusd': '0', 'economic_minimum_zero_is_strict': True,
@@ -37,7 +41,7 @@ VARIABLE = {'schema_version', 'enabled', 'campaign_id', 'revision', 'timezone', 
             'policy_name', 'policy_revision', 'market_ids', 'band_limit_session',
             'band_limit_concurrent', 'tokens', 'quote_offset_pusd', 'requote_distance_cents',
             'leg_price_range', 'per_order_cap_pusd', 'per_band_cap_pusd', 'share_many_range',
-            'min_reward_rate', 'min_book_depth',
+            'min_reward_rate', 'min_book_depth', 'sleeve_loss_basis',
             'start_window_toronto', 'trading_end_toronto', 'max_session_seconds', 'learning_dates',
             'transition_no_entry_date', 'confirmation_dates', 'nominal_confirmation_dates', 'success_looks'}
 ECONOMIC_FIELDS = frozenset(FIXED) | (VARIABLE - {'schema_version', 'enabled', 'campaign_id', 'revision', 'sidecar'})
@@ -73,13 +77,22 @@ class F2Campaign(Campaign):
 
     def cost_gate(self, ledger, entry, reserve, *, own_resting=0):
         try:
-            return CapitalBook(ledger).gate(reserve=reserve, own_resting=own_resting)
+            return CapitalBook(ledger).gate(reserve=reserve, own_resting=own_resting,
+                                           loss_basis=self.raw.get('sleeve_loss_basis', GROSS))
         except CapitalRefused as exc:
             raise PolicyRefused(str(exc)) from None
 
 
+def field_keys(row):
+    # Retained v0.2/v0.3 snapshots predate B060. Their omitted field means
+    # legacy gross accounting; preserve the original bytes and economic hash.
+    return (set(FIXED) | VARIABLE) - ({'sleeve_loss_basis'} if 'sleeve_loss_basis' not in row else set())
+
+
 def parse_f2(row):
-    exact_keys(row, set(FIXED) | VARIABLE)
+    exact_keys(row, field_keys(row))
+    if not isinstance(row.get('sleeve_loss_basis', GROSS), str) or row.get('sleeve_loss_basis', GROSS) not in BASES:
+        refuse('unsupported_sleeve_loss_basis')
     if row['schema_version'] != SCHEMA or type(row['enabled']) is not bool or row['timezone'] != ZONE.key:
         refuse('policy_identity')
     for key in ('campaign_id', 'policy_name'):
@@ -185,7 +198,8 @@ def parse_f2(row):
 def example_policy():
     return {**FIXED, 'schema_version': SCHEMA, 'enabled': False, 'campaign_id': 'lfc-f2-202611',
             'revision': 1, 'timezone': ZONE.key, 'sidecar': None, 'policy_name': 'DT-T1-Paired20-K2',
-            'policy_revision': 2, 'market_ids': ['denver', 'toronto'], 'local_event_dte': [1],
+            'policy_revision': 3, 'sleeve_loss_basis': DEFAULT_SLEEVE_LOSS_BASIS,
+            'market_ids': ['denver', 'toronto'], 'local_event_dte': [1],
             'band_limit_session': 2, 'band_limit_concurrent': 2, 'tokens': ['YES', 'NO'],
             'quote_offset_pusd': '0.015', 'requote_distance_cents': ['1', '3'],
             'leg_price_range': ['0.17', '0.80'], 'per_order_cap_pusd': '15.80', 'per_band_cap_pusd': '19.60',
@@ -211,4 +225,5 @@ def support_table():
             'latest_session_end_utc': C.HARD_STOP_UTC.isoformat(), 'utc_date_crossing': False,
             'last_entry_date': '2026-12-22', 'transition_has_no_entry': True,
             'funding_native_max': 300000000, 'native_decimals': 6,
+            'sleeve_loss_basis': sorted(BASES), 'legacy_missing_sleeve_loss_basis': GROSS,
             'legacy_ledger_bridge_required': True, 'revisions_apply_to_next_unclaimed_entry': True}

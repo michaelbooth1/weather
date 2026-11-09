@@ -32,11 +32,12 @@ def enabled(policy):
 
 
 def economic_fields(policy):
-    return legacy.ECONOMIC_FIELDS | (FIELDS if enabled(policy) else frozenset())
+    fields = legacy.ECONOMIC_FIELDS | (FIELDS if enabled(policy) else frozenset())
+    return fields if 'sleeve_loss_basis' in policy.raw else fields - {'sleeve_loss_basis'}
 
 
 def parse_breadth(row):
-    exact_keys(row, set(legacy.FIXED) | legacy.VARIABLE | FIELDS)
+    exact_keys(row, legacy.field_keys(row) | FIELDS)
     if row['schema_version'] != SCHEMA:
         legacy.refuse('policy_identity')
     markets = row['market_ids']
@@ -76,7 +77,7 @@ def parse_breadth(row):
 def example_policy():
     markets = captured_market_ids()
     return {**legacy.example_policy(), 'schema_version': SCHEMA, 'enabled': False,
-        'policy_name': 'Builtin-T1-Paired20-Continue40', 'policy_revision': 3,
+        'policy_name': 'Builtin-T1-Paired20-Continue40', 'policy_revision': 4,
         'market_ids': markets, 'band_limit_session': len(markets), 'band_limit_concurrent': len(markets),
         'on_first_band_fill': CONTINUE, 'per_band_daily_filled_cap_pusd': '40',
         'fill_cooldown_seconds': 60, 'learning_quote_offsets_pusd': ['0.015', '0.025']}

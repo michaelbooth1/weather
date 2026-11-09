@@ -135,6 +135,7 @@ def build_table(universe, *, now, policy, cash, capital, held_conditions=(), sou
     cash_native = native(cash)
     segregated = sum(capital[k] for k in ('segregated_profit_native', 'segregated_incentives_native',
                                           'segregated_external_cash_native'))
+    segregated -= capital.get('retained_gains_offset_native', 0)
     for row in sorted(city_picks, key=rank):
         reserve = native(row['quote']['reserve_pusd'], ceil=True)
         if (len(picks) < policy.raw['band_limit_session'] and

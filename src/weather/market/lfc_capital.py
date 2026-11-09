@@ -11,6 +11,7 @@ import re
 
 from weather.market.lfc_accounting import quantity
 from weather.market.mm_stage2_hold import digest, utc
+from weather.market.lfc_sleeve_loss import GROSS, retained_gains, sleeve_charge
 
 
 DECIMALS = 6
@@ -353,7 +354,14 @@ class CapitalBook:
         self.legacy_reclassified += reduction
 
     def credit(self, pool, cash, activity, *, sequence=None):
+        # Physical excess cash may contain an indivisible allocation remainder.
+        # Only native payouts allocated to our individual lots prove a gain;
+        # neither owner fractions nor a label-derived legacy profit qualify.
+        gain = (min(cash, sum(max(0, a['payout_native'] - a['returned_principal_native'])
+                    for a in self.allocations if a['activity_id'] == activity['id']))
+                if pool == 'profit' and activity.get('native_redemption') is not None else 0)
         movement = {'kind': 'credit', 'pool': pool, 'amount': cash, 'activity_id': activity['id'],
+                    'proven_campaign_gain_native': gain,
                     'timestamp': activity['timestamp'],
                     'sequence': self.activity_sequences[activity['id']] if sequence is None else sequence}
         self.pool_movements.append(movement)
@@ -508,13 +516,20 @@ class CapitalBook:
             if not self.cash_before_bridge(activity):
                 self.cash_in += cash
 
-    def figures(self):
+    def figures(self, *, loss_basis=None):
         self.refresh_pools()
         inventory = sum(lot['remaining_basis'] for lot in self.lots.values())
         resting = native(self.ledger.L_resting(), ceil=True)
-        charged = self.losses + inventory + resting + self.costs
+        basis = getattr(self.ledger, 'sleeve_loss_basis', GROSS) if loss_basis is None else loss_basis
+        cumulative, available = retained_gains(self.pool_movements, profit_pool=self.profit, unknown=self.unknown)
+        charged, offset = sleeve_charge(loss=self.losses, inventory=inventory, resting=resting,
+            costs=self.costs, available_gains=available, basis=basis)
         funding = self.bridge['funding_native'] - self.legacy_reclassified if self.bridge else 0
         return {'funding_native': funding, 'realized_principal_losses_native': self.losses,
+                'sleeve_loss_basis': basis, 'proven_campaign_profit_cumulative_native': cumulative,
+                'retained_gains_available_native': available, 'retained_gains_offset_native': offset,
+                'gross_charged_native': self.losses + inventory + resting + self.costs,
+                'net_charged_native': inventory + resting + max(0, self.losses + self.costs - available),
                 'legacy_cash_reclassified_native': self.legacy_reclassified,
                 'owner_contributions_native': funding,
                 'owner_funding_ceiling_native': self.bridge['owner_funding_ceiling_native'] if self.bridge else 0,
@@ -529,7 +544,7 @@ class CapitalBook:
                 'zero_payout_losses': list(self.zero_resolutions),
                 'redemptions': list(self.redemptions.values())}
 
-    def gate(self, *, reserve, available_cash=None, own_resting=0, owner_fault_review=False):
+    def gate(self, *, reserve, available_cash=None, own_resting=0, owner_fault_review=False, loss_basis=None):
         if self.bridge is None:
             raise CapitalRefused('capital_bridge_required')
         if (self.ledger.halted or self.ledger.mismatches) and not owner_fault_review:
@@ -541,7 +556,7 @@ class CapitalBook:
         if any(self.cash_before_bridge(self.activities[key]) for key in self.blocking_unknown()):
             raise CapitalRefused('capital_legacy_unknown_cash')
         reserve, own = native(reserve, ceil=True), native(own_resting)
-        figures = self.figures()
+        figures = self.figures(loss_basis=loss_basis)
         if own > figures['resting_reserve_native']:
             raise CapitalRefused('capital_own_reserve')
         if figures['charged_native'] - own + reserve > figures['funding_native']:
@@ -556,7 +571,9 @@ class CapitalBook:
             # Unrecorded incoming profit/top-ups never become spendable merely
             # because the wallet balance increased during an active session.
             cash = min(cash, expected + self.quarantined_after_bridge())
-            segregated = self.profit + self.incentives + self.external
+            # Only the proved gain actually offsetting losses/costs becomes
+            # spendable. Excess gains never increase the principal-risk cap.
+            segregated = self.profit + self.incentives + self.external - figures['retained_gains_offset_native']
             # A reserve includes own still-resting legs exactly once.
             if cash - segregated < figures['resting_reserve_native'] - own + reserve:
                 raise CapitalRefused('capital_spendable_cash')

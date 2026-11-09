@@ -146,7 +146,7 @@ def test_36_sessions_keep_real_admission_and_authority_within_their_time_budgets
         monkeypatch.setattr(lfc_cli, 'session0_passed', lambda *a, **k: True)
         monkeypatch.setattr(re1_owner_checks, 'code_identity', lambda: 'f' * 40)
         runtime.readiness = lambda *a: {'fixture_only': True}
-        runtime.core_proof = lambda *a: {'money_accounting_complete': True, 'cleanup_proven': True}
+        runtime.core_proof = lambda *a, **kw: {'money_accounting_complete': True, 'cleanup_proven': True}
         def read_account():
             stamp = clock.now().isoformat()
             return {'started_at_utc': stamp, 'ended_at_utc': stamp, 'component_times': {

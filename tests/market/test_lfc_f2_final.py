@@ -148,7 +148,7 @@ def test_pre_enable_funding_receipt_reports_only_reconciled_actual_funding(tmp_p
     monkeypatch.setattr(runtime, 'admission', admission)
     monkeypatch.setattr(runtime, 'reload_ledger', lambda: runtime.state.ledger)
     monkeypatch.setattr(runtime, 'read_account', lambda: {})
-    monkeypatch.setattr(runtime, 'core_proof', lambda *a: {'money_accounting_complete': complete,
+    monkeypatch.setattr(runtime, 'core_proof', lambda *a, **kw: {'money_accounting_complete': complete,
         'cleanup_proven': True, 'unknown_submit': False, 'capital': {'cash_bridge_complete': True, 'funding_native': 300_000_000}})
     if complete:
         row = runtime.confirm_funding()

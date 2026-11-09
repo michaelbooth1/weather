@@ -103,7 +103,7 @@ def validate_packet(packet, *, maker, start, end):
     return rows
 
 
-def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False, live_proof=None):
+def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False, live_proof=None, loss_basis=None):
     """Reconcile before F2 admission. Repeated reads never repeat a cash credit."""
     live = live_proof is not None
     if live:
@@ -173,8 +173,9 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
                  'asset': ASSET, 'decimals': 6, 'native_asset_proof': read['capital_activity']['native_asset_proof']}
         bridge(ledger, funding=funding, cash=balances['available_collateral'], proof=proof)
         book = CapitalBook(ledger)
-    book.gate(reserve='0', available_cash=balances['available_collateral'], owner_fault_review=owner_fault_review)
-    return {'complete': True, 'cash_native': cash, 'inventory': inventory, **book.figures(),
+    book.gate(reserve='0', available_cash=balances['available_collateral'], owner_fault_review=owner_fault_review,
+              loss_basis=loss_basis)
+    return {'complete': True, 'cash_native': cash, 'inventory': inventory, **book.figures(loss_basis=loss_basis),
             'legacy_L_native': native(ledger.L(), ceil=True), 'bridge_sha256': digest(book.bridge),
             'cash_bridge_complete': (book.expected_cash() <= cash <= book.expected_cash() + book.quarantined_after_bridge()
                                     and not book.blocking_unknown()),

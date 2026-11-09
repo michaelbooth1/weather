@@ -150,6 +150,9 @@ class AccountState:
             policy = self.read(policy_path)
             if digest(policy.get('policy')) != claim['policy_sha256'] or policy.get('sha256') != claim['policy_sha256']:
                 raise StateRefused('policy_snapshot_continuity')
+            basis = policy['policy'].get('sleeve_loss_basis', 'gross')
+            if event.get('sleeve_loss_basis', 'gross') != basis or claim.get('sleeve_loss_basis', 'gross') != basis:
+                raise StateRefused('policy_snapshot_loss_basis')
             prepared_file, prepared_sha = claim.get('prepared_file'), claim.get('prepared_sha256')
             if prepared_file is not None or prepared_sha is not None:
                 relative = Path(str(prepared_file))
@@ -398,8 +401,10 @@ class AccountState:
                     'start_window_toronto', 'trading_end_toronto', 'max_session_seconds')
             if same_f2_protocol:
                 from weather.market.lfc_f2_breadth import economic_fields, FIELDS
-                keys = economic_fields(policy) | (FIELDS if old.get('schema_version') == 'lfc_campaign_policy_v0.3' else frozenset())
-            if old_revision == policy.raw['policy_revision'] and any(old.get(key) != policy.raw.get(key) for key in keys):
+                keys = economic_fields(policy) | {'sleeve_loss_basis'} | (FIELDS if old.get('schema_version') == 'lfc_campaign_policy_v0.3' else frozenset())
+            def economic_value(row, key):
+                return row.get(key, 'gross') if key == 'sleeve_loss_basis' else row.get(key)
+            if old_revision == policy.raw['policy_revision'] and any(economic_value(old, key) != economic_value(policy.raw, key) for key in keys):
                 raise StateRefused('economic_policy_change_requires_revision')
         attempt = uuid.uuid4().hex
         snapshot_sha = self.save(f'policies/{attempt}.json', {'policy': policy.raw, 'sha256': policy.sha256})
@@ -408,8 +413,10 @@ class AccountState:
                  'campaign_id': policy.raw['campaign_id'], 'policy_sha256': policy.sha256,
                  'policy_snapshot_sha256': snapshot_sha, 'claimed_at_utc': now.isoformat(),
                  'ledger_sha256': self.ledger.previous}
+        basis = {'sleeve_loss_basis': policy.raw.get('sleeve_loss_basis', 'gross')} if policy.f2 else {}
+        claim.update(basis)
         sha = self.save(f'claims/{entry.local_date}.json', claim)
-        self.ledger.record('autostart_claim', attempt_id=attempt, local_date=entry.local_date, file_sha256=sha)
+        self.ledger.record('autostart_claim', attempt_id=attempt, local_date=entry.local_date, file_sha256=sha, **basis)
         return self.read(self.root / 'claims' / (entry.local_date + '.json'))
 
     def pending(self):

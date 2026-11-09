@@ -20,8 +20,9 @@ def ledger_at(tmp_path):
     return Ledger.create(tmp_path / 'ledger.jsonl', clock=lambda: NOW, maker_address=MAKER)
 
 
-def filled(ledger, key, *, size='20', price='.5', token='yes', condition='c'):
-    ledger.record('session_start', session_id=key, counted=True)
+def filled(ledger, key, *, size='20', price='.5', token='yes', condition='c', market_id=None):
+    ledger.record('session_start', session_id=key, counted=True,
+                  **({'market_id': market_id} if market_id is not None else {}))
     ledger.intent(session_id=key, intent_key=key, token_id=token, condition_id=condition, size=size,
                   price=price, fee_rate_bps='0')
     ledger.ack(key, 'order-' + key)

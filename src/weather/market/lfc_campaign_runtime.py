@@ -509,7 +509,7 @@ class Runtime:
                 not datetime.fromisoformat(read['started_at_utc']) <= datetime.fromisoformat(read['ended_at_utc'])):
             raise StateRefused('account_read_binding')
 
-    def core_proof(self, ledger, read):
+    def core_proof(self, ledger, read, *, loss_basis=None):
         self._orders_open_unproven = True
         self.validate_account_read(ledger, read)
         traded = traded_shares(read['trades'], ledger.our_order_ids())
@@ -530,6 +530,7 @@ class Runtime:
             from weather.market.lfc_capital_consistency import observe, REASONS
             try:
                 capital = synchronize(ledger, self.original_baseline(ledger), read,
+                    loss_basis=loss_basis,
                     **({'owner_fault_review': True} if getattr(self, 'owner_fault_review', False) else {}))
             except CapitalRefused as exc:
                 if str(exc) not in REASONS:
@@ -566,7 +567,8 @@ class Runtime:
             from weather.market.lfc_f2_selection import discover
             from weather.market.lfc_capital import CapitalBook
             table = discover(public, policy, now=self.clock.now(), cash=read['balances']['available_collateral'],
-                      capital=CapitalBook(self.state.ledger).figures(), held_conditions=sorted(set(
+                      capital=CapitalBook(self.state.ledger).figures(loss_basis=policy.raw.get('sleeve_loss_basis', 'gross')),
+                      held_conditions=sorted(set(
                           r.get('conditionId', '') for r in read['positions'])))
         else:
             table = require_maker_fee_zero(public.selection(
@@ -664,13 +666,13 @@ class Runtime:
         if not session0_passed(ledger, root=self.pilot_root):
             raise StateRefused('session0_not_passed')
         read = self.read_account()
-        proof = self.core_proof(ledger, read)
+        proof = self.core_proof(ledger, read, **({'loss_basis': policy.raw.get('sleeve_loss_basis', 'gross')} if policy.f2 else {}))
         if not proof['money_accounting_complete'] or not proof['cleanup_proven']:
             raise MoneyContradiction('pre_go_money_contradiction')
         readiness = self.readiness(entry, policy, read)
         if account_read_age(read, self.clock.now()) > 60:
             read = self.read_account()
-            proof = self.core_proof(ledger, read)
+            proof = self.core_proof(ledger, read, **({'loss_basis': policy.raw.get('sleeve_loss_basis', 'gross')} if policy.f2 else {}))
             if not proof['money_accounting_complete'] or not proof['cleanup_proven']:
                 raise MoneyContradiction('pre_go_money_contradiction')
         # Explicit protocol change: no T-24 age requirement in this lane. Old

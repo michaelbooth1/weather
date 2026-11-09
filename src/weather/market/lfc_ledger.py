@@ -182,6 +182,7 @@ class Ledger:
     def _replay(self):
         self.legs, self.by_order, self.sessions, self.baselines = {}, {}, {}, []
         self._band_day_index = {}
+        self.sleeve_loss_basis = 'gross'
         self.enrollment = None
         self.autostart_claims, self.autostart_incidents, self.history_recoveries = [], [], []
         self.autostart_results = []
@@ -258,6 +259,12 @@ class Ledger:
                 raise LedgerUnavailable('ledger_result_without_claim')
             if any(r['attempt_id'] == row['attempt_id'] for r in target):
                 raise LedgerUnavailable('ledger_autostart_repeated')
+            if event == 'autostart_claim':
+                from weather.market.lfc_sleeve_loss import BASES, GROSS
+                basis = row.get('sleeve_loss_basis', GROSS)
+                if not isinstance(basis, str) or basis not in BASES:
+                    raise LedgerUnavailable('capital_loss_basis')
+                self.sleeve_loss_basis = basis
             target.append(row)
         elif event == 'baseline':
             self.baselines.append(row)
@@ -492,17 +499,26 @@ class Ledger:
 
     def intent(self, *, session_id, intent_key, token_id, condition_id, price, size, fee_rate_bps):
         # fee_rate_bps is recorded for the analysis only; the signed L has no fee term.
+        capital_admission = None
         if any(row['event'] == 'capital_bridge' for row in self.capital_rows):
             from weather.market.lfc_capital import CapitalBook
             # Lowest durable boundary: concurrent bands cannot both spend the
             # same headroom even if an earlier planning gate was stale.
-            CapitalBook(self).gate(reserve=_decimal(price) * _decimal(size))
+            capital_admission = CapitalBook(self).gate(reserve=_decimal(price) * _decimal(size))
         from weather.market.lfc_f2_breadth import daily_gate, PROTOCOL as BREADTH_PROTOCOL
         start = self.sessions[session_id]['start']
         daily_gate(self, start, reserve=_decimal(price) * _decimal(size))
         metadata = ({key: start[key] for key in ('market_id', 'quote_day_utc', 'quote_offset_pusd', 'quote_arm',
                     'arm_date_toronto', 'arm_market_id', 'per_band_daily_filled_cap_pusd')}
                     if start.get('protocol') == BREADTH_PROTOCOL else {})
+        if capital_admission is not None and 'sleeve_loss_basis' in capital_admission:
+            # Persist the offset actually observed at the single intent gate.
+            # Replay derives money from native receipts and lots, never from
+            # this informational admission projection (no second credit rail).
+            metadata['capital_admission'] = {key: capital_admission[key] for key in (
+                'sleeve_loss_basis', 'realized_principal_losses_native',
+                'proven_campaign_profit_cumulative_native', 'retained_gains_available_native',
+                'retained_gains_offset_native', 'charged_native', 'headroom_native')}
         return self.record('leg_intent', session_id=session_id, intent_key=intent_key, token_id=token_id,
                            condition_id=condition_id, price=str(price), size=str(size), fee_rate_bps=str(fee_rate_bps), **metadata)
 

@@ -163,7 +163,8 @@ own supported values. Unknown fields and unsupported values refuse explicitly.
 | `share_many_range`, `min_reward_rate`, `min_book_depth` | Share bounds may span zero through one, disabling that screen. The rate floor requires a positive reward at zero and is inclusive above zero. Depth must cover at least the selected leg size. The same fields govern discovery, pre-go, fresh placement and requote reads; learning edits require a higher policy revision and cannot be pooled into the frozen confirmation lane. |
 | Fill, replacement and inventory-exit fields | First fill cancels that band's remaining orders and retires it. Other bands continue. Hold inventory for actual venue payout/redemption; own cancel-race fills. |
 | Start/end, duration and calendar fields | Derive finite Toronto entries, excluding transition and separately bound Monday F0. Late go shortens exposure, retaining the fixed end. No catch-up or second claim. |
-| Funding, capital mode, top-ups and reinvestment | Native-unit sleeve in the existing account ledger. Actual redemption releases at most lot basis. The reconciled bridge includes legacy L/inventory; no config/date/deposit reset. |
+| Funding, capital mode, top-ups and reinvestment | Native-unit sleeve in the existing account ledger. Redemption releases at most lot basis. `profit_reinvestment=false` remains the legacy prohibition on expanding the principal ceiling; the explicit loss-basis field governs offsets. The reconciled bridge includes legacy L/inventory; no config/date/deposit reset. |
+| `sleeve_loss_basis` | `net_of_retained_gains` is the shipped owner-approved refill basis; `gross` remains supported. A changed basis changes the economic identity, requires a new policy revision, and applies at the next unclaimed session. Retained pre-field snapshots replay as gross. |
 | Loss-stop fields | Null. Total sleeve, prospective exposure and actual spendable principal cash are the monetary gates; no additional daily or smaller cumulative stop. |
 | Policy identity/revision | Snapshot per attempt. Economic changes require a higher revision and apply only at the next unclaimed session, including changes of name. |
 | Evidence and economic-contract fields | Label cash population, final look, strict positive-cash hurdle and inference contract. A prediction is never income or a promotion decision. |
@@ -173,11 +174,26 @@ The ledger advances its protocol before capital events. Genesis and historical
 L remain intact. F2 refuses the old L post gate after the bridge. In collateral
 native units its disjoint lots require:
 
-`realized principal loss + unrecovered basis + resting reserve + new reserve + paid/reserved costs <= funding ceiling`.
+`I + R + new reserve + max(0, L + C - G_avail) <= funding ceiling`.
+
+Here `L` is gross realised losing-lot basis, `I` unrecovered inventory basis,
+`R` resting reserve, and `C` paid/reserved costs. `G_avail` contains only proven,
+retained campaign redemption gains; every unknown cash observation disables the
+offset until reconciled. The gross basis uses zero offset. Losses and costs are
+never erased: reports show gross loss, cumulative proven gain, retained gain,
+offset used, gross and net charges, the chosen basis and remaining headroom.
+Principal at risk (`I + R`) and headroom can never exceed the original funding,
+at most 300 pUSD. Deposits never count. Pending winnings and account incentive
+credits without proved campaign attribution count zero. The December actual-cash
+P quantities and final-look verdict are unchanged by this admission-only basis.
+Each durable placement intent records its observed basis, gross loss, gains,
+offset, charge and headroom. Replays derive these figures from retained native
+cash/lot evidence and the claim's basis; the projection never credits money.
 
 Fresh spendable cash is an independent gate. Unknown payout returns no principal.
 Cancellation frees only proved unfilled reserve. Redemption returns at most
-released basis; profit, incentives and later deposits are segregated. Incoming
+released basis; excess profit, incentives and later deposits are segregated. Only
+the gain actually offsetting losses/costs becomes spendable. Incoming
 unattributed cash is quarantined; an unexplained debit refuses another post.
 A later known payout appends a scoped resolution, retaining its original unknown
 read. Unknown outgoing costs refuse admission.
@@ -191,7 +207,9 @@ Known external funds and later deposits cannot replace that principal. The
 original bridge receipt is preserved. An unresolved older credit remains quarantined until its native cash is known;
 no payout is guessed and the label never funds new risk.
 
-Withdrawals consume set-aside external cash, profit and incentives, in that order,
+For the refill offset every non-campaign outflow consumes retained gains first,
+even when other owner funds are present; a later deposit cannot restore them.
+The independent physical cash pools consume external cash, profit and incentives
 before charging any post-bridge excess to principal. Pre-bridge withdrawals are
 already reflected in the opening balance and never become campaign costs.
 Allocation follows cash-flow time, so a
