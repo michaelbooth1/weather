@@ -53,7 +53,7 @@ def generate(inputs: Path) -> dict:
     rows = []
     for city, families in sorted(rules.items()):
         contracts = {family: assert_rule_contract(
-            rule, source["city_icao.json"].get(city), pins
+            rule, source["city_icao.json"].get(city, "HKO" if city == "hong-kong" else None), pins
         ) for family, rule in families.items()}
         kind, unit, _ = next(iter(contracts.values()))
         if any((c[0], c[1]) != (kind, unit) for c in contracts.values()):

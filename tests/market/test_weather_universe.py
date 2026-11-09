@@ -170,3 +170,18 @@ def test_resolution_url_still_covers_a_25_hour_local_day():
     start = datetime(2027, 11, 7, tzinfo=ZoneInfo(spec.timezone)).astimezone(timezone.utc)
     assert end - start == timedelta(hours=28)
     assert end - timedelta(hours=int(query["hours"][0])) <= start
+
+
+def test_a_consistent_station_rewrite_cannot_change_the_reviewed_station(tmp_path):
+    for name in ("city_icao.json", "stations.json", "rules_by_city_family.json"):
+        text = (FIXTURE / "inputs" / name).read_text(encoding="utf-8")
+        (tmp_path / name).write_text(text.replace("CYYZ", "CYTZ"), encoding="utf-8")
+    with pytest.raises(ValueError, match="reviewed station ICAO drift"):
+        generate(tmp_path)
+    assert load_rule_pins()["stations"]["toronto"] == "CYYZ"
+
+
+def test_inferred_end_uses_wall_clock_hours_on_the_next_dates_dst_transition():
+    from urllib.parse import parse_qs, urlparse
+    query = parse_qs(urlparse(UNIVERSE["nyc"].resolution_source_url(date(2026, 3, 7))).query)
+    assert query["date"] == ["2026-03-08T07:00:00Z"]

@@ -55,7 +55,7 @@ its legacy default policy; `venue_daily_labels` uses `settlement_bucket` while
 retaining its existing native-value CSV representation. Frozen baseline
 functions check serialized label parity for every existing fixture call.
 The legacy parser's malformed/shortened T-group handling remains as specified
-above. The strict eight-digit parser and authoritative last-shown revision
+above. The strict eight-digit parser and receipt-ordered revision
 policy for expansion diagnostics are separate compatibility settings described
 in [weather universe](weather-universe.md); they do not relabel historical data.
 
@@ -66,14 +66,34 @@ move 42 to 43. The legacy behavior stays unchanged here; moving production label
 to the exact-eight-digit rule is a separate production change under the master's
 S6 ruling. Tests document the divergence and compare existing fixture labels.
 
+Other preserved divergence classes (Fahrenheit examples):
+
+| Class | Report fragment | Legacy | Expansion |
+| --- | --- | --- | --- |
+| Dew-point sign digit other than 0/1 | `06/M03 RMK T00562039` | body: 43 | T-group: 42 |
+| Competing T-groups | `06/M03 RMK T00560039 T00610039` | first T-group: 42 | unusable; partial daily bounds |
+| Competing body temperatures without a valid T-group | `06/M03 07/M03` | first body: 43 | unusable; partial daily bounds |
+| Missing-dew-point body form | `12/// RMK AO2` | no value | body: 54 |
+
+The review's `06/M03 07/M03 RMK T00560039` example now agrees at 42 in both
+paths: the valid T-group governs regardless of body ambiguity. The competing-body
+divergence remains when no valid T-group exists. These are documentation/tests
+for a separate production-label item; the legacy source parser is unchanged.
+
 The shared rule module is included in `daily_refresh_incremental_finalize`'s
 `_VENUE_LOGIC_MODULES`. Its bytes enter `venue_logic_sha256` through
-`venue_label_sources`, then the incremental input key. Merging this extraction
-changes `venue_rule_labels.py` bytes: the next venue-mode Stage-A run re-finalizes
-every eligible post-cutover venue folder once, even when its label value is
-unchanged. Pre-cutover WU keys are unchanged. The integration owner must count
-that planned set and measure the host pass before merging; the synthetic test
-proves two post-cutover invalidations, two pre-cutover reuses, then full reuse.
+`venue_label_sources`, then the incremental input key **only in venue mode**.
+Stage A's scheduled contract uses the default `--label-rule wu` and passes no
+venue-mode override. Its WU key includes neither venue module, so merging this
+branch re-finalizes **zero folders under that contract**. The change in
+`venue_rule_labels.py` bytes does not change the WU key.
+
+Runbook step 4's later switch to venue mode re-finalizes all post-cutover
+folders anyway. This branch adds a separate one-time pass only if it merges
+after venue mode is live. Pre-cutover WU keys remain unchanged. Measure the
+venue-switch cost on the host before step 4; the dated integration report owns
+the host counts. Finalize implementation and its mode are unchanged by this
+correction.
 
 ## Station
 

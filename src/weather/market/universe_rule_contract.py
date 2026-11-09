@@ -30,6 +30,8 @@ def normalized_rule_text(text):
 
 def assert_rule_contract(row, icao, pins):
     city, family = row["city"], row["family"]
+    if icao != pins["stations"].get(city):
+        raise ValueError(f"{city}/{family}: reviewed station ICAO drift")
     source = urlparse(row["resolutionSource"])
     normalized = normalized_rule_text(row["rules"])
     if source.hostname == "aviationweather.gov" and source.path == "/api/data/metar":
@@ -74,4 +76,6 @@ def load_rule_pins(path=None):
         "hko_highest", "hko_lowest", "wu_jinan", "wu_zhengzhou",
     }:
         raise ValueError("unreviewed rule pin schema/variant set")
+    if set(pins.get("stations", {})) != set(pins["cities"]):
+        raise ValueError("reviewed station coverage drift")
     return pins

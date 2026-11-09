@@ -8,12 +8,12 @@ import re
 import time
 from collections import Counter
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from weather.market.metar_reports import aware_utc, parse_metar_text
+from weather.market.metar_reports import aware_utc, parse_metar_text, routine_revision_conflicts
 
 AWC_URL = "https://aviationweather.gov/api/data/metar"
 GAMMA_URL = "https://gamma-api.polymarket.com/events"
@@ -103,7 +103,8 @@ class PublicSettlementClient:
                 return
             parsed, counts = parse_metar_text(raw, stop - timedelta(hours=hours), stop)
             flags.update(counts)
-            reports.extend(r for r in parsed if r.station in batch and (
+            reports.extend(r for r in parsed if (r.station in batch or r.station is None)
+                           and "outside_fetch_window" not in r.flags and (
                 r.observation_time is None or start <= r.observation_time <= stop))
 
         try:
@@ -114,10 +115,7 @@ class PublicSettlementClient:
         # A snapshot is not an ordered revision tape: distinct rows sharing an
         # observation key are ambiguous, rather than last-row-wins (AWC is newest-first).
         unique = list(dict.fromkeys(reports))
-        variants = {}
-        for report in unique:
-            variants.setdefault((report.station, report.observation_time), set()).add(report.raw)
-        ambiguous = {key for key, raws in variants.items() if key[1] is not None and len(raws) > 1}
+        ambiguous = routine_revision_conflicts(unique)
         if ambiguous:
             unique = [replace(r, flags=r.flags + ("ambiguous_source_revision",))
                       if (r.station, r.observation_time) in ambiguous else r for r in unique]
@@ -150,5 +148,5 @@ class PublicSettlementClient:
         except HTTPError as exc:
             if exc.code != 404:
                 raise
-            return DailyExtractSnapshot(day.year, day.month, {})
-        return parse_daily_extract(raw, day.year, day.month)
+            return DailyExtractSnapshot(day.year, day.month, {}, datetime.now(timezone.utc))
+        return parse_daily_extract(raw, day.year, day.month, read_at=datetime.now(timezone.utc))

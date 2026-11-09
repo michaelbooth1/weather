@@ -1,7 +1,7 @@
 """Shared venue revision selection and exact native-unit bucketing.
 
-Legacy training labels keep their correction preference; authoritative raw snapshots
-use last-shown order. Both paths use this one revision selector.
+Legacy training labels keep their correction preference. Receipt-bearing snapshots
+use receipt order after the settlement engine rejects ambiguous revisions.
 """
 
 from decimal import Decimal, ROUND_FLOOR
@@ -28,10 +28,14 @@ def select_reports(routine_reports, *, snapshot_order=False, deadlines=None):
     """One report per observation time; an accepted correction replaces the original.
 
     The default retains legacy IEM correction preference and next-day closure.
-    snapshot_order uses last-shown order, including unmarked replacements.
+    snapshot_order uses receipt order, including unmarked replacements. Its
+    caller must reject distinct raw candidates with unknown/tied receipt order.
     deadlines supplies explicit per-day publication cutoffs for captured replay.
     """
 
+    if snapshot_order:
+        routine_reports = sorted(routine_reports, key=lambda r: (
+            r["valid_time_utc"], r.get("receipt_utc") or r["valid_time_utc"], r.get("raw", "")))
     first_by_date = {}
     for report in routine_reports:
         first_by_date.setdefault(report["local_date"], report["valid_time_utc"])

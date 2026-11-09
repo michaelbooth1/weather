@@ -72,11 +72,11 @@ def test_speci_ignored_unlabelled_and_off_hour_count():
     assert [p.interval.label for p in low if p.possible] == ["14°C or below"]
 
 
-def test_revision_in_source_order_even_without_cor_can_lower_bound():
+def test_unordered_distinct_revisions_without_receipts_are_unavailable():
     originals = ["METAR CYYZ 081800Z 20/04", "METAR COR CYYZ 081800Z 18/04", "CYYZ 081800Z 16/04"]
     result = evaluate(originals)
-    assert result.maximum == 16
-    assert result.observation_count == 1
+    assert result.status == "source_unavailable"
+    assert "ambiguous_routine_revision" in result.notes
 
 
 def test_correction_receipt_after_next_day_first_metar_is_rejected():
@@ -142,7 +142,7 @@ def test_missing_day_waits_then_falls_back_and_lowest_bracket():
     result = evaluate([], as_of=END + timedelta(hours=5), wu_values=(Decimal(12), Decimal(3)))
     assert (result.status, result.maximum, result.minimum) == ("wu_fallback", 12, 3)
     assert evaluate([], as_of=END + timedelta(hours=5)).status == "awaiting_wu_fallback"
-    fallback = evaluate([], as_of=END + timedelta(hours=5), wu_empty=True)
+    fallback = evaluate([], as_of=END + timedelta(hours=5), wu_empty=True, wu_read_at=END + timedelta(hours=5))
     assert fallback.status == "lowest_bracket_fallback"
     bins = [parse_bin_label(label) for label in ("10°C", "9°C or below", "11°C or higher")]
     assert [p.interval.label for p in possible_bins(fallback, "lowest", bins) if p.possible] == ["9°C or below"]
@@ -206,7 +206,8 @@ def test_review_m3_next_day_report_never_means_wu_is_empty():
     result = evaluate(raws, as_of=deadline)
     assert result.status == "awaiting_wu_fallback"
     assert all(p.possible for p in possible_bins(result, "highest", bins))
-    assert evaluate(raws, as_of=deadline, wu_empty=True).status == "lowest_bracket_fallback"
+    assert evaluate(raws, as_of=deadline, wu_empty=True).status == "awaiting_wu_fallback"
+    assert evaluate(raws, as_of=deadline, wu_empty=True, wu_read_at=deadline).status == "lowest_bracket_fallback"
     with pytest.raises(ValueError, match="both empty"):
         evaluate(raws, as_of=deadline, wu_empty=True, wu_values=(Decimal(12), Decimal(3)))
     with pytest.raises(ValueError, match="explicit boolean"):

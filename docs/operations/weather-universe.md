@@ -30,19 +30,24 @@ every city against independent January/July UTC offsets. They are never derived
 from the workstation's timezone or a fixed current UTC offset.
 
 `weather_universe_rule_pins.json` binds each city/family to a reviewed normalized
-rule variant. Generation asserts source kind, native unit, family coverage and
+rule variant and independently pins each city's settlement station ICAO/id.
+Generation asserts source kind, native unit, family coverage and
 the resolution-source/named-station ICAO, then verifies its rule-text hash.
 Normalization removes encoding damage, whitespace and event-specific dates,
 airport names and AWC query dates/ICAOs; other rule words and URLs remain pinned.
 Rule/source drift fails generation. Updating pins requires review of the changed
 contract; regenerating the universe never blesses new hashes automatically.
+A consistent station replacement across the entire survey still fails unless
+the separately reviewed station pin changes.
 
 The per-city rules determine available families. The loader rejects duplicate
 slugs, invalid ICAOs/zones, wrong native units and inconsistent slug templates.
 `WeatherCitySpec.event_slug` uses an English month table, independent of locale.
 `WeatherCitySpec.resolution_source_url(local_date)` fills the source template.
 For METAR this is **inferred from the supplied samples**: the end is 03:00 on
-the next station-local date, rendered in UTC, with `hours=30`. It is a query
+the next station-local date, rendered in UTC, with `hours=30`. The three hours
+are wall-clock hours: NYC on 2026-03-07 queries through 07:00Z on the 2026-03-08
+spring-transition date. It is a query
 window convention, not an additional venue finality rule. The sample-URL test
 checks every nonempty source URL, including the two static WU history URLs,
 and the DST test checks coverage of a 25-hour local day.
@@ -63,10 +68,15 @@ exact Decimal in tenths C; without that group the body temperature governs.
 A malformed or shortened T-token is not a valid hourly remark: use a single
 usable body temperature and record `body_t_group_malformed`. A malformed body
 does not defeat a valid T-group. The four dew-point digits are not interpreted.
-Only an observation with neither usable value is disregarded; station/time
-errors and competing valid temperature groups remain fail-closed.
+An ambiguous body is irrelevant when a valid T-group governs. An observation
+with no temperature at either location is true absence. If a routine day report
+is unusable because of a parse defect, the engine records `routine_day_parse_defect`
+and returns `parse_incomplete` with running-style bounds, never a final single-bin
+collapse; without any usable bound it returns `source_unavailable`. A malformed
+report replaced by an eligible valid revision no longer makes the day incomplete.
+Syntactically valid reports outside the fetch window are excluded separately.
 
-`MetarSettlementAdapter.evaluate` selects the last report shown for each
+`MetarSettlementAdapter.evaluate` selects the latest eligible receipt for each
 observation time, assigns station-local dates with DST, and returns both
 running extrema and their original observations. A revision can lower a
 previous running maximum or raise a previous minimum: always recompute from
@@ -77,7 +87,17 @@ carries `conditional_until`, `witness_observation_time` and `invalidating_events
 An AWC COR or unmarked replacement can change the witness, and the rules permit
 a clearly-erroneous-print correction even after the ordinary cutoff. Snapshot
 responses containing distinct reports at one observation key are flagged as
-ambiguous, never ordered by the API's newest-first row order.
+ambiguous when receipt order is unknown or the latest receipt has conflicting
+payloads. This guard lives in `evaluate()` too, so injected replay cannot bypass
+it. Only routine reports and normalized tokens enter the conflict key; SPECI,
+whitespace differences and conflicts on another local date cannot void the day.
+The result is independent of caller list order.
+
+A past `conditional_until` with status `final` is **not a settled-outcome claim**:
+the clearly-erroneous-print clause has no deadline. WU and HKO paths carry their
+own source-publication/revision events. WU/lowest fallbacks use the fallback
+deadline; a verified HKO print uses its captured read time when supplied, and a
+missing-family HKO fallback uses D+7's deadline.
 
 The shared `venue_settlement_rules.settlement_bucket` converts C to F when
 required and applies exact `floor(value + 0.5)`. Negative ties move toward the
@@ -96,7 +116,9 @@ already arrived. `wu_values=None` means unknown, never empty. Until the deadline
 or while WU remains unknown, the result is unresolved (`missing` or
 `awaiting_wu_fallback`) and eliminates no bins. After that deadline, supplied
 native-unit WU extrema produce `wu_fallback`; only explicit `wu_empty=True`
-with no qualifying AWC value permits the lowest bracket. Contradictory WU
+with no qualifying AWC value and `fallback_deadline <= wu_read_at <= as_of`
+permits the lowest bracket. Unknown/stale/future emptiness stays unresolved.
+Contradictory WU
 empty/populated input is refused. There is no automatic WU fetcher.
 
 ## Public diagnostic command
@@ -144,6 +166,21 @@ and rules out no bins. Only a
 caller with initial-publication evidence may set `initial_publication_verified`.
 Capturing and retaining that evidence is future service work. The WU adapter
 returns `not_implemented` explicitly.
+
+High and low are independent: `family_statuses` and `status_for(family)` keep a
+missing minimum from affecting a published maximum, and vice versa. The adapter's
+`family` argument selects its top-level status; `possible_bins` always uses the
+requested family's status. A no-data fallback also requires the snapshot's
+`read_at` to be at or after its deadline and no later than `as_of`. An old or
+undated empty snapshot cannot prove deadline-time absence. The public reader
+stamps its completed read; parsing a retained payload requires the caller to
+provide its actual captured read time, rather than inventing one at replay.
+
+Existing training labels and incremental finalization keep their legacy path.
+The scheduled Stage-A contract is WU mode, so this branch merge re-finalizes
+**zero folders today**. The future runbook step 4 venue switch re-finalizes
+post-cutover folders anyway; a separate branch-induced pass arises only if the
+merge happens after venue mode is already live. See [venue-rule labels](venue-rule-labels.md).
 
 The diagnostic is not an eligibility, promotion or execution gate. Its results
 do not change serving floors, existing label ledgers or live-session records.

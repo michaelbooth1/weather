@@ -121,7 +121,8 @@ def test_hko_reader_preserves_tenths_and_refuses_to_certify_revisions():
 
 def test_hko_missing_publication_waits_seven_days():
     day = date(2020, 1, 2)
-    snapshot = parse_daily_extract(hko_payload(high="***", low="***"), 2020, 1)
+    snapshot = parse_daily_extract(hko_payload(high="***", low="***"), 2020, 1,
+                                   read_at=datetime(2020, 1, 10, 4, 59, tzinfo=timezone.utc))
     adapter = HKODailyExtractAdapter(lambda target: snapshot)
     before = datetime(2020, 1, 10, 4, 58, tzinfo=timezone.utc)
     after = datetime(2020, 1, 10, 4, 59, tzinfo=timezone.utc)

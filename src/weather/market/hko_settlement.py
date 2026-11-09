@@ -16,13 +16,18 @@ class DailyExtractSnapshot:
     month: int
     # Values are the named Absolute Daily Max / Min columns, not monthly climate data.
     days: dict[int, tuple[Decimal | None, Decimal | None]]
+    read_at: datetime | None = None
+
+    def __post_init__(self):
+        if self.read_at is not None:
+            object.__setattr__(self, "read_at", aware_utc(self.read_at))
 
     @property
     def covered_through(self):
         return max(self.days, default=None)
 
 
-def parse_daily_extract(raw: str, year: int, month: int) -> DailyExtractSnapshot:
+def parse_daily_extract(raw: str, year: int, month: int, *, read_at: datetime | None = None) -> DailyExtractSnapshot:
     """The official dailyExtract_YYYYMM.xml endpoint serves JSON, despite its suffix.
 
     dayData columns are day, pressure, absolute max, mean, absolute min,
@@ -64,7 +69,7 @@ def parse_daily_extract(raw: str, year: int, month: int) -> DailyExtractSnapshot
                     raise ValueError("invalid HKO Daily Extract precision")
                 values.append(value)
             days[day] = tuple(values)
-    return DailyExtractSnapshot(year, month, days)
+    return DailyExtractSnapshot(year, month, days, read_at)
 
 
 class HKODailyExtractAdapter:
@@ -72,12 +77,15 @@ class HKODailyExtractAdapter:
         self.reader = reader
 
     def evaluate(self, spec, local_date, reports=(), *, as_of, hko_payloads=None,
-                 initial_publication_verified=False, **kwargs):
+                 initial_publication_verified=False, family="highest", **kwargs):
+        as_of = aware_utc(as_of)
+        if family not in {"highest", "lowest"}:
+            raise ValueError("invalid family")
         cutoff = datetime.combine(local_date + timedelta(days=7), time(23, 59),
                                   ZoneInfo("America/New_York")).astimezone(timezone.utc)
         if hko_payloads is None and self.reader is not None:
             hko_payloads = self.reader(local_date)
-        common = dict(cutoff=cutoff, source="hko_daily_extract")
+        common = dict(cutoff=cutoff, fallback_deadline=cutoff, source="hko_daily_extract")
         if not isinstance(hko_payloads, DailyExtractSnapshot) or (
             hko_payloads.year, hko_payloads.month
         ) != (local_date.year, local_date.month) or (
@@ -85,15 +93,26 @@ class HKODailyExtractAdapter:
         ):
             return DailySettlement(spec.slug, local_date, "source_unavailable", **common,
                                    notes=("Daily Extract does not yet cover the requested date",))
+        if hko_payloads.read_at is not None and hko_payloads.read_at > as_of:
+            return DailySettlement(spec.slug, local_date, "source_unavailable", **common,
+                                   notes=("future_hko_snapshot",), source_read_at=hko_payloads.read_at)
         high, low = hko_payloads.days.get(local_date.day, (None, None))
-        if high is None or low is None:
-            return DailySettlement(spec.slug, local_date,
-                                   "lowest_bracket_fallback" if aware_utc(as_of) >= cutoff else "source_unavailable",
-                                   **common)
-        if low > high:
+        if high is not None and low is not None and low > high:
             raise ValueError("inverted HKO extrema")
+        fresh = hko_payloads.read_at is not None and cutoff <= hko_payloads.read_at <= as_of
+        statuses = {}
+        notes = []
+        for name, value in (("highest", high), ("lowest", low)):
+            if value is not None:
+                statuses[name] = "final" if initial_publication_verified else "initial_publication_unverified"
+            elif as_of >= cutoff and fresh:
+                statuses[name] = "lowest_bracket_fallback"
+            else:
+                statuses[name] = "awaiting_hko_fallback" if as_of >= cutoff else "source_unavailable"
+                notes.append(f"{name}_no_fresh_post_deadline_hko_read")
+        if not initial_publication_verified:
+            notes.append("initial Daily Extract publication receipt required; revisions remain possible")
         return DailySettlement(spec.slug, local_date,
-                               "final" if initial_publication_verified else "initial_publication_unverified",
+                               statuses[family],
                                high, low, high, low, **common,
-                               notes=() if initial_publication_verified else (
-                                   "initial Daily Extract publication receipt required; revisions remain possible",))
+                               family_statuses=statuses, source_read_at=hko_payloads.read_at, notes=tuple(notes))
