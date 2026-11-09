@@ -583,10 +583,13 @@ class Session:
         self.sample('scoring', lambda: self.venue.scoring(list(self.active)))
         return oid
 
-    def cancel_leg(self, oid):
-        response = self.required('cancel', lambda: self.venue.cancel(oid), checkpoint=False, order_id=oid)
+    def check_requote_cancel_response(self, oid, response):
         if oid not in cancel_ack_ids(response):
             raise HoldEnd('cancel_acknowledgment')
+
+    def cancel_leg(self, oid):
+        response = self.required('cancel', lambda: self.venue.cancel(oid), checkpoint=False, order_id=oid)
+        self.check_requote_cancel_response(oid, response)
         row = self.required('cancel_order_read', lambda: self.venue.order(oid), checkpoint=False)
         if filled(row):
             self.fill_seen = True

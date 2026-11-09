@@ -177,6 +177,10 @@ During F2 band cleanup, a repeat cancel's retained `not_canceled` entry for
 that order is non-fatal: the later empty open-orders read and terminal-order
 proof decide cleanup. An order that remains open still fails cancellation.
 Other callers keep strict cancel-acknowledgement validation.
+An F2 requote also sends the requested order's `not_canceled` reply through
+the existing order read. A proved fill takes the normal fill/repost path; a
+still-open order exhausts the existing cancellation bound and cannot re-quote.
+The reply itself never proves cancellation or releases the ledger reserve.
 The shared heartbeat's `heartbeat_unavailable` rows are explained non-money
 gaps in retained proof. Heartbeat staleness or a non-transient send failure
 still ends the session through `heartbeat_stale` or `heartbeat_failed`.

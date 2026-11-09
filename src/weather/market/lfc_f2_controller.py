@@ -245,6 +245,14 @@ class F2Band(PilotSession):
                 not self.campaign_entry.permits(self.clock.now())):
             raise HoldEnd('start_window_expired')
 
+    def check_requote_cancel_response(self, oid, response):
+        # A requote can lose to a fill. This permits only the existing read,
+        # never a claim of cancellation or release of the durable reserve.
+        if (isinstance(response, dict) and isinstance(response.get('not_canceled'), dict)
+                and oid in response['not_canceled']):
+            return
+        return super().check_requote_cancel_response(oid, response)
+
     def cancel_remaining(self):
         # This is BAND cleanup, not a claim of account-wide cancellation.
         # Filled and already-terminal orders are proved, never labelled cancelled.
