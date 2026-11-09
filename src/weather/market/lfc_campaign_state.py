@@ -7,6 +7,7 @@ from weather.market.lfc_campaign_guard import account_key, require_account
 from weather.market.lfc_campaign_incidents import EvidenceArtifactError, latch_occurrence, occurrence_closed
 from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new, STATE_JSON_LIMIT
 from weather.market.mm_stage2_hold import digest
+from weather.market.lfc_ledger_queries import event_rows
 from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
 
 
@@ -45,6 +46,12 @@ class AccountState:
 
     def read(self, path):
         row = self._retained_cache.json(validate_regular_nonreparse_file(Path(path).absolute()))
+        if not isinstance(row, dict) or row.get('schema_version') != STATE_SCHEMA:
+            raise StateRefused('state_schema')
+        return row
+
+    def read_uncached(self, path):
+        row = strict_json(read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), STATE_JSON_LIMIT))
         if not isinstance(row, dict) or row.get('schema_version') != STATE_SCHEMA:
             raise StateRefused('state_schema')
         return row
@@ -168,10 +175,10 @@ class AccountState:
             if owner_fault_review or operational_binding(self, event['attempt_id']) is not None or empty_binding(self, event['attempt_id']) is not None or (
                     ignore_empty_result_errors and not attempt_intents(self.ledger, event['attempt_id'])):
                 continue
-            self.result_anchor(event['attempt_id'])
+            self.result_anchor(event['attempt_id'], metadata_only=True)
         if not owner_fault_review:
             from weather.market.lfc_campaign_owner_close import binding as operational_binding
-            for anchor in [r for r in self.ledger.rows if r['event'] == 'autostart_owner_close']:
+            for anchor in event_rows(self.ledger, 'autostart_owner_close'):
                 operational_binding(self, anchor['source_attempt_id'])
         chain = {self.ledger.row_sha256(i) for i in range(len(self.ledger.rows))}
         for path in (self.root / 'closed').glob('*.json'):
@@ -191,13 +198,22 @@ class AccountState:
         from weather.market.lfc_f2_freeze import labels
         return labels(self, policy, local_date)
 
-    def result_anchor(self, attempt):
+    def result_anchor(self, attempt, *, metadata_only=False):
         events = [r for r in self.ledger.autostart_results if r['attempt_id'] == attempt]
         path = self.root / 'results' / (attempt + '.json')
         try:
             if len(events) != 1 or self.file_sha(path) != events[0]['file_sha256']:
                 raise ValueError('result_not_anchored')
-            return self.read(path), events[0]['file_sha256']
+            if metadata_only:
+                def schema():
+                    self.read_uncached(path)
+                    return None, 256
+                self._retained_cache.get('result-schema', path, schema)
+                return None, events[0]['file_sha256']
+            # Large result packets would evict every compact continuity entry
+            # before the next placement checkpoint. Return their full checked
+            # contents without inserting them into the small metadata cache.
+            return self.read_uncached(path), events[0]['file_sha256']
         except (OSError, ValueError, RuntimeError):
             self.evidence_fault(attempt, artifact='results/' + attempt + '.json')
             raise StateRefused('private_result_evidence_fault') from None
@@ -264,7 +280,7 @@ class AccountState:
         proof. Native USN/identity changes and missing files invalidate it.
         """
         def load():
-            closed = self.read(path)
+            closed = self.read_uncached(path)
             proof = closed.get('proof')
             if not isinstance(proof, dict) or closed.get('proof_sha256') != digest(proof):
                 raise StateRefused('closeout_proof_hash')

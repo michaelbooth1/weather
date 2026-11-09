@@ -598,6 +598,13 @@ an incident or a new date claim. A new tick can admit the revised policy. Once
 claimed, a session retains its original admitted snapshot; a supported edit is
 for the next unclaimed session. The prepared receipt retains the launch envelope.
 
+Ledger replay builds event and attempt indexes once per open; they do not change
+the chained rows or recovery decisions. Retained result and closure metadata use
+compact process-local projections, invalidated by native file identity/change
+stamps. Full result packets remain bounded strict JSON reads. The size ceiling
+is enforced with small reads, rather than allocating that ceiling for each
+receipt. An unavailable native change stamp retains full validation.
+
 ## Update when
 
 Update with policy support, task/identity contracts, claim/recovery transitions,

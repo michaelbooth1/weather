@@ -182,6 +182,7 @@ class Ledger:
     def _replay(self):
         self.legs, self.by_order, self.sessions, self.baselines = {}, {}, {}, []
         self._band_day_index = {}
+        self._event_index, self._event_binding_index, self._attempt_intent_index = {}, {}, {}
         self.sleeve_loss_basis = 'gross'
         self.enrollment = None
         self.autostart_claims, self.autostart_incidents, self.history_recoveries = [], [], []
@@ -325,6 +326,24 @@ class Ledger:
             session['end'] = row
         elif event == 'halt':
             self.halted = True
+
+        self._event_index.setdefault(event, []).append(row)
+        for field in ('attempt_id', 'source_attempt_id'):
+            if field in row:
+                self._event_binding_index.setdefault((event, field, row[field]), []).append(row)
+        if event == 'leg_intent':
+            attempt = self.sessions[row['session_id']]['start'].get('autostart_attempt_id')
+            self._attempt_intent_index.setdefault(attempt, []).append(row)
+
+    def event_rows(self, event, *, field=None, value=None):
+        if field is None:
+            return tuple(self._event_index.get(event, ()))
+        if field in ('attempt_id', 'source_attempt_id') and value is not None:
+            return tuple(self._event_binding_index.get((event, field, value), ()))
+        return tuple(row for row in self._event_index.get(event, ()) if row.get(field) == value)
+
+    def attempt_intent_rows(self, attempt):
+        return tuple(self._attempt_intent_index.get(attempt, ()))
 
     def figures(self):
         filled = resting = Decimal(0)

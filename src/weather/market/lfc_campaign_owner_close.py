@@ -12,6 +12,7 @@ import sys
 from weather.market.lfc_campaign_recovery import attempt_intents, attempt_sessions
 from weather.market.lfc_recording_io import file_sha, write_new
 from weather.market.mm_stage2_hold import digest
+from weather.market.lfc_ledger_queries import event_rows
 from weather.operations.live_path_security import validate_contained_regular_file
 
 
@@ -59,7 +60,7 @@ def manifest(state, attempt):
 
 def binding(state, attempt, *, incident=None):
     from weather.market.lfc_campaign_state import StateRefused
-    anchors = [row for row in state.ledger.rows if row['event'] == 'autostart_owner_close' and row.get('source_attempt_id') == attempt and
+    anchors = [row for row in event_rows(state.ledger, 'autostart_owner_close', field='source_attempt_id', value=attempt) if
                (incident is None or row.get('incident_id') == incident)]
     if not anchors:
         return None

@@ -93,11 +93,23 @@ def strict_json(raw):
 
 
 def read_bytes(path, limit):
-    with Path(path).open('rb') as stream:
-        raw = stream.read(limit + 1)
-    if len(raw) > limit:
+    # A state ceiling is not a read allocation size. In particular, asking
+    # BufferedReader for 96 MB for each tiny retained receipt repeatedly
+    # allocates the ceiling on Windows. Keep the same limit-plus-one refusal
+    # while reading bounded blocks, including files that grow during the read.
+    if type(limit) is not int or limit < 0:
         raise ValueError('recording_file_budget')
-    return raw
+    remaining, parts = limit + 1, []
+    with Path(path).open('rb') as stream:
+        while remaining:
+            block = stream.read(min(65536, remaining))
+            if not block:
+                break
+            parts.append(block)
+            remaining -= len(block)
+    if not remaining:
+        raise ValueError('recording_file_budget')
+    return b''.join(parts)
 
 
 def file_sha(path):

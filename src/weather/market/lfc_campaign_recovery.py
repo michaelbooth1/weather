@@ -2,6 +2,7 @@
 from weather.market.lfc_campaign_guard import require_account
 from weather.market.lfc_recording_io import file_sha
 from weather.market.mm_stage2_hold import digest
+from weather.market.lfc_ledger_queries import event_rows
 
 
 def attempt_sessions(ledger, attempt):
@@ -10,13 +11,16 @@ def attempt_sessions(ledger, attempt):
 
 
 def attempt_intents(ledger, attempt):
+    indexed = getattr(ledger, 'attempt_intent_rows', None)
+    if callable(indexed):
+        return list(indexed(attempt))
     sessions = attempt_sessions(ledger, attempt)
     return [row for row in ledger.rows if row['event'] == 'leg_intent' and row['session_id'] in sessions]
 
 
 def empty_binding(state, attempt):
     from weather.market.lfc_campaign_state import StateRefused
-    anchors = [row for row in state.ledger.rows if row['event'] == 'autostart_no_intent_close' and row['attempt_id'] == attempt]
+    anchors = event_rows(state.ledger, 'autostart_no_intent_close', field='attempt_id', value=attempt)
     if not anchors:
         return None
     path = state.root / 'closed' / (attempt + '.json')

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, time, date
 
 from weather.market.lfc_recording_io import file_sha
 from weather.market.mm_stage2_hold import digest
+from weather.market.lfc_ledger_queries import event_rows
 
 
 def economic_digest(policy):
@@ -24,7 +25,7 @@ def capture_window(policy):
 
 
 def verify(state):
-    events = [row for row in state.ledger.rows if row['event'] == 'autostart_freeze']
+    events = event_rows(state.ledger, 'autostart_freeze')
     if not events:
         return None
     try:
