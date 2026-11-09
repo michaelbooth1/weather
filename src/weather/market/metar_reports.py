@@ -155,6 +155,8 @@ def non_temperature_body_token(token: str) -> bool:
         r"(?:FEW|SCT|BKN|OVC|VV)(?:\d{3}|///)(?:CB|TCU|///)?", # automated cloud groups
         r"T[XN]M?\d{2}/\d{4}Z",                 # forecast maximum/minimum
         r"(?:\d{3}|VRB|///)(?:P?\d{2,3}|//)(?:G(?:P?\d{2,3}|//))?(?:KT|MPS)",
+        r"W(?:M?\d{2}|//)/(?:S\d|H\d{1,3})",  # sea temperature with state/height
+        r"\d{2}/\d{6}",                        # old runway-state group
     ))
 
 

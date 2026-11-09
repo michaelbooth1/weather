@@ -60,12 +60,31 @@ def test_a_second_malformed_body_is_not_silently_ignored_without_a_t_group():
 
 @pytest.mark.parametrize("token", ["0703/0803", "1/2SM", "M1/4SM", "R24/290045", "R01/////",
                                     "R24/0900V1200U", "05R/2800FT", "TX01/0712Z", "TNM02/0704Z",
-                                    "330//KT", "///04MPS", "BKN020///", "SCT023///", "VV///"])
+                                    "330//KT", "///04MPS", "BKN020///", "SCT023///", "VV///",
+                                    "W15/S4", "W15/H7", "WM01/S3", "W///S4", "W15/H12", "W15/H123",
+                                    "WM02/H007", "W///H7", "88/290050", "01/123456"])
 def test_each_known_non_temperature_shape_is_explicitly_excluded(token):
     absent = report(f"METAR KLGA 081800Z {token}")
     assert absent.temperature_c is None and not absent.has_parse_defect
     present = report(f"METAR KLGA 081800Z {token} 21/04")
     assert present.temperature_c == 21 and not present.has_parse_defect
+
+
+@pytest.mark.parametrize("token", ["W15/S4", "W15/H7", "88/290050"])
+def test_fix5_sea_and_old_runway_groups_preserve_finality(token):
+    observation = report(f"METAR LTFM 081800Z 04010KT 9999 FEW030 15/10 Q1018 {token}")
+    close = report("METAR LTFM 090000Z 10/04")
+    result = ADAPTER.evaluate(U["istanbul"], DAY, [observation, close], as_of=END)
+    assert observation.temperature_c == 15 and not observation.has_parse_defect
+    assert (result.status, result.maximum, result.minimum) == ("final", 15, 15)
+
+
+@pytest.mark.parametrize("token", ["W1/S4", "W15/S44", "W15/H1234", "8/290050", "888/290050",
+                                    "88/29005", "88/2900500"])
+def test_fix5_nearby_corruptions_still_block_finality(token):
+    warm = report(f"METAR KLGA 081800Z 21/04 {token}")
+    assert warm.temperature_c is None and warm.has_parse_defect
+    assert ADAPTER.evaluate(U["nyc"], DAY, nyc_day(warm), as_of=END).status == "parse_incomplete"
 
 
 @pytest.mark.parametrize("header,flag", [
