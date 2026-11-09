@@ -128,7 +128,9 @@ def test_every_cli_tick_records_exit_and_sanitized_traceback(tmp_path, monkeypat
     text = (tmp_path / 'campaign-ticks.jsonl').read_text()
     row = json.loads(text)
     assert row['exit_code'] == int(failure) and bool(row['traceback']) == failure
-    assert 'secret' not in text and 'credential' not in text and '999' not in text and 'private' not in text
+    # Timestamps and opaque attempt IDs can legitimately contain the digits
+    # 999. Detect the injected exception payload rather than incidental digits.
+    assert all(value not in text for value in ('secret credential path', 'prices=999', 'id=private'))
 
 
 def test_tick_log_rotates_and_retains_old_evidence(tmp_path):

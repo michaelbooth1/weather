@@ -10,8 +10,9 @@ from weather.market.lfc_recording_io import write_new
 
 CONTROL_SCHEMA = 'lfc_campaign_control_v0.1'
 CONTROL_ROOT = Path(r'C:\t\pilot\status\control')
-SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_PENDING', 'COMPLETE', 'INCIDENT', 'REFUSED', 'EVIDENCE_GAP'}
+SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_PENDING', 'COMPLETE', 'INCIDENT', 'REFUSED', 'EVIDENCE_GAP', 'RETRY_PENDING'}
 SAFE_REASONS = {
+    'retry_pending',
     'stale_control_row', 'control_row_unknown',
     'wrapper_launch_missing_or_invalid', 'wrapper_policy_changed', 'wrapper_cleanup_budget_insufficient','idle', 'transport_deferred', 'window_missed', 'campaign_disabled', 'running', 'postcheck_pending',
                 'completed', 'account_incident', 'policy_refused', 'release_refused', 'policy_changed',
@@ -19,12 +20,12 @@ SAFE_REASONS = {
                 'disk_free_below_floor', 'session_stalled', 'claim_no_intents', 'freeze_missing', 'no_qualifying_band'}
 
 
-def active_incidents(state):
+def active_incidents(state, *, retained_only=False):
     """A damaged receipt cannot suppress the public incident projection."""
     if state is None:
         return []
     try:
-        return state.incidents()
+        return state.retained_incidents() if retained_only else state.incidents()
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):
         anchors = getattr(state.ledger, 'autostart_incidents', ())
         attempt = anchors[-1]['attempt_id'] if anchors else stable_id('continuity', 'INCIDENT', None, 'unbound')
@@ -87,7 +88,7 @@ def flags_are_clean(row):
 
 def flags_need_attention(row):
     """Producer calculation, before the attention_required field is written."""
-    return (row.get('phase') in {'INCIDENT', 'POSTCHECK_PENDING', 'REFUSED', 'DEFERRED', 'MISSED', 'EVIDENCE_GAP'} or
+    return (row.get('phase') in {'INCIDENT', 'POSTCHECK_PENDING', 'REFUSED', 'DEFERRED', 'MISSED', 'EVIDENCE_GAP', 'RETRY_PENDING'} or
             row.get('postchecks_pending') is True or row.get('account_read') is False or row.get('incident') is not False or
             row.get('orders_open_unproven') is not False and not (
                 row.get('phase') == 'RUNNING' and row.get('orders_live') is True and
@@ -139,9 +140,9 @@ def evaluate_row(row, *, now=None, max_age_seconds=900):
     reason = row.get('reason')
     phase = row.get('phase') if isinstance(row.get('phase'), str) else None
     code = 0 if flags_are_clean(row) else 2 if normal_live(row) else 1
-    if phase not in SAFE_STATES or row.get('postchecks_pending') is True:
+    if phase not in SAFE_STATES:
         code, reason = 1, 'control_row_unknown'
-    if phase in {'INCIDENT', 'POSTCHECK_PENDING', 'REFUSED', 'DEFERRED', 'MISSED', 'EVIDENCE_GAP'}:
+    if row.get('postchecks_pending') is True or phase in {'INCIDENT', 'POSTCHECK_PENDING', 'REFUSED', 'DEFERRED', 'MISSED', 'EVIDENCE_GAP', 'RETRY_PENDING'}:
         code = 1
     if age is None or age < 0:
         code, reason = 1, 'control_row_unknown'

@@ -9,6 +9,8 @@ from weather.market.lfc_campaign_control import control_record, active_incidents
 from weather.market.lfc_campaign_guard import AdmissionBusy, AdmissionUncertain
 from weather.market.lfc_campaign_policy import ZONE
 from weather.market.lfc_campaign_state import MoneyContradiction, StateRefused
+from weather.market.lfc_campaign_persistence import ClosureRetryPending, retry_failure, retry_labels
+from weather.market.lfc_ledger import LedgerUnavailable
 
 
 class TransientPrecheck(RuntimeError):
@@ -30,7 +32,7 @@ class CampaignCoordinator:
         reasons = {'IDLE': 'idle', 'DEFERRED': 'transport_deferred', 'MISSED': 'window_missed',
                    'DISABLED': 'campaign_disabled', 'RUNNING': 'running', 'POSTCHECK_PENDING': 'postcheck_pending',
                    'COMPLETE': 'completed', 'INCIDENT': 'account_incident'}
-        incidents = active_incidents(self.state)
+        incidents = active_incidents(self.state, retained_only=phase == 'RETRY_PENDING')
         if incidents:
             attempt = incidents[0]['attempt_id']
             phase, kwargs['incident'] = 'INCIDENT', True
@@ -89,7 +91,12 @@ class CampaignCoordinator:
                 self.status('INCIDENT', attempt, incident=True, postchecks_pending=True)
             elif (proof.get('money_accounting_complete') is True and proof.get('cleanup_proven') is True and
                   proof.get('unknown_submit') is False and not self.state.incidents()):
-                sha = self.state.close(claim, proof, self.clock.now())
+                try:
+                    sha = self.state.close(claim, proof, self.clock.now())
+                except ClosureRetryPending:
+                    raise
+                except (OSError, LedgerUnavailable) as exc:
+                    retry_failure(self.state, attempt, exc)
                 outcome = result.get('outcome') or {}
                 reason = ('owner_stop' if outcome.get('halt_reason') == 'owner_stop' else
                           'market_local_horizon' if outcome.get('horizon_retirement') else 'completed')
@@ -102,6 +109,14 @@ class CampaignCoordinator:
         return True
 
     def tick(self, load_policy):
+        try:
+            return self._tick(load_policy)
+        except ClosureRetryPending as exc:
+            self.policy_binding = retry_labels(self.state, exc.attempt_id)
+            self.status('RETRY_PENDING', exc.attempt_id, reason='retry_pending', postchecks_pending=True)
+            return 'RETRY_PENDING'
+
+    def _tick(self, load_policy):
         try:
             from weather.market.lfc_campaign_recovery import recover_empty
             for claim in recover_empty(self.state, self.clock.now()):
@@ -223,6 +238,8 @@ class CampaignCoordinator:
                         if result.get('unknown_submit') is not False:
                             self.state.latch(claim['attempt_id'], 'ambiguous_placement', self.clock.now())
                         self.pending()
+                    except ClosureRetryPending:
+                        raise  # Completed money proof; retry its persistence, never invent an incident.
                     except BaseException:
                         from weather.market.lfc_campaign_recovery import failure_result, attempt_intents
                         if not any(r['attempt_id'] == claim['attempt_id'] for r in self.state.ledger.autostart_results):

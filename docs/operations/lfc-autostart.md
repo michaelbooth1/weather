@@ -50,6 +50,14 @@ or more the row requires attention with `stale_control_row` and its age. Exit
 or unknown. Only acknowledged resting orders with no incident or pending
 postcheck qualify as normal live orders; unacknowledged intents never do.
 External watches must use this classifier and distinguish all three exit codes.
+An intact closure whose ledger anchor cannot be persisted is `RETRY_PENDING`
+with reason `retry_pending`, watch exit 1 and no evidence-loss incident. The
+owning tick retries the original file-first transaction; no new claim is allowed
+until it succeeds. Repeated failures retain that state and one stable notice.
+A verified complete append is replayed once; torn ledger bytes still refuse
+reopen and are never truncated. A missing or changed original remains an
+evidence fault. Read-only status and shared completion report the persistence
+retry separately, without writing or inventing an unknown submission.
 `status` observes without acquiring an account lease, repairing evidence or
 writing any campaign/control file. If the guard is busy it prints
 "deferred: lease busy" and exits nonzero. Its ledger head labels the snapshot;

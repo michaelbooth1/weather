@@ -393,6 +393,10 @@ class AccountState:
 
     def incidents(self):
         self.verify()
+        return self.retained_incidents()
+
+    def retained_incidents(self):
+        """Public observation during a storage retry, never an admission gate."""
         pending = []
         for path in sorted((self.root / 'incidents').glob('*.json')):
             row = self.read(path)

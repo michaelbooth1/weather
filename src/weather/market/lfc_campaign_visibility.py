@@ -73,7 +73,7 @@ def notify_control(runtime, row):
     if isinstance(previous, dict):
         previous = {k: v for k, v in previous.items() if k != 'at_utc'}
     runtime._last_control_notice = signature
-    if row['phase'] in {'INCIDENT', 'POSTCHECK_PENDING', 'COMPLETE', 'MISSED', 'REFUSED', 'DEFERRED', 'EVIDENCE_GAP'} and signature != previous:
+    if row['phase'] in {'INCIDENT', 'POSTCHECK_PENDING', 'COMPLETE', 'MISSED', 'REFUSED', 'DEFERRED', 'EVIDENCE_GAP', 'RETRY_PENDING'} and signature != previous:
         return notify_owner(runtime.control_root.parent, {}, public_status=projection)
 
 

@@ -81,6 +81,8 @@ def close_empty(state, claim, now, *, reason='claim_no_intents'):
 
 
 def recover_empty(state, now):
+    from weather.market.lfc_campaign_persistence import ClosureRetryPending, retry_failure
+    from weather.market.lfc_ledger import LedgerUnavailable
     require_account(state.maker)
     state.verify(ignore_empty_result_errors=True)
     closed = []
@@ -89,10 +91,15 @@ def recover_empty(state, now):
             continue
         claim = state.read(state.root / 'claims' / (anchor['local_date'] + '.json'))
         from weather.market.lfc_campaign_owner_close import complete_committed
-        if complete_committed(state, claim['attempt_id'], now) is not None:
-            continue
-        if not attempt_intents(state.ledger, claim['attempt_id']) and close_empty(state, claim, now):
-            closed.append(claim)
+        try:
+            if complete_committed(state, claim['attempt_id'], now) is not None:
+                continue
+            if not attempt_intents(state.ledger, claim['attempt_id']) and close_empty(state, claim, now):
+                closed.append(claim)
+        except ClosureRetryPending:
+            raise
+        except (OSError, LedgerUnavailable) as exc:
+            retry_failure(state, claim['attempt_id'], exc)
     return closed
 
 

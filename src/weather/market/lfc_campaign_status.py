@@ -68,6 +68,9 @@ def report(args, *, load_release, validate_release, root, state_root, control_ro
         print(json.dumps(row))
         return code
     except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+        if isinstance(exc, StateRefused) and str(exc) == 'status_repair_required':
+            print(json.dumps({'state': 'retry_pending', 'reason': 'retry_pending', 'attention_required': True}))
+            return 1
         reason = str(exc) if isinstance(exc, (StateRefused, guard.AdmissionUncertain)) else 'status_unavailable'
         reason = reason if re.fullmatch('[a-z0-9_]{1,96}', reason) else 'status_unavailable'
         print(json.dumps({'state': 'STATUS_UNAVAILABLE', 'reason': reason, 'attention_required': True}))

@@ -28,10 +28,14 @@ def ledger_completion(root, ledger):
     flags = {'evidence_complete': True, 'inventory_proven': True, 'unknown_submit': False}
     refused = []
     campaign_refused = False
+    campaign_pending = False
     if getattr(ledger, 'enrollment', None) is not None:
         from weather.market.lfc_campaign_closures import verify_enrolled
+        from weather.market.lfc_campaign_persistence import ClosureRetryPending
         try:
             campaign_refused = bool(verify_enrolled(ledger))
+        except ClosureRetryPending:
+            campaign_pending = True
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             campaign_refused = True
     for session_id, session in ledger.sessions.items():
@@ -55,4 +59,7 @@ def ledger_completion(root, ledger):
     if campaign_refused:
         flags.update(evidence_complete=False, inventory_proven=False)
         refused.append('campaign_closure_evidence')
+    if campaign_pending:
+        flags.update(evidence_complete=False, inventory_proven=False, retry_pending=True)
+        refused.append('campaign_closure_retry_pending')
     return dict(flags, evidence_refusals=refused)

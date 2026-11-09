@@ -11,6 +11,8 @@ import re
 import uuid
 
 from weather.market.lfc_ledger_queries import event_rows
+from weather.market.lfc_ledger import LedgerUnavailable
+from weather.market.lfc_campaign_persistence import retry_failure
 from weather.market.lfc_recording_io import STATE_JSON_LIMIT, file_sha, strict_json, read_bytes
 from weather.market.mm_stage2_hold import canonical_bytes, digest, utc
 from weather.operations.live_path_security import validate_regular_nonreparse_file
@@ -184,6 +186,7 @@ def check(state, *, full=False, owner_fault_review=False):
         if path.stem in generic:
             continue
         attempt = path.stem
+        item = None
         try:
             item = fields(state, path)
             if item['close_ledger_sha256'] not in {ledger.row_sha256(i) for i in range(len(ledger.rows))}:
@@ -224,7 +227,12 @@ def check(state, *, full=False, owner_fault_review=False):
                 _, sha, local = state.retained_result(claim)
                 if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
                     raise StateRefused('closeout_private_evidence_binding')
-            anchor(state, attempt)
+        except LedgerUnavailable as exc:
+            # A dedicated no-intent/owner restoration append may occur during
+            # binding. Ledger write errors are not lost closure evidence.
+            if item is not None:
+                retry_failure(state, attempt, exc, expected=item)
+            raise
         except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
             state._closure_faults.add(attempt)
             if isinstance(exc, StateRefused) and str(exc) in {
@@ -235,6 +243,13 @@ def check(state, *, full=False, owner_fault_review=False):
                     raise  # These paths already persist the actual artifact occurrence.
             else:
                 fault(state, attempt, refuse=not owner_fault_review)
+        else:
+            # Validation has completed. Do not catch persistence failures in
+            # the evidence-loss handler above, including recovery after fsync.
+            try:
+                anchor(state, attempt)
+            except (OSError, LedgerUnavailable) as exc:
+                retry_failure(state, attempt, exc, expected=item)
     state._closure_completed = set(anchors) | {r['attempt_id'] for r in event_rows(ledger, 'autostart_close')}
     return state._closure_completed
 

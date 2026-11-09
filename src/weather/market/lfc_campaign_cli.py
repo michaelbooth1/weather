@@ -20,6 +20,7 @@ from weather.market.lfc_campaign_policy import PolicyRefused, load_policy
 from weather.market.lfc_campaign_policy import ZONE
 from weather.market.lfc_campaign_release import load_release, seal_release, task_enabled, validate_release
 from weather.market.lfc_campaign_state import AccountState, DEFAULT_STATE_ROOT, StateRefused
+from weather.market.lfc_campaign_persistence import ClosureRetryPending, retry_labels
 from weather.market.lfc_ledger import Ledger, ledger_path
 from weather.market.lfc_pilot import pilot_root
 from weather.market.lfc_recording_io import file_sha
@@ -203,7 +204,7 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
     def emit(phase, **fields):
         from types import SimpleNamespace
         from weather.market.lfc_campaign_visibility import notify_control
-        incidents = active_incidents(state)
+        incidents = active_incidents(state, retained_only=phase == 'RETRY_PENDING')
         if incidents:
             phase, fields['incident'] = 'INCIDENT', True
         elif phase == 'DEFERRED' and getattr(runtime, '_orders_open_unproven', None) is None:
@@ -276,7 +277,13 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                 return 0
             result = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=CONTROL_ROOT,
                                          followup=runtime.followup, wrapper_launch=wrapper_launch).tick(load)
-            return 1 if result in {'INCIDENT', 'REFUSED', 'FAILED_NO_ORDERS'} or state.incidents() else 0
+            return 1 if result in {'INCIDENT', 'REFUSED', 'FAILED_NO_ORDERS', 'RETRY_PENDING'} or state.incidents() else 0
+    except ClosureRetryPending as exc:
+        state = exc.state
+        print(json.dumps({'state': 'retry_pending', 'code': 'closure_anchor_retry_pending'}))
+        emit('RETRY_PENDING', reason='retry_pending', postchecks_pending=True,
+             policy_metadata=retry_labels(state, exc.attempt_id))
+        return 1
     except LaunchDeferred as exc:
         if state is None:
             emit('DEFERRED', reason=str(exc), account_not_read=True, orders_open_unproven=None, incident=None)
