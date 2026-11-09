@@ -64,7 +64,11 @@ def test_explicit_basis_seals_and_local_status_prints_it(sealing,monkeypatch,cap
     monkeypatch.setattr(cli,'bound_state',lambda *a,**kw:(state.ledger.path.parent,state))
     monkeypatch.setattr(cli,'account_lease',lambda maker:account_lease(maker,backend=Mutexes()))
     monkeypatch.setattr(cli,'CONTROL_ROOT',tmp_path/'control')
-    control_record(tmp_path/'control','a'*32,phase='COMPLETE',now=Clock().now())
+    monkeypatch.setattr(cli,'pilot_root',lambda:state.ledger.path.parent)
+    monkeypatch.setattr(cli,'DEFAULT_STATE_ROOT',state.root.parent)
+    from weather.market import lfc_campaign_guard as guard
+    monkeypatch.setattr(guard,'account_lease_busy',lambda maker:False)
+    control_record(tmp_path/'control','a'*32,phase='COMPLETE',now=datetime.now(timezone.utc))
     assert cli.main(['status','--release','fixture','--release-sha256','a'*64])==0
     printed=json.loads(capsys.readouterr().out.splitlines()[-1])
     assert printed['sleeve_loss_basis']==basis and printed['clean'] is True

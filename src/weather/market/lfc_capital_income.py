@@ -1,26 +1,18 @@
-"""Amount-local unknown cash and native, condition-scoped campaign income.
-
-Official activity type/condition labels retain the capital rail's existing
-source contract. A label alone never proves cash; the existing native receipt
-must reconcile the amount before an incentive can contribute any gain.
-"""
-from weather.market.lfc_ledger_queries import event_rows
-from weather.market.mm_stage2_hold import utc
+"""Amount-local quarantine; an activity condition is not income attribution."""
 
 
 def campaign_income(book, activity, *, native_proven):
-    if not native_proven or activity['type'] not in {'REWARD', 'MAKER_REBATE'}:
-        return False
-    condition = activity['condition_id']
-    if not condition or not condition.strip('0x'):
-        return False
-    # Bind to a prior durable intent, not to a later selection or another
-    # wallet's market. A whole-second timestamp cannot prove a same-second
-    # reward followed our first quote, so such a payment remains segregated.
-    return any(str(row['condition_id']).lower() == condition and
-               row['sequence'] < book.activity_sequences[activity['id']] and
-               utc(row['recorded_at_utc']).timestamp() < activity['timestamp']
-               for row in event_rows(book.ledger, 'leg_intent'))
+    """No current retained source proves the complete earning-order population.
+
+    v2 activity has neither the earning period nor order-level attribution.
+    CLOB earnings have a date, but no binding of that accrual to a paid row;
+    CLOB /data/orders is open-only, not complete cancelled-order history.
+    Native cash and a prior campaign intent prove neither missing fact. Until
+    a supported complete own-order-history proof is supplied, these payments
+    remain unknown incoming and contribute zero, never a guessed period or a
+    caller's 'complete' boolean. This does not disable redeemed-lot gains.
+    """
+    return False
 
 
 def unknown_cash(book):
@@ -49,6 +41,8 @@ def unknown_cash(book):
         elif activity['type'] == 'REDEEM' and not activity['condition_id'].strip('0x'):
             blockers.append(key); reasons.add('unknown_redemption_scope')
         else:
+            reasons.add('reward_attribution_unproven' if activity['type'] in {'REWARD', 'MAKER_REBATE'}
+                        else 'unknown_incoming_excluded')
             reasons.add('unknown_incoming_excluded')
     return {'blockers': blockers, 'reasons': sorted(reasons),
             'held_native': None if unbounded else incoming,

@@ -43,7 +43,17 @@ explicitly false; null, missing and inconsistent fields require attention. Use
 this function in both host and workstation watches, never flag truthiness.
 `attention_required` is true on the unread row; no order-absence claim is made.
 The local-only watch CLI is `python -m weather.market.lfc_campaign_control --root
-'<control-folder>'`; its exit code is zero only for a clean latest record.
+'<control-folder>' [--max-row-age-seconds 900]`. `watch_status` applies the same
+flag rule plus freshness: a missing/future timestamp is unknown; at 900 seconds
+or more the row requires attention with `stale_control_row` and its age. Exit
+0 means clean idle, 2 means normal `live_orders`, and 1 means attention, stale
+or unknown. Only acknowledged resting orders with no incident or pending
+postcheck qualify as normal live orders; unacknowledged intents never do.
+External watches must use this classifier and distinguish all three exit codes.
+`status` observes without acquiring an account lease, repairing evidence or
+writing any campaign/control file. If the guard is busy it prints
+"deferred: lease busy" and exits nonzero. Its ledger head labels the snapshot;
+account faults are reported without recording or clearing them.
 
 A crash between a timely freeze receipt and its ledger anchor can complete on
 the next healthy tick within the original capture window. The original bytes
@@ -210,12 +220,17 @@ amount has no bound; `unknown_cash_bounded_native` and
 Principal at risk (`I + R`) and headroom can never exceed the original funding,
 at most 300 pUSD. Deposits never count. Pending winnings and account incentive
 credits without proved campaign attribution count zero. Paid `REWARD` and
-`MAKER_REBATE` rows qualify only after the existing native transfer proof
-reconciles their cash, their official condition label matches a prior durable
-campaign intent, and their timestamp is strictly after that intent. Empty or
-unrelated conditions, same-second ambiguity, yield/referral credits, deposits
-and unproved receipts remain outside G. This retains the rail's existing trust
-in official activity type/condition labels and never infers income from prices.
+`MAKER_REBATE` payments earned exclusively by campaign orders are campaign
+winnings under the refill ruling. Qualification requires both native cash
+proof and complete account order history for the proven condition and earning
+period: every potentially earning order must belong to the campaign. An owner
+order in that population makes the payment contribute zero. The retained v2
+payment shape supplies neither a period nor order IDs, and the current SDK
+order list is open-only. No supported complete attribution source is currently
+wired: such payments stay unknown incoming with `reward_attribution_unproven`,
+contribute zero, and preserve independently proved gains. A condition label,
+accrual date, trade-only history or an asserted completeness flag cannot replace
+the missing proof. Yield/referral credits and deposits remain outside G.
 The December actual-cash
 P quantities and final-look verdict are unchanged by this admission-only basis.
 Each durable placement intent records its observed basis, gross loss, gains,

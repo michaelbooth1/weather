@@ -117,7 +117,8 @@ def test_postbridge_unknown_income_never_funds_new_risk_or_permanently_blocks(tm
     ledger.record('capital_resolution', source=row, source_sha256=digest(row),
                   previous_source_sha256=book.sources[book.unknown[0]], native_evidence=proof([row], incoming=250_000_000))
     book = CapitalBook(ledger)
-    assert not book.unknown and book.incentives == 250_000_000 and book.external == 0
+    assert book.unknown and book.blocking_unknown() == [] and book.incentives == 250_000_000 and book.external == 0
+    assert 'reward_attribution_unproven' in book.figures()['retained_gains_reason_codes']
     assert book.figures()['funding_native'] == 100_000_000
 
 

@@ -238,6 +238,14 @@ def test_cli_binding_fault_publishes_incident_even_before_outer_state_assignment
         monkeypatch.setattr(cli, 'DEFAULT_STATE_ROOT', runtime.state.root.parent)
         monkeypatch.setattr(cli, 'CONTROL_ROOT', runtime.control_root)
         monkeypatch.setattr(cli, 'account_lease', lambda maker: nullcontext())
+        if command == 'status':
+            from weather.market import lfc_campaign_guard as guard
+            monkeypatch.setattr(guard, 'account_lease_busy', lambda maker: False)
+            before = {str(p): p.read_bytes() for p in runtime.state.root.rglob('*') if p.is_file()}
+            assert cli.main([command, '--release', 'fixture', '--release-sha256', 'a'*64]) == 1
+            assert before == {str(p): p.read_bytes() for p in runtime.state.root.rglob('*') if p.is_file()}
+            assert not list(runtime.control_root.glob('*'))
+            return  # Observation reports the fault; only an owning check/tick latches it.
         assert cli.main([command, '--release', 'fixture', '--release-sha256', 'a'*64]) == 1
         row = latest_control(runtime.control_root)
         assert row['phase'] == 'INCIDENT' and row['incident'] is True

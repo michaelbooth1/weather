@@ -244,8 +244,9 @@ def test_withdrawal_spends_setaside_pools_before_principal(tmp_path, unknown):
         with pytest.raises(CapitalRefused, match='capital_unknown_outgoing_cost'):
             book.gate(reserve='1', available_cash='298')
         known = {**withdrawal, 'usdc_size': '47'}
+        debit = next(key for key in book.unknown if book.activities[key]['type'] == 'WITHDRAWAL')
         ledger.record('capital_resolution', source=known, source_sha256=digest(known),
-                      previous_source_sha256=book.sources[book.unknown[0]])
+                      previous_source_sha256=book.sources[debit])
     book = CapitalBook(ledger)
     assert book.external == book.profit == book.incentives == 0
     assert book.costs == 2_000_000 and book.cash_out == 47_000_000

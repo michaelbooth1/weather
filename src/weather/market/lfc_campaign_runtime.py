@@ -14,7 +14,7 @@ import uuid
 
 from weather.market.lfc_accounting import inventory_delta, quantity
 from weather.market.lfc_campaign import OwnerStopRequested, TransientPrecheck
-from weather.market.lfc_campaign_control import control_record, active_incidents, orders_unproven, stable_id
+from weather.market.lfc_campaign_control import control_record, active_incidents, orders_unproven, stable_id, known_live_orders
 from weather.market.lfc_campaign_guard import (ExclusiveWorkload, OwnedHold, HOLD_PATH, CAMPAIGN_WORK_LOCK, AdmissionBusy,
                                                workstation_headroom)
 from weather.market.lfc_campaign_policy import PROTOCOL, ZONE, load_policy, parse_policy
@@ -137,6 +137,7 @@ class ScheduledAuthority:
                     gaps = True
             control_record(self.runtime.control_root, self.claim['attempt_id'], phase='RUNNING', now=now,
                            research_gaps=gaps, reason='running', orders_open_unproven=orders_unproven(self.runtime.state, self.runtime),
+                           orders_live=known_live_orders(self.runtime.state),
                            policy_metadata=claim_labels(self.policy, self.claim, self.entry))
             self.last_control = mono
         if not load_policy(self.runtime.policy_path).raw['enabled'] or not self.runtime.task_enabled():

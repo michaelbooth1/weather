@@ -193,6 +193,10 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                      python_path=args.python, output=args.release)
         print('Campaign release sealed; task activation remains owner-only.')
         return 0
+    if args.command == 'status':
+        from weather.market.lfc_campaign_status import report
+        return report(args, load_release=load_release, validate_release=validate_release,
+                      root=pilot_root, state_root=DEFAULT_STATE_ROOT, control_root=CONTROL_ROOT)
     attempt = attempt or uuid.uuid4().hex
     state = None
     runtime = None
@@ -228,21 +232,6 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
             root, state = bound_state(release, clock,
                 **({'owner_fault_review': True} if args.command in {'owner-close', 'tick'} else {}))
             load = lambda: load_policy(release['campaign_path'])
-            if args.command == 'status':
-                from weather.market.lfc_f2_policy import effective_loss_basis
-                from weather.market.lfc_campaign_control import latest_control, row_is_clean, public_status
-                from weather.market.lfc_capital import CapitalBook
-                policy = load()
-                control = latest_control(CONTROL_ROOT)
-                basis = effective_loss_basis(policy)
-                print(json.dumps({'state': 'STATUS', 'sleeve_loss_basis': basis,
-                    'basis_explicit': 'sleeve_loss_basis' in policy.raw,
-                    'active_sleeve_loss_basis': state.ledger.sleeve_loss_basis,
-                    'claims': [{'attempt_id': claim['attempt_id'],
-                        'sleeve_loss_basis': claim.get('sleeve_loss_basis', 'gross')} for claim in state.claims()],
-                    'capital': CapitalBook(state.ledger).figures(loss_basis=basis),
-                    'control': public_status(control), 'clean': row_is_clean(control)}))
-                return 0 if row_is_clean(control) else 1
             if args.command == 'final-look':
                 from weather.market.lfc_f2_final import write_final
                 row = write_final(state, load(), root=root, output=args.output, now=clock.now())

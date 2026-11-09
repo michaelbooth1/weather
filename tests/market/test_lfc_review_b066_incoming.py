@@ -70,17 +70,19 @@ def test_unknown_owner_deposit_never_becomes_gain_after_proof_or_reopen(tmp_path
 
 @pytest.mark.parametrize('basis',BASES)
 def test_campaign_reward_requires_native_proof_and_is_credited_once(tmp_path,basis):
+    """B068: native cash alone is not complete earning-order attribution."""
     ledger,*_=settled_pair(tmp_path,basis,winner=False)
     source,proof=incoming(ledger,campaign=True)
     assert CapitalBook(ledger).figures()['retained_gains_available_native']==0
     resolve(ledger,source,proof)
     for view in (ledger,Ledger.open(ledger.path,clock=ledger.clock)):
         row=CapitalBook(view).figures()
-        assert row['proven_campaign_profit_cumulative_native']==5_000_000
-        assert row['retained_gains_available_native']==5_000_000
-        assert row['headroom_native']==(295_400_000 if basis!='gross' else 290_400_000)
+        assert row['proven_campaign_profit_cumulative_native']==0
+        assert row['retained_gains_available_native']==0
+        assert row['headroom_native']==290_400_000
+        assert 'reward_attribution_unproven' in row['retained_gains_reason_codes']
     with pytest.raises((CapitalRefused,LedgerUnavailable),match='capital_resolution_scope'):resolve(ledger,source,proof)
-    assert CapitalBook(ledger).figures()['proven_campaign_profit_cumulative_native']==5_000_000
+    assert CapitalBook(ledger).figures()['proven_campaign_profit_cumulative_native']==0
 
 
 def test_unknown_outgoing_still_zeros_offset_and_refuses_post(tmp_path):
@@ -155,7 +157,7 @@ def test_native_income_still_requires_a_campaign_condition_and_supported_type(tm
     ledger,*_=settled_pair(tmp_path,'net_of_retained_gains',winner=False)
     incoming(ledger,kind=kind,campaign=campaign,missing=False)
     row=CapitalBook(ledger).figures()
-    expected=5_000_000 if campaign and kind in {'REWARD','MAKER_REBATE'} else 0
+    expected=0  # No retained complete earning-period order history.
     assert row['proven_campaign_profit_cumulative_native']==expected
     assert row['proven_campaign_paid_incentives_native']==expected
 
@@ -186,10 +188,10 @@ def test_withdrawn_paid_reward_cannot_be_replaced_by_owner_deposit(tmp_path,basi
     incoming(ledger,kind='DEPOSIT',amount='20',missing=False,nonce=73)
     for view in (ledger,Ledger.open(ledger.path,clock=ledger.clock)):
         book=CapitalBook(view);row=book.figures()
-        assert row['proven_campaign_profit_cumulative_native']==5_000_000
+        assert row['proven_campaign_profit_cumulative_native']==0
         assert row['retained_gains_available_native']==0
         assert row['headroom_native']==290_400_000
-        assert 'gains_not_retained' in row['retained_gains_reason_codes']
+        assert 'reward_attribution_unproven' in row['retained_gains_reason_codes']
         with pytest.raises(CapitalRefused,match='capital_total_ceiling'):
             book.gate(reserve='290.400001',available_cash='1000')
 
@@ -203,13 +205,19 @@ def test_local_status_reports_amount_local_quarantine_and_reduction_reasons(tmp_
     ledger,state,*_=settled_pair(tmp_path,'net_of_retained_gains')
     incoming(ledger)
     path=tmp_path/'campaign.json';path.write_text(json.dumps(example_policy()))
-    monkeypatch.setattr(cli,'load_release',lambda *a:{'campaign_path':str(path),'maker_address':MAKER})
+    monkeypatch.setattr(cli,'load_release',lambda *a:{'campaign_path':str(path),'maker_address':MAKER,
+        'state_id':ledger.enrollment['state_id'],'ledger_genesis_sha256':ledger.row_sha256(0)})
     monkeypatch.setattr(cli,'validate_release',lambda *a:None)
     monkeypatch.setattr(cli,'bound_state',lambda *a,**kw:(ledger.path.parent,state))
     # The autouse fixture already owns the synthetic account mutex.
     monkeypatch.setattr(cli,'account_lease',lambda maker:nullcontext())
     monkeypatch.setattr(cli,'CONTROL_ROOT',tmp_path/'control')
-    control_record(tmp_path/'control','a'*32,phase='COMPLETE',now=ledger.clock())
+    monkeypatch.setattr(cli,'pilot_root',lambda:ledger.path.parent)
+    monkeypatch.setattr(cli,'DEFAULT_STATE_ROOT',state.root.parent)
+    from weather.market import lfc_campaign_guard as guard
+    from datetime import datetime,timezone
+    monkeypatch.setattr(guard,'account_lease_busy',lambda maker:False)
+    control_record(tmp_path/'control','a'*32,phase='COMPLETE',now=datetime.now(timezone.utc))
     result=cli.main(['status','--release','fixture','--release-sha256','a'*64])
     output=capsys.readouterr().out
     assert result==0, output

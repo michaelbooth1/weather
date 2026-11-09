@@ -1,5 +1,6 @@
 """Embargo-safe agent projection; detailed monetary evidence stays owner-only."""
 from pathlib import Path
+from datetime import datetime, timezone
 import hashlib
 import uuid
 import re
@@ -11,6 +12,7 @@ CONTROL_SCHEMA = 'lfc_campaign_control_v0.1'
 CONTROL_ROOT = Path(r'C:\t\pilot\status\control')
 SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_PENDING', 'COMPLETE', 'INCIDENT', 'REFUSED', 'EVIDENCE_GAP'}
 SAFE_REASONS = {
+    'stale_control_row', 'control_row_unknown',
     'wrapper_launch_missing_or_invalid', 'wrapper_policy_changed', 'wrapper_cleanup_budget_insufficient','idle', 'transport_deferred', 'window_missed', 'campaign_disabled', 'running', 'postcheck_pending',
                 'completed', 'account_incident', 'policy_refused', 'release_refused', 'policy_changed',
                 'owner_stop', 'market_local_horizon', 'admission_busy', 'hold_retained',
@@ -56,10 +58,28 @@ def orders_unproven(state, runtime=None):
 
 def needs_attention(row):
     """Compatibility consumer; use the single exported clean-row contract."""
-    return not row_is_clean(row)
+    return evaluate_row(row)[1] == 1
 
 
-def row_is_clean(row):
+def known_live_orders(state):
+    """Acknowledged resting orders are normal; an unacked intent is not."""
+    legs = state.ledger.unresolved_legs()
+    return bool(legs) and all(leg['status'] == 'open' and leg['order_id'] for leg in legs)
+
+
+def normal_live(row):
+    return (isinstance(row, dict) and row.get('phase') == 'RUNNING' and
+            row.get('orders_live') is True and row.get('orders_open_unproven') is True and
+            row.get('incident') is False and row.get('attention_required') is False and
+            row.get('postchecks_pending') is False and row.get('account_read') is not False)
+
+
+def row_is_clean(row, *, now=None, max_age_seconds=900):
+    """A clean observation requires fresh time, a known phase and exact flags."""
+    return evaluate_row(row, now=now, max_age_seconds=max_age_seconds)[1] == 0
+
+
+def flags_are_clean(row):
     """Missing/null is UNKNOWN, including inconsistent or legacy projections."""
     return (isinstance(row, dict) and all(row.get(key) is False for key in
             ('attention_required', 'incident', 'orders_open_unproven')) and row.get('account_read') is not False)
@@ -68,21 +88,79 @@ def row_is_clean(row):
 def flags_need_attention(row):
     """Producer calculation, before the attention_required field is written."""
     return (row.get('phase') in {'INCIDENT', 'POSTCHECK_PENDING', 'REFUSED', 'DEFERRED', 'MISSED', 'EVIDENCE_GAP'} or
-            row.get('account_read') is False or row.get('incident') is not False or
-            row.get('orders_open_unproven') is not False)
+            row.get('postchecks_pending') is True or row.get('account_read') is False or row.get('incident') is not False or
+            row.get('orders_open_unproven') is not False and not (
+                row.get('phase') == 'RUNNING' and row.get('orders_live') is True and
+                row.get('orders_open_unproven') is True and row.get('postchecks_pending') is False))
 
 
-def public_status(row):
+def public_status(row, *, now=None):
     """Safe watch/toast projection: no monetary figures or private paths."""
-    result = {key: row.get(key) for key in ('attempt_id', 'phase', 'incident', 'orders_open_unproven')}
-    result['attention_required'] = not row_is_clean(row)
+    row = row if isinstance(row, dict) else {}
+    identity = row.get('attempt_id')
+    phase = row.get('phase') if isinstance(row.get('phase'), str) else None
+    result = {'attempt_id': identity if isinstance(identity, str) and re.fullmatch('[0-9a-f]{32}', identity) else None,
+              'phase': phase if phase in SAFE_STATES else None,
+              **{key: row.get(key) if type(row.get(key)) is bool else None
+                 for key in ('incident', 'orders_open_unproven')}}
+    age, code, reason, stamp = evaluate_row(row, now=now)
+    result['attention_required'] = code == 1
+    result['at_utc'] = stamp
+    if row.get('orders_live') is True:
+        result['orders_live'] = True
+        result['postchecks_pending'] = row.get('postchecks_pending') if type(row.get('postchecks_pending')) is bool else None
     if row.get('account_not_read') is True:
         result['account_not_read'] = True
-    if row.get('reason') in SAFE_REASONS:
-        result['reason'] = row['reason']
-    if row.get('sleeve_loss_basis') in {'gross', 'net_of_retained_gains'}:
+    if isinstance(reason, str) and reason in SAFE_REASONS:
+        result['reason'] = reason
+    if isinstance(row.get('sleeve_loss_basis'), str) and row.get('sleeve_loss_basis') in {'gross', 'net_of_retained_gains'}:
         result['sleeve_loss_basis'] = row['sleeve_loss_basis']
     return result
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def evaluate_row(row, *, now=None, max_age_seconds=900):
+    """Shared classification for every watch, status, projection and notice."""
+    row = row if isinstance(row, dict) else {}
+    if type(max_age_seconds) not in (int, float) or not 0 < max_age_seconds < float('inf'):
+        raise ValueError('control_max_age')
+    now = utc_now() if now is None else now
+    age, stamp = None, None
+    try:
+        stamp = datetime.fromisoformat(row['at_utc'])
+        if stamp.utcoffset() is None:
+            raise ValueError('control_time_unknown')
+        age, stamp = (now - stamp).total_seconds(), stamp.isoformat()
+    except (KeyError, TypeError, ValueError):
+        age, stamp = None, None
+    reason = row.get('reason')
+    phase = row.get('phase') if isinstance(row.get('phase'), str) else None
+    code = 0 if flags_are_clean(row) else 2 if normal_live(row) else 1
+    if phase not in SAFE_STATES or row.get('postchecks_pending') is True:
+        code, reason = 1, 'control_row_unknown'
+    if phase in {'INCIDENT', 'POSTCHECK_PENDING', 'REFUSED', 'DEFERRED', 'MISSED', 'EVIDENCE_GAP'}:
+        code = 1
+    if age is None or age < 0:
+        code, reason = 1, 'control_row_unknown'
+    elif age >= max_age_seconds:
+        code, reason = 1, 'stale_control_row'
+    return age, code, reason, stamp
+
+
+def watch_status(row, *, now=None, max_age_seconds=900):
+    """One watch contract: 0 clean idle, 2 proved normal live, 1 attention."""
+    age, code, reason, stamp = evaluate_row(row, now=now, max_age_seconds=max_age_seconds)
+    result = public_status(row, now=now)
+    result['age_seconds'] = age
+    result.pop('reason', None)
+    if isinstance(reason, str) and reason in SAFE_REASONS:
+        result['reason'] = reason
+    result.update(clean=code == 0, attention_required=code == 1,
+                  watch_state='clean_idle' if code == 0 else 'live_orders' if code == 2 else 'attention')
+    return result, code
 
 
 def latest_control(root):
@@ -104,14 +182,16 @@ def main(argv=None):
     import json
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument('--root', type=Path, default=CONTROL_ROOT)
-    row = latest_control(parser.parse_args(argv).root)
-    print(json.dumps({**public_status(row), 'clean': row_is_clean(row)}))
-    return 0 if row_is_clean(row) else 1
+    parser.add_argument('--max-row-age-seconds', type=float, default=900)
+    args = parser.parse_args(argv)
+    result, code = watch_status(latest_control(args.root), max_age_seconds=args.max_row_age_seconds)
+    print(json.dumps(result))
+    return code
 
 
 def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_pending=False,
                    evidence_sha256=None, research_gaps=False, reason=None, policy_metadata=None,
-                   orders_open_unproven=False, account_not_read=False):
+                   orders_open_unproven=False, account_not_read=False, orders_live=False):
     if phase not in SAFE_STATES:
         raise ValueError('control_phase')
     if not isinstance(attempt_id, str) or not re.fullmatch(r'[0-9a-f]{32}', attempt_id):
@@ -129,6 +209,10 @@ def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_p
            'orders_open_unproven': orders_open_unproven,
            'postchecks_pending': postchecks_pending is True, 'research_gaps': research_gaps is True,
            'evidence_sha256': evidence_sha256}
+    if orders_live is True:
+        if phase != 'RUNNING' or orders_open_unproven is not True:
+            raise ValueError('control_live_context')
+        row['orders_live'] = True
     if account_not_read is True:
         row['account_not_read'] = True
         row.update(account_read=False, orders_open_unproven=None, incident=None)

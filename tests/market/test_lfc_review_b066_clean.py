@@ -1,5 +1,6 @@
 """Guards: B066 all consumers use one conservative clean-row rule."""
 import json
+from datetime import datetime, timezone
 import pytest
 from weather.market import lfc_campaign_control as control
 
@@ -7,7 +8,8 @@ from weather.market import lfc_campaign_control as control
 @pytest.mark.parametrize('field',['incident','orders_open_unproven','attention_required'])
 @pytest.mark.parametrize('value',['missing',None,False,True])
 def test_clean_rule_handles_every_unknown_or_boolean_field(field,value):
-    row={'incident':False,'orders_open_unproven':False,'attention_required':False}
+    row={'incident':False,'orders_open_unproven':False,'attention_required':False,
+         'phase':'IDLE','at_utc':datetime.now(timezone.utc).isoformat()}
     if value=='missing':row.pop(field)
     else:row[field]=value
     assert control.row_is_clean(row) is (value is False)

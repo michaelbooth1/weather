@@ -273,6 +273,9 @@ class CapitalBook:
                 self.cash_in += cash
             allocation_unknown = (kind == 'REDEEM' and (item.get('principal_unproved') or
                                   self.redemptions[item['id']].get('unallocated')))
+            if kind in {'REWARD', 'MAKER_REBATE'}:
+                from weather.market.lfc_capital_income import campaign_income
+                allocation_unknown = not campaign_income(self, item, native_proven=evidence is not None)
             if item['id'] in self.unknown and not allocation_unknown:
                 self.unknown.remove(item['id'])
             self.activities[item['id']], self.sources[item['id']] = item, row['source_sha256']
@@ -366,6 +369,8 @@ class CapitalBook:
             from weather.market.lfc_capital_income import campaign_income
             if campaign_income(self, activity, native_proven=native_proven):
                 gain = cash
+            elif activity['type'] in {'REWARD', 'MAKER_REBATE'} and activity['id'] not in self.unknown:
+                self.unknown.append(activity['id'])
         movement = {'kind': 'credit', 'pool': pool, 'amount': cash, 'activity_id': activity['id'],
                     'proven_campaign_gain_native': gain,
                     'timestamp': activity['timestamp'],

@@ -89,6 +89,31 @@ def account_owned(maker):
     return account_key(maker) in getattr(_owned, 'accounts', set())
 
 
+def account_lease_busy(maker):
+    """Observe existence only: never wait on, acquire or create the mutex.
+
+    The account guard closes its only handle on release. A handle observed in
+    the short create/acquire/release intervals also counts busy, conservatively.
+    """
+    if account_owned(maker):
+        return True
+    if os.name != 'nt':
+        raise AdmissionUncertain('windows_required')
+    import ctypes
+    from ctypes import wintypes
+    api = ctypes.WinDLL('kernel32', use_last_error=True)
+    api.OpenMutexW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    api.OpenMutexW.restype = wintypes.HANDLE
+    api.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = api.OpenMutexW(0x00100000, False, r'Global\WeatherLFCCampaignAccount.' + account_key(maker))
+    if handle:
+        api.CloseHandle(handle)
+        return True
+    if ctypes.get_last_error() == 2:  # ERROR_FILE_NOT_FOUND: no guard object.
+        return False
+    raise AdmissionUncertain('account_guard_observation_unavailable')
+
+
 def require_account(maker):
     if not account_owned(maker):
         raise AdmissionUncertain('account_guard_required')

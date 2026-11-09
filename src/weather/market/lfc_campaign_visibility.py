@@ -53,7 +53,9 @@ def notify_control(runtime, row):
     """No detailed outcome, exception text or private path enters the toast."""
     from weather.market.lfc_pilot import notify_owner
     from weather.market.lfc_campaign_control import public_status
-    signature = public_status(row)
+    projection = public_status(row, now=runtime.clock.now() if hasattr(runtime, 'clock') else None)
+    # Timestamp freshness must not turn a stable incident into a toast storm.
+    signature = {k: v for k, v in projection.items() if k != 'at_utc'}
     previous = getattr(runtime, '_last_control_notice', None)
     if previous is None:
         path = runtime.control_root.parent / 'notifications.jsonl'
@@ -68,9 +70,11 @@ def notify_control(runtime, row):
                             continue
             except OSError:
                 pass
+    if isinstance(previous, dict):
+        previous = {k: v for k, v in previous.items() if k != 'at_utc'}
     runtime._last_control_notice = signature
     if row['phase'] in {'INCIDENT', 'POSTCHECK_PENDING', 'COMPLETE', 'MISSED', 'REFUSED', 'DEFERRED', 'EVIDENCE_GAP'} and signature != previous:
-        return notify_owner(runtime.control_root.parent, {}, public_status=signature)
+        return notify_owner(runtime.control_root.parent, {}, public_status=projection)
 
 
 def stalled(runtime, claim, *, last_progress, now_mono, exit_process=os._exit, phase='QUOTING'):

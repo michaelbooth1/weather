@@ -369,10 +369,10 @@ def notify_owner(root, summary, *, runner=subprocess.run, printer=print, windows
     notification record (delivered or the recorded failure), which goes into session_end.json."""
     line = result_line(summary)
     if public_status is not None:
-        from weather.market.lfc_campaign_control import SAFE_STATES, SAFE_REASONS, row_is_clean
+        from weather.market.lfc_campaign_control import SAFE_STATES, SAFE_REASONS, needs_attention
         allowed = {'phase', 'attempt_id', 'orders_open_unproven'}
         unread = public_status.get('account_not_read') is True
-        if (not allowed <= set(public_status) <= allowed | {'reason', 'account_not_read', 'incident', 'attention_required', 'sleeve_loss_basis'} or
+        if (not allowed <= set(public_status) <= allowed | {'reason', 'account_not_read', 'incident', 'attention_required', 'sleeve_loss_basis', 'orders_live', 'postchecks_pending', 'at_utc'} or
                 public_status['phase'] not in SAFE_STATES or
                 'reason' in public_status and public_status['reason'] not in SAFE_REASONS or
                 not re.fullmatch('[0-9a-f]{32}', str(public_status['attempt_id'])) or
@@ -383,8 +383,19 @@ def notify_owner(root, summary, *, runner=subprocess.run, printer=print, windows
         if 'account_not_read' in public_status and (public_status['account_not_read'] is not True or
                 public_status['phase'] != 'DEFERRED' or public_status['orders_open_unproven'] is not None):
             raise ValueError('notification_account_read_context')
+        if any(key in public_status and type(public_status[key]) is not bool
+               for key in ('orders_live', 'postchecks_pending')):
+            raise ValueError('notification_public_status')
+        stamp = public_status.get('at_utc')
+        if stamp is not None:
+            try:
+                if len(stamp) > 40 or datetime.fromisoformat(stamp).utcoffset() is None:
+                    raise ValueError('notification_time')
+            except (TypeError, ValueError):
+                raise ValueError('notification_public_status') from None
         context = ('account not read; attention required' if unread else
-                   ('' if row_is_clean(public_status) else 'attention required; ') +
+                   'live_orders (normal)' if public_status.get('orders_live') is True and not needs_attention(public_status) else
+                   ('' if not needs_attention(public_status) else 'attention required; ') +
                    f"orders_open_unproven={str(public_status['orders_open_unproven']).lower()}")
         line = f"LFC {public_status['phase']} attempt_id={public_status['attempt_id']} {context}"
         if 'reason' in public_status:

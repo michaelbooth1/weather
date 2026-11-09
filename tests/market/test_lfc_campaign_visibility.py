@@ -30,13 +30,13 @@ def test_phase_notification_is_safe_and_deduplicated(tmp_path, monkeypatch, phas
     from weather.market import lfc_pilot
     calls = []
     monkeypatch.setattr(lfc_pilot, 'notify_owner', lambda root, summary, **kw: calls.append((root, summary, kw)))
-    runtime = SimpleNamespace(control_root=tmp_path / 'control')
+    runtime = SimpleNamespace(control_root=tmp_path / 'control', clock=Clock())
     row = control_record(runtime.control_root, 'a' * 32, phase=phase, now=Clock().now())
     notify_control(runtime, row)
     notify_control(runtime, row)
     assert len(calls) == 1 and calls[0][1] == {}
     assert set(calls[0][2]['public_status']) == {'phase', 'attempt_id', 'orders_open_unproven',
-                                               'incident', 'attention_required'}
+                                               'incident', 'attention_required', 'at_utc'}
     notify_control(runtime, {**row, 'phase': 'RUNNING'})
     notify_control(runtime, row)
     assert len(calls) == 2
