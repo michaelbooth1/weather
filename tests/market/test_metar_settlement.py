@@ -112,11 +112,12 @@ def test_synthetic_dst_skipped_and_repeated_hours(day, instants):
 
 
 @pytest.mark.parametrize("token", ["T0165010", "T016X0100", "T21650100", "T016501009"])
-def test_malformed_t_group_is_counted_and_never_falls_back(token):
+def test_malformed_t_group_is_counted_and_body_governs(token):
     record = report(f"METAR CYYZ 081800Z 20/04 RMK {token}")
     assert "malformed_t_group" in record.flags
     assert record.body_temperature_c == 20
-    assert record.temperature_c is None
+    assert record.temperature_c == 20
+    assert record.value_basis == "body_t_group_malformed"
 
 
 def test_t_group_negative_body_minus_and_invalid_groups():
@@ -140,7 +141,8 @@ def test_missing_day_waits_then_falls_back_and_lowest_bracket():
     assert evaluate([]).status == "missing"
     result = evaluate([], as_of=END + timedelta(hours=5), wu_values=(Decimal(12), Decimal(3)))
     assert (result.status, result.maximum, result.minimum) == ("wu_fallback", 12, 3)
-    fallback = evaluate([], as_of=END + timedelta(hours=5))
+    assert evaluate([], as_of=END + timedelta(hours=5)).status == "awaiting_wu_fallback"
+    fallback = evaluate([], as_of=END + timedelta(hours=5), wu_empty=True)
     assert fallback.status == "lowest_bracket_fallback"
     bins = [parse_bin_label(label) for label in ("10°C", "9°C or below", "11°C or higher")]
     assert [p.interval.label for p in possible_bins(fallback, "lowest", bins) if p.possible] == ["9°C or below"]
@@ -178,3 +180,71 @@ def test_us_engine_uses_tenths_before_conversion_and_lowest_direction():
     bins = [parse_bin_label(label) for label in ("63°F or below", "64-65°F", "66°F or higher")]
     assert [p.possible for p in possible_bins(result, "highest", bins)] == [False, True, True]
     assert [p.possible for p in possible_bins(result, "lowest", bins)] == [True, True, False]
+
+
+def test_review_m1_valid_t_group_governs_over_malformed_body_and_unused_dew_sign():
+    for raw in ("METAR KLGA 081800Z 2X/10 RMK T01830100",
+                "METAR KLGA 081800Z 2X/10 RMK T01839100"):
+        record = report(raw)
+        assert record.temperature_c == Decimal("18.3")
+        assert record.value_basis == "t_group"
+        result = evaluate([raw, "METAR KLGA 090500Z 10/04"], city="nyc", as_of=END)
+        assert result.maximum == 65
+        assert result.status == "final"
+    assert report("METAR CYYZ 081800Z 20/04 RMK T0165010").temperature_c == 20
+
+
+def test_review_m3_next_day_report_never_means_wu_is_empty():
+    raws = ["METAR CYYZ 090500Z 10/04"]
+    early = datetime(2026, 11, 9, 5, 10, tzinfo=timezone.utc)
+    bins = [parse_bin_label(label) for label in ("9°C or below", "10°C", "11°C or higher")]
+    for kwargs in ({}, {"wu_empty": True}, {"wu_values": (Decimal(12), Decimal(3))}):
+        result = evaluate(raws, as_of=early, **kwargs)
+        assert result.status == "awaiting_wu_fallback"
+        assert all(p.possible for p in possible_bins(result, "highest", bins))
+    deadline = datetime(2026, 11, 10, 4, 59, tzinfo=timezone.utc)
+    result = evaluate(raws, as_of=deadline)
+    assert result.status == "awaiting_wu_fallback"
+    assert all(p.possible for p in possible_bins(result, "highest", bins))
+    assert evaluate(raws, as_of=deadline, wu_empty=True).status == "lowest_bracket_fallback"
+    with pytest.raises(ValueError, match="both empty"):
+        evaluate(raws, as_of=deadline, wu_empty=True, wu_values=(Decimal(12), Decimal(3)))
+    with pytest.raises(ValueError, match="explicit boolean"):
+        evaluate(raws, as_of=deadline, wu_empty="False")
+
+
+def test_bin_bound_carries_cutoff_witness_and_invalidating_events():
+    result = evaluate(["METAR CYYZ 081800Z 14/04"])
+    (bound,) = possible_bins(result, "highest", [parse_bin_label("13°C or below")])
+    assert not bound.possible
+    assert bound.conditional_until == result.cutoff
+    assert bound.witness_observation_time == datetime(2026, 11, 8, 18, tzinfo=timezone.utc)
+    assert set(bound.invalidating_events) == {"awc_cor_or_unmarked_replacement", "clearly_erroneous_print_correction"}
+
+
+def test_legacy_shortened_t_group_divergence_is_preserved():
+    from weather.sources.metar_history import report_temperature_c
+    raw = "METAR KDEN 081800Z 06/M03 RMK T0056"
+    legacy, _ = report_temperature_c(raw)
+    strict = report(raw)
+    assert settlement_bucket(legacy, "F") == 42
+    assert settlement_bucket(strict.temperature_c, "F") == 43
+    assert strict.value_basis == "body_t_group_malformed"
+
+
+def test_supplied_raw_fixture_label_dates_have_no_shortened_t_group_divergence():
+    from weather.sources.metar_history import report_temperature_c
+    changed_dates = set()
+    for row in SUMMARY:
+        station = row["icao"]
+        raw = (FIXTURE / "per-station" / f"{station}.txt").read_text(encoding="utf-8")
+        reports, _ = parse_metar_text(raw, START, END)
+        for item in reports:
+            if not item.routine or item.temperature_c is None:
+                continue
+            legacy, _ = report_temperature_c(item.raw)
+            if legacy is not None and settlement_bucket(legacy, "F" if station.startswith("K") else "C") != settlement_bucket(
+                item.temperature_c, "F" if station.startswith("K") else "C"
+            ):
+                changed_dates.add((station, item.observation_time.date().isoformat()))
+    assert sorted(changed_dates) == []

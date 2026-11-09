@@ -5,6 +5,7 @@
     "stations.json": "7ecdaeb6a0f2042ec9f8b790ff580d3d7bc5ced9b3a1fcb667b02c6d1a8900d4",
     "rules_by_city_family.json": "71e7f2d4cf64cd5947dc0a2d6599174e9564b5fcf6128199594e57ed135efbe0"
   },
+  "rule_pins_sha256": "9f76dbc1ab3d11ce59d63fadbdacbd1cf4f31c4b64c4537e6b0003c487308c70",
   "cities": [
     {
       "slug": "amsterdam",

@@ -59,6 +59,22 @@ above. The strict eight-digit parser and authoritative last-shown revision
 policy for expansion diagnostics are separate compatibility settings described
 in [weather universe](weather-universe.md); they do not relabel historical data.
 
+Known divergence: the legacy source parser accepts a temperature-only shortened
+T-token such as `T0056`. The current venue text requires exactly eight digits;
+expansion parsing therefore uses a body's `06` instead. In Fahrenheit this can
+move 42 to 43. The legacy behavior stays unchanged here; moving production labels
+to the exact-eight-digit rule is a separate production change under the master's
+S6 ruling. Tests document the divergence and compare existing fixture labels.
+
+The shared rule module is included in `daily_refresh_incremental_finalize`'s
+`_VENUE_LOGIC_MODULES`. Its bytes enter `venue_logic_sha256` through
+`venue_label_sources`, then the incremental input key. Merging this extraction
+changes `venue_rule_labels.py` bytes: the next venue-mode Stage-A run re-finalizes
+every eligible post-cutover venue folder once, even when its label value is
+unchanged. Pre-cutover WU keys are unchanged. The integration owner must count
+that planned set and measure the host pass before merging; the synthetic test
+proves two post-cutover invalidations, two pre-cutover reuses, then full reuse.
+
 ## Station
 
 For a market-date the first match wins:

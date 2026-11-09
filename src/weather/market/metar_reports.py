@@ -33,12 +33,20 @@ class MetarReport:
 
     @property
     def temperature_c(self) -> Decimal | None:
-        if self.observation_time is None or self.station is None or any(
-            flag.startswith("malformed_") or flag.startswith("ambiguous_") for flag in self.flags
-        ):
+        fatal = {"malformed_station", "malformed_or_ambiguous_time", "malformed_receipt_time",
+                 "ambiguous_t_group", "ambiguous_body_temperature", "ambiguous_source_revision"}
+        if self.observation_time is None or self.station is None or fatal.intersection(self.flags):
             return None
         return self.t_group_c if self.t_group_c is not None else (
             Decimal(self.body_temperature_c) if self.body_temperature_c is not None else None)
+
+    @property
+    def value_basis(self) -> str | None:
+        if self.temperature_c is None:
+            return None
+        if self.t_group_c is not None:
+            return "t_group"
+        return "body_t_group_malformed" if "malformed_t_group" in self.flags else "body"
 
 
 def resolve_observation_time(group: str, start: datetime, end: datetime) -> datetime | None:
@@ -91,17 +99,19 @@ def parse_metar(raw: str, start: datetime, end: datetime, *, receipt_time=None) 
     if observed is None:
         flags.append("malformed_or_ambiguous_time")
     t_tokens = [token for token in remarks if re.match(r"T\d", token)]
-    t_value = None
-    if len(t_tokens) > 1:
-        flags.append("ambiguous_t_group")
-    elif t_tokens:
-        match = re.fullmatch(r"T([01])(\d{3})([01])(\d{3})", t_tokens[0])
+    t_values = []
+    for token in t_tokens:
+        # Exactly eight digits; the following four dew-point digits are unused.
+        match = re.fullmatch(r"T([01])(\d{3})\d{4}", token)
         if match:
-            t_value = Decimal(int(match[2]) * (-1 if match[1] == "1" else 1)) / 10
+            t_values.append(Decimal(int(match[2]) * (-1 if match[1] == "1" else 1)) / 10)
         else:
             flags.append("malformed_t_group")
-    else:
+    if len(t_values) > 1:
+        flags.append("ambiguous_t_group")
+    if not t_tokens:
         flags.append("t_group_missing")
+    t_value = t_values[0] if len(t_values) == 1 else None
     temps = []
     for token in body[cursor + 1:]:
         match = re.fullmatch(r"(M?)(\d{2})/(?:M?\d{2}|//)?", token)

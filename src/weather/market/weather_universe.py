@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
@@ -73,6 +73,14 @@ class WeatherCitySpec:
             raise ValueError(f"{self.slug}: unsupported family {family}")
         return self.slug_templates[family].format(
             month=MONTHS[local_date.month - 1], day=local_date.day, year=local_date.year)
+
+    def resolution_source_url(self, local_date: date) -> str:
+        """Inferred from the samples: next local midnight + 3 h, in UTC, hours=30."""
+        next_midnight = datetime.combine(local_date + timedelta(days=1), time(), ZoneInfo(self.timezone))
+        end = (next_midnight + timedelta(hours=3)).astimezone(timezone.utc)
+        return self.resolution_source_url_template.format(
+            station_id=self.station_id, end_utc=end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            local_date=local_date.isoformat(), year=local_date.year, month=local_date.month, day=local_date.day)
 
 
 def load_weather_universe(path: str | Path | None = None) -> dict[str, WeatherCitySpec]:

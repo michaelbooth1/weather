@@ -1,47 +1,70 @@
-"""Free HKO climate-data reader, with an explicit initial-publication limitation."""
+"""Read the named HKO Daily Extract endpoint, preserving initial-print uncertainty."""
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+import json
 from zoneinfo import ZoneInfo
 
 from weather.market.metar_reports import aware_utc
 from weather.market.metar_settlement import DailySettlement
 
 
-def hko_value(payload, day: date, family: str) -> Decimal | None:
-    """Read HKO's CLMMAXT/CLMMINT JSON schema, not an airport METAR or provisional RHR."""
-    expected = "Daily Maximum Temperature" if family == "highest" else "Daily Minimum Temperature"
-    if family not in {"highest", "lowest"} or not any(
-        expected in title and "Hong Kong Observatory" in title for title in payload.get("type", [])
-    ):
-        raise ValueError("wrong HKO series/station")
-    fields = payload.get("fields", [])
-    if len(fields) != 5 or not all(word in fields[i] for i, word in enumerate(
-        ("Year", "Month", "Day", "Value", "Completeness")
-    )):
-        raise ValueError("unknown HKO schema")
-    values = []
-    for row in payload.get("data", []):
-        if len(row) != 5:
-            raise ValueError("malformed HKO row")
-        try:
-            row_day = date(*map(int, row[:3]))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("malformed HKO date") from exc
-        if row_day != day:
-            continue
-        if row[4] != "C":
-            return None
-        try:
-            value = Decimal(row[3])
-        except InvalidOperation as exc:
-            raise ValueError("malformed HKO value") from exc
-        if not value.is_finite() or value != value.quantize(Decimal("0.1")):
-            raise ValueError("invalid HKO precision")
-        values.append(value)
-    if len(values) > 1:
-        raise ValueError("duplicate HKO day")
-    return values[0] if values else None
+@dataclass(frozen=True)
+class DailyExtractSnapshot:
+    year: int
+    month: int
+    # Values are the named Absolute Daily Max / Min columns, not monthly climate data.
+    days: dict[int, tuple[Decimal | None, Decimal | None]]
+
+    @property
+    def covered_through(self):
+        return max(self.days, default=None)
+
+
+def parse_daily_extract(raw: str, year: int, month: int) -> DailyExtractSnapshot:
+    """The official dailyExtract_YYYYMM.xml endpoint serves JSON, despite its suffix.
+
+    dayData columns are day, pressure, absolute max, mean, absolute min,
+    dew point, relative humidity, cloud amount and rain. Monthly summaries
+    are not observations. Year/month come from the exact allowlisted URL.
+    """
+    payload = json.loads(raw)
+    if not isinstance(payload, dict) or not isinstance(payload.get("stn"), dict):
+        raise ValueError("unknown HKO Daily Extract schema")
+    groups = payload["stn"].get("data", [])
+    if not isinstance(groups, list) or len(groups) > 1:
+        raise ValueError("unknown HKO Daily Extract schema")
+    days = {}
+    for group in groups:
+        if group.get("month") != month or not isinstance(group.get("dayData"), list):
+            raise ValueError("wrong HKO Daily Extract month/schema")
+        for row in group["dayData"]:
+            if not isinstance(row, list) or len(row) != 9:
+                raise ValueError("malformed HKO Daily Extract row")
+            if row[0] in {"Mean/Total", "Normal"}:
+                continue
+            try:
+                day = date(year, month, int(row[0])).day
+            except (TypeError, ValueError) as exc:
+                raise ValueError("malformed HKO Daily Extract date") from exc
+            if day in days:
+                raise ValueError("duplicate HKO Daily Extract date")
+            values = []
+            for index in (2, 4):
+                token = str(row[index]).strip()
+                if token in {"", "-", "--", "***", "N/A"}:
+                    values.append(None)
+                    continue
+                try:
+                    value = Decimal(token)
+                except InvalidOperation as exc:
+                    raise ValueError("malformed HKO Daily Extract temperature") from exc
+                if not value.is_finite() or value != value.quantize(Decimal("0.1")):
+                    raise ValueError("invalid HKO Daily Extract precision")
+                values.append(value)
+            days[day] = tuple(values)
+    return DailyExtractSnapshot(year, month, days)
 
 
 class HKODailyExtractAdapter:
@@ -54,19 +77,23 @@ class HKODailyExtractAdapter:
                                   ZoneInfo("America/New_York")).astimezone(timezone.utc)
         if hko_payloads is None and self.reader is not None:
             hko_payloads = self.reader(local_date)
-        if hko_payloads is None:
-            return DailySettlement(spec.slug, local_date, "not_implemented", source="hko_daily_extract",
-                                   notes=("inject public HKO reader or captured climate JSON",))
-        high = hko_value(hko_payloads[0], local_date, "highest")
-        low = hko_value(hko_payloads[1], local_date, "lowest")
+        common = dict(cutoff=cutoff, source="hko_daily_extract")
+        if not isinstance(hko_payloads, DailyExtractSnapshot) or (
+            hko_payloads.year, hko_payloads.month
+        ) != (local_date.year, local_date.month) or (
+            hko_payloads.covered_through is None or local_date.day > hko_payloads.covered_through
+        ):
+            return DailySettlement(spec.slug, local_date, "source_unavailable", **common,
+                                   notes=("Daily Extract does not yet cover the requested date",))
+        high, low = hko_payloads.days.get(local_date.day, (None, None))
         if high is None or low is None:
             return DailySettlement(spec.slug, local_date,
-                                   "lowest_bracket_fallback" if aware_utc(as_of) >= cutoff else "missing",
-                                   cutoff=cutoff, source="hko_daily_extract")
+                                   "lowest_bracket_fallback" if aware_utc(as_of) >= cutoff else "source_unavailable",
+                                   **common)
         if low > high:
             raise ValueError("inverted HKO extrema")
         return DailySettlement(spec.slug, local_date,
                                "final" if initial_publication_verified else "initial_publication_unverified",
-                               high, low, high, low, cutoff=cutoff, source="hko_daily_extract",
+                               high, low, high, low, **common,
                                notes=() if initial_publication_verified else (
-                                   "public climate series can contain revisions; initial Daily Extract receipt required",))
+                                   "initial Daily Extract publication receipt required; revisions remain possible",))

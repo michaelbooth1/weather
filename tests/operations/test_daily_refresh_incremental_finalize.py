@@ -688,6 +688,22 @@ class VenueIncrementalFinalizeTests(unittest.TestCase):
         self.assertEqual(result["finalize_plan"]["refinalize_reasons"], {"inputs_changed": 2})
         self.assertEqual(Path(self.sidecar(POST_CUTOVER[0])["daily_summary_path"]), self.wu_summary)
 
+    def test_shared_venue_rule_module_invalidates_post_cutover_once(self):
+        module = "weather.market.venue_settlement_rules"
+        self.assertIn(module, incremental._VENUE_LOGIC_MODULES)
+        previous_modules = tuple(name for name in incremental._VENUE_LOGIC_MODULES if name != module)
+        with mock.patch.object(incremental, "_VENUE_LOGIC_MODULES", previous_modules):
+            self.run_step("inc")
+        gamma = _Gamma()
+        result = self.run_step("inc", gamma)
+        self.assertEqual(sorted(gamma.calls), sorted(_venue_slug(day) for day in POST_CUTOVER))
+        self.assertEqual(result["finalize_plan"]["refinalize_reasons"], {"inputs_changed": 2})
+        self.assertEqual(result["finalize_plan"]["reused_folder_count"], 2)
+        gamma = _Gamma()
+        result = self.run_step("inc", gamma)
+        self.assertEqual(gamma.calls, [])
+        self.assertEqual(result["finalize_plan"]["reused_folder_count"], 4)
+
     def test_rule_version_station_config_and_cutover_changes_refinalize_post_cutover(self):
         self.run_step("inc")
         post = sorted(_venue_slug(day) for day in POST_CUTOVER)

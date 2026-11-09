@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import shutil
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -12,6 +13,7 @@ import pytest
 
 from weather.market import market_registry
 from weather.market.generate_weather_universe import generate
+from weather.market.universe_rule_contract import load_rule_pins
 from weather.market.weather_universe import load_weather_universe, parse_bin_label
 from weather.paths import config_path, repo_path
 
@@ -109,3 +111,62 @@ def test_loader_rejects_duplicate_slugs(tmp_path):
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate city"):
         load_weather_universe(path)
+
+
+def test_all_sample_resolution_urls_and_eight_reviewed_variants():
+    rows = json.loads((FIXTURE / "inputs" / "rules_by_city_family.json").read_text(encoding="utf-8"))
+    pins = load_rule_pins()
+    assert len(pins["variants"]) == 8
+    count = 0
+    months = {name: n for n, name in enumerate(("january", "february", "march", "april", "may", "june",
+              "july", "august", "september", "october", "november", "december"), 1)}
+    for row in rows:
+        if row["family"] not in {"highest", "lowest"} or row["city"] not in UNIVERSE:
+            continue
+        if not row["resolutionSource"]:
+            continue
+        month, day, year = row["sample_slug"].rsplit("-on-", 1)[1].split("-")
+        day = date(int(year), months[month], int(day))
+        assert UNIVERSE[row["city"]].resolution_source_url(day) == row["resolutionSource"]
+        count += 1
+    assert count == 94
+
+
+@pytest.mark.parametrize("drift", ["rule", "unit", "icao", "window", "query_date", "family_removed", "family_added"])
+def test_generator_refuses_unreviewed_rule_drift(tmp_path, drift):
+    for name in ("city_icao.json", "stations.json", "rules_by_city_family.json"):
+        shutil.copyfile(FIXTURE / "inputs" / name, tmp_path / name)
+    path = tmp_path / "rules_by_city_family.json"
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    row = next(r for r in rows if r["city"] == "toronto" and r["family"] == "highest")
+    if drift == "rule":
+        row["rules"] = row["rules"].replace("does not count", "counts")
+    elif drift == "unit":
+        row["rules"] = row["rules"].replace("whole degrees Celsius", "whole degrees Fahrenheit")
+    elif drift == "icao":
+        row["resolutionSource"] = row["resolutionSource"].replace("CYYZ", "CYTZ")
+    elif drift == "window":
+        row["resolutionSource"] = row["resolutionSource"].replace("hours=30", "hours=24")
+    elif drift == "query_date":
+        row["resolutionSource"] = row["resolutionSource"].replace("08:00:00Z", "09:00:00Z")
+    elif drift == "family_removed":
+        rows.remove(row)
+    else:
+        extra = dict(next(r for r in rows if r["city"] == "jinan" and r["family"] == "highest"))
+        extra["family"] = "lowest"
+        rows.append(extra)
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    with pytest.raises(ValueError, match="drift"):
+        generate(tmp_path)
+
+
+def test_resolution_url_still_covers_a_25_hour_local_day():
+    from urllib.parse import parse_qs, urlparse
+    from datetime import timedelta
+    spec = UNIVERSE["toronto"]
+    day = date(2027, 11, 7)
+    query = parse_qs(urlparse(spec.resolution_source_url(day)).query)
+    end = datetime.fromisoformat(query["date"][0].replace("Z", "+00:00"))
+    start = datetime(2027, 11, 7, tzinfo=ZoneInfo(spec.timezone)).astimezone(timezone.utc)
+    assert end - start == timedelta(hours=28)
+    assert end - timedelta(hours=int(query["hours"][0])) <= start

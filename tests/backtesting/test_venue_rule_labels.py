@@ -46,6 +46,19 @@ def legacy_label_byte_parity(monkeypatch):
         result = current(reports, spec)
         expected = baseline["venue_daily_labels"](reports, spec)
         assert json.dumps(result, sort_keys=True) == json.dumps(expected, sort_keys=True)
+        # S6: none of these pre-existing daily-label cases has a shortened T-group.
+        # The standalone parse_t_group(T1005) witness above has no label date.
+        from weather.market.metar_reports import parse_metar
+        from datetime import timedelta
+        strict_reports = []
+        for row in reports:
+            instant = row["valid_time_utc"]
+            strict = parse_metar(row["raw"], instant - timedelta(hours=1), instant + timedelta(hours=1))
+            strict_reports.append({**row, "temperature_c": strict.temperature_c})
+        strict_labels = current(strict_reports, spec)
+        assert {day: row["max_temp_bucket"] for day, row in result.items()} == {
+            day: row["max_temp_bucket"] for day, row in strict_labels.items()
+        }
         return result
 
     monkeypatch.setattr(vrl, "venue_daily_labels", checked)

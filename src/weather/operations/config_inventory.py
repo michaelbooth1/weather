@@ -18,6 +18,12 @@ DEFAULT_REPORT = data_path("backtest", "config_inventory_report.md")
 DEFAULT_LOCATIONS_MAX_AGE_DAYS = 7
 
 CONFIG_POLICIES = {
+    "weather_universe_rule_pins.json": {
+        "owner": "weather.market.universe_rule_contract",
+        "classification": "reviewed_rule_contract",
+        "freshness_policy": "review_each_rule_variant_or_city_family_binding_change",
+        "max_age_days": None,
+    },
     "weather_universe.json": {
         "owner": "weather.market.weather_universe",
         "classification": "generated_inactive_registry",

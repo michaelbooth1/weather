@@ -4,10 +4,11 @@ import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError
 
 import pytest
 
-from weather.market.hko_settlement import HKODailyExtractAdapter, hko_value
+from weather.market.hko_settlement import HKODailyExtractAdapter, parse_daily_extract
 from weather.market.metar_settlement import WUDailyHistoryAdapter, main, possible_bins
 from weather.market.settlement_public import PublicSettlementClient, public_json_or_text
 from weather.market.weather_universe import load_weather_universe, parse_bin_label
@@ -94,16 +95,15 @@ def test_event_bins_exact_slug_and_labels_only():
     assert client.event_bins("other") == []
 
 
-def hko_payload(family, value="24.8", completeness="C"):
-    return {"type": [f"Daily {'Maximum' if family == 'highest' else 'Minimum'} Temperature (°C) at the Hong Kong Observatory"],
-            "fields": ["年/Year", "月/Month", "日/Day", "數值/Value", "數據完整性/data Completeness"],
-            "data": [["2020", "1", "2", value, completeness]]}
+def hko_payload(day="02", high="24.8", low="15.2", month=1):
+    return json.dumps({"stn": {"data": [{"month": month, "dayData": [
+        [day, "1020.0", high, "20.0", low, "12.0", "70", "50", "0.0"]]}]}})
 
 
 def test_hko_reader_preserves_tenths_and_refuses_to_certify_revisions():
     day = date(2020, 1, 2)
-    payloads = (hko_payload("highest"), hko_payload("lowest", "15.2"))
-    adapter = HKODailyExtractAdapter(lambda target: payloads)
+    snapshot = parse_daily_extract(hko_payload(), 2020, 1)
+    adapter = HKODailyExtractAdapter(lambda target: snapshot)
     result = adapter.evaluate(U["hong-kong"], day, as_of=NOW)
     assert result.maximum == Decimal("24.8")
     assert result.minimum == Decimal("15.2")
@@ -112,22 +112,54 @@ def test_hko_reader_preserves_tenths_and_refuses_to_certify_revisions():
     assert all(p.possible for p in possible_bins(result, "highest", bins))
     final = adapter.evaluate(U["hong-kong"], day, as_of=NOW, initial_publication_verified=True)
     assert [p.interval.label for p in possible_bins(final, "highest", bins) if p.possible] == ["24°C"]
-    assert hko_value(hko_payload("highest", completeness="N"), day, "highest") is None
-    with pytest.raises(ValueError, match="series"):
-        hko_value(payloads[0], day, "lowest")
+    with pytest.raises(ValueError, match="month"):
+        parse_daily_extract(hko_payload(month=2), 2020, 1)
     with pytest.raises(ValueError, match="precision"):
-        hko_value(hko_payload("highest", "24.88"), day, "highest")
+        parse_daily_extract(hko_payload(high="24.88"), 2020, 1)
     assert WUDailyHistoryAdapter().evaluate(U["jinan"], day, as_of=NOW).status == "not_implemented"
 
 
 def test_hko_missing_publication_waits_seven_days():
     day = date(2020, 1, 2)
-    adapter = HKODailyExtractAdapter(lambda target: (hko_payload("highest", completeness="N"),
-                                                    hko_payload("lowest", completeness="N")))
+    snapshot = parse_daily_extract(hko_payload(high="***", low="***"), 2020, 1)
+    adapter = HKODailyExtractAdapter(lambda target: snapshot)
     before = datetime(2020, 1, 10, 4, 58, tzinfo=timezone.utc)
     after = datetime(2020, 1, 10, 4, 59, tzinfo=timezone.utc)
-    assert adapter.evaluate(U["hong-kong"], day, as_of=before).status == "missing"
+    assert adapter.evaluate(U["hong-kong"], day, as_of=before).status == "source_unavailable"
     assert adapter.evaluate(U["hong-kong"], day, as_of=after).status == "lowest_bracket_fallback"
+
+
+def test_review_m2_uncovered_date_never_collapses_to_the_lowest_bin():
+    day = date(2026, 10, 20)
+    snapshot = parse_daily_extract(hko_payload(day="15", month=10), 2026, 10)
+    result = HKODailyExtractAdapter(lambda target: snapshot).evaluate(
+        U["hong-kong"], day, as_of=datetime(2026, 11, 9, 12, tzinfo=timezone.utc))
+    assert result.status == "source_unavailable"
+    bins = [parse_bin_label(label, continuous=True) for label in ("23°C or below", "24°C", "25°C or higher")]
+    assert all(p.possible for p in possible_bins(result, "highest", bins))
+    # A lagged climate-series payload is not the named source at all.
+    climate = ({"data": [["2026", "9", "30", "34.2", "C"]]}, {})
+    result = HKODailyExtractAdapter(lambda target: climate).evaluate(U["hong-kong"], day, as_of=NOW)
+    assert result.status == "source_unavailable"
+
+
+def test_named_daily_extract_endpoint_and_official_development_fixture():
+    from weather.paths import repo_path
+    raw = repo_path("tests", "fixtures", "weather_expansion", "hko_daily_extract_202001.xml").read_text(encoding="utf-8")
+    client, calls = client_for(lambda url: raw)
+    snapshot = client.hko_payloads(date(2020, 1, 2))
+    assert calls[0][1] == "https://www.weather.gov.hk/cis/dailyExtract/dailyExtract_202001.xml"
+    assert snapshot.days[2] == (Decimal("20.4"), Decimal("17.4"))
+    assert snapshot.covered_through == 31
+
+
+def test_an_unpublished_daily_extract_file_is_unavailable():
+    def get(url):
+        raise HTTPError(url, 404, "Not Found", {}, None)
+    client, calls = client_for(get)
+    result = HKODailyExtractAdapter(client.hko_payloads).evaluate(
+        U["hong-kong"], date(2026, 10, 20), as_of=NOW)
+    assert result.status == "source_unavailable"
 
 
 def test_cli_offline_current_event_and_missing_family(monkeypatch, capsys):
@@ -147,3 +179,70 @@ def test_cli_offline_current_event_and_missing_family(monkeypatch, capsys):
     assert out["event_slug"].startswith("highest-temperature-in-toronto-on-")
     assert main(["now", "--family", "lowest", "--cities", "singapore"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "family_unavailable"
+
+
+def test_51_gamma_gets_and_hko_gets_are_paced_per_host():
+    def get(url):
+        if "weather.gov.hk" in url:
+            return hko_payload()
+        slug = parse_qs(urlparse(url).query)["slug"][0]
+        return json.dumps([dict(slug=slug, markets=[dict(groupItemTitle="14°C")])])
+    client, calls = client_for(get)
+    for city in range(51):
+        assert client.event_bins(f"event-{city}") == ["14°C"]
+    for _ in range(3):
+        client.hko_payloads(date(2020, 1, 2))
+    by_host = {}
+    for instant, url in calls:
+        by_host.setdefault(urlparse(url).hostname, []).append(instant)
+    assert len(by_host["gamma-api.polymarket.com"]) == 51
+    for instants in by_host.values():
+        assert all(b - a >= 1 for a, b in zip(instants, instants[1:]))
+
+
+@pytest.mark.parametrize("host", ["gamma-api.polymarket.com", "www.weather.gov.hk"])
+def test_three_consecutive_429s_disable_the_host(host):
+    def get(url):
+        raise HTTPError(url, 429, "Too Many Requests", {}, None)
+    client, calls = client_for(get)
+    for _ in range(3):
+        with pytest.raises(HTTPError):
+            if host == "gamma-api.polymarket.com":
+                client.event_bins("event")
+            else:
+                client.hko_payloads(date(2020, 1, 2))
+    with pytest.raises(OSError, match="stopped.*3 consecutive"):
+        if host == "gamma-api.polymarket.com":
+            client.event_bins("next-event")
+        else:
+            client.hko_payloads(date(2020, 1, 2))
+    assert len(calls) == 3
+    assert [instant for instant, url in calls] == [0, 1, 2]
+
+
+def test_a_success_resets_the_consecutive_429_counter():
+    responses = [429, 429, 200, 429, 429, 429]
+    def get(url):
+        if responses.pop(0) == 429:
+            raise HTTPError(url, 429, "Too Many Requests", {}, None)
+        return "[]"
+    client, calls = client_for(get)
+    for n in range(6):
+        if n == 2:
+            assert client.event_bins("event") == []
+        else:
+            with pytest.raises(HTTPError):
+                client.event_bins("event")
+    with pytest.raises(OSError, match="stopped"):
+        client.event_bins("event")
+    assert len(calls) == 6
+
+
+def test_awc_snapshot_conflicting_revisions_are_not_resolved_by_row_order():
+    client, calls = client_for(lambda url: "METAR CYYZ 281800Z 18/10\nMETAR CYYZ 281800Z COR 15/10")
+    reports, diagnostics = client.metars(["CYYZ"], NOW)
+    assert diagnostics["parse_flags"]["ambiguous_source_revision"] == 1
+    assert all(r.temperature_c is None for r in reports)
+    from weather.market.metar_settlement import MetarSettlementAdapter
+    result = MetarSettlementAdapter().evaluate(U["toronto"], date(2026, 9, 28), reports, as_of=NOW)
+    assert result.status == "source_unavailable"

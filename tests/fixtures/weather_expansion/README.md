@@ -17,3 +17,8 @@ highest-only cities. The inputs identify three non-METAR cities; the prompt's
 base `73140b20eed0f81c8fa26bb5faf6defcb269533a`, solely as a test oracle.
 `legacy_market_registry.sha256` pins the normalized UTF-8 source of the built-in
 registry at that base. Neither fixture is imported by production code.
+
+`hko_daily_extract_202001.xml` is the named official Daily Extract endpoint's
+development-date response, fetched 2026-11-09. The endpoint serves JSON despite
+its suffix. Its Absolute Daily Max/Min columns are a parser schema fixture;
+they are not evidence of an initial publication or of trading performance.

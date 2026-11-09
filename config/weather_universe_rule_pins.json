@@ -1,0 +1,213 @@
+{
+  "cities": {
+    "amsterdam": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "ankara": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "atlanta": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "austin": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "beijing": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "buenos-aires": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "busan": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "cape-town": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "chengdu": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "chicago": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "chongqing": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "dallas": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "denver": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "guangzhou": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "helsinki": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "hong-kong": {
+      "highest": "hko_highest",
+      "lowest": "hko_lowest"
+    },
+    "houston": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "istanbul": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "jeddah": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "jinan": {
+      "highest": "wu_jinan"
+    },
+    "karachi": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "kuala-lumpur": {
+      "highest": "metar_highest_C"
+    },
+    "london": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "los-angeles": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "lucknow": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "madrid": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "manila": {
+      "highest": "metar_highest_C"
+    },
+    "mexico-city": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "miami": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "milan": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "moscow": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "munich": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "nyc": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "panama-city": {
+      "highest": "metar_highest_C"
+    },
+    "paris": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "qingdao": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "san-francisco": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "sao-paulo": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "seattle": {
+      "highest": "metar_highest_F",
+      "lowest": "metar_lowest_F"
+    },
+    "seoul": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "shanghai": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "shenzhen": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "singapore": {
+      "highest": "metar_highest_C"
+    },
+    "taipei": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "tel-aviv": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "tokyo": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "toronto": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "warsaw": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "wellington": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "wuhan": {
+      "highest": "metar_highest_C",
+      "lowest": "metar_lowest_C"
+    },
+    "zhengzhou": {
+      "highest": "wu_zhengzhou"
+    }
+  },
+  "schema_version": "weather-universe-rule-pins-v1",
+  "variants": {
+    "hko_highest": "1d461cfa9e4877a01a5b11c14d1558347e1bd702a75e0a05d829d233502726e6",
+    "hko_lowest": "ae328c8b6bb277b0ba9515a54c959010a3a4d88a3b62e28b7938b2774c7d46b0",
+    "metar_highest_C": "8c21c8537d3faab2eec635d0e85981dfdb815d1bdb807410c91e081362304593",
+    "metar_highest_F": "a4e2ff67ce4ace337ce95f29229704ad07fb3a5da15e100ed0510deb35ac0a05",
+    "metar_lowest_C": "4f135363ea66a3b700acebde31f41286d5f3a01824d9f1d3b94ded2d0dacd2a1",
+    "metar_lowest_F": "02767ff557656a76fe054c541286c0087bfd87c825b4d2fcf2b24203879119f0",
+    "wu_jinan": "8dc77d8510dbfb0bf29d7013a6488a4cb9fd738a594632a9d3d0249fa8cf178c",
+    "wu_zhengzhou": "f47f9cc0aaf193349b6a005d88dcb4057980740477252dd700f9130f23702ffe"
+  }
+}

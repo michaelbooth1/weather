@@ -33,6 +33,7 @@ class DailySettlement:
     cutoff: datetime | None = None
     source: str = "metar_routine"
     notes: tuple[str, ...] = ()
+    fallback_deadline: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,9 @@ class BinPossibility:
     possible: bool
     bound: Decimal | int | None
     observation: MetarReport | None
+    conditional_until: datetime | None
+    witness_observation_time: datetime | None
+    invalidating_events: tuple[str, ...] = ("awc_cor_or_unmarked_replacement", "clearly_erroneous_print_correction")
 
 
 def possible_bins(result: DailySettlement, family: str, bins: Iterable[BinInterval]) -> tuple[BinPossibility, ...]:
@@ -62,22 +66,29 @@ def possible_bins(result: DailySettlement, family: str, bins: Iterable[BinInterv
                 possible = bound < interval.upper or (bound == interval.upper and interval.upper_closed)
             elif family == "lowest" and interval.lower is not None:
                 possible = bound > interval.lower or (bound == interval.lower and interval.lower_closed)
-        out.append(BinPossibility(interval, possible, bound, observation))
+        out.append(BinPossibility(interval, possible, bound, observation, result.cutoff,
+                                  observation.observation_time if observation else None))
     return tuple(out)
 
 
 class MetarSettlementAdapter:
     def evaluate(self, spec: WeatherCitySpec, local_date: date, reports: Iterable[MetarReport], *,
-                 as_of: datetime, wu_values: tuple[Decimal, Decimal] | None = None) -> DailySettlement:
+                 as_of: datetime, wu_values: tuple[Decimal, Decimal] | None = None,
+                 wu_empty: bool = False) -> DailySettlement:
         """Evaluate a captured source view as of t; WU values are (daily high, daily low), native unit.
 
         A raw snapshot without receipt times cannot prove the publication cutoff. It
         carries an explicit note. Receipt-bearing replay excludes late revisions.
         """
         as_of = aware_utc(as_of)
+        if not isinstance(wu_empty, bool):
+            raise ValueError("wu_empty must be an explicit boolean")
+        if wu_empty and wu_values is not None:
+            raise ValueError("WU cannot be both empty and populated")
         zone = ZoneInfo(spec.timezone)
         tomorrow = local_date + timedelta(days=1)
-        cutoff = datetime.combine(tomorrow, time(23, 59), ZoneInfo("America/New_York")).astimezone(UTC)
+        fallback_deadline = datetime.combine(tomorrow, time(23, 59), ZoneInfo("America/New_York")).astimezone(UTC)
+        cutoff = fallback_deadline
         records = [r for r in reports if r.station == spec.station_id and r.observation_time is not None
                    and r.observation_time <= as_of and (r.receipt_time is None or r.receipt_time <= as_of)]
         next_reports = [r for r in records if r.routine and r.observation_time.astimezone(zone).date() == tomorrow]
@@ -92,23 +103,29 @@ class MetarSettlementAdapter:
         notes = [f"rejected_late_revisions={rejected}"] if rejected else []
         if any(r.receipt_time is None for r in records):
             notes.append("publication_cutoff_unverified_without_receipt_times")
+        if any("ambiguous_source_revision" in r.flags for r in records):
+            return DailySettlement(spec.slug, local_date, "source_unavailable", cutoff=cutoff,
+                                   notes=tuple(notes) + ("conflicting AWC snapshot revisions",))
         final = as_of >= cutoff
         if not day_reports:
-            if final and wu_values is not None:
+            if as_of >= fallback_deadline and wu_values is not None:
                 high, low = map(Decimal, wu_values)
                 if not (high.is_finite() and low.is_finite() and low <= high):
                     raise ValueError("invalid WU daily extrema")
                 return DailySettlement(spec.slug, local_date, "wu_fallback", maximum=high, minimum=low,
-                                       cutoff=cutoff, source="wu_daily_history", notes=tuple(notes))
-            return DailySettlement(spec.slug, local_date, "lowest_bracket_fallback" if final else "missing",
-                                   cutoff=cutoff, notes=tuple(notes))
+                                       cutoff=fallback_deadline, source="wu_daily_history", notes=tuple(notes),
+                                       fallback_deadline=fallback_deadline)
+            status = ("lowest_bracket_fallback" if as_of >= fallback_deadline and wu_empty else
+                      "awaiting_wu_fallback" if final else "missing")
+            return DailySettlement(spec.slug, local_date, status, cutoff=cutoff, notes=tuple(notes),
+                                   fallback_deadline=fallback_deadline)
         high = max(day_reports, key=lambda r: r.temperature_c)
         low = min(day_reports, key=lambda r: r.temperature_c)
         return DailySettlement(spec.slug, local_date, "final" if final else "running",
                                high.temperature_c, low.temperature_c,
                                settlement_bucket(high.temperature_c, spec.market_unit),
                                settlement_bucket(low.temperature_c, spec.market_unit), high, low,
-                               len(day_reports), cutoff, notes=tuple(notes))
+                               len(day_reports), cutoff, notes=tuple(notes), fallback_deadline=fallback_deadline)
 
 
 class WUDailyHistoryAdapter:
@@ -177,7 +194,10 @@ def main(argv=None):
                               status=result.status, unit=spec.market_unit,
                               running_value=None if value is None else str(value),
                               possible_bins=possible, event_status=event_status,
-                              bound_observation=observation.raw if observation else None, notes=result.notes)))
+                              bound_observation=observation.raw if observation else None, notes=result.notes,
+                              conditional_until=result.cutoff.isoformat() if result.cutoff else None,
+                              witness_observation_time=observation.observation_time.isoformat() if observation else None,
+                              invalidating_events=("awc_cor_or_unmarked_replacement", "clearly_erroneous_print_correction"))))
     print(json.dumps(diagnostics), file=sys.stderr)
     return 1 if errors else 0
 
