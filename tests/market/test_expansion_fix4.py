@@ -44,6 +44,14 @@ def test_corrupted_body_cannot_finalize_the_wrong_fahrenheit_bin(token, with_rec
     assert [p.possible for p in possible_bins(result, "highest", F_BINS)] == [False, True, True, True, True]
 
 
+def test_fix6_six_digit_dewpoint_cannot_hide_a_warm_report():
+    warm = report("METAR KLGA 081800Z 21/040000")
+    result = ADAPTER.evaluate(U["nyc"], DAY, nyc_day(warm), as_of=END)
+    assert (result.status, result.maximum) == ("parse_incomplete", 64)
+    assert warm.has_parse_defect and "malformed_body_temperature" in warm.flags
+    assert [p.possible for p in possible_bins(result, "highest", F_BINS)] == [False, True, True, True, True]
+
+
 @pytest.mark.parametrize("token", ["210/04", "21/100", "21//04", "21//"])
 def test_valid_t_group_still_governs_every_malformed_body_shape(token):
     warm = report(f"METAR KLGA 081800Z {token} RMK T02060040")
@@ -62,7 +70,7 @@ def test_a_second_malformed_body_is_not_silently_ignored_without_a_t_group():
                                     "R24/0900V1200U", "05R/2800FT", "TX01/0712Z", "TNM02/0704Z",
                                     "330//KT", "///04MPS", "BKN020///", "SCT023///", "VV///",
                                     "W15/S4", "W15/H7", "WM01/S3", "W///S4", "W15/H12", "W15/H123",
-                                    "WM02/H007", "W///H7", "88/290050", "01/123456"])
+                                    "WM02/H007", "W///H7"])
 def test_each_known_non_temperature_shape_is_explicitly_excluded(token):
     absent = report(f"METAR KLGA 081800Z {token}")
     assert absent.temperature_c is None and not absent.has_parse_defect
@@ -70,8 +78,8 @@ def test_each_known_non_temperature_shape_is_explicitly_excluded(token):
     assert present.temperature_c == 21 and not present.has_parse_defect
 
 
-@pytest.mark.parametrize("token", ["W15/S4", "W15/H7", "88/290050"])
-def test_fix5_sea_and_old_runway_groups_preserve_finality(token):
+@pytest.mark.parametrize("token", ["W15/S4", "W15/H7"])
+def test_fix5_sea_groups_preserve_finality(token):
     observation = report(f"METAR LTFM 081800Z 04010KT 9999 FEW030 15/10 Q1018 {token}")
     close = report("METAR LTFM 090000Z 10/04")
     result = ADAPTER.evaluate(U["istanbul"], DAY, [observation, close], as_of=END)
