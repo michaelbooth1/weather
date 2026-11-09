@@ -185,8 +185,8 @@ class CampaignCoordinator:
                 break
             try:
                 from weather.market.lfc_campaign_launch import require_launch, LaunchDeferred
-                if self.wrapper_launch is not None:
-                    require_launch(self.wrapper_launch, current, entry)
+                require_launch(self.wrapper_launch, policy, entry)
+                require_launch(self.wrapper_launch, current, entry)
                 with self.runtime.admission():
                     prepared = self.runtime.pre_go(entry, policy)
                     # No claim before all transient checks pass. Actual go

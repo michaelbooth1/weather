@@ -81,6 +81,8 @@ def test_busy_and_retained_hold_have_distinct_reasons_through_window_end(tmp_pat
     runtime.admission = busy
     policy = parse_policy(policy_row())
     coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
+    from tests.market.test_lfc_campaign import bind_launch
+    policy = bind_launch(coordinator, policy)
     assert coordinator.start(policy.entries[0], policy, lambda: policy) == 'MISSED'
     rows = [json.loads(path.read_text()) for path in (tmp_path / 'control').glob('*.json')]
     assert {r['reason'] for r in rows} == {expected}

@@ -86,7 +86,9 @@ def test_no_qualifying_band_keeps_its_reason_through_the_window(tmp_path):
     def no_band(*a): raise TransientPrecheck('no_qualifying_band')
     runtime.pre_go = no_band
     coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
-    coordinator.tick(lambda: parse_policy(policy_row()))
+    from tests.market.test_lfc_campaign import bind_launch
+    policy = bind_launch(coordinator, parse_policy(policy_row()))
+    coordinator.tick(lambda: policy)
     rows = [json.loads(p.read_text()) for p in (tmp_path / 'control').glob('*.json')]
     assert {row['reason'] for row in rows} == {'no_qualifying_band'}
     assert any(row['phase'] == 'MISSED' for row in rows)
@@ -132,6 +134,8 @@ def test_repeated_admission_fault_deduplicates_only_its_open_occurrence(tmp_path
     runtime.admission = refused
     policy = parse_policy(policy_row())
     coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
+    from tests.market.test_lfc_campaign import bind_launch
+    policy = bind_launch(coordinator, policy)
     for _ in range(2): assert coordinator.start(policy.entries[0], policy, lambda: policy) == 'INCIDENT'
     assert len(state.incidents()) == 1 and not state.claims()
     assert len(state.incidents()[0]['attempt_id']) == 32
