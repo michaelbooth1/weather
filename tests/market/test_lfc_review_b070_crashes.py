@@ -51,17 +51,7 @@ def test_each_intent_publish_anchor_boundary_preserves_identity(tmp_path, monkey
             with pytest.raises(OSError): state.close(claim, proof, NOW)
         original = path.read_bytes() if path.exists() else None
         state = reopen(runtime) if cold else state
-        if point in {'after_intent', 'before_publish'}:
-            with pytest.raises(StateRefused, match='anchored_closure_evidence_fault'): state.verify()
-            assert not path.exists() and len(state.ledger.autostart_incidents) == 1
-            intent = state.ledger.event_rows('autostart_close_intent')[0]
-            raw = intent['canonical_closure_utf8'].encode('utf-8')
-            assert intent['file_sha256'] == hashlib.sha256(raw).hexdigest()
-            assert len(raw) == intent['file_size']
-            state = AccountState(state.root.parent, Ledger.open(state.ledger.path, clock=runtime.clock.now))
-            with pytest.raises(StateRefused): state.verify()
-            assert len(state.ledger.autostart_incidents) == 1 and not path.exists()
-        elif point == 'before_intent':
+        if point == 'before_intent':
             state.verify()
             assert not path.exists() and not state.ledger.event_rows('autostart_close_intent')
             assert state.pending() == [claim] and not state.ledger.autostart_incidents
@@ -69,7 +59,11 @@ def test_each_intent_publish_anchor_boundary_preserves_identity(tmp_path, monkey
             state.verify(); state.verify()
             assert len(state.ledger.event_rows('autostart_close_intent')) == 1
             assert len(state.ledger.event_rows('autostart_close')) == 1
-            assert path.read_bytes() == original and not state.ledger.autostart_incidents
+            intent = state.ledger.event_rows('autostart_close_intent')[0]
+            raw = intent['canonical_closure_utf8'].encode('utf-8')
+            assert path.read_bytes() == raw and (original is None or original == raw)
+            assert intent['file_sha256'] == hashlib.sha256(raw).hexdigest()
+            assert len(raw) == intent['file_size'] and not state.ledger.autostart_incidents
 
 
 @pytest.mark.parametrize('change', ['hash', 'size', 'body', 'noncanonical', 'duplicate', 'anchor_binding'])
@@ -138,8 +132,8 @@ def test_actual_intent_append_failure_preserves_bytes_and_fails_closed(tmp_path,
             assert ledger_path.read_bytes() == original
         else:
             fresh = reopen(runtime)
-            with pytest.raises(StateRefused, match='anchored_closure_evidence_fault'): fresh.verify()
-            assert len(fresh.ledger.autostart_incidents) == 1 and not path.exists()
+            fresh.verify()
+            assert not fresh.ledger.autostart_incidents and path.exists()
             assert fresh.ledger.event_rows('autostart_close_intent')[0]['canonical_closure_utf8']
 
 
@@ -154,6 +148,10 @@ def test_missing_before_publication_can_be_owner_closed_without_regeneration(tmp
             crash.setattr(os, publish_name, lambda *a: (_ for _ in ()).throw(OSError('crash_before_publish')))
             with pytest.raises(OSError): state.close(claim, proof, NOW)
         path = state.root/'closed'/(claim['attempt_id']+'.json')
+        # B071 retries an intact pre-publication stage; genuinely losing both
+        # retained file locations still needs the explicit owner decision.
+        stage = state.ledger.event_rows('autostart_close_intent')[0]['staged_file']
+        (state.root/stage).unlink()
         with pytest.raises(StateRefused): state.verify()
         incident = state.ledger.autostart_incidents[-1]['attempt_id']
         incident_path = state.root/'incidents'/(incident+'.json')

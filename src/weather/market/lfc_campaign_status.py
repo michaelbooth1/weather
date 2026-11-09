@@ -14,6 +14,9 @@ from weather.operations.live_path_security import validate_regular_nonreparse_fi
 
 
 class ReadOnlyState(AccountState):
+    def require_writer(self):
+        raise StateRefused('status_repair_required')
+
     def save(self, *args, **kwargs):
         raise StateRefused('status_repair_required')
 

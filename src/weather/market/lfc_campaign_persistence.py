@@ -28,7 +28,7 @@ def retry_failure(state, attempt, error, *, expected=None):
     if isinstance(error, LedgerUnavailable):
         if str(error) in {'ledger_closure_anchor_scope', 'ledger_closure_anchor_binding'}:
             fault(state, attempt)
-        if str(error) != 'ledger_write_failed':
+        if str(error) not in {'ledger_write_failed', 'ledger_snapshot_write_failed'}:
             raise error
     elif not isinstance(error, OSError):
         raise error
@@ -44,12 +44,16 @@ def retry_failure(state, attempt, error, *, expected=None):
     fresh.policy_metadata = dict(getattr(previous, 'policy_metadata', {}))
     state.ledger = fresh
     path = state.root / 'closed' / (attempt + '.json')
-    anchored = saved_intent(fresh, attempt) is not None or any(row.get('attempt_id') == attempt for kind in
+    intent = saved_intent(fresh, attempt)
+    from weather.market.lfc_campaign_publication import matching_stage
+    published = any(row.get('attempt_id') == attempt for kind in
                    ('autostart_close', 'autostart_no_intent_close') for row in fresh.event_rows(kind))
+    staged = intent is not None and not published and matching_stage(state, intent) is not None
+    anchored = intent is not None or published
     try:
         actual = fields(state, path) if path.exists() else None
         if ((expected is not None and actual != expected) or
-                actual is None and anchored or
+                actual is None and anchored and not staged or
                 actual is not None and any(r.get('file_sha256') != actual['file_sha256'] for r in added)):
             raise ValueError('closure_changed_during_append')
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):

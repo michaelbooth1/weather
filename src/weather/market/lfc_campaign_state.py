@@ -47,6 +47,9 @@ class AccountState:
     def file_sha(self, path):
         return self._retained_cache.sha(path)
 
+    def require_writer(self):
+        require_account(self.maker)
+
     def read(self, path):
         row = self._retained_cache.json(validate_regular_nonreparse_file(Path(path).absolute()))
         if not isinstance(row, dict) or row.get('schema_version') != STATE_SCHEMA:
@@ -77,7 +80,7 @@ class AccountState:
         from weather.market.lfc_campaign_closures import write_closure
         from weather.market.lfc_campaign_close_intent import bind
         writer = write_closure if relative.parts[0] == 'closed' else write_new
-        options = {'before_publish': lambda p, raw: bind(self, p, raw)} if relative.parts[0] == 'closed' else {}
+        options = {'before_publish': lambda p, raw, temporary: bind(self, p, raw, temporary)} if relative.parts[0] == 'closed' else {}
         writer(path, {'schema_version': STATE_SCHEMA, **self.policy_binding, **fields}, max_bytes=STATE_JSON_LIMIT, **options)
         return self.file_sha(path)
 

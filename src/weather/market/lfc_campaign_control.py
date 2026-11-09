@@ -68,7 +68,15 @@ def observe_latches(state, runtime, root):
             incident=True, orders_open_unproven=orders_unproven(state, runtime),
             policy_metadata=state.policy_binding)
         if hasattr(runtime, 'notify_control'):
-            runtime.notify_control(row)
+            from threading import Thread
+            def notify():
+                try:
+                    runtime.notify_control(row)
+                except Exception:
+                    pass  # The durable incident row remains authoritative.
+            # The toast has its existing bounded timeout. Keeping the worker
+            # alive at process exit preserves delivery, after cleanup can start.
+            Thread(target=notify, name='lfc-incident-notice', daemon=False).start()
     state.incident_observer = observed
 
 

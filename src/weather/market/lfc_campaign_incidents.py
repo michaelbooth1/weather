@@ -63,7 +63,6 @@ def latch_occurrence(state, attempt, reason, artifact, now, *, initial_id=None):
         old_artifact = row.get('artifact', 'private-evidence' if row['reason'] == 'private_evidence_fault' else 'attempt')
         if (row.get('source_attempt_id', row['attempt_id']) == attempt and row['reason'] == reason and
                 old_artifact == artifact and not occurrence_closed(state, path, row, sha)):
-            notify_latch(state, row['attempt_id'], now)
             return row['attempt_id']
     identity = {'source_attempt_id': attempt, 'artifact': artifact, 'reason': reason,
                 'detection_sequence': len(state.ledger.autostart_incidents) + 1,

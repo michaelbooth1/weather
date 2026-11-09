@@ -73,6 +73,10 @@ def notify_control(runtime, row):
     if isinstance(previous, dict):
         previous = {k: v for k, v in previous.items() if k != 'at_utc'}
     runtime._last_control_notice = signature
+    if (isinstance(previous, dict) and projection.get('phase') == previous.get('phase') == 'INCIDENT' and
+            projection.get('attempt_id') is not None and
+            projection.get('attempt_id') == previous.get('attempt_id')):
+        return  # Cleanup flag changes do not create a new fault occurrence.
     if row['phase'] in {'INCIDENT', 'POSTCHECK_PENDING', 'COMPLETE', 'MISSED', 'REFUSED', 'DEFERRED', 'EVIDENCE_GAP', 'RETRY_PENDING'} and signature != previous:
         return notify_owner(runtime.control_root.parent, {}, public_status=projection)
 

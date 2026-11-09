@@ -1,5 +1,6 @@
 """Guards: B070 an in-session latch is visible before cleanup can fail."""
 from types import SimpleNamespace
+from threading import Event
 import pytest
 
 from tests.market.test_lfc_campaign import MAKER, Mutexes, NOW, policy_row
@@ -14,7 +15,9 @@ def test_clock_latch_publishes_incident_before_failed_cleanup(tmp_path, monkeypa
     with account_lease(MAKER, backend=Mutexes()):
         runtime = runtime_at(tmp_path)
         notifications = []
-        runtime.notify_control = notifications.append
+        notified = Event()
+        def notice(row): notifications.append(row); notified.set()
+        runtime.notify_control = notice
         runtime.lease = SimpleNamespace(check=lambda: None)
         policy = parse_policy(policy_row())
         claim = runtime.state.claim(policy.entries[0], policy, NOW)
@@ -27,7 +30,7 @@ def test_clock_latch_publishes_incident_before_failed_cleanup(tmp_path, monkeypa
             authority.check()
         row = latest_control(runtime.control_root)
         assert row is not None and row['phase'] == 'INCIDENT' and row['incident'] is True
-        assert notifications[-1]['phase'] == 'INCIDENT'
+        assert notified.wait(2) and notifications[-1]['phase'] == 'INCIDENT'
         assert watch_status(row, now=runtime.clock.now())[1] == 1
         with pytest.raises(OSError):
             raise OSError('synthetic_cleanup_failed')

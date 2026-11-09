@@ -71,12 +71,9 @@ def write_closure(path, row, *, max_bytes, before_publish=None):
             raise OSError('recording_short_write')
         stream.flush(); os.fsync(stream.fileno())
     if before_publish is not None:
-        before_publish(path, raw)
-    if os.name == 'nt':
-        os.rename(temporary, path)  # Windows refuses an existing destination.
-    else:
-        os.link(temporary, path)  # Portable exclusive publication, same bytes.
-        temporary.unlink()
+        before_publish(path, raw, temporary)
+    from weather.market.lfc_campaign_publication import publish
+    publish(temporary, path)
 
 
 def fields(state, path):
@@ -189,15 +186,21 @@ def check(state, *, full=False, owner_fault_review=False):
             if observed != saved['file_sha256']:
                 raise ValueError('closure_hash')
         except (OSError, ValueError, RuntimeError):
-            state._closure_faults.add(attempt)
             try:
                 observed = state.file_sha(path) if path.exists() else None
                 accepted = accepted_loss(state, saved, observed)
             except (OSError, ValueError, RuntimeError):
                 accepted = False
             if accepted:
+                state._closure_faults.add(attempt)  # Retain the acknowledged evidence gap.
                 state._closure_accepted.add(attempt)
                 continue
+            if not path.exists() and saved['event'] == 'autostart_close_intent':
+                from weather.market.lfc_campaign_publication import matching_stage, resume
+                if matching_stage(state, saved) is not None:
+                    resume(state, saved)
+                    continue  # Same original; the final anchor below records completion.
+            state._closure_faults.add(attempt)
             fault(state, attempt, refuse=not owner_fault_review)
     for path in (state.root/'closed').glob('*.json'):
         if path.stem in generic or path.stem in state._closure_accepted:

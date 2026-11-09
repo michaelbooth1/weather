@@ -545,21 +545,28 @@ and independently proves money; it does not waive that fault into a PASS.
 Completed attempt closures are staged and flushed, then bound by a flushed
 `autostart_close_intent` ledger record before create-only publication. Small
 closures retain their complete canonical bytes in that intent; larger ones
-retain the hash and size. A flushed `autostart_close` completes the transaction.
+retain the hash and size. The intent also binds the exact staging pathname.
+A flushed `autostart_close` records completion of that same transaction.
 Both records retain
 the original size, hash, close kind/time, proof hash, ledger head and account-read
 binding. This invariant is checked before pending processing and independently
 of the disposable IDLE manifest or any future inventory cache. Every tick checks
 the intent's identity, including a retry, cold reopen or reboot. A missing or
-changed intent-bound original latches
+changed published original latches
 an evidence fault; a fresh postcheck never replaces it. Full retained validation
 hashes all originals; ordinary checks use streamed hashes and native file/change
 signatures. A valid file left by a crash before its anchor is validated against
 the retained claim, policy and private evidence and anchored exactly once,
-preserving its original close/read time. A crash after the intent but before
-publication latches rather than recreating a receipt; the retained inline bytes
-remain evidence for owner review. A staging failure before the intent leaves a
-genuine pending postcheck. No retry invents a new close time or account read.
+preserving its original close/read time. Publication gets bounded exclusive
+rename retries, then RETRY_PENDING while the exact intent-bound staging bytes
+remain intact. An owning tick can finish that original publication after
+re-proving ledger durability; the final anchor records completion once. A
+complete append whose fsync return or derived snapshot write raised is replayed
+as the same transaction. Lost or changed staging bytes, or loss/change after
+publication, still latch. Inline bytes alone never authorize recreation. A
+staging failure before the intent leaves a genuine pending postcheck. No retry
+invents a new close time or account read. Read-only status reports pending
+repair without publishing the file or acquiring writer authority.
 
 New enrollment records `closure_anchor_protocol=lfc_closure_intent_v2`.
 Pre-protocol campaign roots refuse with `closure_anchor_protocol_required`;
@@ -571,8 +578,12 @@ regenerated. Restoration and a later loss still require a new N1 occurrence.
 Status/check, runtime reopen and shared verify completion enforce the binding;
 unenrolled F0 verification keeps its existing behavior.
 
-A durable in-session latch publishes an INCIDENT control row and safe owner
-notice immediately, before cleanup. Cleanup failure cannot leave a live-orders
+A new durable in-session occurrence publishes its INCIDENT control row before
+cleanup. Its safe owner toast runs on a separate worker with the existing
+bounded notification timeout, so cancellation can start immediately. Rechecking
+an open occurrence does not publish another latch notice; changing its cleanup
+flags does not send another toast. Normal tick control observations still keep
+the watch fresh. Cleanup failure cannot leave a live-orders
 row as the last observation. During fill cooldown with no resting order, the
 open-orders flag may temporarily reflect the last account read; the next proof
 refreshes it. This conservative cooldown notice does not authorize a new post.
