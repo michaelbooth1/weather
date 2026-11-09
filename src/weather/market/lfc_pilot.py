@@ -371,16 +371,18 @@ def notify_owner(root, summary, *, runner=subprocess.run, printer=print, windows
     if public_status is not None:
         from weather.market.lfc_campaign_control import SAFE_STATES, SAFE_REASONS
         allowed = {'phase', 'attempt_id', 'orders_open_unproven'}
+        unread = public_status.get('account_not_read') is True
         if (not allowed <= set(public_status) <= allowed | {'reason', 'account_not_read'} or
                 public_status['phase'] not in SAFE_STATES or
                 'reason' in public_status and public_status['reason'] not in SAFE_REASONS or
                 not re.fullmatch('[0-9a-f]{32}', str(public_status['attempt_id'])) or
-                type(public_status['orders_open_unproven']) is not bool):
+                not (type(public_status['orders_open_unproven']) is bool or
+                     unread and public_status['orders_open_unproven'] is None)):
             raise ValueError('notification_public_status')
         if 'account_not_read' in public_status and (public_status['account_not_read'] is not True or
-                public_status['phase'] != 'DEFERRED' or public_status['orders_open_unproven'] is not False):
+                public_status['phase'] != 'DEFERRED' or public_status['orders_open_unproven'] is not None):
             raise ValueError('notification_account_read_context')
-        context = ('account not read' if public_status.get('account_not_read') is True else
+        context = ('account not read; attention required' if unread else
                    f"orders_open_unproven={str(public_status['orders_open_unproven']).lower()}")
         line = f"LFC {public_status['phase']} attempt_id={public_status['attempt_id']} {context}"
         if 'reason' in public_status:

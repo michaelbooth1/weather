@@ -268,7 +268,7 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
             return 1 if result in {'INCIDENT', 'REFUSED', 'FAILED_NO_ORDERS'} or state.incidents() else 0
     except LaunchDeferred as exc:
         if state is None:
-            emit('DEFERRED', reason=str(exc), account_not_read=True, orders_open_unproven=False)
+            emit('DEFERRED', reason=str(exc), account_not_read=True, orders_open_unproven=None, incident=None)
         else:
             emit('DEFERRED', reason=str(exc))
         return 0

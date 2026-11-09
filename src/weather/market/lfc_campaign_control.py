@@ -54,6 +54,12 @@ def orders_unproven(state, runtime=None):
     return False
 
 
+def needs_attention(row):
+    """UNKNOWN is never clean; watches must compare explicit false values."""
+    return (row.get('account_read') is False or row.get('incident') is not False or
+            row.get('orders_open_unproven') is not False)
+
+
 def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_pending=False,
                    evidence_sha256=None, research_gaps=False, reason=None, policy_metadata=None,
                    orders_open_unproven=False, account_not_read=False):
@@ -63,7 +69,7 @@ def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_p
         raise ValueError('control_opaque_id')
     if reason is not None and reason not in SAFE_REASONS:
         raise ValueError('control_reason')
-    if account_not_read is True and (phase != 'DEFERRED' or orders_open_unproven is not False):
+    if account_not_read is True and (phase != 'DEFERRED' or orders_open_unproven is not None or incident is not None):
         raise ValueError('control_account_read_context')
     # Deliberate allowlist: no selection, token, event, price, fill, wallet,
     # credential path or raw exception message is allowed in the agent view.
@@ -74,6 +80,8 @@ def control_record(root, attempt_id, *, phase, now, incident=False, postchecks_p
            'evidence_sha256': evidence_sha256}
     if account_not_read is True:
         row['account_not_read'] = True
+        row.update(account_read=False, orders_open_unproven=None, incident=None)
+    row['attention_required'] = needs_attention(row)
     row['reason'] = reason
     metadata = {} if policy_metadata is None else policy_metadata
     row.update({key: metadata.get(key) for key in ('policy_name', 'policy_revision', 'evidence_lane')})

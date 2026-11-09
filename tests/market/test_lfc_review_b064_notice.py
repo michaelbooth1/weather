@@ -22,7 +22,8 @@ def test_malformed_envelope_says_account_not_read_in_both_row_and_toast(tmp_path
     rows = [json.loads(path.read_text()) for path in (tmp_path / 'control').glob('*.json')]
     assert len(rows) == len(notices) == 1
     assert rows[0]['phase'] == 'DEFERRED' and rows[0]['account_not_read'] is True
-    assert rows[0]['orders_open_unproven'] is False
+    assert rows[0]['orders_open_unproven'] is None and rows[0]['incident'] is None
+    assert rows[0]['attention_required'] is True
     assert 'account not read' in notices[0]['result_line']
     assert 'orders_open_unproven=true' not in notices[0]['result_line']
 

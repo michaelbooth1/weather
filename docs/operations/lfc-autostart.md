@@ -34,7 +34,10 @@ It contains phase/time aliases, reason codes and variable names only, with no
 values, paths or exception text. The launcher
 still exits nonzero and never starts the wrapper after a refusal.
 An invalid parent packet defers before account access with `account_not_read`;
-its notice says "account not read". It makes no cleanup or order-absence claim.
+its notice says "account not read; attention required". `account_read` is false,
+and `incident` and `orders_open_unproven` are null (UNKNOWN). The control watch
+must treat null or missing values as not clean: only explicit false values prove
+those flags clear. `attention_required` is true; no order-absence claim is made.
 
 A crash between a timely freeze receipt and its ledger anchor can complete on
 the next healthy tick within the original capture window. The original bytes
