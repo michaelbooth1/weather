@@ -43,6 +43,7 @@ infrastructure work remains.
 
 | Item | File |
 | ---: | --- |
+| 347 | [Weather Expansion F3 [OPEN]](items/item-347-weather-expansion-f3.md) |
 | 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
 | 1 | [Snapshot Analytics [COMPLETE]](items/item-01-snapshot-analytics.md) |
 | 2 | [Intraday Model Calibration [COMPLETE]](items/item-02-intraday-model-calibration.md) |

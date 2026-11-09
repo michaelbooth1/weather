@@ -5,23 +5,23 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-05T13:39:09.570857+00:00
+Generated: 2026-11-09T12:21:03.537827+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 336 |
-| Active items | 19 |
-| OPEN | 7 |
+| Items | 337 |
+| Active items | 20 |
+| OPEN | 8 |
 | PARTIAL | 12 |
 | COMPLETE | 289 |
 | DORMANT | 28 |
-| Active, no disposition within 45 days of 2026-11-05 | 11 |
-| ROADMAP rows | 336 |
-| ROADMAP primary rows | 336 |
-| Metadata manifest rows | 336 |
+| Active, no disposition within 45 days of 2026-11-05 | 12 |
+| ROADMAP rows | 337 |
+| ROADMAP primary rows | 337 |
+| Metadata manifest rows | 337 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -47,6 +47,7 @@ Status: `OK`
 | 344 | OPEN | 2026-11-05 | MASTER RULING; FIX AT THE NEXT RETRAIN OR MODEL CHANGE, PIN NOW | [Trainer Keeps A Null Last Pre-Cutoff Temperature That Serve And Replay Skip](items/item-344-trainer-null-last-pre-cutoff-temperature.md) |
 | 345 | OPEN | 2026-11-05 | TEST-ONLY FIX BUILT, AWAITING REVIEW | [Isolated Queue Root For The Workstation Pre-Gate Script Test](items/item-345-pregate-script-test-isolated-queue-root.md) |
 | 346 | OPEN | 2026-11-05 | WS BACKLOG; DRY-RUN LIST TO MASTER FIRST | [Scripted Daytime Sweep Of Old Workstation Worktrees](items/item-346-ws-worktree-sweep.md) |
+| 347 | OPEN | - | - | [Weather Expansion F3](items/item-347-weather-expansion-f3.md) |
 
 ## Active Items Without A Disposition In 45 Days
 
@@ -66,6 +67,7 @@ disposition or mark the item `DORMANT YYYY-MM-DD - reason`.
 | 331 | PARTIAL | 2026-09-12 | 54 | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
 | 332 | PARTIAL | 2026-09-12 | 54 | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 | 333 | PARTIAL | - | undated | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
+| 347 | OPEN | - | undated | [Weather Expansion F3](items/item-347-weather-expansion-f3.md) |
 
 ## Dormant Items
 

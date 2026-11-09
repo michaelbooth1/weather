@@ -18,6 +18,9 @@ If you add a file, link it here in the same change.
 | --- | --- |
 | **[STATE_OF_PLAY.md](STATE_OF_PLAY.md)** | **Always, first.** The only file that says what is happening now, what is decided, and what is already answered. Rewritten, not appended. |
 | [OPERATIONS_AGENT_ROLE.md](OPERATIONS_AGENT_ROLE.md) | You are the agent operating the 16 GB production capture host. |
+| [F3_SIM_TRIAL.md](F3_SIM_TRIAL.md) | Auditing F3-SIM-1: draft protocol, not frozen. |
+| [f3-maker-expansion.md](f3-maker-expansion.md) | Implementing or preparing the F3 engine: draft runbook. |
+| [F3_ROLLOUT.md](F3_ROLLOUT.md) | Checking gate definitions; live status lives in item 347 and STATE_OF_PLAY. |
 | [HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md) | Before any heavy command on the capture host. Owns the protected windows, resource limits, the training reservation and the full workstation heavy-wrapper contract. |
 | [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md) | You need a governing constant or protected window with its source location. **Generated — fix the constant, never the doc.** The live timetable is generated separately at `data/alerts/OPERATING_SCHEDULE.md`; verify Task Scheduler before assuming an entry will run. |
 | [reserved-confirmation-window.md](reserved-confirmation-window.md) | Before reading dated evidence or settled market-days. Read its `Status:` line; the rest applies only when a window is reserved, and then it wins over every other document. |
