@@ -105,21 +105,29 @@ def collect(runtime, *, get=None, reward_client=None):
             'monetary_action': False}
 
 
-def maintenance(runtime, policy, *, evidence_only=False):
-    """Bounded GET recording survives incidents; it never closes money state."""
+def due(runtime, policy, *, evidence_only=False):
+    """One cadence contract for actual maintenance and non-admitting idle ticks."""
     from datetime import datetime
-    from weather.market.lfc_campaign_guard import AdmissionBusy
-    from weather.market.lfc_campaign_state import StateRefused
-    from weather.market.lfc_f2_economics import publish_supplements
     now = runtime.clock.now()
     if not evidence_only and any(entry.start - timedelta(minutes=20) <= now < entry.end for entry in policy.entries):
-        return
+        return False
     prior = sorted((runtime.state.root / 'followups').glob('*.json'))
     if prior:
         last = runtime.state.read(prior[-1])
         cadence = 300 if last.get('gaps') else 3600
         if (now - datetime.fromisoformat(last['observed_at_utc'])).total_seconds() < cadence:
-            return
+            return False
+    return True
+
+
+def maintenance(runtime, policy, *, evidence_only=False):
+    """Bounded GET recording survives incidents; it never closes money state."""
+    from weather.market.lfc_campaign_guard import AdmissionBusy
+    from weather.market.lfc_campaign_state import StateRefused
+    from weather.market.lfc_f2_economics import publish_supplements
+    now = runtime.clock.now()
+    if not due(runtime, policy, evidence_only=evidence_only):
+        return
     try:
         with runtime.readonly_admission():
             money_gap, money_complete = None, False

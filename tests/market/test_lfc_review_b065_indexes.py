@@ -75,3 +75,40 @@ def test_randomized_owner_closure_occurrences_and_reopen_match_scans(tmp_path, m
             if n+1 < 3 and rng.choice([True,False]):
                 incident = runtime.state.latch(claim['attempt_id'],'session_failed',runtime.clock.now())
             else: break
+
+
+@pytest.mark.parametrize('value', [None, [], {'legacy':'extra'}])
+def test_index_preserves_missing_and_unhashable_optional_field_semantics(tmp_path,value):
+    clock=Clock()
+    ledger=Ledger.create(tmp_path/'ledger.jsonl',clock=clock.now,maker_address=MAKER)
+    ledger.record('baseline',label='fixture',attempt_id=value)
+    for candidate in (ledger,Ledger.open(ledger.path,clock=clock.now)):
+        assert candidate.event_rows('baseline',field='attempt_id',value=value)==scanned(
+            candidate,'baseline',field='attempt_id',value=value)
+        assert candidate.event_rows('baseline',field='source_attempt_id',value=None)==scanned(
+            candidate,'baseline',field='source_attempt_id',value=None)
+
+
+@pytest.mark.parametrize('metadata_only',[False,True])
+def test_uncached_result_read_still_binds_the_bytes_after_prior_hash_check(tmp_path,monkeypatch,metadata_only):
+    from tests.market.test_lfc_campaign_runtime import runtime_at
+    from tests.market.lfc_campaign_fixtures import private_result
+    from weather.market.lfc_campaign_state import StateRefused
+    with account_lease(MAKER,backend=Mutexes()):
+        runtime=runtime_at(tmp_path)
+        policy=parse_policy(policy_row())
+        claim=runtime.state.claim(policy.entries[0],policy,runtime.clock.now())
+        _,result=private_result(runtime,claim,faults=())
+        runtime.save_result(claim,result)
+        state=AccountState(runtime.state.root.parent,runtime.state.ledger)
+        path=state.root/'results'/(claim['attempt_id']+'.json')
+        actual=state.file_sha; changed=[]
+        def raced(file):
+            sha=actual(file)
+            if file==path and not changed:
+                changed.append(True)
+                with path.open('ab') as stream:stream.write(b' ')
+            return sha
+        monkeypatch.setattr(state,'file_sha',raced)
+        with pytest.raises(StateRefused,match='private_result_evidence_fault'):
+            state.result_anchor(claim['attempt_id'],metadata_only=metadata_only)

@@ -117,7 +117,7 @@ def measure(tmp_path, ledger, policy, clock, monkeypatch, day):
     monkeypatch.setattr(re1_owner_checks, 'code_identity', lambda: 'f' * 40)
     # Full coordinator phase before start(): exact history, freeze, follow-ups
     # (none due in this fixture), pending and retained validation. Stop at start.
-    coordinator = CampaignCoordinator(state=s, runtime=r, clock=clock, control_root=tmp_path / 'control')
+    coordinator = CampaignCoordinator(state=s, runtime=r, clock=clock, control_root=tmp_path / 'control', followup=r.followup)
     p = bind_launch(coordinator, policy)
     r.wrapper_launch = coordinator.wrapper_launch
     coordinator.start = lambda *a: 'MEASURED_ENTRY'
@@ -132,14 +132,31 @@ def measure(tmp_path, ledger, policy, clock, monkeypatch, day):
     checkpoint_seconds, _ = timed(authority.check)
     idle_state = state(); idle_runtime = runtime(idle_state)
     clock.base = entry.start - timedelta(hours=2); clock.seconds = 0
-    idle = CampaignCoordinator(state=idle_state, runtime=idle_runtime, clock=clock, control_root=tmp_path / 'control')
+    # A completed ancillary pass means no follow-up is due, as required by
+    # B065. Use the real cadence callback and forbid all external reads.
+    idle_state.save('followups/' + str(len(ledger.baselines)) + '-scale.json', {
+        'observed_at_utc': clock.now().isoformat(), 'gaps': [], 'monetary_action': False,
+        'money_proof_complete': True})
+    idle_runtime.read_account = lambda: pytest.fail('No read is due on this idle tick')
+    idle = CampaignCoordinator(state=idle_state, runtime=idle_runtime, clock=clock,
+        control_root=tmp_path / 'control', followup=idle_runtime.followup)
     before = len(ledger.rows)
+    idle_full_seed_seconds, result = timed(lambda: idle.tick(lambda: p))
+    assert result == 'IDLE' and len(ledger.rows) == before
+    assert (idle_state.root/'.idle-validation.json').exists()
+    # The next scheduled process is cold; only the derived manifest persists.
+    clock.seconds += 300
+    idle_state = state(); idle_runtime = runtime(idle_state)
+    idle_runtime.read_account = lambda: pytest.fail('No read is due on this idle tick')
+    idle = CampaignCoordinator(state=idle_state, runtime=idle_runtime, clock=clock,
+        control_root=tmp_path / 'control', followup=idle_runtime.followup)
     idle_seconds, result = timed(lambda: idle.tick(lambda: p))
     assert result == 'IDLE' and len(ledger.rows) == before
     return {'day': day, 'ledger_rows': len(ledger.rows), 'claims': len(s.claims()),
         'results': len(ledger.autostart_results), 'verify_seconds': verify_seconds,
         'pre_entry_seconds': pre_entry_seconds, 'pre_go_seconds': prepared_seconds,
         'checkpoint_seconds': checkpoint_seconds, 'idle_seconds': idle_seconds,
+        'idle_full_seed_seconds': idle_full_seed_seconds,
         'idle_ledger_rows_written': len(ledger.rows)-before,
         'ntfs_change_stamps': RetainedCache().signature(ledger.path)[-1] is not None}, ledger
 
@@ -263,3 +280,10 @@ def test_day_one_twenty_forty_final_ledger_and_idle_costs(tmp_path, monkeypatch,
     if not pytestconfig.getoption('--lfc-build-scale', default=False):
         pytest.skip('Explicit bounded synthetic fixture construction required')
     exercise_campaign(tmp_path, monkeypatch, record_property, 40)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows workstation performance and commit-charge fixture')
+def test_day_one_twenty_final_costs(tmp_path, monkeypatch, record_property, pytestconfig):
+    if not pytestconfig.getoption('--lfc-build-scale', default=False):
+        pytest.skip('Explicit bounded synthetic fixture construction required')
+    exercise_campaign(tmp_path, monkeypatch, record_property, 20)

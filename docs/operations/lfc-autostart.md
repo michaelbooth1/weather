@@ -214,8 +214,10 @@ before charging any post-bridge excess to principal. Pre-bridge withdrawals are
 already reflected in the opening balance and never become campaign costs.
 Allocation follows cash-flow time, so a
 later deposit cannot cover an earlier withdrawal whose receipt resolves late.
-An outgoing flow is charged before a same-second incoming flow when the
-whole-second timestamps cannot prove their order.
+Physical cash pools charge an outgoing flow before a same-second incoming flow
+when whole-second timestamps cannot prove their order. The retained-gain offset
+instead consumes same-second gain credits before outflows, conservatively
+reducing available gains when their order is unproved.
 Production cost booking comes only from evidenced outgoing transfers; there is
 no production `capital_cost` writer. The unchanged maker-fee guard requires a
 zero maker charge. An unrecorded fee debit instead fails the fresh balance gate
@@ -604,6 +606,18 @@ compact process-local projections, invalidated by native file identity/change
 stamps. Full result packets remain bounded strict JSON reads. The size ceiling
 is enforced with small reads, rather than allocating that ceiling for each
 receipt. An unavailable native change stamp retains full validation.
+
+A healthy scheduled IDLE tick outside every entry lookback may reuse a
+disposable metadata manifest only when no inventory, resting order, pending
+attempt, incident, skipped date or follow-up is due. A full successful original
+validation must be bracketed by identical directory listings, sizes, identities
+and NTFS change sequences before the manifest is published. Every idle tick
+checks those again, including all private session files and ACKs; any mismatch
+or unavailable change sequence runs the full existing validator and fault path.
+The manifest is bound to the ledger head, exact policy bytes, account state and
+sealed release. It supplies no monetary proof. Lookback/admitting ticks, pending
+work and owner commands always retain full original validation. The first tick
+after a cache miss pays that full cost; the next cold process may reuse it.
 
 ## Update when
 

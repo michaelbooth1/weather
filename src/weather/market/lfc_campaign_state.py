@@ -1,5 +1,6 @@
 """Durable account-scoped claims and incidents. Policy revisions cannot reset it."""
 from pathlib import Path
+import hashlib
 import re
 import uuid
 
@@ -50,8 +51,11 @@ class AccountState:
             raise StateRefused('state_schema')
         return row
 
-    def read_uncached(self, path):
-        row = strict_json(read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), STATE_JSON_LIMIT))
+    def read_uncached(self, path, *, expected_sha256=None):
+        raw = read_bytes(validate_regular_nonreparse_file(Path(path).absolute()), STATE_JSON_LIMIT)
+        if expected_sha256 is not None and hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise StateRefused('state_content_hash')
+        row = strict_json(raw)
         if not isinstance(row, dict) or row.get('schema_version') != STATE_SCHEMA:
             raise StateRefused('state_schema')
         return row
@@ -206,14 +210,14 @@ class AccountState:
                 raise ValueError('result_not_anchored')
             if metadata_only:
                 def schema():
-                    self.read_uncached(path)
+                    self.read_uncached(path, expected_sha256=events[0]['file_sha256'])
                     return None, 256
                 self._retained_cache.get('result-schema', path, schema)
                 return None, events[0]['file_sha256']
             # Large result packets would evict every compact continuity entry
             # before the next placement checkpoint. Return their full checked
             # contents without inserting them into the small metadata cache.
-            return self.read_uncached(path), events[0]['file_sha256']
+            return self.read_uncached(path, expected_sha256=events[0]['file_sha256']), events[0]['file_sha256']
         except (OSError, ValueError, RuntimeError):
             self.evidence_fault(attempt, artifact='results/' + attempt + '.json')
             raise StateRefused('private_result_evidence_fault') from None

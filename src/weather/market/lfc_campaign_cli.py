@@ -202,6 +202,8 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         incidents = active_incidents(state)
         if incidents:
             phase, fields['incident'] = 'INCIDENT', True
+        elif phase == 'DEFERRED' and getattr(runtime, '_orders_open_unproven', None) is None:
+            fields.update(account_not_read=True, orders_open_unproven=None, incident=None)
         now = datetime.now(timezone.utc)
         enrollment = state.ledger.enrollment if state is not None else None
         identity = (enrollment or {}).get('state_id', args.release_sha256)

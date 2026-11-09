@@ -378,6 +378,10 @@ class Runtime:
         if policy is not None and policy.f2:
             maintenance(self, policy, evidence_only=evidence_only)
 
+    def followup_due(self, policy):
+        from weather.market.lfc_f2_followup import due
+        return policy.f2 and due(self, policy)
+
     @contextmanager
     def admission(self):
         if self.heavy_hold_path.exists():

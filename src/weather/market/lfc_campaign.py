@@ -35,6 +35,10 @@ class CampaignCoordinator:
             attempt = incidents[0]['attempt_id']
             phase, kwargs['incident'] = 'INCIDENT', True
             reason = reason if reason in {'admission_busy', 'hold_retained', 'freeze_missing'} else 'account_incident'
+        if phase == 'DEFERRED' and not incidents and getattr(self.runtime, '_orders_open_unproven', None) is None:
+            # Local ledger continuity is not a fresh venue account read.
+            # This also covers an envelope refusal before pre_go is entered.
+            kwargs.update(account_not_read=True, orders_open_unproven=None, incident=None)
         enrollment = self.state.ledger.enrollment or {}
         opaque = stable_id(enrollment.get('state_id', 'unbound'), phase, reason or reasons.get(phase),
                            self.clock.now().astimezone(ZONE).date().isoformat(), attempt, incident=bool(incidents))
@@ -133,8 +137,12 @@ class CampaignCoordinator:
         if self.state.incidents():
             self.status('INCIDENT', incident=True)
             return 'INCIDENT'
+        from weather.market.lfc_campaign_idle import prepare, unchanged, remember
+        idle_metadata = prepare(self, policy)
         try:
-            self.state.require_retained_evidence()
+            if idle_metadata is None or not unchanged(self, policy, idle_metadata):
+                self.state.require_retained_evidence()
+                remember(self, policy, idle_metadata)
         except StateRefused:
             self.status('INCIDENT', incident=True, postchecks_pending=True)
             return 'INCIDENT'

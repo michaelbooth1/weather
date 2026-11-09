@@ -1,7 +1,8 @@
 """Guards: B065 reruns reuse retained synthetic bytes instead of duplicating a campaign.
 
 An explicit argument, task-folder containment, fake maker and forty closed
-claims are required. The full verifier remains in every measured phase.
+claims are required. Admitting phases retain full validation; idle reports its
+full manifest-seeding tick separately from the next cold metadata-only tick.
 """
 from contextlib import contextmanager
 from datetime import datetime
@@ -48,8 +49,7 @@ def bounded():
     finally: stop.set(); thread.join(timeout=2)
 
 
-@pytest.mark.skipif(os.name != 'nt', reason='Explicit Windows synthetic workload')
-def test_remeasure_existing_forty_day_fixture(pytestconfig, tmp_path, monkeypatch, record_property):
+def remeasure_existing(pytestconfig, tmp_path, monkeypatch, record_property, days):
     argument = pytestconfig.getoption('--lfc-existing-scale', default=None)
     if not argument:
         pytest.skip('Explicit retained synthetic fixture required')
@@ -59,13 +59,13 @@ def test_remeasure_existing_forty_day_fixture(pytestconfig, tmp_path, monkeypatc
     validate_nonreparse_directory(root)
     policy = load_policy(root/'campaign.json')
     assert policy.f2 and policy.raw['max_session_seconds'] == 300
-    clock = Clock(policy.entries[39].start); clock.seconds = 300
+    clock = Clock(policy.entries[days-1].start); clock.seconds = 300
     with bounded() as peak, account_lease(MAKER, backend=Mutexes()):
         ledger = Ledger.open(root/'ledger.jsonl', clock=clock.now, maker_address=MAKER)
-        assert len(ledger.autostart_claims) == len(ledger.autostart_results) == 40
+        assert len(ledger.autostart_claims) == len(ledger.autostart_results) == days
         assert not ledger.open_sessions() and not ledger.unresolved_legs()
-        assert len([r for r in ledger.capital_rows if r['event']=='capital_native_group']) == 40
-        assert len([r for r in ledger.capital_rows if r['event']=='capital_activity']) == 40
+        assert len([r for r in ledger.capital_rows if r['event']=='capital_native_group']) == days
+        assert len([r for r in ledger.capital_rows if r['event']=='capital_activity']) == days
         state = AccountState(root/'state', ledger)
         state.verify(); assert not state.pending() and not state.incidents()
         actual = Runtime.pre_go
@@ -76,10 +76,20 @@ def test_remeasure_existing_forty_day_fixture(pytestconfig, tmp_path, monkeypatc
             self.clock.seconds = max(1, int((latest-entry.start).total_seconds())+1)
             return actual(self, entry, selected_policy)
         monkeypatch.setattr(Runtime, 'pre_go', next_fresh_baseline)
-        result, _ = measure(root, ledger, policy, clock, monkeypatch, 40)
+        result, _ = measure(root, ledger, policy, clock, monkeypatch, days)
         result['peak_commit_percent'] = peak[0]
         (tmp_path/'metrics.json').write_text(json.dumps(result, indent=2))
         record_property('scale_metrics', json.dumps(result))
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Explicit Windows synthetic workload')
+def test_remeasure_existing_forty_day_fixture(pytestconfig,tmp_path,monkeypatch,record_property):
+    remeasure_existing(pytestconfig,tmp_path,monkeypatch,record_property,40)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Explicit Windows synthetic workload')
+def test_remeasure_existing_twenty_day_fixture(pytestconfig,tmp_path,monkeypatch,record_property):
+    remeasure_existing(pytestconfig,tmp_path,monkeypatch,record_property,20)
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Explicit Windows synthetic workload')
