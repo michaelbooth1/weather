@@ -137,7 +137,7 @@ def write_final(state, policy, *, root, output, now):
     from weather.market.lfc_f2_freeze import verify
     from weather.market.lfc_campaign_policy import parse_policy
     state.require_retained_evidence()
-    frozen = verify(state)
+    frozen = verify(state, policy=policy)
     if frozen is not None:
         policy = parse_policy(frozen['policy'])
     if not policy.f2:

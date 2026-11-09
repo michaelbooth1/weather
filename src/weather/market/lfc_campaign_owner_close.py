@@ -38,12 +38,17 @@ def manifest(state, attempt):
     names.add('state/emergency/' + attempt + '.json')
     if attempt == 'campaign-freeze':
         names.add('state/policies/freeze.json')
+    elif attempt == 'campaign-freeze-pinb':
+        names.add('state/policies/freeze-pinb.json')
     directories = set()
+    directory_limits = {}
     go_directories = set()
-    for session in attempt_sessions(state.ledger, attempt).values():
+    for sid, session in attempt_sessions(state.ledger, attempt).items():
         relative = Path(str(session['start'].get('directory', '')))
         if relative.parts and not relative.is_absolute() and '..' not in relative.parts:
             directories.add(relative)
+            from weather.market.lfc_f2_pinb import session_limits
+            directory_limits[relative] = session_limits(state.ledger, sid)[0]
             if relative.name in {'band-' + str(i) for i in range(1, 13)}:
                 directories.add(relative.parent)
                 if session['start'].get('go_account_sha256') is not None:
@@ -53,7 +58,8 @@ def manifest(state, attempt):
             names.add('pilot/' + (directory / name).as_posix())
         if directory in go_directories:
             names.add('pilot/' + (directory / 'go_account.json').as_posix())
-        for number in range(1, 11):
+        submit_limit = directory_limits.get(directory, 10)
+        for number in range(1, submit_limit + 1):
             for suffix in ('intent', 'ack'):
                 names.add('pilot/' + (directory / f'submit-{number}.{suffix}.json').as_posix())
     return {name: file_sha(path) if (path := artifact_path(state, name)) is not None else None for name in sorted(names)}

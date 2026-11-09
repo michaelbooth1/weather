@@ -437,7 +437,8 @@ class AccountState:
             raise StateRefused('legacy_account_date_consumed')
         for previous in self.claims():
             old = self.read(self.root / 'policies' / (previous['attempt_id'] + '.json'))['policy']
-            same_f2_protocol = policy.f2 and old.get('schema_version') in {'lfc_campaign_policy_v0.2', 'lfc_campaign_policy_v0.3'}
+            same_f2_protocol = policy.f2 and old.get('schema_version') in {
+                'lfc_campaign_policy_v0.2', 'lfc_campaign_policy_v0.3', 'lfc_campaign_policy_v0.4'}
             if previous.get('policy_name') != policy.raw['policy_name'] and not same_f2_protocol:
                 continue
             old_revision = previous.get('policy_revision')

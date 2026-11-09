@@ -24,21 +24,24 @@ def capture_window(policy):
     return begin, end
 
 
-def verify(state):
-    events = event_rows(state.ledger, 'autostart_freeze')
-    if not events:
-        return None
+def freeze_identity(policy):
+    from weather.market.lfc_f2_pinb import enabled
+    return (('campaign-freeze-pinb', 'policies/freeze-pinb.json') if enabled(policy) else
+            ('campaign-freeze', 'policies/freeze.json'))
+
+
+def verify_event(state, event):
+    attempt = event['attempt_id']
+    relative = 'policies/freeze-pinb.json' if attempt == 'campaign-freeze-pinb' else 'policies/freeze.json'
     try:
-        if len(events) != 1:
-            raise ValueError('duplicate_freeze')
-        event = events[0]
-        path = state.root / 'policies' / 'freeze.json'
+        path = state.root / relative
         row = state.read(path)
         from weather.market.lfc_campaign_policy import parse_policy
         policy = parse_policy(row['policy'])
         captured = datetime.fromisoformat(row['captured_at_utc'])
         deadline = datetime.fromisoformat(policy.raw['freeze_deadline_toronto'])
-        if (file_sha(path) != event['file_sha256'] or row['economic_sha256'] != economic_digest(policy) or
+        if (freeze_identity(policy) != (attempt, relative) or
+                file_sha(path) != event['file_sha256'] or row['economic_sha256'] != economic_digest(policy) or
                 row['policy_sha256'] != policy.sha256 or
                 row['ledger_sha256'] != event.get('receipt_ledger_sha256', event['previous_sha256']) or
                 row['ledger_sha256'] not in {state.ledger.row_sha256(i) for i in range(event['sequence'])} or
@@ -48,10 +51,19 @@ def verify(state):
     except (OSError, ValueError, KeyError, TypeError, RuntimeError):
         from weather.market.lfc_campaign_state import StateRefused
         from weather.market.lfc_campaign_owner_close import binding
-        if binding(state, 'campaign-freeze') is not None:
+        if binding(state, attempt) is not None:
             return None  # Owner accepted evidence loss; never a confirmation PASS.
-        state.evidence_fault('campaign-freeze', artifact='policies/freeze.json')
+        state.evidence_fault(attempt, artifact=relative)
         raise StateRefused('freeze_evidence_fault') from None
+
+
+def verify(state, *, policy=None):
+    """Validate every retained epoch; return the requested family's original."""
+    events = event_rows(state.ledger, 'autostart_freeze')
+    rows = {event['attempt_id']: verify_event(state, event) for event in events}
+    if policy is not None:
+        return rows.get(freeze_identity(policy)[0])
+    return rows.get(events[-1]['attempt_id']) if events else None
 
 
 def capture(state, policy, now):
@@ -60,9 +72,13 @@ def capture(state, policy, now):
     Keep the actual capture time. A later observation is explicitly late;
     economic edits remain supported as successor learning.
     """
-    if not policy.f2 or verify(state) is not None:
+    if not policy.f2:
         return
-    path = state.root / 'policies' / 'freeze.json'
+    verify(state)  # A successor never hides a prior epoch's evidence fault.
+    attempt, relative = freeze_identity(policy)
+    if event_rows(state.ledger, 'autostart_freeze', field='attempt_id', value=attempt):
+        return  # Includes an explicitly acknowledged loss; never recreate it.
+    path = state.root / relative
     if path.exists():
         # Complete only a valid original transaction, during the same capture
         # window. Never rewrite its bytes or backdate the recovery anchor.
@@ -72,30 +88,37 @@ def capture(state, policy, now):
             original = parse_policy(row['policy'])
             captured = datetime.fromisoformat(row['captured_at_utc'])
             begin, end = capture_window(original)
-            valid = (begin <= captured <= now <= end and row['on_time'] is True and
+            valid = (freeze_identity(original) == (attempt, relative) and
+                begin <= captured <= now <= end and row['on_time'] is True and
                 row['policy_sha256'] == original.sha256 and
                 row['economic_sha256'] == economic_digest(original) == economic_digest(policy) and
                 row['ledger_sha256'] in {state.ledger.row_sha256(i) for i in range(len(state.ledger.rows))})
         except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             valid = False
         if valid:
-            state.ledger.record('autostart_freeze', attempt_id='campaign-freeze', file_sha256=file_sha(path),
+            state.ledger.record('autostart_freeze', attempt_id=attempt, file_sha256=file_sha(path),
                 receipt_ledger_sha256=row['ledger_sha256'], recovered_partial=True)
         return
     deadline = datetime.fromisoformat(policy.raw['freeze_deadline_toronto'])
     if now < deadline - timedelta(minutes=5):
         return
-    sha = state.save('policies/freeze.json', {'policy': policy.raw, 'policy_sha256': policy.sha256,
+    sha = state.save(relative, {'policy': policy.raw, 'policy_sha256': policy.sha256,
         'economic_sha256': economic_digest(policy), 'captured_at_utc': now.isoformat(),
         'on_time': now <= capture_window(policy)[1], 'ledger_sha256': state.ledger.previous})
-    state.ledger.record('autostart_freeze', attempt_id='campaign-freeze', file_sha256=sha)
+    state.ledger.record('autostart_freeze', attempt_id=attempt, file_sha256=sha)
 
 
 def labels(state, policy, local_date):
     result = policy.labels(local_date)
+    from weather.market.lfc_f2_pinb import enabled as pinb
+    if pinb(policy):
+        old = [r for r in event_rows(state.ledger, 'autostart_freeze') if r['attempt_id'] == 'campaign-freeze']
+        if old and result['evidence_lane'] == 'learning':
+            verify_event(state, old[0])
+            result['evidence_lane'] = 'successor_learning'
     if not policy.f2 or result['evidence_lane'] != 'confirmation':
         return result
-    frozen = verify(state)
+    frozen = verify(state, policy=policy)
     eligible = frozen is not None and frozen['on_time'] and frozen['economic_sha256'] == economic_digest(policy)
     if eligible:
         # Once an actual successor session has been claimed, returning to old

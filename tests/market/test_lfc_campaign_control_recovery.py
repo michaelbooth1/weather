@@ -227,7 +227,8 @@ def test_every_child_policy_schema_has_a_wrapper_deadline_after_its_session_end(
     from weather.market import lfc_campaign_policy as child
     from weather.market.lfc_f2_policy import example_policy as f2
     from weather.market.lfc_f2_breadth import example_policy as breadth
-    examples = [policy_row(), f2(), breadth()]
+    from weather.market.lfc_f2_pinb import example_policy as pinb
+    examples = [policy_row(), f2(), breadth(), pinb()]
     accepted = {node.value for node in ast.walk(ast.parse(inspect.getsource(child.parse_policy)))
                 if isinstance(node, ast.Constant) and isinstance(node.value, str)
                 and node.value.startswith('lfc_campaign_policy_v')}

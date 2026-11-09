@@ -50,7 +50,7 @@ def validate_policy_path(path):
     return validate_regular_nonreparse_file(path)
 
 
-def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, output):
+def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, output, previous_release=None):
     """Called by the OWNER registrar, after it qualifies the full pregate receipt.
 
     This is not an agent setup command. No credentials or venue are read. The
@@ -75,6 +75,13 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
         raise RuntimeError('enrollment_waits_until_after_frozen_F0')
     ledger = Ledger.open(ledger_path(pilot_root()), clock=lambda: datetime.now(timezone.utc))
     state = AccountState(DEFAULT_STATE_ROOT, ledger)
+    previous = None
+    if previous_release is not None:
+        previous_path = validate_regular_nonreparse_file(Path(previous_release).absolute())
+        previous = load_release(previous_path, file_sha(previous_path))
+        from weather.market.lfc_f2_pinb import enabled as pinb
+        if not pinb(policy) or ledger.enrollment is None:
+            raise RuntimeError('migration_requires_enrolled_pinb_account')
     windowless_python = validate_regular_nonreparse_file(Path(python_path).resolve().with_name('pythonw.exe'))
     windowless = {'python': str(windowless_python), 'sha256': file_sha(windowless_python),
                   'launcher_sha256': file_sha(root / 'scripts/ops/lfc_campaign_windowless.py')}
@@ -84,6 +91,15 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
             state.enroll(now)
         else:
             state.verify()
+        if previous is not None:
+            identity = state.verify()
+            if (previous['ledger_genesis_sha256'] != ledger.row_sha256(0) or
+                    previous['state_id'] != identity['state_id'] or
+                    str(previous['maker_address']).lower() != str(state.maker).lower() or
+                    Path(previous['campaign_path']).resolve() != policy_path.resolve() or
+                    previous['host_id'] != current_execution_host_id() or
+                    previous['principal_id'] != current_execution_principal_id()):
+                raise RuntimeError('migration_account_identity_changed')
         row = {'schema_version': RELEASE_SCHEMA, 'root': str(root.resolve()), 'head': head,
                'sleeve_loss_basis': basis,
                **policy.labels(),

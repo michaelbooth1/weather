@@ -191,10 +191,15 @@ def setup(tmp_path, *, tokens=None, k=2, offset='.015', window=None, late_second
         attempt = {'counted': index == 1, 'session_number': 1, 'protocol': protocol,
                    **status.policy_metadata}
         write_new(child / 'attempt.json', attempt)
-        arm_fields = ({key: chosen[key] for key in ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
+        from weather.market.lfc_f2_breadth import arm_field_keys
+        arm_fields = ({key: chosen[key] for key in arm_field_keys(policy)}
                       if breadth else {})
         day_fields = ({'quote_day_utc': clock.now().date().isoformat(), 'market_id': chosen['market_id'],
                        'per_band_daily_filled_cap_pusd': policy.raw['per_band_daily_filled_cap_pusd']} if breadth else {})
+        if policy.raw['schema_version'] == 'lfc_campaign_policy_v0.4':
+            day_fields.update(autostart_policy_schema=policy.raw['schema_version'],
+                max_submits_per_band=policy.raw['max_submits_per_band'],
+                max_requotes_per_band=policy.raw['max_requotes_per_band'])
         ledger.record('session_start', session_id=sid, counted=index == 1,
                     owner_local_date=entry.local_date, condition_id=cid, autostart_attempt_id=attempt_id,
                     autostart_policy_sha256=policy.sha256, protocol=protocol, **arm_fields, **day_fields,

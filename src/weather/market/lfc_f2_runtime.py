@@ -48,7 +48,7 @@ def run_live(runtime, authority, status):
     from weather.market.re1_owner_checks import code_identity
     from weather.market.re1_transport import OwnerVenue, build_client, load_owner_credentials
     policy, entry, claim = authority.policy, authority.entry, authority.claim
-    from weather.market.lfc_f2_breadth import enabled, PROTOCOL as BREADTH_PROTOCOL
+    from weather.market.lfc_f2_breadth import enabled, arm_field_keys, PROTOCOL as BREADTH_PROTOCOL
     breadth = enabled(policy)
     protocol = BREADTH_PROTOCOL if breadth else 'lfc_autostart_v2'
     authority.preflight(now=runtime.clock.now(), commit=code_identity())
@@ -81,8 +81,8 @@ def run_live(runtime, authority, status):
         write_new(directory / 'selection.json', table)
         write_new(directory / 'attempt.json', {'session_id': root_id, 'attempt_id': claim['attempt_id'],
                     'policy_sha256': policy.sha256, 'selection_sha256': digest(table), **status.policy_metadata,
-                    **({'quote_arms': [{key: row[key] for key in ('market_id', 'quote_offset_pusd', 'quote_arm',
-                         'arm_date_toronto', 'arm_market_id')} for row in selected]} if breadth else {})})
+                    **({'quote_arms': [{key: row[key] for key in ('market_id', *arm_field_keys(policy))}
+                         for row in selected]} if breadth else {})})
         def verify():
             # Keep the same in-process ledger object until every band closes.
             # The later ordinary postcheck reopens/validates it independently.
@@ -145,19 +145,24 @@ def run_live(runtime, authority, status):
             coordinator.journal.record('go_account_proven', sha256=coordinator.scope['go_account_sha256'])
         for index, row, band_directory, raw in bindings:
             sid = root_id + '-b' + str(index)
-            arm_fields = ({key: row[key] for key in ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
+            arm_fields = ({key: row[key] for key in arm_field_keys(policy)}
                           if breadth else {})
             day_fields = ({'quote_day_utc': runtime.clock.now().date().isoformat(),
                            'per_band_daily_filled_cap_pusd': policy.raw['per_band_daily_filled_cap_pusd']} if breadth else {})
             attempt = {'session_id': sid, 'session_number': number, 'number': number,
                        'counted': index == 1, 'protocol': protocol, **status.policy_metadata, **arm_fields, **day_fields}
+            from weather.market.lfc_f2_pinb import enabled as pinb
+            limit_fields = ({'autostart_policy_schema': policy.raw['schema_version'],
+                'max_submits_per_band': policy.raw['max_submits_per_band'],
+                'max_requotes_per_band': policy.raw['max_requotes_per_band']} if pinb(policy) else {})
+            attempt.update(limit_fields)
             write_new(band_directory / 'attempt.json', attempt)
             ledger.record('session_start', session_id=sid, counted=index == 1, session_number=number,
                     owner_local_date=entry.local_date, directory=band_directory.relative_to(runtime.pilot_root).as_posix(),
                     condition_id=row['condition_id'], market_id=row['market_id'], event_date=row['target_date'],
                     event_slug=row['event_slug'], selection_sha256=digest(table), protocol=protocol, **arm_fields, **day_fields,
                     **({'go_account_sha256': coordinator.scope['go_account_sha256']} if breadth else {}),
-                    autostart_attempt_id=claim['attempt_id'], autostart_policy_sha256=policy.sha256)
+                    autostart_attempt_id=claim['attempt_id'], autostart_policy_sha256=policy.sha256, **limit_fields)
             band = F2Band(policy=policy, entry=entry, ledger=ledger, session_id=sid, profile=authority.profile,
                     root=runtime.pilot_root, exclusion={'event_slug': row['event_slug'],
                         'condition_ids': row['event_condition_ids'], 'timezone_name': row['market_timezone']},

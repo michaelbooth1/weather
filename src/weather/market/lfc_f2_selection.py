@@ -24,11 +24,11 @@ from weather.market.reward_quote import QuoteRefused, _levels, price_sized_rewar
 
 
 DERIVED = {'eligible', 'refusal', 'quote', 'predicted_360_minutes', 'trade_legs',
-           'quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id'}
+           'quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id', 'leg_arm', 'leg_arm_assignment'}
 
 
-def trade_legs(policy, mid):
-    tokens = policy.raw['tokens']
+def trade_legs(policy, mid, *, cheap_arm=False):
+    tokens = ['CHEAP'] if cheap_arm else policy.raw['tokens']
     if tokens == ['YES', 'NO']:
         return (0, 1)
     if tokens == ['YES']:
@@ -98,9 +98,9 @@ def candidate(band, *, now, policy, held):
         if not qualified_bids or not qualified_asks:
             raise QuoteRefused('no_size_adjusted_midpoint')
         mid = (max(qualified_bids) + min(qualified_asks)) / 2
-        legs = trade_legs(policy, mid)
         from weather.market.lfc_f2_breadth import enabled, row_arm
         assignment = row_arm(policy, utc(now), band['market_id'])
+        legs = trade_legs(policy, mid, cheap_arm=assignment.get('leg_arm') == 'cheap')
         if enabled(policy):
             row.update(assignment)
         quote = price_sized_reward_quote(**inputs, size=policy.raw['shares_per_leg'],

@@ -33,6 +33,7 @@ def parser():
     seal = commands.add_parser('seal', help='owner registrar only, after qualification and frozen F0')
     for key in ('campaign', 'release', 'pregate', 'head', 'python'):
         seal.add_argument('--' + key, required=True)
+    seal.add_argument('--previous-release', help='owner-only Pin B takeover; retain the same enrolled account')
     history = commands.add_parser('owner-recover-history', help='owner-only explicit pre-enrollment money recovery')
     history.add_argument('--head', required=True)
     history.add_argument('--session', required=True)
@@ -191,7 +192,8 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         return owner_recover_history(args)
     if args.command == 'seal':
         seal_release(campaign_path=args.campaign, pregate_path=args.pregate, qualified_head=args.head,
-                     python_path=args.python, output=args.release)
+                     python_path=args.python, output=args.release,
+                     **({'previous_release': args.previous_release} if args.previous_release is not None else {}))
         print('Campaign release sealed; task activation remains owner-only.')
         return 0
     if args.command == 'status':

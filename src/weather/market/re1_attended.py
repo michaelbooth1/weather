@@ -148,6 +148,8 @@ class Session:
     # weather.market.lfc_pilot.PilotSession overrides them for the 40-share calibration pilot.
     SIZES = SIZES
     MAX_SESSIONS = MAX_SESSIONS
+    MAX_SUBMITS = MAX_SUBMITS
+    MAX_REQUOTES = MAX_REQUOTES
     SECONDS = SECONDS
     TREATMENT = 'RE-1-84h'
     PROTOCOL = 'RE-1M-attended-84c'
@@ -508,7 +510,7 @@ class Session:
             raise HoldEnd('session_duration_or_utc_day')
         if not self.start_allowed(now) or (self.end - now).total_seconds() < 180:
             raise HoldEnd('expiration_horizon')
-        if self.submits >= MAX_SUBMITS or self.requotes > MAX_REQUOTES:
+        if self.submits >= self.MAX_SUBMITS or self.requotes > self.MAX_REQUOTES:
             raise HoldEnd('submit_budget')
         price = number(price)
         if (leg not in self.TRADE_LEGS or price != self.prices[leg] or
@@ -778,8 +780,8 @@ class Session:
                                     observation=observation, **self.totals)
                 self.observed_minutes += 1
                 if observation['requote_legs']:
-                    if self.requotes >= MAX_REQUOTES:
-                        raise HoldEnd('fifth_requote')
+                    if self.requotes >= self.MAX_REQUOTES:
+                        raise HoldEnd('fifth_requote' if self.MAX_REQUOTES == 4 else 'band_requote_limit')
                     self.requotes += 1
                 for leg in observation['requote_legs']:
                     oid = next(oid for oid, (i, _) in self.active.items() if i == leg)

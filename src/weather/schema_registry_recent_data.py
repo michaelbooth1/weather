@@ -6,6 +6,8 @@ from weather.schema_registry_types import SchemaSpec
 
 
 RECENT_REGISTERED_SCHEMAS = (
+    SchemaSpec("lfc_pinb_policy", "lfc_campaign_policy_v0.4", "weather.market.lfc_f2_pinb", "active",
+               "Owner-approved longer Pin B windows, finite band limits, quote-side arms and successor freeze; existing account history retained."),
     SchemaSpec("lfc_closure_intent_protocol", "lfc_closure_intent_v2", "weather.market.lfc_campaign_closures", "active",
                "Closure bytes bound durably before exclusive publication; disappearance or mutation latches independently of idle validation.",
                migration_notes="Earlier enrollment protocols refuse; no inferred backfill of pre-intent receipts."),

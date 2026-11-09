@@ -23,7 +23,8 @@ function ConvertTo-LfcTaskArguments {
 
 function New-LfcCampaignTaskXml {
     param([Parameter(Mandatory=$true)]$Release,[Parameter(Mandatory=$true)][string]$ReleasePath,
-          [Parameter(Mandatory=$true)][string]$ReleaseSha256,[Parameter(Mandatory=$true)][string]$OwnerSid)
+          [Parameter(Mandatory=$true)][string]$ReleaseSha256,[Parameter(Mandatory=$true)][string]$OwnerSid,
+          [ValidateSet('PT9H','PT11H')][string]$ExecutionTimeLimit='PT11H')
     if($ReleaseSha256 -cnotmatch '^[0-9a-f]{64}$' -or $OwnerSid -notmatch '^S-1-5-21-[0-9-]+$') { throw 'task binding' }
     # A GUI-subsystem interpreter creates no console at all. Its repository
     # launcher waits for a CREATE_NO_WINDOW wrapper and returns its exit code.
@@ -42,11 +43,25 @@ function New-LfcCampaignTaskXml {
   <RegistrationInfo><Description>Owner activated finite LFC campaign; no agent activation.</Description></RegistrationInfo>
   <Triggers><TimeTrigger><Repetition><Interval>PT5M</Interval><Duration>P52D</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>2026-11-10T00:00:00</StartBoundary><EndBoundary>2027-01-01T00:00:00</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers>
   <Principals><Principal id="Owner"><UserId>$(& $escape $OwnerSid)</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
-  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><AllowStartOnDemand>false</AllowStartOnDemand><Enabled>false</Enabled><Hidden>true</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>PT9H</ExecutionTimeLimit><Priority>7</Priority></Settings>
+  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><AllowStartOnDemand>false</AllowStartOnDemand><Enabled>false</Enabled><Hidden>true</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>$ExecutionTimeLimit</ExecutionTimeLimit><Priority>7</Priority></Settings>
   <Actions Context="Owner"><Exec><Command>$(& $escape $hostPath)</Command><Arguments>$(& $escape $arguments)</Arguments><WorkingDirectory>$(& $escape $Release.root)</WorkingDirectory></Exec></Actions>
 </Task>
 "@
     return $xml
+}
+
+function Assert-LfcCampaignUpgrade {
+    param([Parameter(Mandatory=$true)]$Previous,[Parameter(Mandatory=$true)][string]$CampaignPath,
+          [Parameter(Mandatory=$true)][bool]$Enabled,[Parameter(Mandatory=$true)][string]$State,
+          $Successor=$null)
+    if($Enabled -or $State -cne 'Disabled') { throw 'upgrade requires disabled, non-running task; wait for normal cleanup' }
+    if([IO.Path]::GetFullPath($CampaignPath) -cne [IO.Path]::GetFullPath($Previous.campaign_path)) { throw 'upgrade campaign path changed' }
+    if($null -ne $Successor) {
+        foreach($key in @('maker_address','ledger_genesis_sha256','state_id','host_id','principal_id','campaign_path','task_name')) {
+            if(([string]$Previous.$key).ToLowerInvariant() -cne ([string]$Successor.$key).ToLowerInvariant()) { throw ('upgrade identity changed: '+$key) }
+        }
+    }
+    return $true
 }
 
 function ConvertTo-LfcSafeXml {
@@ -97,7 +112,7 @@ function Get-LfcCampaignDeadline {
         $localNow=[TimeZoneInfo]::ConvertTime($NowUtc,$zone)
         $culture=[Globalization.CultureInfo]::InvariantCulture
         $end=$null
-        if($policyRow.schema_version -cin @('lfc_campaign_policy_v0.2','lfc_campaign_policy_v0.3')) {
+        if($policyRow.schema_version -cin @('lfc_campaign_policy_v0.2','lfc_campaign_policy_v0.3','lfc_campaign_policy_v0.4')) {
             if(@($policyRow.start_window_toronto).Count -ne 2) { return $fallback }
             $begin=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[0],'hh\:mm\:ss',$culture)
             $finish=[TimeSpan]::ParseExact([string]$policyRow.start_window_toronto[1],'hh\:mm\:ss',$culture)
@@ -118,7 +133,8 @@ function Get-LfcCampaignDeadline {
             $localStop=[DateTime]::SpecifyKind($entryDay.Add($stop),[DateTimeKind]::Unspecified)
             $fixed=[DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($localStop,$zone))
             $seconds=[int]$policyRow.max_session_seconds
-            if($seconds -lt 300 -or $seconds -gt 21600) { return $fallback }
+            $maximum=if($policyRow.schema_version -ceq 'lfc_campaign_policy_v0.4'){35100}else{21600}
+            if($seconds -lt 300 -or $seconds -gt $maximum) { return $fallback }
             # Admission and client setup may use any part of this window.
             # Bound the latest possible child end, never wrapper launch time.
             $end=$latest.AddSeconds($seconds)

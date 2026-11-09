@@ -1,0 +1,116 @@
+{
+  "platform": "polymarket_international",
+  "bands_per_event": 1,
+  "events_per_city": 1,
+  "local_event_dte": [
+    1
+  ],
+  "selection": "F0_eligible_then_max_predicted_360_minute_reward_per_city; ties_condition_id_ascending; same_rank_for_cash_admission",
+  "selection_reference_git_sha": "57fe4ce1eeb14e7c0800d5eaecf65fc7eef638e1",
+  "order_side": "BUY",
+  "shares_per_leg": "20",
+  "tick_pusd": "0.01",
+  "price_rounding": "floor_outward_to_tick",
+  "eligibility_profile": "F0_reference_filters_restricted_to_configured_DTE; native_reward_minimum_must_fit_20_shares",
+  "predicted_reward_floor": null,
+  "post_only": true,
+  "on_first_band_fill": "cancel_reconcile_cooldown_and_requote_same_band",
+  "replace_retired_band": false,
+  "inventory_exit": "hold_to_venue_resolution_and_redemption",
+  "gtd_tail_seconds": 60,
+  "max_sessions_per_day": 1,
+  "concurrent_sessions": 1,
+  "owner_funding_ceiling_pusd": "300",
+  "topups": false,
+  "capital_mode": "fixed_sleeve_redeemed_principal_only",
+  "profit_reinvestment": false,
+  "daily_loss_stop": null,
+  "cumulative_loss_stop_below_total": null,
+  "evidence_route": "actual_live_cash_proposed_amendment",
+  "secondary_policy": null,
+  "economic_minimum_total_pusd": "0",
+  "economic_minimum_zero_is_strict": true,
+  "dependence_method": "campaign_support_bound_v1",
+  "family_alpha": "0.05",
+  "freeze_deadline_toronto": "2026-11-22T18:00:00-05:00",
+  "evidence_cutoff_toronto": "2026-12-28T12:00:00-05:00",
+  "economic_changes_after_freeze": "successor_learning_only",
+  "schema_version": "lfc_campaign_policy_v0.4",
+  "enabled": false,
+  "campaign_id": "lfc-f2-202611",
+  "revision": 2,
+  "timezone": "America/Toronto",
+  "sidecar": null,
+  "policy_name": "Builtin-T1-PairedCheap20-Continue30",
+  "policy_revision": 5,
+  "sleeve_loss_basis": "net_of_retained_gains",
+  "market_ids": [
+    "atlanta",
+    "austin",
+    "chicago",
+    "dallas",
+    "denver",
+    "houston",
+    "los-angeles",
+    "miami",
+    "nyc",
+    "san-francisco",
+    "seattle",
+    "toronto"
+  ],
+  "band_limit_session": 12,
+  "band_limit_concurrent": 12,
+  "tokens": [
+    "YES",
+    "NO"
+  ],
+  "quote_offset_pusd": "0.015",
+  "requote_distance_cents": [
+    "1",
+    "3"
+  ],
+  "leg_price_range": [
+    "0.17",
+    "0.80"
+  ],
+  "per_order_cap_pusd": "15.80",
+  "per_band_cap_pusd": "19.60",
+  "share_many_range": [
+    "0",
+    "1"
+  ],
+  "min_reward_rate": "0",
+  "min_book_depth": "20",
+  "start_window_toronto": [
+    "09:00:00",
+    "09:15:00"
+  ],
+  "trading_end_toronto": "18:45:00",
+  "max_session_seconds": 35100,
+  "learning_dates": [
+    "2026-11-09",
+    "2026-11-22"
+  ],
+  "transition_no_entry_date": null,
+  "confirmation_dates": [
+    "2026-11-23",
+    "2026-12-22"
+  ],
+  "nominal_confirmation_dates": 30,
+  "success_looks": [
+    "2026-12-28T18:00:00-05:00"
+  ],
+  "per_band_daily_filled_cap_pusd": "30",
+  "fill_cooldown_seconds": 60,
+  "learning_quote_offsets_pusd": [
+    "0.015",
+    "0.025"
+  ],
+  "max_submits_per_band": 40,
+  "max_requotes_per_band": 16,
+  "learning_leg_arms": [
+    "paired",
+    "cheap"
+  ],
+  "confirmation_leg_arm": "paired"
+}

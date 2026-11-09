@@ -28,11 +28,14 @@ def captured_market_ids():
 
 
 def enabled(policy):
-    return policy.raw.get('schema_version') == SCHEMA
+    return policy.raw.get('schema_version') in {SCHEMA, 'lfc_campaign_policy_v0.4'}
 
 
 def economic_fields(policy):
     fields = legacy.ECONOMIC_FIELDS | (FIELDS if enabled(policy) else frozenset())
+    from weather.market.lfc_f2_pinb import enabled as pinb, FIELDS as PINB_FIELDS
+    if pinb(policy):
+        fields |= PINB_FIELDS
     return fields if 'sleeve_loss_basis' in policy.raw else fields - {'sleeve_loss_basis'}
 
 
@@ -96,12 +99,27 @@ def arm(policy, local_date, market):
         key = ('lfc-distance-v1|' + local_date + '|' + market).encode()
         offset = choices[int.from_bytes(hashlib.sha256(key).digest()[:8], 'big') % len(choices)]
     offset = format(quantity(offset), '.3f')
-    return {'quote_offset_pusd': offset, 'quote_arm': ('learning-' if learning else 'fixed-') + offset,
-            'arm_date_toronto': local_date, 'arm_market_id': market}
+    result = {'quote_offset_pusd': offset, 'quote_arm': ('learning-' if learning else 'fixed-') + offset,
+              'arm_date_toronto': local_date, 'arm_market_id': market}
+    from weather.market.lfc_f2_pinb import enabled as pinb
+    if pinb(policy):
+        leg_arm = policy.raw['confirmation_leg_arm']
+        if learning:
+            choices = policy.raw['learning_leg_arms']
+            key = ('lfc-leg-v1|' + local_date + '|' + market).encode()
+            leg_arm = choices[int.from_bytes(hashlib.sha256(key).digest()[:8], 'big') % len(choices)]
+        result.update(leg_arm=leg_arm, leg_arm_assignment=('learning-' if learning else 'fixed-')+leg_arm)
+    return result
 
 
 def row_arm(policy, now, market):
     return arm(policy, now.astimezone(ZONE).date().isoformat(), market)
+
+
+def arm_field_keys(policy):
+    keys = ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')
+    from weather.market.lfc_f2_pinb import enabled as pinb
+    return keys + (('leg_arm', 'leg_arm_assignment') if pinb(policy) else ())
 
 
 def band_market(start):

@@ -140,7 +140,7 @@ class CampaignCoordinator:
         if policy is not None and policy.f2:
             from weather.market.lfc_f2_freeze import capture, capture_window, verify
             capture(self.state, policy, self.clock.now())
-            frozen = verify(self.state)
+            frozen = verify(self.state, policy=policy)
             if self.clock.now() > capture_window(policy)[1] and (frozen is None or frozen['on_time'] is not True):
                 self.status('EVIDENCE_GAP', 'campaign-freeze', reason='freeze_missing', research_gaps=True,
                             orders_open_unproven=False)

@@ -17,8 +17,10 @@ from weather.operations.live_path_security import validate_regular_nonreparse_fi
 
 def private_fill_proof(band, *, require_terminal=True):
     from weather.market.lfc_campaign_proof import journal_contract
+    from weather.market.lfc_f2_pinb import session_limits
+    submit_limit, _ = session_limits(band.ledger, band.session_id)
     requests, responses, orders, _, _ = journal_contract(band.journal.path, {'scope': band.scope},
-        allow_open=True, expected_head=band.journal.previous)
+        allow_open=True, expected_head=band.journal.previous, submit_limit=submit_limit)
     legs = [band.ledger.legs[key] for key in band.ledger.sessions[band.session_id]['legs']]
     if (band.posts != len(band.known) or len(legs) != band.posts or
             len(requests) != band.posts or len(responses) != band.posts):

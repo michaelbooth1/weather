@@ -1,6 +1,6 @@
 """One cooperative owner process with independent F0-shaped bands.
 
-No thread posts orders. Each band retains its own 10-submit/4-requote budget,
+No thread posts orders. Each band retains its own finite profile budget,
 private journal and durable intents. Band cleanup cancels that band's orders;
 the explicit breadth protocol may continue only after inventory proof and cooldown.
 Any monetary ambiguity, STOP or account fault cleans up the account.
@@ -11,6 +11,7 @@ from pathlib import Path
 
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_capital import CapitalBook, CapitalRefused, SCALE
+from weather.market.lfc_f2_breadth import arm_field_keys
 from weather.market.lfc_completion import complete_evidence, evidence_flags
 from weather.market.lfc_pilot import PilotSession, write_session_end
 from weather.market.lfc_recording_io import file_sha, write_new
@@ -72,6 +73,10 @@ class ScopedVenue:
 class F2Band(PilotSession):
     def __init__(self, *, policy, entry, **kwargs):
         self.campaign_policy, self.campaign_entry = policy, entry
+        from weather.market.lfc_f2_pinb import enabled as pinb
+        if pinb(policy):
+            self.MAX_SUBMITS = policy.raw['max_submits_per_band']
+            self.MAX_REQUOTES = policy.raw['max_requotes_per_band']
         self.MIN_REWARD_RATE = quantity(policy.raw['min_reward_rate'])
         chosen = next(row for row in kwargs['table']['rows']
                       if row['condition_id'] == kwargs['table']['selected_condition_id'])
@@ -90,11 +95,14 @@ class F2Band(PilotSession):
         self.scope.update(budget_pusd=str(self.cap), capital_mode=policy.raw['capital_mode'],
                           trade_legs=list(self.TRADE_LEGS), quote_offset_pusd=str(self.OFFSET),
                           requote_distance_cents=list(map(str, self.REQUOTE_WINDOW)))
+        if pinb(policy):
+            self.scope.update(autostart_policy_schema=policy.raw['schema_version'],
+                max_submits_per_band=self.MAX_SUBMITS, max_requotes_per_band=self.MAX_REQUOTES)
         if self.breadth:
-            self.scope.update({key: chosen[key] for key in ('quote_arm', 'arm_date_toronto', 'arm_market_id')})
+            self.scope.update({key: chosen[key] for key in arm_field_keys(policy)})
             self.scope['market_id'] = chosen['market_id']
             self.journal.record('quote_arm', **{key: self.scope[key] for key in
-                ('quote_arm', 'arm_date_toronto', 'arm_market_id', 'quote_offset_pusd', 'market_id')})
+                (*arm_field_keys(policy), 'market_id')})
 
     def quote_steps(self, *, rehearsal_seconds=None):
         from weather.market.lfc_f2_repost import continue_quotes
@@ -487,7 +495,7 @@ class F2Coordinator:
                 'condition_id': band.condition, 'token_ids': list(band.tokens), 'trade_legs': list(band.TRADE_LEGS),
                 'evidence_sha256': hashes, 'reason': self.results.get(band.session_id, {}).get('reason', 'unproved'),
                 'cancellation_scope': 'band', **({key: band.scope[key] for key in
-                    ('market_id', 'quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')}
+                    ('market_id', *arm_field_keys(self.policy))}
                     if band.breadth else {})})
         write_new(self.directory / 'f2_manifest.json', manifest)
         terminal = {'reason': self.reason, 'failure_type': (type(failed).__name__ if failed is not None and

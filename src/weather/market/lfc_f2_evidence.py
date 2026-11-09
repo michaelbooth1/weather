@@ -5,6 +5,7 @@ from weather.market.lfc_completion import evidence_flags
 from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, STATE_JSON_LIMIT
 from weather.market.lfc_session_status import SessionStatus
 from weather.market.lfc_f2_economics import economics
+from weather.market.lfc_f2_breadth import arm_field_keys
 from weather.market.mm_stage2_hold import digest, _order_id
 
 
@@ -118,8 +119,8 @@ class F2Status(SessionStatus):
                                 [row for row in coordinator.open_rows if _order_id(row) in band.known])
             facts = helper._facts()
             bands.append({'session_id': band.session_id, 'reason': coordinator.results.get(band.session_id, {}).get('reason'),
-                          **({key: band.scope[key] for key in ('market_id', 'quote_offset_pusd', 'quote_arm',
-                              'arm_date_toronto', 'arm_market_id')} if getattr(band, 'breadth', False) else {}), **facts})
+                          **({key: band.scope[key] for key in ('market_id', *arm_field_keys(band.campaign_policy))}
+                              if getattr(band, 'breadth', False) else {}), **facts})
             prefix = band.directory.relative_to(self.evidence_directory).as_posix() + '/'
             hashes.update({prefix + name: sha for name, sha in facts['evidence_sha256'].items()})
             hashes.update({prefix + path.name: file_sha(path) for pattern in ('submit-*.intent.json', 'submit-*.ack.json')

@@ -231,9 +231,10 @@ class Ledger:
             from weather.market.lfc_campaign_close_intent import validate
             validate(self, row)
         elif event == 'autostart_freeze':
-            if (self.enrollment is None or row.get('attempt_id') != 'campaign-freeze' or
+            if (self.enrollment is None or row.get('attempt_id') not in {'campaign-freeze', 'campaign-freeze-pinb'} or
                     not isinstance(row.get('file_sha256'), str) or
-                    any(r['event'] == event and r['sequence'] < row['sequence'] for r in self.rows)):
+                    any(r['event'] == event and r.get('attempt_id') == row['attempt_id'] and
+                        r['sequence'] < row['sequence'] for r in self.rows)):
                 raise LedgerUnavailable('ledger_freeze_scope')
         elif event == 'autostart_owner_close':
             proof = row.get('proof', {})
@@ -544,6 +545,8 @@ class Ledger:
         metadata = ({key: start[key] for key in ('market_id', 'quote_day_utc', 'quote_offset_pusd', 'quote_arm',
                     'arm_date_toronto', 'arm_market_id', 'per_band_daily_filled_cap_pusd')}
                     if start.get('protocol') == BREADTH_PROTOCOL else {})
+        if start.get('autostart_policy_schema') == 'lfc_campaign_policy_v0.4':
+            metadata.update({key: start[key] for key in ('leg_arm', 'leg_arm_assignment')})
         if capital_admission is not None and 'sleeve_loss_basis' in capital_admission:
             # Persist the offset actually observed at the single intent gate.
             # Replay derives money from native receipts and lots, never from

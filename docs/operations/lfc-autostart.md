@@ -5,6 +5,10 @@ and the owner's one-time registration and enablement. Read when preparing,
 operating or reviewing the scheduled LFC lane. This guide grants no agent
 authority to register, enable, run, cancel or sign.
 
+For the v0.4 schedule, arm experiment and takeover of an existing campaign,
+read [Pin B policy and migration](lfc-autostart-pinb.md). Retained v0.1-v0.3
+snapshots keep their original contracts.
+
 ## One task and one policy file
 
 The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action

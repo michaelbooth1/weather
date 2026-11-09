@@ -19,10 +19,12 @@ MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable
                    'repost_inventory_unavailable', 'repost_peer_proof_pending'}
 
 
-def journal_contract(path, prediction, *, legacy=False, owner_review=False, allow_open=False, expected_head=None):
+def journal_contract(path, prediction, *, legacy=False, owner_review=False, allow_open=False, expected_head=None, submit_limit=10):
     """Stream the exact chained journal; a gap name cannot replace core rows."""
     if path.stat().st_size > 256 * 1024 * 1024:
         raise ValueError('private_journal_limit')
+    if type(submit_limit) is not int or submit_limit not in (10, 40):
+        raise ValueError('private_submit_limit')
     previous, last_time, first, terminal = None, None, None, None
     requests, responses, orders, gaps, money_gaps = [], [], {}, set(), set()
     with path.open('rb') as stream:
@@ -44,11 +46,11 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
             terminal = row
             if event == 'submit_request':
                 requests.append(row['request'])
-                if len(requests) > 10:
+                if len(requests) > submit_limit:
                     raise ValueError('private_submit_limit')
             elif event == 'submit_response':
                 responses.append(row['response'])
-                if len(responses) > 10:
+                if len(responses) > submit_limit:
                     raise ValueError('private_submit_limit')
             elif event in {'submit_deferred', 'pre_post_abort'}:
                 if (row.get('durable_intent_present') is not False or
@@ -68,7 +70,7 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 oid = sdk_field_value(order, 'id', 'order_id', 'orderID')
                 if oid:
                     orders[str(oid)] = order
-                    if len(orders) > 10:
+                    if len(orders) > submit_limit:
                         raise ValueError('private_order_limit')
             elif event in {'scoring_missed', 'minute_missed'}:
                 gaps.add(event)
@@ -128,16 +130,18 @@ def owner_originals(directory, *, ledger, session_id, attempt_id, outcome):
     prediction = strict_json(read_bytes(directory / 'prediction.json', 2_000_000))
     ending = strict_json(read_bytes(directory / 'session_end.json', 2_000_000))
     count = prediction.get('post_count')
+    from weather.market.lfc_f2_pinb import session_limits
+    submit_limit, _ = session_limits(ledger, session_id)
     known = prediction.get('order_ids')
     legs = [ledger.legs[key] for key in session['legs']]
     if (prediction.get('mode') != 'live' or prediction.get('scope', {}).get('session_id') != session_id or
             prediction.get('journal_sha256') != hashes['journal.jsonl'] or
-            ending.get('session_id') != session_id or type(count) is not int or not 0 <= count <= 10 or
+            ending.get('session_id') != session_id or type(count) is not int or not 0 <= count <= submit_limit or
             count != len(legs) or not isinstance(known, list) or len(known) > count or
             any(not isinstance(oid, str) or not oid for oid in known) or
             any(leg['order_id'] is None or leg['status'] != 'terminal' for leg in legs)):
         raise ValueError('owner_original_identity_unresolved')
-    requests, _, _, _, _ = journal_contract(directory / 'journal.jsonl', prediction, owner_review=True)
+    requests, _, _, _, _ = journal_contract(directory / 'journal.jsonl', prediction, owner_review=True, submit_limit=submit_limit)
     if len(requests) < count:
         raise ValueError('owner_original_requests_missing')
     for number, leg in enumerate(legs, 1):
@@ -193,14 +197,16 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
         flags = evidence_flags(prediction)
         legs = [ledger.legs[key] for key in session['legs']]
         ids = [leg['order_id'] for leg in legs]
+        from weather.market.lfc_f2_pinb import session_limits
+        submit_limit, _ = session_limits(ledger, session_id)
         if (prediction.get('mode') != 'live' or flags['unknown_submit'] or any(oid is None for oid in ids) or
-                prediction.get('post_count') != len(ids) or prediction.get('order_ids') != ids or len(ids) > 10 or
+                prediction.get('post_count') != len(ids) or prediction.get('order_ids') != ids or len(ids) > submit_limit or
                 prediction.get('journal_sha256') != hashes['journal.jsonl'] or
                 prediction.get('scope', {}).get('session_id') != session_id or ending.get('session_id') != session_id or
                 evidence_flags(ending) != flags or evidence_flags(session['end']) != flags or
                 prediction.get('failure_type') is not None):
             return result
-        requests, responses, orders, gaps, money_gaps = journal_contract(directory / 'journal.jsonl', prediction, legacy=legacy)
+        requests, responses, orders, gaps, money_gaps = journal_contract(directory / 'journal.jsonl', prediction, legacy=legacy, submit_limit=submit_limit)
         # Pre-enrollment producers did not emit typed faults. Only their explicit
         # complete proof is automatically supported; failed legacy proof requires
         # the separate recorded owner review, never an inferred scoring exemption.
