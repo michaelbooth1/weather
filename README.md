@@ -683,6 +683,15 @@ the flags, windows and archive step. It serves nothing.
 
 ### Trading Simulations
 
+F3-SIM-1 is the proposed simulated reward-harvesting trial. Start with the
+[F3 protocol](docs/operations/F3_SIM_TRIAL.md), [engine runbook](docs/operations/f3-maker-expansion.md)
+and [rollout gates](docs/operations/F3_ROLLOUT.md). The thin router is available;
+delegates absent from a checkout return exit 4. Phase B verifies engine and governance integration.
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.f3_cli --help
+```
+
 The paper maker scorer (`mm_paper`), the paper taker bot and both daily rolls
 were retired and their runtime code deleted on 2026-09-29 (110o part 3). Their
 retained run folders are read-only evidence. The informed maker is built in
