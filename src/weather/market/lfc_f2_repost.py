@@ -196,7 +196,9 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             band.outcome_status.resync_hook()
         try:
             private = private_fill_proof(band)
-        except Exception:
+        except Exception as exc:
+            if str(exc) == 'repost_terminal_unproven' and 'terminal_order_unavailable' in band._evidence_faults:
+                raise HoldEnd('repost_terminal_unreadable') from None
             band.note_evidence_fault('repost_private_evidence_fault')
             raise HoldEnd('repost_private_evidence_fault') from None
         if not band.cancellation_ok or not band.inventory_proven:
