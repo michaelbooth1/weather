@@ -97,6 +97,9 @@ def test_provenance_and_distinct_case_counts():
         distinct = {json.dumps({k:v for k,v in row.items() if k not in ("id", "expected")}, sort_keys=True) for row in rows}
         assert len(distinct) == provenance["unique_input_counts"][filename] >= 1000
     assert hashlib.sha256((FIXTURES / "extract_f2_parity.py.txt").read_bytes()).hexdigest() == provenance["generator_sha256"]
+    universe=provenance["universe_fixture"]
+    assert len(universe["t046_git_sha"]) == 40
+    assert hashlib.sha256((FIXTURES/universe["fixture"]).read_bytes()).hexdigest() == universe["sha256"]
     quote_mix = provenance["case_mix"]["quote.jsonl"]
     assert len(quote_mix) >= 20 and all(n >= 20 for n in quote_mix.values())
 

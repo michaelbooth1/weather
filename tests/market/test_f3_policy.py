@@ -241,6 +241,8 @@ def test_handwritten_money_boundaries():
     c=CapitalState(D(300),D(100),D(150),D(40),D(0),D(10),D(10),D(0),D(0),"net_of_retained_gains")
     cash=SimCashState(D(500),D(500))
     assert p.gate(c,reserve=D("19.60"),own_resting=D(0),cash=cash).ok
+    replacement=p.gate(c,reserve=D("19.60"),own_resting=D("19.60"),cash=cash)
+    assert replacement.ok and replacement.figures["charged_native"] == D(280_000_000)
     assert p.gate(c,reserve=D("20.01"),own_resting=D(0),cash=cash).code == "capital_total_ceiling"
     assert p.gate(replace(c,basis="gross"),reserve=D("19.60"),own_resting=D(0),cash=cash).code == "capital_total_ceiling"
     assert p.gate(c,reserve=D("19.60"),own_resting=D(0),cash=SimCashState(D(120),D(120))).code == "capital_spendable_cash"

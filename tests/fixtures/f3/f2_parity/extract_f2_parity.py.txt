@@ -86,7 +86,10 @@ def main():
                 row = dict(id=f"{name}-{count:04d}", **row)
                 target.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
                 result = row["expected"]
-                hist[result.get("code", result.get("decision", "admit"))] += 1
+                label = result.get("code") or result.get("decision")
+                if label is None:
+                    label = ("allowed" if result["allowed"] else "outside_horizon") if "allowed" in result else "admit"
+                hist[label] += 1
         counts[path.name], hashes[path.name], mixes[path.name] = count, sha(path.read_bytes()), dict(hist)
         unique_counts[path.name] = len(unique)
         assert len(unique) >= 1000, (name, "insufficient distinct inputs", len(unique))
@@ -118,6 +121,8 @@ def main():
             elif k == 19: p["min_book_depth"] = "31"
             elif k == 20: inputs["reward_min_size"] = "NaN"
             elif k == 21: inputs["reward_rate_per_day"] = "0"
+            elif k == 22: inputs["reward_rate_per_day"] = "40"; p["min_reward_rate"] = "40"
+            elif k == 23: inputs["reward_rate_per_day"] = "39.999999"; p["min_reward_rate"] = "40"
             else:
                 bid = D(rng.choice([18, 19, 20, 39, 40, 41, 77, 78, 79, 80])) / 100
                 inputs = base_book(bid, bid + D(rng.choice([1,2,3,4,5,6])) / 100, D(rng.randint(20, 160)))
@@ -210,6 +215,8 @@ def main():
                 c["profit"] = str(D(c["available_gains"])+D(rng.randint(0,10)))
                 c["basis"] = rng.choice(["gross", "net_of_retained_gains"])
                 cash, reserve = str(rng.randint(0,400)), str(D(rng.randint(0,40_000_000))/1_000_000)
+                if k == 10:
+                    own = str(D(c["resting"])/2)
             c["incentives"] = str(D(c["incentives"])+D(i)/1_000_000)
             if k in (3,4):
                 cash = str(D(cash)+D(i)/1_000_000)
@@ -284,12 +291,17 @@ def main():
     assert not git("status", "--porcelain"), "F2 tree was mutated"
     text=Path(__file__).read_bytes()
     (out/"extract_f2_parity.py.txt").write_bytes(text)
+    universe_sha = git("rev-parse", "190783d34")
+    universe_bytes = subprocess.check_output(["git", "-C", str(root), "show", universe_sha+":config/weather_universe.json"])
+    assert (out.parent/"weather_universe_t046.json").read_bytes() == universe_bytes
     provenance=dict(f2_git_sha=PIN,f2_worktree_clean=True,generator_sha256=sha(text),python_version=sys.version,
         decimal_context=str(getcontext()), generated_utc=datetime.now(timezone.utc).isoformat(),case_counts=counts,
         fixture_sha256=hashes,case_mix=mixes,unique_input_counts=unique_counts,seed=SEED,source_sha256=source_shas,source_diff_from_ef3882d2=diff,
         parity_domain="reconciled clean simulation states only; expected cash equals available; no quarantine or unknown/external activity",
         gains_domain="proved retained redemption gains only; reward/rebate accrual excluded from G",
         horizon_registry="synthetic in-memory identity map across twelve zones; unchanged F2 horizon functions",
+        universe_fixture=dict(t046_git_sha=universe_sha,source_path="config/weather_universe.json",
+                              fixture="../weather_universe_t046.json",sha256=sha(universe_bytes)),
         command="project-python.exe -I -B extract_f2_parity.py --f2-worktree <clean-pin> --out <fixtures> --count "+str(args.count))
     (out/"PROVENANCE.json").write_text(json.dumps(provenance,indent=2)+"\n",encoding="utf-8",newline="\n")
     print(json.dumps(dict(case_counts=counts,case_mix=mixes),indent=2))

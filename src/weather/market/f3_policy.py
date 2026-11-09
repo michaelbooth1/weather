@@ -1,8 +1,10 @@
 """Pure T5-R simulation policy. Gate equivalence is for reconciled clean states only.
 
-At F2 c4c3216b1c98f74fd7dc1716c6cf8e45b70beb4f, lfc_capital.py:580-589
-checks bridge existence, ledger halt/mismatch, unknown outgoing activity and
-blocking legacy activity. Lines 598-605 check capital_cash_changed (unexplained
+At F2 c4c3216b1c98f74fd7dc1716c6cf8e45b70beb4f, lfc_capital.py checks:
+capital_bridge_required (:580-581), capital_ledger_halted (:582-583),
+capital_unknown_outgoing_cost (:584-587), capital_legacy_unknown_cash (:588-589).
+These cover bridge existence, ledger halt/mismatch, unknown outgoing activity
+and blocking legacy activity. Lines 598-605 check capital_cash_changed (unexplained
 debit) and limit spendable cash for unrecorded/quarantined incoming cash, which
 can cause capital_spendable_cash at :611. These real accounting checks are
 replaced by explicit SimCashState assertions; violations raise F3NotReconciled
@@ -23,7 +25,7 @@ from decimal import Context, Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLO
 from functools import wraps
 import math
 from types import MappingProxyType
-from typing import Mapping, Sequence
+from typing import Literal, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from weather.market.f3_types import (
@@ -213,7 +215,7 @@ def check_book(book: BookState, terms: Terms, *, mid: Decimal, size: Decimal, sh
 
 
 @_context
-def observe_held(book: BookState, terms: Terms, pair: QuotePair, params: F3Params) -> str:
+def observe_held(book: BookState, terms: Terms, pair: QuotePair, params: F3Params) -> Literal["hold", "requote", "retire"]:
     """Active F2 observe + check_book, rather than the legacy hold-only helper."""
     if (book.state != "known" or pair.size not in (20, 30, 40, 50, 75) or terms.min_size > pair.size or
             terms.min_size <= 0 or terms.max_spread_cents <= 0 or not _rate_ok(terms.rate_daily_pusd, params.min_reward_rate)):
