@@ -152,6 +152,7 @@ sequence numbers, not calendar dates.
 | 10bb | T032: SPECI floor support mismatch, verified routine/COR label selection, pilot isolation and metadata-only MRMS; serving repair undone |
 | 10bc | T030: ten scoped processing defects and sizes; subjective remaining-gap planning range, no score; census PARKED |
 | 10bd | T038: December policy profitability UNIDENTIFIED; PLANNING ESTIMATE (not a measurement) per session; Nov 16 KEEP-paired rule |
+| 10be | Edge-review cheap checks 2026-11-10 (ledger rows 122-125 D; owner 11-09 19:48): E1 price tilt KILL (−2.17 c/share [−6.88, +0.80]); E3 maker clock unmeasured (0 balanced condition-days); E6 dev interval size 0.72%..9.51% at nominal 5%; E7 snapshot timing does not clear (median 5.886 s vs 5 s); E8 named look: 4 of 132 market-days differ, all paid the strict-local-date band (describe-only, quarantined) |
 
 ---
 
@@ -5351,6 +5352,104 @@ evidence available by Nov 15 18:00 Toronto. KEEP is the least-bad default, not a
 from PAID rewards plus carried inventory (never accrual or terminal marks alone); counterfactual
 evidence before any switch (deleting the expensive leg from paired receipts does not qualify the
 one-sided policy). This entry changes neither F0 nor live authority.
+
+### 10be. Edge-review cheap checks: E1 price tilt KILL, E3 maker clock unmeasured, E6 dev interval miscalibrated both ways, E7 snapshot timing does not clear, E8 named settlement-hours look describe-only: T081-T084 (ledger rows 122-125, D) and T087, 2026-11-10
+
+All five ran under the owner's 2026-11-09 19:48 decision (DECISION_LOG, "approve all recommendations"
+on the Fable 5.2 edge-review table). E1, E3, E6 and E7 are kill-only reads on local target dates
+<= 2026-09-29, each with a prereg frozen before compute, a master GO on the exact runner and a ledger
+row. E8 is the one named, owner-opened look after 2026-10-23. **None is an edge claim; a describe or
+kill here says nothing about our own fill rate, reward income or the December trial.** Source reports
+and outputs are on the workstation under `C:\t\codex\T081` .. `T084` and `C:\t\codex\T087`.
+
+- **E1, public maker markout by token price (T081, row 122): KILL.**
+  - Contrast. Favourite-minus-longshot settlement markout of other makers' public fills, by
+    bought-equivalent price (p when the maker bought, 1 − p when it sold): (> 50c) minus (< 10c),
+    cents per filled share, share-weighted, rebate and rewards excluded. Frozen rule: a
+    date-clustered 95% interval that includes zero or is wholly negative KILLs.
+  - Population. The 2026-09-20 execution tape: 30 selected dates 08-20..09-18, 12 markets; 23
+    settlement-eligible dates, 276 market-days, 289,124 markable trades (87,980 unmarkable). All
+    leads are T+0 except 14 trades at lead −1; there is no T+1 trade.
+  - Result. **−2.1715 c/share, date-clustered [−6.8791, +0.7994]** (10,000 joint date bootstraps);
+    crossed date x market sensitivity [−10.8499, +1.2845]; normal-approximation MDE80 5.8 c/share,
+    descriptive. The point estimate is opposite to the pre-stated positive direction, and the
+    interval does not establish a reliably negative difference either. Each of the four pooled
+    price-bucket intervals includes zero.
+  - Control. The overall markout −0.432 c/share (digest, item 330) reproduced within 1e-10 before any
+    cut; the new overall date interval is [−1.0801, +0.1556].
+  - Limits. Tape side is assumed to be the aggressor side, as in the original study. Public fills
+    condition on unknown queue position and cancellation. Reused dev dates.
+  - Records. Prereg `45234a88…`; runner `a0eb7c5e…` on `codex/t081-price-tilt` @ `2557897e`.
+- **E3, the maker's clock (T082, row 123): DESCRIBE; still unmeasured.**
+  - Question. Are modelled reward share and public trades per share (the fill-risk proxy) flat within
+    20% across hours for a paired 20-share quote at max spread minus 1.5 c, and which 9 h 45 min
+    window beats 09:00-18:45 Toronto? Outcome-free; public capture UTC 09-25..09-29 (09-23/24
+    missing locally; 09-25 partial).
+  - Result. **The registered support rule (>= 45 matched minutes in every hour per condition-day,
+    >= 4 effective dates) found 0 balanced condition-days in either lead.** No best window and no
+    ratio to the baseline is identified, and no flatness kill follows. No hour from 11:00 to 16:00
+    Toronto had a supported date in either lead.
+  - Partial only. T+1 at UTC 07 (03:00 Toronto): modelled share 3.367% [2.385%, 4.524%], public
+    trades 5.39/h, 4 dates. An hourly description, not a selected or recommended window.
+  - Records. Prereg `7d97333b…`; script `dd24e3c0…` on `codex/t082-maker-clock` @ `5ab2889e`.
+- **E6, coverage of the dev kill interval (T083, row 124): DESCRIBE.**
+  - Method. Outcome-free simulation conditional on an ASSUMED Gaussian covariance: AR(1) φ 0.22 by
+    calendar day (EF §10ap's B pair, not re-estimated), dynamic cross-market share c in
+    {0, .25, .5}, persistent market variance τ in {0, .25}. The production `dev_scorecard`
+    weights and percentile interval are called verbatim on the real occupancy (date and market
+    columns only): default folds 43 dates x 11 markets, 473 cells, AR effective dates 28.27; full
+    panel 57 dates, 626 cells, 37.27. 10,000 repetitions per arm.
+  - Result. **At nominal 5%, the size ranges from 0.72% [0.57%, 0.91%] to 9.51% [8.95%, 10.10%]
+    across the 12 arms** (Wilson Monte Carlo intervals). Only 3 of 12 arms sit within [3%, 7%]: the
+    interval is conservative with no cross-market dependence and anti-conservative elsewhere, so no
+    single widening or narrowing fixes both.
+  - Consequence (T083's recommendation; no method rule amended yet). Before any new dev kill,
+    pre-declare a calendar block-date x market interval, supply its variance scale and validate its
+    delivered size and power over the component grid. With oracle-known parameters the calibrated
+    interval delivers 4.47%-5.26%; at default c = τ = .25 its halfwidth is 0.006920 against the
+    existing 0.006501 (size 4.94% against 7.97%). Do not import 09-62a's 0.00346, a universal q or an
+    iid date interval. Bound B, MG-1 and the production scorer are unchanged.
+  - Prereg reuse check. The same branch makes `prereg_check` refuse a stale inherited reuse count
+    (`DEV_REUSE_COUNT_MISMATCH`; 98 tests pass). It is ROLL-FREE by the host verdict and not landed.
+  - Records. Prereg `d56f8cb2…` on `codex/prereg-reuse-check-20261110` @ `27ade070`.
+- **E7, snapshot price and model timing (T084, row 125): does not clear.**
+  - Question. Is the skew between a snapshot's price and its model build negligible, so that the row
+    pairs a price with the model that saw the same information? Outcome-free; 08-01..09-29 replay
+    snapshots, 12 cities, 720 city-dates.
+  - Result. **(a) Capture minus the earliest recorded source request (the local-history start, a
+    lower bound on the pass): median 5.886 s [5.716, 6.099]** (date bootstrap, 60 dates, 126,438
+    snapshots) against the 5 s bar; P90 11.1 s. Toronto alone sits below the bar (1.97 s); the
+    pooled median rises to about 10-11 s in local hours 21-23. (b) Capture minus the Gamma event
+    update time: median 220.7 s, on 09-29 only (10 cities). (c) Newest-METAR arrival after the
+    price: **unidentified** for all 53,440 eligible 07-16 rows (bounds [0%, 100%], not a confidence
+    interval), because no snapshot stores a Gamma or METAR receipt time.
+  - Brier effect. Unidentified; the only outcome-free bounds are 1 binary / 2 summed multiclass Brier
+    units, which are uninformative.
+  - Code trace. The client fetches the event, with its prices, before source collection and the model
+    build; the store dates the row afterwards. Two malformed JSONL records were excluded (NYC 08-12,
+    Seattle 08-16).
+  - Forward fix. Fetch the prices after the model build and store the price request and receipt
+    times with each row. It is a **roll-sensitive capture-loop change**, held for a quiet window after
+    the first live week. Evidence at stake is the synchronous-comparator claim in forward scoring.
+  - Records. Prereg `e28db50e…`; Clarification 1 `76c97195…`; runner `28ac1ff1…` on
+    `codex/T084-snapshot-timing` @ `23b04f3a`.
+- **E8, the named venue settlement-hours look (T087): DESCRIBE, label integrity, quarantined.**
+  - Scope. The reserved-confirmation-window row "Venue settlement-hours look" (owner 2026-11-09
+    19:48). Settlement observations and the paid band only; no prices, model output or own-session
+    record. The master's host extract printed counts only. The linked window is read from the link's
+    start to the target local day's end, so this compares previous-evening inclusion with the strict
+    local date, not the full 27-30 h response.
+  - Coverage. 216 keys (18 local target dates 10-23..11-09 x 12 built-ins), 0 missing. 132 are
+    comparable over 11 dates 10-23..11-02; 84 (11-03..11-09) are refused because the extract was not
+    certified complete.
+  - Result. **On 4 of the 132 comparable market-days the strict local date and the linked window give
+    different bands, and the venue paid the strict-local-date band on all 4** (on none the linked
+    band). Exact enumeration, no interval. This supports our venue-rule label reading; it does not
+    establish the venue's universal policy or justify relabelling anything.
+  - Quarantine. **Only this rule-level finding and these counts belong in canon.** The per-day
+    outputs stay on the workstation and are quarantined from every model, B, MG-1, T033/F2 and
+    forward-test use.
+  - Records. Prereg `3b94e166…`; script pinned at `codex/t087-settlement-hours` @ `968bba69`.
 
 ## Related
 
