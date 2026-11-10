@@ -50,7 +50,16 @@ The original internal selftest and new long-field, malformed-record, embargo,
 method-identity and reproduction-gate controls are included, plus a real
 inventory-metadata schema check (no book reads) and timing boundary tests.
 The first approved invocation stopped before source reads on a missing `city`
-inventory field; city is correctly derived from the event slug, as T003 did.
+inventory field. Its first repair accepted the raw plan but carried the
+planning-only `index` into event receipts and omitted `city`. The r2 repair
+returns exactly T003's input-record shape: event/date/city/path/bytes, deriving
+city from the guarded slug. The metadata regression checks those records
+against every original first-393 event receipt. The completed r1 first-30
+results stay immutable in `out/stream_events_v4`; r2 starts a fresh replay in
+`out/stream_events_v4_r2` and does not reuse those results. Output-only diagnosis
+showed the r1 schema differences were the only deterministic JSON differences
+and all 90 retained gzip/hour/episode artifacts were byte-identical to T003.
+That diagnosis is not the registered first-393 reproduction PASS.
 List retained pytest temp directories in the report for master cleanup.
 The runner's assumptions and G2's
 missing execution/latency evidence remain T003's; no result is an edge claim.

@@ -35,7 +35,7 @@ ROOT = Path(r'C:\t\recopy-20261106')
 HOLD = Path(r'C:\t\codex\HOLD_HEAVY')
 ROOTS = ('tapes-toronto-0801-0929','tapes-us-0801-0929')
 VERSION = 't085_v4_parser_completion'
-EVENT_DIR = 'stream_events_v4'
+EVENT_DIR = 'stream_events_v4_r2'
 BUDGET = None
 QUOTA = None
 ROUTES = ('buy_yes','sell_yes','buy_no','sell_no','convert_subset','buy_yes_mixed','buy_pair','sell_pair','ANY')
@@ -152,6 +152,7 @@ def load_plan():
     permitted=[p for p in planned if '2026-08-01'<=p['date']<='2026-09-29']
     if len(planned)!=900 or len(permitted)!=720 or len({p['event'] for p in permitted})!=720:
         raise ValueError('fixed 720/900 permitted universe changed')
+    canonical=[]
     for p in permitted:
         dt,city=date_slug(p['event'])
         expected=ROOT/ROOTS[0 if city=='toronto' else 1]/p['event']/'order_books_summary.csv'
@@ -160,7 +161,10 @@ def load_plan():
             raise ValueError('input identity/path/date mismatch')
         if source.resolve()!=source.absolute():raise ValueError('reparse input path is not permitted')
         if source.stat().st_size!=p['bytes']:raise ValueError('input size changed: '+p['event'])
-    return permitted
+        # T003 loaded the raw plan only as a binding, then returned inventory()
+        # records: derived city, no planning-only index. Preserve that shape.
+        canonical.append(dict(event=p['event'],date=dt,city=city,path=p['path'],bytes=p['bytes']))
+    return canonical
 def inventory():
     return load_plan()
 

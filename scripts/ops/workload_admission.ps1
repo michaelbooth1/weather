@@ -683,7 +683,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # T085: candidate only; run after master's exact-pin GO (COMMON.md).
         @{
             path = 'C:\t\codex\T085\out\scan.py'
-            sha256 = 'd7f4cf0beb3e7b4aa83376c3f251ac0e96b1f0d398363e5d5e99b3aa3d6492fa'
+            sha256 = '3174d1cac7f6da3229804b6d8e414fe4a437d3f380a07d5f05e2b673c3f7f70d'
         }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{

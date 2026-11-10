@@ -103,9 +103,18 @@ def test_actual_inventory_schema_metadata_only():
     raw=json.loads((scan.LEGACY_OUT/'inventory.json').read_text(encoding='utf-8-sig'))
     assert len(raw)==900 and all('city' not in item for item in raw)
     plan=scan.load_plan()
-    assert len(plan)==720 and plan==raw[:720]
+    assert len(plan)==720
+    assert all(set(item)=={'event','date','city','path','bytes'} for item in plan)
+    assert all({k:v for k,v in item.items() if k!='city'}=={k:v for k,v in original.items() if k!='index'}
+               for item,original in zip(plan,raw[:720]))
     assert len({scan.date_slug(item['event'])[1] for item in plan})==12
     assert plan[-1]['date']=='2026-09-29'
+    # Assert the exact input-record shape T003 serialized, beyond just accepting
+    # the raw inventory schema. Historical receipts only, no source book opens.
+    for item in plan[:393]:
+        old=json.loads((scan.LEGACY_OUT/'stream_events_v4'/(item['event']+'.json')).read_text(encoding='utf-8'))
+        assert 'index' not in old
+        assert item=={k:old[k] for k in item}
 
 
 @pytest.mark.parametrize('utc,allowed',[
