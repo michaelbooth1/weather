@@ -156,7 +156,7 @@ def load_plan():
         dt,city=date_slug(p['event'])
         expected=ROOT/ROOTS[0 if city=='toronto' else 1]/p['event']/'order_books_summary.csv'
         source=Path(p['path'])
-        if source!=expected or p['date']!=dt or p['city']!=city:
+        if source!=expected or p['date']!=dt:
             raise ValueError('input identity/path/date mismatch')
         if source.resolve()!=source.absolute():raise ValueError('reparse input path is not permitted')
         if source.stat().st_size!=p['bytes']:raise ValueError('input size changed: '+p['event'])
@@ -1012,6 +1012,20 @@ def bounded(value,low,high):
     if not low<=v<=high:raise ValueError(f'argument must be in [{low},{high}]')
     return v
 
+def execution_seconds(now=None):
+    """Master continuation: morning cutoff, or after 19:00 on Nov 10 only."""
+    current=datetime.now(timezone.utc) if now is None else now
+    local=current.astimezone(ZoneInfo('America/Toronto'))
+    if local.date().isoformat()!='2026-11-10':
+        raise ValueError('T085 continuation is authorized for November 10 only')
+    if (local.hour,local.minute)<(8,30):
+        deadline=datetime(2026,11,10,13,25,tzinfo=timezone.utc)
+    elif local.hour>=19:
+        deadline=datetime(2026,11,11,5,0,tzinfo=timezone.utc)
+    else:
+        raise ValueError('no heavy starts 08:30..19:00 Toronto')
+    return math.floor((deadline-current).total_seconds())-120
+
 
 def main():
     global BUDGET,QUOTA
@@ -1028,13 +1042,7 @@ def main():
     if os.environ.get('WEATHER_WORKSTATION_WRAPPER_ACTIVE')!='1':raise RuntimeError('heavy wrapper admission required')
     if sha(OUT.parent/'PREREG.md')!=PREREG_SHA:raise ValueError('frozen preregistration changed')
     if HOLD.exists():print('HOLD_HEAVY: no payload read',flush=True);return 76
-    local_now=datetime.now(ZoneInfo('America/Toronto'))
-    if local_now.hour>=8 and (local_now.hour>8 or local_now.minute>=30):
-        raise ValueError('no further heavy starts before task due: 08:30 campaign cutoff, then RQ-COMMON 09:00..19:00')
-    # Finish before the campaign start reserve; the task is due before the next
-    # permitted evening heavy window. No live-session state is inspected.
-    deadline=datetime(2026,11,10,13,25,tzinfo=timezone.utc)
-    remaining=math.floor((deadline-datetime.now(timezone.utc)).total_seconds())-120
+    remaining=execution_seconds()
     if remaining<=0:print('task deadline reserve: no further payload read',flush=True);return 77
     BUDGET=RunBudget(min(args.max_seconds,remaining))
     existing=sum(f.stat().st_size for f in OUT.rglob('*') if f.is_file())

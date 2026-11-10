@@ -3,6 +3,8 @@ import ast
 import csv
 import importlib.util
 import io
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -94,3 +96,28 @@ def test_remaining_days_require_real_reproduction(tmp_path, monkeypatch):
     monkeypatch.setattr(scan, 'OUT', tmp_path)
     with pytest.raises(FileNotFoundError):
         scan.require_reproduction()
+
+
+def test_actual_inventory_schema_metadata_only():
+    # This reads fixed metadata and stats permitted sources, never opens books.
+    raw=json.loads((scan.LEGACY_OUT/'inventory.json').read_text(encoding='utf-8-sig'))
+    assert len(raw)==900 and all('city' not in item for item in raw)
+    plan=scan.load_plan()
+    assert len(plan)==720 and plan==raw[:720]
+    assert len({scan.date_slug(item['event'])[1] for item in plan})==12
+    assert plan[-1]['date']=='2026-09-29'
+
+
+@pytest.mark.parametrize('utc,allowed',[
+    ('2026-11-10T08:00:00+00:00',True),
+    ('2026-11-10T13:30:00+00:00',False),
+    ('2026-11-10T23:59:59+00:00',False),
+    ('2026-11-11T00:00:00+00:00',True),
+    ('2026-11-11T05:00:00+00:00',False),
+])
+def test_authorized_execution_windows(utc,allowed):
+    now=datetime.fromisoformat(utc)
+    if allowed:
+        assert scan.execution_seconds(now)>0
+    else:
+        with pytest.raises(ValueError):scan.execution_seconds(now)

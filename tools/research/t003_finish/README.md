@@ -34,9 +34,11 @@ budget stop: retain receipts, verify completed event JSONs and resume at the
 first incomplete index. Exit 65 is a fatal input/integrity error: do not skip
 the event. HOLD exits 76; wait five minutes. Resource refusals retry in ten
 minutes. Yield sixty seconds after successful chunks. Preserve wrapper output
-and every executor session ID until exit. No heavy start after 08:30 Toronto
-on this campaign date; this runner reserves teardown before that and cannot
-resume during RQ-COMMON's 09:00..19:00 block before the task deadline.
+and every executor session ID until exit. No heavy start 08:30..19:00 Toronto
+on this campaign date. The master continuation explicitly authorizes resuming
+after 19:00 on November 10; this runner retains the morning teardown reserve
+and also bounds the evening lane to that local date. No live-session state
+is inspected.
 
 Synthetic verification, one file, no book payloads:
 
@@ -45,6 +47,10 @@ C:\Users\Michael\Documents\github\weather\venv\Scripts\python.exe -m pytest -q t
 ```
 
 The original internal selftest and new long-field, malformed-record, embargo,
-method-identity and reproduction-gate controls are included. Remove the owned
-pytest temp directory after verification. The runner's assumptions and G2's
+method-identity and reproduction-gate controls are included, plus a real
+inventory-metadata schema check (no book reads) and timing boundary tests.
+The first approved invocation stopped before source reads on a missing `city`
+inventory field; city is correctly derived from the event slug, as T003 did.
+List retained pytest temp directories in the report for master cleanup.
+The runner's assumptions and G2's
 missing execution/latency evidence remain T003's; no result is an edge claim.

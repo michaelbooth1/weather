@@ -30,8 +30,12 @@ try {
         $exitCode=0
     }
     else {
-        if ([DateTimeOffset]::UtcNow -ge [DateTimeOffset]::Parse('2026-11-10T13:23:00Z')) {
-            throw 'Campaign/task execution reserve reached'
+        $nowUtc=[DateTimeOffset]::UtcNow
+        $morningEnd=[DateTimeOffset]::Parse('2026-11-10T13:23:00Z')
+        $eveningStart=[DateTimeOffset]::Parse('2026-11-11T00:00:00Z')
+        $eveningEnd=[DateTimeOffset]::Parse('2026-11-11T04:58:00Z')
+        if ($nowUtc -ge $morningEnd -and ($nowUtc -lt $eveningStart -or $nowUtc -ge $eveningEnd)) {
+            throw 'Outside reviewed morning/evening execution reserves'
         }
         # Immediate check before EVERY wrapper invocation; never create HOLD.
         if (Test-Path -LiteralPath 'C:\t\codex\HOLD_HEAVY') {
