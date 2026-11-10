@@ -153,6 +153,7 @@ sequence numbers, not calendar dates.
 | 10bc | T030: ten scoped processing defects and sizes; subjective remaining-gap planning range, no score; census PARKED |
 | 10bd | T038: December policy profitability UNIDENTIFIED; PLANNING ESTIMATE (not a measurement) per session; Nov 16 KEEP-paired rule |
 | 10be | Edge-review cheap checks 2026-11-10 (ledger rows 122-125 D; owner 11-09 19:48): E1 price tilt KILL (−2.17 c/share [−6.88, +0.80]); E3 maker clock unmeasured (0 balanced condition-days); E6 dev interval size 0.72%..9.51% at nominal 5%; E7 snapshot timing does not clear (median 5.886 s vs 5 s); E8 named look: 4 of 132 market-days differ, all paid the strict-local-date band (describe-only, quarantined) |
+| 10bf | Edge-review queue completed 2026-11-10 (ledger rows 126-128; register X112-X117, §7): T003 finish DESCRIBE (11/720 = 1.53% [0.56, 2.78] positive event-days, execution unverified); E4 lowest-temperature overpricing KILL with a MEASURED, not pre-registered, opposite gap of about −10 to −11 pp (not an edge claim; designs A/B await the owner); dev T+1 model-vs-market read UNTESTABLE (0 verified T+1 vectors) |
 
 ---
 
@@ -5450,6 +5451,90 @@ and outputs are on the workstation under `C:\t\codex\T081` .. `T084` and `C:\t\c
     outputs stay on the workstation and are quarantined from every model, B, MG-1, T033/F2 and
     forward-test use.
   - Records. Prereg `3b94e166…`; script pinned at `codex/t087-settlement-hours` @ `968bba69`.
+
+### 10bf. Edge-review queue completed: T003 finish DESCRIBE, E4 lowest-temperature overpricing KILL with an opposite-direction lead, dev T+1 model-vs-market read UNTESTABLE: T085, T086 (ledger rows 126-127, K kill-only) and T088 (row 128, D), with T090's follow-up designs, 2026-11-10
+
+The second half of the queue under the owner's 2026-11-09 19:48 decision (DECISION_LOG), on the same
+terms as §10be: kill-only on local target dates <= 2026-09-29, prereg frozen before compute, master
+GO on the exact runner, a ledger row. **None is an edge claim.** T089 archived all seven 11-10
+rule-outs (E1, E3, E6, E7 of §10be and the three below) create-only under
+`C:\archive\ruled-out\2026-11-10-*`, and drafted register §6 X112-X117 and the §7 T003 update.
+Source reports are on the workstation under `C:\t\codex\T085`, `T086`, `T088` and `T090`.
+
+- **T003 negRisk / overround completion (T085, row 126): DESCRIBE, not killed.**
+  - Scope. 720/720 permitted event-days: local target dates 2026-08-01..09-29, 12 cities, 60 dates.
+    The register's earlier "900" was these 720 plus 180 embargoed event-days, which stayed unopened.
+    A bounded strict CSV parser (field cap 1,048,576 characters, malformed records still refused)
+    cleared T003's field-limit stop.
+  - Control. The first 393 event-days reproduced exactly before any remaining day was valued: 16 q10
+    one-second positive captures and 10 episodes under each original join, every original artifact
+    byte-identical.
+  - Rule. T003 had no frozen T3 rule, so T085 froze one before computing the remaining days: KILL only
+    if the complete census and exact replay pass and the conservative q10 ANY one-second screen has
+    zero positives; otherwise DESCRIBE.
+  - Result. **17 positive captures, 11 episodes under each original join, 11 positive event-days on 8
+    target dates: 11/720 = 1.53% [0.56%, 2.78%]**, descriptive date-clustered 95% (2,000 draws, seed
+    20261110). The 327 new event-days add one positive capture, which fails the original extra
+    1 c/share/leg diagnostic. Eight headline captures have confirmed crossed selected-leg quotes, and
+    all seven that survive the extra charge are among them.
+  - Reading. The zero-positive kill did not fire. No executable arbitrage is established: the
+    executable count is unknown, not zero, and crossed quotes, latency survival, historical market
+    status and stranded-leg costs stay unresolved. The interval describes the screen across dates,
+    not executable profit. No T3 freeze, promotion or new scan follows.
+  - Records. Prereg `73e8b665…`; scanner `3174d1ca…` on `codex/t003-finish-20261110` @ `ef24ab53`;
+    register §7; archive `C:\archive\ruled-out\2026-11-10-T003\`.
+- **E4, lowest-temperature overpricing (T086, row 127): KILL of the pre-registered direction.**
+  - Hypothesis, frozen. The crowd overprices survival of the band holding the current running minimum.
+    Four fixed local hours 15, 16, 17 and 18; city-days equally weighted; the last backward-only public
+    book-mid price at most 60 minutes old; the received running minimum as of each cut. 95% intervals
+    resample local target dates with all cities together (10,000 draws, seed 20261110). An arm KILLs on
+    an absolute gap <= 5 pp, the wrong direction, or a historical spread wider than the gap; the
+    family KILLs if all four arms do.
+  - Population. Public closed lowest-temperature events, 2,946 city-days discovered 04-15..09-29; 664
+    held-input city-days accounted (most other cities have no held intraday observations); paired
+    city-days 617/625/630/634 and effective dates 134/134/134/135 at 15/16/17/18.
+  - Result. **Wrong direction at every hour, so the family KILLs.**
+
+    | Local hour | Price − realised survival, pp [95%] |
+    | --- | --- |
+    | 15:00 | −9.96 [−12.37, −7.45] |
+    | 16:00 | −10.97 [−13.24, −8.45] |
+    | 17:00 | −11.42 [−13.85, −8.81] |
+    | 18:00 | −11.35 [−13.71, −8.87]; price 77.9% against survival 89.3% |
+
+  - **The opposite-direction gap: MEASURED, not pre-registered, spreads unavailable, NOT an edge
+    claim.** The band holding the running minimum was priced about 10 to 11 pp below its realised
+    survival at 15:00-18:00 local. That direction was not the registered hypothesis. Historical spreads
+    are not identifiable from the cached price series, so execution is untested. It authorises no
+    reverse-direction arm. The sample is warm-season development history and the four hours are
+    correlated.
+  - Fresh dates needed. Every lowest-temperature day on or before 09-29 is now spent, so a confirming
+    test needs fresh dates. T090 drafted two designs (design only, no data read), and each waits on an
+    owner decision and its own named opening:
+    - **A**, a named kill-only replication on local 09-30..10-17: 12 matched cities, Austin 10-03 out,
+      before the expansion study's 10-18+ exposure; about 18 date clusters; no locally verified asks,
+      so mids stay non-executable and A can never support an edge claim.
+    - **B**, a pre-registered forward paper test of a 12-city lowest taker policy from F3 capture
+      (asks, displayed size and depth): proposed 2026-11-17..2027-01-30 with one look 2027-02-09. It
+      needs the F3 capture (T046 landed) and an owner decision on a look after the charter's 12-28
+      limit and on its alpha share.
+    - T090 recommends B first.
+  - Records. Prereg `8c6fbbd6…`; deciding study `07ef96fe…` on `codex/t086-evening-low` (local repair
+    tip `8a89f137`, published GO tip `880a326e`); register X116; archive
+    `C:\archive\ruled-out\2026-11-10-E4-overpricing\`.
+- **Dev T+1 model-vs-market read (T088, row 128): UNTESTABLE; its coverage census DESCRIBEs.**
+  - Census. Outcome-free presence and timestamp count over 732 raw tapes (targets 07-31..09-29, 12
+    cities): 128,594 verified timestamp rows, all at local lead 0 or −1, and **0 verified T+1 served
+    vectors**. Two rows with unverifiable metadata stay unassigned (NYC 08-12, Seattle 08-16). The
+    served dev layout has 110,807 lead-zero records and no T+1 candidate; the replay strata have none
+    either. Price metadata covers 4,404 city-target-days. 0 matched slots, 0 effective dates. No price
+    scalar or outcome was decoded.
+  - Reading. The owner-approved kill-only T+1 model-against-market read on price history <= 09-29
+    cannot run: no dev T+1 vectors exist, consistent with the served model's T+0-only output. The
+    forward T+1 emitter (started 11-01) is the only source, and its emissions are post-cutoff and
+    closed to this read. No skill null, score kill or edge claim follows.
+  - Records. Prereg `c4baa437…` on `codex/t088-t1-coverage` @ `ebe6a0c3`; register X117; archive
+    `C:\archive\ruled-out\2026-11-10-T-plus-1-dev\`.
 
 ## Related
 
