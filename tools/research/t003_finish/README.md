@@ -63,3 +63,24 @@ That diagnosis is not the registered first-393 reproduction PASS.
 List retained pytest temp directories in the report for master cleanup.
 The runner's assumptions and G2's
 missing execution/latency evidence remain T003's; no result is an edge claim.
+
+`final_reports.py` fixes the original T003 reporting scripts' task-root and
+scan-pin bindings to consume this task's complete outputs. Both original
+episode joins, quote-crossing diagnostics and all calculations are reused
+unchanged from hash-pinned T003 source. Its `--selftest` runs both original
+synthetic control suites without opening books or valuing outputs. Its real
+mode requires a complete aggregate, first-393 reproduction PASS, unchanged
+prereg and canonical `research_script` wrapper admission. Run it serially
+after aggregation, with `-I C:\t\codex\T085\out\final_reports.py` as the
+wrapper's Python arguments. The compatibility receipt records both frozen
+method-source hashes and every override. It reconciles the original first-393
+headline under both joins and the complete registered statistic.
+
+The inline scanner's `completion_statistics.consecutive_episodes` is the
+legacy consecutive-capture series with a 120-second gap cap; the reporting
+adapter also reports the original alternative without that gap cap.
+`executed_continuation.ps1` is the exact archived orchestration used with its
+pinned execution commit; it is historical evidence. Use `run_chunk.ps1` with
+an explicit compatible full commit for a new invocation. `check_r1_first30.py`
+preserves the output-only diagnosis of the superseded r1 schema defect; it
+does not declare a registered reproduction PASS or read source books.

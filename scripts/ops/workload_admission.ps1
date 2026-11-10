@@ -685,6 +685,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\codex\T085\out\scan.py'
             sha256 = '3174d1cac7f6da3229804b6d8e414fe4a437d3f380a07d5f05e2b673c3f7f70d'
         }
+        # T085 standing GO: original output-only reporting, compatibility bindings only.
+        @{
+            path = 'C:\t\codex\T085\out\final_reports.py'
+            sha256 = '09002ec2c81795d6632a23dfa8e238524908d024672d02027d46391fe5ef85c6'
+        }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
