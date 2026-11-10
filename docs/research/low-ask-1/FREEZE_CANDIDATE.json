@@ -1,0 +1,76 @@
+{
+    "status":  "NOT_FROZEN",
+    "generated_utc":  "2026-11-10T22:04:50.1199513+00:00",
+    "trial":  "LOW-ASK-1",
+    "freeze_before_utc":  "2026-11-17T05:00:00Z",
+    "look_utc":  "2027-02-09T23:00:00Z",
+    "stacked_dependency":  {
+                               "branch":  "origin/claude/weather-expansion-foundations-sq-20261110",
+                               "sha":  "78d0aa66e6bcc2bb4989187ba5af7e6c93c1873f",
+                               "merge_master_after_landing":  true
+                           },
+    "authority_master_sha":  "54e5f17f46d7bcec39016113432c206d57bc6c44",
+    "prereg_sha256":  "ff8c0199d5c757290e526a056185ea185a89ebb80989ebdb7f1ad9927d61d3c9",
+    "input_contract_sha256":  "18058bb154e7d463d86ed533833ce5bb85ef398a43109d2cf8e47c92fa3c2b46",
+    "code_sha256":  {
+                        "src/weather/backtesting/low_ask/__init__.py":  "093e163ec530a54bff5bc5f88cadb729077e48db15267c25024ed5d47cefab79",
+                        "src/weather/backtesting/low_ask/__main__.py":  "da41c19bba63c674e493ba87332964234f831c7fe9edb7cab5e47e370d1f07bd",
+                        "src/weather/backtesting/low_ask/contracts.py":  "3a3347bf744267465450b934dc131b8b66414590ea6dd623b8a016e4f3af1db5",
+                        "src/weather/backtesting/low_ask/core.py":  "061f90ba682171a7948ba3742ac576098985cd040d44e488fcc26ae871ca4708",
+                        "src/weather/backtesting/low_ask/inference.py":  "3a80185af602159466426147b42c58b9b2e74e791788a8e42ac86072fc40b5d1",
+                        "src/weather/backtesting/low_ask/isolation.py":  "db49180c65ee3e7a22ef177bb8013a04ecb38c4c1de31a8c7c842b29af379945",
+                        "src/weather/backtesting/low_ask/pack.py":  "fd79c9e6bf801223dcf3cbca05956838bd58ddcb61141bc28fed810622f76df6",
+                        "src/weather/backtesting/low_ask/runner.py":  "6ac9c5b97f456eb9b983de323301def9ca8cec64d3dd633232763425e2a53d6c",
+                        "src/weather/backtesting/low_ask/seal.py":  "8b07083a597fa1211286268e18d31a5ca98bf4b4fe6e90445d32f9b557cb3d28",
+                        "src/weather/market/metar_reports.py":  "0937592d8ff79e64face8e22ae38abd79fbf885c18fb6a96d56466037ee8ee7f",
+                        "src/weather/market/venue_settlement_rules.py":  "557872b1c27ad5a21f170543b4a78cf942270535622176bc8dd6393aac75b8d5",
+                        "src/weather/market/__init__.py":  "fd0a312a4d30c8d3304f8607ad504e9f323a168988aa223cd537b37df1f3e35d",
+                        "src/weather/backtesting/__init__.py":  "3d8801497920b8b41de3e4d6b8c3248892feee7aca3b8282bc61ed252ec1f4df",
+                        "src/weather/__init__.py":  "8fc07e9019208b492284fa667e35f1c237bd338da011b9286e4f7f0d7b56e466",
+                        "src/weather/paths.py":  "666fd881baf35b9c3d4c594ef9559bba1e1b38aa5c33ccae0fa62901c534b947",
+                        "sitecustomize.py":  "99eda86954069d2a266e8b8559219039d397455144708755941f2db03ad4ac47",
+                        "weather/__init__.py":  "e5cc0446ffb32d6a79c633eb06256ce435781ca71501f9ab6b7d0d968e0be451"
+                    },
+    "tests_sha256":  {
+                         "tests/backtesting/test_low_ask_core.py":  "e3490a93a6695bfad627191c38e5e615b74238a22b9ff193f7a354768228bfab",
+                         "tests/backtesting/test_low_ask_io.py":  "f08ace8d9cd4e91e2e5c7a4c7f09d7685ebaecf7b5d5387335a9c06347512a92",
+                         "tests/backtesting/test_low_ask_calibration.py":  "0586350c4ba2bf7aecd7c6bbea9f56aa02e9ac08f646c5601dd32bab49c90da5"
+                     },
+    "calibration_code_sha256":  "32e78ab4914c04c26766e1f3752508e407ad0b5ff83585f79e1310d26bdcd992",
+    "schema_family_sha256":  "001dd2e02228be1ee6a4d25037ccf3a31d6d0f3c37b36d2ce153fdc50a81d7d8",
+    "capital":  {
+                    "total":  "300",
+                    "order":  "15.80",
+                    "band":  "19.60",
+                    "band_day":  "30"
+                },
+    "defaults_for_master_confirmation":  {
+                                             "economic_floor_city_day":  "0.25",
+                                             "minimum_adequate_dates":  68,
+                                             "minimum_both_filled_city_days":  810,
+                                             "adequate_cities_per_date":  11,
+                                             "calendar_block_length":  3,
+                                             "seed":  20261110,
+                                             "resamples":  20000,
+                                             "local_alpha":  "0.0125",
+                                             "minimum_power_lower":  "0.80",
+                                             "planning_effect_per_intended_share":  "0.06741",
+                                             "latency":  "max(30 seconds, deployed measured p95)",
+                                             "caps_include_fee_and_reserve":  true
+                                         },
+    "calibration":  {
+                        "status":  "NOT_RUN",
+                        "receipt_sha256":  null,
+                        "critical_value":  null,
+                        "power_lower":  null
+                    },
+    "pending_before_freeze":  [
+                                  "master confirms defaults and inference operationalization",
+                                  "T046 landed; merge origin/master without rebase",
+                                  "F3 source/book/scoped-pack and capture fidelity receipts",
+                                  "deployed synthetic latency and clock receipt",
+                                  "synthetic size calibration and full-verdict power receipt or explicit SCREEN_ONLY binding",
+                                  "custodian public-key hash and fixed state root",
+                                  "complete claimant, zero-exposure and authority-amendment receipts"
+                              ]
+}

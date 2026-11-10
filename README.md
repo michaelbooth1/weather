@@ -359,6 +359,11 @@ no longer have daily-refresh steps. Their run folders under `data/mm_runs` and
 `trading_evidence` reads them through the read-only
 `weather.reporting.market.retired_trading_evidence` module.
 
+The separate [LOW-ASK-1 paper trial](docs/research/low-ask-1/README.md) uses
+`python -m weather.backtesting.low_ask` with a hash-pinned freeze and closed
+captured-input manifest. Its ledger is sealed until its single deciding look;
+the entry point has no venue-order or network adapter.
+
 High-risk settlement-stage steps run one at a time in isolated child process
 trees. Each has a repository-declared timeout plus private-memory and
 working-set ceilings, plus an admission working-set expectation that defaults
