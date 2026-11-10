@@ -182,11 +182,14 @@ def load_pack(manifest_path: Path, previous: dict | None = None) -> tuple[dict, 
     event_map = {}
     event_rows = {}
     tokens = {}
+    token_owners = set()
     for event in rows["events"]:
         require(event["event_id"] not in event_map, "duplicate_event")
         event_map[event["event_id"]] = identity(event)
         event_rows[event["event_id"]] = event
         tokens[event["event_id"]] = {b["yes_token"] for b in event["bins"]}
+        require(not token_owners.intersection(tokens[event["event_id"]]), "token_aliased_across_events")
+        token_owners.update(tokens[event["event_id"]])
     book_ids = set()
     for role in ROLES[1:]:
         for row in rows[role]:

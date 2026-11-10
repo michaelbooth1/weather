@@ -105,6 +105,8 @@ Later venue corrections debit/credit cash append-only. Unknowns stay locked;
 negative cash from a correction blocks fills. A finality reversal fails
 accuracy. A later input-integrity defect never drops the scheduled unit; a
 doubtful fill gets a conservative zero-payout loss bound and fails PASS accuracy.
+If its price/depth proof is doubtful, the loss bound uses the larger of its
+recorded cost and 5*(1+.0125+.01)=$5.1125, never trusting the doubtful debit.
 
 ## Primary statistic, completeness and one look
 
@@ -144,6 +146,8 @@ ceiling is 0.0375 under the approved amendment. Full-family Holm gate also
 required over every registered profit claimant; no missing claimant is treated
 as passing. F3's earlier report can be provisional; no final family edge until
 the complete package. One combined endpoint, no hour selection.
+An ineligible/DESCRIBE trial supplies p=1 to the family; any raw diagnostic
+p-value is labelled separately at the look and cannot lend rejection rank.
 
 Calendar block length **3**; seed **20261110**; **20,000** resamples. Retain
 both slots and all cities within each local target-date cluster. Report

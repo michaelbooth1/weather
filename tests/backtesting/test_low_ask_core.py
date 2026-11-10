@@ -266,6 +266,22 @@ def test_resolution_receipt_delay_void_and_correction_cash():
     assert Decimal(run(rows)["net_lower"]) == Decimal("-4.220")
 
 
+def test_finality_reversal_relocks_cash_and_cannot_be_erased_by_refinalization():
+    rows = synthetic_rows()
+    event = rows["events"][0]
+    rows["resolutions"] = [resolution(event, hour=20),
+        resolution(event, hour=21, payout="0", revision=2, final=False),
+        resolution(event, hour=22, payout="0", revision=3)]
+    between = run(rows, local_cut(FIRST, event["zone"], 18)+timedelta(hours=3, minutes=30))
+    assert between["unresolved"] == 2
+    assert Decimal(between["locked"]) == Decimal("4.22")
+    assert Decimal(between["cash"]) == Decimal("295.78")
+    after = run(rows)
+    assert after["unresolved"] == 0
+    assert after["doubtful_fills"] == 2
+    assert Decimal(after["cash"]) == Decimal("295.78")
+
+
 def test_late_integrity_failure_preserves_population_and_loss_bound():
     rows = synthetic_rows()
     event = rows["events"][0]
@@ -274,7 +290,8 @@ def test_late_integrity_failure_preserves_population_and_loss_bound():
                           "ok": False, "received_utc": "2026-11-18T10:00:00Z", "evidence_sha256": H}]
     result = run(rows)
     assert len(actual(result)) == 2 and result["doubtful_fills"] == 1
-    assert Decimal(result["net_lower"]) == Decimal("0.780")
+    assert Decimal(result["net_lower"]) == Decimal("-2.2225")
+    assert Decimal(actual(result)[0]["conservative_loss_bound"]) == Decimal("-5.1125")
 
 
 def test_known_bad_proof_is_not_filled_and_repeat_receipt_cannot_undo_correction():

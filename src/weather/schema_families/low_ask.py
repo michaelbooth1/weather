@@ -13,4 +13,6 @@ SCHEMAS = (
                "Public hashes/coverage only; sealed economic ledger is separate."),
     SchemaSpec("low_ask_calibration", "low_ask_calibration_v1", "backtesting.low_ask_calibration", "active",
                "Synthetic-only arm and aggregate size/power calibration receipts."),
+    SchemaSpec("low_ask_result", "low_ask_result_v1", "backtesting.low_ask", "active",
+               "Single deciding-look report, never emitted by sealed accrual."),
 )

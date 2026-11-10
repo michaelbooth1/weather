@@ -35,6 +35,14 @@ truncates a trial pack. A new manifest contains every earlier file unchanged,
 and adds only files whose receipt ranges begin strictly after the previous
 successful receipt's `as_of_utc`. No delayed export may backdate a decision.
 
+Receipt clocks must represent availability at the frozen strategy's usable-input
+boundary. A downstream consumer cannot copy an upstream receipt time and claim
+the data were usable before delivery. Commissioning must bind the actual
+source-to-consumer delivery/parse path and maximum cumulative replay workload;
+logic-only timing on a tiny file does not establish the deployed latency.
+Original producer clocks remain in the hash-bound capture lineage. If the
+verified paper boundary is colocated with capture, document that placement.
+
 ## Manifest (`low_ask_inputs_v1`)
 
 Exact fields:
@@ -112,7 +120,8 @@ source_verified active bins`.
   **received intraday station prints** and the exact dated WU station; T046's
   daily WU stub does not establish this. No daily-final value enters decisions.
 - `bins` is the complete captured event bin identity map, with unique YES
-  tokens. Each exact object is `band_id yes_token lower upper lower_closed
+  tokens across the whole scoped event universe. A token cannot alias two
+  city/date events. Each exact object is `band_id yes_token lower upper lower_closed
   upper_closed tick min_size`. Bounds are native-unit decimals or null tails;
   closures are booleans. Require exactly one container at the rounded running
   minimum. No band interpolation or inferred label semantics.
@@ -162,7 +171,9 @@ integrity_ok asks`.
 `response_utc` is the captured response's local observation/completion instant,
 `received_utc` the trusted service receipt. Their lag must be 0..2 seconds.
 `exchange_utc` must be within one second of `response_utc`, backed by the
-capture/clock receipt. Export all full snapshots in each token's fixed cut+L
+capture/clock receipt. `exchange_utc` is the response-associated exchange
+clock, not a stale last-book-change timestamp; absent independent clock proof
+there is no fidelity PASS. Export all full snapshots in each token's fixed cut+L
 through cut+L+60s window. No exporter chooses a cheaper snapshot, drops a small
 ask or fetches on demand. `book_id` is globally unique to one physical snapshot,
 not one consumer. `full`, `active`, `integrity_ok` are booleans.
@@ -188,14 +199,16 @@ weather label. Both receipt and venue effective time must have occurred to
 release cash. Monotone positive `revision` is per event/token. All tokens with
 paper holdings need actual payouts; `normal` final pays 0 or 1; `void`/`refund`
 may pay any captured cash amount in [0,1] per share. Fees/reserve remain costs.
-Corrections are append-only and can debit cash. A finality reversal fails
-accuracy; no optimistic new capital is created. The look uses no selectively
+Corrections are append-only and can debit cash. A finality reversal withdraws
+its earlier credit, re-locks the position and permanently fails accuracy even
+if later re-finalized; no optimistic new capital is created. The look uses no selectively
 backfilled post-look payout.
 
 `integrity` exact fields (plus chain fields):
 `event_id received_utc book_id ok evidence_sha256`. A later bad proof does not
 drop the opportunity. For a doubtful fill, set its payout to zero in the loss
-bound and fail accuracy. A whole-pack hash defect refuses the snapshot; the
+bound and use at least $5.1125 of five-share all-in cost if its price/depth
+proof is doubtful; fail accuracy. A whole-pack hash defect refuses the snapshot; the
 master retains its scheduled population and records integrity unavailability.
 
 ## Required commissioning and freeze receipts

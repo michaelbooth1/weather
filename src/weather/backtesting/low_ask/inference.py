@@ -92,6 +92,8 @@ def interval(matrix: list[list[float]], *, critical: float | None, resamples=RES
     scale = robust_scale(matrix)
     normal_critical = NormalDist().inv_cdf(1-ALPHA)
     lrv = lrv_standard_error(daily)
+    daily_variance = sum((v-mean)**2 for v in daily)/(n-1)
+    effective_dates = min(n, max(1.0, daily_variance/(lrv*lrv))) if lrv > 0 and daily_variance > 0 else None
     intervals["lag3_lrv"] = [mean-normal_critical*lrv, mean+normal_critical*lrv]
     pvalues.append(1-NormalDist().cdf(mean/lrv) if lrv else (0.0 if mean > 0 else 1.0))
     if critical is not None:
@@ -106,12 +108,13 @@ def interval(matrix: list[list[float]], *, critical: float | None, resamples=RES
             "lower": min(v[0] for v in intervals.values()),
             "upper": max(v[1] for v in intervals.values()),
             "pvalue": max(pvalues), "intervals": intervals, "robust_scale": scale,
+            "lag3_effective_dates_diagnostic": effective_dates,
             "dates": n, "city_days": n*m}
 
 
 def holm_pass(pvalues: dict[str, float], expected: list[str]) -> bool:
     require(set(pvalues) == set(expected) and "LOW-ASK-1" in pvalues, "family_claimants")
-    require(all(isinstance(p, (int, float)) and math.isfinite(p) and 0 <= p <= 1 for p in pvalues.values()), "family_pvalue")
+    require(all(type(p) in (int, float) and math.isfinite(p) and 0 <= p <= 1 for p in pvalues.values()), "family_pvalue")
     ordered = sorted(pvalues.items(), key=lambda item: (item[1], item[0]))
     for index, (trial, p) in enumerate(ordered):
         if p > 0.05/(len(ordered)-index):
@@ -126,13 +129,21 @@ def completeness(ledger: dict) -> dict:
     for row in ledger["decisions"]:
         groups.setdefault((row["target_date"], row["city"]), []).append(row)
     good, filled = {}, 0
-    for (day, _), slots in groups.items():
+    by_city = {city: 0 for city in CITIES}
+    by_date = {(FIRST+timedelta(days=i)).isoformat(): 0 for i in range((LAST-FIRST).days+1)}
+    for (day, city), slots in groups.items():
         both_filled = len(slots) == 2 and all(r["status"] in {"filled", "resolved"} for r in slots)
         filled += both_filled
+        by_city[city] += int(both_filled)
+        by_date[day] += int(both_filled)
         adequate = len(slots) == 2 and all(r["status"] in {"filled", "resolved"}
                                          or r.get("reason") in {"cash_cap", "market_cap", "depth_reuse"} for r in slots)
         good[day] = good.get(day, 0) + adequate
-    return {"adequate_dates": sum(v >= 11 for v in good.values()), "both_filled_city_days": filled}
+    return {"adequate_dates": sum(v >= 11 for v in good.values()), "both_filled_city_days": filled,
+            "both_filled_by_city": by_city, "both_filled_by_date": by_date,
+            "captured_city_counts_by_date": {day: good.get(day, 0) for day in by_date},
+            "scheduled_slots": 75*12*2,
+            "filled_slots": sum(row["status"] in {"filled", "resolved"} for row in ledger["decisions"])}
 
 
 def evaluate(ledger: dict, *, calibration: dict, family_pvalues: dict,
@@ -145,13 +156,16 @@ def evaluate(ledger: dict, *, calibration: dict, family_pvalues: dict,
              and ledger["doubtful_fills"] == 0)
     family = dict(family_pvalues)
     require("LOW-ASK-1" not in family, "own_pvalue_not_external")
-    family["LOW-ASK-1"] = result["pvalue"]
-    family_pass = holm_pass(family, claimants)
+    def family_check(stats):
+        family["LOW-ASK-1"] = stats["pvalue"] if gates else 1.0
+        return holm_pass(family, claimants)
 
-    def verdict(stats):
+    family_pass = family_check(result)
+
+    def verdict(stats, family_ok):
         if not gates:
             return "DESCRIBE"
-        if stats["mean"] > FLOOR and stats["lower"] > 0 and stats["pvalue"] <= ALPHA and family_pass:
+        if stats["mean"] > FLOOR and stats["lower"] > 0 and stats["pvalue"] <= ALPHA and family_ok:
             return "SUCCESS"
         if stats["upper"] <= 0:
             return "KILL_POSITIVE_PROFIT"
@@ -159,12 +173,19 @@ def evaluate(ledger: dict, *, calibration: dict, family_pvalues: dict,
             return "KILL_ECONOMIC_MINIMUM"
         return "NOT_KILLED"
 
-    decision = verdict(result)
+    decision = verdict(result, family_pass)
     if ledger["unresolved"]:
         upper = interval(panel_from_ledger(ledger, optimistic_unknowns=True), critical=critical, resamples=resamples)
         result["unknown_payout_upper_panel"] = upper
-        if verdict(upper) != decision:
+        if verdict(upper, family_check(upper)) != decision:
             decision = "DESCRIBE"
+    if decision == "DESCRIBE":
+        # An ineligible/unreconciled trial must not lend a small, invalid
+        # diagnostic p-value to another claimant through the family Holm gate.
+        result["diagnostic_pvalue"] = result["pvalue"]
+        result["pvalue"] = 1.0
+        family["LOW-ASK-1"] = 1.0
+        family_pass = holm_pass(family, claimants)
     return dict(result, **coverage, verdict=decision, family_holm_pass=family_pass,
                 unresolved=ledger["unresolved"], doubtful_fills=ledger["doubtful_fills"],
                 calibration_status=calibration["status"])

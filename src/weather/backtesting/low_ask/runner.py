@@ -153,6 +153,11 @@ def process_snapshot(manifest_path: Path, freeze: dict, freeze_sha: str, key: di
         require(family["claimants"] == freeze["claimants"], "family_binding")
         report = evaluate(result, calibration=freeze["calibration"], family_pvalues=family["pvalues"],
                           claimants=freeze["claimants"])
+        report.update(schema_version="low_ask_result_v1", trial="LOW-ASK-1", freeze_sha256=freeze_sha,
+                      manifest_sha256=loaded["receipt"]["manifest_sha256"], look_utc=iso(now), as_of_utc=manifest["as_of_utc"],
+                      recorded_cash=result["cash"], recorded_locked_cost=result["locked"],
+                      unresolved_max_payout=str(5*result["unresolved"]), conservative_net=result["net_lower"],
+                      replay_sha256=result["replay_sha256"])
     ciphertext, seal_receipt = seal_payload({"ledger": result, "input_receipt": loaded["receipt"],
                                           "freeze_sha256": freeze_sha}, key)
     receipt = dict(loaded["receipt"], schema_version="low_ask_receipt_v1", freeze_sha256=freeze_sha, seal=seal_receipt,

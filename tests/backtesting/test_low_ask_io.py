@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.backtesting.test_low_ask_core import H, synthetic_rows
+from tests.backtesting.test_low_ask_core import H, synthetic_rows, synthetic_event
 from weather.backtesting.low_ask import runner, seal
 from weather.backtesting.low_ask.contracts import (CAPS, FIRST, LAST, ROLES, UTC,
                                                   Refusal, canonical, digest, json_bytes, timezone_fingerprint)
@@ -79,7 +79,7 @@ def test_compatibility_platform_is_never_a_trial_input(tmp_path):
         load_pack(path)
 
 
-@pytest.mark.parametrize("mutation", ["unknown_token", "outcome_sidecar", "bad_chain", "future_date", "wrong_raw_hash"])
+@pytest.mark.parametrize("mutation", ["unknown_token", "outcome_sidecar", "bad_chain", "future_date", "wrong_raw_hash", "aliased_event_token"])
 def test_pack_refuses_unbound_or_unscoped_data(tmp_path, mutation):
     rows = synthetic_rows()
     if mutation == "unknown_token":
@@ -90,6 +90,10 @@ def test_pack_refuses_unbound_or_unscoped_data(tmp_path, mutation):
         rows["events"][0]["target_date"] = "2027-01-31"
     elif mutation == "wrong_raw_hash":
         rows["observations"][0]["raw_sha256"] = "0" * 64
+    elif mutation == "aliased_event_token":
+        other = synthetic_event("miami")
+        other["bins"][0]["yes_token"] = rows["events"][0]["bins"][0]["yes_token"]
+        rows["events"].append(other)
     path, manifest = write_pack(tmp_path, rows)
     if mutation == "bad_chain":
         manifest["files"][1]["previous_sha256"] = H
@@ -250,6 +254,34 @@ def test_final_look_time_gate_consumed_once_even_on_failure(tmp_path, monkeypatc
         runner.accrue(*args, now=LOOK, look=True, family_path=tmp_path / "family.json")
 
 
+def test_final_report_releases_account_summary_only_at_consumed_look(tmp_path, monkeypatch):
+    from weather.backtesting.low_ask import inference
+    path, manifest = write_pack(tmp_path / "pack", as_of="2027-02-09T23:00:00Z")
+    freeze = synthetic_freeze(manifest)
+    freeze["state_root"] = str(tmp_path)
+    key = {"n_hex": "synthetic-public-only", "e": 65537}
+    freeze["public_key_sha256"] = digest(canonical(key))
+    frozen_path = tmp_path / "freeze.json"
+    frozen_path.write_bytes(canonical(freeze))
+    family_path = tmp_path / "family.json"
+    family_path.write_bytes(canonical({"claimants": freeze["claimants"], "pvalues": {"F3-SIM-1": 1}}))
+    monkeypatch.setattr(runner, "read_public_key", lambda _: key)
+    monkeypatch.setattr(runner, "seal_payload", lambda *_: (b"synthetic-cipher", {"ciphertext_sha256": H}))
+    monkeypatch.setattr(inference, "evaluate", lambda *_, **__: {"verdict": "DESCRIBE", "pvalue": 1})
+    if os.name != "nt":
+        from contextlib import nullcontext
+        monkeypatch.setattr(runner, "state_lock", lambda _: nullcontext())
+    runner.accrue(path, frozen_path, digest(canonical(freeze)), tmp_path / "public.json", tmp_path / "look",
+                  now=LOOK, look=True, family_path=family_path)
+    report = json.loads((tmp_path / "look" / "final_report.json").read_bytes())
+    assert (tmp_path / "LOOK_CONSUMED").exists()
+    assert report["schema_version"] == "low_ask_result_v1"
+    assert number(report["recorded_cash"]) == number("295.78")
+    assert number(report["recorded_locked_cost"]) == number("4.22")
+    assert report["unresolved_max_payout"] == "10"
+    assert report["freeze_sha256"] == digest(canonical(freeze))
+
+
 def test_primary_fixed_population_and_missing_calibration_prevent_pass():
     ledger = simulate(synthetic_rows(), as_of=LOOK, latency_seconds=number("30"))
     panel = panel_from_ledger(ledger)
@@ -260,6 +292,9 @@ def test_primary_fixed_population_and_missing_calibration_prevent_pass():
     assert report["mean"] == pytest.approx(-4.22/900)
     assert report["verdict"] == "DESCRIBE"
     assert report["both_filled_city_days"] == 1 and report["adequate_dates"] == 0
+    assert report["both_filled_by_city"]["atlanta"] == 1
+    assert len(report["both_filled_by_date"]) == 75
+    assert report["scheduled_slots"] == 1800 and report["filled_slots"] == 2
 
 
 def test_bootstrap_positive_control_and_full_family_holm():
@@ -271,6 +306,24 @@ def test_bootstrap_positive_control_and_full_family_holm():
     assert not holm_pass({"LOW-ASK-1": .03, "F3-SIM-1": .04}, ["F3-SIM-1", "LOW-ASK-1"])
     with pytest.raises(Refusal, match="family_claimants"):
         holm_pass({"LOW-ASK-1": .0125}, ["F3-SIM-1", "LOW-ASK-1"])
+    with pytest.raises(Refusal, match="family_pvalue"):
+        holm_pass({"LOW-ASK-1": .0125, "F3-SIM-1": False}, ["F3-SIM-1", "LOW-ASK-1"])
+
+
+def test_ineligible_trial_exports_one_for_family_not_a_small_diagnostic_pvalue():
+    from datetime import timedelta
+    from weather.backtesting.low_ask.contracts import CITIES
+    ledger = {"decisions": [
+        {"target_date": (FIRST+timedelta(days=d)).isoformat(), "city": city, "cut": hour,
+         "status": "resolved", "shares": "5", "conservative_net": "0.25"}
+        for d in range(75) for city in CITIES for hour in (17, 18)],
+        "doubtful_fills": 1, "unresolved": 0}
+    report = evaluate(ledger, calibration={"status": "CALIBRATED", "critical_value": "3"},
+                      family_pvalues={"F3-SIM-1": .03}, claimants=["F3-SIM-1", "LOW-ASK-1"], resamples=128)
+    assert report["verdict"] == "DESCRIBE"
+    assert report["pvalue"] == 1.0
+    assert report["diagnostic_pvalue"] == .0125
+    assert not report["family_holm_pass"]
 @pytest.mark.skipif(os.name != "nt", reason="Native Windows CNG seal")
 def test_native_oaep_seal_roundtrip_randomness_and_fixed_length():
     # Ephemeral SYNTHETIC crypto key in RAM only. No account, credential or file.

@@ -233,6 +233,7 @@ def simulate(rows: dict, *, as_of: datetime, latency_seconds: Decimal) -> dict:
     cash, locked = Decimal(CAPS["total"]), Decimal(0)
     used, band_locked, daily_cost = defaultdict(Decimal), defaultdict(Decimal), defaultdict(Decimal)
     positions, latest, resolution_index = [], {}, 0
+    reversed_keys = set()
 
     def settle(until):
         nonlocal cash, locked, resolution_index
@@ -247,6 +248,17 @@ def simulate(rows: dict, *, as_of: datetime, latency_seconds: Decimal) -> dict:
             require(previous is None or row["revision"] > previous["revision"], "resolution_order")
             latest[key] = row
             if not row["final"]:
+                if previous is not None and previous["final"]:
+                    reversed_keys.add(key)
+                    for position in positions:
+                        if (position["event_id"], position["yes_token"]) == key and position["status"] == "resolved":
+                            cash -= number(position.get("paid", "0"))
+                            locked += number(position["cost"])
+                            band_locked[key] += number(position["cost"])
+                            position.update(status="filled", paid="0", finality_reversed=True,
+                                            resolution_reversal_utc=iso(available))
+                            position.pop("resolution_utc", None)
+                            position.pop("resolution_sha256", None)
                 continue
             for position in positions:
                 if (position["event_id"], position["yes_token"]) != key:
@@ -294,14 +306,21 @@ def simulate(rows: dict, *, as_of: datetime, latency_seconds: Decimal) -> dict:
     for position in positions:
         if position["book_id"] in defects:
             position["integrity_defect"] = True
-            doubtful += 1
+        if (position["event_id"], position["yes_token"]) in reversed_keys:
+            position["integrity_defect"] = True
         # Unknown or doubtful payouts are ZERO in the conservative final panel.
         final = latest.get((position["event_id"], position["yes_token"]), {}).get("final", False)
         if not final and position["status"] == "resolved":
             position["integrity_defect"] = True
+        if position.get("integrity_defect"):
             doubtful += 1
-        paid = Decimal(0) if position.get("integrity_defect") else number(position.get("paid", "0"))
-        position["conservative_net"] = str(paid - number(position["cost"]))
+            # The price/depth proof itself can be doubtful. Bound the entire
+            # five-share cost, not merely the unverified recorded debit.
+            worst_cost = max(number(position["cost"]), SHARES*Decimal("1.0225"))
+            position["conservative_loss_bound"] = str(-worst_cost)
+            position["conservative_net"] = str(-worst_cost)
+        else:
+            position["conservative_net"] = str(number(position.get("paid", "0")) - number(position["cost"]))
     decisions.sort(key=lambda d: (d["target_date"], d["city"], d["cut"]))
     result = {"decisions": decisions, "cash": str(cash), "locked": str(locked),
               "unresolved": sum(p["status"] == "filled" for p in positions),
