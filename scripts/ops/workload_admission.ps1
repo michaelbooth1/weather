@@ -683,12 +683,12 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # T088 outcome-free census; master GO plus standing bug-fix GO. Controller bounds queue waits before 08:30.
         @{
             path = 'C:\t\codex\T088\count_t088.py'
-            sha256 = 'bb1dc084639de19f56514b01fd5b095190387983b13ff606866233087b4a6cb9'
+            sha256 = '61e8f89771df56ae64566657cabb7b0f6f1a30f92dc737b1d517c803d5afddb7'
         }
         # T088 raw recorded-vector metadata, <=512 MiB per invocation; same pending review.
         @{
             path = 'C:\t\codex\T088\raw_presence_t088.py'
-            sha256 = '72b1c686369e5c7dabe1336e13d6054d957ca67d41d3d216b3c692325ab9ddc9'
+            sha256 = '39567a88edafc1d25b8503ac9651a5c9d106de96566f649336c8808892a47853'
         }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
