@@ -307,7 +307,7 @@ class F2Band(PilotSession):
         return super()._recover(name, observed)
 
     def terminal_order_read(self, oid, recover):
-        """Probe every identity once before spending the shared retry budget."""
+        """Prove unresolved legs before the one-shot historical probes."""
         from weather.market.mm_account_reads import order_terminal
         def probe(order_id):
             self.progress()
@@ -319,32 +319,43 @@ class F2Band(PilotSession):
                 self.progress()
         if self._terminal_order_deadline is None:
             self._terminal_order_deadline = self.clock.monotonic() + getattr(self, '_terminal_read_seconds', 10)
-            # A lagging first order must never prevent observing a later one.
-            self._terminal_first_reads = {order_id: probe(order_id) for order_id in self.known}
-        row, error = self._terminal_first_reads.pop(oid)
-        leg = self.ledger.legs.get(self.ledger.by_order.get(oid), {})
-        already_terminal = leg.get('status') == 'terminal'
-        while True:
-            if error is None and order_terminal(row, order_id=oid, size=self.size):
-                return row
-            exception_type = error or 'OrderNotTerminal'
-            remaining = self._terminal_order_deadline - self.clock.monotonic()
-            if already_terminal or remaining <= 0:
-                break
-            self.clock.sleep(min(1, remaining))
-            if self.clock.monotonic() >= self._terminal_order_deadline:
-                break
-            row, error = probe(oid)
-        self._retain('terminal_order_unavailable', order_id=oid, exception_type=exception_type)
+            unresolved = [order_id for order_id in self.known if self.ledger.legs.get(
+                self.ledger.by_order.get(order_id), {}).get('status') != 'terminal']
+            # Every unresolved identity gets an initial read, even if a peer
+            # consumes the retry budget. Historical reads cannot spend it first.
+            self._terminal_first_reads = {order_id: probe(order_id) for order_id in unresolved}
+            pending = unresolved
+            while pending:
+                pending = [order_id for order_id in pending if
+                    self._terminal_first_reads[order_id][1] is not None or not order_terminal(
+                        self._terminal_first_reads[order_id][0], order_id=order_id, size=self.size)]
+                remaining = self._terminal_order_deadline - self.clock.monotonic()
+                if not pending or remaining <= 0:
+                    break
+                self.clock.sleep(min(1, remaining))
+                if self.clock.monotonic() >= self._terminal_order_deadline:
+                    break
+                for order_id in pending:
+                    if self.clock.monotonic() >= self._terminal_order_deadline:
+                        break
+                    self._terminal_first_reads[order_id] = probe(order_id)
+        # Already-terminal legs are read exactly once, after unresolved proof.
+        # Native per-GET transport bounds still apply to every attempt.
+        row, error = (self._terminal_first_reads.pop(oid) if oid in self._terminal_first_reads else probe(oid))
+        if error is None and order_terminal(row, order_id=oid, size=self.size):
+            return row
+        self._retain('terminal_order_unavailable', order_id=oid, exception_type=error or 'OrderNotTerminal')
         raise TimeoutError('terminal_order_unavailable')
 
     def cleanup(self):
         self._terminal_order_deadline = None  # One shared budget for all known orders in this cleanup.
-        # Final teardown has no dependent repost: one probe per identity, no
-        # retry sleeps before the next band's cancellation can start.
+        # Global ends issue every band's cancels before any terminal retry
+        # waits. A local retirement leaves quoting peers alone.
         final = (getattr(self.venue.coordinator, 'final_teardown', False) or
                  self.clock.monotonic() >= self.deadline)
-        self._terminal_read_seconds = 10 if getattr(self, '_repost_terminal_reads', False) and not final else 0
+        if not self.closed and (final or self.evidence_failed):
+            self.venue.coordinator.cancel_bands_before_probes()
+        self._terminal_read_seconds = 10 if getattr(self, '_repost_terminal_reads', False) and not final else 3
         status = getattr(self, 'outcome_status', None)
         previous = getattr(status, 'phase', None)
         if status is not None:
@@ -404,6 +415,26 @@ class F2Coordinator:
             if key is not None and self.ledger.legs[key]['status'] == 'terminal':
                 self.account_fault_reason = 'terminal_order_reappeared'
                 raise HoldEnd(self.account_fault_reason)
+
+    def cancel_bands_before_probes(self):
+        """Request all known active cancellations before bounded final reads.
+
+        These responses do not prove cancellation or release any reserve. Each
+        band's ordinary cleanup and the final account verification still run.
+        """
+        if getattr(self, '_terminal_cancels_started', False):
+            return
+        self._terminal_cancels_started = True
+        for band in self.bands:
+            if band.closed:
+                continue
+            for oid in band.active:
+                try:
+                    band._retain('cleanup_cancel_request', order_id=oid)
+                    response = band._recover('cleanup_cancel', lambda: band.venue.cancel(oid))
+                    band._retain('cleanup_cancel_response', order_id=oid, response=response)
+                except BaseException:
+                    band._retain('cleanup_cancel_unavailable', order_id=oid)
 
     def finish_band(self, band, result):
         if band.session_id in self.closed_bands:
