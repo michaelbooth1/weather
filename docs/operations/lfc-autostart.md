@@ -375,6 +375,9 @@ early quantity mismatch followed by a later matching read during propagation.
 Money proof requires complete bounded account reads, valid terminal identities
 and matched quantities, per-order fills, zero open orders and every token's
 quantity against the original immutable inventory anchor plus verified fills.
+F2 reads account-wide trades after ledger genesis. Raw order/trade pages must
+pass the envelope and streaming byte bounds in `mm_account_reads` before SDK
+normalization; its separate cursor, page and row limits refuse truncation.
 A missing holding fails even if aggregate L agrees. Microfills remain inventory;
 API absence, including below a visibility floor, does not prove exact zero.
 Each account component retains its own UTC read interval; freshness uses the

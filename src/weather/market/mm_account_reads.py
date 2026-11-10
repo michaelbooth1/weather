@@ -9,6 +9,12 @@ from decimal import Decimal, InvalidOperation
 from weather.market.lfc_recording_io import strict_json
 
 
+# /data/orders reports limit=5000 even for an empty account. Complete trade
+# pages at that size exceed 2 MB (the B079 two-maker SDK fixture is about 7 MB).
+# Retain a streaming byte ceiling independently of the 50-page/25000-row walk.
+ACCOUNT_RESPONSE_MAX_BYTES = 16_000_000
+
+
 class AmbiguousAccountRead(RuntimeError):
     state = 'AMBIGUOUS'
     code = 'AMBIGUOUS'
@@ -47,7 +53,7 @@ def order_terminal(row, *, order_id=None, size=None):
 def validate_account_page(payload):
     if (not isinstance(payload, dict) or not isinstance(payload.get('data'), list) or
             type(payload.get('count')) is not int or payload['count'] != len(payload['data']) or
-            type(payload.get('limit')) is not int or not 1 <= payload['limit'] <= 500 or
+            type(payload.get('limit')) is not int or not 1 <= payload['limit'] <= 10000 or
             len(payload['data']) > payload['limit'] or
             not isinstance(payload.get('next_cursor'), str) or not payload['next_cursor']):
         raise AmbiguousAccountRead('AMBIGUOUS: incomplete_account_page')
@@ -61,7 +67,7 @@ def validate_account_response(response):
     body = bytearray()
     try:
         for block in response.iter_bytes(chunk_size=65536):
-            if len(body) + len(block) > 2_000_000:
+            if len(body) + len(block) > ACCOUNT_RESPONSE_MAX_BYTES:
                 raise AmbiguousAccountRead('AMBIGUOUS: account_response_budget')
             body.extend(block)
         # httpx.Response.read uses this same cache; SDK parsing must see the
