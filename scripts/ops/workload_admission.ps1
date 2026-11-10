@@ -680,6 +680,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
+        # T084 / E7 malformed-record reader revision; pending master review before use.
+        @{
+            path = 'C:\t\codex\T084\analyze_v2.py'
+            sha256 = '28ac1ff1e6be6037a18eb3afa79a93768e4f084873de605a3a41877681f247c4'
+        }
         # T084 / E7 outcome-free snapshot chronology; pending master review before use.
         @{
             path = 'C:\t\codex\T084\analyze.py'
