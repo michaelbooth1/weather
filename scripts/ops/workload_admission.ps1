@@ -680,6 +680,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
+        # T088 outcome-free T+1 presence census; pending master research-script review/GO.
+        @{
+            path = 'C:\t\codex\T088\count_t088.py'
+            sha256 = '75caf83e5bfcbe2cfeac1d365d42ba3b3263eea80e420d6c35622f69073bbbf2'
+        }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
