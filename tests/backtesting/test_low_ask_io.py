@@ -324,6 +324,30 @@ def test_ineligible_trial_exports_one_for_family_not_a_small_diagnostic_pvalue()
     assert report["pvalue"] == 1.0
     assert report["diagnostic_pvalue"] == .0125
     assert not report["family_holm_pass"]
+
+
+def test_cap_blocked_slots_are_executable_and_cannot_hide_an_economic_kill():
+    from datetime import timedelta
+    from weather.backtesting.low_ask.contracts import CITIES
+    ledger = {"decisions": [
+        {"target_date": (FIRST+timedelta(days=d)).isoformat(), "city": city, "cut": hour,
+         "status": "resolved" if d < 72 and d % 2 == 0 and city == sorted(CITIES)[(d//2) % 12] else "skip", "shares": "5",
+         "conservative_net": "-4.09", "reason": "cash_cap"}
+        for d in range(75) for city in CITIES for hour in (17, 18)],
+        "doubtful_fills": 0, "unresolved": 0}
+    report = evaluate(ledger, calibration={"status": "CALIBRATED", "critical_value": "3"},
+                      family_pvalues={"F3-SIM-1": .03}, claimants=["F3-SIM-1", "LOW-ASK-1"], resamples=128)
+    assert report["both_executable_city_days"] == 900 and report["adequate_dates"] == 75
+    assert report["both_filled_city_days"] == 36
+    assert report["verdict"].startswith("KILL_")
+
+
+def test_freeze_refuses_more_than_four_claimants(tmp_path):
+    _, manifest = write_pack(tmp_path)
+    freeze = synthetic_freeze(manifest)
+    freeze["claimants"] += ["third", "fourth", "fifth"]
+    with pytest.raises(Refusal, match="claimants"):
+        runner.validate_freeze(freeze, digest(canonical(freeze)), datetime(2026, 11, 18, tzinfo=UTC))
 @pytest.mark.skipif(os.name != "nt", reason="Native Windows CNG seal")
 def test_native_oaep_seal_roundtrip_randomness_and_fixed_length():
     # Ephemeral SYNTHETIC crypto key in RAM only. No account, credential or file.

@@ -91,8 +91,9 @@ rebate, mark-to-market or early liquidation.
 
 Separate $300 virtual account. MASTER 2026-11-10 15:1x supplies the current
 owner caps: $300 total at risk, $15.80/order, $19.60/band outstanding and
-$30/band/day filled. Apply caps to all-in cost (principal+fee+reserve), a
-conservative technical interpretation for confirmation. Cash is debited at
+$30/band/day filled. MASTER RULING 2026-11-10 18:3x confirms applying caps to
+all-in cost (principal+fee+reserve), retaining gains, and the cash-release
+interpretation below. Only the $300 total can bind this two-slot policy. Cash is debited at
 fill; no daily reset, borrowing or transfers. Realized gains remain in the
 account but cannot lift $300 outstanding risk. Global fill ordering is
 execution UTC, city slug, cut. Resolve before a same-instant new fill; tie order
@@ -115,13 +116,18 @@ summed, with all missing/skipped slots zero. Report portfolio dollars/date
 also. Filled-share return is diagnostic only. All 75 dates and twelve cities
 remain in the denominator, never select profitable/complete dates.
 
-Economic floor **$0.25/scheduled city-day**. Completeness defaults: >=68
-adequately captured dates and >=810 city-days with both slots filled, plus
-complete rule/observation/book/resolution provenance for fills. Define an
+Economic floor **$0.25/scheduled city-day**, confirmed by the master.
+MASTER default 2: >=810 city-days with both slots executable-validated:
+filled/resolved, or skipped only for cash_cap, market_cap or depth_reuse.
+The two-filled-slot count is diagnostic; cash losses cannot turn a KILL into
+DESCRIBE by reducing completeness. Require complete rule/observation/book/
+resolution provenance for fills. The >=68 adequate-date and >=11/12-city
+thresholds remain **provisional until Nov 14-16 coverage counts** (method rule 17).
+Define an
 adequately captured date, outcome-blind, as >=11 of twelve cities having both
 slots reach full executable-input validation (capital shortage may block the
 fill). Missing/depth/clock/source failures do not count. This 11-city definition
-is an explicit draft operational default for master confirmation; no threshold
+is provisional for master confirmation from commissioning counts; no threshold
 is learned from trial values. Report actual concentration and effective dates.
 
 Exactly one deciding look, **2027-02-09 18:00 America/Toronto (23:00Z)**.
@@ -146,6 +152,10 @@ ceiling is 0.0375 under the approved amendment. Full-family Holm gate also
 required over every registered profit claimant; no missing claimant is treated
 as passing. F3's earlier report can be provisional; no final family edge until
 the complete package. One combined endpoint, no hour selection.
+Holm is unweighted. The complete frozen claimant list must contain **2-4**
+trials. The two-point calibrated p-value below cannot be smaller than .0125;
+it cannot clear Holm's first-step .05/m threshold when m>=5. The
+process refuses a freeze outside the 2-4 scope; it never silently drops a claimant.
 An ineligible/DESCRIBE trial supplies p=1 to the family; any raw diagnostic
 p-value is labelled separately at the look and cannot lend rejection rank.
 
@@ -164,50 +174,72 @@ if its calibrated bound clears zero, otherwise 1); combine it with the largest
 centered-bootstrap/LRV p-value. This cannot manufacture a p-value smaller than
 the local alpha. Heavy calibration must target this exact scale/statistic.
 
-Before PASS calibration: bounded synthetic cash-flow panels over all
-phi={0,.22,.5}, common city shock correlation={0,.25,.5}, persistent city
-variance share={0,.25}; never fitted on trial outcomes. Missingness mechanisms
-condition on minimum-count support: seven missing dates plus six missing
-city-days on six distinct retained dates. Thus exactly 810 city-days have both
-slots and 68 dates have >=11 covered cities before cash stress; 90% of intended
-shares remain. Baseline chooses the seven dates uniformly without replacement.
-The clustered sensitivity places three of the same seven in one contiguous
-calendar block. No best dates are selected; this is a synthetic support model.
-Independent 90% slot availability would give only 81% both-filled city-days and
-is not the planning basis for the 810-both-slots threshold.
+MASTER RULINGS B1-B4 (2026-11-10 18:3x) replace the earlier generator and
+power scope. `weather.backtesting.low_ask_calibration` owns exact indexed arms.
+Size covers every phi={0,.22,.5}, common city shock correlation={0,.25,.5},
+persistent share={0,.25} and spread/clustered mechanism: all 36 base arms.
+Cross them with support 810, full capture 900, and Chicago-missing 825.
+Add ask-.93 nulls to the four strongest dependence arms (phi=.5/common=.5,
+both persistent shares and mechanisms), at each support: **120 size arms**.
 
-`weather.backtesting.low_ask_calibration` owns the exact generator. Nominal
-synthetic ask is .80, with charter fee/reserve and five shares per slot. Both
-cuts share one binary venue outcome per city-day. A standard-normal Gaussian
-copula has the stated AR(1)/common-city/persistent-city variance decomposition.
-Null survival is .818; planning survival is .818+delta_city_day/9, so the
-90%-share support gives the named intended-unit effect. No variance parameter
-is fitted on trial data. The .14346/share date-SD remains a planning proxy,
-not a normalization imposed on these bounded binary panels.
+Support 810 removes seven dates and six additional city-days on six distinct
+retained dates; 68 dates have >=11 executable cities. Spread chooses the
+seven dates uniformly; clustered puts three of the same seven contiguously.
+Support 900 removes nothing; 825 removes Chicago on all 75 dates. No best
+date selection or outcome-dependent completeness. Cash-cap skips count as
+executable-validated, never as source failures. These are synthetic support
+stress cases, not assertions that capture will meet the counts.
 
-Nominal cash-lock stress uses $300 and receipt delays 1 day (.9) or 3 days (.1),
-in UTC/city/cut order. Its mask returns the nominal all-in debit at release,
-independently of the simulated outcome, preserving a zero-mean null after
-masking. This is conditional on that nominal liquidity model, not a bound on
-all realized-profit cash feedback. The actual paper process separately applies
-actual venue payouts, locked cash and losses. The master must confirm this
-calibration assumption or extend it before freeze; no universal cash-path
-coverage claim is made. The bounded cash-flow envelope is [-10.225,+10].
+Both five-share cuts share one binary city-day venue outcome. The Gaussian
+copula uses stationary AR(1) innovations with the stated common-city share.
+Persistent city effects are **fixed**, not redrawn per panel: deterministic
+normal-quantile offsets are centred to zero 12-city mean and unit variance.
+A common probit threshold makes their fixed-city average survival equal the
+declared marginal; centring latent offsets alone would not preserve it after
+the nonlinear CDF. No parameter is fitted on trial data.
 
-For each covariance/mechanism arm: >=20,000 null simulations. Freeze a
-worst-case critical value with one-sided 95% Monte Carlo upper error bound
-<=.0125 on independent validation simulations, accounting for the armwise
-maximum. Training selects the worst arm's empirical .995 quantile, with a
-normal-critical floor. Validation never retunes it. Clopper-Pearson upper error
-bounds spend .05/36 per arm; 2,000 power simulations per arm/effect use lower
-bounds with .05/(36*4), including the actual 20,000-resample local success rule.
-Independent predetermined RNG streams separate training, validation and power.
-Report every arm and all four effects. Power is conditional on the declared
-support/cash model and external family gate; it does not promise actual
-capture completion or a passing other-claimant package. If size/power cannot
-clear, bind SCREEN_ONLY before any
-trial look; block-3 is not intrinsically calibrated (T083/X114). This draft
-does not claim a calibration run or invent its receipt/critical value.
+At ask .80, all-in cost/share is .818 and null marginal survival is .818.
+Ask .93's null survival is the master's .9433; exact cost is .943255, so the
+rounded survival leaves its stated small positive drift. Power alternatives
+add delta_city_day/(10*support/900) to .818, giving the named intended-unit
+effect **before cash rationing**. Do not normalize profits after cash blocks.
+The .14346/share date-SD remains a planning proxy, never an imposed SD.
+
+The generated policy uses **realized cash**, matching core accounting:
+debit all-in cost at fill; release actual $5 or $0 per slot after 1 day (.9)
+or 3 days (.1), resolving before same-instant fills in UTC/city/cut order.
+Losses are permanent and gains stay. Refuse if cash < cost or locked+cost
+>$300. Exact integer-microdollar accounting matches the two asks' Decimal
+costs. There is no daily reset, nominal-debit refund or null re-centring.
+The policy's own drift, including endogenous cash rationing, is calibrated.
+Report cash_cap counts, P(binding), ending cash and date SD for every arm/
+effect. The bounded final-panel envelope remains [-10.225,+10].
+
+Each size arm has >=20,000 training and >=20,000 independent validation
+panels. Critical value = maximum empirical **.9925** training quantile of
+raw mean/robust-scale over all 120 arms, floored at the normal critical value.
+Validation never retunes it. Simultaneous one-sided 95% Clopper-Pearson size
+upper bounds spend .05/120 per arm and must all be <=.0125.
+
+Power has 2,000 panels for every ask-.80 arm/effect, with the actual fixed
+20,000-resample local success rule, point floor and executable-count gates.
+Report all original **144 cells**, plus the 900/825-support cells: 432 total.
+The ask-.93 additions are null-only. Only the **810-support planning arm**,
+phi=.22/common=.5/persistent=0, in **both** missingness mechanisms, must
+clear >=80% lower-confidence power at delta=.6741 dollars/city-day.
+Those two bounds spend .05/2; other diagnostic cells use .05/432. This is
+the master's smallest planning arm with alternative date SD proxy ~1.63,
+at least T086's 1.4346 (method rule 19). Stronger arms retain size protection;
+their low diagnostic power cannot independently force SCREEN_ONLY.
+
+Report generated date SD / 1.4346, also / 1.63, per cell, and the realized
+trial date SD / 1.4346 at the sealed deciding look. Null/power RNG streams
+are disjoint; common random numbers are reused across the four alternatives.
+No panel that fails the analytic gates can be rescued by its bootstrap.
+Power remains conditional on the external full-family Holm package.
+If any size gate or either planning power bound fails, the receipt is plainly
+SCREEN_ONLY with measured power, for the owner's effect/alpha/N decision.
+Never tune after validation. This draft claims no full calibration result.
 
 Planning assumptions retained from DESIGN_B (DERIVED from T086 aggregates,
 not a new read): intended-share effects .09490, .07490, .06741 and .05000;
@@ -247,10 +279,13 @@ hash, two independent replay digests and calibration/power status. All before
 first D0 midnight. If prerequisites miss it, this exact dated test does not
 start. No pretend freeze or retroactive start.
 
-Master confirmation list: economic floor; 68-date/810-city-day thresholds and
-the adequate-date definition; block length; seed/resamples; covariance and
-missingness/cash-lock envelope; independent calibration/error/power rule;
-all-in cap interpretation; measured frozen L and deployed receipts. Every
+Master 2026-11-10 18:3x confirms defaults 1, 3, 4, 7 and 8: economic floor,
+block length, seed/resamples, all-in capital interpretations and frozen
+L=max(30s, deployed p95), with no receipt meaning no start. Defaults 2, 5
+and 6 are changed exactly as recorded above. The 68-date/11-city thresholds
+remain provisional pending commissioning coverage counts; the revised
+generator, calibration and power receipt still require reviewed GO and
+pre-freeze binding. Every
 DESIGN_B resource estimate (16–21 hours, <2 GiB export, 0.1–0.25 monitoring
 hours/week) remains an estimate, not a scientific admission threshold. N=5,
 source coverage and fee/reserve values above are fixed, not adjustable to fill

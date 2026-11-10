@@ -18,6 +18,7 @@ FLOOR = 0.25
 SEED = 20261110
 RESAMPLES = 20_000
 BLOCK = 3
+PLANNING_DATE_SD = 1.4346
 
 
 def panel_from_ledger(ledger: dict, *, optimistic_unknowns=False) -> list[list[float]]:
@@ -82,38 +83,40 @@ def interval(matrix: list[list[float]], *, critical: float | None, resamples=RES
             city_weights[rng.randrange(m)] += 1
         weighted_daily = [sum(v*w for v, w in zip(row, city_weights))/m for row in matrix]
         distributions["crossed_city_block3"].append(sum(weighted_daily[i] for i in block_dates)/n - mean)
-    intervals, pvalues = {}, []
+    intervals, pvalues = {}, {}
     for name, draws in distributions.items():
         draws.sort()
         lo = draws[max(0, math.ceil(ALPHA*resamples)-1)]
         hi = draws[min(resamples-1, math.ceil((1-ALPHA)*resamples)-1)]
         intervals[name] = [mean-hi, mean-lo]
-        pvalues.append((1+sum(d >= mean for d in draws))/(resamples+1))
+        pvalues[name] = (1+sum(d >= mean for d in draws))/(resamples+1)
     scale = robust_scale(matrix)
     normal_critical = NormalDist().inv_cdf(1-ALPHA)
     lrv = lrv_standard_error(daily)
     daily_variance = sum((v-mean)**2 for v in daily)/(n-1)
     effective_dates = min(n, max(1.0, daily_variance/(lrv*lrv))) if lrv > 0 and daily_variance > 0 else None
     intervals["lag3_lrv"] = [mean-normal_critical*lrv, mean+normal_critical*lrv]
-    pvalues.append(1-NormalDist().cdf(mean/lrv) if lrv else (0.0 if mean > 0 else 1.0))
+    pvalues["lag3_lrv"] = 1-NormalDist().cdf(mean/lrv) if lrv else (0.0 if mean > 0 else 1.0)
     if critical is not None:
         require(math.isfinite(critical) and critical >= normal_critical, "critical_value")
         intervals["calibrated_envelope"] = [mean-critical*scale, mean+critical*scale]
         # A conservative two-point p-value: valid only under the frozen
         # calibration family. It cannot claim a smaller p than local alpha.
-        pvalues.append(ALPHA if mean > critical*scale else 1.0)
+        pvalues["calibrated_envelope"] = ALPHA if mean > critical*scale else 1.0
     else:
-        pvalues.append(1.0)
+        pvalues["calibrated_envelope"] = 1.0
     return {"mean": mean, "portfolio_dollars_per_date": mean*m,
             "lower": min(v[0] for v in intervals.values()),
             "upper": max(v[1] for v in intervals.values()),
-            "pvalue": max(pvalues), "intervals": intervals, "robust_scale": scale,
+            "pvalue": max(pvalues.values()), "pvalues": pvalues, "intervals": intervals, "robust_scale": scale,
             "lag3_effective_dates_diagnostic": effective_dates,
+            "date_sd_diagnostic": math.sqrt(daily_variance),
+            "realized_to_planning_sd_ratio": math.sqrt(daily_variance)/PLANNING_DATE_SD,
             "dates": n, "city_days": n*m}
 
 
 def holm_pass(pvalues: dict[str, float], expected: list[str]) -> bool:
-    require(set(pvalues) == set(expected) and "LOW-ASK-1" in pvalues, "family_claimants")
+    require(2 <= len(expected) <= 4 and set(pvalues) == set(expected) and "LOW-ASK-1" in pvalues, "family_claimants")
     require(all(type(p) in (int, float) and math.isfinite(p) and 0 <= p <= 1 for p in pvalues.values()), "family_pvalue")
     ordered = sorted(pvalues.items(), key=lambda item: (item[1], item[0]))
     for index, (trial, p) in enumerate(ordered):
@@ -128,7 +131,7 @@ def completeness(ledger: dict) -> dict:
     groups = {}
     for row in ledger["decisions"]:
         groups.setdefault((row["target_date"], row["city"]), []).append(row)
-    good, filled = {}, 0
+    good, filled, executable = {}, 0, 0
     by_city = {city: 0 for city in CITIES}
     by_date = {(FIRST+timedelta(days=i)).isoformat(): 0 for i in range((LAST-FIRST).days+1)}
     for (day, city), slots in groups.items():
@@ -137,9 +140,12 @@ def completeness(ledger: dict) -> dict:
         by_city[city] += int(both_filled)
         by_date[day] += int(both_filled)
         adequate = len(slots) == 2 and all(r["status"] in {"filled", "resolved"}
-                                         or r.get("reason") in {"cash_cap", "market_cap", "depth_reuse"} for r in slots)
+                                         or (r["status"] == "skip" and r.get("reason") in
+                                             {"cash_cap", "market_cap", "depth_reuse"}) for r in slots)
+        executable += adequate
         good[day] = good.get(day, 0) + adequate
     return {"adequate_dates": sum(v >= 11 for v in good.values()), "both_filled_city_days": filled,
+            "both_executable_city_days": executable,
             "both_filled_by_city": by_city, "both_filled_by_date": by_date,
             "captured_city_counts_by_date": {day: good.get(day, 0) for day in by_date},
             "scheduled_slots": 75*12*2,
@@ -152,7 +158,7 @@ def evaluate(ledger: dict, *, calibration: dict, family_pvalues: dict,
     critical = float(calibration["critical_value"]) if calibrated else None
     result = interval(panel_from_ledger(ledger), critical=critical, resamples=resamples)
     coverage = completeness(ledger)
-    gates = (calibrated and coverage["adequate_dates"] >= 68 and coverage["both_filled_city_days"] >= 810
+    gates = (calibrated and coverage["adequate_dates"] >= 68 and coverage["both_executable_city_days"] >= 810
              and ledger["doubtful_fills"] == 0)
     family = dict(family_pvalues)
     require("LOW-ASK-1" not in family, "own_pvalue_not_external")

@@ -35,6 +35,8 @@ Its `weather_heavy` kind admits only exact module names from
 `Get-WeatherWorkstationOfflineModule` (module, not subcommand: a module that also
 fetches can never be listed; network fetchers such as `forecast_training_corpus_fetch`,
 `metar_history` or `venue_rule_labels` run directly, outside the wrapper, master ruling 2026-10-23).
+The matching hook list also admits `weather.backtesting.low_ask_calibration`;
+it generates synthetic inputs only and confines receipts to `C:\t\codex\T093\`.
 One subcommand is refused although its module is listed: `weather.calibration.b_scorer look`
 (and, fail-closed, any command text naming b_scorer together with a look-like token, except the exact
 `-m weather.calibration.b_look_wrapper` form and allowlisted inspection tooling, both void on a newline,

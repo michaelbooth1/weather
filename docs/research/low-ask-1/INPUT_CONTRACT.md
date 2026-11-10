@@ -226,7 +226,8 @@ pinned by required `--freeze-sha`, has
 the exact fields validated in `runner.validate_freeze`: trial/time, complete
 code hash map, prereg/contract hashes, producer/reader/transform/timezone pins,
 latency/capital objects, public-key hash, named prerequisite booleans and the
-calibration receipt/status, `claimants` (the full frozen profit family), and
+calibration receipt/status, `claimants` (the full frozen profit family of 2-4
+claimants; unweighted Holm), and
 absolute `state_root`. The latter binds continuation/locking and the consumed
 look marker across every invocation. Every prerequisite boolean must be true. The code
 hash map covers every owned Python module plus parser/bucketing/initializer/path

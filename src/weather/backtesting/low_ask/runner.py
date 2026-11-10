@@ -44,7 +44,8 @@ def validate_freeze(freeze: dict, expected_sha: str, now: datetime) -> None:
     require(freeze["timezone_sha256"] == timezone_fingerprint(), "timezone_binding")
     require(isinstance(freeze["timezone_version"], str) and bool(freeze["timezone_version"]), "timezone_version")
     require(isinstance(freeze["state_root"], str) and Path(freeze["state_root"]).is_absolute(), "state_root")
-    require(isinstance(freeze["claimants"], list) and len(freeze["claimants"]) == len(set(freeze["claimants"]))
+    require(isinstance(freeze["claimants"], list) and 2 <= len(freeze["claimants"]) <= 4
+            and len(freeze["claimants"]) == len(set(freeze["claimants"]))
             and "LOW-ASK-1" in freeze["claimants"] and "F3-SIM-1" in freeze["claimants"], "claimants")
     for key in ("prereg_sha256", "input_contract_sha256", "reader_sha256", "transform_sha256",
                 "timezone_sha256", "public_key_sha256"):
