@@ -3,7 +3,7 @@
 Guards: T073 explicit policy path before enrollment, no erased flags or credited income.
 External account, installation, lease and terminal inputs are inert fixtures.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -24,7 +24,8 @@ from weather.market.lfc_ledger import Ledger, take_baseline, write_baseline
 from weather.market.lfc_recording_io import write_new
 
 
-def test_failed_f0_recovery_explicit_policy_then_enroll_then_seal(tmp_path, monkeypatch):
+@pytest.mark.parametrize('personal_changes', [False, True])
+def test_failed_f0_recovery_explicit_policy_then_enroll_then_seal(tmp_path, monkeypatch, personal_changes):
     from weather import execution_host
     from weather.market import lfc_campaign_cli as cli, lfc_campaign_guard as guard
     from weather.market import lfc_campaign_runtime as adapter, lfc_campaign_release as release
@@ -34,7 +35,8 @@ def test_failed_f0_recovery_explicit_policy_then_enroll_then_seal(tmp_path, monk
     root = tmp_path / 'synthetic-pilot'
     ledger = Ledger.create(root / 'ledger.jsonl', clock=clock.now, maker_address=MAKER)
     write_baseline(root, take_baseline(label='t40', now=clock.now(), maker_address=MAKER,
-        positions=[], open_orders=[], available_collateral='300'), ledger)
+        positions=[{'asset': 'old-personal', 'size': '7', 'conditionId': 'owner-old'}] if personal_changes else [],
+        open_orders=[], available_collateral='300'), ledger)
     state_root = tmp_path / 'account-state'
     state = AccountState(state_root, ledger)
     runtime = Runtime(state=state, pilot_root=root, policy_path=tmp_path / 'unused.json', release={}, clock=clock,
@@ -70,13 +72,19 @@ def test_failed_f0_recovery_explicit_policy_then_enroll_then_seal(tmp_path, monk
     monkeypatch.setattr(guard, 'ExclusiveWorkload', lease)
     marker_type = workload.WorkloadMarker
     monkeypatch.setattr(workload, 'WorkloadMarker', lambda **kwargs: marker_type(**kwargs, boot_id=7))
+    wallet = {'cash': '299.5', 'nfl_size': '15'}
     def read(runtime):
         assert runtime.policy_path == policy_path and load_policy(runtime.policy_path).f2
-        row = account_read(runtime, positions=[{'asset': 't', 'size': '1'}], trades=[{
+        positions = [{'asset': 't', 'size': '1', 'conditionId': 'c'}]
+        if personal_changes:
+            positions.append({'asset': 'nfl-personal', 'size': wallet['nfl_size'], 'conditionId': 'nfl'})
+        row = account_read(runtime, positions=positions, trades=[{
             'status': 'CONFIRMED', 'maker_orders': [{'order_id': 'o', 'matched_amount': '1'}]}])
-        row['balances'] = {'available_collateral': '299.5', 'assets': {ASSET: '299.5'},
-                           'collateral_evidence': {'balance': '299500000'}}
-        row['capital_activity'] = native_packet(read_activity(MAKER, int(clock.now().timestamp()),
+        from weather.market.lfc_capital import native
+        row['balances'] = {'available_collateral': wallet['cash'], 'assets': {ASSET: wallet['cash']},
+                           'collateral_evidence': {'balance': str(native(wallet['cash']))}}
+        from weather.market.lfc_f2_inventory import activity_start
+        row['capital_activity'] = native_packet(read_activity(MAKER, activity_start(runtime.state.ledger, clock.now().isoformat()),
             int(clock.now().timestamp()), get=lambda *a: packet(), sleep=lambda _: None))
         return row
     monkeypatch.setattr(adapter.Runtime, 'account_read_once', read)
@@ -96,6 +104,16 @@ def test_failed_f0_recovery_explicit_policy_then_enroll_then_seal(tmp_path, monk
     with account_lease(MAKER, backend=Mutexes()):
         state.enroll(clock.now())
         state.require_history()
+        runtime.state, runtime.policy_path = state, policy_path
+        monkeypatch.setattr(runtime, 'admission', lambda: nullcontext())
+        if personal_changes:
+            wallet.update(cash='279.5', nfl_size='25')
+        funding = runtime.confirm_funding()
+        assert funding['funding_native'] == 300_000_000 and funding['capital_bridge_complete']
+        assert runtime.original_baseline(runtime.state.ledger) == CapitalBook(runtime.state.ledger).inventory_anchor
+        if personal_changes:
+            assert CapitalBook(runtime.state.ledger).inventory_anchor['positions'] == {'t': '1', 'nfl-personal': '25'}
+            assert CapitalBook(runtime.state.ledger).expected_cash() == 279_500_000
     code_root = tmp_path / 'code'
     (code_root / 'scripts/ops').mkdir(parents=True)
     (code_root / 'scripts/ops/lfc_campaign_windowless.py').write_text('fixture')

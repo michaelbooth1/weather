@@ -267,6 +267,8 @@ class CampaignCoordinator:
                 reason = ('hold_retained' if isinstance(exc, AdmissionBusy) and str(exc) in
                           {'hold_already_owned', 'hold_retained', 'agent_heavy_hold'} else
                           'admission_busy' if isinstance(exc, AdmissionBusy) else
+                          'wallet_cash_below_sleeve' if str(exc) == 'wallet_cash_below_sleeve' else
+                          'foreign_open_order' if str(exc) == 'foreign_open_order' else
                           'no_qualifying_band' if str(exc) in {'no_qualifying_band', 'no_qualifying_band_for_policy'} else
                           'transport_deferred')
                 self.status('DEFERRED', entry.id, reason=reason)

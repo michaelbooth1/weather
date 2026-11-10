@@ -195,8 +195,8 @@ remain readable, with their original retirement and band-count restrictions.
 Breadth setup constructs all clients and starts all exact-pair streams before
 opening band sessions. It then obtains a fresh whole-account/native-cash proof
 inside the original start window. Known redemptions reconcile against existing
-lots and the original inventory anchor; neither the anchor nor the prepared
-receipt is replaced. Transient read gaps may retry within that window. A missed
+lots and the session's inventory anchor. The prepared receipt retains its
+original binding. Transient read gaps may retry within that window. A missed
 window creates no placement intent. The fresh `go_account.json` is hashed into
 the session outcome and retained result; missing or changed evidence follows
 the same occurrence-specific recovery rules as other originals. Band/day cost
@@ -374,7 +374,7 @@ early quantity mismatch followed by a later matching read during propagation.
 
 Money proof requires complete bounded account reads, valid terminal identities
 and matched quantities, per-order fills, zero open orders and every token's
-quantity against the original immutable inventory anchor plus verified fills.
+quantity against the active immutable inventory anchor plus verified fills.
 F2 reads account-wide trades after ledger genesis. Raw order/trade pages must
 pass the envelope and streaming byte bounds in `mm_account_reads` before SDK
 normalization; its separate cursor, page and row limits refuse truncation.
@@ -386,9 +386,47 @@ Unverified sales, redemption or merges are never inferred from prices or marks.
 
 The new `lfc_autostart_v1` protocol explicitly removes the historical T-24
 lead-time requirement only for this lane. It first checks the previous accounting
-and original inventory anchor, then binds its own fresh baseline/pre-go receipt
+and inventory anchor, then binds its own fresh baseline/pre-go receipt
 to the entry. Later global baseline files cannot override that binding. Existing
 manual/F0 gates keep their historical protocol.
+
+F2 binds its enrollment inventory snapshot inside the one-time capital bridge,
+using the same complete account read as the cash proof. The anchor records the
+positions hash, account-read hash and ledger cut. Every campaign-held quantity
+must still be present. Personal holdings at enrollment enter that snapshot.
+Outstanding sessions, legs, unknown submits, open orders and unresolved history
+refuse the anchor. An owner history recovery may resolve its own history issue
+in that transaction. When other history issues remain, the bridge waits for the
+last recovery while each recovery checks the campaign's own tokens.
+
+Before each F2 session, `f2_session_anchor` binds a fresh complete read before
+any order construction. Campaign tokens include every ledger-leg token and
+retained campaign tokens from enrollment. Their quantities must equal the latest
+anchor plus subsequent campaign fills minus observed redemptions. Both surplus
+and shortfall refuse. Non-campaign quantities and the wallet cash reference are
+updated between closed sessions. Every anchor remains in the append-only ledger.
+
+Ordinary activity and native-receipt collection begin at the latest anchor. The
+initial enrollment read opens that window at its own observation time. If a
+campaign holding is already missing, a bounded bootstrap activity read starts
+at its known campaign intent. Native verification selects only redemption
+transactions for those campaign conditions and retains every row in each
+selected transaction. Foreign same-token trades after the campaign intent
+refuse this attribution. Previously ledger-bound unfinished native receipts
+remain eligible for bounded proof retries across window changes. Earlier recorded
+campaign lots and cash facts remain in capital replay. During a session, the full
+account inventory check still catches personal position changes and foreign
+orders. Proved auto-redemptions of personal positions remove their quantities
+and segregate their cash through the native allocation rail.
+
+Wallet re-anchoring preserves the campaign's funding, lots, gains and losses.
+Extra observed cash is segregated. Personal cash outflows consume retained gains
+first and reduce spendable cash. Outside-hours personal withdrawals incur no
+campaign cost. Admission uses ledger-backed capital and observed spendable cash.
+If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
+defers before a claim. The controller keeps the existing supported sizing.
+The owner funding check refreshes the same protected wallet reference before
+Enable. Pending postchecks must finish before either kind of refresh.
 
 For an operational incident whose private evidence is missing, the owner may
 run `weather.market.lfc_campaign_cli owner-close --release <release.json>
@@ -686,8 +724,9 @@ For a failed pre-enrollment F0 session, use this owner setup order:
    the final F2 policy file explicitly; its configured ceiling does not prove cash.
 3. Run the terminal-confirmed `owner-recover-history` command above for each
    refused session, passing that F2 file with `--campaign`. Inside this command,
-   the fresh account proof creates/reconciles the capital bridge **before** the
-   owner-history recovery receipt. Do not top up between these steps expecting
+   the fresh account proof checks campaign-token quantities. The last unresolved
+   recovery creates/reconciles the capital bridge and enrollment inventory anchor
+   **before** its owner-history recovery receipt. Do not top up between these steps expecting
    more trading principal. Failed flags and used dates stay recorded; recovery
    grants no income, principal return or research credit.
 4. Run the owner registrar's `Register` with the same campaign path and qualified
@@ -695,7 +734,9 @@ For a failed pre-enrollment F0 session, use this owner setup order:
    Thus funding finalization precedes bridge, bridge precedes recovery completion,
    recovery precedes enrollment, and enrollment precedes release sealing.
 5. `Verify`, then perform the pre-enable check and `Enable` through the registrar.
-   Check the reconciled `ENROLLMENT_FUNDING` result described below.
+   Check the reconciled `ENROLLMENT_FUNDING` result against the new F2 inventory anchor.
+
+Personal trades: only when status is idle, outside run hours; none while a session is open; no open orders at 09:00.
 
 Manual or automatic redemption is not manual trading. The owner chooses a
 manual redemption cadence or the separately authorized auto-redeem facility;
@@ -706,9 +747,10 @@ read-only bridge and prints ENROLLMENT_FUNDING with the actual `funding_native`.
 For the intended fully funded sleeve, confirm `funding_native = 300000000` and
 `capital_bridge_complete = true`; a configured ceiling is not proof of funding.
 
-No manual trades, merges or splits on this wallet through 2026-12-31. Any one
-halts F2 because the account inventory/cash bridge no longer reconciles; deposits
-and withdrawals are fine. Redemption follows the separate rule above.
+Personal activity between fully closed sessions may change non-campaign tokens
+and wallet cash. Every campaign-token quantity stays protected across those
+sessions. Personal trades, merges or splits during a session halt F2 through
+the account inventory proof. Redemption follows the separate rule above.
 
 A retained resolution with an exact zero payout books that lot's remaining basis
 as realized loss without requiring a burn. Its unswept physical quantity remains

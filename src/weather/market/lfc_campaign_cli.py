@@ -171,6 +171,7 @@ def owner_recover_history(args):
                 marker.acquire(hold_sha256=hold.sha256, hold_owner=hold.identity)
                 runtime = Runtime(state=state, pilot_root=root, policy_path=args.campaign or root / 'campaign.json', release={}, clock=clock,
                                   control_root=CONTROL_ROOT, task_enabled=lambda: False)
+                runtime.history_recovery_session = args.session
                 read = runtime.account_read_once()
                 proof = runtime.core_proof(ledger, read)
                 record_owner_recovery(ledger, root, args.session, account_read=read, proof=proof,

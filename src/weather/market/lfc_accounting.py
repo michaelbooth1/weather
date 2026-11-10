@@ -23,6 +23,18 @@ def inventory_delta(ledger, baseline, current, *, proven_resting=None):
     unproved holding, including one below the API visibility floor; it never
     becomes an exact zero by tolerance or by observing a marked wallet value.
     """
+    if baseline.get('kind') in {'f2_inventory_anchor', 'f2_session_anchor'}:
+        from weather.market.lfc_capital import CapitalBook
+        from weather.market.lfc_f2_inventory import inventory
+        book = CapitalBook(ledger)
+        if book.inventory_anchor != baseline:
+            raise ValueError('inventory_baseline_or_terminal_missing')
+        unresolved = ledger.unresolved_legs()
+        resting = frozenset() if proven_resting is None else frozenset(proven_resting)
+        if (resting != {leg['order_id'] for leg in unresolved} or
+                unresolved and (proven_resting is None or any(quantity(leg['size_matched']) for leg in unresolved))):
+            raise ValueError('inventory_baseline_or_terminal_missing')
+        return inventory(ledger, baseline, current, book)
     matches = [r for r in ledger.baselines if r['sha256'] == digest(baseline)]
     resting = frozenset() if proven_resting is None else frozenset(proven_resting)
     unresolved = ledger.unresolved_legs()

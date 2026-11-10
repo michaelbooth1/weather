@@ -2,12 +2,14 @@
 from datetime import datetime, timezone
 import json
 import re
+import sys
 
 from weather.market.lfc_campaign_state import AccountState, StateRefused
 from weather.market import lfc_campaign_guard as guard
 from weather.market.lfc_campaign_control import latest_control, watch_status
 from weather.market.lfc_campaign_policy import load_policy, ZONE
 from weather.market.lfc_f2_policy import effective_loss_basis
+from weather.market.lfc_f2_inventory import PERSONAL_TRADES_RULE
 from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_ledger import Ledger, ledger_path
 from weather.operations.live_path_security import validate_regular_nonreparse_file
@@ -48,6 +50,7 @@ def snapshot(release, *, root, state_root, control_root):
     if not ledger.intent_proven_absent(None):
         raise StateRefused('status_snapshot_changed')
     return {'state': 'STATUS', 'sleeve_loss_basis': basis,
+        **({'personal_trades_rule': PERSONAL_TRADES_RULE} if policy.f2 else {}),
         'per_band_daily_filled_cap_pusd': policy.raw.get('per_band_daily_filled_cap_pusd'),
         'trading_end_toronto': policy.raw.get('trading_end_toronto'),
         'effective_trading_ends_toronto': effective_ends,
@@ -73,6 +76,8 @@ def report(args, *, load_release, validate_release, root, state_root, control_ro
         if guard.account_lease_busy(release['maker_address']):
             print('deferred: lease busy')
             return 1
+        if row.get('personal_trades_rule'):
+            print(row['personal_trades_rule'], file=sys.stderr)
         print(json.dumps(row))
         return code
     except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:

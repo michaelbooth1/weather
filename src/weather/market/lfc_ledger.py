@@ -60,7 +60,7 @@ _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg
            'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result', 'autostart_freeze',
            'owner_history_recovery', 'autostart_no_intent_close', 'autostart_owner_close', 'autostart_close', 'autostart_close_intent',
            'autostart_owner_artifact_restored', 'capital_anchor', 'capital_bridge', 'capital_native_group',
-           'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution'}
+           'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution', 'f2_session_anchor'}
 
 
 class LedgerUnavailable(RuntimeError):
@@ -166,7 +166,7 @@ class Ledger:
                       (row['event'] != 'leg_adopt' or row_version >= 1) and
                       (row['event'] != 'autostart_enroll' or row_version >= 2) and
                       (row['event'] != 'owner_history_recovery' or row_version >= 2) and
-                      (not row['event'].startswith('capital_') or row_version == 3) and
+                      (not (row['event'].startswith('capital_') or row['event'] == 'f2_session_anchor') or row_version == 3) and
                       row['kind'] == 'lfc_ledger' and row['sequence'] == index and
                       row['previous_sha256'] == previous and row['event'] in _EVENTS and
                       (last is None or when >= last) and (index == 0) == (row['event'] == 'genesis'))
@@ -199,7 +199,7 @@ class Ledger:
 
     def _apply(self, row):
         event = row['event']
-        if event.startswith('capital_'):
+        if event.startswith('capital_') or event == 'f2_session_anchor':
             from weather.market.lfc_capital import CapitalBook, CapitalRefused
             try:
                 book = self._capital_checkpoint if getattr(self, '_replaying', False) else None

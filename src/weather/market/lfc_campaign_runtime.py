@@ -333,7 +333,12 @@ class Runtime:
             ledger = self.reload_ledger()
             self.state.require_history()
             self.state.require_retained_evidence()
-            proof = self.core_proof(ledger, self.read_account())
+            preparing = getattr(self, 'preparing_f2', False)
+            self.preparing_f2 = True
+            try:
+                proof = self.core_proof(ledger, self.read_account())
+            finally:
+                self.preparing_f2 = preparing
             capital = proof.get('capital') or {}
             if (proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
                     proof.get('unknown_submit') is not False or capital.get('cash_bridge_complete') is not True or
@@ -477,9 +482,23 @@ class Runtime:
             policy = load_policy(self.policy_path)
             if policy.f2 or any(r['event'] == 'capital_bridge' for r in self.state.ledger.capital_rows):
                 from weather.market.lfc_capital_reads import read_activity
-                values['capital_activity'] = read_activity(self.state.maker, int(venue.trades_after),
+                from weather.market.lfc_f2_inventory import activity_start
+                activity_since = (activity_start(self.state.ledger, start.isoformat()) if policy.f2 else
+                                  int(venue.trades_after))
+                values['capital_activity'] = read_activity(self.state.maker, activity_since,
                                       int(self.clock.now().timestamp()))
+                if policy.f2:
+                    from weather.market.lfc_f2_wallet_reads import bootstrap_scope, require_bootstrap_trades
+                    scope = bootstrap_scope(self.state.ledger, values['positions'])
+                    if scope is not None:
+                        require_bootstrap_trades(self.state.ledger, values['trades'], scope['tokens'])
+                        end = values['capital_activity']['scope']['end']
+                        values['capital_activity']['bootstrap_scope'] = scope
+                        values['capital_activity']['bootstrap_activity'] = read_activity(self.state.maker, scope['start'], end)
                 from weather.market.lfc_capital_native import collect
+                if policy.f2:
+                    from weather.market.lfc_f2_wallet_reads import collect_window
+                    collect = collect_window
                 values['capital_activity'] = collect(values['capital_activity'], ledger=self.state.ledger)
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': self.state.maker,
                     **self.state.policy_binding,
@@ -493,6 +512,12 @@ class Runtime:
             venue.close()
 
     def original_baseline(self, ledger):
+        policy_path = getattr(self, 'policy_path', None)
+        if policy_path is not None and policy_path.is_file() and load_policy(policy_path).f2:
+            from weather.market.lfc_capital import CapitalBook
+            anchor = CapitalBook(ledger).inventory_anchor
+            if anchor is not None:
+                return anchor
         # The earliest baseline remains the inventory anchor. Never advance a
         # new baseline over a missing holding or a stale filled quantity.
         rows = [r for r in ledger.baselines if r['label'] == 't40']
@@ -537,9 +562,32 @@ class Runtime:
             from weather.market.lfc_capital_reads import synchronize
             from weather.market.lfc_capital import CapitalRefused
             from weather.market.lfc_capital_consistency import observe, REASONS
+            from weather.market.lfc_capital import CapitalBook
+            from weather.market.lfc_f2_inventory import between_sessions
+            policy_path = getattr(self, 'policy_path', None)
+            f2 = policy_path is not None and policy_path.is_file() and load_policy(policy_path).f2
+            if f2 and differences:
+                return {'money_accounting_complete': False, 'cleanup_proven': read['open_orders'] == [],
+                        'unknown_submit': bool(ledger.unacknowledged_intents()), 'money_contradiction': True,
+                        'inventory': {'proven': False}, 'trade_differences': differences,
+                        'ledger_head_sha256': ledger.previous, 'read_sha256': digest(read),
+                        'open_orders': len(read['open_orders'])}
+            mode, bridge_allowed = None, True
+            if f2 and CapitalBook(ledger).bridge is None:
+                from weather.market.lfc_campaign_history import history_refusals
+                issues = history_refusals(ledger, self.pilot_root)
+                recovering = getattr(self, 'history_recovery_session', None)
+                if issues and recovering not in issues:
+                    raise StateRefused('f2_anchor_history_unresolved')
+                bridge_allowed = not (set(issues) - {recovering})
+                mode = 'enrollment'
+            elif f2 and getattr(self, 'preparing_f2', False):
+                mode = 'session'
+            elif f2 and between_sessions(ledger):
+                mode = 'idle'
             try:
                 capital = synchronize(ledger, self.original_baseline(ledger), read,
-                    loss_basis=loss_basis,
+                    loss_basis=loss_basis, anchor_mode=mode, bridge_allowed=bridge_allowed,
                     **({'owner_fault_review': True} if getattr(self, 'owner_fault_review', False) else {}))
             except CapitalRefused as exc:
                 if str(exc) not in REASONS:
@@ -548,7 +596,8 @@ class Runtime:
             observe(self.state, self.clock.now(), read_sha256=digest(read))
         elif any(r['event'] == 'capital_bridge' for r in ledger.capital_rows):
             raise StateRefused('capital_activity_missing')
-        inventory = inventory_delta(ledger, self.original_baseline(ledger), normalize_positions(read['positions']))
+        inventory = (capital['inventory'] if capital is not None else
+                     inventory_delta(ledger, self.original_baseline(ledger), normalize_positions(read['positions'])))
         return {'money_accounting_complete': not differences and not inventory['changed'] and not ledger.unresolved_legs(),
                 'ledger_head_sha256': ledger.previous,
                 'money_contradiction': bool(differences or inventory['changed']), 'inventory': inventory,
@@ -585,6 +634,15 @@ class Runtime:
             ledger=self.state.ledger.figures(), held_conditions=sorted(set(
                 r.get('conditionId', '') for r in read['positions'])), local_event_dte=policy.raw['local_event_dte']))
         if not table.get('selected_condition_id'):
+            if policy.f2:
+                from weather.market.lfc_capital import native
+                figures = CapitalBook(self.state.ledger).figures(loss_basis=policy.raw.get('sleeve_loss_basis', 'gross'))
+                needed = [native(row['quote']['reserve_pusd'], ceil=True) for row in table['rows'] if row['eligible'] and
+                          native(row['quote']['reserve_pusd'], ceil=True) <= figures['headroom_native']]
+                segregated = sum(figures[key] for key in ('segregated_profit_native', 'segregated_incentives_native',
+                                                         'segregated_external_cash_native')) - figures['retained_gains_offset_native']
+                if needed and native(read['balances']['available_collateral']) - segregated < min(needed):
+                    raise TransientPrecheck('wallet_cash_below_sleeve')
             raise TransientPrecheck('no_qualifying_band')
         selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
         selection_account_screen(table, read['balances'])
@@ -646,12 +704,22 @@ class Runtime:
             venue.close()
 
     def pre_go(self, entry, policy):
+        self.preparing_f2 = policy.f2
         try:
             return self.pre_go_once(entry, policy)
         except Exception as exc:
+            from weather.market.lfc_capital import CapitalRefused
+            if isinstance(exc, CapitalRefused) and str(exc) == 'f2_anchor_campaign_inventory':
+                raise MoneyContradiction('pre_go_money_contradiction') from None
+            if isinstance(exc, CapitalRefused) and str(exc) == 'foreign_open_order':
+                raise TransientPrecheck('foreign_open_order') from None
+            if isinstance(exc, CapitalRefused) and str(exc) == 'capital_spendable_cash':
+                raise TransientPrecheck('wallet_cash_below_sleeve') from None
             if transient_read_error(exc):
                 raise TransientPrecheck('pre_go_read_unavailable') from None
             raise
+        finally:
+            self.preparing_f2 = False
 
     def pre_go_once(self, entry, policy):
         self.lease.check()

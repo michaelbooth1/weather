@@ -103,9 +103,15 @@ def validate_packet(packet, *, maker, start, end):
     return rows
 
 
-def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False, live_proof=None, loss_basis=None):
+def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False, live_proof=None, loss_basis=None,
+                anchor_mode=None, bridge_allowed=True):
     """Reconcile before F2 admission. Repeated reads never repeat a cash credit."""
     live = live_proof is not None
+    if anchor_mode not in {None, 'enrollment', 'session', 'idle'}:
+        raise CapitalRefused('f2_anchor_mode')
+    if anchor_mode in {'enrollment', 'session'}:
+        from weather.market.lfc_f2_inventory import require_closed
+        require_closed(ledger, read)
     if live:
         from weather.market.lfc_f2_reconcile import validate_live
         validate_live(ledger, read, attempt=live_proof['attempt_id'], now=ledger.clock())
@@ -114,6 +120,8 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     if (read.get('complete') is not True or (not live and (read.get('open_orders') != [] or ledger.unresolved_legs() or
             ledger.open_sessions())) or read.get('maker_address', '').lower() != ledger.rows[0]['maker_address'].lower()):
         raise CapitalRefused('capital_bridge_money_unresolved')
+    from weather.market.lfc_f2_inventory import (activity_start, enrollment_inventory, inventory as anchor_inventory,
+        make_anchor)
     balances = read['balances']
     cash = native(balances['available_collateral'])
     assets = {str(key).lower(): value for key, value in balances.get('assets', {}).items()}
@@ -124,9 +132,12 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     book = CapitalBook(ledger)
     if book.anchor is None:
         ledger.record('capital_anchor', baseline=baseline, baseline_sha256=digest(baseline))
-    elif book.anchor != baseline:
+    elif book.anchor != baseline and book.inventory_anchor != baseline:
         raise CapitalRefused('capital_original_anchor_changed')
-    start = int(datetime.fromisoformat(ledger.rows[0]['recorded_at_utc']).timestamp())
+    bound_read = any(anchor['read_sha256'] == digest(read) for anchor in book.inventory_anchors)
+    start = (read['capital_activity']['scope']['start'] if bound_read else
+             activity_start(ledger, read['started_at_utc']) if book.inventory_anchor is not None or
+             anchor_mode == 'enrollment' else int(datetime.fromisoformat(ledger.rows[0]['recorded_at_utc']).timestamp()))
     read_end = int(datetime.fromisoformat(read['ended_at_utc']).timestamp())
     end = read['capital_activity']['scope']['end']
     if type(end) is not int or not read_end - 120 <= end <= read_end:
@@ -134,17 +145,20 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     sources = validate_packet(read['capital_activity'], maker=ledger.rows[0]['maker_address'], start=start, end=end)
     from weather.market.lfc_capital_native import validate_packet as validate_native, evidence_for
     validate_native(read['capital_activity'], ledger=ledger)
+    from weather.market.lfc_f2_wallet_reads import validate_pending
+    native_packet, pending_sources = validate_pending(read['capital_activity'], ledger=ledger, trades=read.get('trades', ()))
+    sources += pending_sources
     previous = CapitalBook(ledger)
     group_shas = {}
     from weather.market.lfc_capital_native import resolve
-    for tx, reference in read['capital_activity']['native_receipts'].items():
+    for tx, reference in native_packet['native_receipts'].items():
         evidence = resolve(reference, ledger)
         sha = digest(evidence)
         if sha not in previous.native_groups:
             ledger.record('capital_native_group', proof=evidence, proof_sha256=sha)
         group_shas[tx] = sha
     for source in sources:
-        evidence = evidence_for(read['capital_activity'], source, ledger=ledger)
+        evidence = evidence_for(native_packet, source, ledger=ledger)
         item = normalize_activity(source, evidence)
         old = previous.activities.get(item['id'])
         if old is not None:
@@ -156,24 +170,46 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
         record_activity(ledger, source, native_evidence=evidence,
                         native_group_sha256=group_shas[evidence['transaction_hash']])
     from weather.market.lfc_ledger import normalize_positions
-    inventory = inventory_delta(ledger, baseline, normalize_positions(read['positions']),
-                 **({'proven_resting': [leg['order_id'] for leg in ledger.unresolved_legs()]} if live else {}))
     book = CapitalBook(ledger)
+    current = normalize_positions(read['positions'])
+    enrollment_anchor = None
+    if anchor_mode == 'enrollment' and book.bridge is None:
+        inventory = enrollment_inventory(book, current)
+        if inventory['changed']:
+            raise CapitalRefused('f2_anchor_campaign_inventory')
+        if not bridge_allowed:
+            return {'complete': True, 'inventory': inventory, 'cash_bridge_complete': False,
+                    'bridge_pending_history_recovery': True}
+        enrollment_anchor = make_anchor(book, read, kind='f2_inventory_anchor')
+        inventory = {'expected': enrollment_anchor['positions'], 'changed': [], 'missing_or_below_visibility': []}
+    elif anchor_mode == 'session':
+        book.gate(reserve='0', owner_fault_review=owner_fault_review, loss_basis=loss_basis)
+        anchor = make_anchor(book, read, kind='f2_session_anchor')
+        ledger.record('f2_session_anchor', anchor=anchor, anchor_sha256=digest(anchor),
+                      previous_anchor_sha256=digest(book.inventory_anchor or book.anchor), read_sha256=digest(read))
+        book = CapitalBook(ledger)
+        inventory = anchor_inventory(ledger, book.inventory_anchor, current, book)
+    elif anchor_mode == 'idle' and book.inventory_anchor is not None:
+        inventory = anchor_inventory(ledger, book.inventory_anchor, current, book, campaign_only=True)
+    else:
+        inventory = inventory_delta(ledger, baseline, current,
+                     **({'proven_resting': [leg['order_id'] for leg in ledger.unresolved_legs()]} if live else {}))
     if inventory['changed']:
         raise CapitalRefused('capital_inventory_unreconciled')
     if book.bridge is not None:
         expected_cash = book.expected_cash()
-        if cash < expected_cash:
+        if cash < expected_cash and anchor_mode != 'idle':
             raise CapitalRefused('capital_cash_unreconciled')
     else:
         proof = {'complete': True, 'genesis_sha256': ledger.row_sha256(0),
                  'legacy_L_native': native(ledger.L(), ceil=True), 'inventory': inventory,
-                 'baseline_sha256': digest(baseline), 'read_sha256': digest(read),
+                 'baseline_sha256': digest(book.anchor), 'read_sha256': digest(read),
                  'activity_packet_sha256': digest(read['capital_activity']), 'cash_native': cash,
-                 'asset': ASSET, 'decimals': 6, 'native_asset_proof': read['capital_activity']['native_asset_proof']}
+                 'asset': ASSET, 'decimals': 6, 'native_asset_proof': read['capital_activity']['native_asset_proof'],
+                 **({} if enrollment_anchor is None else {'f2_inventory_anchor': enrollment_anchor})}
         bridge(ledger, funding=funding, cash=balances['available_collateral'], proof=proof)
         book = CapitalBook(ledger)
-    book.gate(reserve='0', available_cash=balances['available_collateral'], owner_fault_review=owner_fault_review,
+    book.gate(reserve='0', available_cash=None if anchor_mode == 'idle' else balances['available_collateral'], owner_fault_review=owner_fault_review,
               loss_basis=loss_basis)
     return {'complete': True, 'cash_native': cash, 'inventory': inventory, **book.figures(loss_basis=loss_basis),
             'legacy_L_native': native(ledger.L(), ceil=True), 'bridge_sha256': digest(book.bridge),

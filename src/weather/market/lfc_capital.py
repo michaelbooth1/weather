@@ -20,7 +20,7 @@ ASSET = '0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb'
 MODE = 'fixed_sleeve_redeemed_principal_only'
 CEILING = 300 * SCALE
 EVENTS = {'capital_anchor', 'capital_bridge', 'capital_native_group', 'capital_activity', 'capital_resolution',
-          'capital_cost', 'capital_zero_resolution'}
+          'capital_cost', 'capital_zero_resolution', 'f2_session_anchor'}
 
 
 class CapitalRefused(ValueError):
@@ -80,6 +80,10 @@ class CapitalBook:
         self.lots = fill_lots(ledger)
         self.bridge = None
         self.anchor = None
+        self.inventory_anchor = None
+        self.inventory_anchors = []
+        self.cash_reference = None
+        self.wallet_quarantines = []
         self.losses = self.profit = self.incentives = self.costs = self.external = 0
         self.cash_in = self.cash_out = self.returned_principal = 0
         self.seen = set()
@@ -139,6 +143,13 @@ class CapitalBook:
                 raise CapitalRefused('capital_bridge_already_exists')
             if self.blocking_unknown():
                 raise CapitalRefused('capital_bridge_unknown_cash')
+            enrollment_anchor = row.get('proof', {}).get('f2_inventory_anchor')
+            if enrollment_anchor is not None:
+                from weather.market.lfc_f2_inventory import validate_anchor
+                validate_anchor(self, enrollment_anchor, row, enrollment=True)
+                if (enrollment_anchor['read_sha256'] != row['proof'].get('read_sha256') or
+                        enrollment_anchor['cash_native'] != row.get('cash_native')):
+                    raise CapitalRefused('f2_anchor_binding')
             if (row.get('mode') != MODE or row.get('asset') != ASSET or row.get('decimals') != DECIMALS or
                     integer(row['funding_native']) > CEILING or row['funding_native'] == 0 or
                     integer(row['owner_funding_ceiling_native']) > CEILING or
@@ -155,9 +166,13 @@ class CapitalBook:
                         re.fullmatch('[0-9a-f]{64}', row['proof'][key]) is None
                         for key in ('read_sha256', 'activity_packet_sha256')) or
                     row['proof'].get('inventory', {}).get('changed') != [] or
-                    row['proof']['inventory'].get('expected') != prefix_inventory(self.ledger, self.anchor, row['sequence'])):
+                    row['proof']['inventory'].get('expected') != (enrollment_anchor['positions'] if enrollment_anchor
+                        is not None else prefix_inventory(self.ledger, self.anchor, row['sequence']))):
                 raise CapitalRefused('capital_bridge_unreconciled')
             self.bridge = row
+            self.inventory_anchor = enrollment_anchor
+            if enrollment_anchor is not None:
+                self.inventory_anchors.append(enrollment_anchor)
             self.refresh_pools()
             quarantine = integer(row['external_cash_native']) - self.external
             if quarantine < 0:
@@ -168,6 +183,19 @@ class CapitalBook:
                 'timestamp': int(utc(row['recorded_at_utc']).timestamp()), 'id': 'bridge-quarantine'},
                 sequence=row['sequence'])
             integer(row['cash_native'])
+        elif event == 'f2_session_anchor':
+            from weather.market.lfc_f2_inventory import validate_anchor
+            anchor = row['anchor']
+            if (self.bridge is None or
+                    row.get('anchor_sha256') != digest(anchor) or
+                    row.get('previous_anchor_sha256') != digest(self.inventory_anchor or self.anchor) or
+                    row.get('read_sha256') != anchor.get('read_sha256')):
+                raise CapitalRefused('f2_anchor_binding')
+            validate_anchor(self, anchor, row)
+            from weather.market.lfc_f2_wallet_cash import capture
+            capture(self, anchor, row['sequence'])
+            self.inventory_anchor = anchor
+            self.inventory_anchors.append(anchor)
         elif event == 'capital_activity':
             activity = row['activity']
             evidence = row.get('native_evidence', self.native_groups.get(row.get('native_group_sha256')))
@@ -186,6 +214,7 @@ class CapitalBook:
             self.activity_sequences[key] = row['sequence']
             self.activity_transactions[key] = str(row['source']['transaction_hash']).lower()
             cash = activity['cash_native']
+            cash_in_before = self.cash_in
             kind = activity['type']
             included = self.cash_before_bridge(activity)
             if (included and cash is not None and self.incoming(activity) and kind != 'DEPOSIT' and
@@ -225,10 +254,15 @@ class CapitalBook:
                 raise CapitalRefused('capital_activity_type')
             if cash is None and self.incoming(activity) and row['source'].get('usdc_size') is not None:
                 held = label_native(row['source']['usdc_size'], quarantine=True)
+                from weather.market.lfc_f2_wallet_cash import captured_credit
+                captured_credit(self, activity, held, label=True)
                 if included:
                     self.reclassify_legacy_credit(held)
                 grant = self.credit('external', held, activity)
                 self.incoming_quarantines[key] = {'amount': held, 'grant': grant}
+            if cash is not None and self.incoming(activity):
+                from weather.market.lfc_f2_wallet_cash import captured_credit
+                captured_credit(self, activity, self.cash_in - cash_in_before)
         elif event == 'capital_resolution':
             evidence = row.get('native_evidence', self.native_groups.get(row.get('native_group_sha256')))
             if self.ledger.enrollment is not None and evidence is None:
@@ -244,6 +278,7 @@ class CapitalBook:
                     {k: v for k, v in old.items() if k not in {'cash_native', 'native_redemption', 'principal_unproved'}}):
                 raise CapitalRefused('capital_resolution_scope')
             cash, kind = item['cash_native'], item['type']
+            cash_in_before = self.cash_in
             previously_held = self.quarantine_for(item)
             quarantine = self.incoming_quarantines.pop(item['id'], None)
             if quarantine is not None:
@@ -279,6 +314,9 @@ class CapitalBook:
             if item['id'] in self.unknown and not allocation_unknown:
                 self.unknown.remove(item['id'])
             self.activities[item['id']], self.sources[item['id']] = item, row['source_sha256']
+            if self.incoming(item):
+                from weather.market.lfc_f2_wallet_cash import captured_credit
+                captured_credit(self, item, self.cash_in - cash_in_before)
         elif event == 'capital_zero_resolution':
             from weather.market.lfc_settlement_record import validate_settlement_row, envelope
             from weather.market.lfc_recording_io import response_bytes
@@ -380,9 +418,12 @@ class CapitalBook:
         return movement
 
     def withdraw(self, cash, activity, *, counted=True):
+        from weather.market.lfc_f2_inventory import during_session
+        charge = (self.bridge is not None and not self.cash_before_bridge(activity) and
+                  (self.inventory_anchor is None or during_session(self.ledger, activity['timestamp'])))
         self.pool_movements.append({'kind': 'withdraw', 'amount': cash, 'timestamp': activity['timestamp'],
                                     'sequence': self.activity_sequences[activity['id']],
-                                    'charge_excess': self.bridge is not None and not self.cash_before_bridge(activity)})
+                                    'charge_excess': charge})
         self.pools_dirty = True
         if counted:
             self.cash_out += cash
@@ -475,14 +516,19 @@ class CapitalBook:
             total = remaining
             # The snapshot already includes older campaign lots. Do not count
             # their quantity a second time as unrelated owner holdings.
-            anchor = self.anchor or {}
-            cut = next((r['sequence'] for r in self.ledger.baselines if r['sha256'] == digest(anchor)), -1)
-            outside = max(Decimal(0), quantity(anchor.get('positions', {}).get(token, 0)) -
+            anchor = next((snapshot for snapshot in reversed(self.inventory_anchors)
+                           if int(utc(snapshot['at_utc']).timestamp()) <= activity['timestamp']), self.anchor) or {}
+            cut = anchor.get('ledger_cut', next((r['sequence'] for r in self.ledger.baselines if r['sha256'] == digest(anchor)), -1))
+            campaign = (quantity(anchor['campaign_quantities'].get(token, 0)) if 'campaign_quantities' in anchor else
                 sum((lot['quantity'] for lot in self.lots.values() if lot['token_id'] == token and lot['terminal_sequence'] < cut), Decimal(0)))
-            outside -= sum((quantity(r['outside_quantity']) for r in self.removal_events if r['token_id'] == token), Decimal(0))
+            outside = max(Decimal(0), quantity(anchor.get('positions', {}).get(token, 0)) - campaign)
+            outside -= (sum((quantity(r['outside_quantity']) for r in self.removal_events if r['token_id'] == token), Decimal(0)) -
+                        quantity(anchor.get('outside_removed_totals', {}).get(token, 0)))
             capacity = outside + sum((lot['remaining_quantity'] for _, lot in lots), Decimal(0))
-            if (remaining <= 0 or remaining > capacity or
-                    anchor and activity['timestamp'] < utc(anchor['at_utc']).timestamp()):
+            anchor_time = utc(anchor['at_utc']).timestamp() if anchor else 0
+            if 'ledger_cut' in anchor:
+                anchor_time = int(anchor_time)
+            if (remaining <= 0 or remaining > capacity or anchor and activity['timestamp'] < anchor_time):
                 refused.append({'token_id': token, 'reason': 'unproved_or_pre_snapshot_redemption'})
                 outside_cash += part['cash_native'] or 0
                 continue
@@ -618,14 +664,15 @@ class CapitalBook:
     def quarantined_after_bridge(self):
         if self.bridge is None:
             return 0
-        return sum(q['amount'] for key, q in self.incoming_quarantines.items()
+        included = (self.cash_reference or {}).get('included_incoming', {})
+        return sum(max(0, q['amount'] - included.get(key, 0)) for key, q in self.incoming_quarantines.items()
                    if self.activity_sequences[key] > self.bridge['sequence'] and
                    not self.cash_before_bridge(self.activities[key]))
 
     def expected_cash(self):
         if self.bridge is None:
             raise CapitalRefused('capital_bridge_required')
-        anchor = self.bridge
+        anchor = self.cash_reference or self.bridge
         return (anchor['cash_native'] - (sum(lot['basis'] for lot in self.lots.values()) - anchor['purchased_native_at_bridge']) +
                 self.cash_in - anchor['cash_in_at_bridge'] - self.cash_out + anchor['cash_out_at_bridge'])
 
