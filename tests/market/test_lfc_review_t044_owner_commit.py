@@ -154,9 +154,11 @@ def test_committed_completion_refuses_changed_evidence_or_a_foreign_receipt(tmp_
             proof = dict(state.read(path)['proof'], ledger_head_sha256=state.ledger.previous)
             from weather.market.mm_stage2_hold import digest
             before = state.ledger.path.read_bytes()
+            before_decision = path.read_bytes()
             with pytest.raises(StateRefused, match='^closeout_continuity$'):
                 original(relative, {'attempt_id': 'f' * 32, 'proof': proof, 'proof_sha256': digest(proof)})
             assert state.ledger.path.read_bytes() == before
+            assert path.read_bytes() == before_decision
             assert not (state.root / relative).exists()
             return  # The production writer refuses this corruption before publication.
         receipt = path.read_bytes()

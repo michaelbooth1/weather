@@ -203,7 +203,7 @@ def test_re1_third_party_imports_have_declared_dependencies():
     project = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     core = project['dependencies']
     requirements = (REPO_ROOT / 'requirements.txt').read_text(encoding='utf-8').splitlines()
-    assert 'python-dotenv==1.2.3' in core and 'python-dotenv==1.2.3' in requirements
+    assert 'python-dotenv==1.2.2' in core and 'python-dotenv==1.2.2' in requirements
     pending = [Requirement(item) for item in core + project['optional-dependencies']['live']]
     declared = set()
     while pending:

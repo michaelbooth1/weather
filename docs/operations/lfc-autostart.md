@@ -55,6 +55,9 @@ or more the row requires attention with `stale_control_row` and its age. Exit
 or unknown. Only acknowledged resting orders with no incident or pending
 postcheck qualify as normal live orders; unacknowledged intents never do.
 External watches must use this classifier and distinguish all three exit codes.
+Owner `status` also displays the configured daily filled cap per band and
+trading end, plus effective Toronto end times after Scheduler containment.
+This projection is read-only and grants no admission or account authority.
 An intact closure whose ledger anchor cannot be persisted is `RETRY_PENDING`
 with reason `retry_pending`, watch exit 1 and no evidence-loss incident. The
 owning tick retries the original intent-bound transaction; no new claim is allowed

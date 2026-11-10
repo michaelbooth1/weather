@@ -56,7 +56,7 @@ def test_each_variable_field_accepts_supported_and_refuses_bad_value(field):
 
 
 @pytest.mark.parametrize('basis', [None, 0, [], {}, 'unknown'])
-def test_malformed_loss_basis_refuses_before_any_account_access(monkeypatch, basis):
+def test_malformed_loss_basis_refuses_before_any_account_access(tmp_path, monkeypatch, basis):
     from weather.market.lfc_capital import CapitalBook
     from weather.market.lfc_ledger import Ledger
     def no_account(*args, **kwargs):
@@ -67,6 +67,16 @@ def test_malformed_loss_basis_refuses_before_any_account_access(monkeypatch, bas
     row['sleeve_loss_basis'] = basis
     with pytest.raises(ValueError, match='^unsupported_sleeve_loss_basis$'):
         parse_policy(row)
+    # Exercise the real owner seal entry point as well as the pure parser.
+    import json
+    from weather.market import lfc_campaign_release as release, lfc_pilot
+    monkeypatch.setattr(release, 'require_current_portable_execution_assignment', no_account)
+    monkeypatch.setattr(lfc_pilot, 'pilot_root', no_account)
+    path = tmp_path/'malformed-basis.json'
+    path.write_text(json.dumps(row))
+    with pytest.raises(ValueError, match='^unsupported_sleeve_loss_basis$'):
+        release.seal_release(campaign_path=path, pregate_path=tmp_path/'unused-pregate.json',
+            qualified_head='a'*40, python_path=tmp_path/'unused-python.exe', output=tmp_path/'unused-release.json')
 
 
 @pytest.mark.parametrize('offset,window,tokens', [('.005', ['.5', '2'], ['YES']),
