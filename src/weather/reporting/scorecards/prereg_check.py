@@ -11,7 +11,10 @@ content named below. A section containing ``TBD`` or ``TODO`` does not count.
   prefix of >= 12 hex characters and a number).
 - (d) ``MDE and clusters``: the MDE (a decimal number) and the cluster count (``N clusters`` or
   ``clusters: N``).
-- (e) ``Dev-window reuse``: the reuse count from ``DEV_WINDOW_LEDGER.md`` (names the ledger and an integer).
+- (e) ``Dev-window reuse``: names ``DEV_WINDOW_LEDGER`` and states ``reuse count: N`` (optionally
+  ``at least N``). N must equal the published count in the ledger's ``Dev reuse count`` section.
+  Dates, candidate ordinals and unrelated integers do not count. The ledger includes pre-ledger
+  rules and explicit exceptions, so counting table rows would not reproduce its denominator.
 
 With ``--forward`` (a pre-registration that spends forward dates; MODEL_IMPROVEMENT_METHOD section 5 rules
 6 and 7) two more sections are required, each written as ``- key: value`` field lines:
@@ -26,7 +29,8 @@ With ``--forward`` (a pre-registration that spends forward dates; MODEL_IMPROVEM
   ``look 14: FUTILE if z > +0.5``, ``look 21: FUTILE if z > 0``, ``look 31: FUTILE if z > -0.5``;
   ``final N`` equal to the power gate's N; ``interim PASS: never``.
 
-Text-only and offline; it reads one file and prints one JSON line.
+Text-only and offline; it reads the rule and repository ledger and prints one JSON line.
+Missing/ambiguous counts or an unreadable ledger fail closed with a named DEV_REUSE_* code.
 
     python -m weather.reporting.scorecards.prereg_check [--forward] <rule.md>
 
@@ -41,6 +45,8 @@ import math
 import re
 import sys
 from pathlib import Path
+
+from weather.paths import docs_path
 
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 PLACEHOLDER = re.compile(r"\b(TBD|TODO)\b")
@@ -60,9 +66,53 @@ SECTIONS = (
      (("the MDE (a decimal number)", lambda b: DECIMAL.search(b)),
       ("the cluster count", lambda b: re.search(r"\d+\s+(?:\w+\s+)?clusters?\b|clusters?\s*[:=]\s*\d+", b, re.I)))),
     ("e", "dev-window reuse", re.compile(r"dev[-\s]window\s+reuse", re.I),
-     (("the ledger (DEV_WINDOW_LEDGER)", lambda b: re.search(r"DEV_WINDOW_LEDGER", b)),
-      ("the reuse count (an integer)", lambda b: re.search(r"\b\d+\b", b)))),
+     (("the ledger (DEV_WINDOW_LEDGER)", lambda b: re.search(r"DEV_WINDOW_LEDGER", b)),)),
 )
+
+REUSE_COUNT = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:DEV_WINDOW_LEDGER(?:\.md)?\s*:\s*)?"
+    r"(?:dev[-\s]window\s+|dev\s+)?reuse\s+count\s*[:=]\s*"
+    r"(?:at\s+least\s+)?(0|[1-9]\d*)\s*\.?\s*$", re.I | re.M)
+REUSE_FIELD = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:DEV_WINDOW_LEDGER(?:\.md)?\s*:\s*)?"
+    r"(?:dev[-\s]window\s+|dev\s+)?reuse\s+count\s*[:=].*$", re.I | re.M)
+LEDGER_COUNT = re.compile(
+    r"^\s*\*\*Dev reuse count(?:\s*\([^\n)]*\))?\s*:\s*(0|[1-9]\d*)\.\*\*", re.M)
+
+
+def ledger_reuse_count(text):
+    """Read the canonical published denominator, excluding historical counts elsewhere.
+
+    The ledger owns treatment of pre-ledger reads, reopened candidates and history-only arms.
+    Exactly one summary is required; absent or duplicate summaries cannot authorize a rule.
+    """
+    sections = [body for title, body in split_sections(text) if title.lower() == "dev reuse count"]
+    summaries = re.findall(r"^\s*\*\*Dev reuse count\b.*$", sections[0], re.M) if len(sections) == 1 else []
+    counts = LEDGER_COUNT.findall(summaries[0]) if len(summaries) == 1 else []
+    if len(counts) != 1:
+        raise ValueError("DEV_REUSE_LEDGER_INVALID: expected one published count in 'Dev reuse count'")
+    return int(counts[0])
+
+
+def check_dev_reuse(body, ledger_text=None):
+    fields = REUSE_FIELD.findall(body)
+    counts = REUSE_COUNT.findall(fields[0]) if len(fields) == 1 else []
+    if len(counts) != 1:
+        return ["(e) dev-window reuse: DEV_REUSE_COUNT_INVALID: state exactly one 'reuse count: N' "
+                "field (the inherited ledger count, before this candidate)"]
+    try:
+        if ledger_text is None:
+            ledger_text = docs_path("operations", "DEV_WINDOW_LEDGER.md").read_text(encoding="utf-8-sig")
+        expected = ledger_reuse_count(ledger_text)
+    except (OSError, UnicodeDecodeError) as exc:
+        return [f"(e) dev-window reuse: DEV_REUSE_LEDGER_UNREADABLE: {exc}"]
+    except ValueError as exc:
+        return [f"(e) dev-window reuse: {exc}"]
+    cited = int(counts[0])
+    if cited != expected:
+        return [f"(e) dev-window reuse: DEV_REUSE_COUNT_MISMATCH: cited {cited}, ledger {expected} "
+                "(inherit the published count; a new candidate's increment is separate)"]
+    return []
 
 # ----------------------------------------------------------------------------- forward: (f) and (g)
 
@@ -223,10 +273,13 @@ def split_sections(text):
     return out
 
 
-def check_text(text, forward=False):
+def check_text(text, forward=False, *, ledger_text=None):
     """Return a list of human-readable problems (empty when the rule file passes).
 
-    ``forward`` also requires (f) power gate and (g) futility (a pre-registration on forward dates)."""
+    ``forward`` also requires (f) power gate and (g) futility (a pre-registration on forward dates).
+    ``ledger_text`` may supply a retained ledger for deterministic offline checks; by default use
+    this checkout's canonical ledger, resolved independently of the current working directory.
+    """
     sections = split_sections(text)
     problems = []
     for letter, name, pattern, requirements in SECTIONS:
@@ -241,6 +294,8 @@ def check_text(text, forward=False):
         for what, test in requirements:
             if not test(body):
                 problems.append(f"({letter}) {name}: does not state {what}")
+        if letter == "e":
+            problems += check_dev_reuse(body, ledger_text)
     if forward:
         problems += check_forward(sections)
     return problems
