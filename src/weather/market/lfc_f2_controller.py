@@ -353,7 +353,7 @@ class F2Band(PilotSession):
         # waits. A local retirement leaves quoting peers alone.
         final = (getattr(self.venue.coordinator, 'final_teardown', False) or
                  self.clock.monotonic() >= self.deadline)
-        if not self.closed and (final or self.evidence_failed):
+        if not self.closed and final:
             self.venue.coordinator.cancel_bands_before_probes()
         self._terminal_read_seconds = 10 if getattr(self, '_repost_terminal_reads', False) and not final else 3
         status = getattr(self, 'outcome_status', None)

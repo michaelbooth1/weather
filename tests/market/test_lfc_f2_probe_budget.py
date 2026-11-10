@@ -102,3 +102,46 @@ def test_repost_proves_unresolved_before_thirty_slow_terminal_probes():
     assert calls[0] == ('unresolved', 0)
     assert proved == [4] and all(at >= 4 for oid, at in calls if oid in old)
     assert all(sum(oid == seen for seen, _ in calls) == 1 for oid in old)
+
+
+def test_sample_scoring_fault_then_fill_reposts_without_cancelling_peers(tmp_path, monkeypatch):
+    from tests.market.test_lfc_f2_repost import fixture
+
+    with account_lease(MAKER, backend=Mutexes()):
+        controller, account, status, ledger, clock, runtime, read = fixture(tmp_path, enrolled=True)
+        first, peer = controller.bands
+        raw = account.raws[0]
+        scoring, sampled = raw.scoring, []
+
+        def unavailable():
+            raise TimeoutError('synthetic ancillary sample')
+
+        def scoring_with_one_gap(ids):
+            if not sampled:
+                sampled.append(clock.seconds)
+                assert first.sample('scoring', unavailable) is None
+            return scoring(ids)
+
+        raw.scoring = scoring_with_one_gap
+        result = controller.run()
+        assert sampled and 'sample_scoring' in first._evidence_faults
+        assert first.submits > 2, controller.results
+        assert controller.results[peer.session_id]['reason'] == 'fixed_end', controller.results
+        assert all(at >= peer.deadline for at, _ in account.raws[1].cancellations)
+        assert all(row['failure_type'] is None for row in controller.results.values())
+        outcome = status.finish(success=False)  # The ancillary gap remains honestly recorded.
+        local = local_money_proof(controller.directory, ledger=ledger,
+            session_id=controller.session_id, attempt_id=controller.attempt_id, outcome=outcome)
+        assert local['complete'] and local['money_read_gaps'] == [], local
+        assert local['explained_gaps'] == ['sample_scoring']
+        runtime.save_result(account.claim, {'session_id': controller.session_id,
+            'private_evidence_directory': controller.directory.name, 'outcome': outcome,
+            'local_money_proof': local, 'evidence_complete': False, 'inventory_proven': True,
+            'unknown_submit': False})
+        runtime.lease = SimpleNamespace(check=lambda: None)
+        runtime.control_root = tmp_path / 'control'
+        monkeypatch.setattr(runtime, 'read_account', read)
+        proof = runtime.postcheck(account.claim, runtime.saved_result(account.claim))
+        assert proof['cleanup_proven'] and proof['money_accounting_complete'], proof
+        runtime.state.close(account.claim, proof, clock.now())
+        assert runtime.state.pending() == [] and runtime.state.incidents() == []

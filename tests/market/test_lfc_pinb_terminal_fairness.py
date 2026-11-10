@@ -69,8 +69,18 @@ def test_final_teardown_does_not_spend_repost_retry_time_before_peer_cancel(tmp_
                 raise TimeoutError('synthetic final read outage')
             return ordinary(oid)
         raw.order = order
+        peer = account.raws[1]
+        cancel, teardown = peer.cancel, []
+        def peer_cancel(oid):
+            teardown.append(getattr(controller, 'final_teardown', False))
+            return cancel(oid)
+        peer.cancel = peer_cancel
         result = controller.run()
         assert not result['unknown_submit'] and not result['cleanup_ok']
         assert raw.cancellations and account.raws[1].cancellations
-        assert account.raws[1].cancellations[0][0] == raw.cancellations[0][0] == 5
+        assert raw.cancellations[0][0] == 5
+        # A band-local failure first finishes its three-second read budget.
+        # Only the coordinator's resulting final_teardown cancels its peers.
+        assert peer.cancellations[0][0] == (8 if band_failure else 5)
+        assert all(teardown) and controller.final_teardown
         assert not account.open_orders() and ledger.unresolved_legs()
