@@ -1,7 +1,7 @@
 # Owner-activated task wrapper. Agents never invoke this script on an account.
 param([Parameter(Mandatory=$true)][string]$ReleasePath,
       [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ReleaseSha256,
-      [Parameter(Mandatory=$true)][DateTimeOffset]$TaskStartedUtc)
+      [Parameter(Mandatory=$true)]$TaskStartedUtc)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'lfc_campaign_task_contract.ps1')
 . (Join-Path $PSScriptRoot 'windows_kill_on_close_job.ps1')

@@ -6,6 +6,7 @@ import uuid
 import re
 
 from weather.market.lfc_recording_io import write_new
+from weather.time import utc_now
 
 
 CONTROL_SCHEMA = 'lfc_campaign_control_v0.1'
@@ -140,10 +141,6 @@ def public_status(row, *, now=None):
     if isinstance(row.get('sleeve_loss_basis'), str) and row.get('sleeve_loss_basis') in {'gross', 'net_of_retained_gains'}:
         result['sleeve_loss_basis'] = row['sleeve_loss_basis']
     return result
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
 
 
 def evaluate_row(row, *, now=None, max_age_seconds=900):

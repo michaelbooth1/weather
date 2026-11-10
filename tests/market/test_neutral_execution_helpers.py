@@ -34,6 +34,8 @@ def test_scalar_helpers_match_frozen_policy(value):
 
 
 def test_clocks_keep_input_diagnostics_and_patchable_aliases(monkeypatch):
+    from weather.market import lfc_campaign_control
+    assert lfc_campaign_control.utc_now is time.utc_now
     from weather.market import info_event_calendar
     from weather.operations import event_metadata_validation, runtime_monitor
     expected = datetime(2026,9,26,12,tzinfo=timezone.utc)

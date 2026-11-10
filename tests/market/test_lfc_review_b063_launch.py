@@ -2,7 +2,7 @@
 
 Only inert coordinator dependencies and a native pure PowerShell function.
 """
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 
@@ -138,7 +138,8 @@ function Start-WeatherProcessInJob {
         'campaign_path':str(policy)}))
     env={key:value for key,value in os.environ.items() if key not in ('PYTHONPATH','PYTHONHOME','WEATHER_MARKET_REGISTRY')}
     result=subprocess.run(['powershell.exe','-NoProfile','-File',str(ops/'lfc_campaign_task.ps1'),
-        '-ReleasePath',str(release),'-ReleaseSha256',hashlib.sha256(release.read_bytes()).hexdigest()],
+        '-ReleasePath',str(release),'-ReleaseSha256',hashlib.sha256(release.read_bytes()).hexdigest(),
+        '-TaskStartedUtc',datetime.now(timezone.utc).isoformat()],
         capture_output=True,text=True,timeout=20,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     assert result.returncode==0,result.stdout+result.stderr
     tokens=json.loads(captured.read_text())

@@ -17,6 +17,7 @@ from tests.market.test_lfc_f2_revision import setup
 from weather.market.lfc_campaign import CampaignCoordinator
 from weather.market.lfc_campaign_guard import account_lease, CAMPAIGN_WORK_LOCK, HOLD_PATH
 from weather.market.lfc_f2_freeze import capture, verify
+from tests.native_child_environment import clean_native_environment
 
 
 @pytest.mark.parametrize('stamp,timely', [('2026-11-16T22:55:00+00:00', True),
@@ -178,7 +179,7 @@ Start-Sleep -Milliseconds 600
     started = time.monotonic()
     # Scheduler does not supply CREATE_NO_WINDOW. Prove our own GUI launcher
     # provides the behavior, without a test-only hiding flag around it.
-    child = subprocess.run(argv, timeout=20, capture_output=True)
+    child = subprocess.run(argv, timeout=20, capture_output=True, env=clean_native_environment())
     (tmp_path / 'headless-stdout.txt').write_bytes(child.stdout)
     (tmp_path / 'headless-stderr.txt').write_bytes(child.stderr)
     assert child.returncode == exit_code and marker.exists()

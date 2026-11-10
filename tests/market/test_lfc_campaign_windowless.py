@@ -16,6 +16,7 @@ import pytest
 
 from weather.market.lfc_recording_io import file_sha
 from weather.paths import REPO_ROOT
+from tests.native_child_environment import clean_native_environment
 
 
 def fixture(tmp_path, body):
@@ -53,7 +54,7 @@ def test_windowless_binding_refuses_before_any_wrapper_executes(tmp_path, change
     if changed == 'root': row['root'] = str(tmp_path / 'different')
     release.write_text(json.dumps(row))
     command = argv(pythonw, launcher, release)
-    env = dict(os.environ)
+    env = clean_native_environment()
     if changed == 'environment': env['PYTHONPATH'] = 'forbidden-override'
     if changed == 'receipt_hash': command[-1] = 'f' * 64
     child = subprocess.run(command, env=env, timeout=15)
@@ -79,7 +80,7 @@ def test_killing_windowless_parent_tears_down_its_wrapper_and_grandchild(tmp_pat
 Start-Sleep -Seconds 60
 """
     pythonw, launcher, release, _ = fixture(tmp_path, body)
-    child = subprocess.Popen(argv(pythonw, launcher, release))
+    child = subprocess.Popen(argv(pythonw, launcher, release), env=clean_native_environment())
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     from ctypes import wintypes
     kernel.OpenProcess.argtypes, kernel.OpenProcess.restype = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD), wintypes.HANDLE

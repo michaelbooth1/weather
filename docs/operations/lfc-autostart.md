@@ -660,8 +660,10 @@ The owner-only STOP checkpoint remains unchanged. A separate watchdog exits the
 process after 120 seconds without quoting-loop progress, first
 publishing an incident with cancellation unproved. Setup, cleanup and verification
 use bounded operations and the wrapper deadline, which is the effective trading
-end plus thirty minutes, also bounded by monotonic elapsed time. A malformed or
-out-of-window policy gets at most thirty minutes to report refusal. The stall watchdog never kills
+end plus thirty minutes, also bounded by monotonic elapsed time. The wrapper
+requires a native task-start timestamp: explicit offsets normalize to UTC;
+naive or missing timestamps refuse before launch. A malformed or out-of-window
+policy gets at most thirty minutes to report refusal. The stall watchdog never kills
 a cancellation in flight. Band cleanup keeps the account heartbeat ticking and
 resynchronizes the clock-gap guard without waiving wall/monotonic drift. The account claim and work
 markers remain retained; process teardown is not order-cancellation proof.

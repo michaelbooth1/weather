@@ -84,6 +84,13 @@ jobs:
               tests/operations/test_lfc_campaign_task.py
               tests/market/test_lfc_campaign_availability.py
               tests/market/test_lfc_campaign_windowless.py
+              tests/market/test_lfc_review_b065_atomic.py
+              tests/market/test_lfc_review_b065_remeasure.py
+              tests/market/test_lfc_review_b065_scale.py
+              tests/market/test_lfc_review_b066_inventory_cost.py
+              tests/market/test_lfc_review_b067_idle_cost.py
+              tests/market/test_lfc_review_b068_status.py
+              tests/operations/test_lfc_pinb_task_start.py
               tests/operations/test_reconciler_surface.py
               tests/operations/test_powershell_host_guard.py
               tests/operations/test_merge_queue_driver_dry.py

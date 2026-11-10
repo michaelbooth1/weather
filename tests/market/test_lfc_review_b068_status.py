@@ -62,6 +62,23 @@ def test_status_idle_reads_snapshot_without_writing(tmp_path, monkeypatch, capsy
     assert files(tmp_path) == before
 
 
+def test_pinb_status_displays_daily_cap_and_effective_end_without_writing(tmp_path, monkeypatch, capsys):
+    from weather.market.lfc_f2_pinb import example_policy as pinb
+    from weather.market.lfc_campaign_control import control_record
+    from weather.market import lfc_campaign_guard as guard
+    setup_status(tmp_path, monkeypatch)
+    (tmp_path/'campaign.json').write_text(json.dumps(pinb()))
+    monkeypatch.setattr(guard, 'account_lease_busy', lambda maker: False)
+    control_record(tmp_path/'control', 'a'*32, phase='IDLE', now=datetime.now(timezone.utc))
+    before = files(tmp_path)
+    assert cli.main(['status', '--release', 'fixture', '--release-sha256', 'a'*64]) == 0
+    row = json.loads(capsys.readouterr().out)
+    assert row['per_band_daily_filled_cap_pusd'] == '30'
+    assert row['trading_end_toronto'] == '18:45:00'
+    assert row['effective_trading_ends_toronto'] == ['18:45:00']
+    assert files(tmp_path) == before
+
+
 def test_status_detects_deleted_anchored_closure_without_latching_or_repairing(tmp_path, monkeypatch, capsys):
     from tests.market.test_lfc_review_b067_integrity import prepared
     from tests.market.test_lfc_campaign import NOW

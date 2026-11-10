@@ -164,6 +164,7 @@ def fixture():
     calls = []
     venue = object.__new__(OwnerVenue)
     venue.readonly, venue.maker, venue.condition, venue.fields = False, MAKER, CONDITION, {'SIGNATURE_TYPE': '2'}
+    venue.before_post = lambda request: None  # The real session always supplies this mandatory hook.
     venue.tokens = tuple(TOKENS)  # The real constructor always binds its pair.
     def create(**kwargs):
         calls.append(('sign', kwargs))

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.powershell_host import run_command
+from tests.native_child_environment import clean_native_environment
 from weather.market import lfc_campaign_release as release
 from weather.paths import REPO_ROOT
 
@@ -278,7 +279,7 @@ function FixturePython {
     path = tmp_path / 'harness.ps1'
     path.write_text(harness)
     result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(path)],
-                            capture_output=True,text=True,timeout=30)
+                            capture_output=True,text=True,timeout=30,env=clean_native_environment())
     assert result.returncode == 0, result.stdout + result.stderr
     observed = json.loads(result.stdout)
     assert observed['registered'] == 1

@@ -6,7 +6,7 @@ import re
 from weather.market.lfc_campaign_state import AccountState, StateRefused
 from weather.market import lfc_campaign_guard as guard
 from weather.market.lfc_campaign_control import latest_control, watch_status
-from weather.market.lfc_campaign_policy import load_policy
+from weather.market.lfc_campaign_policy import load_policy, ZONE
 from weather.market.lfc_f2_policy import effective_loss_basis
 from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_ledger import Ledger, ledger_path
@@ -41,11 +41,16 @@ def snapshot(release, *, root, state_root, control_root):
     basis = effective_loss_basis(policy)
     control, code = watch_status(latest_control(control_root))
     capital = CapitalBook(ledger).figures(loss_basis=basis)
+    effective_ends = sorted({entry.fixed_end.astimezone(ZONE).strftime('%H:%M:%S')
+        for entry in policy.entries if entry.fixed_end is not None})
     # Reuse the existing full-file unchanged proof, with no possible string
     # intent key. This grants no posting authority or writer handle.
     if not ledger.intent_proven_absent(None):
         raise StateRefused('status_snapshot_changed')
     return {'state': 'STATUS', 'sleeve_loss_basis': basis,
+        'per_band_daily_filled_cap_pusd': policy.raw.get('per_band_daily_filled_cap_pusd'),
+        'trading_end_toronto': policy.raw.get('trading_end_toronto'),
+        'effective_trading_ends_toronto': effective_ends,
         'basis_explicit': 'sleeve_loss_basis' in policy.raw,
         'active_sleeve_loss_basis': ledger.sleeve_loss_basis,
         'ledger_head_sha256': ledger.row_sha256(len(ledger.rows)-1),

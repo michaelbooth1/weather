@@ -86,9 +86,26 @@ function Read-LfcCampaignPolicyBytes {
     } finally { $stream.Dispose() }
 }
 
+function ConvertTo-LfcCampaignUtcInstant {
+    param([Parameter(Mandatory=$true)]$Value)
+    if($Value -is [DateTimeOffset]) { return $Value.ToUniversalTime() }
+    if($Value -is [DateTime]) {
+        if($Value.Kind -eq [DateTimeKind]::Unspecified) { throw 'campaign timestamp requires an offset' }
+        return ([DateTimeOffset]$Value).ToUniversalTime()
+    }
+    if($Value -isnot [string] -or $Value -notmatch '(?:Z|[+-][0-9]{2}:[0-9]{2})$') {
+        throw 'campaign timestamp requires an offset'
+    }
+    return ([DateTimeOffset]::Parse($Value,[Globalization.CultureInfo]::InvariantCulture)).ToUniversalTime()
+}
+
 function Get-LfcCampaignLaunch {
-    param([Parameter(Mandatory=$true)][string]$CampaignPath,[DateTimeOffset]$NowUtc=[DateTimeOffset]::UtcNow,
-          [DateTimeOffset]$TaskStartedUtc=$NowUtc)
+    param([Parameter(Mandatory=$true)][string]$CampaignPath,$NowUtc=[DateTimeOffset]::UtcNow,
+          $TaskStartedUtc=$NowUtc)
+    # Pure helper callers may omit task start; the real wrapper requires it.
+    # Preserve awareness before conversion, then compare/bound UTC instants.
+    $NowUtc=ConvertTo-LfcCampaignUtcInstant -Value $NowUtc
+    $TaskStartedUtc=ConvertTo-LfcCampaignUtcInstant -Value $TaskStartedUtc
     # The digest and deadline use ONE bounded byte snapshot. An unreadable
     # policy gets a short reporting budget and can never authorize admission.
     try { $bytes=Read-LfcCampaignPolicyBytes -CampaignPath $CampaignPath } catch { $bytes=[byte[]]@() }
@@ -96,7 +113,7 @@ function Get-LfcCampaignLaunch {
     try { $sha=([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-','').ToLowerInvariant() }
     finally { $hasher.Dispose() }
     $deadline=Get-LfcCampaignDeadline -CampaignPath $CampaignPath -NowUtc $NowUtc -PolicyBytes $bytes
-    if($TaskStartedUtc.Offset -ne [TimeSpan]::Zero -or $TaskStartedUtc -gt $NowUtc) { throw 'campaign task start time' }
+    if($TaskStartedUtc -gt $NowUtc) { throw 'campaign task start time' }
     $schedulerEnd=$TaskStartedUtc.AddHours(11)
     if($schedulerEnd -lt $deadline) { $deadline=$schedulerEnd }
     return [pscustomobject]@{deadline_utc=$deadline.ToString('o');policy_bytes_sha256=$sha}

@@ -34,7 +34,7 @@ def test_each_fixed_field_accepts_approved_and_refuses_unsupported(field):
 
 REFUSALS = {'schema_version': 'unknown', 'enabled': 'yes', 'campaign_id': '../bad', 'revision': 0,
             'timezone': 'UTC', 'sidecar': {'enabled': True, 'release_manifest': 'fixture'},
-            'policy_name': '', 'policy_revision': 0, 'market_ids': ['nyc'],
+            'policy_name': '', 'policy_revision': 0, 'sleeve_loss_basis': 'unknown', 'market_ids': ['nyc'],
             'band_limit_session': 3, 'band_limit_concurrent': 3, 'tokens': ['MAYBE'],
             'quote_offset_pusd': '.051', 'requote_distance_cents': ['3', '1'],
             'leg_price_range': ['.16', '.8'], 'per_order_cap_pusd': '15.800001',
@@ -52,6 +52,20 @@ def test_each_variable_field_accepts_supported_and_refuses_bad_value(field):
     assert parse_policy(row).raw[field] == row[field]
     row[field] = deepcopy(REFUSALS[field])
     with pytest.raises(ValueError):
+        parse_policy(row)
+
+
+@pytest.mark.parametrize('basis', [None, 0, [], {}, 'unknown'])
+def test_malformed_loss_basis_refuses_before_any_account_access(monkeypatch, basis):
+    from weather.market.lfc_capital import CapitalBook
+    from weather.market.lfc_ledger import Ledger
+    def no_account(*args, **kwargs):
+        pytest.fail('Policy parsing must not open or replay an account')
+    monkeypatch.setattr(Ledger, 'open', no_account)
+    monkeypatch.setattr(CapitalBook, '__init__', no_account)
+    row = example_policy()
+    row['sleeve_loss_basis'] = basis
+    with pytest.raises(ValueError, match='^unsupported_sleeve_loss_basis$'):
         parse_policy(row)
 
 
