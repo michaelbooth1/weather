@@ -683,7 +683,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # T086 E4 evening-low screen; exact bytes staged for master review, not execution GO.
         @{
             path = 'C:\t\codex\T086\study.py'
-            sha256 = '225ff3909738a316f57da87e1db570c498000ec8bf74d0a4c0527f6aed3deddc'
+            sha256 = '403d224238b4f1d8ef712fda59e9802dbcd22a6e7358f9433b35aa900e3c7603'
         }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
