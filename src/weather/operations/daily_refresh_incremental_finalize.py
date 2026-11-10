@@ -118,6 +118,7 @@ _LABEL_LOGIC_MODULES = (
 _VENUE_LOGIC_MODULES = (
     "weather.backtesting.venue_rule_labels",
     "weather.market.market_day_labels",
+    "weather.market.venue_settlement_rules",
 )
 
 

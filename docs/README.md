@@ -79,6 +79,7 @@ Read the one that owns the thing you are changing.
 | Any repository path or default location | [Repository path policy](operations/path-policy.md) |
 | A file under `config/` | [Configuration inventory](operations/config-inventory.md) |
 | Training or evaluation labels for dates from 2026-10-23, or a market's label station | [Venue-rule labels](operations/venue-rule-labels.md) |
+| Expansion city/family metadata, routine-METAR bounds or read-only settlement diagnostics | [Weather universe](operations/weather-universe.md) |
 | Tracked artifacts, LFS, or artifact size | [Artifact storage policy](operations/artifact-storage-policy.md) |
 | Building or changing data capture: new families, storage/RAM budgets, the venue-city pilot | [Data layer v2 plan](operations/DATA_LAYER_V2_PLAN.md) (canonical living plan: family table, budgets, build sequence S0-S16, open owner questions); [data layer v2 platform contract](operations/DATA_LAYER_V2_CONTRACT.md) (the `platform` registry in `config/capture_families.json`: roll closures, evidence families, storage and embargo ratchets) |
 | What may be deleted, tiered, or compressed under `data/` | [Data storage classes](operations/data-storage-class-contract.md), [Data retention policy](operations/data-retention-policy.md) |

@@ -44,6 +44,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from weather.market.market_registry import BUILTIN_SPECS, spec_for_id
+from weather.market.venue_settlement_rules import select_reports, settlement_bucket
 from weather.paths import config_path, data_path
 from weather.sources.daily_summary import native_bucket, native_high
 from weather.sources.historical_schema import DAILY_COLUMNS, summarize_daily
@@ -250,40 +251,6 @@ def reports_from_csv(text, spec, station, declared_report_type=None):
     return reports
 
 
-def select_reports(routine_reports):
-    """One report per observation time; an accepted correction replaces the original.
-
-    A correction is accepted unless its receipt time is known and falls at or
-    after the first report of the next local day.
-    """
-
-    first_by_date = {}
-    for report in routine_reports:
-        first_by_date.setdefault(report["local_date"], report["valid_time_utc"])
-    dates = sorted(first_by_date)
-
-    def deadline(local_date):
-        later = [day for day in dates if day > local_date]
-        return first_by_date[later[0]] if later else None
-
-    chosen = {}
-    rejected = 0
-    for report in routine_reports:
-        key = report["valid_time_utc"]
-        if report["corrected"]:
-            limit = deadline(report["local_date"])
-            receipt = report.get("receipt_utc")
-            if receipt is not None and (limit is None or receipt >= limit):
-                rejected += 1
-                continue
-            chosen[key] = report
-            continue
-        current = chosen.get(key)
-        if current is None or not current["corrected"]:
-            chosen[key] = report
-    return [chosen[key] for key in sorted(chosen)], rejected
-
-
 # --- daily labels -------------------------------------------------------------
 
 
@@ -310,6 +277,9 @@ def venue_daily_labels(reports, spec):
             for report in day_reports
         ]
         (row,) = summarize_daily(records)
+        row["max_temp_bucket"] = settlement_bucket(
+            max(report["temperature_c"] for report in day_reports), spec.display_unit
+        )
         bases = sorted({report["value_basis"] for report in day_reports})
         row.update({
             "source": "metar_routine",
