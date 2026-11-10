@@ -685,6 +685,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
             sha256 = 'd23980b5123761ef0cfe46afa60274063aee66c84eb58169a55cb283a847f61d'
         }
+        # T082 E3 public-only maker clock; staged for master review, not execution GO.
+        @{
+            path = 'C:\t\codex\T082\study_clock.py'
+            sha256 = 'dd24e3c006b1d61724081b0ce8fc2ac07b62b8a1fed31b5214887eb5f2271b0b'
+        }
     )
 }
 
