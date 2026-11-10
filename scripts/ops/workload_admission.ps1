@@ -680,7 +680,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
-        # T088 outcome-free T+1 presence census; pending master research-script review/GO.
+        # T088 outcome-free census; master GO plus standing bug-fix GO. Controller bounds queue waits before 08:30.
         @{
             path = 'C:\t\codex\T088\count_t088.py'
             sha256 = 'bb1dc084639de19f56514b01fd5b095190387983b13ff606866233087b4a6cb9'
