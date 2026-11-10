@@ -680,6 +680,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
+        # T084 / E7 outcome-free snapshot chronology; pending master review before use.
+        @{
+            path = 'C:\t\codex\T084\analyze.py'
+            sha256 = 'ac29a8f3a45c6e61f490cb3b8fbe9825466ee1df1474570e70f494b61b620fc0'
+        }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
