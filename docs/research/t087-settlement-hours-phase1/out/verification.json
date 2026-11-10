@@ -1,0 +1,71 @@
+{
+  "files": [
+    {
+      "bytes": 13718,
+      "path": "settlement_hours.py",
+      "sha256": "acae4dd5aed36160fe13e812739cf5b50cf9f862e5c987650152d62eab988fd1"
+    },
+    {
+      "bytes": 11409,
+      "path": "test_settlement_hours.py",
+      "sha256": "6f4c720362fcd78d04e6768b9982370009dde59b65a7fd45281f7232fb43d29d"
+    },
+    {
+      "bytes": 4257,
+      "path": "EXTRACT_SPEC.md",
+      "sha256": "5e52d6fa931af04c3530047e2362eb31a39d8510e8f83f5aa82206511aac5c0b"
+    },
+    {
+      "bytes": 6964,
+      "path": "SOURCE_MAP.md",
+      "sha256": "457c367ae3d00ed82a8cd68ef82b64413cd5c98432df3d824e8cc193a49ab036"
+    },
+    {
+      "bytes": 3664,
+      "path": "PREREG.md",
+      "sha256": "3b94e1661de07bbcb290da51e434f27540929f95b60c7adac67c1f008a66c19c"
+    },
+    {
+      "bytes": 65,
+      "path": "PREREG.sha256",
+      "sha256": "6ef323e16fb3ab757309cf261cdf523295c57d001d0975024538064d71a3a28e"
+    },
+    {
+      "bytes": 8545,
+      "path": "REPORT.md",
+      "sha256": "9f0753c81adc7c8fbb85c7113acc8f2eb47397e4f4c5eb9d47a41da98468ca92"
+    },
+    {
+      "bytes": 3266,
+      "path": "out/synthetic-tests.xml",
+      "sha256": "7c421a83d195a0ebc3f3705fa7ca7953995826f9e856a538a4945134030c306e"
+    },
+    {
+      "bytes": 21056,
+      "path": "out/synthetic-example.json",
+      "sha256": "0020efedea92a3cb215b462678259a1d3fdc24617ae44dfd43c106261885d55e"
+    }
+  ],
+  "gamma_requests": 0,
+  "pytest_passed": 23,
+  "pytest_seconds": 0.15,
+  "real_data_reads": 0,
+  "repo_helpers": [
+    {
+      "path": "C:\\wt\\codex-t087-settlement-hours\\src\\weather\\backtesting\\venue_rule_labels.py",
+      "sha256": "1842b6da48af90a62999262dd6b92b1b66eaaf323553bb90455c020e5be83405"
+    },
+    {
+      "path": "C:\\wt\\codex-t087-settlement-hours\\src\\weather\\sources\\metar_history.py",
+      "sha256": "8bc180bcc630c873853b7d45985fbd0d566e4b568c6d6a4c8b88c4cd44f9bbde"
+    },
+    {
+      "path": "C:\\wt\\codex-t087-settlement-hours\\src\\weather\\units.py",
+      "sha256": "7a8b4b4a3cde17ad4d8f0415efc2f59638561a96f651eb58290394cc5a4b22a9"
+    }
+  ],
+  "source_base": "73140b20eed0f81c8fa26bb5faf6defcb269533a",
+  "synthetic_only": true,
+  "timestamp_utc": "2026-11-10T08:19:17.386772+00:00",
+  "verdict": "DESCRIBE"
+}

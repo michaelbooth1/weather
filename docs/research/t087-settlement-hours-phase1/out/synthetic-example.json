@@ -1,0 +1,1016 @@
+{
+  "claim_type": "SYNTHETIC",
+  "comparable_days": [
+    {
+      "analysis_end_exclusive_utc": "2026-10-25T04:00:00+00:00",
+      "bands_differ": true,
+      "hours": 27,
+      "linked_matches_paid": true,
+      "linked_start_utc": "2026-10-24T01:00:00+00:00",
+      "linked_through_day_end": {
+        "band": "72 F or above",
+        "degree": 72,
+        "max_native": 71.6,
+        "maximum_times_utc": [
+          "2026-10-24T01:00:00+00:00"
+        ],
+        "routine_temperature_count": 2
+      },
+      "market_id": "nyc",
+      "next_morning_tail_not_read": false,
+      "paid_band": "72 F or above",
+      "query_end_utc": "2026-10-25T04:00:00+00:00",
+      "rejected_late_corrections": 0,
+      "station": "KLGA",
+      "strict": {
+        "band": "68-69 F",
+        "degree": 68,
+        "max_native": 68.0,
+        "maximum_times_utc": [
+          "2026-10-24T18:00:00+00:00"
+        ],
+        "routine_temperature_count": 1
+      },
+      "strict_matches_paid": false,
+      "target_date": "2026-10-24",
+      "unit": "F"
+    },
+    {
+      "analysis_end_exclusive_utc": "2026-11-02T05:00:00+00:00",
+      "bands_differ": true,
+      "hours": 27,
+      "linked_matches_paid": true,
+      "linked_start_utc": "2026-11-01T02:00:00+00:00",
+      "linked_through_day_end": {
+        "band": "72 F or above",
+        "degree": 72,
+        "max_native": 71.6,
+        "maximum_times_utc": [
+          "2026-11-01T02:00:00+00:00"
+        ],
+        "routine_temperature_count": 3
+      },
+      "market_id": "nyc",
+      "next_morning_tail_not_read": false,
+      "paid_band": "72 F or above",
+      "query_end_utc": "2026-11-02T05:00:00+00:00",
+      "rejected_late_corrections": 0,
+      "station": "KLGA",
+      "strict": {
+        "band": "68-69 F",
+        "degree": 68,
+        "max_native": 68.0,
+        "maximum_times_utc": [
+          "2026-11-01T05:30:00+00:00",
+          "2026-11-01T06:30:00+00:00"
+        ],
+        "routine_temperature_count": 2
+      },
+      "strict_matches_paid": false,
+      "target_date": "2026-11-01",
+      "unit": "F"
+    }
+  ],
+  "comparable_market_days": 2,
+  "differences": [
+    {
+      "analysis_end_exclusive_utc": "2026-10-25T04:00:00+00:00",
+      "bands_differ": true,
+      "hours": 27,
+      "linked_matches_paid": true,
+      "linked_start_utc": "2026-10-24T01:00:00+00:00",
+      "linked_through_day_end": {
+        "band": "72 F or above",
+        "degree": 72,
+        "max_native": 71.6,
+        "maximum_times_utc": [
+          "2026-10-24T01:00:00+00:00"
+        ],
+        "routine_temperature_count": 2
+      },
+      "market_id": "nyc",
+      "next_morning_tail_not_read": false,
+      "paid_band": "72 F or above",
+      "query_end_utc": "2026-10-25T04:00:00+00:00",
+      "rejected_late_corrections": 0,
+      "station": "KLGA",
+      "strict": {
+        "band": "68-69 F",
+        "degree": 68,
+        "max_native": 68.0,
+        "maximum_times_utc": [
+          "2026-10-24T18:00:00+00:00"
+        ],
+        "routine_temperature_count": 1
+      },
+      "strict_matches_paid": false,
+      "target_date": "2026-10-24",
+      "unit": "F"
+    },
+    {
+      "analysis_end_exclusive_utc": "2026-11-02T05:00:00+00:00",
+      "bands_differ": true,
+      "hours": 27,
+      "linked_matches_paid": true,
+      "linked_start_utc": "2026-11-01T02:00:00+00:00",
+      "linked_through_day_end": {
+        "band": "72 F or above",
+        "degree": 72,
+        "max_native": 71.6,
+        "maximum_times_utc": [
+          "2026-11-01T02:00:00+00:00"
+        ],
+        "routine_temperature_count": 3
+      },
+      "market_id": "nyc",
+      "next_morning_tail_not_read": false,
+      "paid_band": "72 F or above",
+      "query_end_utc": "2026-11-02T05:00:00+00:00",
+      "rejected_late_corrections": 0,
+      "station": "KLGA",
+      "strict": {
+        "band": "68-69 F",
+        "degree": 68,
+        "max_native": 68.0,
+        "maximum_times_utc": [
+          "2026-11-01T05:30:00+00:00",
+          "2026-11-01T06:30:00+00:00"
+        ],
+        "routine_temperature_count": 2
+      },
+      "strict_matches_paid": false,
+      "target_date": "2026-11-01",
+      "unit": "F"
+    }
+  ],
+  "differing_market_days": 2,
+  "effective_dates": [
+    "2026-10-24",
+    "2026-11-01"
+  ],
+  "expected_market_days": 216,
+  "interval": null,
+  "interval_reason": "exact finite enumeration; no population inference or edge claim",
+  "missing_keys": [
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "atlanta",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "austin",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "chicago",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "dallas",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "denver",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "houston",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "los-angeles",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "miami",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "nyc",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "seattle",
+      "target_date": "2026-11-09"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-23"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-24"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-25"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-26"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-27"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-28"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-29"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-30"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-10-31"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-01"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-02"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-03"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-04"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-05"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-06"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-07"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-08"
+    },
+    {
+      "market_id": "toronto",
+      "target_date": "2026-11-09"
+    }
+  ],
+  "refusals": [],
+  "scope": "dated_link_start_through_target_local_day_end_only",
+  "supplied_market_days": 2,
+  "verdict": "DESCRIBE"
+}
