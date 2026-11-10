@@ -1,0 +1,113 @@
+{
+  "_note": "Field names, types, enum-like strings and timestamp formats from real replies in one session; every id, hash, address, price, size and amount is a same-type, same-length placeholder.",
+  "submit_ack": {
+    "making_amount": "1",
+    "ok": true,
+    "order_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "status": "live",
+    "taking_amount": "1",
+    "trade_ids": [],
+    "transactions_hashes": []
+  },
+  "cancel_ack": {
+    "canceled": [
+      "0x0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "not_canceled": {}
+  },
+  "open_orders_row": {
+    "associate_trades": [],
+    "condition_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "created_at": "2000-01-01T00:00:00Z",
+    "expires_at": "2000-01-01T00:00:00Z",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "maker_address": "0x0000000000000000000000000000000000000000",
+    "market": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "order_type": "GTD",
+    "original_size": "11",
+    "outcome": "Yes",
+    "price": "1.11",
+    "side": "BUY",
+    "size_matched": "1",
+    "status": "LIVE",
+    "token_id": "11111111111111111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "terminal_order_row": null,
+  "order_read_after_cancel_row": {
+    "associate_trades": [],
+    "condition_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "created_at": "2000-01-01T00:00:00Z",
+    "expires_at": "2000-01-01T00:00:00Z",
+    "id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "maker_address": "0x0000000000000000000000000000000000000000",
+    "market": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "order_type": "GTD",
+    "original_size": "11",
+    "outcome": "No",
+    "price": "1.11",
+    "side": "BUY",
+    "size_matched": "1",
+    "status": "CANCELED",
+    "token_id": "11111111111111111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "user_stream_fill_event": {
+    "clob_token_id": "11111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "condition_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "event_type": "trade",
+    "fill_price": "1.1",
+    "fill_size": "11.11",
+    "official_event_type": "trade",
+    "official_trade_status": "MATCHED",
+    "order_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "outcome": "Yes",
+    "raw_event_sha256": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "side": "BUY"
+  },
+  "fill_journal_user_event": {
+    "clob_token_id": "11111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "condition_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "event_type": "trade",
+    "fill_price": "1.1",
+    "fill_size": "11.11",
+    "official_event_type": "trade",
+    "official_trade_status": "MATCHED",
+    "order_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "outcome": "Yes",
+    "raw_event_sha256": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "side": "BUY"
+  },
+  "positions_row": null,
+  "trades_row": {
+    "bucket_index": 1,
+    "condition_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "fee_rate_bps": "1",
+    "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "maker_address": "0x0000000000000000000000000000000000000000",
+    "maker_orders": [
+      {
+        "fee_rate_bps": null,
+        "maker_address": "0x0000000000000000000000000000000000000000",
+        "matched_amount": "1.11",
+        "order_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "outcome": "No",
+        "owner": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "price": "1.1",
+        "side": "SELL",
+        "token_id": "11111111111111111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ],
+    "market": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "matched_at": "2000-01-01T00:00:00Z",
+    "outcome": "No",
+    "owner": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "price": "1.1",
+    "side": "BUY",
+    "size": "11",
+    "status": "MINED",
+    "taker_order_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "token_id": "11111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "trader_side": "MAKER",
+    "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "updated_at": "2000-01-01T00:00:00Z"
+  }
+}
