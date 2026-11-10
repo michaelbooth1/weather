@@ -683,7 +683,12 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # T088 outcome-free T+1 presence census; pending master research-script review/GO.
         @{
             path = 'C:\t\codex\T088\count_t088.py'
-            sha256 = '87f8f40fe4fcb4650a3f33fb99f42c6bec68e585e3f2c12b1467af35494a7aa2'
+            sha256 = '4e2a28babe48da419bbe280993563cea5e23dd856d6be4d89ea351d1c7a4edf3'
+        }
+        # T088 raw recorded-vector metadata, <=512 MiB per invocation; same pending review.
+        @{
+            path = 'C:\t\codex\T088\raw_presence_t088.py'
+            sha256 = '1a6e0b0f44f0ccb877765aeff55eb5b5e6dd1532c044ec250988095e73fdfcfa'
         }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
