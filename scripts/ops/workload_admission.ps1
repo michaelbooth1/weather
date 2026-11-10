@@ -688,7 +688,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # T081 E1 cut 1 candidate pin; COMMON.md still requires master review and GO.
         @{
             path = 'C:\t\codex\T081\run_t081.py'
-            sha256 = 'a4ddf44f47c01676acad198e2bb541224daccf9c84bf38eb511af4d519309f02'
+            sha256 = 'a0eb7c5e936540555eec93813221a1ec6bd488f332091f73e524a3afc2490aab'
         }
     )
 }
