@@ -5411,7 +5411,8 @@ and outputs are on the workstation under `C:\t\codex\T081` .. `T084` and `C:\t\c
     existing 0.006501 (size 4.94% against 7.97%). Do not import 09-62a's 0.00346, a universal q or an
     iid date interval. Bound B, MG-1 and the production scorer are unchanged.
   - Prereg reuse check. The same branch makes `prereg_check` refuse a stale inherited reuse count
-    (`DEV_REUSE_COUNT_MISMATCH`; 98 tests pass). It is ROLL-FREE by the host verdict and not landed.
+    (`DEV_REUSE_COUNT_MISMATCH`; 98 tests pass). Landed 2026-11-11 through the merge tool (master
+    `3b75bfbd`, ROLL-FREE, capture held); the [checklist](PREREGISTRATION_CHECKLIST.md) (e) states the format.
   - Records. Prereg `d56f8cb2…` on `codex/prereg-reuse-check-20261110` @ `27ade070`.
 - **E7, snapshot price and model timing (T084, row 125): does not clear.**
   - Question. Is the skew between a snapshot's price and its model build negligible, so that the row

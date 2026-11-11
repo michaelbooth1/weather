@@ -28,7 +28,7 @@ section containing `TBD` or `TODO` does not count.
 | (b) | `Comparator fairness` | That the comparator gets the **same floor and the same calibration** as the candidate (name both). On the dev scorecard both arms get the rule-4 floor mask and served fallback; a trainer-side comparison must floor and calibrate its baseline the way serving does. | The unfair raw-R0 lesson (below). |
 | (c) | `Targeted loss slice` | The slice of the loss the candidate is meant to close and its expected size, taken from a loss-atlas run (cite the atlas sha256, at least 12 hex characters). | A candidate aimed at a slice the atlas shows is small cannot pay; a decision on the wrong slice is a post-hoc read. |
 | (d) | `MDE and clusters` | The MDE (80% power, from the scorecard's centred bootstrap) and the cluster count (dates and markets). | 11 US market clusters cap crossed power (EF §10j); a null below the MDE is "no increment demonstrated", not "no effect". |
-| (e) | `Dev-window reuse` | The reuse count from the [dev-window reuse ledger](DEV_WINDOW_LEDGER.md) (name `DEV_WINDOW_LEDGER` and the integer). | The edge test must correct for every candidate tried on these dates. |
+| (e) | `Dev-window reuse` | Name `DEV_WINDOW_LEDGER` and state one line `reuse count: N` (optionally `at least N`), where N is the count published in the [dev-window reuse ledger](DEV_WINDOW_LEDGER.md)'s `Dev reuse count` section before this candidate. `prereg_check` reads the ledger and refuses a different N (`DEV_REUSE_COUNT_MISMATCH`), a missing, duplicated or non-integer field (`DEV_REUSE_COUNT_INVALID`), and a missing or unreadable ledger count (`DEV_REUSE_LEDGER_INVALID`, `DEV_REUSE_LEDGER_UNREADABLE`). Dates and candidate ordinals do not count. | The edge test must correct for every candidate tried on these dates; a stale inherited count understates that correction. |
 
 ### The unfair raw-R0 lesson (2026-10-24, two lanes)
 
@@ -82,8 +82,8 @@ Rules the fields carry (MODEL_IMPROVEMENT_METHOD §5 rules 6-7; evidence: ledger
 1. Run the loss atlas for the base you will compare against (`python -m weather.reporting.scorecards.loss_atlas
    atlas --layout <layout> --candidate served --out <dir>`, through `scripts\ops\workstation_heavy.ps1`). It
    refuses (exit 7) unless the positive control in (a) reproduces. Take the slice and size for (c) from it.
-2. Read the reuse count for (e) from the [ledger](DEV_WINDOW_LEDGER.md), then add your candidate's row with
-   verdict `pending`.
+2. Read the reuse count for (e) from the [ledger](DEV_WINDOW_LEDGER.md)'s `Dev reuse count` section and write it
+   as `reuse count: N`, then add your candidate's row with verdict `pending`.
 3. Write the rule file with sections (a)-(e) and the keep/kill rule, and run
    `python -m weather.reporting.scorecards.prereg_check <rule.md>` until it passes.
 4. Record the rule file's sha256 (the checker prints it) and commit the file **before** any result exists.
@@ -123,6 +123,10 @@ DEV_WINDOW_LEDGER.md: this is candidate number 20 on 2026-07-31..09-29.
 KEEP only if ...; otherwise KILL.
 ```
 <!-- template:end -->
+
+The (e) line above is a deliberately invalid example (a candidate ordinal, not the count): `prereg_check`
+refuses it with `DEV_REUSE_COUNT_INVALID`. Replace it with `DEV_WINDOW_LEDGER` and a line `- reuse count: N`
+carrying the ledger's published count.
 
 Forward pre-registrations append these two sections (checked with `--forward`):
 
