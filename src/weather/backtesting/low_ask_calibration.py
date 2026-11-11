@@ -442,8 +442,16 @@ def v2_commit_percent():
 
 
 def running_pregates(task_root=Path(r"C:\t\codex")):
-    return [task for task in sorted(task_root.glob("T045*"))
-            if task.name.casefold() >= "t045j" and task.is_dir() and (task / "started.json").exists()
+    chains = {}
+    for task in sorted(task_root.glob("T045*")):
+        if not task.is_dir():
+            continue
+        name, depth = task.name.casefold(), 0
+        while name.endswith("r1"):
+            name, depth = name[:-2], depth + 1
+        if name >= "t045j" and (name not in chains or depth > chains[name][0]):
+            chains[name] = (depth, task)
+    return [task for _, task in chains.values() if (task / "started.json").exists()
             and not (task / "exit.txt").exists()]
 
 

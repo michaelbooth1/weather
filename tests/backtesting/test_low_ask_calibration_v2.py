@@ -140,6 +140,39 @@ def test_guard_binding_bridge_changes_only_the_recorded_code_hash():
     assert not cal.calibration_binding_matches(dict(old, code_sha256="unreviewed"), new)
 
 
+@pytest.mark.parametrize("latest_exited", [False, True])
+@pytest.mark.parametrize("depth", [1, 2, 3])
+def test_restart_chain_uses_only_latest_member(tmp_path, monkeypatch, latest_exited, depth):
+    for n in range(depth + 1):
+        task = tmp_path / ("T045k" + "r1" * n)
+        task.mkdir()
+        (task / "started.json").write_text("{}")
+        # Restarted predecessors deliberately have no exit record.
+        if n == depth and latest_exited:
+            (task / "exit.txt").write_text("0")
+    monkeypatch.setattr(cal, "v2_commit_percent", lambda: 82)
+    if latest_exited:
+        cal.v2_runtime_guard(tmp_path)
+        assert cal.running_pregates(tmp_path) == []
+    else:
+        with pytest.raises(RuntimeError, match="pregate started"):
+            cal.v2_runtime_guard(tmp_path)
+        assert cal.running_pregates(tmp_path) == [task]
+    assert not (tmp_path / "T045k" / "exit.txt").exists()
+
+
+def test_finished_chain_does_not_hide_another_running_chain(tmp_path, monkeypatch):
+    for name in ("T045j", "T045jr1", "T045jr1r1", "T045k"):
+        task = tmp_path / name
+        task.mkdir()
+        (task / "started.json").write_text("{}")
+    (tmp_path / "T045jr1r1" / "exit.txt").write_text("0")
+    monkeypatch.setattr(cal, "v2_commit_percent", lambda: 82)
+    assert cal.running_pregates(tmp_path) == [tmp_path / "T045k"]
+    with pytest.raises(RuntimeError, match="pregate started"):
+        cal.v2_runtime_guard(tmp_path)
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows workstation commit query")
 def test_commit_query_returns_a_finite_percentage():
     assert 0 <= cal.v2_commit_percent() <= 100
