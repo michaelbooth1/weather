@@ -38,7 +38,10 @@ def movements(ledger, rows, *, start, end):
                 price, size = quantity(part['price']), quantity(part[size_key])
                 if not isinstance(order_id, str) or not order_id or side not in {'BUY', 'SELL'} or not 0 < price <= 1 or not size:
                     raise ValueError('trade terms')
-                if quantity(part.get('fee_rate_bps', row.get('fee_rate_bps')) or 0):
+                fee_rate = part.get('fee_rate_bps')
+                if fee_rate is None:
+                    fee_rate = row.get('fee_rate_bps', 0)
+                if quantity(fee_rate or 0):
                     raise CapitalRefused('f2_personal_trade_fee_unproven')
                 amount = price * size
                 cash = native(amount, ceil=True) if side == 'BUY' else int(amount * SCALE)
