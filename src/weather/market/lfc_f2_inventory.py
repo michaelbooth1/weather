@@ -12,6 +12,7 @@ from weather.market.mm_stage2_hold import digest, utc
 
 PERSONAL_TRADES_RULE = ('Personal trades: only when status is idle, outside run hours; '
                        'none while a session is open; no open orders at 09:00.')
+ACTIVITY_OVERLAP_SECONDS = 1800  # Twice the 15-minute mismatch grace.
 
 
 def filled_totals(ledger, cut):
@@ -57,6 +58,10 @@ def expected_inventory(ledger, anchor, book, *, cut=None):
     for token in set(book.removed) | set(anchor['removed_totals']):
         change = book.removed.get(token, Decimal(0)) - quantity(anchor['removed_totals'].get(token, 0))
         expected[token] = expected.get(token, Decimal(0)) - change
+    for adjustment in getattr(book, 'owner_inventory_adjustments', ()):
+        if adjustment['sequence'] >= anchor['ledger_cut']:
+            token = adjustment['token_id']
+            expected[token] = expected.get(token, Decimal(0)) + Decimal(adjustment['delta'])
     if any(size < 0 for size in expected.values()):
         raise ValueError('inventory_redemption_scope')
     return {token: str(size) for token, size in expected.items() if size}
@@ -132,6 +137,7 @@ def make_anchor(book, read, *, kind):
     return {'kind': kind, 'maker_address': read['maker_address'].lower(),
             'at_utc': read['ended_at_utc'], 'read_sha256': digest(read),
             'snapshot_at_utc': snapshot_at, 'activity_covered_through': covered,
+            'cash_snapshot_at_utc': component_times.get('balances', {}).get('started_at_utc', read['started_at_utc']),
             'activity_scope': read['capital_activity']['scope'],
             'activity_sha256': digest(read['capital_activity']),
             'personal_trade_sources': sources(book, read, snapshot_at),
@@ -209,8 +215,10 @@ def activity_start(ledger, read_started):
     from weather.market.lfc_capital import CapitalBook
     anchor = CapitalBook(ledger).inventory_anchor
     if anchor is not None:
-        return anchor.get('activity_covered_through', int(utc(anchor['at_utc']).timestamp()))
-    return int(utc(read_started).timestamp())
+        watermark = anchor.get('activity_covered_through', int(utc(anchor['at_utc']).timestamp()))
+    else:
+        watermark = int(utc(read_started).timestamp())
+    return max(int(utc(ledger.rows[0]['recorded_at_utc']).timestamp()), watermark - ACTIVITY_OVERLAP_SECONDS)
 
 
 def during_session(ledger, timestamp):

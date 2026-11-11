@@ -2,6 +2,20 @@
 from weather.market.mm_stage2_hold import digest
 
 
+def native_rows(packet, ledger):
+    """Pre-enrollment owner history belongs to the opening cash snapshot."""
+    from weather.market.lfc_capital import CapitalBook
+    from weather.market.mm_stage2_hold import utc
+    book = CapitalBook(ledger)
+    first = book.inventory_anchors[0] if book.inventory_anchors else None
+    cutoff = int(utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp()) if first else packet['scope']['end']
+    conditions = {str(leg['condition_id']).lower() for leg in ledger.legs.values()}
+    campaign_tx = {str(row['transaction_hash']).lower() for row in packet['rows'] if
+                   row['type'] == 'REDEEM' and str(row['condition_id']).lower() in conditions}
+    return [row for row in packet['rows'] if (first is not None and row['timestamp'] >= cutoff) or
+            str(row['transaction_hash']).lower() in campaign_tx]
+
+
 def bootstrap_scope(ledger, positions):
     """Find only campaign holdings needing a pre-enrollment redemption proof."""
     from weather.market.lfc_capital import CapitalBook
@@ -80,11 +94,12 @@ def pending_rows(ledger, *, excluding=()):
 
 def collect_window(packet, *, ledger):
     from weather.market.lfc_capital_native import collect
-    current = {str(row['transaction_hash']).lower() for row in packet['rows']}
+    selected_rows = native_rows(packet, ledger)
+    current = {str(row['transaction_hash']).lower() for row in selected_rows}
     bootstrap = bootstrap_sources(packet)
     selected = current | {str(row['transaction_hash']).lower() for row in bootstrap}
     pending = pending_rows(ledger, excluding=selected)
-    observed = collect({**packet, 'rows': packet['rows'] + bootstrap + pending}, ledger=ledger)
+    observed = collect({**packet, 'rows': selected_rows + bootstrap + pending}, ledger=ledger)
     receipts = observed['native_receipts']
     return {**packet, 'native_asset_proof': observed['native_asset_proof'],
             'native_receipts': {tx: proof for tx, proof in receipts.items() if tx in current},
@@ -93,7 +108,7 @@ def collect_window(packet, *, ledger):
                 'native_receipts': {tx: proof for tx, proof in receipts.items() if tx not in selected}}}
 
 
-def validate_pending(packet, *, ledger, trades=()):
+def validate_pending(packet, *, ledger, trades=(), original_sha256=None):
     from weather.market.lfc_capital import CapitalBook, CapitalRefused
     from weather.market.lfc_capital_native import validate_packet
     book = CapitalBook(ledger)
@@ -108,7 +123,7 @@ def validate_pending(packet, *, ledger, trades=()):
                 not set(scope['tokens']) <= known or scope != scope_for_tokens(ledger, scope['tokens'])):
             raise CapitalRefused('capital_bootstrap_scope')
         if (book.inventory_anchor is not None and
-                book.bridge['proof'].get('activity_packet_sha256') != digest(packet)):
+                book.bridge['proof'].get('activity_packet_sha256') != (original_sha256 or digest(packet))):
             raise CapitalRefused('capital_bootstrap_scope')
         require_bootstrap_trades(ledger, trades, scope['tokens'])
         data = packet['bootstrap_activity']

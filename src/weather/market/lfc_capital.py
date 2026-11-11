@@ -85,6 +85,8 @@ class CapitalBook:
         self.cash_reference = None
         self.wallet_quarantines = []
         self.personal_trades = {}
+        self.owner_inventory_adjustments = []
+        self.wallet_debit_quarantines = []
         self.losses = self.profit = self.incentives = self.costs = self.external = 0
         self.cash_in = self.cash_out = self.returned_principal = 0
         self.seen = set()
@@ -216,13 +218,15 @@ class CapitalBook:
             self.activity_transactions[key] = str(row['source']['transaction_hash']).lower()
             cash = activity['cash_native']
             cash_in_before = self.cash_in
+            cash_out_before = self.cash_out
             kind = activity['type']
             included = self.cash_before_bridge(activity)
             if (included and cash is not None and self.incoming(activity) and kind != 'DEPOSIT' and
                     not self.known_redemption_cash(activity)):
-                self.reclassify_legacy_credit(max(0, cash - self.quarantine_for(activity)))
+                from weather.market.lfc_f2_owner_inventory import opening_owner_cash
+                self.reclassify_legacy_credit(max(0, cash - self.quarantine_for(activity) - opening_owner_cash(self, activity)))
             if kind == 'REDEEM':
-                self.redeem(activity, row['sequence'])
+                self.redeem(activity, row['sequence'], owner_inventory=row.get('owner_inventory'))
             elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
                 if cash is None:
                     self.unknown.append(key)
@@ -264,6 +268,9 @@ class CapitalBook:
             if cash is not None and self.incoming(activity):
                 from weather.market.lfc_f2_wallet_cash import captured_credit
                 captured_credit(self, activity, self.cash_in - cash_in_before)
+            if cash is not None and not self.incoming(activity):
+                from weather.market.lfc_f2_wallet_cash import captured_debit
+                captured_debit(self, activity, self.cash_out - cash_out_before)
         elif event == 'capital_resolution':
             evidence = row.get('native_evidence', self.native_groups.get(row.get('native_group_sha256')))
             if self.ledger.enrollment is not None and evidence is None:
@@ -280,6 +287,7 @@ class CapitalBook:
                 raise CapitalRefused('capital_resolution_scope')
             cash, kind = item['cash_native'], item['type']
             cash_in_before = self.cash_in
+            cash_out_before = self.cash_out
             previously_held = self.quarantine_for(item)
             quarantine = self.incoming_quarantines.pop(item['id'], None)
             if quarantine is not None:
@@ -292,10 +300,11 @@ class CapitalBook:
                 # The first balance already contains this previously unknown
                 # incoming credit. Reclassify its quarantined cash; never add
                 # the same receipt to the bridge a second time.
-                self.reclassify_legacy_credit(max(0, cash - previously_held))
+                from weather.market.lfc_f2_owner_inventory import opening_owner_cash
+                self.reclassify_legacy_credit(max(0, cash - previously_held - opening_owner_cash(self, item)))
             if kind == 'REDEEM':
                 self.undo_redemption(old)
-                self.redeem(item, row['sequence'])
+                self.redeem(item, row['sequence'], owner_inventory=row.get('owner_inventory'))
             elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
                 self.credit('incentives', cash, item, native_proven=evidence is not None)
             elif kind == 'DEPOSIT':
@@ -318,6 +327,9 @@ class CapitalBook:
             if self.incoming(item):
                 from weather.market.lfc_f2_wallet_cash import captured_credit
                 captured_credit(self, item, self.cash_in - cash_in_before)
+            else:
+                from weather.market.lfc_f2_wallet_cash import captured_debit
+                captured_debit(self, item, self.cash_out - cash_out_before)
         elif event == 'capital_zero_resolution':
             from weather.market.lfc_settlement_record import validate_settlement_row, envelope
             from weather.market.lfc_recording_io import response_bytes
@@ -423,6 +435,7 @@ class CapitalBook:
         charge = (self.bridge is not None and not self.cash_before_bridge(activity) and
                   (self.inventory_anchor is None or during_session(self.ledger, activity['timestamp'])))
         self.pool_movements.append({'kind': 'withdraw', 'amount': cash, 'timestamp': activity['timestamp'],
+                                    'activity_id': activity['id'],
                                     'sequence': self.activity_sequences[activity['id']],
                                     'charge_excess': charge})
         self.pools_dirty = True
@@ -478,7 +491,7 @@ class CapitalBook:
             if owner == key:
                 del self.redeemed_transactions[tx]
 
-    def redeem(self, activity, sequence):
+    def redeem(self, activity, sequence, *, owner_inventory=None):
         key, cash = activity['id'], activity['cash_native']
         bundle = activity.get('native_redemption')
         if bundle is not None:
@@ -506,10 +519,18 @@ class CapitalBook:
             parts = bundle['positions']
         else:
             parts = [{'token_id': activity['token_id'], 'quantity': activity['quantity'], 'cash_native': cash}]
-        basis = principal = outside_cash = 0
+        from weather.market.lfc_f2_owner_inventory import apply as apply_owner_inventory
+        owner_tokens = apply_owner_inventory(self, owner_inventory, activity, sequence)
+        basis = principal = outside_cash = initial_owner_cash = 0
         refused = []
         for part in parts:
             token, remaining = part['token_id'], quantity(part['quantity'])
+            if token in owner_tokens:
+                if self.bridge is None or self.cash_before_bridge(activity):
+                    initial_owner_cash += part['cash_native'] or 0
+                else:
+                    outside_cash += part['cash_native'] or 0
+                continue
             lots = [(k, lot) for k, lot in self.lots.items() if lot['token_id'] == token and
                     (bundle is not None or lot['condition_id'] == activity['condition_id']) and
                     lot['remaining_quantity'] and lot['terminal_sequence'] < sequence and
@@ -571,7 +592,7 @@ class CapitalBook:
         if cash is not None:
             self.credit('external', outside_cash, activity)
             self.credit('profit' if basis and not activity.get('principal_unproved') else 'external',
-                        max(0, cash - principal - outside_cash), activity)
+                        max(0, cash - principal - outside_cash - initial_owner_cash), activity)
             if not self.cash_before_bridge(activity):
                 self.cash_in += cash
 
@@ -754,11 +775,12 @@ def normalize_activity(row, native_evidence=None):
             'timestamp': row['timestamp'], **({'direction': row['side']} if row['type'] == 'TIP' else {})}
 
 
-def record_activity(ledger, raw, *, native_evidence=None, native_group_sha256=None):
+def record_activity(ledger, raw, *, native_evidence=None, native_group_sha256=None, owner_inventory=None):
     activity = normalize_activity(raw, native_evidence)
     if activity['wallet'] != ledger.rows[0]['maker_address'].lower():
         raise CapitalRefused('capital_activity_wallet')
     return ledger.record('capital_activity', source=raw, source_sha256=digest(raw), activity=activity,
+                         **({'owner_inventory': owner_inventory} if owner_inventory is not None else {}),
                          **({'native_group_sha256': native_group_sha256} if native_group_sha256 is not None else
                             {} if native_evidence is None else {'native_evidence': native_evidence}))
 

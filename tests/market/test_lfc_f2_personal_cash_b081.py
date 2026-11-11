@@ -102,7 +102,7 @@ def test_unproven_personal_flow_refuses_before_an_anchor(tmp_path, fault, code):
     elif fault == 'price':
         buy['price'] = 'NaN'
     elif fault == 'fee':
-        buy['fee_rate_bps'] = '100'
+        buy['fee_rate_bps'] = 'unreadable'
     else:
         read['trades'].append({**buy, 'price': '.51'})
     before = ledger.path.read_bytes()
@@ -111,16 +111,15 @@ def test_unproven_personal_flow_refuses_before_an_anchor(tmp_path, fault, code):
     assert ledger.path.read_bytes() == before
 
 
-def test_optional_maker_fee_cannot_hide_a_nonzero_trade_fee(tmp_path):
+def test_null_maker_fee_is_zero_despite_nonzero_trade_fee(tmp_path):
     ledger, clock, read = gained_wallet(tmp_path)
     buy = owner_trade(clock, 'BUY', role='MAKER')
     buy['fee_rate_bps'] = '100'
     buy['maker_orders'][0]['fee_rate_bps'] = None
     read['trades'].append(buy)
-    before = ledger.path.read_bytes()
-    with pytest.raises(CapitalRefused, match='f2_personal_trade_fee_unproven'):
-        synchronize(ledger, CapitalBook(ledger).inventory_anchor, read, anchor_mode='session')
-    assert ledger.path.read_bytes() == before
+    result = synchronize(ledger, CapitalBook(ledger).inventory_anchor, read, anchor_mode='session')
+    assert result['cash_bridge_complete']
+    assert next(iter(CapitalBook(ledger).personal_trades.values()))['fee_native'] == 0
 
 
 def test_repeated_snapshot_and_changed_or_missing_personal_trade_cannot_recredit(tmp_path):

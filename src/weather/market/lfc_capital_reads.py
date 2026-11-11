@@ -145,10 +145,17 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
         raise CapitalRefused('capital_activity_read_age')
     sources = validate_packet(read['capital_activity'], maker=ledger.rows[0]['maker_address'], start=start, end=end)
     from weather.market.lfc_capital_native import validate_packet as validate_native, evidence_for
-    validate_native(read['capital_activity'], ledger=ledger)
-    from weather.market.lfc_f2_wallet_reads import validate_pending
-    native_packet, pending_sources = validate_pending(read['capital_activity'], ledger=ledger, trades=read.get('trades', ()))
-    sources += pending_sources
+    from weather.market.lfc_f2_wallet_reads import validate_pending, native_rows
+    packet_for_native = read['capital_activity']
+    if book.inventory_anchor is not None or anchor_mode == 'enrollment':
+        sources = native_rows(packet_for_native, ledger)
+        selected_tx = {str(source['transaction_hash']).lower() for source in sources}
+        packet_for_native = {**packet_for_native, 'rows': sources,
+            'native_receipts': {tx: proof for tx, proof in packet_for_native['native_receipts'].items() if tx in selected_tx}}
+    validate_native(packet_for_native, ledger=ledger)
+    native_packet, pending_sources = validate_pending(packet_for_native, ledger=ledger, trades=read.get('trades', ()),
+        original_sha256=digest(read['capital_activity']))
+    sources = sources + pending_sources
     previous = CapitalBook(ledger)
     group_shas = {}
     from weather.market.lfc_capital_native import resolve
@@ -162,14 +169,18 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
         evidence = evidence_for(native_packet, source, ledger=ledger)
         item = normalize_activity(source, evidence)
         old = previous.activities.get(item['id'])
+        from weather.market.lfc_f2_owner_inventory import decision
+        owner_inventory = (decision(CapitalBook(ledger), read, item)
+                           if book.inventory_anchor is not None or anchor_mode == 'enrollment' else None)
         if old is not None:
             if old != item:
                 ledger.record('capital_resolution', source=source, source_sha256=digest(source),
                               previous_source_sha256=previous.sources[item['id']],
-                              native_group_sha256=group_shas[evidence['transaction_hash']])
+                              native_group_sha256=group_shas[evidence['transaction_hash']],
+                              **({'owner_inventory': owner_inventory} if owner_inventory is not None else {}))
             continue
         record_activity(ledger, source, native_evidence=evidence,
-                        native_group_sha256=group_shas[evidence['transaction_hash']])
+                        native_group_sha256=group_shas[evidence['transaction_hash']], owner_inventory=owner_inventory)
     from weather.market.lfc_ledger import normalize_positions
     book = CapitalBook(ledger)
     current = normalize_positions(read['positions'])

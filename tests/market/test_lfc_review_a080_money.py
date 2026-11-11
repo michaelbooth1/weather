@@ -37,7 +37,7 @@ def test_personal_buy_then_sale_cannot_preserve_spent_campaign_gains(tmp_path, r
     for seconds, side, token in [(2, 'BUY', 'owner-new-nfl'), (1, 'SELL', 'owner-old-nfl')]:
         after['trades'].append({'id': 'owner-'+side, 'trader_side': 'TAKER', 'status': 'CONFIRMED',
             'matched_at': (clock.now()-timedelta(seconds=seconds)).isoformat(),
-            'taker_order_id': 'owner-'+side, 'token_id': token, 'side': side, 'size': '20', 'price': '.52'})
+            'taker_order_id': 'owner-'+side, 'token_id': token, 'side': side, 'size': '20', 'price': '.52', 'fee_rate_bps': '0'})
     path = tmp_path/'campaign.json'; write_new(path, example_policy())
     runtime = object.__new__(Runtime)
     runtime.clock, runtime.policy_path, runtime.preparing_f2 = clock, path, True

@@ -285,8 +285,12 @@ def test_account_activity_and_native_receipts_exclude_250_pre_anchor_transaction
     monkeypatch.setattr(lfc_capital_native, 'collect', lambda packet, ledger: real_collect(
         packet, ledger=ledger, rpc=rpc, sleep=lambda _: None))
     result = runtime.account_read_once()
-    assert queries[0]['start'] == int(NOW.timestamp()) + 3600 == int(datetime.fromisoformat(anchor['at_utc']).timestamp())
-    assert result['capital_activity']['rows'] == []
+    from weather.market.lfc_f2_inventory import ACTIVITY_OVERLAP_SECONDS
+    assert queries[0]['start'] + ACTIVITY_OVERLAP_SECONDS == int(NOW.timestamp()) + 3600 == int(datetime.fromisoformat(anchor['at_utc']).timestamp())
+    # Overlap retains the API evidence; only eligible rows consume receipts.
+    from weather.market.lfc_f2_wallet_reads import native_rows
+    assert result['capital_activity']['rows'] == old
+    assert native_rows(result['capital_activity'], ledger) == []
     assert rpc_calls == ['eth_chainId', 'eth_call']
     # The same complete synthetic old page exceeds the unchanged native budget.
     old_packet = native_packet(real_read(MAKER, int(NOW.timestamp()), int(clock.now().timestamp()),

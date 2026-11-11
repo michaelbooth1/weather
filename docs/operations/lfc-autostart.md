@@ -407,14 +407,16 @@ and shortfall refuse. Non-campaign quantities and the wallet cash reference are
 updated between closed sessions. Every anchor remains in the append-only ledger.
 
 Ordinary activity and native-receipt collection begin at the latest anchor's
-activity coverage watermark. This is bounded by the interval actually queried
-and the earliest position/cash snapshot component. Read completion can be later
+activity coverage watermark minus a 30-minute overlap, clipped at ledger genesis.
+The overlap is twice the 15-minute mismatch grace. The watermark itself is
+bounded by the interval actually queried and the earliest position/cash snapshot
+component. Read completion can be later
 while native receipts are collected. Queries overlap the watermark second and
-deduplicate activity identities, so a redemption during native collection is
-discovered on the next read. Position allocation uses the snapshot time. An
+deduplicate activity identities, so delayed indexing and a redemption during
+native collection are discovered on the next read. Position allocation uses the snapshot time. An
 anchor defers `f2_anchor_snapshot_pending` if an already-visible cash event
 falls inside the snapshot interval. A fresh coherent read can then proceed.
-The initial enrollment read opens that window at its own observation time. If a
+The initial enrollment read opens the same overlap at its observation time. If a
 campaign holding is already missing, a bounded bootstrap activity read starts
 at its known campaign intent. Native verification selects only redemption
 transactions for those campaign conditions and retains every row in each
@@ -425,6 +427,19 @@ campaign lots and cash facts remain in capital replay. During a session, the ful
 account inventory check still catches personal position changes and foreign
 orders. Proved auto-redemptions of personal positions remove their quantities
 and segregate their cash through the native allocation rail.
+Pre-enrollment personal-only rows are retained in the API evidence but excluded
+from native receipt collection and funding flows. Campaign redemption transactions
+remain eligible across enrollment, retaining every row in their transaction.
+For a late personal redemption, the complete current read determines the owner
+quantity adjustment. That decision and its read hash enter the ledger row and
+replay without a fresh inference. Campaign quantities always remain strict.
+
+Late cash rows reconcile against the existing cash reference once. A late debit
+keeps the capture's conservative timing, so it cannot restore spent gains.
+Any newly explained masked credit remains owner cash. Pending incoming labels
+are included in full at capture, with a shortfall recorded as an owner debit.
+Later native proof replaces the pending label without increasing expected cash
+again. A withdrawal inside a past session retains its on-time cost charge.
 
 Wallet re-anchoring preserves the campaign's funding, lots, gains and losses.
 Extra observed cash is segregated. Personal cash outflows consume retained gains
@@ -434,9 +449,17 @@ Confirmed personal SDK trades are bound by trade/order identity in each new
 anchor. Gross purchases consume gains even when an equal personal sale leaves
 wallet cash unchanged. Sale proceeds remain owner cash. Unconfirmed, changed or
 malformed personal flows defer with `f2_personal_trade_unproven` or
-`f2_personal_trade_changed`. A nonzero fee rate without an exact cash-fee proof
-defers with `f2_personal_trade_fee_unproven`. No net-zero balance assumption can
-preserve the gains offset across these refusals.
+`f2_personal_trade_changed`. Each new personal fill computes its fee as
+`size * (fee_rate_bps / 10000) * price * (1 - price)`, rounded per fill to five
+pUSD decimals with half-up rounding, matching the pilot's confirmed-trade fee
+reconciliation. It enters the personal buy debit or net sale cash flow and
+consumes retained gains as a personal outflow. A residual debit at capture is
+a withdrawal consuming gains first, and a residual credit is segregated owner
+cash. An explicit null maker-part fee means zero. Missing or unreadable fee
+fields, including a null taker rate, defer with `f2_personal_trade_fee_unproven`.
+Already-bound fills reuse their recorded fees without revalidating later fee
+fields. No net-zero balance assumption can preserve the gains offset across
+these refusals.
 If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
 defers before a claim. The controller keeps the existing supported sizing.
 The owner funding check refreshes the same protected wallet reference before
