@@ -20,7 +20,7 @@ ASSET = '0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb'
 MODE = 'fixed_sleeve_redeemed_principal_only'
 CEILING = 300 * SCALE
 EVENTS = {'capital_anchor', 'capital_bridge', 'capital_native_group', 'capital_activity', 'capital_resolution',
-          'capital_cost', 'capital_zero_resolution', 'f2_session_anchor'}
+          'capital_cost', 'capital_zero_resolution', 'capital_owner_inventory', 'f2_session_anchor'}
 
 
 class CapitalRefused(ValueError):
@@ -83,9 +83,12 @@ class CapitalBook:
         self.inventory_anchor = None
         self.inventory_anchors = []
         self.cash_reference = None
+        self.cash_capture_bindings = {}
+        self.pending_native_outgoing = set()
         self.wallet_quarantines = []
         self.personal_trades = {}
         self.owner_inventory_adjustments = []
+        self.owner_inventory_allowances = {}
         self.wallet_debit_quarantines = []
         self.losses = self.profit = self.incentives = self.costs = self.external = 0
         self.cash_in = self.cash_out = self.returned_principal = 0
@@ -132,6 +135,10 @@ class CapitalBook:
                 raise CapitalRefused('capital_native_storage_budget')
             for source in proof['rows']:
                 cash_native(source, proof)
+                if source['type'] == 'WITHDRAWAL' or source['type'] == 'TIP' and source.get('side') == 'OUT':
+                    key = normalize_activity(source)['id']
+                    if key not in self.activities:
+                        self.pending_native_outgoing.add(key)
             self.native_groups[sha] = proof
             self.native_bytes += encoded
         elif event == 'capital_anchor':
@@ -186,6 +193,9 @@ class CapitalBook:
                 'timestamp': int(utc(row['recorded_at_utc']).timestamp()), 'id': 'bridge-quarantine'},
                 sequence=row['sequence'])
             integer(row['cash_native'])
+            if enrollment_anchor is not None:
+                from weather.market.lfc_f2_cash_snapshot import initial_reference
+                initial_reference(self, enrollment_anchor, row['sequence'])
         elif event == 'f2_session_anchor':
             from weather.market.lfc_f2_inventory import validate_anchor
             anchor = row['anchor']
@@ -199,6 +209,9 @@ class CapitalBook:
             capture(self, anchor, row['sequence'])
             self.inventory_anchor = anchor
             self.inventory_anchors.append(anchor)
+        elif event == 'capital_owner_inventory':
+            from weather.market.lfc_f2_owner_inventory import apply_catchup
+            apply_catchup(self, row)
         elif event == 'capital_activity':
             activity = row['activity']
             evidence = row.get('native_evidence', self.native_groups.get(row.get('native_group_sha256')))
@@ -212,7 +225,10 @@ class CapitalBook:
             if key in self.seen:
                 raise CapitalRefused('capital_activity_repeated')
             self.seen.add(key)
+            from weather.market.lfc_f2_cash_snapshot import accept
+            accept(self, row, activity)
             self.activities[key] = activity
+            self.pending_native_outgoing.discard(key)
             self.sources[key] = row['source_sha256']
             self.activity_sequences[key] = row['sequence']
             self.activity_transactions[key] = str(row['source']['transaction_hash']).lower()
@@ -286,6 +302,8 @@ class CapitalBook:
                     {k: v for k, v in old.items() if k not in {'cash_native', 'native_redemption', 'principal_unproved'}}):
                 raise CapitalRefused('capital_resolution_scope')
             cash, kind = item['cash_native'], item['type']
+            from weather.market.lfc_f2_cash_snapshot import accept
+            accept(self, row, item)
             cash_in_before = self.cash_in
             cash_out_before = self.cash_out
             previously_held = self.quarantine_for(item)
@@ -374,6 +392,11 @@ class CapitalBook:
         # including unknown receipts resolved later in the same UTC second.
         # A later-discovered, strictly older row also reclassifies that anchor;
         # same-second later rows still need fresh cash reconciliation.
+        binding = self.cash_capture_bindings.get(activity['id'])
+        if (self.bridge is not None and binding is not None and
+                binding['reference']['sequence'] == self.bridge['sequence'] and
+                self.activity_sequences[activity['id']] >= self.bridge['sequence']):
+            return binding['captured']
         return self.bridge is not None and (
             self.activity_sequences[activity['id']] < self.bridge['sequence'] or
             activity['timestamp'] < int(utc(self.bridge['recorded_at_utc']).timestamp()))
@@ -647,6 +670,8 @@ class CapitalBook:
     def gate(self, *, reserve, available_cash=None, own_resting=0, owner_fault_review=False, loss_basis=None):
         if self.bridge is None:
             raise CapitalRefused('capital_bridge_required')
+        if self.pending_native_outgoing:
+            raise CapitalRefused('capital_cash_snapshot_pending')
         if (self.ledger.halted or self.ledger.mismatches) and not owner_fault_review:
             raise CapitalRefused('capital_ledger_halted')
         if any(self.activities[key]['type'] == 'WITHDRAWAL' or
@@ -775,11 +800,12 @@ def normalize_activity(row, native_evidence=None):
             'timestamp': row['timestamp'], **({'direction': row['side']} if row['type'] == 'TIP' else {})}
 
 
-def record_activity(ledger, raw, *, native_evidence=None, native_group_sha256=None, owner_inventory=None):
+def record_activity(ledger, raw, *, native_evidence=None, native_group_sha256=None, owner_inventory=None, cash_capture=None):
     activity = normalize_activity(raw, native_evidence)
     if activity['wallet'] != ledger.rows[0]['maker_address'].lower():
         raise CapitalRefused('capital_activity_wallet')
     return ledger.record('capital_activity', source=raw, source_sha256=digest(raw), activity=activity,
+                         **({'cash_capture': cash_capture} if cash_capture is not None else {}),
                          **({'owner_inventory': owner_inventory} if owner_inventory is not None else {}),
                          **({'native_group_sha256': native_group_sha256} if native_group_sha256 is not None else
                             {} if native_evidence is None else {'native_evidence': native_evidence}))

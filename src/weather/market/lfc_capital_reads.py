@@ -165,22 +165,38 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
         if sha not in previous.native_groups:
             ledger.record('capital_native_group', proof=evidence, proof_sha256=sha)
         group_shas[tx] = sha
+    from weather.market.lfc_f2_cash_snapshot import context as cash_context, relation as cash_relation
+    jobs = []
     for source in sources:
         evidence = evidence_for(native_packet, source, ledger=ledger)
         item = normalize_activity(source, evidence)
         old = previous.activities.get(item['id'])
+        if old != item:
+            jobs.append((source, evidence, item, old))
+    # Resolve definite before/after movements first. The overlapping-second
+    # equation can then use the complete remaining native cash observations.
+    if previous.cash_reference is not None:
+        jobs.sort(key=lambda job: (cash_relation(previous, job[2]) is None, job[2]['cash_native'] is not None))
+    for index, (source, evidence, item, old) in enumerate(jobs):
+        current_book = CapitalBook(ledger)
+        inclusion = cash_context(current_book, read, [
+            (raw, group_shas[proof['transaction_hash']]) for raw, proof, _, _ in jobs[index:]])
         from weather.market.lfc_f2_owner_inventory import decision
-        owner_inventory = (decision(CapitalBook(ledger), read, item)
+        owner_inventory = (decision(current_book, read, item)
                            if book.inventory_anchor is not None or anchor_mode == 'enrollment' else None)
         if old is not None:
             if old != item:
                 ledger.record('capital_resolution', source=source, source_sha256=digest(source),
                               previous_source_sha256=previous.sources[item['id']],
                               native_group_sha256=group_shas[evidence['transaction_hash']],
+                              **({'cash_capture': inclusion} if inclusion is not None else {}),
                               **({'owner_inventory': owner_inventory} if owner_inventory is not None else {}))
             continue
         record_activity(ledger, source, native_evidence=evidence,
-                        native_group_sha256=group_shas[evidence['transaction_hash']], owner_inventory=owner_inventory)
+                        native_group_sha256=group_shas[evidence['transaction_hash']], owner_inventory=owner_inventory,
+                        cash_capture=inclusion)
+    from weather.market.lfc_f2_owner_inventory import reconcile as reconcile_owner_inventory
+    reconcile_owner_inventory(ledger, read)
     from weather.market.lfc_ledger import normalize_positions
     book = CapitalBook(ledger)
     current = normalize_positions(read['positions'])

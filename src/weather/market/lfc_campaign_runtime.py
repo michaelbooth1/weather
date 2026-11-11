@@ -529,7 +529,8 @@ class Runtime:
         path = validate_contained_regular_file(self.pilot_root, path)
         if file_sha(path) != row['sha256']:
             raise StateRefused('original_baseline_hash')
-        return strict_json(read_bytes(path, 2_000_000))
+        from weather.market.lfc_recording_io import STATE_JSON_LIMIT
+        return strict_json(read_bytes(path, STATE_JSON_LIMIT))
 
     def validate_account_read(self, ledger, read):
         if (read.get('schema_version') != 'lfc_campaign_account_read_v0.1' or read.get('complete') is not True or
@@ -717,6 +718,8 @@ class Runtime:
                 raise TransientPrecheck(str(exc)) from None
             if isinstance(exc, CapitalRefused) and str(exc) == 'f2_anchor_snapshot_pending':
                 raise TransientPrecheck('f2_anchor_snapshot_pending') from None
+            if isinstance(exc, (CapitalRefused, TransientPrecheck)) and str(exc) == 'capital_cash_snapshot_pending':
+                raise TransientPrecheck('capital_cash_snapshot_pending') from None
             if isinstance(exc, CapitalRefused) and str(exc) == 'capital_spendable_cash':
                 raise TransientPrecheck('wallet_cash_below_sleeve') from None
             if transient_read_error(exc):

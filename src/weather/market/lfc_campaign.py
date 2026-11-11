@@ -270,7 +270,8 @@ class CampaignCoordinator:
                           'wallet_cash_below_sleeve' if str(exc) == 'wallet_cash_below_sleeve' else
                           'foreign_open_order' if str(exc) == 'foreign_open_order' else
                           str(exc) if str(exc) in {'f2_personal_trade_unproven', 'f2_personal_trade_fee_unproven',
-                                                  'f2_personal_trade_changed', 'f2_anchor_snapshot_pending'} else
+                                                  'f2_personal_trade_changed', 'f2_anchor_snapshot_pending',
+                                                  'capital_cash_snapshot_pending'} else
                           'no_qualifying_band' if str(exc) in {'no_qualifying_band', 'no_qualifying_band_for_policy'} else
                           'transport_deferred')
                 self.status('DEFERRED', entry.id, reason=reason)

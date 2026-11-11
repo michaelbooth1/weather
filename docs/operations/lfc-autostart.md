@@ -433,6 +433,10 @@ remain eligible across enrollment, retaining every row in their transaction.
 For a late personal redemption, the complete current read determines the owner
 quantity adjustment. That decision and its read hash enter the ledger row and
 replay without a fresh inference. Campaign quantities always remain strict.
+If positions still lag that proven personal burn, a later
+`capital_owner_inventory` row can consume only its remaining personal quantity
+allowance. It never replays cash, releases campaign basis or changes a campaign
+token. Intermediate positions are not treated as a final post-redemption value.
 
 Late cash rows reconcile against the existing cash reference once. A late debit
 keeps the capture's conservative timing, so it cannot restore spent gains.
@@ -440,6 +444,12 @@ Any newly explained masked credit remains owner cash. Pending incoming labels
 are included in full at capture, with a shortfall recorded as an owner debit.
 Later native proof replaces the pending label without increasing expected cash
 again. A withdrawal inside a past session retains its on-time cost charge.
+An activity timestamp represents a whole-second interval. An overlapping cash
+snapshot requires a unique explanation from the complete native cash balance
+and the remaining proven movements, bound with that activity in the ledger.
+Multiple or inconsistent explanations defer as `capital_cash_snapshot_pending`;
+they cannot establish campaign income. Enrollment uses the balance component's
+snapshot time as well as later session anchors.
 
 Wallet re-anchoring preserves the campaign's funding, lots, gains and losses.
 Extra observed cash is segregated. Personal cash outflows consume retained gains
@@ -464,6 +474,14 @@ If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
 defers before a claim. The controller keeps the existing supported sizing.
 The owner funding check refreshes the same protected wallet reference before
 Enable. Pending postchecks must finish before either kind of refresh.
+
+Retained account-read evidence uses `ACCOUNT_EVIDENCE_JSON_LIMIT`, also exposed
+as `STATE_JSON_LIMIT` for state envelopes. History recovery, prepared/go reads,
+postchecks, closures and funding records share that ceiling on writing and
+reopening. Single HTTP pages and native receipts keep their independent wire
+limits. Writers refuse an oversized record before publication; readers check
+file size first and still enforce the limit while streaming a growing file.
+Complete evidence, hashes and identities are retained through every reopen.
 
 For an operational incident whose private evidence is missing, the owner may
 run `weather.market.lfc_campaign_cli owner-close --release <release.json>

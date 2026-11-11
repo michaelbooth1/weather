@@ -77,11 +77,18 @@ def require_bootstrap_trades(ledger, trades, tokens):
 
 
 def pending_rows(ledger, *, excluding=()):
-    from weather.market.lfc_capital import CapitalBook
+    from weather.market.lfc_capital import CapitalBook, normalize_activity
     book = CapitalBook(ledger)
     wanted = {book.activity_transactions[key] for key in book.unknown
               if book.activities[key]['cash_native'] is None} - set(excluding)
     sources = {book.sources[key] for key in book.unknown if book.activities[key]['cash_native'] is None}
+    if book.pending_native_outgoing:
+        for proof in book.native_groups.values():
+            for raw in proof['rows']:
+                if normalize_activity(raw)['id'] in book.pending_native_outgoing:
+                    wanted.add(proof['transaction_hash'])
+                    sources.add(digest(raw))
+        wanted -= set(excluding)
     groups = {}
     for row in ledger.capital_rows:
         proof = row.get('proof') if row['event'] == 'capital_native_group' else row.get('native_evidence')
@@ -136,7 +143,7 @@ def validate_pending(packet, *, ledger, trades=(), original_sha256=None):
     if pending is None:
         return combined, bootstrap
     current = {str(row['transaction_hash']).lower() for row in packet['rows']}
-    allowed = set()
+    allowed = {digest(raw) for raw in pending_rows(ledger, excluding=current)}
     for row in ledger.capital_rows:
         if row['event'] not in {'capital_activity', 'capital_resolution'}:
             continue

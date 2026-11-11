@@ -60,7 +60,8 @@ _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg
            'halt', 'mismatch', 'autostart_enroll', 'autostart_claim', 'autostart_incident', 'autostart_result', 'autostart_freeze',
            'owner_history_recovery', 'autostart_no_intent_close', 'autostart_owner_close', 'autostart_close', 'autostart_close_intent',
            'autostart_owner_artifact_restored', 'capital_anchor', 'capital_bridge', 'capital_native_group',
-           'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution', 'f2_session_anchor'}
+           'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution',
+           'capital_owner_inventory', 'f2_session_anchor'}
 
 
 class LedgerUnavailable(RuntimeError):
@@ -804,6 +805,9 @@ def take_baseline(*, label, now, maker_address, positions, open_orders, availabl
 
 def write_baseline(root, baseline, ledger=None):
     name = f"baseline-{baseline['label']}-{utc(baseline['at_utc']).strftime('%Y%m%dT%H%M%S%fZ')}.json"
+    from weather.market.lfc_recording_io import STATE_JSON_LIMIT
+    if len(canonical_bytes(baseline)) > STATE_JSON_LIMIT:
+        raise ValueError('recording_file_budget')
     sha = write_new(Path(root) / name, baseline)
     if ledger is not None:
         ledger.record('baseline', label=baseline['label'], file=name, sha256=sha, at_utc=baseline['at_utc'])
@@ -816,7 +820,8 @@ def latest_baseline(root, ledger, label):
         raise LedgerUnavailable('baseline_missing_' + label)
     row = rows[-1]
     try:
-        raw = (Path(root) / row['file']).read_bytes()
+        from weather.market.lfc_recording_io import read_bytes, STATE_JSON_LIMIT
+        raw = read_bytes(Path(root) / row['file'], STATE_JSON_LIMIT)
     except OSError:
         raise LedgerUnavailable('baseline_unreadable_' + label) from None
     if hashlib.sha256(raw).hexdigest() != row['sha256']:

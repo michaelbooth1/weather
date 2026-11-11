@@ -16,9 +16,14 @@ from datetime import datetime, timezone
 
 RECOVERY_SCHEMA = 'lfc_recording_recovery_v0.1'
 READ_SCHEMA = 'lfc_recording_read_v0.1'
-# Cumulative campaign observations through Dec31 (12 bands/day) can exceed
-# the original 16 MB state cap. All state writers/readers share this bound.
-STATE_JSON_LIMIT = 96_000_000
+# A full account proof retains up to 25,000 SDK trades, bounded activity pages
+# and native receipts. The wire envelopes alone permit 50 * 16 MB plus
+# 200 * 2 MB of receipts. Allow JSON escaping, positions and proof metadata;
+# do not confuse a single page's ceiling with the retained proof's ceiling.
+# This is a byte ceiling, never a read allocation size. All account-derived
+# state envelopes and their readers use the same bound.
+ACCOUNT_EVIDENCE_JSON_LIMIT = 4_000_000_000
+STATE_JSON_LIMIT = ACCOUNT_EVIDENCE_JSON_LIMIT
 
 
 def clock_text(clock):
@@ -98,6 +103,8 @@ def read_bytes(path, limit):
     # allocates the ceiling on Windows. Keep the same limit-plus-one refusal
     # while reading bounded blocks, including files that grow during the read.
     if type(limit) is not int or limit < 0:
+        raise ValueError('recording_file_budget')
+    if Path(path).stat().st_size > limit:
         raise ValueError('recording_file_budget')
     remaining, parts = limit + 1, []
     with Path(path).open('rb') as stream:

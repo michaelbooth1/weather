@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from weather.market.lfc_campaign_guard import require_account
-from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new
+from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new, ACCOUNT_EVIDENCE_JSON_LIMIT
 from weather.market.mm_stage2_hold import digest
 from weather.operations.live_path_security import validate_contained_regular_file
 
@@ -92,7 +92,7 @@ def validate_recovery(ledger, root, event):
     path = validate_contained_regular_file(root, Path(root) / event['file'])
     if file_sha(path) != event['file_sha256']:
         raise ValueError('historical_recovery_evidence_missing')
-    row = strict_json(read_bytes(path, 2_000_000))
+    row = strict_json(read_bytes(path, ACCOUNT_EVIDENCE_JSON_LIMIT))
     proof = row.get('proof', {})
     if (row.get('authority') != 'owner_history_recovery' or row.get('session_id') != event['session_id'] or
             row.get('original_evidence_sha256') != event['original_evidence_sha256'] or
@@ -140,7 +140,7 @@ def record_owner_recovery(ledger, root, session_id, *, account_read, proof, now,
            'account_read': account_read, 'account_read_sha256': digest(account_read), 'proof': proof,
            'containment_proven': True, 'at_utc': now.isoformat()}
     row['original_private_evidence'] = private_history_files(ledger, root, session_id)
-    write_new(Path(root) / name, row)
+    write_new(Path(root) / name, row, max_bytes=ACCOUNT_EVIDENCE_JSON_LIMIT)
     return ledger.record('owner_history_recovery', session_id=session_id,
                          original_evidence_sha256=issues[session_id], file=name,
                          file_sha256=file_sha(Path(root) / name))

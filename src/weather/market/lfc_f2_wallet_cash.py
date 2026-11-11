@@ -40,6 +40,11 @@ def capture(book, anchor, sequence):
 def captured_credit(book, activity, amount, *, label=False):
     """A proved credit replaces captured quarantine, once, before growing cash."""
     reference = book.cash_reference
+    binding = book.cash_capture_bindings.get(activity['id'])
+    if binding is None and reference is not None and reference.get('initial_snapshot'):
+        return  # This reference was absent for retained pre-B083 activity rows.
+    if binding is not None and not binding['captured']:
+        return
     if reference is None or activity['timestamp'] > utc(reference['at_utc']).timestamp():
         return
     if amount < 0:
@@ -69,7 +74,8 @@ def captured_credit(book, activity, amount, *, label=False):
         grant['amount'] -= take
         included += take
         book.pools_dirty = True
-    already_captured = activity['timestamp'] <= utc(reference.get('snapshot_at_utc', reference['at_utc'])).timestamp()
+    already_captured = (binding['captured'] if binding is not None else
+        activity['timestamp'] <= utc(reference.get('snapshot_at_utc', reference['at_utc'])).timestamp())
     accounted = amount if already_captured else included
     if label:
         reference['included_incoming'][key] = reference['included_incoming'].get(key, 0) + accounted
@@ -83,6 +89,11 @@ def captured_credit(book, activity, amount, *, label=False):
 def captured_debit(book, activity, amount):
     """Preserve the anchor's debit timing and absorb a late cash counter once."""
     reference = book.cash_reference
+    binding = book.cash_capture_bindings.get(activity['id'])
+    if binding is None and reference is not None and reference.get('initial_snapshot'):
+        return
+    if binding is not None and not binding['captured']:
+        return
     if (reference is None or amount <= 0 or
             activity['timestamp'] > utc(reference.get('snapshot_at_utc', reference['at_utc'])).timestamp()):
         return
