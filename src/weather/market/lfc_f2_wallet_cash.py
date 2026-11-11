@@ -76,7 +76,7 @@ def captured_credit(book, activity, amount, *, label=False):
         book.pools_dirty = True
     already_captured = (binding['captured'] if binding is not None else
         activity['timestamp'] <= utc(reference.get('snapshot_at_utc', reference['at_utc'])).timestamp())
-    accounted = amount if already_captured else included
+    accounted = amount if already_captured and not (binding or {}).get('surplus_only') else included
     if label:
         reference['included_incoming'][key] = reference['included_incoming'].get(key, 0) + accounted
     else:

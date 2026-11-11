@@ -12,7 +12,7 @@ import json
 import re
 
 from weather.market.lfc_campaign_visibility import safe_traceback, tick_log
-from weather.market.lfc_campaign import CampaignCoordinator
+from weather.market.lfc_campaign import CampaignCoordinator, TransientPrecheck
 from weather.market.lfc_campaign_launch import launch_packet, LaunchDeferred
 from weather.market.lfc_campaign_control import CONTROL_ROOT, control_record, stable_id, active_incidents, orders_unproven
 from weather.market.lfc_campaign_guard import AdmissionBusy, account_lease
@@ -298,6 +298,13 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')
         return 0
+    except TransientPrecheck as exc:
+        if args.command == 'check' and str(exc) in {'f2_anchor_snapshot_pending', 'capital_cash_snapshot_pending'}:
+            print(json.dumps({'state': 'DEFERRED', 'code': str(exc)}))
+            emit('DEFERRED', reason=str(exc))
+        else:
+            emit('INCIDENT', incident=True, postchecks_pending=True)
+        return 1
     except (PolicyRefused, StateRefused):
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         code = str(sys.exc_info()[1])

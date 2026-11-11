@@ -329,6 +329,7 @@ class Runtime:
 
     def confirm_funding(self):
         """Owner pre-enable enrollment read; no session/date/order capability."""
+        from weather.market.lfc_capital import CapitalRefused
         with self.admission():
             ledger = self.reload_ledger()
             self.state.require_history()
@@ -336,7 +337,17 @@ class Runtime:
             preparing = getattr(self, 'preparing_f2', False)
             self.preparing_f2 = True
             try:
-                proof = self.core_proof(ledger, self.read_account())
+                for attempt in range(3):
+                    try:
+                        ledger = self.reload_ledger()
+                        proof = self.core_proof(ledger, self.read_account())
+                        break
+                    except (CapitalRefused, TransientPrecheck) as exc:
+                        if str(exc) not in {'f2_anchor_snapshot_pending', 'capital_cash_snapshot_pending'}:
+                            raise
+                        if attempt == 2:
+                            raise TransientPrecheck(str(exc)) from None
+                        self.clock.sleep(10)
             finally:
                 self.preparing_f2 = preparing
             capital = proof.get('capital') or {}

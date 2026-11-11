@@ -180,7 +180,7 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     for index, (source, evidence, item, old) in enumerate(jobs):
         current_book = CapitalBook(ledger)
         inclusion = cash_context(current_book, read, [
-            (raw, group_shas[proof['transaction_hash']]) for raw, proof, _, _ in jobs[index:]])
+            (raw, group_shas[proof['transaction_hash']]) for raw, proof, _, _ in jobs[index:]], anchor_mode=anchor_mode)
         from weather.market.lfc_f2_owner_inventory import decision
         owner_inventory = (decision(current_book, read, item)
                            if book.inventory_anchor is not None or anchor_mode == 'enrollment' else None)

@@ -445,10 +445,18 @@ are included in full at capture, with a shortfall recorded as an owner debit.
 Later native proof replaces the pending label without increasing expected cash
 again. A withdrawal inside a past session retains its on-time cost charge.
 An activity timestamp represents a whole-second interval. An overlapping cash
-snapshot requires a unique explanation from the complete native cash balance
-and the remaining proven movements, bound with that activity in the ledger.
-Multiple or inconsistent explanations defer as `capital_cash_snapshot_pending`;
-they cannot establish campaign income. Enrollment uses the balance component's
+snapshot requires a unique explanation from the complete native cash balance,
+remaining proven movements and confirmed personal trades including their fees,
+bound with that activity in the ledger. Unique all-included/none-included
+extremes are resolved before a target-pruned, bounded search.
+Multiple or inconsistent explanations defer as `capital_cash_snapshot_pending`
+outside a session-anchor read. At a complete, closed-session anchor, a
+conservative fallback uses only existing segregated surplus to explain captured
+credits; the remaining balance difference is owner cash or an owner debit.
+Credits in that ambiguous batch cannot establish campaign gains: their surplus
+is segregated, including peers processed after the first fallback and retries
+after interruption. Proven per-lot principal accounting remains unchanged.
+Enrollment uses the balance component's
 snapshot time as well as later session anchors.
 
 Wallet re-anchoring preserves the campaign's funding, lots, gains and losses.
@@ -473,7 +481,10 @@ these refusals.
 If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
 defers before a claim. The controller keeps the existing supported sizing.
 The owner funding check refreshes the same protected wallet reference before
-Enable. Pending postchecks must finish before either kind of refresh.
+Enable. It retries `f2_anchor_snapshot_pending` and `capital_cash_snapshot_pending`
+at most three times, ten seconds apart. An exhausted check fails as DEFERRED,
+without creating a display-only incident. Contradictions are not retried.
+Pending postchecks must finish before either kind of refresh.
 
 Retained account-read evidence uses `ACCOUNT_EVIDENCE_JSON_LIMIT`, also exposed
 as `STATE_JSON_LIMIT` for state envelopes. History recovery, prepared/go reads,
@@ -481,7 +492,9 @@ postchecks, closures and funding records share that ceiling on writing and
 reopening. Single HTTP pages and native receipts keep their independent wire
 limits. Writers refuse an oversized record before publication; readers check
 file size first and still enforce the limit while streaming a growing file.
-Complete evidence, hashes and identities are retained through every reopen.
+The aggregate retained-file limit remains independent of the sum of individual
+wire maxima; exceeding it refuses the complete record rather than truncating
+evidence. Complete evidence, hashes and identities survive every accepted reopen.
 
 For an operational incident whose private evidence is missing, the owner may
 run `weather.market.lfc_campaign_cli owner-close --release <release.json>

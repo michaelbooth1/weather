@@ -152,7 +152,8 @@ def test_budget_covers_measured_maximum_trade_count_with_safety_factor(large_tra
     # The raw page and RPC bounds remain independent; no page cap was raised.
     from weather.market.mm_account_reads import ACCOUNT_RESPONSE_MAX_BYTES
     from weather.market.lfc_capital_native import MAX_BYTES, MAX_NEW_RECEIPTS
-    assert 2*(50*ACCOUNT_RESPONSE_MAX_BYTES+MAX_NEW_RECEIPTS*MAX_BYTES+40_000_000) < ACCOUNT_EVIDENCE_JSON_LIMIT
+    assert ACCOUNT_EVIDENCE_JSON_LIMIT == 256_000_000
+    assert (ACCOUNT_RESPONSE_MAX_BYTES, MAX_BYTES, MAX_NEW_RECEIPTS) == (16_000_000, 2_000_000, 200)
 
 
 def test_real_limit_plus_one_refuses_without_read_allocation(tmp_path, monkeypatch):

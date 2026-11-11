@@ -433,6 +433,8 @@ class CapitalBook:
         self.legacy_reclassified += reduction
 
     def credit(self, pool, cash, activity, *, sequence=None, native_proven=False):
+        if self.cash_capture_bindings.get(activity['id'], {}).get('surplus_only'):
+            pool = 'external'  # Unresolved snapshot inclusion never proves a refill gain.
         # Physical excess cash may contain an indivisible allocation remainder.
         # Only native payouts allocated to our individual lots prove a gain;
         # neither owner fractions nor a label-derived legacy profit qualify.
