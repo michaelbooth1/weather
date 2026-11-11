@@ -406,8 +406,15 @@ anchor plus subsequent campaign fills minus observed redemptions. Both surplus
 and shortfall refuse. Non-campaign quantities and the wallet cash reference are
 updated between closed sessions. Every anchor remains in the append-only ledger.
 
-Ordinary activity and native-receipt collection begin at the latest anchor. The
-initial enrollment read opens that window at its own observation time. If a
+Ordinary activity and native-receipt collection begin at the latest anchor's
+activity coverage watermark. This is bounded by the interval actually queried
+and the earliest position/cash snapshot component. Read completion can be later
+while native receipts are collected. Queries overlap the watermark second and
+deduplicate activity identities, so a redemption during native collection is
+discovered on the next read. Position allocation uses the snapshot time. An
+anchor defers `f2_anchor_snapshot_pending` if an already-visible cash event
+falls inside the snapshot interval. A fresh coherent read can then proceed.
+The initial enrollment read opens that window at its own observation time. If a
 campaign holding is already missing, a bounded bootstrap activity read starts
 at its known campaign intent. Native verification selects only redemption
 transactions for those campaign conditions and retains every row in each
@@ -423,6 +430,13 @@ Wallet re-anchoring preserves the campaign's funding, lots, gains and losses.
 Extra observed cash is segregated. Personal cash outflows consume retained gains
 first and reduce spendable cash. Outside-hours personal withdrawals incur no
 campaign cost. Admission uses ledger-backed capital and observed spendable cash.
+Confirmed personal SDK trades are bound by trade/order identity in each new
+anchor. Gross purchases consume gains even when an equal personal sale leaves
+wallet cash unchanged. Sale proceeds remain owner cash. Unconfirmed, changed or
+malformed personal flows defer with `f2_personal_trade_unproven` or
+`f2_personal_trade_changed`. A nonzero fee rate without an exact cash-fee proof
+defers with `f2_personal_trade_fee_unproven`. No net-zero balance assumption can
+preserve the gains offset across these refusals.
 If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
 defers before a claim. The controller keeps the existing supported sizing.
 The owner funding check refreshes the same protected wallet reference before

@@ -99,6 +99,21 @@ def enrollment_inventory(book, current, *, cut=None):
             'missing_or_below_visibility': sorted(token for token in expected if token not in current)}
 
 
+def require_stable_snapshot(read):
+    """Retry a read that already sees a cash event inside its snapshot interval."""
+    from weather.market.lfc_capital import CapitalRefused
+    times = read.get('component_times', {})
+    first = min((utc(times.get(name, {}).get('started_at_utc', read['started_at_utc']))
+                 for name in ('positions', 'balances')))
+    last = max((utc(times.get(name, {}).get('ended_at_utc', read['ended_at_utc']))
+                for name in ('positions', 'balances')))
+    packet = read['capital_activity']
+    if (int(last.timestamp()) > packet['scope']['end'] or
+            utc(read['ended_at_utc']) > first and
+            any(source['timestamp'] >= int(first.timestamp()) for source in packet['rows'])):
+        raise CapitalRefused('f2_anchor_snapshot_pending')
+
+
 def make_anchor(book, read, *, kind):
     from weather.market.lfc_capital import CapitalRefused, native
     from weather.market.lfc_ledger import normalize_positions
@@ -109,8 +124,17 @@ def make_anchor(book, read, *, kind):
         raise CapitalRefused('capital_inventory_unreconciled' if kind == 'f2_session_anchor' else
                              'f2_anchor_campaign_inventory')
     cut = len(book.ledger.rows)
+    component_times = read.get('component_times', {})
+    snapshot_at = min((component_times.get(name, {}).get('started_at_utc', read['started_at_utc'])
+                       for name in ('positions', 'balances')), key=utc)
+    covered = min(int(utc(snapshot_at).timestamp()), read['capital_activity']['scope']['end'])
+    from weather.market.lfc_f2_personal_cash import sources
     return {'kind': kind, 'maker_address': read['maker_address'].lower(),
             'at_utc': read['ended_at_utc'], 'read_sha256': digest(read),
+            'snapshot_at_utc': snapshot_at, 'activity_covered_through': covered,
+            'activity_scope': read['capital_activity']['scope'],
+            'activity_sha256': digest(read['capital_activity']),
+            'personal_trade_sources': sources(book, read, snapshot_at),
             'positions': positions, 'positions_sha256': digest(positions),
             'ledger_cut': cut, 'ledger_head_sha256': book.ledger.previous,
             'filled_totals': filled_totals(book.ledger, cut),
@@ -143,6 +167,14 @@ def validate_anchor(book, anchor, row, *, enrollment=False):
              0 <= (utc(row['recorded_at_utc']) - utc(anchor['at_utc'])).total_seconds() <= 120)
     if not valid or enrollment and book.inventory_anchor is not None:
         raise CapitalRefused('f2_anchor_binding')
+    if 'activity_covered_through' in anchor:
+        covered, scope = anchor['activity_covered_through'], anchor['activity_scope']
+        if (type(covered) is not int or not 0 < scope['start'] <= covered <= scope['end'] <= int(utc(anchor['at_utc']).timestamp()) or
+                covered != min(int(utc(anchor['snapshot_at_utc']).timestamp()), scope['end']) or
+                utc(anchor['snapshot_at_utc']) > utc(anchor['at_utc']) or
+                re.fullmatch('[0-9a-f]{64}', anchor.get('activity_sha256', '')) is None or
+                not isinstance(anchor.get('personal_trade_sources'), list)):
+            raise CapitalRefused('f2_anchor_activity_binding')
     checked = anchor_campaign_check(book, anchor['positions'], enrollment=enrollment, cut=cut)
     if checked['changed']:
         raise CapitalRefused('f2_anchor_campaign_inventory')
@@ -176,7 +208,9 @@ def between_sessions(ledger, *, cut=None):
 def activity_start(ledger, read_started):
     from weather.market.lfc_capital import CapitalBook
     anchor = CapitalBook(ledger).inventory_anchor
-    return int(utc(anchor['at_utc'] if anchor is not None else read_started).timestamp())
+    if anchor is not None:
+        return anchor.get('activity_covered_through', int(utc(anchor['at_utc']).timestamp()))
+    return int(utc(read_started).timestamp())
 
 
 def during_session(ledger, timestamp):

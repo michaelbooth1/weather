@@ -713,6 +713,10 @@ class Runtime:
                 raise MoneyContradiction('pre_go_money_contradiction') from None
             if isinstance(exc, CapitalRefused) and str(exc) == 'foreign_open_order':
                 raise TransientPrecheck('foreign_open_order') from None
+            if isinstance(exc, CapitalRefused) and str(exc).startswith('f2_personal_trade_'):
+                raise TransientPrecheck(str(exc)) from None
+            if isinstance(exc, CapitalRefused) and str(exc) == 'f2_anchor_snapshot_pending':
+                raise TransientPrecheck('f2_anchor_snapshot_pending') from None
             if isinstance(exc, CapitalRefused) and str(exc) == 'capital_spendable_cash':
                 raise TransientPrecheck('wallet_cash_below_sleeve') from None
             if transient_read_error(exc):

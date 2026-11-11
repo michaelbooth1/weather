@@ -4,7 +4,9 @@ from weather.market.mm_stage2_hold import utc
 
 def capture(book, anchor, sequence):
     """Capture existing incoming quarantine before allocating any new surplus."""
-    difference = anchor['cash_native'] - book.expected_cash()
+    from weather.market.lfc_f2_personal_cash import capture as capture_personal
+    personal_net = capture_personal(book, anchor, sequence)
+    difference = anchor['cash_native'] - book.expected_cash() - personal_net
     included = dict((book.cash_reference or {}).get('included_incoming', {}))
     extra = max(0, difference)
     for key, quarantine in book.incoming_quarantines.items():

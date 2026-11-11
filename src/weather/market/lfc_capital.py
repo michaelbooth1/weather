@@ -84,6 +84,7 @@ class CapitalBook:
         self.inventory_anchors = []
         self.cash_reference = None
         self.wallet_quarantines = []
+        self.personal_trades = {}
         self.losses = self.profit = self.incentives = self.costs = self.external = 0
         self.cash_in = self.cash_out = self.returned_principal = 0
         self.seen = set()
@@ -517,7 +518,7 @@ class CapitalBook:
             # The snapshot already includes older campaign lots. Do not count
             # their quantity a second time as unrelated owner holdings.
             anchor = next((snapshot for snapshot in reversed(self.inventory_anchors)
-                           if int(utc(snapshot['at_utc']).timestamp()) <= activity['timestamp']), self.anchor) or {}
+                           if int(utc(snapshot.get('snapshot_at_utc', snapshot['at_utc'])).timestamp()) <= activity['timestamp']), self.anchor) or {}
             cut = anchor.get('ledger_cut', next((r['sequence'] for r in self.ledger.baselines if r['sha256'] == digest(anchor)), -1))
             campaign = (quantity(anchor['campaign_quantities'].get(token, 0)) if 'campaign_quantities' in anchor else
                 sum((lot['quantity'] for lot in self.lots.values() if lot['token_id'] == token and lot['terminal_sequence'] < cut), Decimal(0)))
@@ -525,7 +526,7 @@ class CapitalBook:
             outside -= (sum((quantity(r['outside_quantity']) for r in self.removal_events if r['token_id'] == token), Decimal(0)) -
                         quantity(anchor.get('outside_removed_totals', {}).get(token, 0)))
             capacity = outside + sum((lot['remaining_quantity'] for _, lot in lots), Decimal(0))
-            anchor_time = utc(anchor['at_utc']).timestamp() if anchor else 0
+            anchor_time = utc(anchor.get('snapshot_at_utc', anchor['at_utc'])).timestamp() if anchor else 0
             if 'ledger_cut' in anchor:
                 anchor_time = int(anchor_time)
             if (remaining <= 0 or remaining > capacity or anchor and activity['timestamp'] < anchor_time):

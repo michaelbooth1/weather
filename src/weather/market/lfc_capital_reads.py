@@ -110,8 +110,9 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     if anchor_mode not in {None, 'enrollment', 'session', 'idle'}:
         raise CapitalRefused('f2_anchor_mode')
     if anchor_mode in {'enrollment', 'session'}:
-        from weather.market.lfc_f2_inventory import require_closed
+        from weather.market.lfc_f2_inventory import require_closed, require_stable_snapshot
         require_closed(ledger, read)
+        require_stable_snapshot(read)
     if live:
         from weather.market.lfc_f2_reconcile import validate_live
         validate_live(ledger, read, attempt=live_proof['attempt_id'], now=ledger.clock())

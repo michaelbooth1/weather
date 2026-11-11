@@ -14,6 +14,7 @@ CONTROL_ROOT = Path(r'C:\t\pilot\status\control')
 SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_PENDING', 'COMPLETE', 'INCIDENT', 'REFUSED', 'EVIDENCE_GAP', 'RETRY_PENDING'}
 SAFE_REASONS = {
     'retry_pending', 'wallet_cash_below_sleeve', 'foreign_open_order',
+    'f2_personal_trade_unproven', 'f2_personal_trade_fee_unproven', 'f2_personal_trade_changed', 'f2_anchor_snapshot_pending',
     'stale_control_row', 'control_row_unknown',
     'wrapper_launch_missing_or_invalid', 'wrapper_policy_changed', 'wrapper_cleanup_budget_insufficient','idle', 'transport_deferred', 'window_missed', 'campaign_disabled', 'running', 'postcheck_pending',
                 'completed', 'account_incident', 'policy_refused', 'release_refused', 'policy_changed',
