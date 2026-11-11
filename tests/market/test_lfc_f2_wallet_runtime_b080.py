@@ -22,7 +22,8 @@ from weather.market.lfc_f2_pinb import example_policy
 from weather.market.lfc_recording_io import write_new
 
 
-def test_first_tick_reanchors_personal_wallet_before_session_stub(tmp_path, monkeypatch):
+@pytest.mark.parametrize('foreign_open', [False, True])
+def test_first_tick_reanchors_personal_wallet_before_session_stub(tmp_path, monkeypatch, foreign_open):
     from weather.market import lfc_campaign_runtime, lfc_campaign_visibility, lfc_cli, re1_owner_checks
     from weather.market.lfc_campaign_recovery import failure_result
     from tests.market.test_lfc_f2_capital import NOW
@@ -43,6 +44,12 @@ def test_first_tick_reanchors_personal_wallet_before_session_stub(tmp_path, monk
         original = deepcopy(CapitalBook(state.ledger).inventory_anchor)
         clock.value += timedelta(seconds=1)
         values.update(positions={'evening-nfl': '25'}, cash='240')
+        if foreign_open:
+            def foreign_read():
+                read = observation(state.ledger, clock, **values)
+                read['open_orders'] = [{'id': 'personal-resting-order'}]
+                return read
+            monkeypatch.setattr(runtime, 'read_account', foreign_read)
         monkeypatch.setattr(runtime, 'admission', lambda: nullcontext())
         monkeypatch.setattr(runtime, 'followup', lambda *a, **k: None)
         monkeypatch.setattr(runtime, 'notify_control', lambda *a: None)
@@ -62,7 +69,15 @@ def test_first_tick_reanchors_personal_wallet_before_session_stub(tmp_path, monk
         coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
         policy = bind_launch(coordinator, load_policy(policy_path))
         runtime.wrapper_launch = coordinator.wrapper_launch
-        assert coordinator.tick(lambda: policy) == 'STARTED'
+        result = coordinator.tick(lambda: policy)
+        if foreign_open:
+            from weather.market.lfc_campaign_control import latest_control
+            assert result == 'MISSED' and not calls and not state.incidents()
+            assert not state.ledger.autostart_claims
+            assert not any(row['event'] == 'f2_session_anchor' for row in state.ledger.rows)
+            assert latest_control(tmp_path / 'control')['reason'] == 'foreign_open_order'
+            return
+        assert result == 'STARTED'
         assert len(calls) == 1 and not state.incidents()
         assert original['positions'] == {'nfl': '15'}
         events = [r['event'] for r in state.ledger.rows]
@@ -84,6 +99,45 @@ def test_unresolved_history_cannot_install_enrollment_anchor(tmp_path, monkeypat
     with pytest.raises(StateRefused, match='f2_anchor_history_unresolved'):
         runtime.core_proof(ledger, read)
     assert ledger.path.read_bytes() == before
+
+
+def test_owner_funding_check_cannot_reanchor_over_pending_postchecks(tmp_path, monkeypatch):
+    from tests.market.test_lfc_f2_capital import NOW
+    clock = Clock()
+    clock.value = NOW
+    with account_lease(MAKER, backend=Mutexes()):
+        state = state_at(tmp_path / 'account', clock)
+        path = tmp_path / 'campaign.json'
+        row = example_policy()
+        row['enabled'] = True
+        write_new(path, row)
+        runtime = Runtime(state=state, pilot_root=state.ledger.path.parent, policy_path=path,
+            release={}, clock=clock, control_root=tmp_path / 'control', task_enabled=lambda: False)
+        monkeypatch.setattr(runtime, 'admission', lambda: nullcontext())
+        monkeypatch.setattr(runtime, 'read_account', lambda: observation(state.ledger, clock, positions={}, cash='300'))
+        assert runtime.core_proof(state.ledger, runtime.read_account())['money_accounting_complete']
+        policy = load_policy(path)
+        entry = next(entry for entry in policy.entries if entry.permits(clock.now()))
+        state.claim(entry, policy, clock.now())
+        before = state.ledger.path.read_bytes()
+        from weather.market.lfc_capital import CapitalRefused
+        with pytest.raises(CapitalRefused, match='f2_anchor_postchecks_pending'):
+            runtime.confirm_funding()
+        assert state.ledger.path.read_bytes() == before
+
+
+def test_trade_quantity_mismatch_cannot_be_hidden_by_an_enrollment_anchor(tmp_path):
+    ledger, baseline, clock, read = fixture(tmp_path, bridge=False)
+    path = tmp_path / 'campaign.json'
+    write_new(path, example_policy())
+    runtime = object.__new__(Runtime)
+    runtime.clock, runtime.policy_path, runtime.pilot_root = clock, path, tmp_path
+    runtime.state = SimpleNamespace(ledger=ledger, maker=MAKER, root=tmp_path / 'state')
+    read['trades'] = []
+    before = ledger.path.read_bytes()
+    proof = runtime.core_proof(ledger, read)
+    assert not proof['money_accounting_complete'] and proof['money_contradiction']
+    assert ledger.path.read_bytes() == before and CapitalBook(ledger).inventory_anchor is None
 
 
 def test_owner_recovery_of_one_history_defers_bridge_until_remaining_history_is_resolved(tmp_path, monkeypatch):
@@ -125,6 +179,10 @@ def test_cash_below_a_qualifying_band_need_defers_without_money_incident(tmp_pat
     with pytest.raises(TransientPrecheck, match='wallet_cash_below_sleeve'):
         runtime.readiness(None, load_policy(path), read)
     assert not ledger.halted and not ledger.autostart_incidents
+    from weather.market.lfc_campaign_control import control_record
+    row = control_record(tmp_path / 'control', 'a' * 32, phase='DEFERRED',
+                         now=clock.now(), reason='wallet_cash_below_sleeve')
+    assert row['reason'] == 'wallet_cash_below_sleeve' and row['incident'] is False
 
 
 def test_status_prints_personal_wallet_rule_and_remains_read_only(tmp_path, monkeypatch, capsys):
