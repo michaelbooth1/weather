@@ -82,6 +82,15 @@ def test_persistent_unexplained_difference_can_close_only_at_session_anchor(tmp_
     assert synchronize(ledger, book.inventory_anchor, fresh)['cash_bridge_complete']
     assert ledger.path.read_bytes() == raw
     assert CapitalBook(Ledger.open(ledger.path, clock=clock.now)).figures() == book.figures()
+    # B085: a later claim must not invalidate this historical fallback's cut.
+    from tests.market.test_lfc_campaign import MAKER, Mutexes
+    from weather.market.lfc_campaign_guard import account_lease
+    with account_lease(MAKER, backend=Mutexes()):
+        ledger.record('autostart_enroll', state_id='e'*32, identity_sha256='f'*64,
+                      state_root=str(tmp_path/'synthetic-state'), protocol='lfc_autostart_v1')
+        ledger.record('autostart_claim', attempt_id='a'*32, file_sha256='b'*64,
+                      local_date=clock.now().date().isoformat())
+    assert CapitalBook(Ledger.open(ledger.path, clock=clock.now)).figures() == CapitalBook(ledger).figures()
 
 
 def test_target_aware_solver_matches_exhaustive_signed_sums():

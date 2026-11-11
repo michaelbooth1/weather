@@ -5,14 +5,14 @@ from weather.market.lfc_accounting import quantity
 from weather.market.mm_stage2_hold import digest, utc
 
 
-def opening_owner_cash(book, item):
+def opening_owner_cash(book, item, *, cut=None):
     if not book.inventory_anchors:
         return 0
     from weather.market.lfc_f2_inventory import campaign_tokens
     first = book.inventory_anchors[0]
     if item['timestamp'] >= int(utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp()):
         return 0
-    protected = campaign_tokens(book.ledger)
+    protected = campaign_tokens(book.ledger, cut)
     return sum(part['cash_native'] or 0 for part in item.get('native_redemption', {}).get('positions', ())
                if part['token_id'] not in protected)
 

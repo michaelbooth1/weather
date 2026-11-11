@@ -8,7 +8,7 @@ from weather.market.mm_stage2_hold import HoldJournal
 
 
 def private_result(runtime, claim, *, faults=('scoring_missed',), extra_rows=(), failure_type=None,
-                   terminal_read_gap=False, legacy=False, unknown_submit=False):
+                   terminal_read_gap=False, legacy=False, unknown_submit=False, matched='0'):
     ledger = runtime.state.ledger
     directory = runtime.pilot_root / 'private-session'
     directory.mkdir()
@@ -18,7 +18,7 @@ def private_result(runtime, claim, *, faults=('scoring_missed',), extra_rows=(),
     ledger.intent(session_id='s', intent_key='s:1', token_id='t', condition_id='c', size='20', price='.5', fee_rate_bps='0')
     if not unknown_submit:
         ledger.ack('s:1', 'o')
-    order = {'id': 'o', 'status': 'CANCELED', 'size_matched': '0'}
+    order = {'id': 'o', 'status': 'MATCHED' if matched != '0' else 'CANCELED', 'size_matched': matched}
     if not terminal_read_gap and not unknown_submit:
         ledger.terminal('o', order, source='fixture')
     scope = {'session_id': 's', 'condition_id': 'c', 'token_ids': ['t', 'n'],

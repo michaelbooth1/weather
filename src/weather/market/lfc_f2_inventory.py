@@ -72,7 +72,7 @@ def inventory(ledger, anchor, current, book, *, campaign_only=False, cut=None):
     observed = {str(token): str(quantity(size)) for token, size in current.items() if quantity(size)}
     tokens = set(expected) | set(observed)
     if campaign_only:
-        tokens &= campaign_tokens(ledger) | set(anchor['campaign_tokens'])
+        tokens &= campaign_tokens(ledger, cut) | set(anchor['campaign_tokens'])
     changed = sorted(token for token in tokens
                      if quantity(expected.get(token, 0)) != quantity(observed.get(token, 0)))
     return {'expected': expected, 'changed': changed,
@@ -146,7 +146,7 @@ def make_anchor(book, read, *, kind):
             'filled_totals': filled_totals(book.ledger, cut),
             'removed_totals': {token: str(size) for token, size in book.removed.items() if size},
             'outside_removed_totals': outside_removed(book),
-            'campaign_tokens': sorted(campaign_tokens(book.ledger)),
+            'campaign_tokens': sorted(campaign_tokens(book.ledger, cut)),
             'campaign_quantities': lot_quantities(book, cut),
             'cash_native': native(read['balances']['available_collateral']),
             'complete': True, 'open_orders': []}

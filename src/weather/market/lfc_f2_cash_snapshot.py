@@ -195,7 +195,7 @@ def accept(book, row, item):
                 if value.get('surplus_only') is not True:
                     raise
                 from weather.market.lfc_f2_inventory import require_closed
-                require_closed(book.ledger, {'complete': True, 'errors': [], 'open_orders': []})
+                require_closed(book.ledger, {'complete': True, 'errors': [], 'open_orders': []}, cut=row['sequence'])
                 if value.get('surplus_only_ids') != sorted(entry['id'] for entry in decode(book, value['sources'])
                                                           if relation(book, entry) is None):
                     raise ValueError('fallback identities')

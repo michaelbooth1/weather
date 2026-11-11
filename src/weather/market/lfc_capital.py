@@ -240,7 +240,7 @@ class CapitalBook:
             if (included and cash is not None and self.incoming(activity) and kind != 'DEPOSIT' and
                     not self.known_redemption_cash(activity)):
                 from weather.market.lfc_f2_owner_inventory import opening_owner_cash
-                self.reclassify_legacy_credit(max(0, cash - self.quarantine_for(activity) - opening_owner_cash(self, activity)))
+                self.reclassify_legacy_credit(max(0, cash - self.quarantine_for(activity) - opening_owner_cash(self, activity, cut=row['sequence'])))
             if kind == 'REDEEM':
                 self.redeem(activity, row['sequence'], owner_inventory=row.get('owner_inventory'))
             elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
@@ -319,7 +319,7 @@ class CapitalBook:
                 # incoming credit. Reclassify its quarantined cash; never add
                 # the same receipt to the bridge a second time.
                 from weather.market.lfc_f2_owner_inventory import opening_owner_cash
-                self.reclassify_legacy_credit(max(0, cash - previously_held - opening_owner_cash(self, item)))
+                self.reclassify_legacy_credit(max(0, cash - previously_held - opening_owner_cash(self, item, cut=row['sequence'])))
             if kind == 'REDEEM':
                 self.undo_redemption(old)
                 self.redeem(item, row['sequence'], owner_inventory=row.get('owner_inventory'))
