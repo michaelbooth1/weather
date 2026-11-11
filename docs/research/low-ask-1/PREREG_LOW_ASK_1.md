@@ -194,13 +194,14 @@ Both five-share cuts share one binary city-day venue outcome. The Gaussian
 copula uses stationary AR(1) innovations with the stated common-city share.
 Persistent city effects are **fixed**, not redrawn per panel: deterministic
 normal-quantile offsets are centred to zero 12-city mean and unit variance.
-A common probit threshold makes their fixed-city average survival equal the
-declared marginal; centring latent offsets alone would not preserve it after
+A common probit threshold makes retained-city average survival equal the
+declared marginal (eleven cities for support825, twelve otherwise). Centring
+latent offsets alone would not preserve it after
 the nonlinear CDF. No parameter is fitted on trial data.
 
 At ask .80, all-in cost/share is .818 and null marginal survival is .818.
-Ask .93's null survival is the master's .9433; exact cost is .943255, so the
-rounded survival leaves its stated small positive drift. Power alternatives
+Ask .93's null survival equals its exact all-in cost **.943255** (MASTER C2),
+so the retained-city boundary null has zero pre-rationing mean. Power alternatives
 add delta_city_day/(10*support/900) to .818, giving the named intended-unit
 effect **before cash rationing**. Do not normalize profits after cash blocks.
 The .14346/share date-SD remains a planning proxy, never an imposed SD.

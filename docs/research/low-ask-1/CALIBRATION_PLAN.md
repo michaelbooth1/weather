@@ -29,9 +29,11 @@ absent throughout. Capital blocks remain executable-validated. The 68-date/
 
 Fixed normal-quantile city offsets have zero 12-city mean/unit variance and
 are reused across panels. A common probit threshold preserves the declared
-fixed-city average survival after the nonlinear CDF. AR/common innovations
+retained-city average survival after the nonlinear CDF (eleven cities for 825,
+twelve otherwise). AR/common innovations
 remain random. Ask-.80 null survival is .818. Ask-.93 survival is the master's
-rounded .9433 versus exact cost .943255. There is no simulated-profit
+exact all-in cost .943255. Both retained-city boundary null means are zero
+before cash rationing. There is no simulated-profit
 re-centring. Each effect adds delta/(10*support/900) before cash rationing.
 
 ## Actual cash and statistic
@@ -54,6 +56,7 @@ Non-degenerate parity tests compare every date/block/crossed-bootstrap lower
 bound, upper bound and p-value to `inference.interval`, plus its analytic
 calibrated lower bound. Analytic failures skip the expensive bootstrap since
 they cannot be rescued by it. Sealed trial output reports realized/planning SD.
+Power bootstrap tail counts retain the conservative draw>=mean-1e-10 tie margin.
 
 ## Size and planning power gates
 
@@ -107,7 +110,9 @@ verifying complete prior receipts. Changed bytes require a new output attempt.
 
 Honor HOLD_HEAVY, serial execution and memory hysteresis. From Wednesday onward
 start no heavy job after 08:30; run nothing heavy 09:00-19:00 Toronto. Outside
-that interval pause at >=90% commit and resume below 88%. No parallel jobs.
+that interval pause at >=90% commit and resume below 88%. The invocation helper
+also refuses live-day starts from 08:15 until 19:00 and bounds queue time by
+min(14400, seconds until the next 08:15 Toronto cutoff). No parallel jobs.
 Expected largest allocation is the ~144-MB double bootstrap cross-weight matrix,
 plus dependencies/buffers. Actual time and peak memory await the first GO run.
 

@@ -1,6 +1,6 @@
 """Tiny synthetic implementation checks; never a full calibration study.
 
-Guards: T093r1 B1-B4 power scope, realized cash, fixed-city null and bootstrap parity.
+Guards: T093 B1-B4 and C1/C2/C4 retained-city nulls, cash, power and bootstrap parity.
 """
 
 import os
@@ -92,11 +92,48 @@ def test_fixed_city_offsets_are_centred_and_do_not_randomize_portfolio_mean():
     offsets = cal.fixed_city_offsets()
     assert offsets.shape == (12,) and offsets.mean() == pytest.approx(0, abs=1e-15)
     assert (offsets**2).mean() == pytest.approx(1)
-    for probability in (.818, .9433):
+    for probability in (.818, .943255):
         survival = cal.city_survival(probability, .25)
         assert survival.mean() == pytest.approx(probability, abs=1e-12)
         assert np.ptp(survival) > .01
         assert np.array_equal(survival, cal.city_survival(probability, .25))
+
+
+@pytest.mark.parametrize("support", [810, 900, 825])
+@pytest.mark.parametrize("persistent", [0, .25])
+def test_support_boundary_null_is_centred_over_retained_cities(support, persistent):
+    np, _, _ = cal.libraries()
+    retained = np.ones(12, dtype=bool)
+    if support == 825:
+        retained[sorted(cal.CITIES).index("chicago")] = False
+    survival = cal.city_survival(.818, persistent, support=support)
+    assert survival[retained].mean() == pytest.approx(.818, rel=0, abs=1e-12)
+    assert (10*(survival[retained]-.818)).mean() == pytest.approx(0, abs=1e-12)
+
+
+@pytest.mark.parametrize("support", [810, 900, 825])
+def test_high_ask_generator_uses_exact_zero_mean_boundary_null(support, monkeypatch):
+    from decimal import Decimal
+    np, _, _ = cal.libraries()
+    exact_cost = float(Decimal(".93")+Decimal(".05")*Decimal(".93")*Decimal(".07")+Decimal(".01"))
+    original = cal.city_survival
+    def capture(probability, persistent, **kwargs):
+        assert probability == pytest.approx(exact_cost, rel=0, abs=1e-12)
+        survival = original(probability, persistent, **kwargs)
+        retained = np.ones(12, dtype=bool)
+        if support == 825:
+            retained[sorted(cal.CITIES).index("chicago")] = False
+        assert (10*(survival[retained]-exact_cost)).mean() == pytest.approx(0, abs=1e-12)
+        return survival
+    monkeypatch.setattr(cal, "city_survival", capture)
+    arm = dict(phi=.5, common=.5, persistent=.25, mechanism="spread", support=support, ask=.93)
+    cal.synthetic_panels(np.random.default_rng(156), 1, arm)
+
+
+def test_bootstrap_near_ties_use_conservative_margin():
+    np, _, _ = cal.libraries()
+    components = cal.bootstrap_components(np.full((1, 75, 12), 2.5e-11), cal.bootstrap_weights(128))
+    assert all(result["pvalue"][0] == 1 for result in components.values())
 
 
 def test_size_supports_and_planning_power_scope_are_explicit():

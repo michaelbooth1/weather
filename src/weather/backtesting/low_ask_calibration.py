@@ -117,7 +117,7 @@ def bootstrap_components(panels, weights):
                                  ("block3", weights[1], panels.mean(axis=2)),
                                  ("crossed_city_block3", weights[2], panels.reshape(len(panels), N*M))):
         draws = values @ weight.T - means[:, None]
-        pvalue = (1+(draws >= means[:, None]).sum(axis=1))/(resamples+1)
+        pvalue = (1+(draws >= means[:, None]-1e-10).sum(axis=1))/(resamples+1)
         bounds = np.partition(draws, (lo_index, hi_index), axis=1)
         result[name] = {"lower": means-bounds[:, hi_index], "upper": means-bounds[:, lo_index], "pvalue": pvalue}
     return result
@@ -224,22 +224,27 @@ def fixed_city_offsets():
     return offsets/np.sqrt((offsets**2).mean())
 
 
-def city_survival(probability, persistent):
-    """A common probit threshold preserves the fixed 12-city marginal mean.
+def city_survival(probability, persistent, *, support=900):
+    """A common probit threshold preserves the retained-city marginal mean.
 
     Centring latent offsets alone is insufficient after a nonlinear CDF. Solve
-    the common threshold so their fixed-city survival average is exactly the
+    the common threshold so retained-city survival averages exactly the
     declared marginal. This is predeclared generation, never data re-centring.
     Realized cash drift and its dependence on the fill mask remain untouched.
     """
     np, ndtr, _ = libraries()
+    if support not in SUPPORTS:
+        raise ValueError("unregistered synthetic support")
+    retained = np.ones(M, dtype=bool)
+    if support == 825:
+        retained[sorted(CITIES).index("chicago")] = False
     if persistent == 0:
         return np.full(M, probability)
     offsets = math.sqrt(persistent)*fixed_city_offsets()
     low, high = -12.0, 12.0
     for _ in range(60):
         middle = (low+high)/2
-        if ndtr((middle-offsets)/math.sqrt(1-persistent)).mean() < probability:
+        if ndtr((middle-offsets[retained])/math.sqrt(1-persistent)).mean() < probability:
             low = middle
         else:
             high = middle
@@ -280,14 +285,14 @@ def synthetic_panels(rng, count, arm, effect=0.0):
             available[b, d, int(rng.integers(M))] = False
     # Same seeded random streams across all four effects, including delays.
     # The intended-unit effect is before cash rationing, never normalized back
-    # up after losses. Ask-.93's declared rounded null survival is .9433.
-    probability = (.818 if arm["ask"] == .8 else .9433) + effect/(10*arm["support"]/900)
+    # up after losses. Both null survivals equal exact all-in share cost.
+    cost = .818 if arm["ask"] == .8 else .943255
+    probability = cost + effect/(10*arm["support"]/900)
     if not 0 < probability < 1:
         raise ValueError("synthetic effect outside bounded payout family")
-    outcomes = ndtr(latent) < city_survival(probability, persistent)[None, None, :]
+    outcomes = ndtr(latent) < city_survival(probability, persistent, support=arm["support"])[None, None, :]
     delay3 = rng.random((count, N, M, 2)) < .1
     shares, diagnostics = realized_cash(available, outcomes, delay3, ask=arm["ask"])
-    cost = arm["ask"]+.05*arm["ask"]*(1-arm["ask"])+.01
     panels = shares*(outcomes-cost)
     # Capital blocks retain full executable-input validation (MASTER B3).
     both = available.sum(axis=(1, 2))

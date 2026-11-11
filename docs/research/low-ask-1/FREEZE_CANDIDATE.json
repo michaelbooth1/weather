@@ -1,6 +1,6 @@
 {
     "status":  "NOT_FROZEN",
-    "generated_utc":  "2026-11-10T23:42:53.7633932+00:00",
+    "generated_utc":  "2026-11-11T00:08:13.7904509+00:00",
     "trial":  "LOW-ASK-1",
     "freeze_before_utc":  "2026-11-17T05:00:00Z",
     "look_utc":  "2027-02-09T23:00:00Z",
@@ -10,7 +10,7 @@
                                "merge_master_after_landing":  true
                            },
     "authority_master_sha":  "54e5f17f46d7bcec39016113432c206d57bc6c44",
-    "prereg_sha256":  "1c1e56fdd7b421d8af4bf73f045f11aca177c69392011a0d6c945e544598d5e1",
+    "prereg_sha256":  "48d9082fc7cfa5bbc918001ffab8ee3a5e80eec38012deffcaf361f0762b268d",
     "input_contract_sha256":  "98eb6936336351f05261b6bc12b5f9bc0bb0f74067db66d0d3ec1e6ecec690ea",
     "code_sha256":  {
                         "src/weather/backtesting/low_ask/__init__.py":  "093e163ec530a54bff5bc5f88cadb729077e48db15267c25024ed5d47cefab79",
@@ -34,9 +34,9 @@
     "tests_sha256":  {
                          "tests/backtesting/test_low_ask_core.py":  "e3d69fbf945c14d542d71b60608e57d6586299144d9d456fd332be13b73af387",
                          "tests/backtesting/test_low_ask_io.py":  "a9e81c1e6242f5f02d6862c2285260decae7827857016b91ebeb8d3e0d94d948",
-                         "tests/backtesting/test_low_ask_calibration.py":  "25fc4e651bf667484471ff95c3a3e7d8db0a96a124c2ed490ce6b34dc3349e77"
+                         "tests/backtesting/test_low_ask_calibration.py":  "631c2cb2c2146de8c5d6b038287109c7151c6201d646b26cd95c1e225cf26b29"
                      },
-    "calibration_code_sha256":  "57f41cb8a89cedbfb5dade82c7ffd821149e9d84b0cad6e55930f1a4aad6ba86",
+    "calibration_code_sha256":  "c7b8af244b438b35510eb1322801d2f09b6d1b3381d1bd7ec427aab84c63adfb",
     "schema_family_sha256":  "8f6efeeaf30c9ef902c11185b279b9cf95af0fbdd3eafc51136021215b7e2e35",
     "capital":  {
                     "total":  "300",
@@ -62,7 +62,7 @@
                                              "claimants_maximum":  4
                                          },
     "master_rulings":  {
-                           "source":  "master task T093r1 2026-11-10 18:3x ET",
+                           "source":  "master task T093r1 2026-11-10 18:3x ET; C1-C4 follow-up 19:1x ET",
                            "confirmed_defaults":  [
                                                       1,
                                                       3,
@@ -80,13 +80,13 @@
                            "power_cells":  432,
                            "planning_gate":  "support810 ask0.80 phi0.22 common0.5 persistent0; both mechanisms",
                            "cash_model":  "realized 0/5 payout; permanent gains/losses; no null recentring",
-                           "persistent_city_model":  "fixed zero-mean normal-quantile offsets",
+                           "persistent_city_model":  "fixed zero-mean normal-quantile offsets; threshold solved over retained cities",
                            "supports":  [
                                             810,
                                             900,
                                             825
                                         ],
-                           "high_ask_null":  "ask0.93 survival0.9433; four strongest arms at all supports"
+                           "high_ask_null":  "ask0.93 survival0.943255 exact cost; four strongest arms at all supports"
                        },
     "calibration":  {
                         "status":  "NOT_RUN",
