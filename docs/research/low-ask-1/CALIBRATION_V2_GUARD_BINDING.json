@@ -1,0 +1,7 @@
+{
+  "previous_code_sha256": "398d5b6f36805614ca240203a09924ec509ac342ed1997274b98b718e5e48951",
+  "replacement_code_sha256": "f6f0cf1e71064fe1e321aa226f3146ca428f2ba6d312f730765edf680065e5f4",
+  "authority": "MASTER GO 2026-11-11 13:4x: running-pregate guard only",
+  "scope": "Operational guard and exact raw-code-hash bridge; every other binding field exact; original receipts unchanged",
+  "unchanged_computation_sha256": "4bb9280018502c0a0b649bce7d49c41321cff3b0161bf58694fba8bb7bb38d1b"
+}

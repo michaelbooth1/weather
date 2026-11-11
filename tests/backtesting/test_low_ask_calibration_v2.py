@@ -96,16 +96,48 @@ def test_v2_summary_reports_each_fraction_separately():
     assert result["status"] == "SCREEN_ONLY"
 
 
-def test_v2_guard_stops_at_pregate_marker_or_83_percent(monkeypatch):
-    monkeypatch.setattr(cal.Path, "exists", lambda _: False)
+def test_v2_guard_stops_at_pregate_marker_or_83_percent(tmp_path, monkeypatch):
+    previous = tmp_path / "T045i"
+    previous.mkdir()
+    (previous / "started.json").write_text("{}")  # Before the named T045j-and-later scope.
     monkeypatch.setattr(cal, "v2_commit_percent", lambda: 82.999)
-    cal.v2_runtime_guard()
+    cal.v2_runtime_guard(tmp_path)
     monkeypatch.setattr(cal, "v2_commit_percent", lambda: 83)
     with pytest.raises(RuntimeError, match="83 percent"):
-        cal.v2_runtime_guard()
-    monkeypatch.setattr(cal.Path, "exists", lambda _: True)
-    with pytest.raises(RuntimeError, match="pregate started"):
-        cal.v2_runtime_guard()
+        cal.v2_runtime_guard(tmp_path)
+
+
+@pytest.mark.parametrize("name", ["T045j", "T045jr1", "T045jr1r1", "T045k", "T045later"])
+@pytest.mark.parametrize("completed", [False, True])
+def test_pregate_guard_blocks_running_but_preserves_completed_records(tmp_path, monkeypatch, name, completed):
+    task = tmp_path / name
+    task.mkdir()
+    (task / "started.json").write_text("{}")
+    if completed:
+        (task / "exit.txt").write_text("0")
+    monkeypatch.setattr(cal, "v2_commit_percent", lambda: 82)
+    if completed:
+        cal.v2_runtime_guard(tmp_path)
+        assert cal.running_pregates(tmp_path) == []
+    else:
+        with pytest.raises(RuntimeError, match="pregate started"):
+            cal.v2_runtime_guard(tmp_path)
+        assert cal.running_pregates(tmp_path) == [task]
+    assert (task / "started.json").read_text() == "{}"
+
+
+def test_guard_binding_bridge_changes_only_the_recorded_code_hash():
+    import json
+    patch = json.loads(cal.repo_path("docs/research/low-ask-1/CALIBRATION_V2_GUARD_BINDING.json").read_text())
+    assert patch["replacement_code_sha256"] == cal.hash_bytes(cal.Path(cal.__file__))
+    old = dict(code_sha256=patch["previous_code_sha256"], seed=20261111, null_n=20000)
+    new = dict(old, code_sha256=patch["replacement_code_sha256"])
+    assert cal.calibration_binding_matches(old, new)
+    assert cal.calibration_binding_matches(new, new)
+    assert not cal.calibration_binding_matches(new, old)
+    assert not cal.calibration_binding_matches(dict(old, seed=20261112), new)
+    assert not cal.calibration_binding_matches(dict(old, null_n=20001), new)
+    assert not cal.calibration_binding_matches(dict(old, code_sha256="unreviewed"), new)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows workstation commit query")

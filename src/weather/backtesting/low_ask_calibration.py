@@ -441,8 +441,26 @@ def v2_commit_percent():
     return 100*(status.total_pagefile-status.avail_pagefile)/status.total_pagefile
 
 
-def v2_runtime_guard():
-    if Path(r"C:\t\codex\T045j\started.json").exists():
+def running_pregates(task_root=Path(r"C:\t\codex")):
+    return [task for task in sorted(task_root.glob("T045*"))
+            if task.name.casefold() >= "t045j" and task.is_dir() and (task / "started.json").exists()
+            and not (task / "exit.txt").exists()]
+
+
+def calibration_binding_matches(actual, expected):
+    if actual == expected:
+        return True
+    # Only the recorded operational guard patch may bridge existing receipts.
+    patch = json.loads(repo_path("docs/research/low-ask-1/CALIBRATION_V2_GUARD_BINDING.json").read_text())
+    if (actual.get("code_sha256"), expected.get("code_sha256")) != (
+            patch["previous_code_sha256"], patch["replacement_code_sha256"]):
+        return False
+    return {k: v for k, v in actual.items() if k != "code_sha256"} == {
+        k: v for k, v in expected.items() if k != "code_sha256"}
+
+
+def v2_runtime_guard(task_root=Path(r"C:\t\codex")):
+    if running_pregates(task_root):
         raise RuntimeError("F2 pregate started; stop calibration-v2")
     if v2_commit_percent() >= 83:
         raise RuntimeError("commit is at least 83 percent; stop calibration-v2")
@@ -508,7 +526,7 @@ def main(argv=None):
     if args.phase == "summarize":
         reports = [json.loads((args.out/f"validate-{i:03d}.json").read_text()) for i in range(len(arms))]
         budget()
-        if any(r["binding"] != binding for r in reports):
+        if any(not calibration_binding_matches(r["binding"], binding) for r in reports):
             raise ValueError("calibration binding drift")
         if any(r["critical_value"] != reports[0]["critical_value"] or r["arm_index"] != i or r["arm"] != arms[i]
                for i, r in enumerate(reports)):
@@ -523,7 +541,7 @@ def main(argv=None):
     critical = None
     if args.phase == "validate":
         fits = [json.loads((args.out/f"train-{i:03d}.json").read_text()) for i in range(len(arms))]
-        if any(r["binding"] != binding for r in fits):
+        if any(not calibration_binding_matches(r["binding"], binding) for r in fits):
             raise ValueError("training binding drift")
         if any(r["arm_index"] != i or r["arm"] != arms[i] for i, r in enumerate(fits)):
             raise ValueError("training arm drift")
