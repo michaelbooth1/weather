@@ -18,6 +18,11 @@ The separate [synthetic calibration plan](CALIBRATION_PLAN.md) uses the existing
 NumPy/SciPy pins under reviewed workstation-heavy admission. It is never loaded
 by the paper executable; its smoke tests do not establish size or power.
 
+The [calibration-v2 owner-option plan](CALIBRATION_V2_PLAN.md) preregisters the
+ask-.90 cap redesign and three assumed eligibility fractions. Its new streams,
+execution mask and F2 resource guards require the master's diff check before
+the seeded attempt. V1 evidence remains attached to its reviewed commit.
+
 The canonical entry point is:
 
 ```powershell

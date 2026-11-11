@@ -187,7 +187,7 @@ def test_output_root_refuses_escape_and_sibling(tmp_path):
             cal.output_root(invalid)
 
 
-@pytest.mark.parametrize("ask", [.8, .93])
+@pytest.mark.parametrize("ask", [.8, .9, .93])
 def test_grouped_cash_matches_scalar_decimal_policy(ask):
     import heapq
     from decimal import Decimal
