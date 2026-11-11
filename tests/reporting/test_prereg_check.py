@@ -33,8 +33,85 @@ Loss atlas `0123456789abcdef`: the 07-12 centre slice, 76.5% of 0.0258.
 MDE80 0.0060 at 11 market clusters and 43 date clusters.
 
 ## (e) Dev-window reuse
-DEV_WINDOW_LEDGER.md lists 14 scored candidates before this one; this is number 15.
+DEV_WINDOW_LEDGER.md
+- reuse count: 14
+This candidate would bring it to 15, on dates 2026-08-01..2026-09-29.
 """
+
+LEDGER = """# Dev-window reuse ledger
+Historical count: 999. There are 134 pre-ledger rules and explicit exceptions.
+## Rows
+| # | Type | Candidate |
+| 1 | K | candidate |
+| 2 | D | descriptive read |
+## Dev reuse count
+**Dev reuse count (2026-11-06): 14.** Includes pre-ledger rules and exceptions.
+"""
+
+
+@pytest.fixture(autouse=True)
+def canonical_ledger(tmp_path, monkeypatch):
+    """All checker tests use synthetic ledger state, never the evolving checkout count."""
+    path = tmp_path / "DEV_WINDOW_LEDGER.md"
+    path.write_text(LEDGER, encoding="utf-8")
+    monkeypatch.setattr(pc, "docs_path", lambda *parts: path)
+    return path
+
+
+@pytest.mark.parametrize("count", ["0", "13", "15", "214"])
+def test_stale_or_self_incremented_reuse_count_is_refused(tmp_path, capsys, count):
+    path = tmp_path / "rule.md"
+    path.write_text(GOOD.replace("reuse count: 14", f"reuse count: {count}"), encoding="utf-8")
+    assert pc.main([str(path)]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert any("DEV_REUSE_COUNT_MISMATCH" in p and f"cited {count}, ledger 14" in p
+               for p in result["problems"])
+
+
+@pytest.mark.parametrize("citation", [
+    "2026-08-01..2026-09-29; candidate number 14.",
+    "reuse count: 14.5", "reuse count: -14", "reuse count: 014", "reuse count: 1e4",
+    "reuse count: 14\nreuse count: 14", "reuse count: 14\nreuse count: 15",
+    "reuse count: 14\nreuse count: invalid",
+    "DEV_WINDOW_LEDGER.md lists 14 scored candidates; this is number 15.",
+])
+def test_unlabelled_or_ambiguous_reuse_count_is_refused(citation):
+    text = GOOD.replace("- reuse count: 14", citation)
+    assert any("DEV_REUSE_COUNT_INVALID" in p for p in pc.check_text(text))
+
+
+def test_lower_bound_count_and_incidental_dates_pass():
+    assert pc.check_text(GOOD.replace("reuse count: 14", "reuse count: at least 14")) == []
+
+
+def test_reuse_is_derived_from_summary_not_table_rows_or_historical_numbers():
+    assert pc.ledger_reuse_count(LEDGER) == 14
+    assert pc.check_text(GOOD, ledger_text=LEDGER) == []
+    changed = LEDGER.replace("2026-11-06): 14.", "2026-11-06): 16.")
+    assert any("cited 14, ledger 16" in p for p in pc.check_text(GOOD, ledger_text=changed))
+
+
+@pytest.mark.parametrize("ledger", [
+    "", LEDGER.replace("## Dev reuse count", "## Historical count"),
+    LEDGER + "\n## Dev reuse count\n**Dev reuse count: 14.**",
+    LEDGER + "\n**Dev reuse count: 14.**", LEDGER.replace(": 14.**", ": 14.5.**"),
+    LEDGER + "\n**Dev reuse count: invalid.**",
+])
+def test_missing_or_ambiguous_ledger_summary_fails_closed(ledger):
+    assert any("DEV_REUSE_LEDGER_INVALID" in p for p in pc.check_text(GOOD, ledger_text=ledger))
+
+
+def test_missing_or_non_utf8_ledger_fails_closed(canonical_ledger):
+    canonical_ledger.unlink()
+    assert any("DEV_REUSE_LEDGER_UNREADABLE" in p for p in pc.check_text(GOOD))
+    canonical_ledger.write_bytes(b"\xff")
+    assert any("DEV_REUSE_LEDGER_UNREADABLE" in p for p in pc.check_text(GOOD))
+
+
+def current_template(text):
+    """The template's example count/ordinal must be replaced before a rule can pass."""
+    return text.replace("DEV_WINDOW_LEDGER.md: this is candidate number 20 on 2026-07-31..09-29.",
+                        "DEV_WINDOW_LEDGER.md\n- reuse count: 14")
 
 
 def test_complete_rule_passes(tmp_path):
@@ -83,12 +160,14 @@ def test_unreadable_file_is_refused(tmp_path):
     assert pc.main([str(tmp_path / "missing.md")]) == 2
 
 
-def test_checklist_template_passes_the_checker(tmp_path):
+def test_checklist_template_requires_current_ledger_count(tmp_path):
     text = CHECKLIST.read_text(encoding="utf-8")
     block = re.search(r"<!-- template:start -->\s*```markdown\n(.*?)```\s*<!-- template:end -->", text, re.S)
     assert block is not None
     path = tmp_path / "template.md"
     path.write_text(block.group(1), encoding="utf-8")
+    assert any("DEV_REUSE_COUNT_INVALID" in p for p in pc.check_file(path)["problems"])
+    path.write_text(current_template(block.group(1)), encoding="utf-8")
     assert pc.check_file(path)["verdict"] == "PASS"
     assert "unfair" in text.lower() and "raw R0" in text
 
@@ -199,6 +278,6 @@ def test_checklist_forward_template_passes_with_forward(tmp_path):
     fwd = re.search(r"<!-- forward-template:start -->\s*```markdown\n(.*?)```\s*<!-- forward-template:end -->",
                     text, re.S)
     assert base is not None and fwd is not None
-    result = _forward(tmp_path, base.group(1) + "\n" + fwd.group(1))
+    result = _forward(tmp_path, current_template(base.group(1)) + "\n" + fwd.group(1))
     assert result["verdict"] == "PASS", result["problems"]
     assert "Rule B" in text and "(1+ρ)/(1−ρ)" in text
