@@ -1,0 +1,2200 @@
+{
+ "by_city_family": {
+  "highest|buenos-aires": {
+   "slug": "highest-temperature-in-buenos-aires-on-november-8-2026",
+   "bins": [
+    "17Â°C or below",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Buenos Aires be 17Â°C or below on November 8?",
+    "Will the highest temperature in Buenos Aires be 18Â°C on November 8?",
+    "Will the highest temperature in Buenos Aires be 19Â°C on November 8?"
+   ]
+  },
+  "highest|sao-paulo": {
+   "slug": "highest-temperature-in-sao-paulo-on-november-8-2026",
+   "bins": [
+    "18Â°C or below",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Sao Paulo be 18Â°C or below on November 8?",
+    "Will the highest temperature in Sao Paulo be 19Â°C on November 8?",
+    "Will the highest temperature in Sao Paulo be 20Â°C on November 8?"
+   ]
+  },
+  "lowest|buenos-aires": {
+   "slug": "lowest-temperature-in-buenos-aires-on-november-8-2026",
+   "bins": [
+    "5Â°C or below",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Buenos Aires be 5Â°C or below on November 8?",
+    "Will the lowest temperature in Buenos Aires be 6Â°C on November 8?",
+    "Will the lowest temperature in Buenos Aires be 7Â°C on November 8?"
+   ]
+  },
+  "lowest|sao-paulo": {
+   "slug": "lowest-temperature-in-sao-paulo-on-november-8-2026",
+   "bins": [
+    "9Â°C or below",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Sao Paulo be 9Â°C or below on November 8?",
+    "Will the lowest temperature in Sao Paulo be 10Â°C on November 8?",
+    "Will the lowest temperature in Sao Paulo be 11Â°C on November 8?"
+   ]
+  },
+  "highest|manila": {
+   "slug": "highest-temperature-in-manila-on-november-8-2026",
+   "bins": [
+    "28Â°C or below",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C",
+    "35Â°C",
+    "36Â°C",
+    "37Â°C",
+    "38Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Manila be 28Â°C or below on November 8?",
+    "Will the highest temperature in Manila be 29Â°C on November 8?",
+    "Will the highest temperature in Manila be 30Â°C on November 8?"
+   ]
+  },
+  "highest|karachi": {
+   "slug": "highest-temperature-in-karachi-on-november-8-2026",
+   "bins": [
+    "31Â°C or below",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C",
+    "35Â°C",
+    "36Â°C",
+    "37Â°C",
+    "38Â°C",
+    "39Â°C",
+    "40Â°C",
+    "41Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Karachi be 31Â°C or below on November 8?",
+    "Will the highest temperature in Karachi be 32Â°C on November 8?",
+    "Will the highest temperature in Karachi be 33Â°C on November 8?"
+   ]
+  },
+  "highest|qingdao": {
+   "slug": "highest-temperature-in-qingdao-on-november-8-2026",
+   "bins": [
+    "9Â°C or below",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Qingdao be 9Â°C or below on November 8?",
+    "Will the highest temperature in Qingdao be 10Â°C on November 8?",
+    "Will the highest temperature in Qingdao be 11Â°C on November 8?"
+   ]
+  },
+  "highest|guangzhou": {
+   "slug": "highest-temperature-in-guangzhou-on-november-8-2026",
+   "bins": [
+    "25Â°C or below",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C",
+    "35Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Guangzhou be 25Â°C or below on November 8?",
+    "Will the highest temperature in Guangzhou be 26Â°C on November 8?",
+    "Will the highest temperature in Guangzhou be 27Â°C on November 8?"
+   ]
+  },
+  "highest|cape-town": {
+   "slug": "highest-temperature-in-cape-town-on-november-8-2026",
+   "bins": [
+    "21Â°C or below",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Cape Town be 21Â°C or below on November 8?",
+    "Will the highest temperature in Cape Town be 22Â°C on November 8?",
+    "Will the highest temperature in Cape Town be 23Â°C on November 8?"
+   ]
+  },
+  "highest|jeddah": {
+   "slug": "highest-temperature-in-jeddah-on-november-8-2026",
+   "bins": [
+    "22Â°C or below",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Jeddah be 22Â°C or below on November 8?",
+    "Will the highest temperature in Jeddah be 23Â°C on November 8?",
+    "Will the highest temperature in Jeddah be 24Â°C on November 8?"
+   ]
+  },
+  "highest|kuala-lumpur": {
+   "slug": "highest-temperature-in-kuala-lumpur-on-november-8-2026",
+   "bins": [
+    "27Â°C or below",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C",
+    "35Â°C",
+    "36Â°C",
+    "37Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Kuala Lumpur be 27Â°C or below on November 8?",
+    "Will the highest temperature in Kuala Lumpur be 28Â°C on November 8?",
+    "Will the highest temperature in Kuala Lumpur be 29Â°C on November 8?"
+   ]
+  },
+  "highest|helsinki": {
+   "slug": "highest-temperature-in-helsinki-on-november-8-2026",
+   "bins": [
+    "2Â°C or below",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Helsinki be 2Â°C or below on November 8?",
+    "Will the highest temperature in Helsinki be 3Â°C on November 8?",
+    "Will the highest temperature in Helsinki be 4Â°C on November 8?"
+   ]
+  },
+  "highest|amsterdam": {
+   "slug": "highest-temperature-in-amsterdam-on-november-8-2026",
+   "bins": [
+    "5Â°C or below",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Amsterdam be 5Â°C or below on November 8?",
+    "Will the highest temperature in Amsterdam be 6Â°C on November 8?",
+    "Will the highest temperature in Amsterdam be 7Â°C on November 8?"
+   ]
+  },
+  "highest|busan": {
+   "slug": "highest-temperature-in-busan-on-november-8-2026",
+   "bins": [
+    "9Â°C or below",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Busan be 9Â°C or below on November 8?",
+    "Will the highest temperature in Busan be 10Â°C on November 8?",
+    "Will the highest temperature in Busan be 11Â°C on November 8?"
+   ]
+  },
+  "highest|istanbul": {
+   "slug": "highest-temperature-in-istanbul-on-november-8-2026",
+   "bins": [
+    "6Â°C or below",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Istanbul be 6Â°C or below on November 8?",
+    "Will the highest temperature in Istanbul be 7Â°C on November 8?",
+    "Will the highest temperature in Istanbul be 8Â°C on November 8?"
+   ]
+  },
+  "highest|moscow": {
+   "slug": "highest-temperature-in-moscow-on-november-8-2026",
+   "bins": [
+    "-2Â°C or below",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Moscow be -2Â°C or below on November 8?",
+    "Will the highest temperature in Moscow be -1Â°C on November 8?",
+    "Will the highest temperature in Moscow be 0Â°C on November 8?"
+   ]
+  },
+  "highest|shenzhen": {
+   "slug": "highest-temperature-in-shenzhen-on-november-8-2026",
+   "bins": [
+    "25Â°C or below",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C",
+    "35Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Shenzhen be 25Â°C or below on November 8?",
+    "Will the highest temperature in Shenzhen be 26Â°C on November 8?",
+    "Will the highest temperature in Shenzhen be 27Â°C on November 8?"
+   ]
+  },
+  "highest|chengdu": {
+   "slug": "highest-temperature-in-chengdu-on-november-8-2026",
+   "bins": [
+    "14Â°C or below",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Chengdu be 14Â°C or below on November 8?",
+    "Will the highest temperature in Chengdu be 15Â°C on November 8?",
+    "Will the highest temperature in Chengdu be 16Â°C on November 8?"
+   ]
+  },
+  "highest|wuhan": {
+   "slug": "highest-temperature-in-wuhan-on-november-8-2026",
+   "bins": [
+    "12Â°C or below",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Wuhan be 12Â°C or below on November 8?",
+    "Will the highest temperature in Wuhan be 13Â°C on November 8?",
+    "Will the highest temperature in Wuhan be 14Â°C on November 8?"
+   ]
+  },
+  "highest|beijing": {
+   "slug": "highest-temperature-in-beijing-on-november-8-2026",
+   "bins": [
+    "3Â°C or below",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Beijing be 3Â°C or below on November 8?",
+    "Will the highest temperature in Beijing be 4Â°C on November 8?",
+    "Will the highest temperature in Beijing be 5Â°C on November 8?"
+   ]
+  },
+  "highest|chongqing": {
+   "slug": "highest-temperature-in-chongqing-on-november-8-2026",
+   "bins": [
+    "12Â°C or below",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Chongqing be 12Â°C or below on November 8?",
+    "Will the highest temperature in Chongqing be 13Â°C on November 8?",
+    "Will the highest temperature in Chongqing be 14Â°C on November 8?"
+   ]
+  },
+  "highest|taipei": {
+   "slug": "highest-temperature-in-taipei-on-november-8-2026",
+   "bins": [
+    "24Â°C or below",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Taipei be 24Â°C or below on November 8?",
+    "Will the highest temperature in Taipei be 25Â°C on November 8?",
+    "Will the highest temperature in Taipei be 26Â°C on November 8?"
+   ]
+  },
+  "highest|warsaw": {
+   "slug": "highest-temperature-in-warsaw-on-november-8-2026",
+   "bins": [
+    "0Â°C or below",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Warsaw be 0Â°C or below on November 8?",
+    "Will the highest temperature in Warsaw be 1Â°C on November 8?",
+    "Will the highest temperature in Warsaw be 2Â°C on November 8?"
+   ]
+  },
+  "highest|madrid": {
+   "slug": "highest-temperature-in-madrid-on-november-8-2026",
+   "bins": [
+    "12Â°C or below",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Madrid be 12Â°C or below on November 8?",
+    "Will the highest temperature in Madrid be 13Â°C on November 8?",
+    "Will the highest temperature in Madrid be 14Â°C on November 8?"
+   ]
+  },
+  "highest|milan": {
+   "slug": "highest-temperature-in-milan-on-november-8-2026",
+   "bins": [
+    "7Â°C or below",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Milan be 7Â°C or below on November 8?",
+    "Will the highest temperature in Milan be 8Â°C on November 8?",
+    "Will the highest temperature in Milan be 9Â°C on November 8?"
+   ]
+  },
+  "highest|singapore": {
+   "slug": "highest-temperature-in-singapore-on-november-8-2026",
+   "bins": [
+    "26Â°C or below",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C",
+    "35Â°C",
+    "36Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Singapore be 26Â°C or below on November 8?",
+    "Will the highest temperature in Singapore be 27Â°C on November 8?",
+    "Will the highest temperature in Singapore be 28Â°C on November 8?"
+   ]
+  },
+  "highest|shanghai": {
+   "slug": "highest-temperature-in-shanghai-on-november-8-2026",
+   "bins": [
+    "14Â°C or below",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Shanghai be 14Â°C or below on November 8?",
+    "Will the highest temperature in Shanghai be 15Â°C on November 8?",
+    "Will the highest temperature in Shanghai be 16Â°C on November 8?"
+   ]
+  },
+  "highest|hong-kong": {
+   "slug": "highest-temperature-in-hong-kong-on-november-8-2026",
+   "bins": [
+    "23Â°C or below",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Hong Kong be 23Â°C or below on November 8?",
+    "Will the highest temperature in Hong Kong be 24Â°C on November 8?",
+    "Will the highest temperature in Hong Kong be 25Â°C on November 8?"
+   ]
+  },
+  "highest|tokyo": {
+   "slug": "highest-temperature-in-tokyo-on-november-8-2026",
+   "bins": [
+    "10Â°C or below",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Tokyo be 10Â°C or below on November 8?",
+    "Will the highest temperature in Tokyo be 11Â°C on November 8?",
+    "Will the highest temperature in Tokyo be 12Â°C on November 8?"
+   ]
+  },
+  "highest|tel-aviv": {
+   "slug": "highest-temperature-in-tel-aviv-on-november-8-2026",
+   "bins": [
+    "16Â°C or below",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Tel Aviv be 16Â°C or below on November 8?",
+    "Will the highest temperature in Tel Aviv be 17Â°C on November 8?",
+    "Will the highest temperature in Tel Aviv be 18Â°C on November 8?"
+   ]
+  },
+  "highest|munich": {
+   "slug": "highest-temperature-in-munich-on-november-8-2026",
+   "bins": [
+    "-1Â°C or below",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Munich be -1Â°C or below on November 8?",
+    "Will the highest temperature in Munich be 0Â°C on November 8?",
+    "Will the highest temperature in Munich be 1Â°C on November 8?"
+   ]
+  },
+  "highest|lucknow": {
+   "slug": "highest-temperature-in-lucknow-on-november-8-2026",
+   "bins": [
+    "24Â°C or below",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C",
+    "33Â°C",
+    "34Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Lucknow be 24Â°C or below on November 8?",
+    "Will the highest temperature in Lucknow be 25Â°C on November 8?",
+    "Will the highest temperature in Lucknow be 26Â°C on November 8?"
+   ]
+  },
+  "highest|wellington": {
+   "slug": "highest-temperature-in-wellington-on-november-8-2026",
+   "bins": [
+    "14Â°C or below",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Wellington be 14Â°C or below on November 8?",
+    "Will the highest temperature in Wellington be 15Â°C on November 8?",
+    "Will the highest temperature in Wellington be 16Â°C on November 8?"
+   ]
+  },
+  "highest|ankara": {
+   "slug": "highest-temperature-in-ankara-on-november-8-2026",
+   "bins": [
+    "2Â°C or below",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Ankara be 2Â°C or below on November 8?",
+    "Will the highest temperature in Ankara be 3Â°C on November 8?",
+    "Will the highest temperature in Ankara be 4Â°C on November 8?"
+   ]
+  },
+  "highest|seoul": {
+   "slug": "highest-temperature-in-seoul-on-november-8-2026",
+   "bins": [
+    "2Â°C or below",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Seoul (Incheon) be 2Â°C or below on November 8?",
+    "Will the highest temperature in Seoul (Incheon) be 3Â°C on November 8?",
+    "Will the highest temperature in Seoul (Incheon) be 4Â°C on November 8?"
+   ]
+  },
+  "highest|paris": {
+   "slug": "highest-temperature-in-paris-on-november-8-2026",
+   "bins": [
+    "5Â°C or below",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Paris be 5Â°C or below on November 8?",
+    "Will the highest temperature in Paris be 6Â°C on November 8?",
+    "Will the highest temperature in Paris be 7Â°C on November 8?"
+   ]
+  },
+  "highest|london": {
+   "slug": "highest-temperature-in-london-on-november-8-2026",
+   "bins": [
+    "6Â°C or below",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in London be 6Â°C or below on November 8?",
+    "Will the highest temperature in London be 7Â°C on November 8?",
+    "Will the highest temperature in London be 8Â°C on November 8?"
+   ]
+  },
+  "lowest|karachi": {
+   "slug": "lowest-temperature-in-karachi-on-november-8-2026",
+   "bins": [
+    "19Â°C or below",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Karachi be 19Â°C or below on November 8?",
+    "Will the lowest temperature in Karachi be 20Â°C on November 8?",
+    "Will the lowest temperature in Karachi be 21Â°C on November 8?"
+   ]
+  },
+  "lowest|qingdao": {
+   "slug": "lowest-temperature-in-qingdao-on-november-8-2026",
+   "bins": [
+    "2Â°C or below",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Qingdao be 2Â°C or below on November 8?",
+    "Will the lowest temperature in Qingdao be 3Â°C on November 8?",
+    "Will the lowest temperature in Qingdao be 4Â°C on November 8?"
+   ]
+  },
+  "lowest|guangzhou": {
+   "slug": "lowest-temperature-in-guangzhou-on-november-8-2026",
+   "bins": [
+    "17Â°C or below",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Guangzhou be 17Â°C or below on November 8?",
+    "Will the lowest temperature in Guangzhou be 18Â°C on November 8?",
+    "Will the lowest temperature in Guangzhou be 19Â°C on November 8?"
+   ]
+  },
+  "lowest|cape-town": {
+   "slug": "lowest-temperature-in-cape-town-on-november-8-2026",
+   "bins": [
+    "9Â°C or below",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Cape Town be 9Â°C or below on November 8?",
+    "Will the lowest temperature in Cape Town be 10Â°C on November 8?",
+    "Will the lowest temperature in Cape Town be 11Â°C on November 8?"
+   ]
+  },
+  "lowest|jeddah": {
+   "slug": "lowest-temperature-in-jeddah-on-november-8-2026",
+   "bins": [
+    "18Â°C or below",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Jeddah be 18Â°C or below on November 8?",
+    "Will the lowest temperature in Jeddah be 19Â°C on November 8?",
+    "Will the lowest temperature in Jeddah be 20Â°C on November 8?"
+   ]
+  },
+  "lowest|helsinki": {
+   "slug": "lowest-temperature-in-helsinki-on-november-8-2026",
+   "bins": [
+    "-2Â°C or below",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Helsinki be -2Â°C or below on November 8?",
+    "Will the lowest temperature in Helsinki be -1Â°C on November 8?",
+    "Will the lowest temperature in Helsinki be 0Â°C on November 8?"
+   ]
+  },
+  "lowest|amsterdam": {
+   "slug": "lowest-temperature-in-amsterdam-on-november-8-2026",
+   "bins": [
+    "0Â°C or below",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Amsterdam be 0Â°C or below on November 8?",
+    "Will the lowest temperature in Amsterdam be 1Â°C on November 8?",
+    "Will the lowest temperature in Amsterdam be 2Â°C on November 8?"
+   ]
+  },
+  "lowest|busan": {
+   "slug": "lowest-temperature-in-busan-on-november-8-2026",
+   "bins": [
+    "-4Â°C or below",
+    "-3Â°C",
+    "-2Â°C",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Busan be -4Â°C or below on November 8?",
+    "Will the lowest temperature in Busan be -3Â°C on November 8?",
+    "Will the lowest temperature in Busan be -2Â°C on November 8?"
+   ]
+  },
+  "lowest|istanbul": {
+   "slug": "lowest-temperature-in-istanbul-on-november-8-2026",
+   "bins": [
+    "1Â°C or below",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Istanbul be 1Â°C or below on November 8?",
+    "Will the lowest temperature in Istanbul be 2Â°C on November 8?",
+    "Will the lowest temperature in Istanbul be 3Â°C on November 8?"
+   ]
+  },
+  "lowest|moscow": {
+   "slug": "lowest-temperature-in-moscow-on-november-8-2026",
+   "bins": [
+    "-6Â°C or below",
+    "-5Â°C",
+    "-4Â°C",
+    "-3Â°C",
+    "-2Â°C",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Moscow be -6Â°C or below on November 8?",
+    "Will the lowest temperature in Moscow be -5Â°C on November 8?",
+    "Will the lowest temperature in Moscow be -4Â°C on November 8?"
+   ]
+  },
+  "lowest|shenzhen": {
+   "slug": "lowest-temperature-in-shenzhen-on-november-8-2026",
+   "bins": [
+    "19Â°C or below",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Shenzhen be 19Â°C or below on November 8?",
+    "Will the lowest temperature in Shenzhen be 20Â°C on November 8?",
+    "Will the lowest temperature in Shenzhen be 21Â°C on November 8?"
+   ]
+  },
+  "lowest|chengdu": {
+   "slug": "lowest-temperature-in-chengdu-on-november-8-2026",
+   "bins": [
+    "9Â°C or below",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Chengdu be 9Â°C or below on November 8?",
+    "Will the lowest temperature in Chengdu be 10Â°C on November 8?",
+    "Will the lowest temperature in Chengdu be 11Â°C on November 8?"
+   ]
+  },
+  "lowest|wuhan": {
+   "slug": "lowest-temperature-in-wuhan-on-november-8-2026",
+   "bins": [
+    "6Â°C or below",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Wuhan be 6Â°C or below on November 8?",
+    "Will the lowest temperature in Wuhan be 7Â°C on November 8?",
+    "Will the lowest temperature in Wuhan be 8Â°C on November 8?"
+   ]
+  },
+  "lowest|beijing": {
+   "slug": "lowest-temperature-in-beijing-on-november-8-2026",
+   "bins": [
+    "-4Â°C or below",
+    "-3Â°C",
+    "-2Â°C",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Beijing be -4Â°C or below on November 8?",
+    "Will the lowest temperature in Beijing be -3Â°C on November 8?",
+    "Will the lowest temperature in Beijing be -2Â°C on November 8?"
+   ]
+  },
+  "lowest|chongqing": {
+   "slug": "lowest-temperature-in-chongqing-on-november-8-2026",
+   "bins": [
+    "9Â°C or below",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Chongqing be 9Â°C or below on November 8?",
+    "Will the lowest temperature in Chongqing be 10Â°C on November 8?",
+    "Will the lowest temperature in Chongqing be 11Â°C on November 8?"
+   ]
+  },
+  "lowest|taipei": {
+   "slug": "lowest-temperature-in-taipei-on-november-8-2026",
+   "bins": [
+    "17Â°C or below",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Taipei be 17Â°C or below on November 8?",
+    "Will the lowest temperature in Taipei be 18Â°C on November 8?",
+    "Will the lowest temperature in Taipei be 19Â°C on November 8?"
+   ]
+  },
+  "lowest|warsaw": {
+   "slug": "lowest-temperature-in-warsaw-on-november-8-2026",
+   "bins": [
+    "-8Â°C or below",
+    "-7Â°C",
+    "-6Â°C",
+    "-5Â°C",
+    "-4Â°C",
+    "-3Â°C",
+    "-2Â°C",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Warsaw be -8Â°C or below on November 8?",
+    "Will the lowest temperature in Warsaw be -7Â°C on November 8?",
+    "Will the lowest temperature in Warsaw be -6Â°C on November 8?"
+   ]
+  },
+  "lowest|madrid": {
+   "slug": "lowest-temperature-in-madrid-on-november-8-2026",
+   "bins": [
+    "2Â°C or below",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Madrid be 2Â°C or below on November 8?",
+    "Will the lowest temperature in Madrid be 3Â°C on November 8?",
+    "Will the lowest temperature in Madrid be 4Â°C on November 8?"
+   ]
+  },
+  "lowest|milan": {
+   "slug": "lowest-temperature-in-milan-on-november-8-2026",
+   "bins": [
+    "-2Â°C or below",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Milan be -2Â°C or below on November 8?",
+    "Will the lowest temperature in Milan be -1Â°C on November 8?",
+    "Will the lowest temperature in Milan be 0Â°C on November 8?"
+   ]
+  },
+  "lowest|shanghai": {
+   "slug": "lowest-temperature-in-shanghai-on-november-8-2026",
+   "bins": [
+    "11Â°C or below",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Shanghai be 11Â°C or below on November 8?",
+    "Will the lowest temperature in Shanghai be 12Â°C on November 8?",
+    "Will the lowest temperature in Shanghai be 13Â°C on November 8?"
+   ]
+  },
+  "lowest|hong-kong": {
+   "slug": "lowest-temperature-in-hong-kong-on-november-8-2026",
+   "bins": [
+    "20Â°C or below",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Hong Kong be 20Â°C or below on November 8?",
+    "Will the lowest temperature in Hong Kong be 21Â°C on November 8?",
+    "Will the lowest temperature in Hong Kong be 22Â°C on November 8?"
+   ]
+  },
+  "lowest|tokyo": {
+   "slug": "lowest-temperature-in-tokyo-on-november-8-2026",
+   "bins": [
+    "6Â°C or below",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Tokyo be 6Â°C or below on November 8?",
+    "Will the lowest temperature in Tokyo be 7Â°C on November 8?",
+    "Will the lowest temperature in Tokyo be 8Â°C on November 8?"
+   ]
+  },
+  "lowest|tel-aviv": {
+   "slug": "lowest-temperature-in-tel-aviv-on-november-8-2026",
+   "bins": [
+    "11Â°C or below",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Tel Aviv be 11Â°C or below on November 8?",
+    "Will the lowest temperature in Tel Aviv be 12Â°C on November 8?",
+    "Will the lowest temperature in Tel Aviv be 13Â°C on November 8?"
+   ]
+  },
+  "lowest|munich": {
+   "slug": "lowest-temperature-in-munich-on-november-8-2026",
+   "bins": [
+    "-5Â°C or below",
+    "-4Â°C",
+    "-3Â°C",
+    "-2Â°C",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Munich be -5Â°C or below on November 8?",
+    "Will the lowest temperature in Munich be -4Â°C on November 8?",
+    "Will the lowest temperature in Munich be -3Â°C on November 8?"
+   ]
+  },
+  "lowest|lucknow": {
+   "slug": "lowest-temperature-in-lucknow-on-november-8-2026",
+   "bins": [
+    "13Â°C or below",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Lucknow be 13Â°C or below on November 8?",
+    "Will the lowest temperature in Lucknow be 14Â°C on November 8?",
+    "Will the lowest temperature in Lucknow be 15Â°C on November 8?"
+   ]
+  },
+  "lowest|wellington": {
+   "slug": "lowest-temperature-in-wellington-on-november-8-2026",
+   "bins": [
+    "10Â°C or below",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Wellington be 10Â°C or below on November 8?",
+    "Will the lowest temperature in Wellington be 11Â°C on November 8?",
+    "Will the lowest temperature in Wellington be 12Â°C on November 8?"
+   ]
+  },
+  "lowest|ankara": {
+   "slug": "lowest-temperature-in-ankara-on-november-8-2026",
+   "bins": [
+    "-6Â°C or below",
+    "-5Â°C",
+    "-4Â°C",
+    "-3Â°C",
+    "-2Â°C",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Ankara be -6Â°C or below on November 8?",
+    "Will the lowest temperature in Ankara be -5Â°C on November 8?",
+    "Will the lowest temperature in Ankara be -4Â°C on November 8?"
+   ]
+  },
+  "lowest|seoul": {
+   "slug": "lowest-temperature-in-seoul-on-november-8-2026",
+   "bins": [
+    "-3Â°C or below",
+    "-2Â°C",
+    "-1Â°C",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Seoul (Incheon) be -3Â°C or below on November 8?",
+    "Will the lowest temperature in Seoul (Incheon) be -2Â°C on November 8?",
+    "Will the lowest temperature in Seoul (Incheon) be -1Â°C on November 8?"
+   ]
+  },
+  "lowest|paris": {
+   "slug": "lowest-temperature-in-paris-on-november-8-2026",
+   "bins": [
+    "-1Â°C or below",
+    "0Â°C",
+    "1Â°C",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Paris be -1Â°C or below on November 8?",
+    "Will the lowest temperature in Paris be 0Â°C on November 8?",
+    "Will the lowest temperature in Paris be 1Â°C on November 8?"
+   ]
+  },
+  "lowest|london": {
+   "slug": "lowest-temperature-in-london-on-november-8-2026",
+   "bins": [
+    "3Â°C or below",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in London be 3Â°C or below on November 8?",
+    "Will the lowest temperature in London be 4Â°C on November 8?",
+    "Will the lowest temperature in London be 5Â°C on November 8?"
+   ]
+  },
+  "highest|panama-city": {
+   "slug": "highest-temperature-in-panama-city-on-november-7-2026",
+   "bins": [
+    "22Â°C or below",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C",
+    "27Â°C",
+    "28Â°C",
+    "29Â°C",
+    "30Â°C",
+    "31Â°C",
+    "32Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Panama City be 22Â°C or below on November 7?",
+    "Will the highest temperature in Panama City be 23Â°C on November 7?",
+    "Will the highest temperature in Panama City be 24Â°C on November 7?"
+   ]
+  },
+  "highest|mexico-city": {
+   "slug": "highest-temperature-in-mexico-city-on-november-7-2026",
+   "bins": [
+    "16Â°C or below",
+    "17Â°C",
+    "18Â°C",
+    "19Â°C",
+    "20Â°C",
+    "21Â°C",
+    "22Â°C",
+    "23Â°C",
+    "24Â°C",
+    "25Â°C",
+    "26Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Mexico City be 16Â°C or below on November 7?",
+    "Will the highest temperature in Mexico City be 17Â°C on November 7?",
+    "Will the highest temperature in Mexico City be 18Â°C on November 7?"
+   ]
+  },
+  "highest|san-francisco": {
+   "slug": "highest-temperature-in-san-francisco-on-november-7-2026",
+   "bins": [
+    "61Â°F or below",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74-75Â°F",
+    "76-77Â°F",
+    "78-79Â°F",
+    "80Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in San Francisco be 61Â°F or below on November 7?",
+    "Will the highest temperature in San Francisco be between 62-63Â°F on November 7?",
+    "Will the highest temperature in San Francisco be between 64-65Â°F on November 7?"
+   ]
+  },
+  "highest|los-angeles": {
+   "slug": "highest-temperature-in-los-angeles-on-november-7-2026",
+   "bins": [
+    "73Â°F or below",
+    "74-75Â°F",
+    "76-77Â°F",
+    "78-79Â°F",
+    "80-81Â°F",
+    "82-83Â°F",
+    "84-85Â°F",
+    "86-87Â°F",
+    "88-89Â°F",
+    "90-91Â°F",
+    "92Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Los Angeles be 73Â°F or below on November 7?",
+    "Will the highest temperature in Los Angeles be between 74-75Â°F on November 7?",
+    "Will the highest temperature in Los Angeles be between 76-77Â°F on November 7?"
+   ]
+  },
+  "highest|denver": {
+   "slug": "highest-temperature-in-denver-on-november-7-2026",
+   "bins": [
+    "51Â°F or below",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Denver be 51Â°F or below on November 7?",
+    "Will the highest temperature in Denver be between 52-53Â°F on November 7?",
+    "Will the highest temperature in Denver be between 54-55Â°F on November 7?"
+   ]
+  },
+  "highest|seattle": {
+   "slug": "highest-temperature-in-seattle-on-november-7-2026",
+   "bins": [
+    "53Â°F or below",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Seattle be 53Â°F or below on November 7?",
+    "Will the highest temperature in Seattle be between 54-55Â°F on November 7?",
+    "Will the highest temperature in Seattle be between 56-57Â°F on November 7?"
+   ]
+  },
+  "highest|toronto": {
+   "slug": "highest-temperature-in-toronto-on-november-7-2026",
+   "bins": [
+    "4Â°C or below",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Toronto be 4Â°C or below on November 7?",
+    "Will the highest temperature in Toronto be 5Â°C on November 7?",
+    "Will the highest temperature in Toronto be 6Â°C on November 7?"
+   ]
+  },
+  "lowest|mexico-city": {
+   "slug": "lowest-temperature-in-mexico-city-on-november-7-2026",
+   "bins": [
+    "6Â°C or below",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C",
+    "12Â°C",
+    "13Â°C",
+    "14Â°C",
+    "15Â°C",
+    "16Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Mexico City be 6Â°C or below on November 7?",
+    "Will the lowest temperature in Mexico City be 7Â°C on November 7?",
+    "Will the lowest temperature in Mexico City be 8Â°C on November 7?"
+   ]
+  },
+  "lowest|san-francisco": {
+   "slug": "lowest-temperature-in-san-francisco-on-november-7-2026",
+   "bins": [
+    "45Â°F or below",
+    "46-47Â°F",
+    "48-49Â°F",
+    "50-51Â°F",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in San Francisco be 45Â°F or below on November 7?",
+    "Will the lowest temperature in San Francisco be between 46-47Â°F on November 7?",
+    "Will the lowest temperature in San Francisco be between 48-49Â°F on November 7?"
+   ]
+  },
+  "lowest|los-angeles": {
+   "slug": "lowest-temperature-in-los-angeles-on-november-7-2026",
+   "bins": [
+    "53Â°F or below",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Los Angeles be 53Â°F or below on November 7?",
+    "Will the lowest temperature in Los Angeles be between 54-55Â°F on November 7?",
+    "Will the lowest temperature in Los Angeles be between 56-57Â°F on November 7?"
+   ]
+  },
+  "lowest|denver": {
+   "slug": "lowest-temperature-in-denver-on-november-7-2026",
+   "bins": [
+    "29Â°F or below",
+    "30-31Â°F",
+    "32-33Â°F",
+    "34-35Â°F",
+    "36-37Â°F",
+    "38-39Â°F",
+    "40-41Â°F",
+    "42-43Â°F",
+    "44-45Â°F",
+    "46-47Â°F",
+    "48Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Denver be 29Â°F or below on November 7?",
+    "Will the lowest temperature in Denver be between 30-31Â°F on November 7?",
+    "Will the lowest temperature in Denver be between 32-33Â°F on November 7?"
+   ]
+  },
+  "lowest|seattle": {
+   "slug": "lowest-temperature-in-seattle-on-november-7-2026",
+   "bins": [
+    "43Â°F or below",
+    "44-45Â°F",
+    "46-47Â°F",
+    "48-49Â°F",
+    "50-51Â°F",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Seattle be 43Â°F or below on November 7?",
+    "Will the lowest temperature in Seattle be between 44-45Â°F on November 7?",
+    "Will the lowest temperature in Seattle be between 46-47Â°F on November 7?"
+   ]
+  },
+  "lowest|toronto": {
+   "slug": "lowest-temperature-in-toronto-on-november-7-2026",
+   "bins": [
+    "1Â°C or below",
+    "2Â°C",
+    "3Â°C",
+    "4Â°C",
+    "5Â°C",
+    "6Â°C",
+    "7Â°C",
+    "8Â°C",
+    "9Â°C",
+    "10Â°C",
+    "11Â°C or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Toronto be 1Â°C or below on November 7?",
+    "Will the lowest temperature in Toronto be 2Â°C on November 7?",
+    "Will the lowest temperature in Toronto be 3Â°C on November 7?"
+   ]
+  },
+  "lowest|houston": {
+   "slug": "lowest-temperature-in-houston-on-november-7-2026",
+   "bins": [
+    "57Â°F or below",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74-75Â°F",
+    "76Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Houston be 57Â°F or below on November 7?",
+    "Will the lowest temperature in Houston be between 58-59Â°F on November 7?",
+    "Will the lowest temperature in Houston be between 60-61Â°F on November 7?"
+   ]
+  },
+  "lowest|austin": {
+   "slug": "lowest-temperature-in-austin-on-november-7-2026",
+   "bins": [
+    "47Â°F or below",
+    "48-49Â°F",
+    "50-51Â°F",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Austin be 47Â°F or below on November 7?",
+    "Will the lowest temperature in Austin be between 48-49Â°F on November 7?",
+    "Will the lowest temperature in Austin be between 50-51Â°F on November 7?"
+   ]
+  },
+  "lowest|chicago": {
+   "slug": "lowest-temperature-in-chicago-on-november-7-2026",
+   "bins": [
+    "27Â°F or below",
+    "28-29Â°F",
+    "30-31Â°F",
+    "32-33Â°F",
+    "34-35Â°F",
+    "36-37Â°F",
+    "38-39Â°F",
+    "40-41Â°F",
+    "42-43Â°F",
+    "44-45Â°F",
+    "46Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Chicago be 27Â°F or below on November 7?",
+    "Will the lowest temperature in Chicago be between 28-29Â°F on November 7?",
+    "Will the lowest temperature in Chicago be between 30-31Â°F on November 7?"
+   ]
+  },
+  "lowest|atlanta": {
+   "slug": "lowest-temperature-in-atlanta-on-november-7-2026",
+   "bins": [
+    "41Â°F or below",
+    "42-43Â°F",
+    "44-45Â°F",
+    "46-47Â°F",
+    "48-49Â°F",
+    "50-51Â°F",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Atlanta be 41Â°F or below on November 7?",
+    "Will the lowest temperature in Atlanta be between 42-43Â°F on November 7?",
+    "Will the lowest temperature in Atlanta be between 44-45Â°F on November 7?"
+   ]
+  },
+  "lowest|dallas": {
+   "slug": "lowest-temperature-in-dallas-on-november-7-2026",
+   "bins": [
+    "45Â°F or below",
+    "46-47Â°F",
+    "48-49Â°F",
+    "50-51Â°F",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Dallas be 45Â°F or below on November 7?",
+    "Will the lowest temperature in Dallas be between 46-47Â°F on November 7?",
+    "Will the lowest temperature in Dallas be between 48-49Â°F on November 7?"
+   ]
+  },
+  "lowest|nyc": {
+   "slug": "lowest-temperature-in-nyc-on-november-7-2026",
+   "bins": [
+    "45Â°F or below",
+    "46-47Â°F",
+    "48-49Â°F",
+    "50-51Â°F",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in New York City be 45Â°F or below on November 7?",
+    "Will the lowest temperature in New York City be between 46-47Â°F on November 7?",
+    "Will the lowest temperature in New York City be between 48-49Â°F on November 7?"
+   ]
+  },
+  "highest|houston": {
+   "slug": "highest-temperature-in-houston-on-november-7-2026",
+   "bins": [
+    "67Â°F or below",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74-75Â°F",
+    "76-77Â°F",
+    "78-79Â°F",
+    "80-81Â°F",
+    "82-83Â°F",
+    "84-85Â°F",
+    "86Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Houston be 67Â°F or below on November 7?",
+    "Will the highest temperature in Houston be between 68-69Â°F on November 7?",
+    "Will the highest temperature in Houston be between 70-71Â°F on November 7?"
+   ]
+  },
+  "highest|austin": {
+   "slug": "highest-temperature-in-austin-on-november-7-2026",
+   "bins": [
+    "61Â°F or below",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74-75Â°F",
+    "76-77Â°F",
+    "78-79Â°F",
+    "80Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Austin be 61Â°F or below on November 7?",
+    "Will the highest temperature in Austin be between 62-63Â°F on November 7?",
+    "Will the highest temperature in Austin be between 64-65Â°F on November 7?"
+   ]
+  },
+  "highest|chicago": {
+   "slug": "highest-temperature-in-chicago-on-november-7-2026",
+   "bins": [
+    "41Â°F or below",
+    "42-43Â°F",
+    "44-45Â°F",
+    "46-47Â°F",
+    "48-49Â°F",
+    "50-51Â°F",
+    "52-53Â°F",
+    "54-55Â°F",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Chicago be 41Â°F or below on November 7?",
+    "Will the highest temperature in Chicago be between 42-43Â°F on November 7?",
+    "Will the highest temperature in Chicago be between 44-45Â°F on November 7?"
+   ]
+  },
+  "highest|miami": {
+   "slug": "highest-temperature-in-miami-on-november-7-2026",
+   "bins": [
+    "77Â°F or below",
+    "78-79Â°F",
+    "80-81Â°F",
+    "82-83Â°F",
+    "84-85Â°F",
+    "86-87Â°F",
+    "88-89Â°F",
+    "90-91Â°F",
+    "92-93Â°F",
+    "94-95Â°F",
+    "96Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Miami be 77Â°F or below on November 7?",
+    "Will the highest temperature in Miami be between 78-79Â°F on November 7?",
+    "Will the highest temperature in Miami be between 80-81Â°F on November 7?"
+   ]
+  },
+  "highest|atlanta": {
+   "slug": "highest-temperature-in-atlanta-on-november-7-2026",
+   "bins": [
+    "57Â°F or below",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74-75Â°F",
+    "76Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Atlanta be 57Â°F or below on November 7?",
+    "Will the highest temperature in Atlanta be between 58-59Â°F on November 7?",
+    "Will the highest temperature in Atlanta be between 60-61Â°F on November 7?"
+   ]
+  },
+  "highest|dallas": {
+   "slug": "highest-temperature-in-dallas-on-november-7-2026",
+   "bins": [
+    "57Â°F or below",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74-75Â°F",
+    "76Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in Dallas be 57Â°F or below on November 7?",
+    "Will the highest temperature in Dallas be between 58-59Â°F on November 7?",
+    "Will the highest temperature in Dallas be between 60-61Â°F on November 7?"
+   ]
+  },
+  "highest|nyc": {
+   "slug": "highest-temperature-in-nyc-on-november-7-2026",
+   "bins": [
+    "55Â°F or below",
+    "56-57Â°F",
+    "58-59Â°F",
+    "60-61Â°F",
+    "62-63Â°F",
+    "64-65Â°F",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74Â°F or higher"
+   ],
+   "questions": [
+    "Will the highest temperature in New York City be 55Â°F or below on November 7?",
+    "Will the highest temperature in New York City be between 56-57Â°F on November 7?",
+    "Will the highest temperature in New York City be between 58-59Â°F on November 7?"
+   ]
+  },
+  "lowest|miami": {
+   "slug": "lowest-temperature-in-miami-on-november-6-2026",
+   "bins": [
+    "65Â°F or below",
+    "66-67Â°F",
+    "68-69Â°F",
+    "70-71Â°F",
+    "72-73Â°F",
+    "74-75Â°F",
+    "76-77Â°F",
+    "78-79Â°F",
+    "80-81Â°F",
+    "82-83Â°F",
+    "84Â°F or higher"
+   ],
+   "questions": [
+    "Will the lowest temperature in Miami be 65Â°F or below on November 6?",
+    "Will the lowest temperature in Miami be between 66-67Â°F on November 6?",
+    "Will the lowest temperature in Miami be between 68-69Â°F on November 6?"
+   ]
+  }
+ },
+ "distinct_labels": [
+  "-1Â°C",
+  "-1Â°C or below",
+  "-2Â°C",
+  "-2Â°C or below",
+  "-3Â°C",
+  "-3Â°C or below",
+  "-4Â°C",
+  "-4Â°C or below",
+  "-5Â°C",
+  "-5Â°C or below",
+  "-6Â°C",
+  "-6Â°C or below",
+  "-7Â°C",
+  "-7Â°C or below",
+  "-8Â°C or below",
+  "0Â°C",
+  "0Â°C or below",
+  "10Â°C",
+  "10Â°C or below",
+  "10Â°C or higher",
+  "11Â°C",
+  "11Â°C or below",
+  "11Â°C or higher",
+  "12Â°C",
+  "12Â°C or below",
+  "12Â°C or higher",
+  "13Â°C",
+  "13Â°C or below",
+  "13Â°C or higher",
+  "14Â°C",
+  "14Â°C or below",
+  "14Â°C or higher",
+  "15Â°C",
+  "15Â°C or below",
+  "15Â°C or higher",
+  "16Â°C",
+  "16Â°C or below",
+  "16Â°C or higher",
+  "17Â°C",
+  "17Â°C or below",
+  "17Â°C or higher",
+  "18Â°C",
+  "18Â°C or below",
+  "18Â°C or higher",
+  "19Â°C",
+  "19Â°C or below",
+  "19Â°C or higher",
+  "1Â°C",
+  "1Â°C or below",
+  "20Â°C",
+  "20Â°C or below",
+  "20Â°C or higher",
+  "21Â°C",
+  "21Â°C or below",
+  "21Â°C or higher",
+  "22Â°C",
+  "22Â°C or below",
+  "22Â°C or higher",
+  "23Â°C",
+  "23Â°C or below",
+  "23Â°C or higher",
+  "24Â°C",
+  "24Â°C or below",
+  "24Â°C or higher",
+  "25Â°C",
+  "25Â°C or below",
+  "25Â°C or higher",
+  "26Â°C",
+  "26Â°C or below",
+  "26Â°C or higher",
+  "27Â°C",
+  "27Â°C or below",
+  "27Â°C or higher",
+  "27Â°F or below",
+  "28-29Â°F",
+  "28Â°C",
+  "28Â°C or below",
+  "28Â°C or higher",
+  "29Â°C",
+  "29Â°C or below",
+  "29Â°C or higher",
+  "29Â°F or below",
+  "2Â°C",
+  "2Â°C or below",
+  "2Â°C or higher",
+  "30-31Â°F",
+  "30Â°C",
+  "30Â°C or below",
+  "30Â°C or higher",
+  "31Â°C",
+  "31Â°C or below",
+  "31Â°C or higher",
+  "31Â°F or below",
+  "32-33Â°F",
+  "32Â°C",
+  "32Â°C or below",
+  "32Â°C or higher",
+  "33Â°C",
+  "33Â°C or below",
+  "33Â°C or higher",
+  "33Â°F or below",
+  "34-35Â°F",
+  "34Â°C",
+  "34Â°C or higher",
+  "35Â°C",
+  "35Â°C or higher",
+  "35Â°F or below",
+  "36-37Â°F",
+  "36Â°C",
+  "36Â°C or higher",
+  "37Â°C",
+  "37Â°C or higher",
+  "37Â°F or below",
+  "38-39Â°F",
+  "38Â°C",
+  "38Â°C or higher",
+  "39Â°C",
+  "39Â°C or higher",
+  "39Â°F or below",
+  "3Â°C",
+  "3Â°C or below",
+  "3Â°C or higher",
+  "40-41Â°F",
+  "40Â°C",
+  "40Â°C or higher",
+  "41Â°C",
+  "41Â°C or higher",
+  "41Â°F or below",
+  "42-43Â°F",
+  "42Â°C",
+  "42Â°C or higher",
+  "43Â°C or higher",
+  "43Â°F or below",
+  "44-45Â°F",
+  "45Â°F or below",
+  "46-47Â°F",
+  "46Â°F or higher",
+  "47Â°F or below",
+  "48-49Â°F",
+  "48Â°F or higher",
+  "49Â°F or below",
+  "4Â°C",
+  "4Â°C or below",
+  "4Â°C or higher",
+  "50-51Â°F",
+  "50Â°F or higher",
+  "51Â°F or below",
+  "52-53Â°F",
+  "52Â°F or higher",
+  "53Â°F or below",
+  "54-55Â°F",
+  "54Â°F or higher",
+  "55Â°F or below",
+  "56-57Â°F",
+  "56Â°F or higher",
+  "57Â°F or below",
+  "58-59Â°F",
+  "58Â°F or higher",
+  "59Â°F or below",
+  "5Â°C",
+  "5Â°C or below",
+  "5Â°C or higher",
+  "60-61Â°F",
+  "60Â°F or higher",
+  "61Â°F or below",
+  "62-63Â°F",
+  "62Â°F or higher",
+  "63Â°F or below",
+  "64-65Â°F",
+  "64Â°F or higher",
+  "65Â°F or below",
+  "66-67Â°F",
+  "66Â°F or higher",
+  "67Â°F or below",
+  "68-69Â°F",
+  "68Â°F or higher",
+  "69Â°F or below",
+  "6Â°C",
+  "6Â°C or below",
+  "6Â°C or higher",
+  "70-71Â°F",
+  "70Â°F or higher",
+  "71Â°F or below",
+  "72-73Â°F",
+  "72Â°F or higher",
+  "73Â°F or below",
+  "74-75Â°F",
+  "74Â°F or higher",
+  "75Â°F or below",
+  "76-77Â°F",
+  "76Â°F or higher",
+  "77Â°F or below",
+  "78-79Â°F",
+  "78Â°F or higher",
+  "7Â°C",
+  "7Â°C or below",
+  "7Â°C or higher",
+  "80-81Â°F",
+  "80Â°F or higher",
+  "82-83Â°F",
+  "82Â°F or higher",
+  "84-85Â°F",
+  "84Â°F or higher",
+  "86-87Â°F",
+  "86Â°F or higher",
+  "88-89Â°F",
+  "88Â°F or higher",
+  "8Â°C",
+  "8Â°C or below",
+  "8Â°C or higher",
+  "90-91Â°F",
+  "90Â°F or higher",
+  "92-93Â°F",
+  "92Â°F or higher",
+  "94-95Â°F",
+  "94Â°F or higher",
+  "96Â°F or higher",
+  "9Â°C",
+  "9Â°C or below",
+  "9Â°C or higher"
+ ]
+}
