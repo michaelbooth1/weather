@@ -457,6 +457,9 @@ class CapitalBook:
 
     def withdraw(self, cash, activity, *, counted=True):
         from weather.market.lfc_f2_inventory import during_session
+        # Writer validation refreshes before apply; replay must establish the
+        # same prior cost before a late debit measures its own contribution.
+        self.refresh_pools()
         charge = (self.bridge is not None and not self.cash_before_bridge(activity) and
                   (self.inventory_anchor is None or during_session(self.ledger, activity['timestamp'])))
         self.pool_movements.append({'kind': 'withdraw', 'amount': cash, 'timestamp': activity['timestamp'],

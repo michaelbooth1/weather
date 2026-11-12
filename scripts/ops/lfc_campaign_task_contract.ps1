@@ -242,10 +242,25 @@ function Read-LfcCampaignRelease {
 }
 
 if($MyInvocation.InvocationName -ne '.' -and $ContractAction) {
-    $release=Read-LfcCampaignRelease -Path $ContractReleasePath -Sha256 $ContractReleaseSha256
+    try {
+        $release=Read-LfcCampaignRelease -Path $ContractReleasePath -Sha256 $ContractReleaseSha256
+    } catch {
+        if($_.Exception.Message -cin @('release hash','release file','release schema')) {
+            @{schema_version='lfc_campaign_task_read_v0.1';definition_valid=$false;enabled=$null;release_sha256=$ContractReleaseSha256} | ConvertTo-Json -Compress
+            Write-Error -ErrorRecord $_ -ErrorAction Continue
+            exit 78 # Proved binding refusal; never cached as an enabled read.
+        }
+        throw # Missing/unreadable transport is not proof of a changed binding.
+    }
     $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $expected=New-LfcCampaignTaskXml -Release $release -ReleasePath $ContractReleasePath -ReleaseSha256 $ContractReleaseSha256 -OwnerSid $sid
     $actual=Export-ScheduledTask -TaskName $release.task_name -TaskPath '\' -ErrorAction Stop
-    $enabled=Assert-LfcCampaignTaskXml -Actual $actual -Expected $expected
+    try {
+        $enabled=Assert-LfcCampaignTaskXml -Actual $actual -Expected $expected
+    } catch {
+        @{schema_version='lfc_campaign_task_read_v0.1';definition_valid=$false;enabled=$null;release_sha256=$ContractReleaseSha256} | ConvertTo-Json -Compress
+        Write-Error -ErrorRecord $_ -ErrorAction Continue
+        exit 78 # A complete read that failed the task-definition contract.
+    }
     @{schema_version='lfc_campaign_task_read_v0.1';definition_valid=$true;enabled=[bool]$enabled;release_sha256=$ContractReleaseSha256} | ConvertTo-Json -Compress
 }

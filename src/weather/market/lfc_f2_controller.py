@@ -400,8 +400,6 @@ class F2Coordinator:
         # evidence or a failed journal write with an ancillary gap label.
         self.journal.record('campaign_task_readback_unavailable', **row)
         self.task_readback_gaps.append(dict(row))
-        self.account_evidence_faults.add('campaign_task_readback_unavailable')
-        self.evidence_failed = True
 
     def order_session(self, row):
         oid = _order_id(row)

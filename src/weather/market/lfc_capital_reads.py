@@ -107,7 +107,7 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
                 anchor_mode=None, bridge_allowed=True):
     """Reconcile before F2 admission. Repeated reads never repeat a cash credit."""
     live = live_proof is not None
-    if anchor_mode not in {None, 'enrollment', 'session', 'idle'}:
+    if anchor_mode not in {None, 'enrollment', 'session', 'idle', 'closing'}:
         raise CapitalRefused('f2_anchor_mode')
     if anchor_mode in {'enrollment', 'session'}:
         from weather.market.lfc_f2_inventory import require_closed, require_stable_snapshot
@@ -165,7 +165,7 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
         if sha not in previous.native_groups:
             ledger.record('capital_native_group', proof=evidence, proof_sha256=sha)
         group_shas[tx] = sha
-    from weather.market.lfc_f2_cash_snapshot import context as cash_context, relation as cash_relation
+    from weather.market.lfc_f2_cash_snapshot import context as cash_context, relation as cash_relation, reference as cash_reference
     jobs = []
     for source in sources:
         evidence = evidence_for(native_packet, source, ledger=ledger)
@@ -210,9 +210,15 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
                     'bridge_pending_history_recovery': True}
         enrollment_anchor = make_anchor(book, read, kind='f2_inventory_anchor')
         inventory = {'expected': enrollment_anchor['positions'], 'changed': [], 'missing_or_below_visibility': []}
-    elif anchor_mode == 'session':
+    elif anchor_mode == 'session' or (anchor_mode == 'closing' and any(
+            value.get('surplus_only') and value['reference'] == cash_reference(book)
+            for value in book.cash_capture_bindings.values()) and not bound_read):
+        closing = anchor_mode == 'closing'
+        if closing:
+            from weather.market.lfc_f2_inventory import require_stable_snapshot
+            require_stable_snapshot(read)
         book.gate(reserve='0', owner_fault_review=owner_fault_review, loss_basis=loss_basis)
-        anchor = make_anchor(book, read, kind='f2_session_anchor')
+        anchor = make_anchor(book, read, kind='f2_session_anchor', closing=closing)
         ledger.record('f2_session_anchor', anchor=anchor, anchor_sha256=digest(anchor),
                       previous_anchor_sha256=digest(book.inventory_anchor or book.anchor), read_sha256=digest(read))
         book = CapitalBook(ledger)

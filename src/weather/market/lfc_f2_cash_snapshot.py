@@ -150,12 +150,13 @@ def context(book, read, remaining, *, anchor_mode=None):
             captured = assignment(book, sources, native(read['balances']['available_collateral']),
                                   fixed=personal_net(book, rows, snapshot_at))[item['id']]
         except TransientPrecheck:
-            if anchor_mode != 'session':
+            if anchor_mode not in {'session', 'closing'}:
                 raise
             from weather.market.lfc_f2_inventory import require_closed
-            require_closed(book.ledger, read)
-            # Only a new, closed-session anchor may absorb an unexplained
-            # residual. No ambiguous gain is credited; surplus stays owner cash.
+            require_closed(book.ledger, read, pending_claim=anchor_mode == 'closing')
+            # Only a terminal reference read may absorb an unexplained residual.
+            # Closing a claim also requires unchanged wallet inventory before
+            # its reference is written. Ambiguous surplus remains owner cash.
             captured = book.incoming(item)
             extra['surplus_only'] = True
             extra['surplus_only_ids'] = sorted(entry['id'] for entry in decode(book, sources)
@@ -195,7 +196,8 @@ def accept(book, row, item):
                 if value.get('surplus_only') is not True:
                     raise
                 from weather.market.lfc_f2_inventory import require_closed
-                require_closed(book.ledger, {'complete': True, 'errors': [], 'open_orders': []}, cut=row['sequence'])
+                require_closed(book.ledger, {'complete': True, 'errors': [], 'open_orders': []},
+                               cut=row['sequence'], pending_claim=True)
                 if value.get('surplus_only_ids') != sorted(entry['id'] for entry in decode(book, value['sources'])
                                                           if relation(book, entry) is None):
                     raise ValueError('fallback identities')

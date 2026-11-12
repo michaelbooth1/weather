@@ -185,15 +185,19 @@ def task_enabled(release, release_path, release_sha):
         raise TaskReadbackUnavailable('timeout') from None
     except OSError:
         raise TaskReadbackUnavailable('failed') from None
-    if result.returncode != 0:
-        raise TaskReadbackUnavailable('failed')
+    # Native Read reserves 78 for a proved release/task-definition refusal.
+    # Transport/CIM failures keep ordinary nonzero exits and remain transient.
+    if result.returncode == 78:
+        raise RuntimeError('campaign_task_readback_invalid')
     try:
         row = strict_json(result.stdout)
     except (ValueError, TypeError, UnicodeError):
-        raise TaskReadbackUnavailable('invalid') from None
+        raise TaskReadbackUnavailable('failed' if result.returncode else 'invalid') from None
     if isinstance(row, dict) and (row.get('definition_valid') is False or
             isinstance(row.get('release_sha256'), str) and row['release_sha256'] != release_sha):
         raise RuntimeError('campaign_task_readback_invalid')
+    if result.returncode != 0:
+        raise TaskReadbackUnavailable('failed')
     if (not isinstance(row, dict) or row.get('schema_version') != 'lfc_campaign_task_read_v0.1' or
             row.get('definition_valid') is not True or type(row.get('enabled')) is not bool or
             row.get('release_sha256') != release_sha):

@@ -27,6 +27,9 @@ from weather.market.lfc_pilot import PilotProfile
 from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new
 from weather.market.mm_stage2_hold import digest
 
+TASK_READBACK_RETRY_SECONDS = 20
+TASK_READBACK_TOLERANCE_SECONDS = 60
+
 
 def transient_read_error(exc):
     from urllib.error import HTTPError, URLError
@@ -140,17 +143,59 @@ class ScheduledAuthority:
                            orders_live=known_live_orders(self.runtime.state),
                            policy_metadata=claim_labels(self.policy, self.claim, self.entry))
             self.last_control = mono
-        if not load_policy(self.runtime.policy_path).raw['enabled'] or not self.runtime.task_enabled():
+        if not load_policy(self.runtime.policy_path).raw['enabled'] or not self.task_enabled_at_checkpoint():
             from weather.market.re1_attended import HoldEnd
             raise HoldEnd('owner_campaign_disabled')
+        now = self.runtime.clock.now()
         go_read = getattr(self, 'go_read', self.prepared.get('account_read'))
         go_expiry = getattr(self, 'go_expires_utc', self.prepared.get('expires_utc'))
         if starting and (not self.entry.permits(now) or datetime.fromisoformat(go_expiry) < now or
                          account_read_age(go_read, now) > 120):
             raise RuntimeError('go_window_or_freshness_expired')
 
+    def task_enabled_at_checkpoint(self):
+        """Before the first intent, wait for proof inside the same durable claim.
+
+        Setup checkpoints also run before any band session exists. A transient
+        there must not escape as a failed claimed date. Once an intent exists,
+        ordinary paced tolerance owns cleanup; this never retries a placement.
+        """
+        from weather.market.mm_stage2_hold import HoldEnd
+        from weather.market.lfc_campaign_recovery import attempt_intents
+        while True:
+            since = getattr(self.runtime, '_task_failure_since', None)
+            if since is not None and self.runtime.clock.monotonic() - since >= TASK_READBACK_TOLERANCE_SECONDS:
+                raise HoldEnd('campaign_task_readback_unavailable')
+            try:
+                enabled = self.runtime.task_enabled()
+                unavailable = getattr(self.runtime, '_task_failures', 0) != 0
+            except (TransientPrecheck, HoldEnd) as exc:
+                if str(exc) != 'campaign_task_readback_unavailable' and getattr(exc, 'reason', None) != 'campaign_task_readback_unavailable':
+                    raise
+                enabled, unavailable = None, True
+                if attempt_intents(self.runtime.state.ledger, self.claim['attempt_id']):
+                    raise
+            if not unavailable or attempt_intents(self.runtime.state.ledger, self.claim['attempt_id']):
+                return enabled
+            since = self.runtime._task_failure_since
+            if (self.runtime.clock.monotonic() - since >= TASK_READBACK_TOLERANCE_SECONDS or
+                    not self.entry.permits(self.runtime.clock.now())):
+                raise HoldEnd('campaign_task_readback_unavailable')
+            self.runtime.lease.check()
+            self.runtime.state.verify()
+            if not load_policy(self.runtime.policy_path).raw['enabled']:
+                raise HoldEnd('owner_campaign_disabled')
+            status = getattr(self.runtime, '_task_status', None)
+            if status is not None:
+                status.owner_stop()
+                status.progress()
+            # No sleep spans a checkpoint or hides a wall/monotonic change.
+            if not self.resync():
+                raise RuntimeError('clock_or_resume_uncertain')
+            self.runtime.clock.sleep(1)
+
     def refresh_go(self, *, progress=lambda: None):
-        """After breadth setup, re-prove money without replacing the T40 anchor.
+        """After breadth setup, re-prove money without absorbing wallet changes.
 
         No band session or intent may exist yet. This can retry reads inside
         the original entry window; it grants no placement retry or new date.
@@ -307,6 +352,7 @@ class Runtime:
         self.lease = None
         self._task_checked, self._task_value = None, False
         self._task_failures = 0
+        self._task_failure_since, self._task_retry_at = None, None
         self._task_status = None
         self.hold_path = Path(hold_path)
         self.heavy_hold_path = Path(HOLD_PATH if heavy_hold_path is None else heavy_hold_path)
@@ -367,27 +413,43 @@ class Runtime:
         from subprocess import TimeoutExpired
         from weather.market.lfc_campaign_release import TaskReadbackUnavailable
         now = self.clock.monotonic()
-        if self._task_failures >= 3 and self.state.ledger.open_sessions():
-            from weather.market.mm_stage2_hold import HoldEnd
-            raise HoldEnd('campaign_task_readback_unavailable')
+        if self._task_failures:
+            expired = now - self._task_failure_since >= TASK_READBACK_TOLERANCE_SECONDS
+            # Before a claim/session there is no stale enabled permission to
+            # retain. A later admission probe may establish new fresh proof.
+            if expired and not self.state.ledger.open_sessions():
+                self._task_failures = 0
+                self._task_failure_since, self._task_retry_at = None, None
+            else:
+                if expired or self._task_failures >= 3 or now < self._task_retry_at:
+                    if not self.state.ledger.open_sessions():
+                        raise TransientPrecheck('campaign_task_readback_unavailable')
+                    if expired or self._task_checked is None:
+                        from weather.market.mm_stage2_hold import HoldEnd
+                        raise HoldEnd('campaign_task_readback_unavailable')
+                    return self._task_value
         if self._task_checked is None or self._task_failures or now - self._task_checked >= 60:
             try:
                 value = self._read_task_enabled()
                 if type(value) is not bool:
                     raise TaskReadbackUnavailable('invalid')
             except (TaskReadbackUnavailable, TimeoutExpired) as exc:
+                if not self._task_failures:
+                    self._task_failure_since = now
                 self._task_failures += 1
+                self._task_retry_at = self.clock.monotonic() + TASK_READBACK_RETRY_SECONDS
                 self.task_readback_gap(getattr(exc, 'reason', 'timeout'))
                 # Admission never spends a stale proof. A running session may
-                # retain its last proven value for at most two failed reads.
+                # retain its last proven value only inside the fixed window.
                 if not self.state.ledger.open_sessions():
                     raise TransientPrecheck('campaign_task_readback_unavailable') from None
-                if self._task_checked is None or self._task_failures >= 3:
+                if self._task_checked is None:
                     from weather.market.mm_stage2_hold import HoldEnd
                     raise HoldEnd('campaign_task_readback_unavailable') from None
                 return self._task_value
             self._task_value, self._task_checked = value, self.clock.monotonic()
             self._task_failures = 0
+            self._task_failure_since, self._task_retry_at = None, None
         return self._task_value
 
     def task_readback_gap(self, reason):
@@ -630,11 +692,17 @@ class Runtime:
                 mode = 'session'
             elif f2 and between_sessions(ledger):
                 mode = 'idle'
+            elif f2:
+                # A terminal claim may finish its proof before its closure
+                # exists. This cannot absorb changed inventory or open orders.
+                mode = 'closing'
             try:
                 capital = synchronize(ledger, self.original_baseline(ledger), read,
                     loss_basis=loss_basis, anchor_mode=mode, bridge_allowed=bridge_allowed,
                     **({'owner_fault_review': True} if getattr(self, 'owner_fault_review', False) else {}))
             except CapitalRefused as exc:
+                if mode == 'closing' and str(exc) == 'f2_anchor_snapshot_pending':
+                    raise TransientPrecheck(str(exc)) from None
                 if str(exc) not in REASONS:
                     raise
                 observe(self.state, self.clock.now(), reason=str(exc), read_sha256=digest(read))

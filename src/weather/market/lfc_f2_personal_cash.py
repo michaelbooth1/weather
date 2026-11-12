@@ -99,20 +99,8 @@ def capture(book, anchor, sequence):
     found = movements(book.ledger, anchor['personal_trade_sources'],
         start=utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp(),
         end=utc(anchor['snapshot_at_utc']).timestamp(), bound=book.personal_trades)
-    net = 0
-    for key, item in sorted(found.items(), key=lambda pair: (pair[1]['timestamp'], pair[0])):
-        if key in book.personal_trades:
-            from weather.market.lfc_capital import CapitalRefused
-            raise CapitalRefused('f2_personal_trade_repeated')
-        book.personal_trades[key] = item
-        cash = item['cash_native']
-        debit = item['fee_native'] + (cash if item['side'] == 'BUY' else 0)
-        if debit:
-            book.pool_movements.append({'kind': 'withdraw', 'amount': debit,
-                'timestamp': item['timestamp'], 'sequence': sequence, 'charge_excess': False})
-            book.pools_dirty = True
-            net -= debit
-        if item['side'] == 'SELL':
-            book.credit('external', cash, {'id': 'personal-' + key, 'timestamp': item['timestamp']}, sequence=sequence)
-            net += cash
-    return net
+    if any(key in book.personal_trades for key in found):
+        from weather.market.lfc_capital import CapitalRefused
+        raise CapitalRefused('f2_personal_trade_repeated')
+    from weather.market.lfc_f2_personal_capture import capture as reclassify
+    return reclassify(book, found, sequence)

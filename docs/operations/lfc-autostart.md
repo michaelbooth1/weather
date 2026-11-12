@@ -23,13 +23,20 @@ Settings/Enabled is a live state read: omission means true, as in Scheduler's
 enabled export; a present true/false is read exactly. Junk or duplicate values
 refuse. The disabled export explicitly records false.
 During an open session, a transient Scheduler read failure retains the last
-proven value for two checkpoints and retries at the next checkpoint. The third
-consecutive failure ends through normal cancellation/reconciliation as
-`campaign_task_readback_unavailable`; a successful read resets the counter.
+proven value only for the bounded tolerance window in `lfc_campaign_runtime`.
+Retries are at least twenty seconds apart; three unsuccessful probes cannot
+extend the sixty-second window. At expiry normal cancellation/reconciliation
+ends the session as `campaign_task_readback_unavailable`. Success resets the
+counter and window. Before the first intent, setup waits for a fresh success
+inside that same claim and entry window, without retrying a placement.
 Admission needs a successful proof, and a proven disable or release-binding
 change is never hidden by this fallback. Each read still has a five-second
 timeout. Typed non-money journal gaps and the public outcome record every
-transient failure; missing order or inventory evidence remains a refusal.
+transient failure. A durably recorded control-only gap does not degrade research
+or money completeness. A journal-write failure still propagates; missing order
+or inventory evidence remains a refusal. Native release/task-definition refusals
+are fatal, including a binding-refusal JSON outcome when PowerShell remaps its
+reserved exit code; CIM, transport and schema failures remain transient.
 This credential-dependent owner task is an explicit exception to the ordinary
 S4U operations convention. There is no signature, ARM receipt, mandatory
 owner-started validation day, or per-policy-edit pregate.
@@ -465,12 +472,19 @@ remaining proven movements and confirmed personal trades including their fees,
 bound with that activity in the ledger. Unique all-included/none-included
 extremes are resolved before a target-pruned, bounded search.
 Multiple or inconsistent explanations defer as `capital_cash_snapshot_pending`
-outside a session-anchor read. At a complete, closed-session anchor, a
+until a safe wallet-reference read. At a complete, closed-session anchor, a
 conservative fallback uses only existing segregated surplus to explain captured
 credits; the remaining balance difference is owner cash or an owner debit.
 Credits in that ambiguous batch cannot establish campaign gains: their surplus
 is segregated, including peers processed after the first fallback and retries
 after interruption. Proven per-lot principal accounting remains unchanged.
+The same fallback can finish a pending claim once every session has ended,
+every intent is acknowledged and terminal, no order is open, all SDK fills
+match, and every position still equals the expected wallet inventory. This
+closing reference cannot absorb personal trades made during the session or
+admit another session before the pending claim closes. Its existing anchor
+and activity receipts are checked against their historical ledger cuts on
+replay; an unexplained credit never becomes campaign income.
 Enrollment uses the balance component's
 snapshot time as well as later session anchors.
 
@@ -493,13 +507,25 @@ fields, including a null taker rate, defer with `f2_personal_trade_fee_unproven`
 Already-bound fills reuse their recorded fees without revalidating later fee
 fields. No net-zero balance assumption can preserve the gains offset across
 these refusals.
+When a late SDK execution's entire timestamp second precedes the balance
+snapshot, it reclassifies the eligible finite anonymous adjustment once. A
+same-second overlap retains conservative gross-flow accounting. The original debit or
+owner-credit timing is retained; it neither consumes gains twice nor restores
+gains already spent. Any unmatched portion remains a new gross personal flow.
+Late executions are grouped at the first balance that could contain them;
+only that group's net cash can replace that snapshot's anonymous adjustment.
+A known net-zero buy/sale pair keeps its gross debit and cannot explain
+unrelated adjustments at separate later snapshots.
 If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
 defers before a claim. The controller keeps the existing supported sizing.
 The owner funding check refreshes the same protected wallet reference before
 Enable. It retries `f2_anchor_snapshot_pending` and `capital_cash_snapshot_pending`
 at most three times, ten seconds apart. An exhausted check fails as DEFERRED,
 without creating a display-only incident. Contradictions are not retried.
-Pending postchecks must finish before either kind of refresh.
+Other commands also display transient prechecks as DEFERRED; an existing
+latched incident remains INCIDENT. A pending postcheck can write only the
+terminal, unchanged-wallet closing reference described above; admission still
+waits for the postcheck to finish.
 
 Retained account-read evidence uses `ACCOUNT_EVIDENCE_JSON_LIMIT`, also exposed
 as `STATE_JSON_LIMIT` for state envelopes. History recovery, prepared/go reads,

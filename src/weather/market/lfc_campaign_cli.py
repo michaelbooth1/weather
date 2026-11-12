@@ -299,12 +299,10 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')
         return 0
     except TransientPrecheck as exc:
-        if str(exc) == 'campaign_task_readback_unavailable' or (args.command == 'check' and
-                str(exc) in {'f2_anchor_snapshot_pending', 'capital_cash_snapshot_pending'}):
-            print(json.dumps({'state': 'DEFERRED', 'code': str(exc)}))
-            emit('DEFERRED', reason=str(exc))
-        else:
-            emit('INCIDENT', incident=True, postchecks_pending=True)
+        from weather.market.lfc_campaign_control import SAFE_REASONS
+        code = str(exc) if str(exc) in SAFE_REASONS else 'transport_deferred'
+        print(json.dumps({'state': 'DEFERRED', 'code': code}))
+        emit('DEFERRED', reason=code)
         return 1
     except (PolicyRefused, StateRefused):
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])

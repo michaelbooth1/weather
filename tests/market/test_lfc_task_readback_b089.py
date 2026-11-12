@@ -158,10 +158,10 @@ def test_live_readback_gap_through_cancels_private_proof_and_campaign_close(tmp_
     assert result['post_count'] == 4 and all(raw.cancellations for raw in account.raws)
     assert not account.state.incidents(), 'Five-second reads must not trip the 15-second clock guard'
     if failures == 1:
-        assert 5 <= reads[2] - reads[1] < 15, reads  # Next checkpoint, not next minute.
+        assert 25 <= reads[2] - reads[1] < 35, reads  # Twenty seconds after the five-second failed read.
         assert runtime._task_failures == 0
     if failures == 3:
-        assert len(reads) == 4 and clock.monotonic() < 120
+        assert len(reads) == 4 and clock.monotonic() <= 125  # Fixed sixty-second tolerance from the first failure.
     outcome = status.finish(success=result['cleanup_ok'])
     gaps = outcome.get('task_readback_gaps', [])
     assert len(gaps) == failures

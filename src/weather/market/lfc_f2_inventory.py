@@ -79,7 +79,7 @@ def inventory(ledger, anchor, current, book, *, campaign_only=False, cut=None):
             'missing_or_below_visibility': sorted(token for token in tokens if token in expected and token not in observed)}
 
 
-def require_closed(ledger, read, *, cut=None):
+def require_closed(ledger, read, *, cut=None, pending_claim=False):
     from weather.market.lfc_capital import CapitalRefused
     if ledger.open_sessions():
         raise CapitalRefused('f2_anchor_open_session')
@@ -87,7 +87,7 @@ def require_closed(ledger, read, *, cut=None):
         raise CapitalRefused('f2_anchor_unknown_submit')
     if ledger.unresolved_legs():
         raise CapitalRefused('f2_anchor_unresolved_legs')
-    if not between_sessions(ledger, cut=cut):
+    if not pending_claim and not between_sessions(ledger, cut=cut):
         raise CapitalRefused('f2_anchor_postchecks_pending')
     if read.get('complete') is not True or read.get('errors', []) != []:
         raise CapitalRefused('f2_anchor_account_incomplete')
@@ -119,10 +119,35 @@ def require_stable_snapshot(read):
         raise CapitalRefused('f2_anchor_snapshot_pending')
 
 
-def make_anchor(book, read, *, kind):
+def require_closing_snapshot(book, read, *, cut=None):
+    """A pending receipt may close only a terminal, unchanged account.
+
+    This does not admit a new session or absorb personal trading during one.
+    The retained fallback binds the previous cash reference. A fresh complete
+    read may finish its still-pending capture after a retry or restart.
+    """
+    from weather.market.lfc_capital import CapitalRefused
+    from weather.market.lfc_f2_cash_snapshot import reference
+    from weather.market.lfc_f2_personal_cash import movements
+    if (book.inventory_anchor is None or not any(value.get('surplus_only') and
+            value['reference'] == reference(book) for value in book.cash_capture_bindings.values())):
+        raise CapitalRefused('capital_cash_capture_binding')
+    checked = inventory(book.ledger, book.inventory_anchor, read['positions'], book, cut=cut)
+    if checked['changed']:
+        raise CapitalRefused('capital_inventory_unreconciled')
+    first = book.inventory_anchors[0]
+    found = movements(book.ledger, read['personal_trade_sources'],
+        start=utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp(),
+        end=utc(read['snapshot_at_utc']).timestamp(), bound=book.personal_trades)
+    previous = utc(book.inventory_anchor['snapshot_at_utc']).timestamp()
+    if any(item['timestamp'] + 1 > previous for item in found.values()):
+        raise CapitalRefused('capital_inventory_unreconciled')
+
+
+def make_anchor(book, read, *, kind, closing=False):
     from weather.market.lfc_capital import CapitalRefused, native
     from weather.market.lfc_ledger import normalize_positions
-    require_closed(book.ledger, read)
+    require_closed(book.ledger, read, pending_claim=closing)
     positions = {token: str(size) for token, size in normalize_positions(read['positions']).items() if quantity(size)}
     checked = anchor_campaign_check(book, positions, enrollment=kind == 'f2_inventory_anchor')
     if checked['changed']:
@@ -134,7 +159,7 @@ def make_anchor(book, read, *, kind):
                        for name in ('positions', 'balances')), key=utc)
     covered = min(int(utc(snapshot_at).timestamp()), read['capital_activity']['scope']['end'])
     from weather.market.lfc_f2_personal_cash import sources
-    return {'kind': kind, 'maker_address': read['maker_address'].lower(),
+    anchor = {'kind': kind, 'maker_address': read['maker_address'].lower(),
             'at_utc': read['ended_at_utc'], 'read_sha256': digest(read),
             'snapshot_at_utc': snapshot_at, 'activity_covered_through': covered,
             'cash_snapshot_at_utc': component_times.get('balances', {}).get('started_at_utc', read['started_at_utc']),
@@ -150,13 +175,22 @@ def make_anchor(book, read, *, kind):
             'campaign_quantities': lot_quantities(book, cut),
             'cash_native': native(read['balances']['available_collateral']),
             'complete': True, 'open_orders': []}
+    if closing:
+        from weather.market.lfc_ledger import traded_shares
+        if book.ledger.trade_mismatches(traded_shares(read['trades'], book.ledger.our_order_ids())):
+            raise CapitalRefused('capital_inventory_unreconciled')
+        require_closing_snapshot(book, anchor)
+    return anchor
 
 
 def validate_anchor(book, anchor, row, *, enrollment=False):
     """Replay checks the same quantities and cut before accepting any reference."""
     from weather.market.lfc_capital import CapitalRefused
     ledger = book.ledger
-    require_closed(ledger, anchor, cut=row['sequence'])
+    closing = not enrollment and not between_sessions(ledger, cut=row['sequence'])
+    require_closed(ledger, anchor, cut=row['sequence'], pending_claim=closing)
+    if closing:
+        require_closing_snapshot(book, anchor, cut=row['sequence'])
     cut = row['sequence']
     tokens = campaign_tokens(ledger, cut)
     expected_lots = lot_quantities(book, cut)
