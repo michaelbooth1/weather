@@ -33,6 +33,15 @@ admission.
 - **The commit limit moves.** The workstation's page file is system-managed, so the commit limit changes during the day: 63.7 GB in the morning and 56.2 GB at midday on 2026-11-11. Commit percentages therefore move with no change in use. Before a pregate, read both the percentage and the limit.
 - **Restart chains.** `codex_restart.ps1` stops a task and continues it as `<id>r1`, and the stopped predecessor never writes `exit.txt`. A check for "is a pregate running" must follow the `rN` chain to its latest member; a lone `started.json` without `exit.txt` is not proof.
 - **Recorders run from worktrees.** The forward recorders run their scripts from `C:\wt` worktrees (`l13`, `l13g`, `l13ens`, `l13mx`, `l13gem`, `omprevrec`, `l3t1rec`, `l13nbm`, `l13gc`, `l13iem`). A storage cleanup must never delete a `C:\wt` folder that a running process names in its command line or working directory.
+- **Disk floor before every chunk.** The bounded suite (`Assert-SuiteDiskHeadroom` in `scripts/ops/bounded_worktree_test_suite.ps1`) needs at least 50 GiB free on C: at the start **and before every chunk**. The system-managed page file and owner installs change free space during a run. On 2026-11-12 it refused admission at 45.9 GiB, so 0 of 29 chunks ran; target about 56 GiB before a pregate.
+- **Reclaiming workstation disk.** Delete only regenerable agent scratch: leftover pytest basetemps, and old `C:\wt` code checkouts that meet all of these:
+  - no running process names them;
+  - they are not on the recorder list above, and not a pin, retrain, live or wallet copy;
+  - `git status` is clean, including untracked files;
+  - HEAD is on a remote-tracking ref;
+  - they are checkout-sized and not cited by any repo document.
+
+  Archive each checkout's ignored `data\` first, and log its head sha with the `git worktree add --detach` command that recreates it (2026-11-12 log: workstation `C:\t\codex\DISK-CLEANUP-20261112.log`). Research data folders (`C:\t\recopy-*`, `C:\t\r80`, `workstation-chat`) are the owner's decision.
 
 Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).
