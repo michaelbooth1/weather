@@ -493,6 +493,8 @@ class F2Coordinator:
                     except StopIteration as done:
                         self.finish_band(band, done.value)
                         del steps[key]
+                        if done.value.get('reason') == 'campaign_task_readback_unavailable':
+                            raise HoldEnd('campaign_task_readback_unavailable')
                         if self.account_fault_reason:
                             raise HoldEnd(self.account_fault_reason)
                         if (done.value.get('unknown_submit') is not False or not band.cancellation_ok or
