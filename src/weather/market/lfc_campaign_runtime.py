@@ -163,6 +163,11 @@ class ScheduledAuthority:
         from weather.market.mm_stage2_hold import HoldEnd
         from weather.market.lfc_campaign_recovery import attempt_intents
         while True:
+            now, mono = self.runtime.clock.now(), self.runtime.clock.monotonic()
+            elapsed = mono - self.last_mono
+            if elapsed < 0 or elapsed > 15 or abs((now - self.last_wall).total_seconds() - elapsed) > 2:
+                self.runtime.state.latch(self.claim['attempt_id'], 'clock_or_resume_uncertain', now)
+                raise RuntimeError('clock_or_resume_uncertain')
             since = getattr(self.runtime, '_task_failure_since', None)
             if since is not None and self.runtime.clock.monotonic() - since >= TASK_READBACK_TOLERANCE_SECONDS:
                 raise HoldEnd('campaign_task_readback_unavailable')
