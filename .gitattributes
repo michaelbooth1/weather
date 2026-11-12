@@ -6,6 +6,7 @@
 # Binary artifacts: never touch.
 *.png binary
 *.pkl binary
+tests/fixtures/market/lfc-scheduler-export-b086.xml -text
 artifacts/models/hgb/*.pkl filter=lfs diff=lfs merge=lfs -text
 docs/roadmap/execution-tape-pilot-*.json -text
 docs/roadmap/execution-tape-pilot-*.jsonl -text

@@ -135,6 +135,20 @@ $enabled=Assert-LfcCampaignTaskXml -Actual $document.OuterXml -Expected $xml
 
 
 @pytest.mark.spawns
+def test_readback_repair_preserves_generator_and_recorded_export_bytes():
+    import hashlib
+    import subprocess
+    previous = subprocess.check_output(['git', 'show',
+        'c90df0e08ebddc270558c10cb695091bdc0142eb:scripts/ops/lfc_campaign_task_contract.ps1'],
+        cwd=REPO_ROOT, text=True, encoding='utf-8')
+    def generator(text):
+        return text.split('function New-LfcCampaignTaskXml {', 1)[1].split('function Assert-LfcCampaignUpgrade {', 1)[0]
+    assert generator(CONTRACT.read_text()) == generator(previous)
+    fixture = REPO_ROOT / 'tests/fixtures/market/lfc-scheduler-export-b086.xml'
+    assert hashlib.sha256(fixture.read_bytes()).hexdigest() == 'ae7fa20644fba0baa15790d416905f2e921083499724891424a87276e492e8af'
+
+
+@pytest.mark.spawns
 @pytest.mark.parametrize('path,default,wrong', SCHEDULER_DEFAULTS)
 def test_exported_default_present_with_wrong_value_is_refused(path, default, wrong):
     parent, name = path.rsplit('/', 1)
