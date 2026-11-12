@@ -29,6 +29,11 @@ admission.
   09:00–09:15. A heavy job holding the mutex then makes it DEFER and then MISS the day.
 - **Also on those dates:** no agent creates `C:\t\codex\HOLD_HEAVY`.
 
+**Workstation housekeeping traps (master, 2026-11-11):**
+- **The commit limit moves.** The workstation's page file is system-managed, so the commit limit changes during the day: 63.7 GB in the morning and 56.2 GB at midday on 2026-11-11. Commit percentages therefore move with no change in use. Before a pregate, read both the percentage and the limit.
+- **Restart chains.** `codex_restart.ps1` stops a task and continues it as `<id>r1`, and the stopped predecessor never writes `exit.txt`. A check for "is a pregate running" must follow the `rN` chain to its latest member; a lone `started.json` without `exit.txt` is not proof.
+- **Recorders run from worktrees.** The forward recorders run their scripts from `C:\wt` worktrees (`l13`, `l13g`, `l13ens`, `l13mx`, `l13gem`, `omprevrec`, `l3t1rec`, `l13nbm`, `l13gc`, `l13iem`). A storage cleanup must never delete a `C:\wt` folder that a running process names in its command line or working directory.
+
 Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).
 Its `weather_heavy` kind admits only exact module names from
