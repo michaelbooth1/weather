@@ -193,6 +193,18 @@ function Get-LfcCampaignDeadline {
 
 function Assert-LfcCampaignTaskXml {
     param([Parameter(Mandatory=$true)][string]$Actual,[Parameter(Mandatory=$true)][string]$Expected)
+    # Scheduler exports omit these default values. Only an absent element at
+    # this exact path can match its exact default; present values stay strict.
+    $defaults=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+    $defaults['/t:Task/t:Triggers/t:TimeTrigger/t:Repetition/t:StopAtDurationEnd']='false'
+    $defaults['/t:Task/t:Triggers/t:TimeTrigger/t:Enabled']='true'
+    $defaults['/t:Task/t:Settings/t:AllowHardTerminate']='true'
+    $defaults['/t:Task/t:Settings/t:StartWhenAvailable']='false'
+    $defaults['/t:Task/t:Settings/t:RunOnlyIfNetworkAvailable']='false'
+    $defaults['/t:Task/t:Settings/t:RunOnlyIfIdle']='false'
+    $defaults['/t:Task/t:Settings/t:WakeToRun']='false'
+    $defaults['/t:Task/t:Settings/t:Priority']='7'
+    $defaults['/t:Task/t:Principals/t:Principal/t:RunLevel']='LeastPrivilege'
     $actualDocument=ConvertTo-LfcSafeXml $Actual; $expectedDocument=ConvertTo-LfcSafeXml $Expected
     $ns=[Xml.XmlNamespaceManager]::new($actualDocument.NameTable); $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
     $en=[Xml.XmlNamespaceManager]::new($expectedDocument.NameTable); $en.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
@@ -207,7 +219,9 @@ function Assert-LfcCampaignTaskXml {
         if($parent.Name -eq 'Description' -or ($parent.Name -eq 'Enabled' -and $parent.ParentNode.Name -eq 'Settings')) { continue }
         $parts=@(); $cursor=$parent
         while($cursor -is [Xml.XmlElement]) { $parts=@('t:'+$cursor.LocalName)+$parts; $cursor=$cursor.ParentNode }
-        $observed=$actualDocument.SelectNodes(('/'+($parts -join '/')),$ns)
+        $path='/'+($parts -join '/')
+        $observed=$actualDocument.SelectNodes($path,$ns)
+        if($observed.Count -eq 0 -and $defaults.ContainsKey($path) -and $parent.InnerText -ceq $defaults[$path]) { continue }
         if($observed.Count -ne 1 -or $observed[0].InnerText -cne $parent.InnerText) { throw ('task property mismatch '+$parent.LocalName) }
     }
     $enabled=$actualDocument.SelectSingleNode('/t:Task/t:Settings/t:Enabled',$ns)

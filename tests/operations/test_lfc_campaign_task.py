@@ -94,6 +94,86 @@ def test_task_definition_mutation_refused(before, after):
     assert result.returncode == 0 and result.stdout.strip() == 'REFUSED'
 
 
+# Windows omits these defaults when it exports an actually registered task.
+# The recorded export is byte-preserved except for its redacted owner SID.
+SCHEDULER_DEFAULTS = [
+    ('Triggers/TimeTrigger/Repetition/StopAtDurationEnd', 'false', 'true'),
+    ('Triggers/TimeTrigger/Enabled', 'true', 'false'),
+    ('Settings/AllowHardTerminate', 'true', 'false'),
+    ('Settings/StartWhenAvailable', 'false', 'true'),
+    ('Settings/RunOnlyIfNetworkAvailable', 'false', 'true'),
+    ('Settings/RunOnlyIfIdle', 'false', 'true'),
+    ('Settings/WakeToRun', 'false', 'true'),
+    ('Settings/Priority', '7', '8'),
+    ('Principals/Principal/RunLevel', 'LeastPrivilege', 'HighestAvailable'),
+]
+
+
+def real_scheduler_export():
+    fixture = str(REPO_ROOT / 'tests/fixtures/market/lfc-scheduler-export-b086.xml').replace("'", "''")
+    return f"$actual=[IO.File]::ReadAllText('{fixture}'); " + r'''
+$document=ConvertTo-LfcSafeXml $actual
+$ns=[Xml.XmlNamespaceManager]::new($document.NameTable)
+$ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+$exec=$document.SelectSingleNode('/t:Task/t:Actions/t:Exec',$ns)
+$r=[pscustomobject]@{root=$exec.WorkingDirectory;windowless=@{python=$exec.Command}}
+if($exec.Arguments -notmatch '"--release"\s+"([^"]+)"\s+"--release-sha256"\s+"([a-f0-9]{64})"'){throw 'fixture arguments'}
+$xml=New-LfcCampaignTaskXml -Release $r -ReleasePath $Matches[1] -ReleaseSha256 $Matches[2] -OwnerSid $document.SelectSingleNode('/t:Task/t:Principals/t:Principal/t:UserId',$ns).InnerText
+'''
+
+
+@pytest.mark.spawns
+def test_real_scheduler_export_defaults_pass_verify_and_enable_readback():
+    result = powershell(real_scheduler_export() + r'''
+$disabled=Assert-LfcCampaignTaskXml -Actual $actual -Expected $xml
+$document.SelectSingleNode('/t:Task/t:Settings/t:Enabled',$ns).InnerText='true'
+$enabled=Assert-LfcCampaignTaskXml -Actual $document.OuterXml -Expected $xml
+@{disabled=$disabled;enabled=$enabled}|ConvertTo-Json -Compress
+''')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {'disabled': False, 'enabled': True}
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize('path,default,wrong', SCHEDULER_DEFAULTS)
+def test_exported_default_present_with_wrong_value_is_refused(path, default, wrong):
+    parent, name = path.rsplit('/', 1)
+    xpath = '/t:Task/' + '/'.join('t:' + part for part in parent.split('/'))
+    result = powershell(real_scheduler_export() +
+        f"$node=$document.CreateElement('{name}',$document.DocumentElement.NamespaceURI); "
+        f"$node.InnerText='{wrong}'; [void]$document.SelectSingleNode('{xpath}',$ns).AppendChild($node); "
+        "try {[void](Assert-LfcCampaignTaskXml -Actual $document.OuterXml -Expected $xml);'BAD'}catch{'REFUSED'}")
+    assert result.returncode == 0 and result.stdout.strip() == 'REFUSED', result.stderr
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize('path,default,wrong', SCHEDULER_DEFAULTS)
+def test_exported_default_omission_is_not_equal_to_nondefault_expectation(path, default, wrong):
+    name = path.rsplit('/', 1)[1]
+    result = powershell(real_scheduler_export() +
+        f"$xml=$xml.Replace('<{name}>{default}</{name}>','<{name}>{wrong}</{name}>'); "
+        "try {[void](Assert-LfcCampaignTaskXml -Actual $actual -Expected $xml);'BAD'}catch{'REFUSED'}")
+    assert result.returncode == 0 and result.stdout.strip() == 'REFUSED', result.stderr
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize('path', [
+    'Settings/Hidden', 'Settings/MultipleInstancesPolicy', 'Settings/ExecutionTimeLimit',
+    'Triggers/TimeTrigger/Repetition/Interval', 'Triggers/TimeTrigger/Repetition/Duration',
+    'Settings/AllowStartOnDemand', 'Principals/Principal/LogonType',
+    'Actions/Exec/Command', 'Actions/Exec/Arguments', 'Settings/StopIfGoingOnBatteries',
+    'Settings/Enabled', 'Principals/Principal/UserId',
+])
+def test_other_scheduler_omissions_still_refuse(path):
+    xpath = '/t:Task/' + '/'.join('t:' + part for part in path.split('/'))
+    result = powershell(BASE + f"$document=ConvertTo-LfcSafeXml $xml; " + r'''
+$ns=[Xml.XmlNamespaceManager]::new($document.NameTable)
+$ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+''' + f"$node=$document.SelectSingleNode('{xpath}',$ns); [void]$node.ParentNode.RemoveChild($node); "
+        "try {[void](Assert-LfcCampaignTaskXml -Actual $document.OuterXml -Expected $xml);'BAD'}catch{'REFUSED'}")
+    assert result.returncode == 0 and result.stdout.strip() == 'REFUSED', result.stderr
+
+
 @pytest.mark.parametrize('code,row,expected', [
     (0, {'schema_version': 'lfc_campaign_task_read_v0.1', 'definition_valid': True, 'enabled': True,
          'release_sha256': 'a' * 64}, True),

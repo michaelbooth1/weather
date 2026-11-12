@@ -15,6 +15,10 @@ The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action
 Register`, then `Verify`, edits the campaign file, then uses `Enable`. Register
 requires the reviewed head, qualified pregate receipt and existing interpreter;
 it creates a disabled Interactive/Limited task and reads its definition back.
+Readback accepts Scheduler's omission of the nine explicitly listed defaults
+in `Assert-LfcCampaignTaskXml`; present values, every other required element,
+cardinality and extra-capability checks remain strict. The task XML generator
+still writes every expected value explicitly.
 This credential-dependent owner task is an explicit exception to the ordinary
 S4U operations convention. There is no signature, ARM receipt, mandatory
 owner-started validation day, or per-policy-edit pregate.
