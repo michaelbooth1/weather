@@ -135,6 +135,86 @@ $enabled=Assert-LfcCampaignTaskXml -Actual $document.OuterXml -Expected $xml
 
 
 @pytest.mark.spawns
+def test_real_enabled_export_omits_only_enabled_and_reads_true():
+    disabled = REPO_ROOT / 'tests/fixtures/market/lfc-scheduler-export-b086.xml'
+    enabled = REPO_ROOT / 'tests/fixtures/market/lfc-scheduler-enabled-export-b087.xml'
+    assert enabled.read_bytes() == disabled.read_bytes().replace(b'    <Enabled>false</Enabled>\r\n', b'', 1)
+    path = str(enabled).replace("'", "''")
+    result = powershell(real_scheduler_export() +
+        f"$enabledActual=[IO.File]::ReadAllText('{path}'); " + r'''
+@{disabled=(Assert-LfcCampaignTaskXml -Actual $actual -Expected $xml);
+  enabled=(Assert-LfcCampaignTaskXml -Actual $enabledActual -Expected $xml)}|ConvertTo-Json -Compress
+''')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {'disabled': False, 'enabled': True}
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize('text', ['', 'TRUE', 'FALSE', '1', 'yes', ' true', 'false '])
+def test_settings_enabled_junk_is_never_a_default(text):
+    result = powershell(real_scheduler_export() +
+        f"$document.SelectSingleNode('/t:Task/t:Settings/t:Enabled',$ns).InnerText='{text}'; "
+        "try {[void](Assert-LfcCampaignTaskXml -Actual $document.OuterXml -Expected $xml);'BAD'}catch{$_.Exception.Message}")
+    assert result.returncode == 0 and result.stdout.strip() == 'task enabled unreadable', result.stderr
+
+
+@pytest.mark.spawns
+def test_duplicate_settings_enabled_is_unreadable():
+    result = powershell(real_scheduler_export() + r'''
+$node=$document.SelectSingleNode('/t:Task/t:Settings/t:Enabled',$ns)
+[void]$node.ParentNode.AppendChild($node.CloneNode($true))
+try {[void](Assert-LfcCampaignTaskXml -Actual $document.OuterXml -Expected $xml);'BAD'}catch{$_.Exception.Message}
+''')
+    assert result.returncode == 0 and result.stdout.strip() == 'task enabled unreadable', result.stderr
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize('enabled', [False, True])
+def test_real_contract_read_reaches_task_enabled_and_tick_runtime(tmp_path, monkeypatch, enabled):
+    import hashlib
+    import subprocess
+    from tests.market.test_lfc_campaign_runtime import runtime_at
+    suffix = 'lfc-scheduler-enabled-export-b087.xml' if enabled else 'lfc-scheduler-export-b086.xml'
+    fixture = REPO_ROOT / 'tests/fixtures/market' / suffix
+    release_path = tmp_path / 'release.json'
+    data = {'schema_version': 'lfc_campaign_release_v0.1', 'task_name': 'WeatherLFCCampaign',
+            'root': str(tmp_path), 'windowless': {'python': r'C:\synthetic\pythonw.exe'}}
+    release_path.write_text(json.dumps(data))
+    sha = hashlib.sha256(release_path.read_bytes()).hexdigest()
+    native_run = subprocess.run
+    calls = []
+    q = lambda value: "'" + str(value).replace("'", "''") + "'"
+    def scheduler_only_mock(command, **kwargs):
+        assert command == ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(CONTRACT),
+                           '-Action', 'Read', '-ReleasePath', str(release_path), '-ReleaseSha256', sha]
+        calls.append(command)
+        script = f". {q(CONTRACT)}; $r=Read-LfcCampaignRelease -Path {q(release_path)} -Sha256 '{sha}'; " + r'''
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+''' + f"$expected=New-LfcCampaignTaskXml -Release $r -ReleasePath {q(release_path)} -ReleaseSha256 '{sha}' -OwnerSid $sid; " + \
+            f"$a=ConvertTo-LfcSafeXml ([IO.File]::ReadAllText({q(fixture)})); $e=ConvertTo-LfcSafeXml $expected; " + r'''
+$ns=[Xml.XmlNamespaceManager]::new($a.NameTable);$ns.AddNamespace('t',$a.DocumentElement.NamespaceURI)
+foreach($path in @('/t:Task/t:Principals/t:Principal/t:UserId','/t:Task/t:Actions/t:Exec/t:Command','/t:Task/t:Actions/t:Exec/t:Arguments','/t:Task/t:Actions/t:Exec/t:WorkingDirectory')) {
+    $a.SelectSingleNode($path,$ns).InnerText=$e.SelectSingleNode($path,$ns).InnerText
+}
+$global:fixtureExport=$a.OuterXml
+function Export-ScheduledTask { param($TaskName,$TaskPath) return $global:fixtureExport }
+''' + f"& {q(CONTRACT)} -Action Read -ReleasePath {q(release_path)} -ReleaseSha256 '{sha}'"
+        kwargs['env'] = clean_native_environment()
+        result = native_run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script], **kwargs)
+        (tmp_path / 'contract-read.log').write_text(result.stdout + '\nSTDERR\n' + result.stderr)
+        return result
+    monkeypatch.setattr(release.subprocess, 'run', scheduler_only_mock)
+    assert release.task_enabled(data, release_path, sha) is enabled
+    from tests.market.test_lfc_campaign import MAKER, Mutexes
+    from weather.market.lfc_campaign_guard import account_lease
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path / 'runtime')
+    runtime._read_task_enabled = lambda: release.task_enabled(data, release_path, sha)
+    assert runtime.task_enabled() is enabled
+    assert len(calls) == 2
+
+
+@pytest.mark.spawns
 def test_readback_repair_preserves_generator_and_recorded_export_bytes():
     import hashlib
     import subprocess
@@ -176,7 +256,7 @@ def test_exported_default_omission_is_not_equal_to_nondefault_expectation(path, 
     'Triggers/TimeTrigger/Repetition/Interval', 'Triggers/TimeTrigger/Repetition/Duration',
     'Settings/AllowStartOnDemand', 'Principals/Principal/LogonType',
     'Actions/Exec/Command', 'Actions/Exec/Arguments', 'Settings/StopIfGoingOnBatteries',
-    'Settings/Enabled', 'Principals/Principal/UserId',
+    'Principals/Principal/UserId',
 ])
 def test_other_scheduler_omissions_still_refuse(path):
     xpath = '/t:Task/' + '/'.join('t:' + part for part in path.split('/'))

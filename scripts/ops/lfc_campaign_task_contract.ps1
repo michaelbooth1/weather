@@ -224,9 +224,11 @@ function Assert-LfcCampaignTaskXml {
         if($observed.Count -eq 0 -and $defaults.ContainsKey($path) -and $parent.InnerText -ceq $defaults[$path]) { continue }
         if($observed.Count -ne 1 -or $observed[0].InnerText -cne $parent.InnerText) { throw ('task property mismatch '+$parent.LocalName) }
     }
-    $enabled=$actualDocument.SelectSingleNode('/t:Task/t:Settings/t:Enabled',$ns)
-    if($null -eq $enabled -or $enabled.InnerText -cnotin @('true','false')) { throw 'task enabled unreadable' }
-    return ($enabled.InnerText -ceq 'true')
+    # Scheduler omits Settings/Enabled when enabled (its schema default).
+    $enabled=$actualDocument.SelectNodes('/t:Task/t:Settings/t:Enabled',$ns)
+    if($enabled.Count -eq 0) { return $true }
+    if($enabled.Count -ne 1 -or $enabled[0].InnerText -cnotin @('true','false')) { throw 'task enabled unreadable' }
+    return ($enabled[0].InnerText -ceq 'true')
 }
 
 function Read-LfcCampaignRelease {

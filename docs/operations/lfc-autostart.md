@@ -19,6 +19,9 @@ Readback accepts Scheduler's omission of the nine explicitly listed defaults
 in `Assert-LfcCampaignTaskXml`; present values, every other required element,
 cardinality and extra-capability checks remain strict. The task XML generator
 still writes every expected value explicitly.
+Settings/Enabled is a live state read: omission means true, as in Scheduler's
+enabled export; a present true/false is read exactly. Junk or duplicate values
+refuse. The disabled export explicitly records false.
 This credential-dependent owner task is an explicit exception to the ordinary
 S4U operations convention. There is no signature, ARM receipt, mandatory
 owner-started validation day, or per-policy-edit pregate.

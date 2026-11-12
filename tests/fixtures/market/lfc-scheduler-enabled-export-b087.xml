@@ -1,0 +1,43 @@
+﻿<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Owner activated finite LFC campaign; no agent activation.</Description>
+    <URI>\WeatherLFCCampaign</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Owner">
+      <UserId>S-1-5-21-1111111111-2222222222-3333333333-1001</UserId>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+  <Settings>
+    <AllowStartOnDemand>false</AllowStartOnDemand>
+    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT11H</ExecutionTimeLimit>
+    <Hidden>true</Hidden>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+  </Settings>
+  <Triggers>
+    <TimeTrigger>
+      <StartBoundary>2026-11-10T00:00:00</StartBoundary>
+      <EndBoundary>2027-01-01T00:00:00</EndBoundary>
+      <Repetition>
+        <Interval>PT5M</Interval>
+        <Duration>P52D</Duration>
+      </Repetition>
+    </TimeTrigger>
+  </Triggers>
+  <Actions Context="Owner">
+    <Exec>
+      <Command>C:\Users\Michael\Documents\github\weather\venv\Scripts\pythonw.exe</Command>
+      <Arguments>"-I" "C:\wt\lfc-pinb-qualified\scripts\ops\lfc_campaign_windowless.py" "--release" "C:\t\pilot\autostart-release-pinb.json" "--release-sha256" "e80f6c70390f084362ca89f5899b2d8bef21f963094b9b7952fadfe6eb159334"</Arguments>
+      <WorkingDirectory>C:\wt\lfc-pinb-qualified</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
