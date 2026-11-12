@@ -39,7 +39,7 @@ def solve(variables, target):
 
 
 def personal_net(book, rows, snapshot_at):
-    """Unbound, confirmed SDK executions and documented fees are fixed terms."""
+    """Only current-snapshot personal cash is a fixed term, as at capture."""
     if not rows:
         return 0
     from weather.market.lfc_f2_personal_cash import movements
@@ -47,8 +47,8 @@ def personal_net(book, rows, snapshot_at):
     found = movements(book.ledger, rows,
         start=utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp(),
         end=utc(snapshot_at).timestamp(), bound=book.personal_trades)
-    return sum((item['cash_native'] if item['side'] == 'SELL' else -item['cash_native']) - item['fee_native']
-               for key, item in found.items() if key not in book.personal_trades)
+    from weather.market.lfc_f2_personal_capture import plan
+    return plan(book, found)[1]
 
 
 def surplus_batch(book, item):

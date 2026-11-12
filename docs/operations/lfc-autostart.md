@@ -522,6 +522,9 @@ can be replaced; native-explained cash is protected. Any remaining difference is
 segregated owner cash or an owner debit, never a new campaign gain. A same-second
 overlap retains conservative gross-flow accounting. Replay derives the same
 correction from immutable anchors and execution identities.
+The same-second native cash solver uses that same capture plan: a late personal
+execution already inside an earlier cash reference is excluded from its fixed
+term; a fresh execution and its fee remain included. Solving never binds a trade.
 A known net-zero buy/sale pair keeps its gross debit and cannot explain
 unrelated adjustments at separate later snapshots.
 If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
