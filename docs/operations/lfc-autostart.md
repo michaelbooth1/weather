@@ -37,6 +37,9 @@ or money completeness. A journal-write failure still propagates; missing order
 or inventory evidence remains a refusal. Native release/task-definition refusals
 are fatal, including a binding-refusal JSON outcome when PowerShell remaps its
 reserved exit code; CIM, transport and schema failures remain transient.
+An unavailable precheck may display DEFERRED before a claim. A transient that
+escapes after the attempt is claimed preserves the INCIDENT display and pending
+postchecks, even when acknowledged intents do not require a durable incident latch.
 This credential-dependent owner task is an explicit exception to the ordinary
 S4U operations convention. There is no signature, ARM receipt, mandatory
 owner-started validation day, or per-policy-edit pregate.

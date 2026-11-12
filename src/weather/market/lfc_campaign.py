@@ -263,6 +263,8 @@ class CampaignCoordinator:
                 if claim is not None:
                     # Never turn a post-claim transport failure into permission
                     # for a second order-capable invocation, even in this tick.
+                    if isinstance(exc, TransientPrecheck):
+                        exc.claimed_attempt_id = claim['attempt_id']
                     raise
                 reason = ('hold_retained' if isinstance(exc, AdmissionBusy) and str(exc) in
                           {'hold_already_owned', 'hold_retained', 'agent_heavy_hold'} else

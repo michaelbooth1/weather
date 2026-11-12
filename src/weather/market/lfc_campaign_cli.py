@@ -301,8 +301,12 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
     except TransientPrecheck as exc:
         from weather.market.lfc_campaign_control import SAFE_REASONS
         code = str(exc) if str(exc) in SAFE_REASONS else 'transport_deferred'
-        print(json.dumps({'state': 'DEFERRED', 'code': code}))
-        emit('DEFERRED', reason=code)
+        # The coordinator has already consumed this attempt. Its INCIDENT
+        # display must survive even when acknowledged intents need no latch.
+        claimed = getattr(exc, 'claimed_attempt_id', None) is not None
+        phase = 'INCIDENT' if claimed else 'DEFERRED'
+        print(json.dumps({'state': phase, 'code': code}))
+        emit(phase, reason=code, **({'incident': True, 'postchecks_pending': True} if claimed else {}))
         return 1
     except (PolicyRefused, StateRefused):
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
