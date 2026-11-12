@@ -13,6 +13,7 @@ CONTROL_SCHEMA = 'lfc_campaign_control_v0.1'
 CONTROL_ROOT = Path(r'C:\t\pilot\status\control')
 SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_PENDING', 'COMPLETE', 'INCIDENT', 'REFUSED', 'EVIDENCE_GAP', 'RETRY_PENDING'}
 SAFE_REASONS = {
+    'campaign_task_readback_unavailable',
     'retry_pending', 'wallet_cash_below_sleeve', 'foreign_open_order', 'capital_cash_snapshot_pending',
     'f2_personal_trade_unproven', 'f2_personal_trade_fee_unproven', 'f2_personal_trade_changed', 'f2_anchor_snapshot_pending',
     'stale_control_row', 'control_row_unknown',

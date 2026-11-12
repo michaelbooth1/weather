@@ -147,6 +147,8 @@ class F2Status(SessionStatus):
                  'inventory_proven': coordinator.inventory_proven,
                  'unknown_submit': coordinator.posts != len(coordinator.known)}
         return {'f2_session': True, 'bands': bands, 'event': None, 'band': None, 'tokens': [],
+                **({'task_readback_gaps': list(coordinator.task_readback_gaps)}
+                   if getattr(coordinator, 'task_readback_gaps', None) else {}),
                 'orders_placed': {'count': None if flags['unknown_submit'] else len(placed), 'known_count': len(placed),
                                   'ids': sorted(placed), 'attempted': coordinator.posts},
                 'orders_cancelled': {'count': len(cancelled), 'ids': sorted(cancelled)},

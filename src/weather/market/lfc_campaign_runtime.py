@@ -306,6 +306,8 @@ class Runtime:
         self._read_task_enabled = task_enabled
         self.lease = None
         self._task_checked, self._task_value = None, False
+        self._task_failures = 0
+        self._task_status = None
         self.hold_path = Path(hold_path)
         self.heavy_hold_path = Path(HOLD_PATH if heavy_hold_path is None else heavy_hold_path)
         self.sidecar = None
@@ -362,11 +364,42 @@ class Runtime:
             return {key: row[key] for key in ('funding_native', 'cash_asset', 'native_decimals', 'capital_bridge_complete')}
 
     def task_enabled(self):
+        from subprocess import TimeoutExpired
+        from weather.market.lfc_campaign_release import TaskReadbackUnavailable
         now = self.clock.monotonic()
-        if self._task_checked is None or now - self._task_checked >= 60:
-            self._task_value = self._read_task_enabled()
-            self._task_checked = now
+        if self._task_failures >= 3 and self.state.ledger.open_sessions():
+            from weather.market.mm_stage2_hold import HoldEnd
+            raise HoldEnd('campaign_task_readback_unavailable')
+        if self._task_checked is None or self._task_failures or now - self._task_checked >= 60:
+            try:
+                value = self._read_task_enabled()
+                if type(value) is not bool:
+                    raise TaskReadbackUnavailable('invalid')
+            except (TaskReadbackUnavailable, TimeoutExpired) as exc:
+                self._task_failures += 1
+                self.task_readback_gap(getattr(exc, 'reason', 'timeout'))
+                # Admission never spends a stale proof. A running session may
+                # retain its last proven value for at most two failed reads.
+                if not self.state.ledger.open_sessions():
+                    raise TransientPrecheck('campaign_task_readback_unavailable') from None
+                if self._task_checked is None or self._task_failures >= 3:
+                    from weather.market.mm_stage2_hold import HoldEnd
+                    raise HoldEnd('campaign_task_readback_unavailable') from None
+                return self._task_value
+            self._task_value, self._task_checked = value, self.clock.monotonic()
+            self._task_failures = 0
         return self._task_value
+
+    def task_readback_gap(self, reason):
+        row = {'readback_reason': reason, 'consecutive_failures': self._task_failures,
+               'at_utc': self.clock.now().isoformat()}
+        session = getattr(self._task_status, 'session', None)
+        record = getattr(session, 'note_task_readback_gap', None)
+        if record is not None:
+            record(row)
+        else:
+            self.state.save('task-readback-gaps/' + uuid.uuid4().hex + '.json',
+                            {'event': 'campaign_task_readback_unavailable', **row})
 
     def reload_ledger(self):
         self.state.ledger = Ledger.open(ledger_path(self.pilot_root), clock=self.clock.now, maker_address=self.state.maker)
@@ -799,6 +832,7 @@ class Runtime:
             SessionStatus = F2Status
         status = SessionStatus(kind='autostart', clock=self.clock.now, monotonic=self.clock.monotonic,
                                policy_metadata=claim_labels(policy, claim, entry))
+        self._task_status = status
         status.directory = self.state.root / 'owner-status'
         # STOP remains the existing owner-only fixed path; agents never create
         # it. Tests inject a temporary status/STOP surface before any checkpoint.
@@ -853,6 +887,7 @@ class Runtime:
             raise
         finally:
             stop_watcher.set()
+            self._task_status = None
             if watcher is not None and watcher.ident is not None:
                 watcher.join(timeout=2)
             for number, handler in previous.items():

@@ -165,17 +165,37 @@ def validate_release(row):
             raise RuntimeError('campaign_dependency_changed')
 
 
+class TaskReadbackUnavailable(RuntimeError):
+    """An unproved read is not a disable or a proven binding change."""
+    def __init__(self, reason):
+        if reason not in {'timeout', 'failed', 'invalid'}:
+            raise ValueError('task_readback_reason')
+        self.reason = reason
+        super().__init__('campaign_task_readback_' + reason)
+
+
 def task_enabled(release, release_path, release_sha):
     """Fresh actual Scheduler read-back, not a digest pretending the task is enabled."""
     script = REPO_ROOT / 'scripts/ops/lfc_campaign_task_contract.ps1'
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script),
+    try:
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script),
                              '-Action', 'Read', '-ReleasePath', str(release_path), '-ReleaseSha256', release_sha],
                             capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        raise TaskReadbackUnavailable('timeout') from None
+    except OSError:
+        raise TaskReadbackUnavailable('failed') from None
     if result.returncode != 0:
-        raise RuntimeError('campaign_task_readback_failed')
-    row = strict_json(result.stdout)
+        raise TaskReadbackUnavailable('failed')
+    try:
+        row = strict_json(result.stdout)
+    except (ValueError, TypeError, UnicodeError):
+        raise TaskReadbackUnavailable('invalid') from None
+    if isinstance(row, dict) and (row.get('definition_valid') is False or
+            isinstance(row.get('release_sha256'), str) and row['release_sha256'] != release_sha):
+        raise RuntimeError('campaign_task_readback_invalid')
     if (not isinstance(row, dict) or row.get('schema_version') != 'lfc_campaign_task_read_v0.1' or
             row.get('definition_valid') is not True or type(row.get('enabled')) is not bool or
             row.get('release_sha256') != release_sha):
-        raise RuntimeError('campaign_task_readback_invalid')
+        raise TaskReadbackUnavailable('invalid')
     return row['enabled']

@@ -22,6 +22,14 @@ still writes every expected value explicitly.
 Settings/Enabled is a live state read: omission means true, as in Scheduler's
 enabled export; a present true/false is read exactly. Junk or duplicate values
 refuse. The disabled export explicitly records false.
+During an open session, a transient Scheduler read failure retains the last
+proven value for two checkpoints and retries at the next checkpoint. The third
+consecutive failure ends through normal cancellation/reconciliation as
+`campaign_task_readback_unavailable`; a successful read resets the counter.
+Admission needs a successful proof, and a proven disable or release-binding
+change is never hidden by this fallback. Each read still has a five-second
+timeout. Typed non-money journal gaps and the public outcome record every
+transient failure; missing order or inventory evidence remains a refusal.
 This credential-dependent owner task is an explicit exception to the ordinary
 S4U operations convention. There is no signature, ARM receipt, mandatory
 owner-started validation day, or per-policy-edit pregate.

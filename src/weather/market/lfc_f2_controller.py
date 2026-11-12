@@ -381,6 +381,7 @@ class F2Coordinator:
         self.reason, self.open_rows = 'fixed_end', None
         self.account_fault_reason = None
         self.account_evidence_faults = set()
+        self.task_readback_gaps = []
         from weather.market.lfc_f2_breadth import enabled, PROTOCOL as BREADTH_PROTOCOL
         self.scope = {'session_id': session_id, 'attempt_id': attempt_id,
                       'protocol': BREADTH_PROTOCOL if enabled(policy) else 'lfc_autostart_v2',
@@ -393,6 +394,14 @@ class F2Coordinator:
             self.journal.record(event, **fields)
         except BaseException:
             self.evidence_failed = True
+
+    def note_task_readback_gap(self, row):
+        # Persist before tolerating the read. This cannot mask missing money
+        # evidence or a failed journal write with an ancillary gap label.
+        self.journal.record('campaign_task_readback_unavailable', **row)
+        self.task_readback_gaps.append(dict(row))
+        self.account_evidence_faults.add('campaign_task_readback_unavailable')
+        self.evidence_failed = True
 
     def order_session(self, row):
         oid = _order_id(row)

@@ -76,6 +76,12 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 # A missed send is tolerated by the independent heartbeat
                 # freshness/failure checks; it is not missing money evidence.
                 gaps.add(event)
+            elif event == 'campaign_task_readback_unavailable':
+                if (row.get('readback_reason') not in {'timeout', 'failed', 'invalid'} or
+                        type(row.get('consecutive_failures')) is not int or
+                        not 1 <= row['consecutive_failures'] <= 3):
+                    raise ValueError('private_task_readback_gap')
+                gaps.add(event)
             elif event == 'missing_sample' and row.get('sample') in ANCILLARY_SAMPLES:
                 gaps.add('sample_' + row['sample'])
             elif event in MONEY_READ_GAPS:

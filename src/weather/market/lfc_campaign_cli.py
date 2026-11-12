@@ -299,7 +299,8 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')
         return 0
     except TransientPrecheck as exc:
-        if args.command == 'check' and str(exc) in {'f2_anchor_snapshot_pending', 'capital_cash_snapshot_pending'}:
+        if str(exc) == 'campaign_task_readback_unavailable' or (args.command == 'check' and
+                str(exc) in {'f2_anchor_snapshot_pending', 'capital_cash_snapshot_pending'}):
             print(json.dumps({'state': 'DEFERRED', 'code': str(exc)}))
             emit('DEFERRED', reason=str(exc))
         else:
