@@ -513,13 +513,15 @@ fields, including a null taker rate, defer with `f2_personal_trade_fee_unproven`
 Already-bound fills reuse their recorded fees without revalidating later fee
 fields. No net-zero balance assumption can preserve the gains offset across
 these refusals.
-When a late SDK execution's entire timestamp second precedes the balance
-snapshot, it reclassifies the eligible finite anonymous adjustment once. A
-same-second overlap retains conservative gross-flow accounting. The original debit or
-owner-credit timing is retained; it neither consumes gains twice nor restores
-gains already spent. Any unmatched portion remains a new gross personal flow.
-Late executions are grouped at the first balance that could contain them;
-only that group's net cash can replace that snapshot's anonymous adjustment.
+Each proved gross SDK execution is charged once at its execution time. When its
+entire timestamp second precedes an earlier balance snapshot, its opposite net
+reconciles that original snapshot's anonymous residual. Successive revelations
+of opposing fills revise the same residual rather than replaying either gross
+flow against a later balance. Only finite unexplained residuals at that snapshot
+can be replaced; native-explained cash is protected. Any remaining difference is
+segregated owner cash or an owner debit, never a new campaign gain. A same-second
+overlap retains conservative gross-flow accounting. Replay derives the same
+correction from immutable anchors and execution identities.
 A known net-zero buy/sale pair keeps its gross debit and cannot explain
 unrelated adjustments at separate later snapshots.
 If an eligible band needs more cash than remains, `wallet_cash_below_sleeve`
@@ -528,8 +530,8 @@ The owner funding check refreshes the same protected wallet reference before
 Enable. It retries `f2_anchor_snapshot_pending` and `capital_cash_snapshot_pending`
 at most three times, ten seconds apart. An exhausted check fails as DEFERRED,
 without creating a display-only incident. Contradictions are not retried.
-Other commands also display transient prechecks as DEFERRED; an existing
-latched incident remains INCIDENT. A pending postcheck can write only the
+Other commands display pre-claim transient prechecks as DEFERRED; a claimed
+attempt or existing latched incident remains INCIDENT. A pending postcheck can write only the
 terminal, unchanged-wallet closing reference described above; admission still
 waits for the postcheck to finish.
 

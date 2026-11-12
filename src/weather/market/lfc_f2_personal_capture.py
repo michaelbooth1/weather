@@ -1,19 +1,19 @@
-"""Reclassify late SDK executions against finite, already-captured owner cash.
+"""Reconcile each proved gross execution with its original cash snapshot once.
 
-Only anonymous adjustments from an earlier balance snapshot are eligible. A
-replacement retains that adjustment's original time and ledger sequence; it
-cannot restore gains already consumed or be spent by a later native proof.
+Progressive SDK visibility can reverse an earlier anonymous residual. Adjust
+that same snapshot, never a later unrelated payment. Native-explained cash is
+protected; any unmatched difference remains owner cash, never campaign gain.
 """
 from weather.market.mm_stage2_hold import utc
 
 
 def plan(book, found):
     reference = book.cash_reference or {}
-    assigned, totals = {}, {}
+    result, net = [], 0
     for key, item in found.items():
         if key in book.personal_trades:
             continue
-        assigned[key] = None
+        original = None
         for anchor in book.inventory_anchors:
             if anchor['ledger_cut'] > reference.get('sequence', -1):
                 continue
@@ -23,62 +23,71 @@ def plan(book, found):
                 # if an earlier balance could already contain it. An overlap
                 # stays gross; timestamps alone do not prove inclusion.
                 if item['timestamp'] + 1 <= instant:
-                    at = assigned[key] = anchor['ledger_cut']
-                    totals[at] = totals.get(at, 0) + (
-                        item['cash_native'] if item['side'] == 'SELL' else -item['cash_native']) - item['fee_native']
+                    original = anchor
                 break
-    budgets = {(at, debit): max(0, -amount if debit else amount)
-               for at, amount in totals.items() for debit in (True, False)}
-    debits = {id(move): max(0, move['amount'] - move.get('explained_native', 0))
-              for move in book.wallet_debit_quarantines}
-    credits = {id(move): move['amount'] for move in book.wallet_quarantines}
-    result, net = [], 0
-    for key, item in sorted(found.items(), key=lambda pair: (pair[1]['timestamp'], pair[0])):
-        if key in book.personal_trades:
-            continue
-        parts = []
-        for debit, amount, markers, remaining in (
-                (True, item['fee_native'] + (item['cash_native'] if item['side'] == 'BUY' else 0),
-                 book.wallet_debit_quarantines, debits),
-                (False, item['cash_native'] if item['side'] == 'SELL' else 0, book.wallet_quarantines, credits)):
-            matched = []
-            at = assigned[key]
-            budget = budgets.get((at, debit), 0)
-            for marker in markers:
-                if not amount or not budget:
-                    break
-                if marker['sequence'] != at:
-                    continue
-                take = min(amount, budget, remaining[id(marker)])
-                if take:
-                    remaining[id(marker)] -= take
-                    amount -= take
-                    budget -= take
-                    matched.append((marker, take))
-            budgets[at, debit] = budget
-            parts.append((debit, matched, amount))
-            net += -amount if debit else amount
-        result.append((key, item, parts))
+        if original is None:
+            net += signed_cash(item)
+        result.append((key, item, original))
     return result, net
+
+
+def signed_cash(item):
+    return (item['cash_native'] if item['side'] == 'SELL' else -item['cash_native']) - item['fee_native']
+
+
+def adjust_snapshot(book, anchor, delta):
+    """Replace only a finite unexplained residual at this proved snapshot.
+
+    Every new historical gross flow changes the old anonymous residual by its
+    opposite net. A later opposing fill can therefore cancel the provisional
+    adjustment made when only the first fill was visible. It never replays
+    either gross flow or consumes another snapshot's quarantine.
+    """
+    if not delta:
+        return
+    sequence = anchor['ledger_cut']
+    markers = book.wallet_debit_quarantines if delta > 0 else book.wallet_quarantines
+    remaining = abs(delta)
+    for marker in markers:
+        if marker['sequence'] != sequence:
+            continue
+        available = marker['amount'] - (marker.get('explained_native', 0) if delta > 0 else 0)
+        take = min(remaining, max(0, available))
+        marker['amount'] -= take
+        remaining -= take
+        if not remaining:
+            break
+    if remaining:
+        timestamp = int(utc(anchor['at_utc']).timestamp())
+        if delta > 0:
+            grant = book.credit('external', remaining, {'id': 'wallet-anchor-' + str(sequence),
+                                'timestamp': timestamp}, sequence=sequence)
+            book.wallet_quarantines.append(grant)
+        else:
+            from weather.market.lfc_f2_wallet_cash import owner_debit
+            owner_debit(book, remaining, timestamp=timestamp, sequence=sequence)
+    if delta:
+        book.pools_dirty = True
 
 
 def capture(book, found, sequence):
     planned, net = plan(book, found)
-    for key, item, parts in planned:
+    groups = {}
+    for key, item, original in sorted(planned, key=lambda row: (row[1]['timestamp'], row[0])):
         book.personal_trades[key] = item
-        for debit, matched, remaining in parts:
-            transfers = []
-            for marker, amount in matched:
-                marker['amount'] -= amount
-                transfers.append((amount, marker['timestamp'], marker['sequence']))
-            if remaining:
-                transfers.append((remaining, item['timestamp'], sequence))
-            for amount, timestamp, at in transfers:
-                if debit:
-                    book.pool_movements.append({'kind': 'withdraw', 'amount': amount, 'timestamp': timestamp,
-                        'sequence': at, 'charge_excess': False, 'activity_id': 'personal-' + key})
-                else:
-                    book.credit('external', amount, {'id': 'personal-' + key, 'timestamp': timestamp}, sequence=at)
-            if transfers:
-                book.pools_dirty = True
+        debit = item['fee_native'] + (item['cash_native'] if item['side'] == 'BUY' else 0)
+        if debit:
+            book.pool_movements.append({'kind': 'withdraw', 'amount': debit, 'timestamp': item['timestamp'],
+                'sequence': sequence, 'charge_excess': False, 'activity_id': 'personal-' + key})
+        if item['side'] == 'SELL':
+            book.credit('external', item['cash_native'], {'id': 'personal-' + key,
+                        'timestamp': item['timestamp']}, sequence=sequence)
+        if original is not None:
+            at = original['ledger_cut']
+            previous = groups.get(at, (original, 0))[1]
+            groups[at] = original, previous - signed_cash(item)
+        book.pools_dirty = True
+    for at in sorted(groups):
+        anchor, delta = groups[at]
+        adjust_snapshot(book, anchor, delta)
     return net
