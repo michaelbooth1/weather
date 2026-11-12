@@ -29,6 +29,9 @@ extend the sixty-second window. At expiry normal cancellation/reconciliation
 ends the session as `campaign_task_readback_unavailable`. Success resets the
 counter and window. Before the first intent, setup waits for a fresh success
 inside that same claim and entry window, without retrying a placement.
+The fixed deadline is checked again after a failed native read before any
+cached permission is returned. Setup validation calls must pass elapsed/drift
+checks before progress or resync can reset their clock reference.
 Admission needs a successful proof, and a proven disable or release-binding
 change is never hidden by this fallback. Each read still has a five-second
 timeout. Typed non-money journal gaps and the public outcome record every

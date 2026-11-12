@@ -153,6 +153,14 @@ class ScheduledAuthority:
                          account_read_age(go_read, now) > 120):
             raise RuntimeError('go_window_or_freshness_expired')
 
+    def check_wait_clock(self):
+        """Validate before any setup progress can reset the elapsed reference."""
+        now, mono = self.runtime.clock.now(), self.runtime.clock.monotonic()
+        elapsed = mono - self.last_mono
+        if elapsed < 0 or elapsed > 15 or abs((now - self.last_wall).total_seconds() - elapsed) > 2:
+            self.runtime.state.latch(self.claim['attempt_id'], 'clock_or_resume_uncertain', now)
+            raise RuntimeError('clock_or_resume_uncertain')
+
     def task_enabled_at_checkpoint(self):
         """Before the first intent, wait for proof inside the same durable claim.
 
@@ -163,11 +171,7 @@ class ScheduledAuthority:
         from weather.market.mm_stage2_hold import HoldEnd
         from weather.market.lfc_campaign_recovery import attempt_intents
         while True:
-            now, mono = self.runtime.clock.now(), self.runtime.clock.monotonic()
-            elapsed = mono - self.last_mono
-            if elapsed < 0 or elapsed > 15 or abs((now - self.last_wall).total_seconds() - elapsed) > 2:
-                self.runtime.state.latch(self.claim['attempt_id'], 'clock_or_resume_uncertain', now)
-                raise RuntimeError('clock_or_resume_uncertain')
+            self.check_wait_clock()
             since = getattr(self.runtime, '_task_failure_since', None)
             if since is not None and self.runtime.clock.monotonic() - since >= TASK_READBACK_TOLERANCE_SECONDS:
                 raise HoldEnd('campaign_task_readback_unavailable')
@@ -187,13 +191,19 @@ class ScheduledAuthority:
                     not self.entry.permits(self.runtime.clock.now())):
                 raise HoldEnd('campaign_task_readback_unavailable')
             self.runtime.lease.check()
+            self.check_wait_clock()
             self.runtime.state.verify()
-            if not load_policy(self.runtime.policy_path).raw['enabled']:
+            self.check_wait_clock()
+            policy_enabled = load_policy(self.runtime.policy_path).raw['enabled']
+            self.check_wait_clock()
+            if not policy_enabled:
                 raise HoldEnd('owner_campaign_disabled')
             status = getattr(self.runtime, '_task_status', None)
             if status is not None:
                 status.owner_stop()
+                self.check_wait_clock()
                 status.progress()
+                self.check_wait_clock()
             # No sleep spans a checkpoint or hides a wall/monotonic change.
             if not self.resync():
                 raise RuntimeError('clock_or_resume_uncertain')
@@ -429,10 +439,7 @@ class Runtime:
                 if expired or self._task_failures >= 3 or now < self._task_retry_at:
                     if not self.state.ledger.open_sessions():
                         raise TransientPrecheck('campaign_task_readback_unavailable')
-                    if expired or self._task_checked is None:
-                        from weather.market.mm_stage2_hold import HoldEnd
-                        raise HoldEnd('campaign_task_readback_unavailable')
-                    return self._task_value
+                    return self.cached_task_permission()
         if self._task_checked is None or self._task_failures or now - self._task_checked >= 60:
             try:
                 value = self._read_task_enabled()
@@ -448,13 +455,18 @@ class Runtime:
                 # retain its last proven value only inside the fixed window.
                 if not self.state.ledger.open_sessions():
                     raise TransientPrecheck('campaign_task_readback_unavailable') from None
-                if self._task_checked is None:
-                    from weather.market.mm_stage2_hold import HoldEnd
-                    raise HoldEnd('campaign_task_readback_unavailable') from None
-                return self._task_value
+                return self.cached_task_permission()
             self._task_value, self._task_checked = value, self.clock.monotonic()
             self._task_failures = 0
             self._task_failure_since, self._task_retry_at = None, None
+        return self._task_value
+
+    def cached_task_permission(self):
+        """The native call and persistence may themselves cross the deadline."""
+        if (self._task_checked is None or
+                self.clock.monotonic() - self._task_failure_since >= TASK_READBACK_TOLERANCE_SECONDS):
+            from weather.market.mm_stage2_hold import HoldEnd
+            raise HoldEnd('campaign_task_readback_unavailable') from None
         return self._task_value
 
     def task_readback_gap(self, reason):
