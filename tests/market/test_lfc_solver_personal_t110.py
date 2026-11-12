@@ -80,4 +80,3 @@ def test_fresh_personal_fee_flow_stays_in_the_solver_fixed_term(tmp_path, side, 
     assert personal_net(book, [fresh], clock.now().isoformat()) == expected
     assert not book.personal_trades and book.figures() == before
     assert ledger.path.read_bytes() == raw
-
