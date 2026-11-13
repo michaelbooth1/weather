@@ -217,5 +217,10 @@ def discover(public, policy, *, now, cash, capital, held_conditions):
                     'target_date': target.isoformat(), 'condition_id': cid, 'token_ids': tokens,
                     'event_condition_ids': siblings, 'event_slug': slug,
                     'snapshot': public.snapshot(cid, tokens, reward=reward)})
+    if universe:
+        # B090-F: 'now' was taken before ~3 minutes of live reads, so every snapshot
+        # looked newer than 'now' and failed the freshness check. Score the table
+        # at the latest observation instead (unchanged when observations <= now).
+        now = max(utc(now), max(utc(row['snapshot']['observed_at_utc']) for row in universe))
     return build_table(universe, now=now, policy=policy, cash=cash, capital=capital,
                        held_conditions=held_conditions, source_records=public.records)
