@@ -57,7 +57,12 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
             raise ValueError('f2_go_account_hash')
         go = strict_json(read_bytes(directory / 'go_account.json', STATE_JSON_LIMIT))
         proof = go['proof']
-        if (go.get('attempt_id') != attempt_id or digest(go['read']) != proof.get('read_sha256') or
+        # B090-H: a redacted read (own API key dropped from 'owner') binds through the
+        # recorded raw/redacted hash pair instead of hashing like the raw read.
+        read_bound = (digest(go['read']) == proof.get('read_sha256') or
+                      (go.get('raw_read_sha256') == proof.get('read_sha256') and
+                       go.get('redacted_read_sha256') == digest(go['read'])))
+        if (go.get('attempt_id') != attempt_id or not read_bound or
                 proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
                 proof.get('unknown_submit') is not False or proof.get('capital', {}).get('cash_bridge_complete') is not True or
                 proof.get('ledger_head_sha256') not in {ledger.row_sha256(i) for i in range(len(ledger.rows))}):

@@ -27,7 +27,8 @@ def confirmation_sessions(ledger, frozen):
     root = Path(ledger.enrollment['state_root'])
     claims = {}
     for anchor in ledger.autostart_claims:
-        path = validate_contained_regular_file(root, root / 'claims' / (anchor['local_date'] + '.json'))
+        from weather.market.lfc_campaign_state import claim_file
+        path = validate_contained_regular_file(root, claim_file(root, anchor['local_date'], anchor['attempt_id']))
         claim = strict_json(read_bytes(path, 2 * 1024 * 1024))
         policy_path = validate_contained_regular_file(root, root / 'policies' / (anchor['attempt_id'] + '.json'))
         retained = strict_json(read_bytes(policy_path, 2 * 1024 * 1024))

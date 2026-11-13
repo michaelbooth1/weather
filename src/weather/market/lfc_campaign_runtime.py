@@ -273,7 +273,8 @@ class ScheduledAuthority:
     def confirmation(self, table, ledger):
         self.check(starting=True)
         # A real account-scoped durable claim replaces only the console phrase.
-        saved = self.runtime.state.read(self.runtime.state.root / 'claims' / (self.entry.local_date + '.json'))
+        from weather.market.lfc_campaign_state import claim_file
+        saved = self.runtime.state.read(claim_file(self.runtime.state.root, self.entry.local_date, self.claim['attempt_id']))
         if saved != self.claim or self.runtime.state.incidents():
             raise StateRefused('claim_or_incident_changed')
         chosen = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])

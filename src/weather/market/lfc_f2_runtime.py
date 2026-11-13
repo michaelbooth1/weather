@@ -136,8 +136,13 @@ def run_live(runtime, authority, status):
             go_evidence = guard.clean({'read': read, 'proof': authority.go_proof,
                 'attempt_id': claim['attempt_id'], 'source_prepared_file': authority.prepared.get('file'),
                 'source_prepared_sha256': authority.prepared.get('sha256')})
-            if digest(go_evidence['read']) != authority.go_proof['read_sha256']:
-                raise RuntimeError('go_read_redaction_changed_proof')
+            # B090-H: the guard drops 'owner' fields that carry our API key, so on any
+            # account with own trades the stored read can never hash like the proven
+            # raw read. Bind the proof to the raw read and record both hashes.
+            if digest(read) != authority.go_proof['read_sha256']:
+                raise RuntimeError('go_read_changed_after_proof')
+            go_evidence['raw_read_sha256'] = authority.go_proof['read_sha256']
+            go_evidence['redacted_read_sha256'] = digest(go_evidence['read'])
             go_path = directory / 'go_account.json'
             from weather.market.lfc_recording_io import STATE_JSON_LIMIT
             write_new(go_path, go_evidence, max_bytes=STATE_JSON_LIMIT)

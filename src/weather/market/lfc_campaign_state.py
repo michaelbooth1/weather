@@ -12,6 +12,23 @@ from weather.market.lfc_ledger_queries import event_rows
 from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
 
 
+def claim_file(root, local_date, attempt_id=None):
+    """Owner 11-13: several attempts may claim one date (no one-try-per-day rule).
+
+    The first attempt of a date keeps the legacy name claims/<date>.json; every
+    later attempt of that date is claims/<date>.<attempt_id>.json.
+    """
+    legacy = Path(root) / 'claims' / (local_date + '.json')
+    if attempt_id is None or not legacy.exists():
+        return legacy
+    try:
+        if strict_json(read_bytes(legacy, STATE_JSON_LIMIT)).get('attempt_id') == attempt_id:
+            return legacy
+    except (OSError, ValueError):
+        return legacy
+    return Path(root) / 'claims' / (local_date + '.' + attempt_id + '.json')
+
+
 STATE_SCHEMA = 'lfc_campaign_state_v0.1'
 DEFAULT_STATE_ROOT = Path(r'C:\t\pilot\account-state')
 
@@ -161,7 +178,7 @@ class AccountState:
         from weather.market.lfc_campaign_closures import check as check_closures
         check_closures(self, owner_fault_review=owner_fault_review)
         for event in self.ledger.autostart_claims:
-            claim_path = self.root / 'claims' / (event['local_date'] + '.json')
+            claim_path = claim_file(self.root, event['local_date'], event.get('attempt_id'))
             if self.file_sha(claim_path) != event['file_sha256']:
                 raise StateRefused('claim_continuity')
             claim = self.read(claim_path)
@@ -389,7 +406,11 @@ class AccountState:
         return [self.read(path) for path in sorted((self.root / 'skips').glob('*.json'))]
 
     def consumed_dates(self):
-        days = {row['local_date'] for row in self.claims() + self.skips()}
+        """Dates no new attempt may start on. Owner 11-13 removed the one-try-per-day
+        rule: claims and skips no longer consume a date; incidents and owner
+        closures still do."""
+        self.verify()
+        days = set()
         for directory in ('incidents', 'owner-closures'):
             for path in (self.root / directory).glob('*.json'):
                 row = self.read(path)
@@ -446,12 +467,12 @@ class AccountState:
         from weather.market.lfc_campaign_policy import ZONE
         if not entry.permits(now) or now.astimezone(ZONE).date().isoformat() != entry.local_date:
             raise StateRefused('claim_outside_window')
-        # Account+date is the stable id, independent of campaign name/revision.
-        if entry.local_date in self.consumed_dates() and entry.local_date not in self.reopenable_missed_dates():
+        # Owner 11-13: no one-try-per-day rule. Only incident/owner-closure dates
+        # refuse; an open session or unresolved leg still refuses below.
+        if entry.local_date in self.consumed_dates():
             raise StateRefused('account_date_consumed')
-        if any(s['start'].get('owner_local_date') == entry.local_date and s['legs']
-               for s in self.ledger.sessions.values()):
-            raise StateRefused('legacy_account_date_consumed')
+        if self.ledger.open_sessions() or self.ledger.unresolved_legs():
+            raise StateRefused('session_still_open')
         for previous in self.claims():
             old = self.read(self.root / 'policies' / (previous['attempt_id'] + '.json'))['policy']
             same_f2_protocol = policy.f2 and old.get('schema_version') in {
@@ -479,9 +500,10 @@ class AccountState:
                  'ledger_sha256': self.ledger.previous}
         basis = {'sleeve_loss_basis': policy.raw.get('sleeve_loss_basis', 'gross')} if policy.f2 else {}
         claim.update(basis)
-        sha = self.save(f'claims/{entry.local_date}.json', claim)
+        path = claim_file(self.root, entry.local_date, attempt)
+        sha = self.save(path.relative_to(self.root).as_posix(), claim)
         self.ledger.record('autostart_claim', attempt_id=attempt, local_date=entry.local_date, file_sha256=sha, **basis)
-        return self.read(self.root / 'claims' / (entry.local_date + '.json'))
+        return self.read(path)
 
     def pending(self):
         result = []

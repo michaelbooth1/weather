@@ -95,7 +95,8 @@ def recover_empty(state, now):
     for anchor in list(state.ledger.autostart_claims):
         if anchor['attempt_id'] in state._closure_completed:
             continue
-        claim = state.read(state.root / 'claims' / (anchor['local_date'] + '.json'))
+        from weather.market.lfc_campaign_state import claim_file
+        claim = state.read(claim_file(state.root, anchor['local_date'], anchor['attempt_id']))
         from weather.market.lfc_campaign_owner_close import complete_committed
         try:
             if complete_committed(state, claim['attempt_id'], now) is not None:

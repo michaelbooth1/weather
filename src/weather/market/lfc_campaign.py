@@ -173,22 +173,26 @@ class CampaignCoordinator:
         if not policy.raw['enabled'] or not self.runtime.task_enabled():
             self.status('DISABLED')
             return 'DISABLED'
-        consumed = self.state.consumed_dates()
+        # Owner 11-13: no one-try-per-day rule. Only incident/owner-closure dates
+        # block; any number of attempts may start inside an open entry window.
+        blocked = self.state.consumed_dates()
         legs = {session['start'].get('owner_local_date') for session in self.state.ledger.sessions.values()
                 if session['legs']}
-        consumed |= legs
-        reopen = self.state.reopenable_missed_dates() - legs
+        attempted = {row['local_date'] for row in self.state.claims()} | {
+            row['local_date'] for row in self.state.skips()} | legs
+        busy = bool(self.state.ledger.open_sessions() or self.state.ledger.unresolved_legs() or self.state.pending())
         now = self.clock.now()
         for entry in policy.entries:
-            # B090: a window_missed-only date reopens inside a later window that
-            # day; outside it the date stays consumed with no new MISSED row.
-            if entry.local_date in consumed and not (entry.local_date in reopen and entry.start <= now < entry.end):
+            if entry.local_date in blocked:
                 continue
             if now >= entry.end:
-                self.runtime.record_skip(entry, policy, 'window_missed')
-                self.status('MISSED', entry.id)
+                # A past window with any record stays silent; only a never-tried
+                # date gets its one durable window_missed skip.
+                if entry.local_date not in attempted:
+                    self.runtime.record_skip(entry, policy, 'window_missed')
+                    self.status('MISSED', entry.id)
                 continue
-            if now < entry.start:
+            if now < entry.start or busy:
                 continue
             return self.start(entry, policy, load_policy)
         self.status('IDLE')
