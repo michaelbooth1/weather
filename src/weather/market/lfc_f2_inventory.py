@@ -6,7 +6,7 @@ gains, losses and the funding ceiling continue on the existing capital book.
 from decimal import Decimal
 import re
 
-from weather.market.lfc_accounting import quantity
+from weather.market.lfc_accounting import quantity, same_position, below_position
 from weather.market.mm_stage2_hold import digest, utc
 
 
@@ -74,7 +74,7 @@ def inventory(ledger, anchor, current, book, *, campaign_only=False, cut=None):
     if campaign_only:
         tokens &= campaign_tokens(ledger, cut) | set(anchor['campaign_tokens'])
     changed = sorted(token for token in tokens
-                     if quantity(expected.get(token, 0)) != quantity(observed.get(token, 0)))
+                     if not same_position(expected.get(token, 0), observed.get(token, 0)))
     return {'expected': expected, 'changed': changed,
             'missing_or_below_visibility': sorted(token for token in tokens if token in expected and token not in observed)}
 
@@ -99,7 +99,7 @@ def enrollment_inventory(book, current, *, cut=None):
     """Every campaign holding must survive even if unrelated holdings changed."""
     expected = lot_quantities(book, len(book.ledger.rows) if cut is None else cut)
     changed = sorted(token for token, size in expected.items()
-                     if quantity(current.get(token, 0)) < quantity(size))
+                     if below_position(current.get(token, 0), size))
     return {'expected': expected, 'changed': changed,
             'missing_or_below_visibility': sorted(token for token in expected if token not in current)}
 

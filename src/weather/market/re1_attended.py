@@ -436,7 +436,10 @@ class Session:
         self.heartbeat_loop.check()
         self.check_fills(force=force)
         self.freshness.check('geoblock', 45)
-        if self.clock.monotonic() - self.market_time >= 300:
+        # B090-J: an F2 band waiting after a fill has no resting order; it takes a
+        # fresh snapshot before any new POST, so an old snapshot cannot end it.
+        if (self.clock.monotonic() - self.market_time >= 300 and
+                not (getattr(self, 'repost_waiting', False) and not self.active)):
             raise HoldEnd('market_snapshot_stale')
         if getattr(self.venue, 'journal_failed', False):
             raise HoldEnd('response_journal_failed')

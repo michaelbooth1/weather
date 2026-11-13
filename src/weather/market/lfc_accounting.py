@@ -16,6 +16,20 @@ def quantity(value):
     return result
 
 
+# B090-J (live 11-13): the positions endpoint reports size to 4 decimals
+# (a 34.263889-share holding reads 34.2638), while fills carry 6. Holdings
+# reconcile at the venue's reporting precision; a whole missing lot still fails.
+POSITION_DUST = Decimal('0.0001')
+
+
+def same_position(expected, observed):
+    return abs(quantity(expected) - quantity(observed)) < POSITION_DUST
+
+
+def below_position(observed, expected):
+    return quantity(expected) - quantity(observed) >= POSITION_DUST
+
+
 def inventory_delta(ledger, baseline, current, *, proven_resting=None):
     """All tokens, including pilot holdings and microfills, must reconcile.
 
@@ -67,6 +81,7 @@ def inventory_delta(ledger, baseline, current, *, proven_resting=None):
                 raise ValueError('inventory_redemption_scope')
     observed = {str(t): quantity(v) for t, v in current.items() if quantity(v)}
     expected = {t: v for t, v in expected.items() if v}
-    changed = sorted(t for t in set(expected) | set(observed) if expected.get(t) != observed.get(t))
+    changed = sorted(t for t in set(expected) | set(observed)
+                     if not same_position(expected.get(t, 0), observed.get(t, 0)))
     return {'expected': {t: str(v) for t, v in expected.items()}, 'changed': changed,
             'missing_or_below_visibility': sorted(t for t in expected if t not in observed)}

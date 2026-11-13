@@ -20,14 +20,14 @@ def bootstrap_scope(ledger, positions):
     """Find only campaign holdings needing a pre-enrollment redemption proof."""
     from weather.market.lfc_capital import CapitalBook
     from weather.market.lfc_f2_inventory import lot_quantities
-    from weather.market.lfc_accounting import quantity
+    from weather.market.lfc_accounting import quantity, below_position
     from weather.market.lfc_ledger import normalize_positions
     book = CapitalBook(ledger)
     if book.inventory_anchor is not None:
         return None
     observed = normalize_positions(positions)
     missing = sorted(token for token, size in lot_quantities(book, len(ledger.rows)).items()
-                     if quantity(observed.get(token, 0)) < quantity(size))
+                     if below_position(observed.get(token, 0), size))
     return scope_for_tokens(ledger, missing) if missing else None
 
 
