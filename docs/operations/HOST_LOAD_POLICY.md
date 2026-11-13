@@ -42,6 +42,10 @@ admission.
   - they are checkout-sized and not cited by any repo document.
 
   Archive each checkout's ignored `data\` first, and log its head sha with the `git worktree add --detach` command that recreates it (2026-11-12 log: workstation `C:\t\codex\DISK-CLEANUP-20261112.log`). Research data folders (`C:\t\recopy-*`, `C:\t\r80`, `workstation-chat`) are the owner's decision.
+- **A killed agent tree can block the live start.** At 11:46 on 2026-11-12 the master stopped a Codex task with `taskkill /T` while its wrapped pytest was starting. The wrapper died abruptly and left `%ProgramData%\WeatherProject\heavy_workload_v1.poison` in the `ACTIVE` state. F2's `ExclusiveWorkload` (`lfc_campaign_guard.py`) refuses live admission and the funding proof while any heavy-workload state file exists (`workload_poison`), so the owner's setup step 6 refused that night.
+  - **Recovery** (11-13 00:15): prove the marker's owner process is gone. Then run one ordinary wrapped admission on the legacy slot, for example a one-file `-Kind compileall` (the B089-era wrapper has no `-SlotCount`). Its zero-residual scan recovers the stale record and asks for the exact retry, which then runs and tears down cleanly.
+  - **Before 08:50 on every trading day,** check `*.poison` there. A marker whose owner is alive is a running job that must finish before 09:00; one whose owner is dead needs the recovery above.
+  - **Never stop an agent tree that may hold a wrapped job;** let it finish.
 
 Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).
