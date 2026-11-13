@@ -46,6 +46,9 @@ admission.
   - **Recovery** (11-13 00:15): prove the marker's owner process is gone. Then run one ordinary wrapped admission on the legacy slot, for example a one-file `-Kind compileall` (the B089-era wrapper has no `-SlotCount`). Its zero-residual scan recovers the stale record and asks for the exact retry, which then runs and tears down cleanly.
   - **Before 08:50 on every trading day,** check `*.poison` there. A marker whose owner is alive is a running job that must finish before 09:00; one whose owner is dead needs the recovery above.
   - **Never stop an agent tree that may hold a wrapped job;** let it finish.
+  - **A second cause (11-13 00:57):** an agent helper ran `workstation_heavy.ps1` under `$ErrorActionPreference = 'Stop'` with `*>&1`. Under Windows PowerShell 5.1 a native stderr line became a terminating error, and the stopped pipeline killed the wrapper before it released its slot, leaving the slot 2 and slot 3 markers `ACTIVE`.
+    - **Rule:** run wrapped jobs in the foreground. Never merge their stderr into a terminating stream; capture it with `Start-Process -RedirectStandardOutput/-RedirectStandardError` or with `2>` to a file. Check `*.poison` after each run.
+    - **Recovery for slots 2-8:** call `Enter-WeatherWorkstationHeavyExclusiveLease` (`workload_admission.ps1`) with a canonical offline workload name, for example `WorkstationOffline-pytest-<PID>`. Then call `Set-WeatherHeavyWorkloadLeaseTeardownPending` and `Exit-WeatherHeavyWorkloadLease`.
 
 Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).
