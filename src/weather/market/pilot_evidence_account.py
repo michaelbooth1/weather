@@ -6,6 +6,12 @@ import json
 
 from weather.market.pilot_evidence_public import DATA
 
+# A /v2/positions row has 36 fields, about 124 strict-JSON nodes. A full
+# 500-row page is about 62,000 nodes, above strict_json's 60,000-node cap, so
+# every full page was rejected and the walk stopped as account_incomplete.
+# 200 rows (~25,000 nodes) keeps the shared parser cap unchanged.
+POSITION_PAGE_LIMIT = 200
+
 
 def walk_pages(http, store, path, params, *, label, max_pages):
     """Filters are identical on every page. A cursor is never treated as a URL."""
@@ -67,7 +73,7 @@ def account_flow(args, store, http, end_epoch):
           "sort_by": "TIMESTAMP", "sort_direction": "ASC"}),
     ]
     for status in ("OPEN", "REDEEMABLE", "REDEEMABLE_LOST", "CLOSED"):
-        params = {**user, "status": status, "filter_amount": "0"}
+        params = {**user, "limit": min(args.page_size, POSITION_PAGE_LIMIT), "status": status, "filter_amount": "0"}
         if status != "CLOSED":
             params["include_archived"] = "true"
         datasets.append(("positions_" + status.lower(), "/v2/positions", params))
