@@ -785,3 +785,48 @@ receipts somewhere durable** (they are small JSON and Markdown files with no
 credential values) before either host is rebuilt or cleaned. Not on file
 anywhere: a closing balance or post-test account record for the wallet, and
 the outcome of attempt 5.
+
+## 2026-11-13 F2 Pin B first self-start: no trade (sleeve-cash defect)
+
+Release B089 `1ab56383` (owner setup complete 11-13 00:18). The task started at
+09:00 Toronto. Five admission attempts deferred (09:03, 09:06, 09:09, 09:13 and
+09:17), and the day was recorded `window_missed`. No order was placed and no
+money moved. The geography read passed every time, and the F2 workload marker
+was released when the tick exited.
+
+- **Cause.** `readiness()` raised `wallet_cash_below_sleeve`
+  (`lfc_campaign_runtime.py:689-690`). The capital book's spendable sleeve cash
+  (wallet cash minus the owner's segregated cash) was below the reserve of the
+  cheapest eligible band. The public reads all worked: a read-only replay found
+  21 of 50 bands eligible.
+- **How the sleeve lost its cash.**
+  - The capital bridge was installed at the owner's first setup attempt (11-11).
+  - A later owner withdrawal exceeded the owner's segregated pool at that
+    moment. `refresh_pools()` draws a withdrawal from the owner pools first.
+  - The excess left the sleeve's cash. Outside a session `withdraw()` sets
+    `charge_excess` false, so headroom stayed near the full funding while the
+    cash behind it was gone.
+  - The owner's later deposits are always segregated (`deposit_is_external`;
+    "never new principal"), so they cannot refill it.
+- **Why setup passed.** The 11-13 funding proof checks `funding_native` and
+  `capital_bridge_complete`. It does not check that spendable sleeve cash covers
+  any band. The setup check needs to.
+- **Label defect.** `pre_go()` (`lfc_campaign_runtime.py:769`) re-wraps every
+  `TransientPrecheck` through `transient_read_error()` as
+  `pre_go_read_unavailable`. The control row therefore said
+  `transport_deferred` and hid the real reason.
+- **Consequence.** Every daily window defers the same way until a fix lands.
+  Under B089's rules no owner deposit or withdrawal restores sleeve cash.
+- **Owner decision pending:**
+  1. A code fix: a later owner deposit first refills a sleeve shortfall that an
+     earlier owner withdrawal caused. It also fixes the label and adds a
+     spendable-cash check to setup and idle ticks. This is a money-touching
+     change, so it needs an independent adversarial review, a pregate, a new
+     release and the owner's re-setup.
+  2. Or a fresh enrollment from the current wallet.
+- **Evidence.** Read-only diagnostics over public reads and a byte-verified
+  copy of the ledger (the live ledger was never opened for writing):
+  workstation `C:\t\reviews\F2-DIAG-20261113\`. They include the discover
+  replay, the candidate scoring, the capital figures and the pool walk in
+  CapitalBook order. Wallet amounts are deliberately kept out of this public
+  record.
