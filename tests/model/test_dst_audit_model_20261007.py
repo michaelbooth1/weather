@@ -3,11 +3,9 @@
 Guards: docs/roadmap/audits/dst-audit-2026-10-07.md finding DST-C2 (METAR look-back loses the first
 local hour on the 25-hour fall-back day; repair is PR #196).
 
-Each test pins the correct behaviour and is marked
-``xfail(strict=True, raises=AssertionError)`` while the defect is on master (a
-broken precondition raises ``RuntimeError`` and fails instead). When the repair
-lands the test passes, strict xfail turns that into an error, and the marker
-must be removed in the fixing change.
+Each test pins the correct behaviour. It was marked
+``xfail(strict=True, raises=AssertionError)`` while the defect was on master;
+the repair (PR #196) removed the marker, so these now guard against regression.
 No network: the clock is frozen and no fetch is made.
 """
 
@@ -38,9 +36,6 @@ def _local_midnight_utc(model, day):
     return datetime(day.year, day.month, day.day, tzinfo=model.spec.tz).astimezone(timezone.utc)
 
 
-@pytest.mark.xfail(
-    strict=True, raises=AssertionError, reason="DST audit 2026-10-07: DST-C2 (fixed by PR #196)"
-)
 @pytest.mark.parametrize("market_id", DST_MARKETS)
 def test_fall_back_day_late_metar_look_back_reaches_local_midnight(monkeypatch, market_id):
     model = TorontoHighTempModel(target_date=FALL_BACK_DAY, market_id=market_id)
