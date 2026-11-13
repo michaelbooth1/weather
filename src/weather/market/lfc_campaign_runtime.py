@@ -88,6 +88,9 @@ def selection_account_screen(table, balances):
         raise StateRefused(code)
     selected = next(r for r in table['rows'] if r['condition_id'] == table['selected_condition_id'])
     allowances = (balances.get('collateral_evidence') or {}).get('allowances')
+    # B090-G: the live balances read keys spenders by checksummed address; the screen looks
+    # them up lower-cased (as preflight_allowances already normalises for F0).
+    allowances = {str(k).lower(): v for k, v in allowances.items()} if isinstance(allowances, dict) else allowances
     ok, code, _ = allowance_screen(allowances, selected['quote']['size'], next(iter(risk.values())))
     if not ok:
         raise StateRefused(code)
