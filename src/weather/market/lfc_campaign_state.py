@@ -397,6 +397,23 @@ class AccountState:
                     days.add(row['local_date'])
         return days
 
+    def reopenable_missed_dates(self):
+        """B090: dates whose ONLY durable record is a window_missed skip.
+
+        A missed window placed nothing, so a later supported window that same
+        day may still claim. Claims, other skips, incidents and owner closures
+        keep their dates consumed. No skip file is changed or deleted.
+        """
+        skips = self.skips()
+        closed = {row['local_date'] for row in self.claims()}
+        closed |= {row['local_date'] for row in skips if row.get('reason') != 'window_missed'}
+        for directory in ('incidents', 'owner-closures'):
+            for path in (self.root / directory).glob('*.json'):
+                row = self.read(path)
+                if row.get('local_date'):
+                    closed.add(row['local_date'])
+        return {row['local_date'] for row in skips if row.get('reason') == 'window_missed'} - closed
+
     def incidents(self):
         self.verify()
         return self.retained_incidents()
@@ -430,7 +447,7 @@ class AccountState:
         if not entry.permits(now) or now.astimezone(ZONE).date().isoformat() != entry.local_date:
             raise StateRefused('claim_outside_window')
         # Account+date is the stable id, independent of campaign name/revision.
-        if entry.local_date in self.consumed_dates():
+        if entry.local_date in self.consumed_dates() and entry.local_date not in self.reopenable_missed_dates():
             raise StateRefused('account_date_consumed')
         if any(s['start'].get('owner_local_date') == entry.local_date and s['legs']
                for s in self.ledger.sessions.values()):

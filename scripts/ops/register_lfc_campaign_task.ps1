@@ -4,7 +4,10 @@ param([Parameter(Mandatory=$true)][ValidateSet('Register','Upgrade','Verify','En
       [Parameter(Mandatory=$true)][string]$CampaignPath,
       [Parameter(Mandatory=$true)][string]$ReleasePath,
       [string]$PythonPath,[string]$PregateReceipt,[ValidatePattern('^[0-9a-f]{40}$')][string]$QualifiedHead,
-      [string]$PreviousReleasePath='')
+      [string]$PreviousReleasePath='',
+      # OWNER ONLY (B090, owner 11-13): -PregateReceipt is then an owner waiver
+      # JSON for the same QualifiedHead instead of a full pregate receipt.
+      [switch]$OwnerWaivedPregate)
 if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version 2.0
@@ -30,7 +33,18 @@ if($Action -in @('Register','Upgrade')) {
     if(Test-Path -LiteralPath $ReleasePath) { throw 'release already exists; never overwrite enrollment' }
     if(-not $PythonPath -or -not $PregateReceipt -or -not $QualifiedHead) { throw 'register requires interpreter, pregate and reviewed head' }
     $receipt=ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($PregateReceipt))
-    [void](Assert-WeatherPregateReceipt -Receipt $receipt -ExpectedHead $QualifiedHead -ProcessExitCode 0 -NotBefore ([DateTimeOffset]$receipt.started_at))
+    if($OwnerWaivedPregate) {
+        $names=@($receipt.PSObject.Properties | ForEach-Object { $_.Name })
+        foreach($field in @('schema','head','reason','focused_tests','at_utc')) { if($names -notcontains $field) { throw "owner pregate waiver missing $field" } }
+        if([string]$receipt.schema -cne 'weather.owner_pregate_waiver.v1') { throw 'owner pregate waiver schema' }
+        if([string]$receipt.head -cne $QualifiedHead) { throw 'owner pregate waiver head mismatch' }
+        if(-not ([string]$receipt.reason).Trim()) { throw 'owner pregate waiver reason required' }
+        if(-not ($receipt.focused_tests -is [int] -or $receipt.focused_tests -is [long]) -or $receipt.focused_tests -lt 1) { throw 'owner pregate waiver focused_tests' }
+        [void][DateTimeOffset]::Parse([string]$receipt.at_utc, [Globalization.CultureInfo]::InvariantCulture)
+        Write-Warning 'OWNER WAIVED THE FULL PREGATE for this head; the release records the waiver file hash as its pregate.'
+    } else {
+        [void](Assert-WeatherPregateReceipt -Receipt $receipt -ExpectedHead $QualifiedHead -ProcessExitCode 0 -NotBefore ([DateTimeOffset]$receipt.started_at))
+    }
     if(-not (Test-Path -LiteralPath $CampaignPath)) {
         $parent=[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($CampaignPath))
         [void][IO.Directory]::CreateDirectory($parent)

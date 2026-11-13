@@ -39,9 +39,12 @@ def eligible(coordinator, policy):
         if not callable(due) or due(policy):
             return False
     consumed = state.consumed_dates()
+    # B090: never cache-skip a reopened window_missed-only date before its end.
+    reopen = state.reopenable_missed_dates() - {session['start'].get('owner_local_date')
+        for session in state.ledger.sessions.values() if session['legs']}
     now = coordinator.clock.now()
     for entry in policy.entries:
-        if entry.local_date in consumed:
+        if entry.local_date in consumed and not (entry.local_date in reopen and now < entry.end):
             continue
         lookback = timedelta(seconds=max(300, 1800 - (entry.end-entry.start).total_seconds()))
         # An expired unconsumed date needs its ordinary durable skip, too.

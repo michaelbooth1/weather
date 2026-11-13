@@ -386,8 +386,8 @@ def test_strict_child_container_teardown_proves_entire_job_empty(tmp_path):
 
 
 @pytest.mark.spawns
-@pytest.mark.parametrize('refuse_check', [False, True])
-def test_real_registrar_binding_with_mocked_scheduler_and_python(tmp_path, refuse_check):
+@pytest.mark.parametrize('refuse_check,waiver', [(False, None), (True, None), (False, 'a' * 40), (False, 'b' * 40)])
+def test_real_registrar_binding_with_mocked_scheduler_and_python(tmp_path, refuse_check, waiver):
     from datetime import datetime, timedelta, timezone
     from weather.market.lfc_recording_io import file_sha
     import hashlib
@@ -422,6 +422,9 @@ def test_real_registrar_binding_with_mocked_scheduler_and_python(tmp_path, refus
         'chunk_plan':[['tests/test_fixture.py']], 'chunks':[{'ordinal':1,'files':1,'logged_files':1,'exit_code':0}],
         'inventory_files':1,'max_files_per_chunk':25,'skipped_host_checks':['fixture']*5,'log_path':str(log),
         'log_sha256':file_sha(log),'junit_paths':[str(xml)],'junit_files':[{'path':str(xml),'sha256':file_sha(xml)}]}
+    if waiver is not None:  # B090: owner waiver for the same qualified head only.
+        receipt = {'schema': 'weather.owner_pregate_waiver.v1', 'head': waiver, 'focused_tests': 23,
+                   'reason': 'owner 11-13 waived the full pregate for a same-day live start', 'at_utc': now.isoformat()}
     receipt_path = tmp_path / 'receipt.json'
     receipt_path.write_text(json.dumps(receipt))
     campaign, release = tmp_path / 'campaign.json', tmp_path / 'release.json'
@@ -445,7 +448,7 @@ function FixturePython {
 '''
     harness += f"\n$global:pin={q(root)}; $global:campaign={q(campaign)}; $global:release={q(release)}; $global:refuse=${str(refuse_check).lower()}\n"
     script = q(ops / 'register_lfc_campaign_task.ps1')
-    harness += f"& {script} -Action Register -RepoRoot $global:pin -CampaignPath $global:campaign -ReleasePath $global:release -PythonPath FixturePython -PregateReceipt {q(receipt_path)} -QualifiedHead ('a'*40) | Out-Null\n"
+    harness += f"& {script} -Action Register -RepoRoot $global:pin -CampaignPath $global:campaign -ReleasePath $global:release -PythonPath FixturePython -PregateReceipt {q(receipt_path)} -QualifiedHead ('a'*40){' -OwnerWaivedPregate' if waiver else ''} | Out-Null\n"
     harness += f"& {script} -Action Verify -CampaignPath $global:campaign -ReleasePath $global:release | Out-Null\n"
     harness += "$p=Get-Content -Raw -LiteralPath $global:campaign | ConvertFrom-Json; $p.enabled=$true; $p | ConvertTo-Json -Depth 10 | Set-Content -Encoding ASCII -LiteralPath $global:campaign\n"
     harness += f"$failed=$false; try {{ & {script} -Action Enable -CampaignPath $global:campaign -ReleasePath $global:release | Out-Null }} catch {{ $failed=$true }}\n"
@@ -454,8 +457,14 @@ function FixturePython {
     path.write_text(harness)
     result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(path)],
                             capture_output=True,text=True,timeout=30,env=clean_native_environment())
+    if waiver not in (None, 'a' * 40):
+        assert result.returncode != 0 and 'owner pregate waiver head mismatch' in result.stdout + result.stderr
+        return
     assert result.returncode == 0, result.stdout + result.stderr
-    observed = json.loads(result.stdout)
+    lines = result.stdout.strip().splitlines()
+    if waiver:  # The registrar's owner-visible waiver warning precedes the harness JSON.
+        assert any('OWNER WAIVED THE FULL PREGATE' in line for line in lines)
+    observed = json.loads(lines[-1])
     assert observed['registered'] == 1
     assert observed['enabled'] == (0 if refuse_check else 1)
     assert observed['failed'] == refuse_check

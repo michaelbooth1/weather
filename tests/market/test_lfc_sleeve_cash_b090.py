@@ -16,6 +16,7 @@ from weather.market.lfc_campaign import CampaignCoordinator, TransientPrecheck
 from weather.market.lfc_campaign_control import PRECHECK_REASONS, SAFE_REASONS
 from weather.market.lfc_campaign_guard import account_lease
 from weather.market.lfc_campaign_policy import parse_policy
+from weather.market.lfc_campaign_state import StateRefused
 from weather.market.lfc_capital import CapitalBook, CapitalRefused, record_activity
 from weather.market.lfc_ledger import Ledger
 from weather.market.lfc_recording_io import strict_json
@@ -215,3 +216,87 @@ def test_pre_go_keeps_a_precheck_reason_and_still_wraps_read_errors(tmp_path, mo
 def test_every_precheck_reason_is_an_allowlisted_code():
     assert PRECHECK_REASONS <= SAFE_REASONS
     assert all(code.replace('_', '').isalnum() and code.islower() for code in PRECHECK_REASONS)
+
+
+def missed_skip(state, entry, reason='window_missed'):
+    state.save('skips/' + entry.local_date + '.json', {'local_date': entry.local_date, 'entry_id': 'earlier-window',
+               'reason': reason, 'at_utc': entry.start.isoformat()})
+
+
+def test_missed_only_date_reopens_inside_a_later_window_and_claims(tmp_path):
+    clock = Clock()
+    with account_lease(CAMPAIGN_MAKER, backend=Mutexes()):
+        state = state_at(tmp_path, clock)
+        policy = parse_policy(policy_row())
+        entry = policy.entries[0]
+        missed_skip(state, entry)
+        assert entry.local_date in state.consumed_dates()  # consumed_dates itself is unchanged.
+        assert state.reopenable_missed_dates() == {entry.local_date}
+        runtime = StubRuntime(state, clock)
+        coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
+        bound = bind_launch(coordinator, policy)
+        assert coordinator.tick(lambda: bound) == 'STARTED' and runtime.go_count == 1
+        assert state.reopenable_missed_dates() == set()  # The claim now consumes the date.
+        assert len(state.skips()) == 1
+
+
+@pytest.mark.parametrize('offset', [timedelta(minutes=1), timedelta(hours=6)])
+def test_reopenable_date_stays_closed_outside_the_window_with_no_new_missed_row(tmp_path, offset):
+    clock = Clock()
+    with account_lease(CAMPAIGN_MAKER, backend=Mutexes()):
+        state = state_at(tmp_path, clock)
+        policy = parse_policy(policy_row())
+        entry = policy.entries[0]
+        missed_skip(state, entry)
+        before = sorted(p.name for p in (state.root / 'skips').iterdir())
+        clock.value = entry.end + offset
+        runtime = StubRuntime(state, clock)
+        coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
+        coordinator.tick(lambda: bind_launch(coordinator, parse_policy(policy_row())))
+        rows = [strict_json(p.read_bytes()) for p in (tmp_path / 'control').glob('*.json')]
+        assert runtime.go_count == runtime.prechecks == 0
+        assert 'MISSED' not in {r['phase'] for r in rows}
+        assert sorted(p.name for p in (state.root / 'skips').iterdir()) == before
+        with pytest.raises(StateRefused, match='claim_outside_window'):
+            state.claim(entry, policy, clock.now())
+
+
+@pytest.mark.parametrize('closer', ['claim', 'other_skip', 'incident', 'owner_closure'])
+def test_claims_other_skips_incidents_and_closures_still_consume(tmp_path, closer):
+    clock = Clock()
+    with account_lease(CAMPAIGN_MAKER, backend=Mutexes()):
+        state = state_at(tmp_path, clock)
+        policy = parse_policy(policy_row())
+        entry = policy.entries[0]
+        if closer == 'claim':
+            state.claim(entry, policy, clock.now())
+            missed_skip(state, entry)
+        elif closer == 'other_skip':
+            missed_skip(state, entry, reason='policy_refused')
+        else:
+            missed_skip(state, entry)
+            folder = 'incidents' if closer == 'incident' else 'owner-closures'
+            state.save(folder + '/fixture.json', {'local_date': entry.local_date, 'attempt_id': 'c' * 32})
+        assert entry.local_date not in state.reopenable_missed_dates()
+        if closer in {'other_skip', 'claim'}:
+            with pytest.raises(StateRefused, match='account_date_consumed'):
+                state.claim(entry, policy, clock.now())
+
+
+@pytest.mark.parametrize('reason,ended,idle', [('policy_refused', False, True), ('window_missed', False, False),
+                                               ('window_missed', True, True)])
+def test_idle_fast_path_never_hides_a_reopened_window(tmp_path, reason, ended, idle):
+    from weather.market import lfc_campaign_idle
+    clock = Clock()
+    with account_lease(CAMPAIGN_MAKER, backend=Mutexes()):
+        state = state_at(tmp_path, clock)
+        coordinator = CampaignCoordinator(state=state, runtime=StubRuntime(state, clock), clock=clock,
+                                          control_root=tmp_path / 'control')
+        coordinator.record_followups = None
+        policy = bind_launch(coordinator, parse_policy(policy_row()))
+        entry = policy.entries[0]
+        missed_skip(state, entry, reason=reason)
+        if ended:
+            clock.value = entry.end + timedelta(minutes=1)
+        # A consumed date may idle; a reopened window never does before its end.
+        assert lfc_campaign_idle.eligible(coordinator, policy) is idle

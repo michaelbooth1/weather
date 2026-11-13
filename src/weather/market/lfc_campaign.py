@@ -174,12 +174,15 @@ class CampaignCoordinator:
             self.status('DISABLED')
             return 'DISABLED'
         consumed = self.state.consumed_dates()
-        for session in self.state.ledger.sessions.values():
-            if session['legs']:
-                consumed.add(session['start'].get('owner_local_date'))
+        legs = {session['start'].get('owner_local_date') for session in self.state.ledger.sessions.values()
+                if session['legs']}
+        consumed |= legs
+        reopen = self.state.reopenable_missed_dates() - legs
         now = self.clock.now()
         for entry in policy.entries:
-            if entry.local_date in consumed:
+            # B090: a window_missed-only date reopens inside a later window that
+            # day; outside it the date stays consumed with no new MISSED row.
+            if entry.local_date in consumed and not (entry.local_date in reopen and entry.start <= now < entry.end):
                 continue
             if now >= entry.end:
                 self.runtime.record_skip(entry, policy, 'window_missed')
