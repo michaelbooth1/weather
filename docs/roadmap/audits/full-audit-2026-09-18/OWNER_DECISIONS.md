@@ -4,25 +4,26 @@ Prepared 2026-09-19. Engineering can clear everything else; none of it matters i
 
 ## 1. Geographic eligibility — RESOLVED by owner statement, 2026-09-19
 **Owner statement (verbatim, 2026-09-19):** "Yes this PC is eligible to trade on International Polymarket when it is
-being run. We sometimes need to tunnel to Ontario to access files on my home PC. But this PC never moves from its
+being run. We sometimes need to tunnel to [location redacted] to access files on my home PC. But this PC never moves from its
 physical location that is trade eligible. Record this as not an issue."
 
-**What that explains:** on 2026-09-06 the venue geoblock endpoint read `blocked=true, CA/ON` at 13:18Z and 18:21Z and
-`blocked=false, MX/QUE` 4m45s and 2m36s later on the same host. The CA/ON readings are the Ontario file-access tunnel
-being up; the unblocked readings minutes later are the PC's own connection with the tunnel down (the owner states its
-physical location is trade-eligible and never changes). The gate behaved correctly both times: it refused while the
-egress was Ontario and passed on the PC's own connection. This is the reverse of
-circumvention, and it matches the retry note written that day ("the Ontario location attribution was mistaken").
+**What that explains:** on 2026-09-06 the venue geoblock endpoint read `blocked=true` (a restricted-region reading) at
+13:18Z and 18:21Z and `blocked=false` (an eligible-region reading) 4m45s and 2m36s later on the same host. The
+restricted-region readings are the home file-access tunnel being up; the unblocked readings minutes later are the PC's
+own connection with the tunnel down (the owner states its physical location is trade-eligible and never changes). The
+gate behaved correctly both times: it refused while the egress was the restricted region and passed on the PC's own
+connection. This is the reverse of circumvention, and it matches the retry note written that day
+("the [location redacted] location attribution was mistaken").
 
 **Status: not an issue, per the owner.** Recorded as the owner's attestation; nothing in the repo can verify physical
 location and the runbook deliberately never stores it.
 
-**One operating rule that follows (engineering, not a decision):** the Ontario tunnel must be DOWN for the whole of any
-live session. If it comes up mid-session the venue sees Ontario, and the runbook's cancel-all rule fires. Worth a
+**One operating rule that follows (engineering, not a decision):** the home file-access tunnel must be DOWN for the whole of any
+live session. If it comes up mid-session the venue sees a restricted region, and the runbook's cancel-all rule fires. Worth a
 preflight line: "home tunnel is down" next to the geoblock check. No change to the eligibility code is needed.
 
 **Two doc clean-ups so this is not re-raised by the next audit:** `CLI_SSH_HANDOVER_2026-08-13.md:52-54` calls the
-capture host "Ontario production" — correct or qualify it; and the branch item 67 ledger omits the two geography
+capture host "[location redacted] production" — correct or qualify it; and the branch item 67 ledger omits the two geography
 attempts — restore them with the explanation above so the record is complete rather than quietly shorter.
 
 ## 2. Live authority

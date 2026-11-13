@@ -96,15 +96,15 @@ Stage 0 or Stage 1 protocol had passed. That is false.
   the `master` controls work, and do not read this paragraph as having relaxed
   them.
 - **Geography on the test day.** Two attempts were refused by the geoblock
-  gate with `OFFICIAL_LOCATION_BLOCKED` (endpoint `blocked=true`, `CA/ON`, at
-  13:18Z and 18:21Z); minutes later the same host read `blocked=false`.
-  **Owner statement, 2026-09-19:** the execution PC is physically in a
-  trade-eligible location and never moves; the Ontario readings were a tunnel
-  used to reach files on the owner's home PC; the gate refused correctly while
-  that tunnel was up and passed on the PC's own connection. This is recorded
-  as the owner's attestation. The repository cannot verify physical location
-  and, by the rule below, never stores it. The operating consequence is
-  prerequisite 9's tunnel-down check.
+  gate with `OFFICIAL_LOCATION_BLOCKED` (endpoint `blocked=true`, a
+  restricted-region reading, at 13:18Z and 18:21Z); minutes later the same
+  host read `blocked=false`. **Owner statement, 2026-09-19:** the execution PC
+  is physically in a trade-eligible location and never moves; the
+  restricted-region readings were a tunnel used to reach files on the owner's
+  home PC; the gate refused correctly while that tunnel was up and passed on
+  the PC's own connection. This is recorded as the owner's attestation. The
+  repository cannot verify physical location and, by the rule below, never
+  stores it. The operating consequence is prerequisite 9's tunnel-down check.
 
 **Stage 0/1 execution is currently HOLD until every action-time gate below
 passes.** The explicit execution-host profile,
@@ -309,7 +309,7 @@ All must be current for the target date and selected market:
 
    **Preflight line, added 2026-09-19 — confirm beside the geoblock check:
    the home file-access tunnel is DOWN for the whole session; if it comes up
-   mid-session the endpoint reads Ontario and the cancel-all rule applies**
+   mid-session the endpoint reads a restricted region and the cancel-all rule applies**
    (the geoblock stop condition under "Stop conditions"). This is an operating
    check on the execution PC's own egress. It adds to the rules above and
    changes none of them: the endpoint result, the attended attestation and the

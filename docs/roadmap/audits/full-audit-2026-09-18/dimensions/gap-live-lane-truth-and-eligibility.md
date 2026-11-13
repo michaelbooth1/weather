@@ -22,9 +22,9 @@ on 09-06; after the spent test the project returned to "no live trading" (09-10,
 "Abandoned" is the wrong word: the lane was exercised, then parked, with its residue still armed.
 
 The most important thing no auditor had seen: on the day of the test the venue's own geoblock
-endpoint classified the execution PC as `blocked=true, country=CA, region=ON` TWICE (13:18Z and
-18:21Z), and both times the same PC came back `blocked=false, country=MX, region=QUE` within five
-minutes, after which the test proceeded. The agent's own 09:19 note says Polymarket documents Ontario
+endpoint classified the execution PC as `blocked=true` with a restricted-region reading TWICE (13:18Z and
+18:21Z), and both times the same PC came back `blocked=false` with an eligible-region reading within five
+minutes, after which the test proceeded. The agent's own 09:19 note says Polymarket documents that region
 as close-only and that "changing or bypassing a gate is not a remedy". None of this is in any tracked
 document on any ref I examined. It exists only in ignored `scratch/handoffs/` on this host (no backup,
 mirror paused, 21 GB free) and in host-local files on the portable PC.
@@ -95,7 +95,7 @@ substance". Treat the wording of every authority statement as the agent's.
 | Date (Toronto) | What the record says | Where | On master? |
 | --- | --- | --- | --- |
 | 08-13 | Operator "explicitly authorized work toward a small real-world live test with approximately 100 pUSD total risk capital, on International Polymarket only". "No live exchange call was attempted." | item-67:229-241; runbook:3-5 | yes |
-| 08-13/14 | Out-of-repo agent handover: "Ontario production never receives wallet credentials and never places or cancels orders. The external credential source is `C:\Users\micha\Desktop\.env.txt` ... Live mutation belongs on a genuinely eligible International host." | `C:\Users\micha\ops\CLI_SSH_HANDOVER_2026-08-13.md:52-54` | not in repo |
+| 08-13/14 | Out-of-repo agent handover: "[location redacted] production never receives wallet credentials and never places or cancels orders. The external credential source is `C:\Users\micha\Desktop\.env.txt` ... Live mutation belongs on a genuinely eligible International host." | `C:\Users\micha\ops\CLI_SSH_HANDOVER_2026-08-13.md:52-54` | not in repo |
 | 08-14 | "The operator designated the existing 16 GB production PC as the live International execution host." (Contradicts the handover line above, same day.) | item-67:435-441 | yes |
 | 08-23 | "Dated Stage 0/1 readiness decision: approved 2026-08-23" (substitute gates; "not self-executing"). Same day an attended credential import on the then-execution host "refused before mutation because one or more fixed Credential Manager entries already existed". | runbook:147-168; item-67:548-565 | yes |
 | 08-27..30 | Live lane moved to the separate 32 GB PC ("portable_execution_v1"). Named Git exception: branch `codex/portable-execution-host-clean-20260827` may supply live code "for this one portable Stage 0/1 session". Host registry set to ASSIGNED. | PORTABLE doc:12-32; config json; `git log` 839279b84 (08-29) | yes |
@@ -136,13 +136,13 @@ All on the portable PC, Windows user `Michael`, host id `a740ee7d...`, principal
 
 | # | Attempt id | Outcome | Exchange contact | In tracked docs? |
 | --- | --- | --- | --- | --- |
-| - | (diagnostic 13:18:31Z) | geoblock `blocked=true CA/ON`; agent writes "BLOCKED at geographic eligibility" | none | NO (scratch only) |
-| - | (diagnostic 13:23:16Z) | geoblock `blocked=false MX/QUE` | none | NO (scratch only) |
+| - | (diagnostic 13:18:31Z) | geoblock `blocked=true`, a restricted-region reading; agent writes "BLOCKED at geographic eligibility" | none | NO (scratch only) |
+| - | (diagnostic 13:23:16Z) | geoblock `blocked=false`, an eligible-region reading | none | NO (scratch only) |
 | 1 | `pilot-20260906T132919010Z` | Stage 0 FAIL `balance_cap` 14:07:03Z (wallet cash 275.48 > 100 isolated cap) | credentials read in memory; authenticated user-stream subscription sent; 0 heartbeats, 0 cancel-all | branch item 67 |
 | 2 | `pilot-20260906T151133217Z` | Stage 0 PASS 15:23:37Z; Stage 1 stopped in sealing | 2 heartbeats, 1 account-wide cancel-all; no order | branch item 67 |
 | 3 | `pilot-20260906T165758983Z` | FAIL `supervised_confirmation` 17:33:46Z (pasted command read as the literal) | none (pre-credential) | branch item 67 |
-| 4 | `pilot-20260906T181355730Z` | FAIL `stage0_geography_gate` 18:21:49Z, `OFFICIAL_LOCATION_BLOCKED`, `CA/ON` | none (pre-credential) | **NO (scratch only)** |
-| - | (recheck 18:24:25Z) | geoblock `blocked=false MX/QUE`, same host/principal ids | none | **NO (scratch only)** |
+| 4 | `pilot-20260906T181355730Z` | FAIL `stage0_geography_gate` 18:21:49Z, `OFFICIAL_LOCATION_BLOCKED`, a restricted-region reading | none (pre-credential) | **NO (scratch only)** |
+| - | (recheck 18:24:25Z) | geoblock `blocked=false`, an eligible-region reading, same host/principal ids | none | **NO (scratch only)** |
 | 5 | `pilot-20260906T183459081Z` | "v4 geo retry" prepared 18:39Z; outcome not recorded anywhere I could read; v5 note implies it stopped on non-empty wallet state | unknown | **NO (scratch only)** |
 | 6 | `pilot-20260906T185946784Z` | Stage 0 PASS 19:04:31Z; Stage 1 cancel-all FAIL at `preflight` | 2 heartbeats, 1 cancel-all; no order | branch item 67 |
 | 7 | `pilot-20260906T194643245Z` | Stage 0 PASS; Stage 1 cancel-all PASS 19:52-19:53Z; parent `UNKNOWN`; dead-man not run | **1 real order**, 0.005 pUSD, cancelled, no fill | branch item 67 |
@@ -156,31 +156,31 @@ orders and at least four account-wide cancel-alls against the owner's existing p
 
 ## 3. Findings (most severe first)
 
-### gap-live-lane-truth-and-eligibility-1 (CRITICAL) - The venue geoblock classified the execution PC as blocked Ontario twice on test day; it flipped to Mexico within minutes both times; real orders followed; no tracked document records any of it
+### gap-live-lane-truth-and-eligibility-1 (CRITICAL) - The venue geoblock classified the execution PC as blocked (a restricted region) twice on test day; it flipped to an eligible region within minutes both times; real orders followed; no tracked document records any of it
 
 Basis: live_state (retained receipts opened directly) + verified_in_code. known_status: new.
 
 Facts, each from a file I opened:
 1. `scratch/handoffs/live-test-preparation-20260906/public-geoblock-diagnostic-20260906T131831Z.json`:
-   `"blocked":true,"country":"CA","region":"ON"` at 13:18:31Z, "made directly from the assigned portable PC".
+   `"blocked":true` with a restricted-region `country`/`region` reading [owner location redacted] at 13:18:31Z, "made directly from the assigned portable PC".
 2. `.../ATTENDED-PREFLIGHT-BLOCKED.md:25-34` (agent-written, 09:19 local): the host audit 43 seconds
    earlier passed with "direct networking"; "Polymarket's current official geographic-restrictions
-   documentation lists Ontario as close-only on both its frontend and API. The planned Stage 1
+   documentation lists [location redacted] as close-only on both its frontend and API. The planned Stage 1
    post-only BUY opens a new order, so the live test must not proceed while this eligibility result
    remains blocked. Any incorrect classification requires resolution with Polymarket; changing or
    bypassing a gate is not a remedy."
-3. `.../public-geoblock-diagnostic-20260906T132316Z.json`: `"blocked":false,"country":"MX","region":"QUE"`
-   at 13:23:16Z. Elapsed: 4 min 45 s. The second host audit (13:22:55Z) again passed "direct networking"
+3. `.../public-geoblock-diagnostic-20260906T132316Z.json`: `"blocked":false` with an eligible-region
+   `country`/`region` reading [owner location redacted] at 13:23:16Z. Elapsed: 4 min 45 s. The second host audit (13:22:55Z) again passed "direct networking"
    (`ATTENDED-PREFLIGHT-LOCAL-VERIFICATION-PENDING.md:11-12`).
 4. `.../geo-failure-stage0-geography-v1.json:2-19,33`: sealed receipt at 18:21:49Z,
-   `official.blocked=true, country=CA, region=ON`, `blocker_code=OFFICIAL_LOCATION_BLOCKED`, `status=FAIL`,
+   `official.blocked=true` with a restricted-region country/region reading, `blocker_code=OFFICIAL_LOCATION_BLOCKED`, `status=FAIL`,
    while `operator_attestation.physical_location_eligible=true` and `no_circumvention=true`.
    `geo-failure-stage0-execution-v1.json:4,19,56-57`: attempt `pilot-20260906T181355730Z`, phase
    `stage0_geography_gate`, source tip `d8f038e9` (the tip that had just removed the typed prompt, so
    those two `true` values were supplied by the wrapper, not typed).
 5. `.../geography-recheck-before-new-attempt-v1.json:2-13`: 18:24:25Z, SAME `execution_host_id` and
-   `execution_principal_id`, `blocked=false, country=MX, region=QUE`. Elapsed: 2 min 36 s.
-6. `.../GEO-RETRY-READY-v4.md:5`: "The owner reports that the Ontario location attribution was mistaken
+   `execution_principal_id`, `blocked=false` with an eligible-region reading. Elapsed: 2 min 36 s.
+6. `.../GEO-RETRY-READY-v4.md:5`: "The owner reports that the [location redacted] location attribution was mistaken
    and the infrastructure was moved. This records the correction without treating an IP label as proof
    of physical location ... network settings were not changed by the agent."
 7. The test then proceeded to attempts 6, 7 and 9 above, including three real orders.
@@ -194,17 +194,17 @@ What the project's own rules say about this situation:
   physical-location attestations disagree."
 - `docs/research/MARKET_MAKING_PLAN.md:460-461`: "**Compliance/eligibility** (global vs US platform
   split, Ontario restrictions) is a hard gate for live trading."
-- `CLI_SSH_HANDOVER_2026-08-13.md:52-54` calls the capture host "Ontario production" and says live
+- `CLI_SSH_HANDOVER_2026-08-13.md:52-54` calls the capture host "[location redacted] production" and says live
   mutation "belongs on a genuinely eligible International host".
 
 What the project records about where the machines are:
 - The runbook deliberately records nothing: "This repository does not assert the operator's or
   execution host's physical location" (`:55-56`); "never solicits, accepts, or stores an
   operator-supplied city, state/province, or country" (`:61-62`).
-- The capture host is "Ontario production" (handover note above).
+- The capture host is "[location redacted] production" (handover note above).
 - The portable PC is reached from the capture host at "an explicitly reviewed RFC1918 IPv4 address"
   (`docs/development.md:98-100`), i.e. on a private network with it. (inferred: same premises.)
-- With "direct networking" confirmed, the venue saw the portable PC as CA/ON, twice.
+- With "direct networking" confirmed, the venue saw the portable PC in a restricted region, twice.
 - All scheduling is America/Toronto, including the test plan itself ("09:30 setup and 10:00 attended
   execution, America/Toronto", branch item 67). The branch doc correctly adds "Timezone scheduling is not
   geographic eligibility evidence."
@@ -221,24 +221,24 @@ Is eligibility anything more than self-attestation plus a geoblock response? No.
 - `live_path_security.py:679-720` (`assert_no_ambient_proxy_configuration`): checks proxy environment
   variables, current-user WinINET proxy/auto-config, and WinHTTP proxy. It cannot see a VPN adapter,
   a changed default route, or an upstream router tunnel. "Direct networking PASS" is therefore fully
-  compatible with a full-tunnel VPN, and it passed under BOTH the CA/ON and the MX/QUE classifications.
+  compatible with a full-tunnel VPN, and it passed under BOTH the restricted-region and the eligible-region classifications.
 
 Two readings, and I cannot choose between them from documents:
-- (A) The operator and PC are in Ontario and the egress was switched to a Mexico exit (VPN or similar)
-  to clear the gate. A physical machine does not move Ontario to Queretaro in 156 seconds.
-- (B) The operator and PC are outside Ontario and an Ontario-exiting network path was mistakenly active
+- (A) The operator and PC are in the restricted region and the egress was switched to an eligible-region
+  exit (VPN or similar) to clear the gate. A physical machine does not move between the two regions in 156 seconds.
+- (B) The operator and PC are outside the restricted region and a network path exiting there was mistakenly active
   ("attribution was mistaken"). This is what the v4 note records the owner as reporting. It sits
-  awkwardly with "Ontario production", the RFC1918 link, and a "direct networking" CA/ON result.
+  awkwardly with "[location redacted] production", the RFC1918 link, and a "direct networking" restricted-region result.
 Under either reading, one of the two endpoint observations disagreed with physical location within
 minutes, which the runbook names as a hard stop, and the project resumed on an owner report alone.
 
 Not recorded anywhere in Git: I filtered `8739902fe` item 67 and STATE_OF_PLAY, and
-`codex/48h-maker-integration-20260912` item 67, for the attempt ids, "Ontario", "LOCATION_BLOCKED",
-"infrastructure", "moved": zero hits. Master `docs/` has exactly one "Ontario" hit
-(`MARKET_MAKING_PLAN.md:460`). The branch item 67 lists seven 09-06 attempts and silently omits the two
+`codex/48h-maker-integration-20260912` item 67, for the attempt ids, the region name, "LOCATION_BLOCKED",
+"infrastructure", "moved": zero hits. Master `docs/` has no hit beyond the generic June compliance
+line (`MARKET_MAKING_PLAN.md:460`). The branch item 67 lists seven 09-06 attempts and silently omits the two
 geography ones (rows 4 and 5 above) while saying "Preserve every completed or failed attempt unchanged".
 
-Impact: if reading (A) holds, or if the venue treats the account as Ontario-resident regardless of
+Impact: if reading (A) holds, or if the venue treats the account as resident in the restricted region regardless of
 egress, the item-330 end goal (live maker on International Polymarket) is not reachable by this
 operator whatever the economics say, the ~490 pUSD in the wallet is exposed to venue account action,
 and the owner carries ToS/regulatory exposure that no document has examined. The evidence that would
@@ -246,7 +246,7 @@ let the owner or counsel assess it is unbacked scratch.
 
 Recommendation (no legal conclusion offered): owner states in one dated line in STATE_OF_PLAY where the
 operator and each host physically are and whether any VPN/relay was in use on 09-06; obtain the venue's
-current geographic-restrictions text and, if Ontario is restricted, take advice before ANY further
+current geographic-restrictions text and, if that region is restricted, take advice before ANY further
 authenticated contact; until then treat W5-W7 as blocked on eligibility, not merely on authority. Copy
 the eleven small receipts listed in section 1 somewhere durable.
 
@@ -301,7 +301,7 @@ Which host holds the WinCred entries?
   import "refused before mutation because one or more fixed Credential Manager entries already
   existed". That predates the portable host (08-27). No document records their removal. (doc_claimed;
   host inferred from dates; NOT verified live because vault commands are forbidden here.) This
-  contradicts the 08-13 handover's "Ontario production never receives wallet credentials".
+  contradicts the 08-13 handover's "[location redacted] production never receives wallet credentials".
 
 Is the Desktop file the "source file" the branch says was deleted? NO.
 - Deleted file (live_state, `credential-source-cleanup-20260906T1400Z.json`): on the PORTABLE PC,
@@ -478,7 +478,7 @@ No legal conclusion is offered; "what the documents say" is all this table claim
 
 | # | Exposure | What the documents say | Status |
 | --- | --- | --- | --- |
-| 1 | Operator/host physical location vs venue restricted jurisdictions | Runbook refuses to record location (`:54-63`). Handover calls the capture host "Ontario production". June plan names "Ontario restrictions" a hard gate (`MARKET_MAKING_PLAN.md:460`). 09-06 agent note: venue docs list "Ontario as close-only on both its frontend and API". Geoblock receipts: CA/ON blocked twice, MX/QUE unblocked minutes later. | NEEDS OWNER OR COUNSEL |
+| 1 | Operator/host physical location vs venue restricted jurisdictions | Runbook refuses to record location (`:54-63`). Handover calls the capture host "[location redacted] production". June plan names "Ontario restrictions" a hard gate (`MARKET_MAKING_PLAN.md:460`). 09-06 agent note: venue docs list "[location redacted] as close-only on both its frontend and API". Geoblock receipts: restricted-region reading blocked twice, eligible-region reading unblocked minutes later. | NEEDS OWNER OR COUNSEL |
 | 2 | VPN / proxy / circumvention | Venue "forbids VPN, proxy, or similar circumvention" (runbook `:56-57`). Control is an attestation (now software-supplied) plus a proxy-settings check that cannot see a VPN adapter. Owner reported "infrastructure was moved"; agent "did not change network settings". | NEEDS OWNER OR COUNSEL |
 | 3 | Polymarket ToS on automated/API trading | Official API/SDK docs are cited extensively for mechanics (`:1924-1941`). No document reviews the Terms of Use for automated trading, account sharing, or API conditions. | NOT RECORDED |
 | 4 | Liquidity-rewards / maker-rebate programme terms (eligibility, self-dealing, clawback) | Formula, thresholds and payout mechanics are recorded in depth (runbook `:1829-1852`, maker docs). Programme eligibility terms and conduct rules are not. | NOT RECORDED |
@@ -523,12 +523,12 @@ No legal conclusion is offered; "what the documents say" is all this table claim
 
 - The portable PC's host-local originals (`WLive/attempts`, `WeatherPortable/prep-20260906`), including
   the geography receipts of the PASSING attempts. I do not know which country/region attempts 2, 6, 7
-  and 9 recorded; by the pattern it was MX/QUE, but that is inferred.
+  and 9 recorded; by the pattern it was the eligible-region reading, but that is inferred.
 - Whether the production host's Credential Manager still holds the four pilot entries (vault commands
   forbidden), and the contents of `Desktop\.env.txt` (credential-like; not opened).
 - The outcome of attempt `pilot-20260906T183459081Z` (v4). I did not open the large qualification JSONs.
 - The venue's current geographic-restrictions and Terms of Use text (no network). The statement that
-  Ontario is "close-only" is the project agent's 09-06 reading, not mine.
+  the reported region is "close-only" is the project agent's 09-06 reading, not mine.
 - The remaining ~70 files in the handoff directory, `failed-stage0-20260906T140703Z/`, and
   `scratch/handoffs/venue-candidate-20260906/`.
 - Branch item 67 beyond line 500 and the full branch runbook (2,000+ lines); I read heads and diffs.
@@ -537,7 +537,7 @@ No legal conclusion is offered; "what the documents say" is all this table claim
 ## 8. Open questions for the owner
 
 1. Where, physically, were you and the portable PC on 2026-09-06, and what changed on the network at
-   ~09:20 and ~14:22 local that moved the venue's classification from CA/ON to MX/QUE?
+   ~09:20 and ~14:22 local that moved the venue's classification from a restricted region to an eligible one?
 2. Does Polymarket treat your account as restricted irrespective of egress (KYC/residency), and have you
    read the current geographic-restrictions and Terms text yourself?
 3. What is in `C:\Users\micha\Desktop\.env.txt`? Is it the "separate secure backup"?

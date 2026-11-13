@@ -294,18 +294,19 @@ post-only BUYs, cancelled, zero fills. It was a one-day exception between the 09
 09-10/11/13 restatements; nothing is authorized today.
 
 Untracked receipts under `scratch/handoffs/live-test-preparation-20260906/` show `polymarket.com/api/geoblock` returned
-**blocked=true CA/ON** at 13:18:31Z and again at 18:21:49Z (sealed Stage 0 FAIL `OFFICIAL_LOCATION_BLOCKED`, with the
-operator attestation "physically eligible" set true), then **blocked=false MX/QUE 4m45s and 2m36s later** on the same
-host and principal ids. The retry note reads "owner reports that the Ontario location attribution was mistaken and the
+**blocked=true** (a restricted-region reading) at 13:18:31Z and again at 18:21:49Z (sealed Stage 0 FAIL
+`OFFICIAL_LOCATION_BLOCKED`, with the operator attestation "physically eligible" set true), then **blocked=false** (an
+eligible-region reading) **4m45s and 2m36s later** on the same host and principal ids. The retry note reads "owner
+reports that the [location redacted] location attribution was mistaken and the
 infrastructure was moved". Orders followed.
 
-Verifier caveats, kept: *VPN use is not proven*; the 13:xx diagnostics carry no host ids; the venue's current Ontario
-text was unverifiable offline. But `mm_geographic_eligibility.py:396-410` trusts only the endpoint's `blocked` flag plus
+Verifier caveats, kept: *VPN use is not proven*; the 13:xx diagnostics carry no host ids; the venue's current text for
+that region was unverifiable offline. But `mm_geographic_eligibility.py:396-410` trusts only the endpoint's `blocked` flag plus
 caller-supplied booleans and never evaluates country or region; `live_path_security.py:679-720` cannot see a VPN
 adapter; and `INTERNATIONAL_MM_LIVE_PILOT.md:59-60` says an unblocked egress that disagrees with physical location "is
 not authority". The item-67 narrative on PR 37 skips the geo-failed attempt.
 
-**Why it matters strategically:** if the operator is in Ontario, the maker end goal on International Polymarket may be
+**Why it matters strategically:** if the operator is in the restricted region, the maker end goal on International Polymarket may be
 unreachable regardless of economics. That is a first-order viability input and belongs in item 330 before any more
 W3–W7 work. The only evidence sits in an ignored, un-backed-up directory.
 

@@ -193,7 +193,7 @@ and W3 should say so unless the owner moves the cap. This is the same first
 leg the July report gave.
 
 **Geographic eligibility — recorded as resolved by owner statement,
-2026-09-19.** The 2026-09-06 Ontario geoblock readings were a tunnel used to
+2026-09-19.** The 2026-09-06 restricted-region geoblock readings were a tunnel used to
 reach files on the owner's home PC; the execution PC is physically in a
 trade-eligible location and never moves. Operating rule: that tunnel is down
 for the whole of any live session

@@ -743,13 +743,13 @@ Times are UTC. "Exchange contact" is what the receipts show.
 
 | # | Attempt id | Outcome | Exchange contact |
 | --- | --- | --- | --- |
-| - | diagnostic 13:18:31Z | geoblock endpoint `blocked=true`, `CA/ON`; preparation recorded as blocked at geographic eligibility | none |
-| - | diagnostic 13:23:16Z | geoblock endpoint `blocked=false`, `MX/QUE` | none |
+| - | diagnostic 13:18:31Z | geoblock endpoint `blocked=true`, a restricted-region reading; preparation recorded as blocked at geographic eligibility | none |
+| - | diagnostic 13:23:16Z | geoblock endpoint `blocked=false`, an eligible-region reading | none |
 | 1 | `pilot-20260906T132919010Z` | Stage 0 FAIL `balance_cap` at 14:07:03Z (wallet cash 275.48 above the 100 isolated-wallet cap) | credentials read in memory; authenticated user-stream subscription; 0 heartbeats, 0 cancel-all |
 | 2 | `pilot-20260906T151133217Z` | Stage 0 PASS 15:23:37Z; Stage 1 stopped in sealing | 2 heartbeats, 1 account-wide cancel-all; no order |
 | 3 | `pilot-20260906T165758983Z` | FAIL `supervised_confirmation` 17:33:46Z (a pasted command was read as the typed literal) | none (pre-credential) |
-| 4 | `pilot-20260906T181355730Z` | FAIL `stage0_geography_gate` 18:21:49Z, `OFFICIAL_LOCATION_BLOCKED`, `CA/ON` | none (pre-credential) |
-| - | recheck 18:24:25Z | geoblock endpoint `blocked=false`, `MX/QUE`, same host and principal ids | none |
+| 4 | `pilot-20260906T181355730Z` | FAIL `stage0_geography_gate` 18:21:49Z, `OFFICIAL_LOCATION_BLOCKED`, a restricted-region reading | none (pre-credential) |
+| - | recheck 18:24:25Z | geoblock endpoint `blocked=false`, an eligible-region reading, same host and principal ids | none |
 | 5 | `pilot-20260906T183459081Z` | geography retry prepared 18:39Z; **outcome not recorded in any receipt read**; the next note implies it stopped on non-empty wallet state | unknown |
 | 6 | `pilot-20260906T185946784Z` | Stage 0 PASS 19:04:31Z; Stage 1 cancel-all FAIL at `preflight` | 2 heartbeats, 1 cancel-all; no order |
 | 7 | `pilot-20260906T194643245Z` | Stage 0 PASS; Stage 1 cancel-all PASS 19:52–19:53Z; parent result `UNKNOWN`; dead-man mode not run | **1 real order**, 0.005 pUSD, cancelled, no fill |
@@ -757,10 +757,10 @@ Times are UTC. "Exchange contact" is what the receipts show.
 | 9 | `pilot-20260907T001707063Z` | Stage 0, both Stage 1 modes and the bundle PASS at 01:07:50Z | **2 real orders**, 0.005 pUSD each, cancelled, no fill |
 
 **The two geography rows, with the owner's explanation.** The geoblock gate
-refused twice with Ontario readings (the 13:18Z diagnostic and attempt 4) and
+refused twice with restricted-region readings (the 13:18Z diagnostic and attempt 4) and
 the same host read unblocked minutes later both times. **Owner statement,
 2026-09-19: the execution PC is physically in a trade-eligible location and
-never moves; the Ontario readings were a tunnel used to reach files on the
+never moves; the restricted-region readings were a tunnel used to reach files on the
 owner's home PC; the gate refused correctly while that tunnel was up and
 passed on the PC's own connection.** Recorded as the owner's attestation; the
 repository cannot verify physical location and never stores it. Eligibility
