@@ -387,6 +387,42 @@ def test_account_full_scope_includes_cash_types_and_resolved_statuses(tmp_path):
     assert result["pagination_complete"] and result["account_cash_reconciliation_proven"] is False
 
 
+def _position_row(index):
+    """A synthetic row with the live /v2/positions field set (36 fields, 2026-11-12 shape)."""
+    text = {name: f"{name}-{index}" for name in (
+        "token_id", "condition_id", "status", "title", "slug", "icon", "event_id", "event_slug",
+        "outcome", "opposite_outcome", "opposite_token_id", "end_date", "name", "profile_image")}
+    numbers = {name: 0.5 for name in (
+        "current_size", "avg_price", "entry_cost_usdc", "entry_fees_usdc", "total_cost_usdc",
+        "current_price", "current_value", "total_size", "realized_pnl", "unrealized_pnl",
+        "total_pnl", "percent_pnl", "percent_realized_pnl")}
+    flags = {name: False for name in ("redeemable", "mergeable", "negative_risk", "archived", "verified")}
+    return {"proxy_wallet": "0x" + "a" * 40, **text, **numbers, **flags,
+            "outcome_index": 0, "last_event_at": 1, "first_entry_at": 1}
+
+
+def test_position_pages_fit_the_strict_json_node_cap(tmp_path):
+    from weather.market.pilot_evidence_account import POSITION_PAGE_LIMIT
+    from weather.market.pilot_evidence_contract import strict_json
+    assert len(_position_row(0)) == 36
+
+    def body(rows):
+        return json.dumps({"data": [_position_row(i) for i in range(rows)],
+                           "pagination": {"has_more": True, "next_cursor": "c"}}).encode()
+
+    # Witness of the 2026-11-12 stop: a full 500-row CLOSED page exceeds the cap.
+    with pytest.raises(ValueError, match="JSON structure limit"):
+        strict_json(body(500))
+    assert len(strict_json(body(POSITION_PAGE_LIMIT))["data"]) == POSITION_PAGE_LIMIT
+    store = store_at(tmp_path)
+    http = Pages([page()] * 7)
+    args = SimpleNamespace(wallet="0x" + "A" * 40, page_size=500, from_utc=SimpleNamespace(timestamp=lambda: 1), max_pages=5)
+    assert account_flow(args, store, http, 1000) == "account_export_complete"
+    positions = [params for path, params in http.calls if path.endswith("positions")]
+    assert len(positions) == 4 and all(p["limit"] == POSITION_PAGE_LIMIT for p in positions)
+    assert all(params["limit"] == 500 for path, params in http.calls if not path.endswith("positions"))
+
+
 def test_import_closure_cannot_reach_auth_signing_or_orders():
     code = '''
 import importlib.abc, sys

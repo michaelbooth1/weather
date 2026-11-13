@@ -165,7 +165,10 @@ receipt requires pin/launch review, not a lowered guard. Normal stop is
 `account-flow` retains raw Data API v2 pages: maker-inclusive trades, all default
 activity with deposits/withdrawals enabled, opt-in TIP separately, and
 OPEN/REDEEMABLE/REDEEMABLE_LOST/CLOSED positions. Filters and native cursors are
-retained; null/empty terminal cursors require has_more=false. Strict JSON,
+retained; null/empty terminal cursors require has_more=false. Positions pages
+request at most 200 rows (`POSITION_PAGE_LIMIT`): a 500-row positions page
+exceeds strict JSON's 60,000-node cap and would stop the walk as incomplete.
+Trades and activity use `--page-size`. Strict JSON,
 row/wallet scope, page limits and contradictory page checks refuse malformed
 completion. Cursor traversal is explicitly unvalidated for cashflow, not proof
 of private fill finality, atomic inventory, inactive holdings, chain balances,
