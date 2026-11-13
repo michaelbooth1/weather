@@ -487,6 +487,9 @@ class AccountState:
             if same_f2_protocol:
                 from weather.market.lfc_f2_breadth import economic_fields, FIELDS
                 keys = economic_fields(policy) | {'sleeve_loss_basis'} | (FIELDS if old.get('schema_version') == 'lfc_campaign_policy_v0.3' else frozenset())
+            # B090-I: the start window only says when an attempt may begin; editing
+            # it at the same revision is not an economic change.
+            keys = set(keys) - {'start_window_toronto'}
             def economic_value(row, key):
                 return row.get(key, 'gross') if key == 'sleeve_loss_basis' else row.get(key)
             if old_revision == policy.raw['policy_revision'] and any(economic_value(old, key) != economic_value(policy.raw, key) for key in keys):

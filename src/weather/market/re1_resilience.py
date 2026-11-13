@@ -36,9 +36,13 @@ class Freshness:
             raise HoldEnd(name + '_stale')
 
     def read(self, name, fn, *, cadence, budget, force=False, initial=None):
-        self.check(name, budget, initial=initial)
+        # B090-I (live 11-13): with ten bands on one loop a band's turn can come
+        # round less often than the budget. A successful fresh read proves the
+        # fact now, so staleness is judged only when no fresh value is had
+        # (cadence skip or failed read); the caller still acts on the value.
         now = self.clock.monotonic()
         if not force and now < self.next_read.get(name, float('-inf')):
+            self.check(name, budget, initial=initial)
             return None
         try:
             value = fn()
@@ -49,7 +53,6 @@ class Freshness:
             self.next_read[name] = self.clock.monotonic() + 1
             self.check(name, budget, initial=initial)
             return None
-        self.check(name, budget, initial=initial)
         self.success[name] = self.clock.monotonic()
         self.next_read[name] = self.clock.monotonic() + cadence
         return value
