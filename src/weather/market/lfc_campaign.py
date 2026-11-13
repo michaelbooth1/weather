@@ -5,7 +5,7 @@ constructs a production Runtime. A claimed opportunity never runs twice.
 """
 from datetime import timedelta
 
-from weather.market.lfc_campaign_control import control_record, active_incidents, stable_id, orders_unproven
+from weather.market.lfc_campaign_control import PRECHECK_REASONS, control_record, active_incidents, stable_id, orders_unproven
 from weather.market.lfc_campaign_guard import AdmissionBusy, AdmissionUncertain
 from weather.market.lfc_campaign_policy import ZONE
 from weather.market.lfc_campaign_state import MoneyContradiction, StateRefused
@@ -267,12 +267,8 @@ class CampaignCoordinator:
                 reason = ('hold_retained' if isinstance(exc, AdmissionBusy) and str(exc) in
                           {'hold_already_owned', 'hold_retained', 'agent_heavy_hold'} else
                           'admission_busy' if isinstance(exc, AdmissionBusy) else
-                          'wallet_cash_below_sleeve' if str(exc) == 'wallet_cash_below_sleeve' else
-                          'foreign_open_order' if str(exc) == 'foreign_open_order' else
-                          str(exc) if str(exc) in {'f2_personal_trade_unproven', 'f2_personal_trade_fee_unproven',
-                                                  'f2_personal_trade_changed', 'f2_anchor_snapshot_pending',
-                                                  'capital_cash_snapshot_pending'} else
-                          'no_qualifying_band' if str(exc) in {'no_qualifying_band', 'no_qualifying_band_for_policy'} else
+                          'no_qualifying_band' if str(exc) == 'no_qualifying_band_for_policy' else
+                          str(exc) if str(exc) in PRECHECK_REASONS else
                           'transport_deferred')
                 self.status('DEFERRED', entry.id, reason=reason)
                 last_deferral = reason

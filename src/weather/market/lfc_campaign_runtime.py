@@ -766,6 +766,8 @@ class Runtime:
                 raise TransientPrecheck('capital_cash_snapshot_pending') from None
             if isinstance(exc, CapitalRefused) and str(exc) == 'capital_spendable_cash':
                 raise TransientPrecheck('wallet_cash_below_sleeve') from None
+            if isinstance(exc, TransientPrecheck):
+                raise  # Keep the true deferral reason (B090); never relabel it a read gap.
             if transient_read_error(exc):
                 raise TransientPrecheck('pre_go_read_unavailable') from None
             raise

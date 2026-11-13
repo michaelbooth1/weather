@@ -106,6 +106,7 @@ class CapitalBook:
         self.bridge_quarantine = None
         self.legacy_reclassified = self.withdrawal_costs = 0
         self.pool_movements, self.pools_dirty = [], False
+        self.owner_overdraw_outstanding = self.owner_overdraw_repaid = 0
         for row in getattr(ledger, 'capital_rows', []):
             self.apply(row)
         self.refresh_pools()
@@ -462,7 +463,10 @@ class CapitalBook:
         self.pool_movements.append({'kind': 'withdraw', 'amount': cash, 'timestamp': activity['timestamp'],
                                     'activity_id': activity['id'],
                                     'sequence': self.activity_sequences[activity['id']],
-                                    'charge_excess': charge})
+                                    'charge_excess': charge,
+                                    # Only a post-bridge owner debit can overdraw the sleeve.
+                                    'owner_overdraw': (not charge and self.bridge is not None and
+                                                       not self.cash_before_bridge(activity))})
         self.pools_dirty = True
         if counted:
             self.cash_out += cash
@@ -471,6 +475,7 @@ class CapitalBook:
         if not self.pools_dirty:
             return
         pools, costs = dict.fromkeys(('external', 'profit', 'incentives'), 0), 0
+        overdraw = repaid = 0
         # Resolving an old debit cannot spend a later deposit. Conversely, a
         # late-known older profit can explain an already-recorded withdrawal.
         # Recompute from retained facts; no ledger event or date is reset.
@@ -478,7 +483,15 @@ class CapitalBook:
         # first within a second. Charge the debit before an ambiguous credit.
         for move in sorted(self.pool_movements, key=lambda m: (m['timestamp'], m['kind'] == 'credit', m['sequence'])):
             if move['kind'] == 'credit':
-                pools[move['pool']] += move['amount']
+                amount = move['amount']
+                if overdraw and self.repays_owner_overdraw(move):
+                    # The owner's later contribution first returns the sleeve
+                    # cash the owner took; only the rest stays segregated.
+                    take = min(amount, overdraw)
+                    overdraw -= take
+                    repaid += take
+                    amount -= take
+                pools[move['pool']] += amount
                 continue
             remaining = move['amount']
             for pool in pools:
@@ -487,10 +500,29 @@ class CapitalBook:
                 remaining -= taken
             if move.get('charge_excess', True):
                 costs += remaining
+            elif move.get('owner_overdraw', self.bridge is not None and 'activity_id' not in move):
+                # An uncharged owner debit beyond the owner pools took sleeve
+                # cash. Headroom, losses and costs are unchanged; the cash
+                # shortfall is tracked until a later owner credit repays it.
+                overdraw += remaining
+        self.owner_overdraw_outstanding, self.owner_overdraw_repaid = overdraw, repaid
         self.costs += costs - self.withdrawal_costs
         self.withdrawal_costs = costs
         self.external, self.profit, self.incentives = (pools[k] for k in ('external', 'profit', 'incentives'))
         self.pools_dirty = False
+
+    def repays_owner_overdraw(self, move):
+        """Only proved owner contributions repay an overdraw.
+
+        DEPOSIT and incoming TIP rows carry native cash and are owner money by
+        construction. Label-estimated quarantine, snapshot surpluses, personal
+        trade proceeds and redemption remainders never repay: each is either an
+        unproved estimate or may already be inside a captured cash snapshot.
+        """
+        activity = self.activities.get(move.get('activity_id'))
+        return (move['pool'] == 'external' and activity is not None and activity['cash_native'] is not None and
+                (activity['type'] == 'DEPOSIT' or activity['type'] == 'TIP' and activity.get('direction') == 'IN') and
+                not any(q['grant'] is move for q in self.incoming_quarantines.values()))
 
     def undo_redemption(self, activity):
         key = activity['id']
@@ -663,6 +695,8 @@ class CapitalBook:
                 'paid_or_reserved_campaign_costs_native': self.costs,
                 'segregated_profit_native': self.profit, 'segregated_incentives_native': self.incentives,
                 'segregated_external_cash_native': self.external, 'charged_native': charged,
+                'owner_overdraw_outstanding_native': self.owner_overdraw_outstanding,
+                'owner_overdraw_repaid_native': self.owner_overdraw_repaid,
                 'headroom_native': max(0, funding - charged), 'returned_principal_native': self.returned_principal,
                 'unknown_payouts': list(self.unknown), 'cost_basis_releases': list(self.allocations),
                 'quarantined_unknown_incoming_native': sum(q['amount'] for q in self.incoming_quarantines.values()),
