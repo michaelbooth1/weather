@@ -44,7 +44,9 @@ if mode == 'slow_hang': time.sleep(5)  # a launch slower than the 4 s hang deadl
 if mode in ('hang', 'slow_hang', 'residual_success'):
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'],
                              creationflags=subprocess.CREATE_NO_WINDOW)
-    (out / 'descendant.json').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
+    # Publish atomically: the test and the wrapper poll for this file and read it at once.
+    (out / 'descendant.json.tmp').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
+    os.replace(out / 'descendant.json.tmp', out / 'descendant.json')
 if mode in ('hang', 'slow_hang'): time.sleep(300)
 if mode == 'failure': raise SystemExit(7)
 if mode == 'request_drift': Path(a.request).write_text('{}')
