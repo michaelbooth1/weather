@@ -26,12 +26,15 @@ def initialize(band, chosen):
 
 
 def observe(band, snapshot, observation):
-    """Pair completion owns its capped requotes; W owns only normal quoting."""
-    if is_wide(band) and not completing(band):
+    """W keeps the inclusive band; completion still owns its capped target."""
+    if is_wide(band):
+        affected = requote_legs(observation['adjusted_mid'], band.prices, band.TRADE_LEGS)
+        if completing(band):
+            observation['requote_legs'] = [leg for leg in observation['requote_legs'] if leg in affected]
+            return observation
         from weather.market.re1_attended import replacement_price
         mid = observation['adjusted_mid']
         normal = [replacement_price(mid, leg, band.OFFSET) for leg in (0, 1)]
-        affected = requote_legs(mid, band.prices, band.TRADE_LEGS)
         observation['requote_legs'] = [leg for leg in affected if normal[leg] != band.prices[leg] and
             entry_allowed(mid, normal, (leg,), snapshot['quote_inputs']['reward_max_spread_cents'])]
     return observation

@@ -50,7 +50,15 @@ def test_normal_requote_changes_only_affected_leg_and_retains_inclusive_band():
     assert observe(current, snapshot, {'adjusted_mid': '.35'})['requote_legs'] == [0]
     current.pair_state.completing = True
     observation = {'adjusted_mid': '.35', 'requote_legs': [1]}
-    assert observe(current, snapshot, observation) == observation
+    assert observe(current, snapshot, observation)['requote_legs'] == []
+
+
+def test_completion_outside_band_still_requires_a_different_capped_target():
+    current, _ = band(completing=True, prices=('.31', '.50'))
+    assert observe(current, current.submit_snapshot,
+                   {'adjusted_mid': '.345', 'requote_legs': [1]})['requote_legs'] == [1]
+    assert observe(current, current.submit_snapshot,
+                   {'adjusted_mid': '.345', 'requote_legs': []})['requote_legs'] == []
 
 
 def test_unscored_new_normal_quote_waits_without_tightening():
