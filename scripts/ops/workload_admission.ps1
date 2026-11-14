@@ -657,6 +657,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
+        "weather.market.lfc_pair_replay",
         "weather.market.maker_evidence_inspect",
         "weather.operations.base_retrain",
         "weather.operations.density_live_replay_parity",
