@@ -68,11 +68,7 @@ def verify_fills(inputs, fills, bands, *, campaign_id):
         condition = band['condition_id']
         if condition in states:
             continue
-        selections = [key for key in inputs.receipts if key.startswith(directories[fill['session']]+'/')
-                      and key.endswith('/'+fill['band']+'/selection.json')]
-        if len(selections) != 1:
-            raise ValueError('replay_selection_coverage')
-        selection = strict_json(inputs.path(selections[0]).read_text(encoding='utf-8-sig'))
+        selection = strict_json(inputs.path(directories[fill['session']]+'/selection.json').read_text(encoding='utf-8-sig'))
         tokens = tuple(next(row['token_ids'] for row in selection['rows'] if row['condition_id'] == condition))
         state = held_inventory(records, legs, CapitalBook(ledger).lots, campaign_id=campaign_id,
                                condition_id=condition, tokens=tokens)
