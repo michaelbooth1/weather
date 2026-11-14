@@ -231,6 +231,26 @@ function Assert-LfcCampaignTaskXml {
     return ($enabled[0].InnerText -ceq 'true')
 }
 
+function Assert-LfcCampaignValidation {
+    param([Parameter(Mandatory=$true)][AllowEmptyCollection()][object[]]$Output,
+          [Parameter(Mandatory=$true)][int]$ExitCode,[switch]$RequireEnabled)
+    if($ExitCode -ne 0) { throw 'campaign validation failed' }
+    $validated=@(foreach($line in $Output) {
+        try {
+            $row=ConvertFrom-Json -InputObject ([string]$line) -ErrorAction Stop
+            $names=@($row.PSObject.Properties | ForEach-Object { $_.Name })
+            if($names -contains 'state' -and [string]$row.state -ceq 'VALIDATED') { $row }
+        } catch { continue }
+    })
+    if($validated.Count -ne 1) { throw 'campaign check did not validate' }
+    $row=$validated[0]
+    $names=@($row.PSObject.Properties | ForEach-Object { $_.Name })
+    if($names -notcontains 'validated' -or $row.validated -isnot [bool] -or -not $row.validated -or
+       $names -notcontains 'require_enabled' -or $row.require_enabled -isnot [bool] -or
+       $row.require_enabled -ne [bool]$RequireEnabled) { throw 'campaign check did not validate' }
+    return $true
+}
+
 function Read-LfcCampaignRelease {
     param([Parameter(Mandatory=$true)][string]$Path,[Parameter(Mandatory=$true)][string]$Sha256)
     if($Sha256 -cnotmatch '^[0-9a-f]{64}$' -or (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Sha256) { throw 'release hash' }

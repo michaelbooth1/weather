@@ -380,7 +380,8 @@ class Session:
             self.journal.record('scoring_missed', band=self.condition, order_ids=ids,
                                 observed_at_utc=utc(self.clock.now()).isoformat(), exception_type=type(exc).__name__)
             return
-        self.scoring_seen |= len(ids) == 2 and all(scoring.values())
+        selected = {self.active[oid][0] for oid in ids}
+        self.scoring_seen |= selected == set(self.TRADE_LEGS) and all(scoring.values())
         observed = utc(self.clock.now()).isoformat()
         for oid in ids:
             self.journal.record('scoring', band=self.condition, order_id=oid,
@@ -413,6 +414,10 @@ class Session:
     def final_post_gate(self):
         """Last pure policy check, after all potentially slow opening reads."""
 
+    def read_geoblock(self, *, force=False):
+        return self.freshness.read('geoblock', lambda: self.call('geoblock', self.venue.geography),
+                                   cadence=30, budget=45, force=force)
+
     def control(self, *, force=False):
         if getattr(self, 'outcome_status', None) is not None:
             self.outcome_status.checkpoint()
@@ -424,8 +429,7 @@ class Session:
         now = self.clock.monotonic()
         if utc(self.clock.now()) >= self.end or now >= self.deadline:
             raise HoldEnd('fixed_end')
-        geo = self.freshness.read('geoblock', lambda: self.call('geoblock', self.venue.geography),
-                                  cadence=30, budget=45, force=force)
+        geo = self.read_geoblock(force=force)
         if geo is not None:
             if geo.get('blocked') is not False:
                 raise HoldEnd('geoblock')
@@ -447,6 +451,9 @@ class Session:
         if force and ('geoblock' not in self.freshness.success or self.heartbeat_loop.last_ack is None):
             self.clock.sleep(.25)
             self.control(force=True)
+
+    def record_fill(self, **fields):
+        self.journal.record('fill', **fields)
 
     def check_fills(self, *, canceling=None, force=False):
         events = self.freshness.read('user_stream', self.venue.events, cadence=0, budget=30)
@@ -470,7 +477,7 @@ class Session:
                     except Exception as exc:
                         self.note_evidence_fault('fill_order_unavailable')
                         self.journal.record('fill_order_unavailable', order_id=oid, exception_type=type(exc).__name__)
-                self.journal.record('fill', rows=orders, user_event=event)
+                self.record_fill(rows=orders, user_event=event)
                 raise HoldEnd('fill')
             if _order_id(event) not in self.known:
                 raise HoldEnd('unknown_user_event')
@@ -478,7 +485,7 @@ class Session:
                     event.get('event_type') in {'trade', 'trade_pending'} or
                     filled(event)):
                 self.fill_seen = True
-                self.journal.record('fill', user_event=event)
+                self.record_fill(user_event=event)
                 raise HoldEnd('fill')
             status = sdk_field_value(event, 'status', 'official_order_status')
             if _order_id(event) in self.active and _order_id(event) != canceling and status and str(status).upper() != 'LIVE':
@@ -492,7 +499,7 @@ class Session:
                 continue
             if filled(row):
                 self.fill_seen = True
-                self.journal.record('fill', order=row)
+                self.record_fill(order=row)
                 raise HoldEnd('fill')
             if oid != canceling and str(row.get('status', '')).upper() != 'LIVE':
                 self.evidence_failed = True

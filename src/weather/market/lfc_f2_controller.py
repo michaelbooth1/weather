@@ -57,13 +57,18 @@ class ScopedVenue:
 
     def events(self):
         rows = self.raw.events()
+        band = next(b for b in self.coordinator.bands if b.session_id == self.session_id)
         from weather.market.lfc_f2_breadth import enabled
         if enabled(self.coordinator.policy):
-            from weather.market.lfc_f2_repost import filtered_events
-            band = next(b for b in self.coordinator.bands if b.session_id == self.session_id)
+            from weather.market.lfc_f2_repost import filtered_events, observe_trade_ids
+            observe_trade_ids(band, rows or [])
+            from weather.market.lfc_f2_reward_estimate import capture_stream_context
+            capture_stream_context(band, rows or [])
+            band.project_trades(rows, source='stream')
             result = filtered_events(band, band.pending_repost_events + rows)
             band.pending_repost_events, band.pending_repost_bytes = [], 0
             return result
+        band.project_trades(rows, source='stream')
         return rows
 
     def cancel_all(self):
@@ -89,6 +94,10 @@ class F2Band(PilotSession):
         self.repost_waiting = False
         self.proven_trade_ids, self.observed_trade_ids = set(), set()
         self.pending_repost_events, self.pending_repost_bytes = [], 0
+        from weather.market.lfc_own_trades import OwnTradeProjection
+        self.own_trades = OwnTradeProjection(limit=8192)  # Existing 4096 trade identities, up to both own legs.
+        self.reward_estimates, self.reward_estimate_gaps = {}, set()
+        self.reward_context = {}
         self.REQUOTE_WINDOW = tuple(map(quantity, policy.raw['requote_distance_cents']))
         self.SECONDS = self.planned_seconds  # Late entry keeps the absolute end.
         self.cap = quantity(policy.raw['owner_funding_ceiling_pusd'])
@@ -107,6 +116,10 @@ class F2Band(PilotSession):
     def quote_steps(self, *, rehearsal_seconds=None):
         from weather.market.lfc_f2_repost import continue_quotes
         yield from continue_quotes(self, super().quote_steps, rehearsal_seconds=rehearsal_seconds)
+
+    def read_geoblock(self, *, force=False):
+        from weather.market.lfc_f2_geoblock import read_for_band
+        return read_for_band(self)
 
     def submit_steps(self, leg, price):
         began, deferrals = None, 0
@@ -141,7 +154,11 @@ class F2Band(PilotSession):
     def call(self, name, fn, **request):
         previous_posts = self.posts
         try:
-            return super().call(name, fn, **request)
+            response = super().call(name, fn, **request)
+            if name in {'accrual', 'final_accrual'}:
+                from weather.market.lfc_f2_reward_estimate import capture_accrual
+                capture_accrual(self, response)
+            return response
         except PeerCashPending:
             if name == 'submit':
                 number = self.posts + 1
@@ -158,11 +175,64 @@ class F2Band(PilotSession):
 
     def check_fills(self, **kwargs):
         if not self.repost_waiting:
-            return super().check_fills(**kwargs)
+            try:
+                return super().check_fills(**kwargs)
+            except HoldEnd as exc:
+                if exc.reason == 'fill':
+                    self.record_post_books('fill')
+                raise
         # All this band's orders are terminal. Fresh account proof is required
         # before returning to the ordinary stream/REST checks and submit path.
         from weather.market.lfc_f2_repost import poll_waiting_stream
         return poll_waiting_stream(self)
+
+    def record_post_books(self, trigger):
+        coordinator = self.venue.coordinator
+        if coordinator.post_books is not None:
+            try:
+                coordinator.post_books.watch(self, trigger)
+            except Exception as exc:
+                coordinator.retain('post_book_recording_unavailable', exception_type=type(exc).__name__)
+
+    def project_trades(self, rows, *, source):
+        ours = {oid: self.ledger.legs[self.ledger.by_order[oid]] for oid in self.known}
+        changed = self.own_trades.ingest(rows or [], ours, source=source,
+                                        observed_at_utc=self.clock.now().isoformat())
+        if changed:
+            self.journal.record('fill', rows=changed, projection_update=True, source=source)
+            if any(row['money_counted'] and (row['trade_id'], row['own_order_id']) in self.own_trades.new_keys
+                   for row in changed):
+                self.record_post_books('fill')
+        return changed
+
+    def record_fill(self, **fields):
+        event = fields.get('user_event')
+        if event is not None:
+            self.project_trades([event], source='stream')
+        rows = self.own_trades.rows()
+        signal = event or fields.get('order')
+        if signal is not None:
+            oid = _order_id(signal)
+            tid = signal.get('trade_id')
+            rows = [row for row in rows if (not oid or row['own_order_id'] == oid) and
+                    (not tid or row['trade_id'] == tid)]
+        # Keep the old source/order payload, but never call an empty order-read
+        # list a canonical execution. Cleanup's REST read finalizes this signal.
+        order_rows = fields.pop('rows', [])
+        self.journal.record('fill' if rows else 'fill_pending', rows=rows,
+            order_rows=order_rows, awaiting_trade_evidence=not rows, **fields)
+
+    def terminal_extra(self):
+        return {**super().terminal_extra(), 'own_trade_projection': self.own_trades.rows(),
+                'reward_estimates': list(self.reward_estimates.values()),
+                'reward_estimate_gaps': sorted(self.reward_estimate_gaps),
+                'reward_context': {'touches': list(self.reward_context.values()), 'gaps': []}}
+
+    def leg_terminal(self, oid, row):
+        before = self.ledger.legs[self.ledger.by_order[oid]]['size_matched']
+        super().leg_terminal(oid, row)
+        if quantity(row['size_matched']) > quantity(before):
+            self.record_post_books('fill')
 
     def refresh_repost_prices(self):
         from weather.market.re1_attended import replacement_price
@@ -207,7 +277,8 @@ class F2Band(PilotSession):
         reserve = self.size * sum(self.reserve_prices(), Decimal(0))
         try:
             from weather.market.lfc_f2_breadth import daily_gate
-            daily_gate(self.ledger, self.ledger.sessions[self.session_id]['start'], reserve=reserve, own_resting=own_resting)
+            daily_gate(self.ledger, self.ledger.sessions[self.session_id]['start'], reserve=reserve,
+                       own_resting=own_resting, journal=self.journal)
             figures = CapitalBook(self.ledger).gate(reserve=reserve, own_resting=own_resting)
         except CapitalRefused as exc:
             raise HoldEnd(str(exc)) from None
@@ -304,7 +375,10 @@ class F2Band(PilotSession):
                 return fn()
             finally:
                 self.progress()
-        return super()._recover(name, observed)
+        result = super()._recover(name, observed)
+        if name == 'terminal_trades':
+            self.project_trades(result, source='rest')
+        return result
 
     def terminal_order_read(self, oid, recover):
         """Prove unresolved legs before the one-shot historical probes."""
@@ -382,12 +456,16 @@ class F2Coordinator:
         self.account_fault_reason = None
         self.account_evidence_faults = set()
         self.task_readback_gaps = []
+        self.post_books = None
+        self.reward_context, self.reward_context_gaps = {}, set()
         from weather.market.lfc_f2_breadth import enabled, PROTOCOL as BREADTH_PROTOCOL
         self.scope = {'session_id': session_id, 'attempt_id': attempt_id,
                       'protocol': BREADTH_PROTOCOL if enabled(policy) else 'lfc_autostart_v2',
                       'policy_sha256': policy.sha256, **status.policy_metadata}
         self.journal = GuardedJournal(self.directory / 'journal.jsonl', clock=clock.now,
                                      scope=self.scope, mode='live', guard=self.guard)
+        from weather.market.lfc_f2_geoblock import SharedGeoblock
+        self.geoblock = SharedGeoblock(clock, self.journal)
 
     def retain(self, event, **fields):
         try:
@@ -456,6 +534,7 @@ class F2Coordinator:
                            'cancellation_scope': 'band', **flags, **self.status.policy_metadata})
         self.results[band.session_id] = result
         self.closed_bands.add(band.session_id)
+        band.record_post_books('retirement')
         if self.status.resync_hook is not None:
             self.status.resync_hook()
         self.status.progress()
@@ -472,6 +551,17 @@ class F2Coordinator:
         steps, due = {}, {}
         failed = None
         try:
+            from weather.market.lfc_f2_post_books import POST_RETIREMENT_RECORDING, PostBookRecorder
+            try:
+                if POST_RETIREMENT_RECORDING and getattr(self.clock, 'realtime', False) and self.post_books is None:
+                    self.post_books = PostBookRecorder(clock=self.clock, max_bands=len(self.bands), directory=self.directory)
+                if self.post_books is not None:
+                    self.post_books.start()
+            except Exception as exc:
+                if self.post_books is not None:
+                    self.post_books.stop()
+                self.post_books = None
+                self.retain('post_book_recording_unavailable', exception_type=type(exc).__name__)
             self.status.phase = 'QUOTING'
             loop.start()
             for band in self.bands:
@@ -510,6 +600,8 @@ class F2Coordinator:
             self.reason = (exc.reason if isinstance(exc, HoldEnd) else
                            'owner_interrupt' if isinstance(exc, KeyboardInterrupt) else 'f2_exception')
         finally:
+            if self.post_books is not None:
+                self.post_books.stop()
             self.final_teardown = True
             self.status.phase = 'CLEANUP'
             # Inject the stop into each live band so it follows the ordinary
@@ -597,6 +689,7 @@ class F2Coordinator:
                     'cancellation_ok': self.cancellation_ok, 'cancellation_scope': 'account',
                     'submits': sum(b.submits for b in self.bands), 'requotes': sum(b.requotes for b in self.bands),
                     'post_count': self.posts, 'order_ids': list(self.known), 'fill_seen': self.fill_seen,
+                    'post_book_recording_failure': getattr(self.post_books, 'failure', None),
                     'evidence_faults': sorted(self.account_evidence_faults | {f for b in self.bands for f in b._evidence_faults}), **flags}
         self.journal.record('terminal', **terminal)
         self.journal.close()

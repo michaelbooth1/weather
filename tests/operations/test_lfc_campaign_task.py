@@ -35,6 +35,23 @@ def test_all_campaign_scripts_parse_without_execution():
 
 
 @pytest.mark.spawns
+@pytest.mark.parametrize('output,code,required,passes', [
+    ([], 0, False, False),
+    (['{"state":"DEFERRED"}'], 0, False, False),
+    (['{"state":"VALIDATED","validated":true,"require_enabled":false}'], 1, False, False),
+    (['{"state":"VALIDATED","validated":true,"require_enabled":false}'], 0, False, True),
+    (['{"state":"VALIDATED","validated":true,"require_enabled":false}'], 0, True, False),
+    (['POSTCHECK_PENDING_WILL_RUN_ON_FIRST_TICK', '{"state":"VALIDATED","validated":true,"require_enabled":true}'], 0, True, True),
+])
+def test_registrar_requires_explicit_validation_even_after_zero_exit(output, code, required, passes):
+    literals = ','.join("'" + value.replace("'", "''") + "'" for value in output)
+    result = powershell(f"try {{ [void](Assert-LfcCampaignValidation -Output @({literals}) -ExitCode {code} "
+                        f"-RequireEnabled:${str(required).lower()}); 'PASS' }} catch {{ 'REFUSED' }}")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ('PASS' if passes else 'REFUSED')
+
+
+@pytest.mark.spawns
 def test_dot_sourced_contract_preserves_registrar_and_wrapper_arguments():
     script = str(CONTRACT).replace("'", "''")
     result = run_command("$Action='Register'; $ReleasePath='C:\\fixture\\release.json'; $ReleaseSha256='a'*64; " +
@@ -444,6 +461,9 @@ function FixturePython {
         @{schema_version='lfc_campaign_release_v0.1';task_name='WeatherLFCCampaign';root=$global:pin;python='FixturePython';campaign_path=$global:campaign;windowless=@{python='C:\fixture python\pythonw.exe'}} |
             ConvertTo-Json | Set-Content -Encoding ASCII -LiteralPath $global:release
     } elseif($args -contains '--require-enabled' -and $global:refuse) { $global:LASTEXITCODE=3 }
+    elseif($args -contains 'check') {
+        @{state='VALIDATED';validated=$true;require_enabled=($args -contains '--require-enabled')} | ConvertTo-Json -Compress
+    }
 }
 '''
     harness += f"\n$global:pin={q(root)}; $global:campaign={q(campaign)}; $global:release={q(release)}; $global:refuse=${str(refuse_check).lower()}\n"

@@ -60,7 +60,7 @@ def confirmation_sessions(ledger, frozen):
     return result
 
 
-def snapshot(ledger, policy, *, root, now, frozen=None):
+def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
     cutoff = datetime.fromisoformat(policy.raw['evidence_cutoff_toronto'])
     if now < cutoff:
         raise ValueError('final_cutoff_not_open')
@@ -121,6 +121,11 @@ def snapshot(ledger, policy, *, root, now, frozen=None):
             raise
         assessment = {'state': 'INCONCLUSIVE', 'label': 'MEASURED', 'net_cash_native': None,
                       'reason': 'success_look_not_open'}
+    from weather.market.lfc_f2_reward_estimate import retained_summary
+    reward_inputs = {}
+    for lane, sessions in (('confirmation', confirmation), ('learning_and_legacy', set(ledger.sessions) - confirmation)):
+        reward_inputs[lane], reward_hashes = retained_summary(root, ledger, sessions, state=state)
+        hashes.update(reward_hashes)
     return {'schema_version': 'lfc_final_cash_snapshot_v0.1', 'label': 'MEASURED',
         'observed_at_utc': now.isoformat(), 'evidence_cutoff': cutoff.isoformat(),
         **{key: policy.raw[key] for key in ('policy_name', 'policy_revision')},
@@ -129,6 +134,7 @@ def snapshot(ledger, policy, *, root, now, frozen=None):
         'gaps': gaps, 'purchase_cost_native': purchases, 'proved_redemption_cash_native': proceeds,
         'cash_subtotal_before_unverified_income_fees_costs_native': {k: proceeds[k] - purchases[k] for k in purchases},
         'reward_accrual_native': None, 'reward_actually_paid_confirmation_native': None,
+        'decision_page_inputs': {'rewards': reward_inputs},
         'unredeemed_winners_at_cutoff': winners, 'unresolved_at_cutoff': unknown,
         'unswept_zero_payout_positions': zeros, 'evidence_sha256': hashes,
         'late_cash_activity_ids': sorted(key for key, a in book.activities.items() if a['timestamp'] > cutoff.timestamp())}
@@ -143,6 +149,6 @@ def write_final(state, policy, *, root, output, now):
         policy = parse_policy(frozen['policy'])
     if not policy.f2:
         raise ValueError('final_look_requires_f2')
-    row = snapshot(state.ledger, policy, root=root, now=now, frozen=frozen)
+    row = snapshot(state.ledger, policy, root=root, now=now, frozen=frozen, state=state)
     write_new(output, {**row, 'content_sha256': digest(row)})
     return row

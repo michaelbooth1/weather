@@ -12,6 +12,8 @@ from weather.operations.live_path_security import validate_regular_nonreparse_fi
 
 
 ANCILLARY_SAMPLES = {'scoring', 'accrual', 'final_accrual', 'final_balances'}
+ANCILLARY_EVENT_GAPS = {'post_book_recording_unavailable', 'campaign_reward_estimate_unavailable',
+                        'campaign_reward_context_unavailable'}
 MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable',
                    'terminal_trades_unavailable', 'cleanup_open_orders_unavailable',
                    'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable',
@@ -84,6 +86,10 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 gaps.add(event)
             elif event == 'missing_sample' and row.get('sample') in ANCILLARY_SAMPLES:
                 gaps.add('sample_' + row['sample'])
+            elif event in ANCILLARY_EVENT_GAPS:
+                if not isinstance(row.get('exception_type'), str) or not row['exception_type'].isidentifier():
+                    raise ValueError('private_ancillary_gap_shape')
+                gaps.add(event)
             elif event in MONEY_READ_GAPS:
                 money_gaps.add(event)
             elif event == 'repost_inventory_proven':

@@ -501,6 +501,18 @@ at most three times, ten seconds apart. An exhausted check fails as DEFERRED,
 without creating a display-only incident. Contradictions are not retried.
 Pending postchecks must finish before either kind of refresh.
 
+The pre-enable check has one narrow pending-postcheck exception: no open session,
+unresolved leg, unacknowledged intent or latched incident may remain, and the
+existing anchor, trades, inventory, cash bridge and caps must validate. It prints
+`POSTCHECK_PENDING_WILL_RUN_ON_FIRST_TICK`; it creates no new session anchor and
+does not close a claim. The enabled task's first ordinary tick runs the pending
+postchecks before any new entry. All other blockers still refuse.
+
+`lfc_campaign_cli check` exits nonzero on busy, DEFERRED or refusal. Successful
+validation prints a final JSON record with `state=VALIDATED`, `validated=true`
+and the checked `require_enabled` value. The registrar requires that explicit
+record as well as exit zero before Verify/Enable can succeed.
+
 Retained account-read evidence uses `ACCOUNT_EVIDENCE_JSON_LIMIT`, also exposed
 as `STATE_JSON_LIMIT` for state envelopes. History recovery, prepared/go reads,
 postchecks, closures and funding records share that ceiling on writing and
@@ -642,6 +654,9 @@ F2 outcomes distinguish PLANNING reward scenarios from MEASURED fills, fees,
 carried cost basis, actual native redemptions and incentives. Unknown fees or
 payments remain null. Account incentive credits are shown separately; a payment
 without a verified earned-session link is never booked as session income.
+The [dual reward views](lfc-autostart-pinb.md#two-recorded-reward-views) add a
+condition-day estimate and its owner-activity flags to economics and decision
+inputs, while leaving the strict attribution and capital rails unchanged.
 Read-only hourly follow-up records independent D+1/D+2 passes and venue settlement,
 including while an incident or pending attempt blocks further trading. It never
 clears an incident. A retained marker permits these reads only after its exact

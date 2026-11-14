@@ -258,8 +258,13 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                 if args.require_enabled and policy.f2:
                     runtime = Runtime(state=state, pilot_root=root, policy_path=release['campaign_path'], release=release,
                         clock=clock, control_root=CONTROL_ROOT, task_enabled=lambda: False)
-                    print(json.dumps({'state': 'ENROLLMENT_FUNDING', **runtime.confirm_funding()}))
+                    funding = runtime.confirm_funding()
+                    print(json.dumps({'state': 'ENROLLMENT_FUNDING', **funding}))
+                    if funding.get('notice'):
+                        print(funding['notice'])
                 print('Campaign policy and immutable identity valid; no live action performed.')
+                print(json.dumps({'state': 'VALIDATED', 'validated': True,
+                                  'require_enabled': args.require_enabled}))
                 return 0
             runtime = Runtime(state=state, pilot_root=root, policy_path=release['campaign_path'], release=release,
                               clock=clock, control_root=CONTROL_ROOT, wrapper_launch=wrapper_launch,
@@ -293,11 +298,13 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
             emit('DEFERRED', reason=str(exc), account_not_read=True, orders_open_unproven=None, incident=None)
         else:
             emit('DEFERRED', reason=str(exc))
-        return 0
+        return 1 if args.command == 'check' else 0
     except AdmissionBusy as exc:
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')
-        return 0
+        if args.command == 'check':
+            print(json.dumps({'state': 'DEFERRED', 'code': 'admission_busy', 'validated': False}))
+        return 1 if args.command == 'check' else 0
     except TransientPrecheck as exc:
         if str(exc) == 'campaign_task_readback_unavailable' or (args.command == 'check' and
                 str(exc) in {'f2_anchor_snapshot_pending', 'capital_cash_snapshot_pending'}):

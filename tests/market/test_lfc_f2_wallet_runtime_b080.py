@@ -120,9 +120,9 @@ def test_owner_funding_check_cannot_reanchor_over_pending_postchecks(tmp_path, m
         entry = next(entry for entry in policy.entries if entry.permits(clock.now()))
         state.claim(entry, policy, clock.now())
         before = state.ledger.path.read_bytes()
-        from weather.market.lfc_capital import CapitalRefused
-        with pytest.raises(CapitalRefused, match='f2_anchor_postchecks_pending'):
-            runtime.confirm_funding()
+        funding = runtime.confirm_funding()
+        assert funding['notice'] == 'POSTCHECK_PENDING_WILL_RUN_ON_FIRST_TICK'
+        assert funding['capital_bridge_complete'] and state.pending()
         assert state.ledger.path.read_bytes() == before
 
 

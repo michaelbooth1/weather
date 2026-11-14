@@ -145,7 +145,7 @@ def band_day_usage(ledger, market, utc_day):
     return {'filled_native': filled, 'resting_native': resting, 'unmapped_legacy_native': unmapped}
 
 
-def daily_gate(ledger, start, *, reserve, own_resting=0):
+def daily_gate(ledger, start, *, reserve, own_resting=0, journal=None):
     if start.get('protocol') != PROTOCOL:
         return None
     market, day = start.get('market_id'), start.get('quote_day_utc')
@@ -160,6 +160,11 @@ def daily_gate(ledger, start, *, reserve, own_resting=0):
     if own > used['resting_native']:
         raise CapitalRefused('band_day_own_reserve')
     if used['filled_native'] + used['resting_native'] - own + reserve > cap:
+        detail = {key: used[key] for key in ('filled_native', 'resting_native')}
+        detail.update(own_native=own, proposed_native=reserve, cap_native=cap,
+                      headroom_native=cap - used['filled_native'] - used['resting_native'] + own)
+        if journal is not None:
+            journal.record('per_band_daily_filled_cap', **detail)
         raise CapitalRefused('per_band_daily_filled_cap')
     return {**used, 'cap_native': cap, 'prospective_native': reserve,
             'remaining_native': cap - used['filled_native'] - used['resting_native'] + own - reserve}

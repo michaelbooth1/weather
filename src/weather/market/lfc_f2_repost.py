@@ -172,6 +172,9 @@ def poll_waiting_stream(band):
     band.freshness.success['user_stream'] = alive
     if rows:
         observe_trade_ids(band, rows)
+        from weather.market.lfc_f2_reward_estimate import capture_stream_context
+        capture_stream_context(band, rows)
+        band.project_trades(rows, source='stream')
         size = len(canonical_bytes(rows))
         if (len(rows) + len(band.pending_repost_events) > 4096 or size > 1_000_000 or
                 band.pending_repost_bytes + size > 4_000_000):
@@ -183,16 +186,25 @@ def poll_waiting_stream(band):
 
 def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
     from weather.market.lfc_f2_breadth import CONTINUE, enabled, daily_gate
-    if not enabled(band.campaign_policy) or band.campaign_policy.raw['on_first_band_fill'] != CONTINUE:
+    if not enabled(band.campaign_policy):
         yield from base_steps(rehearsal_seconds=rehearsal_seconds)
         return
+    continue_fills = band.campaign_policy.raw['on_first_band_fill'] == CONTINUE
     while True:
         try:
             yield from base_steps(rehearsal_seconds=rehearsal_seconds)
             return
         except HoldEnd as exc:
-            if exc.reason != 'fill':
+            if exc.reason == 'fill':
+                band.record_post_books('fill')
+            if exc.reason != 'thin_book_depth' and not (exc.reason == 'fill' and continue_fills):
                 raise
+            depth_paused = exc.reason == 'thin_book_depth'
+        next_depth = band.clock.monotonic() + 60 if depth_paused else None
+        before = {key: band.ledger.legs[key]['size_matched']
+                  for key in band.ledger.sessions[band.session_id]['legs']}
+        if depth_paused:
+            band.journal.record('depth_paused', reason='thin_book_depth', recheck_seconds=60)
         band._repost_terminal_reads = True
         try:
             band.cleanup()
@@ -209,6 +221,10 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             raise HoldEnd('repost_private_evidence_fault') from None
         if not band.cancellation_ok or not band.inventory_proven:
             raise HoldEnd('repost_inventory_unproven')
+        new_fill = any(quantity(band.ledger.legs[key]['size_matched']) > quantity(before.get(key, 0))
+                       for key in band.ledger.sessions[band.session_id]['legs'])
+        if depth_paused and new_fill and not continue_fills:
+            raise HoldEnd('fill')
         band.active.clear()  # All these identities are terminal; known IDs/counters are retained.
         band.repost_waiting = True
         proof_time, delay = None, 5
@@ -216,6 +232,9 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             if band.clock.monotonic() >= band.deadline:
                 raise HoldEnd('fixed_end')
             band.control()
+            if next_depth is not None and band.clock.monotonic() < next_depth:
+                yield min(1, next_depth - band.clock.monotonic())
+                continue
             if band.venue.coordinator.repost_proof is None:
                 raise HoldEnd('repost_inventory_capability_missing')
             # A valid private packet never substitutes for account inventory.
@@ -249,20 +268,31 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             band._evidence_failed = bool(band._evidence_faults)
             if proof_time is None:
                 proof_time = band.clock.monotonic()
-            cooldown = band.campaign_policy.raw['fill_cooldown_seconds']
+            cooldown = band.campaign_policy.raw['fill_cooldown_seconds'] if not depth_paused or new_fill else 0
             if band.clock.monotonic() < proof_time + cooldown:
                 band.journal.record('repost_cooldown', seconds=cooldown, proven_at_monotonic=proof_time)
                 while band.clock.monotonic() < min(proof_time + cooldown, band.deadline):
                     band.control()
                     yield min(1, proof_time + cooldown - band.clock.monotonic())
                 continue  # Re-read after cooldown before placing a new pair.
+            try:
+                band.refresh_repost_prices()
+            except HoldEnd as exc:
+                if exc.reason != 'thin_book_depth':
+                    raise
+                depth_paused = True
+                next_depth = band.clock.monotonic() + 60
+                band.journal.record('depth_paused', reason='thin_book_depth', recheck_seconds=60)
+                continue
             break
-        band.refresh_repost_prices()
         try:
             daily_gate(band.ledger, band.ledger.sessions[band.session_id]['start'],
-                       reserve=band.size * sum(band.reserve_prices()))
+                       reserve=band.size * sum(band.reserve_prices()), journal=band.journal)
         except CapitalRefused as exc:
             raise HoldEnd(str(exc)) from None
         band.repost_waiting = False
         band.closed = band.cleanup_ok = band.cancellation_ok = band.inventory_proven = False
+        if depth_paused:
+            band.journal.record('depth_resumed', condition_id=band.condition,
+                                trade_legs=list(band.TRADE_LEGS))
         band.journal.record('repost_ready', submits_consumed=band.submits, requotes_consumed=band.requotes)

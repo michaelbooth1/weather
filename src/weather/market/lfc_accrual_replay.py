@@ -9,7 +9,7 @@ from weather.market.mm_stage2_hold import utc
 from weather.market.re1_payout_evidence import normalize_earnings
 
 
-def validate_accrual(entry, journal, *, maker, day, start, decode_rows):
+def validate_accrual(entry, journal, *, maker, day, start, decode_rows, allow_partial_assets=False):
     walk_id = entry.get('walk_id')
     if not isinstance(walk_id, str):
         raise ValueError('recording_accrual_walk_missing')
@@ -79,7 +79,9 @@ def validate_accrual(entry, journal, *, maker, day, start, decode_rows):
     scope = dict(maker_address=maker, condition_id=entry['condition_id'], accrual_start_utc=start.isoformat(),
                  accrual_end_utc=(start + timedelta(days=1)).isoformat())
     expected, complete_assets = normalize_earnings(rows, totals, scope, observed)
-    if (not complete_assets or observed < utc(scope['accrual_end_utc']) or expected != entry['accruals'] or
+    partial_assets = (allow_partial_assets and not complete_assets and
+                      source.get('complete') is False and source.get('reason') == 'asset_total_missing')
+    if (not (complete_assets or partial_assets) or observed < utc(scope['accrual_end_utc']) or expected != entry['accruals'] or
             source.get('status') != 'OBSERVED' or source.get('pagination_complete') is not True or
             source['request_scope'].get('maker_address') != maker or
             source['request_scope'].get('period_start_utc') != start.isoformat() or

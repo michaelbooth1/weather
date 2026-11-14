@@ -646,18 +646,13 @@ class Ledger:
 def traded_shares(trades, our_order_ids):
     """Shares traded per OUR order id: the trade's taker_order_id or a maker_orders[].order_id. FAILED trades are
     ignored (they never settle)."""
-    traded, ours = {}, {str(o) for o in our_order_ids}
-    for trade in trades:
-        if str(trade.get('status', '')).upper() == 'FAILED':
-            continue
-        if str(trade.get('taker_order_id')) in ours:
-            oid = str(trade['taker_order_id'])
-            traded[oid] = traded.get(oid, Decimal(0)) + _decimal(trade.get('size', 0))
-        for maker in trade.get('maker_orders') or ():
-            oid = str(maker.get('order_id'))
-            if oid in ours:
-                traded[oid] = traded.get(oid, Decimal(0)) + _decimal(maker.get('matched_amount', 0))
-    return {oid: str(v) for oid, v in sorted(traded.items())}
+    from weather.market.lfc_own_trades import OwnTradeProjection
+    projection = OwnTradeProjection()
+    # Preserve the accounting input rule: FAILED rows are ignored before their
+    # amounts are parsed. The live evidence projection retains their lifecycle.
+    projection.ingest((row for row in trades if str(row.get('status', '')).upper() != 'FAILED'),
+                      {str(oid) for oid in our_order_ids}, source='rest')
+    return projection.traded_shares()
 
 
 def ledger_path(root):

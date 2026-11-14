@@ -67,6 +67,84 @@ Money proof still precedes every fill continuation. Rewards/rebates contribute
 zero to refill without the already required campaign-only attribution proof.
 The December success look and actual-cash verdict are unchanged.
 
+## Operational observations and temporary depth pauses
+
+The coordinator shares one immutable geoblock pass/fail receipt across bands.
+It reads at most once per thirty seconds, including failed attempts. Every band
+uses the receipt's original collection clock and its existing freshness budget;
+reusing it never refreshes that clock. A successful new read is fresh even after
+a delayed band turn. A nonpassing receipt ends the session through normal cleanup.
+
+For breadth bands, `thin_book_depth` cancels the band's orders and proves them
+terminal before waiting. The same condition and selected arm are screened on a
+fresh book every minute. A passing screen permits the ordinary guarded submit
+path only after fresh account proof; fixed end, STOP, freshness, cash, caps and
+consumed submit/requote budgets still apply. A fill racing cancellation retains
+the existing fill proof and cooldown. No failed screen permits a post.
+
+`weather.market.lfc_f2_post_books.POST_RETIREMENT_RECORDING` controls optional
+market-only recording without a policy field. After a fill or band retirement,
+one independent bounded worker reads both public token books each minute into
+`band-N/post_books.jsonl`, retaining collection clocks and typed failures. Each
+trigger extends coverage to the earlier of one hour later and the fixed end.
+Session end stops the worker without joining an outstanding GET. These optional
+books never gate quoting, cleanup or money proof. The owner's waiver permits
+these two own-band public books on all campaign dates.
+Optional write failures use the worker's own `post_books_errors.jsonl` and a
+bounded `post_book_recording_failure` terminal field; the worker never locks
+an account or heartbeat journal.
+
+`weather.market.lfc_own_trades` projects stream and REST executions by trade ID
+and own order ID. The band's terminal `own_trade_projection` contains one current
+record per identity, with provisional/final state and bounded provenance. `fill`
+rows contain projection updates; an order-only signal awaiting execution details
+is `fill_pending`. Original order/event/REST evidence remains in the journal.
+Reconciliation preserves the existing non-FAILED trade rule, and terminal order
+proof still determines booked cost and reserve release. Missing legacy trade IDs
+are explicitly labelled as content identities rather than venue identities.
+
+Scoring summaries require the selected legs, including a single cheap leg. The
+per-order minute observations remain. Daily cap refusals retain filled, resting,
+replaced-own, proposed, cap and available headroom in collateral native units;
+the prospective gross admission calculation is unchanged.
+
+## Two recorded reward views
+
+Daily economics, immutable economics supplements and final decision-page inputs
+carry both `strict_attributable` and `campaign_estimate`. Strict recognition and
+the existing capital attribution rule remain unchanged: unproved income
+contributes zero. The estimate never enters capital, headroom or refill.
+
+The estimate records venue earnings for each UTC condition-day on which the
+campaign acknowledged a quote, once across attempts and legs. It retains native
+asset units, the earned date, accrual identity, source hash and actual collection
+time. Account-wide earnings snapshots update every quoted condition they contain,
+including retired bands. `asset_estimates` keeps assets separate; a single-asset
+summary names that asset, and a multiple-asset observation has no combined native
+amount. `estimated_pusd_native` is present only when pUSD earnings were actually
+observed. Neither an asset USD rate nor nominal parity converts USDC.e into pUSD.
+Same-day observations and independently collected D+1/D+2 receipts remain
+separate; the latest observed estimate is selected without summing passes or
+allocating an entire condition-day independently to each attempt.
+Missing earnings remain missing, while an observed zero remains zero.
+
+An otherwise valid D+1/D+2 wire walk that omits an asset can support an estimate
+for its observed asset. Its incomplete strict receipt remains incomplete; the
+estimate replays request/response pairing, pagination, account, date, amounts
+and provenance before accepting those rows. Failed or forged partial walks
+contribute no estimate. Account-state `reward-context/` retains compact observed
+owner touches; `reward-projections/` caches replay of older session journals by
+their immutable source hash. New terminal predictions carry their estimates.
+
+Any observed noncampaign own order or trade touching that condition-day flags
+the estimate. Existing account reads and validated own-stream events supply this
+context without another venue read. Open-order snapshots and trade history
+cannot prove complete cancelled order history, so absence of observed
+contamination never proves clean exclusive
+attribution. Payment candidates retain their own IDs, transaction hashes and
+payment times. Their earned-date link remains unverified; an earning-date label
+or amount match never turns an accrual into paid income.
+
 ## Preserving the existing account
 
 An upgrade keeps the same active campaign pathname, maker, ledger genesis,

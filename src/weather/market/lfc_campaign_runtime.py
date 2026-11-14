@@ -340,8 +340,12 @@ class Runtime:
             ledger = self.reload_ledger()
             self.state.require_history()
             self.state.require_retained_evidence()
+            from weather.market.lfc_campaign_enable_check import pending_postchecks_only, NOTICE
+            pending = pending_postchecks_only(self.state, ledger)
             preparing = getattr(self, 'preparing_f2', False)
+            checking_pending = getattr(self, 'enable_postchecks_pending', False)
             self.preparing_f2 = True
+            self.enable_postchecks_pending = pending
             try:
                 for attempt in range(3):
                     try:
@@ -356,6 +360,7 @@ class Runtime:
                         self.clock.sleep(10)
             finally:
                 self.preparing_f2 = preparing
+                self.enable_postchecks_pending = checking_pending
             capital = proof.get('capital') or {}
             if (proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
                     proof.get('unknown_submit') is not False or capital.get('cash_bridge_complete') is not True or
@@ -365,7 +370,8 @@ class Runtime:
                    'capital_bridge_complete': True, 'ledger_head_sha256': ledger.previous,
                    'proof': proof, 'observed_at_utc': self.clock.now().isoformat()}
             self.state.save('funding/' + uuid.uuid4().hex + '.json', row)
-            return {key: row[key] for key in ('funding_native', 'cash_asset', 'native_decimals', 'capital_bridge_complete')}
+            return {**{key: row[key] for key in ('funding_native', 'cash_asset', 'native_decimals', 'capital_bridge_complete')},
+                    **({'notice': NOTICE} if pending else {})}
 
     def task_enabled(self):
         from subprocess import TimeoutExpired
@@ -478,6 +484,8 @@ class Runtime:
             # that a later bounded read explains as propagation delay.
             self.state.save('account-reads/' + uuid.uuid4().hex + '.json',
                             {'read': read, 'read_sha256': digest(read)})
+            from weather.market.lfc_f2_reward_estimate import remember_account_context
+            remember_account_context(self, read)
             return read
         except Exception as exc:
             retryable = transient_read_error(exc)
@@ -622,7 +630,16 @@ class Runtime:
                         'ledger_head_sha256': ledger.previous, 'read_sha256': digest(read),
                         'open_orders': len(read['open_orders'])}
             mode, bridge_allowed = None, True
-            if f2 and CapitalBook(ledger).bridge is None:
+            if f2 and getattr(self, 'enable_postchecks_pending', False):
+                from weather.market.lfc_campaign_enable_check import pending_postchecks_only
+                if (not pending_postchecks_only(self.state, ledger) or CapitalBook(ledger).bridge is None or
+                        CapitalBook(ledger).inventory_anchor is None):
+                    raise StateRefused('enrollment_funding_unreconciled')
+                # Check the existing anchor, trades, inventory, cash and caps.
+                # Creating the next session anchor still requires completed
+                # postchecks in the ordinary enabled tick; nothing is closed here.
+                mode = 'idle'
+            elif f2 and CapitalBook(ledger).bridge is None:
                 from weather.market.lfc_campaign_history import history_refusals
                 issues = history_refusals(ledger, self.pilot_root)
                 recovering = getattr(self, 'history_recovery_session', None)

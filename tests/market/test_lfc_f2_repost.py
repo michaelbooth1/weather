@@ -153,8 +153,10 @@ class FundedRaw(Raw):
                 for row in self.memory.orders.values() if Decimal(row['size_matched'])]
 
 
-def fixture(tmp_path, *, k=2, enrolled=False, seconds=300):
+def fixture(tmp_path, *, k=2, enrolled=False, seconds=300, min_depth=None):
     policy = example_policy()
+    if min_depth is not None:
+        policy['min_book_depth'] = min_depth
     controller, account, status, ledger, clock = setup(tmp_path, k=k, offset='0.015', policy_row=policy,
         universe_rows=cities(), account_type=FillingAccount, raw_type=FundedRaw, enrolled=enrolled,
         schedule={'max_session_seconds': seconds})

@@ -88,8 +88,10 @@ if($Action -in @('Verify','Enable')) {
     try {
         $validationArgs=@('-m','weather.market.lfc_campaign_cli','check','--release',$ReleasePath,'--release-sha256',$sha)
         if($Action -eq 'Enable') { $validationArgs += '--require-enabled' }
-        & $release.python @validationArgs
-        if($LASTEXITCODE -ne 0) { throw 'campaign validation failed' }
+        $validationOutput=@(& $release.python @validationArgs)
+        $validationExit=$LASTEXITCODE
+        $validationOutput | ForEach-Object { Write-Host $_ }
+        [void](Assert-LfcCampaignValidation -Output $validationOutput -ExitCode $validationExit -RequireEnabled:($Action -eq 'Enable'))
     } finally { Pop-Location }
 }
 if($Action -eq 'Enable') {

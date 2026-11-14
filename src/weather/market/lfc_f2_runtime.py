@@ -35,7 +35,8 @@ def stream_factory(registry, *, retain_trade_identity=False):
                 trade_id = item.get('id')
                 if not isinstance(trade_id, str) or not trade_id.strip() or len(trade_id) > 256:
                     raise RuntimeError('repost_trade_identity_unproven')
-                rows = [dict(row, trade_id=trade_id) for row in rows]
+                rows = [dict(row, trade_id=trade_id, transaction_hash=item.get('transaction_hash'),
+                    exchange_match_time=item.get('match_time'), liquidity_role='MAKER') for row in rows]
             return rows
     return CampaignPairStream
 

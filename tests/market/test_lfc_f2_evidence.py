@@ -73,6 +73,7 @@ def test_f2_recurrent_nested_evidence_loss_requires_new_owner_recovery(tmp_path,
         assert proof['money_accounting_complete'] and proof['cleanup_proven'], proof
         runtime.state.close(claim, proof, clock.now())
         initial_dates = runtime.state.consumed_dates()
+        assert claim['local_date'] not in initial_dates  # B090: clean claims no longer consume a date.
         first_path = controller.directory / 'band-1/journal.jsonl'
         raw = first_path.read_bytes()
         first_path.unlink()
@@ -81,6 +82,8 @@ def test_f2_recurrent_nested_evidence_loss_requires_new_owner_recovery(tmp_path,
         first_path.write_bytes(raw)
         first = runtime.state.incidents()[0]
         recover(runtime, first['attempt_id'], monkeypatch)
+        consumed_after_incident = initial_dates | {claim['local_date']}
+        assert runtime.state.consumed_dates() == consumed_after_incident
         closure = runtime.state.root / 'owner-closures' / (first['attempt_id'] + '.json')
         original_receipt = file_sha(closure)
         if reboot:
@@ -97,7 +100,7 @@ def test_f2_recurrent_nested_evidence_loss_requires_new_owner_recovery(tmp_path,
         assert second['attempt_id'] != first['attempt_id']
         assert second['artifact'] == 'private/' + second_file
         assert second['detection_sequence'] > first['detection_sequence']
-        assert runtime.state.consumed_dates() == initial_dates
+        assert runtime.state.consumed_dates() == consumed_after_incident
         assert file_sha(closure) == original_receipt
         following = next(e for e in account.policy.entries if e.local_date == '2026-11-12')
         clock.sleep((following.start - clock.now()).total_seconds())

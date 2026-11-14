@@ -38,6 +38,8 @@ def measured(ledger, sessions):
                 'timestamp': row['timestamp'], 'attributed_session': None}
                for key, row in book.activities.items() if row['type'] in
                ('REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD')]
+    from weather.market.lfc_f2_reward_estimate import summary
+    reward_rails = summary(ledger, sessions)
     return {'label': 'MEASURED', 'cash_asset': ASSET, 'native_decimals': 6, 'fills': fills,
         'fees': {'maker_fee_paid_native': None, 'state': 'independent_session_fee_receipt_not_available',
                  'campaign_paid_or_reserved_costs_native': book.costs},
@@ -54,7 +56,7 @@ def measured(ledger, sessions):
                        'unknown_payouts': [key for key in book.unknown if key in ids]},
         'rewards': {'accruals': [], 'actually_paid_native': None, 'rebates_actually_paid_native': None,
                     'account_cash_credits': credits, 'earned_session_link_verified': False,
-                    'state': 'earned_scope_evidence_pending', 'planning_is_income': False},
+                    'state': 'earned_scope_evidence_pending', 'planning_is_income': False, **reward_rails},
         'campaign_capital': book.figures()}
 
 
@@ -62,11 +64,18 @@ def economics(coordinator):
     prediction = sum(row['predicted_360_minutes'] for row in coordinator.table['rows']
                      if row['condition_id'] in coordinator.table['selected_condition_ids'])
     duration = max((band.planned_seconds for band in coordinator.bands), default=0)
+    facts = measured(coordinator.ledger, [band.session_id for band in coordinator.bands])
+    from weather.market.lfc_f2_reward_estimate import summary
+    facts['rewards'].update(summary(coordinator.ledger, [band.session_id for band in coordinator.bands],
+        observations=[row for band in coordinator.bands for row in band.reward_estimates.values()],
+        contexts=[{'touches': list(coordinator.reward_context.values()), 'gaps': sorted(coordinator.reward_context_gaps)}] +
+            [{'touches': list(band.reward_context.values()), 'gaps': []} for band in coordinator.bands],
+        gaps=[gap for band in coordinator.bands for gap in band.reward_estimate_gaps]))
     return {'planning': {'label': 'PLANNING', 'booked_as_income': False,
                 'predicted_360_minute_reward': prediction, 'maximum_session_seconds': duration,
                 'expected_maker_fee_native': 0,
                 'basis': 'displayed_competition_scenario_not_expected_profit'},
-            'measured': measured(coordinator.ledger, [band.session_id for band in coordinator.bands])}
+            'measured': facts}
 
 
 def accrual_evidence(root, ledger, sessions):
@@ -116,10 +125,17 @@ def publish_supplements(runtime):
         facts = measured(ledger, sessions)
         accruals, hashes, gaps = accrual_evidence(runtime.pilot_root, ledger, sessions)
         facts['rewards'].update(accruals=accruals, evidence_gaps=gaps)
+        from weather.market.lfc_f2_reward_estimate import retained_summary
+        rails, estimate_hashes = retained_summary(runtime.pilot_root, ledger, sessions, state=state)
+        rails['campaign_estimate']['evidence_gaps'] = sorted(set(rails['campaign_estimate']['evidence_gaps']) |
+                                                          getattr(runtime, 'reward_estimate_gaps', set()))
+        facts['rewards'].update(rails)
+        hashes.update(estimate_hashes)
         content = {'session_id': result['session_id'], 'attempt_id': claim['attempt_id'],
             **{key: claim.get(key) for key in ('policy_name', 'policy_revision', 'evidence_lane')},
             'original_result_sha256': result_sha, 'ledger_head_sha256': ledger.previous,
             'evidence_sha256': hashes, 'measured': facts}
+        content['decision_page_inputs'] = {'rewards': rails}
         sha = digest(content)
         relative = 'economics/' + sha[:32] + '.json'
         if not (state.root / relative).exists():
