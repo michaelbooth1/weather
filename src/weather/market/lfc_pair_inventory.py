@@ -22,17 +22,18 @@ def fill_time(value):
         raise ValueError('completion_fill_time_unproven') from None
 
 
-def project_read(trades, legs, *, observed_at_utc):
+def project_read(trades, legs, *, observed_at_utc, projection=None, source='rest'):
     """The K6 class alone normalizes/deduplicates executions and their lifecycle.
 
     The unified SDK names the venue match clock matched_at. Pass that same
     retained value to the canonical time field without inventing a read clock.
     """
     from weather.market.lfc_own_trades import OwnTradeProjection
-    projection = OwnTradeProjection()
+    if projection is None:
+        projection = OwnTradeProjection()
     rows = [dict(row, exchange_match_time=row.get('exchange_match_time') or
                  row.get('matched_at') or row.get('match_time')) for row in trades]
-    projection.ingest(rows, legs, source='rest', observed_at_utc=observed_at_utc)
+    projection.ingest(rows, legs, source=source, observed_at_utc=observed_at_utc)
     return projection.rows()
 
 
@@ -99,11 +100,12 @@ def held_inventory(records, legs, held_lots, *, campaign_id, condition_id, token
     return inventory(lots, campaign_id=campaign_id, condition_id=condition_id)
 
 
-def from_read(ledger, read, *, campaign_id, condition_id, tokens):
+def from_read(ledger, read, *, campaign_id, condition_id, tokens, projection=None):
     """Consume a caller-proved account read and the existing capital projection."""
     from weather.market.lfc_capital import CapitalBook
     # This ledger lane records BUY intents only; legacy leg rows omit side.
-    legs = {oid: dict(ledger.legs[key], intent_key=key, side='BUY') for oid, key in ledger.by_order.items()}
-    records = project_read(read['trades'], legs, observed_at_utc=read['ended_at_utc'])
+    legs = {oid: dict(ledger.legs[key], intent_key=key, side='BUY') for oid, key in ledger.by_order.items()
+            if ledger.legs[key]['condition_id'] == condition_id}
+    records = project_read(read['trades'], legs, observed_at_utc=read['ended_at_utc'], projection=projection)
     return held_inventory(records, legs, CapitalBook(ledger).lots, campaign_id=campaign_id,
                           condition_id=condition_id, tokens=tuple(tokens)), records

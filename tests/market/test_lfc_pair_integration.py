@@ -190,6 +190,34 @@ def test_price_pause_without_new_fill_rechecks_books_after_60_seconds_without_an
     assert 60 <= delay <= 62  # A second fill cooldown would incorrectly make this 120 seconds.
 
 
+def test_final_cancel_fill_uses_the_successful_reconciliation_trade_read(tmp_path):
+    controller, account, _, ledger, clock, _, _ = complete_fixture(tmp_path)
+    account.fills_enabled = False
+    band, raw = controller.bands[0], account.raws[0]
+    ordinary_cancel, ordinary_trades = raw.cancel, raw.trades
+    filled, lagged = [], []
+    def cancel(oid):
+        if clock.seconds >= 300 and not filled:
+            order = raw.memory.orders[oid]
+            order.update(status='MATCHED', size_matched='20', associate_trades=['fill-'+oid])
+            filled.append(oid)
+        return ordinary_cancel(oid)
+    def trades():
+        if filled and not lagged:
+            lagged.append(True)
+            return []  # Terminal GET lags; the existing reconciliation GET proves the fill.
+        return ordinary_trades()
+    raw.cancel, raw.trades = cancel, trades
+    result = controller.run()
+    assert result['cleanup_ok'], result
+    assert filled and lagged and not ledger.unresolved_legs(), result
+    assert band.pair_state.u == 20 and band.submits == 2
+    assert any(row['own_order_id'] == filled[0] for row in band.own_trades.rows())
+    ending = strict_json((band.directory/'prediction.json').read_bytes())
+    assert ending['pair_completion']['u'] == '20'
+    assert ending['own_trade_projection'][0]['exchange_match_time'] is not None
+
+
 def test_fill_pending_never_moves_inventory_and_k1_still_observes_canonical_completion(tmp_path):
     controller, account, _, _, _, _, _ = complete_fixture(tmp_path)
     band = controller.bands[0]

@@ -6,10 +6,12 @@ from weather.market.lfc_accounting import quantity
 from weather.market.lfc_capital import CapitalBook, native
 from weather.market.lfc_ledger import Ledger
 from weather.market.lfc_pair_inventory import project_read, held_inventory
+from weather.market.lfc_pair_completion import instant
 from weather.market.lfc_recording_io import strict_json
 
 
-TERMINAL = re.compile(r'"event"\s*:\s*"terminal_trades"')
+TRADE_EVENTS = frozenset({'user_events', 'repost_user_events', 'fill', 'terminal_trades'})
+TRADE_LINE = re.compile(r'"event"\s*:\s*"(?:'+'|'.join(sorted(TRADE_EVENTS))+')"')
 
 
 def session_directories(receipts, sessions):
@@ -26,20 +28,26 @@ def session_directories(receipts, sessions):
 
 def verify_fills(inputs, fills, bands, *, campaign_id):
     """Read only hashed copies. Geography journal events are never decoded."""
-    ledger = Ledger.open(inputs.path('ledger.jsonl'))
+    ledger = Ledger.open(inputs.path('ledger.jsonl'), clock=lambda: instant('2026-11-13T23:45:00Z'))
     legs = {oid: dict(ledger.legs[key], intent_key=key, side='BUY') for oid, key in ledger.by_order.items()}
     directories = session_directories(inputs.receipts, {fill['session'] for fill in fills})
-    trades, observed = [], None
+    from weather.market.lfc_own_trades import OwnTradeProjection
+    projection, packets = OwnTradeProjection(), []
     journals = sorted({key for key in inputs.receipts if key.endswith('/journal.jsonl') and
                        key.split('/')[0] in directories.values()})
     for relative in journals:
         with inputs.path(relative).open(encoding='utf-8') as stream:
             for line in stream:
-                if TERMINAL.search(line):
+                if TRADE_LINE.search(line):
                     row = strict_json(line)
-                    trades.extend(row['rows'])
-                    observed = max(observed or row['recorded_at_utc'], row['recorded_at_utc'])
-    records = project_read(trades, legs, observed_at_utc=observed)
+                    event = row['event']
+                    if event not in TRADE_EVENTS:
+                        continue
+                    trades = ([row['user_event']] if row.get('user_event') else []) if event == 'fill' else row.get('rows', [])
+                    packets.append((row['recorded_at_utc'], 'rest' if event == 'terminal_trades' else 'stream', trades))
+    for observed, source, trades in sorted(packets, key=lambda packet: packet[0]):
+        project_read(trades, legs, observed_at_utc=observed, projection=projection, source=source)
+    records = projection.rows()
     selected = { (fill['trade_id'], fill['order_id']): fill for fill in fills }
     canonical = { (row['trade_id'], row['own_order_id']): row for row in records
                   if (row['trade_id'], row['own_order_id']) in selected and row['money_counted'] }
@@ -47,11 +55,13 @@ def verify_fills(inputs, fills, bands, *, campaign_id):
         raise ValueError('replay_canonical_fill_coverage')
     for key, fill in selected.items():
         row = canonical[key]
-        if (quantity(row['shares']) != quantity(fill['size']) or
-                native(quantity(row['price'])*quantity(row['shares']), ceil=True) !=
-                native(quantity(fill['price'])*quantity(fill['size']), ceil=True) or row['token_id'] != fill['token_id'] or
-                row['status'] != fill['status']):
-            raise ValueError('replay_canonical_fill_mismatch')
+        checks = {'shares': (quantity(row['shares']), quantity(fill['size'])),
+            'native_cost': (native(quantity(row['price'])*quantity(row['shares']), ceil=True),
+                            native(quantity(fill['price'])*quantity(fill['size']), ceil=True)),
+            'token_id': (row['token_id'], fill['token_id']), 'status': (row['status'], fill['status'])}
+        differences = {name: tuple(map(str, values)) for name, values in checks.items() if values[0] != values[1]}
+        if differences:
+            raise ValueError('replay_canonical_fill_mismatch:' + str(differences))
     states = {}
     for fill in fills:
         band = bands[(fill['session'], fill['band'])]
