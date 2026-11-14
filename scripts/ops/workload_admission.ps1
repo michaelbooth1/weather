@@ -680,6 +680,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
+        # A093 outcome-blind development fill intake; exact runner awaiting master GO.
+        @{
+            path = 'C:\t\codex\A093\src\build_dataset.py'
+            sha256 = '1d9772741b9dff1c94179589ebb710cf4e4fa7ef275ad3a53c80d5c4fcea93f1'
+        }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
