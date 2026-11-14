@@ -1,0 +1,15 @@
+{
+  "base": "8f2b018fa2a5c5f66eb027afc8df382a3f8d2b63",
+  "modes": {
+    "continue": {
+      "digest": "573e03b4d906cbb741812c6d677e1992380579e0e8c6047f9fdb8de6fd38a75e",
+      "trace_sha256": "2a9760926ae21e9e005047c1e8c948e01c43bd98810056f093ccc713b1592f21",
+      "candidate_sha256": "6a115e9a604b3cbdb6ae18c61370b8ba883f4dc0ca5dbd35eda58784239def03"
+    },
+    "complete_pairs": {
+      "digest": "896cffbb39c7e1243beab9fec763828764dd76efd1bbe5a383faca73b1b750d9",
+      "trace_sha256": "2959c25e662c70655d565db817a865196dd268e3f4f8754621779690311952d0",
+      "candidate_sha256": "6a115e9a604b3cbdb6ae18c61370b8ba883f4dc0ca5dbd35eda58784239def03"
+    }
+  }
+}

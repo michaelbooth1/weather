@@ -12,6 +12,7 @@ from pathlib import Path
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_capital import CapitalBook, CapitalRefused, SCALE
 from weather.market.lfc_f2_breadth import arm_field_keys
+from weather.market import lfc_wide_runtime as wide
 from weather.market.lfc_completion import complete_evidence, evidence_flags
 from weather.market.lfc_pilot import PilotSession, write_session_end
 from weather.market.lfc_recording_io import file_sha, write_new
@@ -105,6 +106,7 @@ class F2Band(PilotSession):
         self.scope.update(budget_pusd=str(self.cap), capital_mode=policy.raw['capital_mode'],
                           trade_legs=list(self.TRADE_LEGS), quote_offset_pusd=str(self.OFFSET),
                           requote_distance_cents=list(map(str, self.REQUOTE_WINDOW)))
+        wide.initialize(self, chosen)
         if pinb(policy):
             self.scope.update(autostart_policy_schema=policy.raw['schema_version'],
                 max_submits_per_band=self.MAX_SUBMITS, max_requotes_per_band=self.MAX_REQUOTES)
@@ -240,6 +242,7 @@ class F2Band(PilotSession):
     def posted(self, oid, leg, price):
         super().posted(oid, leg, price)
         pairs.posted(self, oid)
+        wide.posted(self, oid)
 
     def leg_terminal(self, oid, row):
         before = self.ledger.legs[self.ledger.by_order[oid]]['size_matched']
@@ -254,6 +257,7 @@ class F2Band(PilotSession):
         self.minute_extra(snapshot)
         self.prices = [replacement_price(observation['adjusted_mid'], leg, self.OFFSET) for leg in (0, 1)]
         pairs.cap_prices(self)
+        wide.check_entry(self, snapshot, observation['adjusted_mid'], self.prices, self.TRADE_LEGS)
         self.market_time = self.clock.monotonic()
         self.journal.record('repost_market_snapshot', snapshot=snapshot, prices=list(map(str, self.prices)))
 
@@ -285,7 +289,7 @@ class F2Band(PilotSession):
                        share=observation['share_many'], policy=self.campaign_policy)
         except QuoteRefused as exc:
             raise HoldEnd(str(exc)) from None
-        return pairs.observe(self, snapshot, observation)
+        return wide.observe(self, snapshot, pairs.observe(self, snapshot, observation))
 
     def _gate(self, *, own_resting=Decimal(0)):
         reserve = self.size * sum(self.reserve_prices(), Decimal(0))
@@ -317,6 +321,7 @@ class F2Band(PilotSession):
         self._cash(self.required('f2_post_balances', self.venue.balances), reserve)
         super().authorize_post(leg, price, size, rule)
         pairs.authorize(self, leg, price, size)  # Includes the adjacent fresh submit snapshot.
+        wide.authorize(self, leg, price, size)
 
     def before_post(self, request):
         self.control()

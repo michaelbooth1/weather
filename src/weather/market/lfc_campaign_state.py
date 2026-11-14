@@ -486,11 +486,16 @@ class AccountState:
                     'start_window_toronto', 'trading_end_toronto', 'max_session_seconds')
             if same_f2_protocol:
                 from weather.market.lfc_f2_breadth import economic_fields, FIELDS
+                from weather.market.lfc_wide_policy import FIELDS as WIDE_FIELDS
                 keys = economic_fields(policy) | {'sleeve_loss_basis', 'post_fill_mode'} | (FIELDS if old.get('schema_version') == 'lfc_campaign_policy_v0.3' else frozenset())
+                keys |= WIDE_FIELDS  # Removing a prior wide mode also changes economics.
             # B090-I: the start window only says when an attempt may begin; editing
             # it at the same revision is not an economic change.
             keys = set(keys) - {'start_window_toronto'}
             def economic_value(row, key):
+                from weather.market.lfc_wide_policy import FIELDS as WIDE_FIELDS, economic_value as wide_value
+                if key in WIDE_FIELDS:
+                    return wide_value(row, key)
                 if key == 'post_fill_mode':
                     return row.get(key, 'continue')
                 return row.get(key, 'gross') if key == 'sleeve_loss_basis' else row.get(key)

@@ -187,6 +187,7 @@ def poll_waiting_stream(band):
 def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
     from weather.market.lfc_f2_breadth import CONTINUE, enabled, daily_gate
     from weather.market.lfc_pair_runtime import WAIT, enabled as pairs_enabled
+    from weather.market.lfc_wide_runtime import WAIT as WIDE_WAIT, is_wide
     if not enabled(band.campaign_policy):
         yield from base_steps(rehearsal_seconds=rehearsal_seconds)
         return
@@ -199,16 +200,19 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             if exc.reason == 'fill':
                 band.record_post_books('fill')
             completion_paused = exc.reason == WAIT and pairs_enabled(band)
-            if exc.reason != 'thin_book_depth' and not completion_paused and not (exc.reason == 'fill' and continue_fills):
+            wide_paused = exc.reason == WIDE_WAIT and is_wide(band)
+            if exc.reason != 'thin_book_depth' and not (completion_paused or wide_paused) and not (exc.reason == 'fill' and continue_fills):
                 raise
             depth_paused = exc.reason == 'thin_book_depth'
-        next_depth = band.clock.monotonic() + 60 if depth_paused or completion_paused else None
+        next_depth = band.clock.monotonic() + 60 if depth_paused or completion_paused or wide_paused else None
         before = {key: band.ledger.legs[key]['size_matched']
                   for key in band.ledger.sessions[band.session_id]['legs']}
         if depth_paused:
             band.journal.record('depth_paused', reason='thin_book_depth', recheck_seconds=60)
         if completion_paused:
             band.journal.record('pair_completion_paused', reason=WAIT, recheck_seconds=60)
+        if wide_paused:
+            band.journal.record('wide_quote_paused', reason=WIDE_WAIT, recheck_seconds=60)
         band._repost_terminal_reads = True
         try:
             band.cleanup()
@@ -227,7 +231,7 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             raise HoldEnd('repost_inventory_unproven')
         new_fill = any(quantity(band.ledger.legs[key]['size_matched']) > quantity(before.get(key, 0))
                        for key in band.ledger.sessions[band.session_id]['legs'])
-        if depth_paused and new_fill and not continue_fills:
+        if (depth_paused or wide_paused) and new_fill and not continue_fills:
             raise HoldEnd('fill')
         band.active.clear()  # All these identities are terminal; known IDs/counters are retained.
         band.repost_waiting = True
@@ -272,7 +276,7 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             band._evidence_failed = bool(band._evidence_faults)
             if proof_time is None:
                 proof_time = band.clock.monotonic()
-            cooldown = band.campaign_policy.raw['fill_cooldown_seconds'] if not (depth_paused or completion_paused) or new_fill else 0
+            cooldown = band.campaign_policy.raw['fill_cooldown_seconds'] if not (depth_paused or completion_paused or wide_paused) or new_fill else 0
             if band.clock.monotonic() < proof_time + cooldown:
                 band.journal.record('repost_cooldown', seconds=cooldown, proven_at_monotonic=proof_time)
                 while band.clock.monotonic() < min(proof_time + cooldown, band.deadline):
@@ -282,14 +286,18 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             try:
                 band.refresh_repost_prices()
             except HoldEnd as exc:
-                if exc.reason != 'thin_book_depth' and not (exc.reason == WAIT and pairs_enabled(band)):
+                if (exc.reason != 'thin_book_depth' and not (exc.reason == WAIT and pairs_enabled(band)) and
+                        not (exc.reason == WIDE_WAIT and is_wide(band))):
                     raise
                 if exc.reason == 'thin_book_depth':
                     depth_paused = True
-                else:
+                elif exc.reason == WAIT:
                     completion_paused = True
+                else:
+                    wide_paused = True
                 next_depth = band.clock.monotonic() + 60
-                band.journal.record('depth_paused' if exc.reason == 'thin_book_depth' else 'pair_completion_paused',
+                band.journal.record('depth_paused' if exc.reason == 'thin_book_depth' else
+                                    'wide_quote_paused' if exc.reason == WIDE_WAIT else 'pair_completion_paused',
                                     reason=exc.reason, recheck_seconds=60)
                 continue
             break
@@ -305,4 +313,6 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
                                 trade_legs=list(band.TRADE_LEGS))
         if completion_paused:
             band.journal.record('pair_completion_resumed', trade_legs=list(band.TRADE_LEGS))
+        if wide_paused:
+            band.journal.record('wide_quote_resumed', trade_legs=list(band.TRADE_LEGS))
         band.journal.record('repost_ready', submits_consumed=band.submits, requotes_consumed=band.requotes)

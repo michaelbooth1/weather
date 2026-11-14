@@ -248,6 +248,12 @@ sessions and its read-only `weather.market.lfc_campaign_cli final-look` cash sna
 Register, Verify and Enable actions; the shipped example policy is disabled.
 Agents never invoke those actions or create the owner STOP file.
 
+For disabled policy copies, `python -m weather.market.lfc_wide_policy --upgrade-from
+<absolute-current-copy> --output <absolute-new-file> --post-fill-mode <continue|complete_pairs>
+--quote-offset-mode <standard|wide> [--city-assignments <absolute-json-list>]` prepares
+the next revision without activation. The [wide quote contract](docs/operations/lfc-wide-quotes.md)
+owns supported values, frozen city partitions and consecutive-day successor rules.
+
 The [manual order journal](docs/operations/manual-order-journal.md) records the owner's manual
 resting orders read-only with
 `python -m weather.market.order_journal record --out data\manual_order_journal` and reports
