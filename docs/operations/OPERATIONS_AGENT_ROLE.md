@@ -48,8 +48,9 @@ trace doc did not happen.
    after the fact, and a captured day that never settles is not countable.
 2. **Reliable unattended execution.** The scheduled spine — capture, the daily chain, settlement,
    recovery after power loss — must run and report truthfully with nobody logged on.
-3. **The non-live maker-economics refocus** in
-   [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md). International
+3. **The live maker campaign (F2) and its economics:** critical path 0 in `STATE_OF_PLAY.md`,
+   attempt history in [item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md),
+   plan and gates in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md). International
    Polymarket only; **never use Polymarket US.** No market edge or profitable maker opportunity is
    proved, so do not budget model alpha or disguise the benchmark as our information.
 
@@ -100,7 +101,7 @@ Durability findings are acted on when evidence changes; do not repeatedly re-der
 standing condition. A frozen or unverified copy, an unencrypted system disk, or changed power risk
 is still operational state and must not be hidden from the operator.
 
-**Other hosts.** The research workstation may not call exchange or weather-provider endpoints. The
+**Other hosts.** The workstation calls the exchange only through owner-approved processes: the owner-registered F2 campaign task, the read-only wallet reader and public read-only recorders; free weather-provider fetches run there directly (master ruling 2026-10-23, [host load policy](HOST_LOAD_POLICY.md)). The
 attended International Stage 0/1 executor may be a separately provisioned Windows PC under the exact
 `portable_execution_v1` contract (operator decision 2026-08-27); this 16 GB PC remains the capture,
 release, guarded runtime-integration and scheduling authority and cannot claim that profile. Follow
@@ -278,7 +279,7 @@ deliberate pause via **the switch itself** (task state), never a marker file, an
 carrying the **age** of the frozen thing.
 
 **Gates in this project are frequently correct when they refuse.** If a gate is right, the
-deliverable is the sentence explaining why — not a patch. **Never relax a gate to make it pass.**
+deliverable is the sentence explaining why — not a patch. **Never relax a gate to make it pass on your own authority.** The sanctioned bypass is an owner waiver, recorded as a waiver file or a DECISION_LOG row; under the owner's quick-work mode (`STATE_OF_PLAY.md`) a gate that over-blocks is itself a defect to fix and report.
 
 **Never declare a date unrecoverable from a failure count alone.** A count measures how often you
 retried, not whether the source has the data, and retirement stops the retries that would have
@@ -305,14 +306,15 @@ repeatedly been wrong, several in the opposite direction from the defect.
 
 The 32 GB workstation runs a separate implementation and research agent. Its work is outside this
 capture host's timetable ([`HOST_LOAD_POLICY.md`](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope)).
-It communicates **only** through origin topic branches and operator-relayed prompts. You never talk
-to it directly.
+You dispatch Codex there directly, through task folders over SSH
+([`DELEGATION_CONTRACT.md` §8](DELEGATION_CONTRACT.md#8-dispatching-a-mission-to-the-workstation)); the WS
+Claude session is the owner's guide and a fallback builder. Work returns as pushed `codex/` or `claude/`
+branches plus the task folder's `last.md`.
 
-1. Write `docs/roadmap/workstation-handoff-<date><letter>-<slug>.md`
-   ([naming](../roadmap/AGENTS.md)).
-2. Commit it (docs are roll-free) and publish via `WeatherOneShotPush`.
-3. Give the operator exactly: `Read docs/roadmap/<file> on origin/master and execute it.`
-4. **Fetch the branch and verify the load-bearing claims yourself** before accepting. Then decide
+1. For a mission that needs a durable record, write `docs/roadmap/workstation-handoff-<date><letter>-<slug>.md`
+   ([naming](../roadmap/AGENTS.md)), commit it (docs are roll-free) and publish via `WeatherOneShotPush`.
+2. Name that handoff and its ref in the task's `prompt.md`.
+3. **Fetch the branch and verify the load-bearing claims yourself** before accepting. Then decide
    merge timing.
 
 A good mission states what is already known (with `file:line`), asks the question you genuinely
@@ -338,7 +340,7 @@ Questions, not findings. Cite numbers from `ESTABLISHED_FINDINGS.md`, never from
    approach be tail-first?
 4. **We serve bytes that were never committed.** Until commit discipline is fixed, no historical
    claim about what we served is reconstructable. Is that acceptable, or is it the top defect?
-5. **Countable date VOLUME is the critical path.** Is the research agenda even the bottleneck?
+5. **Countable date VOLUME was once the critical path.** Is the research agenda even the bottleneck?
 
 ## History
 

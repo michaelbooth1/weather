@@ -1,11 +1,10 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-11-14 - LFC F2 PIN B TRADING LIVE (LEARNING) SINCE 2026-11-13; PAID-VS-PREDICTED EVIDENCE OPEN]
 
-> **Read the last section first.** The heading above is this item's disposition
-> for code on `master`. An owner-attended Stage 0/1 test ran on 2026-09-06 from
-> unmerged branch code (three 0.005 pUSD orders, cancelled, zero fills; spent).
-> Its attempt ledger is the final dated section of this file. No live trading
-> is authorized; current authority is in
-> [STATE_OF_PLAY.md](../../operations/STATE_OF_PLAY.md).
+> **Read the last section first.** The F2 Pin B live campaign (LFC lane) has
+> traded since 2026-11-13; its dated sections are last. The 2026-09-06
+> owner-attended Stage 0/1 test (three 0.005 pUSD orders, cancelled, zero
+> fills; spent) ran from unmerged branch code; its attempt ledger is below.
+> Current authority is in [STATE_OF_PLAY.md](../../operations/STATE_OF_PLAY.md).
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -58,7 +57,9 @@ behavior before any size increase.
   before any size increase.
 - [ ] Collect real paid-vs-predicted evidence from the pilot account
   across maker rebates, liquidity rewards, redemptions, fees, pUSD/USDC
-  balances, and settlement P&L before any size increase.
+  balances, and settlement P&L before any size increase. *2026-11-14:
+  accrual-versus-model measured on F2's first trading day (EF §10bg); paid
+  rewards, rebates and settlement pending.*
 - [x] Emit a pilot report comparing live fills, markouts, cancellations,
   heartbeat behavior, and rewards/rebates against the simultaneous paper
   counterfactual.
@@ -786,6 +787,40 @@ credential values) before either host is rebuilt or cleaned. Not on file
 anywhere: a closing balance or post-test account record for the wallet, and
 the outcome of attempt 5.
 
+## 2026-11-11..13 F2 Pin B owner setup, releases B079-B089 (moved from STATE_OF_PLAY on 2026-11-14)
+
+- **Release line.** Pin B ran on `codex/lfc-f2-pinb-20261109`; B089 `1ab56383` passed final pregate T045o
+  on 11-12 06:0x.
+- **Each owner setup found defects that synthetic rehearsals missed.**
+  - At `b29743fe` (step 3): the venue's real page `limit`, account-wide reconciliation broken by
+    non-campaign wallet activity, and evidence reopen budgets, fixed in B079-B085 (`c90df0e0`, final
+    pregate T045k PASS 11-11 18:0x).
+  - At `c90df0e0` (step 5 Verify): the real Task Scheduler omits default-valued elements from its stored
+    and exported XML (9 settings, plus `Settings/Enabled` when the task is enabled, master-proven with a
+    scratch task on the same Windows build), so readback could never pass; the pregate had used a
+    synthetic Scheduler. Fixes: B086 `6c50b345` (exact 9-entry path→default table, used only when an
+    element is absent), B087 `f0e7bd51` (absent `Settings/Enabled` reads as true), B088 `c153894e`
+    (fixture stored with exact CRLF bytes), and B089 `1ab56383` (a transient per-tick readback failure
+    keeps the last proven value; 3 in a row end the session cleanly instead of with an INCIDENT; Opus
+    finding). Opus and Astra reviewed each step and found no start blocker in B089.
+- **Open from that line.** The fix-this-week items (a readback gap marks research evidence incomplete,
+  retries within seconds, a native binding refusal first treated as transient, the untested
+  post-claim/pre-band window) are built on `codex/lfc-f2-pinb-fixweek-20261112` @ `dfab5bbd`. One review
+  finding is open (A090 P2: a late SDK reclassification restores consumed gains, the non-conservative
+  direction).
+- **Pregates.** T045o (11,929 passed, 29/29 chunks, 0 failures) also rehearsed the owner card's Upgrade,
+  Verify, funding, set-enabled and Enable blocks on a synthetic copy of the real state with real-shaped
+  Scheduler exports. Two earlier pregates (T045m, T045n) failed on workstation environment only: the
+  bounded suite's 50 GiB disk floor, then the chunk-20 memory admission and a harness-ruling misread;
+  neither had a test failure.
+- **Owner setup completed 11-13 00:18 on B089** (card `C:\t\codex\T078\OWNER-SETUP-PINB.final.md`; steps
+  0-4 at `c90df0e0` on 11-11): Upgrade sealed `autostart-release-b089.json` (sha `34b2f253`; the 11-11
+  release unchanged); Verify `definition_valid`; the funding check passed with the capital bridge
+  complete; policy `enabled`; Enable repeated the funding proof; task `\WeatherLFCCampaign` Ready; first
+  tick 00:20 exit 0, watch `clean_idle`. Step 6 first refused `workload_poison`, a stale marker from the
+  master's 11-12 Codex kill, recovered by the designed wrapped admission
+  ([host load policy](../../operations/HOST_LOAD_POLICY.md) housekeeping traps).
+
 ## 2026-11-13 F2 Pin B first self-start: no trade (sleeve-cash defect)
 
 Release B089 `1ab56383` (owner setup complete 11-13 00:18). The task started at
@@ -817,7 +852,8 @@ was released when the tick exited.
   `transport_deferred` and hid the real reason.
 - **Consequence.** Every daily window defers the same way until a fix lands.
   Under B089's rules no owner deposit or withdrawal restores sleeve cash.
-- **Owner decision pending:**
+- **Answered (owner 2026-11-13 ~10:20, DECISION_LOG): option 1, the code fix,** built as B090 off B089;
+  option 2 was not taken. The two options were:
   1. A code fix: a later owner deposit first refills a sleeve shortfall that an
      earlier owner withdrawal caused. It also fixes the label and adds a
      spendable-cash check to setup and idle ticks. This is a money-touching
@@ -830,3 +866,55 @@ was released when the tick exited.
   replay, the candidate scoring, the capital figures and the pool walk in
   CapitalBook order. Wallet amounts are deliberately kept out of this public
   record.
+
+## 2026-11-13 F2 Pin B first trading day (releases B090 to J)
+
+- **Releases.** After the 09:00 window was lost (previous section), the owner chose the code fix (DECISION_LOG
+  2026-11-13 ~10:20) and then ordered a noon start (~10:35). Releases B090 (scopes A, B and D), F, G, H, I
+  and J were each sealed the same day by an owner card with an explicit pregate waiver file. There was no
+  full pregate. The code is on `claude/lfc-f2-b090-sleeve-cash-20261113` (workstation) and is not on master;
+  the tip is B090-J `c77b5a55`.
+- **Ten live-only defects fixed the same day:**
+  - sleeve cash refill;
+  - pre-go deferral labels;
+  - reopening a `window_missed`-only date;
+  - the selection clock;
+  - the allowance key case;
+  - the go-evidence redaction hash;
+  - the one-try-per-day rule, removed (owner ~12:45);
+  - same-revision window edits treated as economic;
+  - geoblock freshness on late band turns;
+  - holdings at the venue's 4-decimal position precision.
+- **Sessions.** Five launches:
+  - the first (12:38) posted nothing: a redaction failure, with no intent;
+  - four serial order-bearing sessions ran 13:13-18:45, with 87 orders and 9 maker trades on 8 orders;
+  - the first two of those retired every band `geoblock_stale` within minutes (fixed in I);
+  - the third ended at 15:31 after the owner's campaign disable;
+  - the fourth ran to the fixed 18:45 end.
+
+  Every session ended cleanly: an account-scope cancel, then an independent account read with zero open
+  orders at 18:45:40.
+- **Measured results** (descriptive, one unsettled date):
+  [EF §10bg](../../operations/ESTABLISHED_FINDINGS.md); analysis `C:\t\codex\A091\REPORT.md` (workstation).
+- **Remaining known issues:**
+  - registrar Enable refused after a mid-session disable while postchecks were pending; the owner enabled
+    the task directly;
+  - a post-session postcheck stalled about 2.75 h while the geography postcheck read blocked, then completed
+    on its own;
+  - `thin_book_depth` retires a band instead of pausing it;
+  - geoblock read fan-out (about 3,900 reads a day);
+  - the 2-hour start-window parser cap;
+  - bot private memory grows about 7 MB/min (reported, not traced);
+  - empty fill rows on some fills;
+  - the cheap-arm `scoring_seen` flag reads false.
+- **Next (owner 2026-11-13 ~21:4x and ~22:00, DECISION_LOG):**
+  - The bot is paused for the weekend by policy (`enabled: false`; the task stays enabled so postchecks run).
+  - Mon 11-16 runs A: the current design plus the B090-K operational fixes (`codex/lfc-f2-b090k-20261113`,
+    Codex T112).
+  - Tue 11-17 runs B, "complete pairs after a fill" (`post_fill_mode`, policy revision 6;
+    `codex/lfc-f2-b090b-pairs-20261113`, Codex T113, draft PR #297).
+  - The entry window is 09:00-11:00 and the fixed end 18:45. Sleeve, size and caps are unchanged.
+  - Rewards are reported both ways. Market-only book recording after a retirement or fill is allowed on all
+    dates.
+- **Settlement** of the six held 11-14 conditions was pending at 19:02 ET; D+1/D+2 reward and rebate reads
+  follow. Wallet amounts are kept out of this public record.
