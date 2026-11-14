@@ -4,7 +4,7 @@ import pytest
 
 from tests.market.lfc_pinb_fixtures import pinb_row
 from weather.market.lfc_campaign_policy import PolicyRefused
-from weather.market.lfc_wide_policy import assignment, disabled_successor, economic_values, validate
+from weather.market.lfc_wide_policy import apply_arm, assignment, disabled_successor, economic_values, validate
 
 
 def wide_row():
@@ -76,3 +76,44 @@ def test_successor_refuses_enabled_or_wrong_source_revision():
     with pytest.raises(PolicyRefused): disabled_successor(row)
     row.update(enabled=False, policy_revision=5)
     with pytest.raises(PolicyRefused): disabled_successor(row)
+
+
+def test_exact_a092_crossover_keeps_all_original_date_city_arms():
+    from weather.market.lfc_campaign_policy import parse_policy
+    from weather.market.lfc_f2_breadth import arm
+    baseline = parse_policy(pinb_row())
+    row = wide_row(); row['quote_offset_mode'] = 'standard'
+    friday_wide = ['dallas', 'houston', 'los-angeles', 'miami', 'nyc', 'toronto']
+    saturday_wide = ['atlanta', 'austin', 'chicago', 'denver', 'san-francisco', 'seattle']
+    row['city_quote_offset_assignments'] = [dict(date=day, wide_cities=wide,
+        standard_cities=sorted(set(row['market_ids'])-set(wide))) for day, wide in
+        [('2026-11-20', friday_wide), ('2026-11-21', saturday_wide)]]
+    validate(row)
+    expected_arms = {
+        '2026-11-20': ['paired', 'paired', 'cheap', 'paired', 'paired', 'paired',
+                       'paired', 'cheap', 'paired', 'cheap', 'paired', 'cheap'],
+        '2026-11-21': ['paired', 'paired', 'cheap', 'cheap', 'paired', 'cheap',
+                       'cheap', 'paired', 'paired', 'cheap', 'paired', 'cheap']}
+    frozen = deepcopy(row)
+    for day in expected_arms:
+        for city, leg_arm in zip(row['market_ids'], expected_arms[day]):
+            original = arm(baseline, day, city)
+            result = apply_arm(row, day, city, original)
+            assert result['leg_arm'] == leg_arm == original['leg_arm']
+            assert result['quote_arm'] == original['quote_arm']
+            assert result['standard_quote_offset_pusd'] == original['quote_offset_pusd']
+            is_wide = city in (friday_wide if day == '2026-11-20' else saturday_wide)
+            assert result['quote_offset_pusd'] == ('0.030' if is_wide else original['quote_offset_pusd'])
+            assert result['quote_offset_mode'] == ('wide' if is_wide else 'standard')
+    assert row == frozen
+
+
+def test_economic_identity_includes_exact_partition_and_canonical_offset():
+    row = split_row()
+    original = economic_values(row)
+    row['wide_offset_cents'] = 3
+    assert economic_values(row) == original
+    item = row['city_quote_offset_assignments'][0]
+    item['standard_cities'], item['wide_cities'] = item['wide_cities'], item['standard_cities']
+    validate(row)
+    assert economic_values(row) != original
