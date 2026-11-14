@@ -272,7 +272,7 @@ def continue_quotes(band, base_steps, *, rehearsal_seconds=None):
             band._evidence_failed = bool(band._evidence_faults)
             if proof_time is None:
                 proof_time = band.clock.monotonic()
-            cooldown = band.campaign_policy.raw['fill_cooldown_seconds'] if not depth_paused or new_fill else 0
+            cooldown = band.campaign_policy.raw['fill_cooldown_seconds'] if not (depth_paused or completion_paused) or new_fill else 0
             if band.clock.monotonic() < proof_time + cooldown:
                 band.journal.record('repost_cooldown', seconds=cooldown, proven_at_monotonic=proof_time)
                 while band.clock.monotonic() < min(proof_time + cooldown, band.deadline):

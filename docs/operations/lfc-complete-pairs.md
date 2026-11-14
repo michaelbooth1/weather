@@ -38,6 +38,8 @@ A failed price bound, venue minimum, reward minimum or ordinary screen grants
 no order. A valid proposal still needs the ordinary freshness, inventory,
 cash, gross-cap, cooldown, budget, fixed-end and cleanup gates. Neither touch
 evidence nor locked pair margin releases capital or proves settlement cash.
+Like the existing depth pause, a price-only pause rechecks after sixty seconds
+without repeating the fill cooldown when cleanup found no new fill.
 
 A completion larger than the residual creates opposite residual inventory.
 Recompute it symmetrically, retaining the existing money limits. A partial
