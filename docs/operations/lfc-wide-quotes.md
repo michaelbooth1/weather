@@ -47,12 +47,14 @@ digest, claim and immutable freeze binding. Deleting prior wide fields at the
 same revision cannot silently restore standard economics. An economic edit
 after the original seal remains successor learning; no seal is rewritten.
 
-Per-order journal evidence binds the acknowledged order ID to the effective
+For wide or city-assigned policies, per-order journal evidence binds the acknowledged order ID to the effective
 mode, requested offset, adjusted reward midpoint, rounded scoring distance,
 native per-leg reward score, size, reward terms, completion status and
 assignment source. Each native leg scores once. Existing Q-min aggregation
 and its central one-sided divisor remain unchanged. A score is planning
 evidence, never an accrual or payment receipt.
+Plain standard policies retain their existing journal trace; their omitted
+mode means standard, with original prices and reward inputs retained as before.
 
 ## Create-only disabled successors
 
