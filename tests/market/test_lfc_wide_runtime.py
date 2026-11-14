@@ -56,8 +56,9 @@ def test_normal_requote_changes_only_affected_leg_and_retains_inclusive_band():
 def test_unscored_new_normal_quote_waits_without_tightening():
     current, _ = band()
     current.submit_snapshot['quote_inputs']['reward_max_spread_cents'] = '3'
-    with pytest.raises(HoldEnd, match='wide_price_wait'):
-        observe(current, current.submit_snapshot, {'adjusted_mid': '.38'})
+    observation = observe(current, current.submit_snapshot, {'adjusted_mid': '.38'})
+    assert observation['requote_legs'] == []
+    assert current.prices == [Decimal('.31'), Decimal('.62')]
 
 
 def test_standard_runtime_is_inert_and_original_arms_survive_override():

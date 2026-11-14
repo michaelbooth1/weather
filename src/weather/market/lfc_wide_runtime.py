@@ -32,9 +32,8 @@ def observe(band, snapshot, observation):
         mid = observation['adjusted_mid']
         normal = [replacement_price(mid, leg, band.OFFSET) for leg in (0, 1)]
         affected = requote_legs(mid, band.prices, band.TRADE_LEGS)
-        if affected and not entry_allowed(mid, normal, affected, snapshot['quote_inputs']['reward_max_spread_cents']):
-            raise HoldEnd(WAIT)
-        observation['requote_legs'] = [leg for leg in affected if normal[leg] != band.prices[leg]]
+        observation['requote_legs'] = [leg for leg in affected if normal[leg] != band.prices[leg] and
+            entry_allowed(mid, normal, (leg,), snapshot['quote_inputs']['reward_max_spread_cents'])]
     return observation
 
 
