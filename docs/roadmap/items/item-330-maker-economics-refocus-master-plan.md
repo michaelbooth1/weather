@@ -1,4 +1,35 @@
-# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
+# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-11-14 - F2 PIN B LIVE (LEARNING) SINCE 2026-11-13; ECONOMIC PROOF OPEN]
+
+## November 14 F2 Pin B status, decision table and first-day read
+
+- **Live since 2026-11-13** in the LFC lane (F2 Pin B; owner 2026-11-06 and 2026-11-09, DECISION_LOG): 12
+  built-in cities, T+1, one band per city, 20 shares per leg, paired/cheap and 1.5 c/2.5 c learning arms, a
+  $30 per-band daily filled cap, a fixed $300 sleeve and no loss stop. Learning 11-09..11-22, seal 11-22
+  17:55, confirmation 11-23..12-22, one success look 12-28 18:00. Release and incident history:
+  [item 67](item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md).
+- **Decision table (owner 2026-11-13 ~00:2x, DECISION_LOG).** For the F2 confirmation decision it replaces
+  W7's lower-bound-above-H rule and the 09-22 hurdle H:
+  - the measure is the weekly net on the $300 sleeve (3% = 9 per 7 calendar days), after all fees, including
+    maker rebates and liquidity rewards, settlement-marked;
+  - below 0 = stop; 0 to below 3% = continue; 3% or more = invest more;
+  - it is applied after the confirmation, settlement and the last reward payment;
+  - the uncertainty range is information only, and the table never moves after a look.
+- **Incentives are reported both ways (owner 2026-11-13 ~21:4x, DECISION_LOG):** strict attributable cash
+  (unproven = 0, never refills capital) beside a campaign estimate from the venue's condition-day accrual.
+  §3's attribution rule still governs what counts as realized.
+- **Looks:** for F2's own evidence the owner waived no-peek and one-final-look (2026-11-13 ~18:47,
+  DECISION_LOG). In the master's reading, the table, the seal, no re-cut and read logging still bind.
+- **First-day read (2026-11-13, one unsettled date, descriptive):**
+  [EF §10bg](../../operations/ESTABLISHED_FINDINGS.md). The reward model brackets the venue's accrual.
+  Post-fill drift was negative despite positive short markouts. Most of the sleeve was idle, and coverage was
+  44% of the 12-city noon-to-close clock.
+- **Still to write before the seal (W7):** the 30-date weekly aggregation; the strict and estimated incentive
+  columns; the reward-reconciliation deadline; the treatment of unresolved payouts; and the uncertainty
+  method. A091 §11 proposes `weekly_net = total confirmation net × 7/30` on all scheduled dates; this is not
+  adopted.
+- **Next learning runs (owner 2026-11-13, DECISION_LOG):** Mon 11-16 runs A (the current design plus
+  operational fixes); Tue 11-17 runs B ("complete pairs after a fill"). The entry window is 09:00-11:00, the
+  fixed end 18:45, and size is unchanged.
 
 ## October 17 owner decisions for builds 1-4
 
@@ -192,6 +223,8 @@ under current caps the rewards hypothesis is **infeasible by construction**,
 and W3 should say so unless the owner moves the cap. This is the same first
 leg the July report gave.
 
+*Note 2026-11-14: the 0.39 desk share is retracted as a live expectation (RF §4a); the cap conflict was resolved by the owner's F0/F2 terms (19.60 per band).*
+
 **Geographic eligibility — recorded as resolved by owner statement,
 2026-09-19.** The 2026-09-06 Ontario geoblock readings were a tunnel used to
 reach files on the owner's home PC; the execution PC is physically in a
@@ -203,6 +236,8 @@ It is not a viability blocker for this item.
 
 **Open owner decisions** (section 7 parameters that now have something
 concrete to decide against; none is needed for non-live work to continue):
+
+*Note 2026-11-14: Hurdle: replaced for the F2 confirmation decision by the owner's 2026-11-13 table (3% net per week on the $300 sleeve). Caps: F2 Pin B terms (owner 2026-11-09): 20 shares per leg, 19.60 reserve per band, a $30 per-band daily filled cap, a fixed $300 sleeve. Dedicated wallet: owner 2026-11-12, F2 shares one account by design. Live authority: live maker sessions authorized and running (owner 2026-11-06 and 2026-11-09). DECISION_LOG has each row.*
 
 | Decision | Why it is open |
 | --- | --- |
@@ -327,6 +362,7 @@ their offline preparation may proceed. The prospective Stage 0/1 10 pUSD request
 and 100 pUSD wallet ceilings remain unchanged. No new statistical alpha allocation,
 exchange-baseline acceptance, unattended operation or positive economic verdict
 is inferred from the implementation authorization.
+*Superseded for the LFC lane by the owner's 2026-11-06 live and unattended decisions and the 2026-11-09 F2 terms (DECISION_LOG); kept as the September plan's record.*
 
 ## 2. Starting point and what must be refreshed
 
@@ -426,6 +462,12 @@ paid incentives; and the last view after incremental and fully allocated
 operating costs. Record capital-hours, maximum collateral tied up, operator
 minutes, and operating expense without pretending sunk development cost must be
 recovered by the first tiny pilot.
+
+*Two incentive views (owner 2026-11-13 ~21:4x, DECISION_LOG, "rewards record both ways"): every F2 report
+shows (1) strict attributable incentive cash, where unproven attribution counts 0 and never refills capital,
+and (2) a campaign economic estimate from the venue's condition-day accrual on the campaign's conditions,
+labelled as an estimate. A shared-account payment that cannot be allocated leaves the business net
+incomplete; the zero-refill default alone does not select stop (A091 §3, §11).*
 
 ## 4. Gates and execution order
 
@@ -616,6 +658,7 @@ host/profile decision or the already authorized canonical host lane. Never
 extend the profile by renaming a workload. Any real session remains an attended,
 separately authorized action under the runbook. A failure stops and reconciles;
 it does not consume a second mutation ordinal.
+*Superseded for the LFC lane by the owner's 2026-11-06 live and unattended decisions and the 2026-11-09 F2 terms (DECISION_LOG); kept as the September plan's record.*
 
 ### W6 — Run a bounded economic calibration cohort
 
@@ -639,6 +682,7 @@ completed payout cycles, within fourteen calendar days after G2, subject to
 the operator's smaller capital/loss/time envelope. This is a discovery budget,
 not a statistical sample-size claim or present trading authorization. Include
 all cohort settlements and late payout reconciliation after quoting ends.
+*Superseded for the LFC lane by the owner's 2026-11-06 live and unattended decisions and the 2026-11-09 F2 terms (DECISION_LOG); kept as the September plan's record.*
 
 Acceptance: one report joins intent, exchange lifecycle, score eligibility,
 confirmed fills, multihorizon markouts, inventory, costs and eventual receipts.
@@ -687,8 +731,17 @@ unadjusted significance checks. Compare against zero capital/no quoting and
 report incentive-free accounting; any alternative quoting policy is a separate
 prespecified comparison, not a retrospective winner. Keep market-centred and
 model-assisted claims distinct. Consult the reserved-window contract before
-every dated study; there are currently no reserved dates, but a later model
-freeze can change that and grants this plan no exemption.
+every dated study: it is RESERVED (MG-1, narrow scope) with a post-09-29 outcome
+embargo, read its status line first, and it grants this plan no exemption.
+
+*Superseded for the F2 confirmation decision (owner 2026-11-13 ~00:2x, DECISION_LOG): the hurdle is 3% net
+per week on the fixed $300 sleeve (9 per 7 calendar days) after all fees, including maker rebates and
+liquidity rewards, settlement-marked; below 0 = stop, 0 to below 3% = continue, 3% or more = invest more;
+applied after the 11-23..12-22 confirmation, settlement and the last reward payment; the uncertainty range is
+information only; never moved after a look. This replaces the lower-bound-above-H rule above for that
+decision. For F2's own evidence the owner waived the no-repeated-checks restriction on 2026-11-13 ~18:47
+(DECISION_LOG). Still to write before the seal: the 30-date weekly aggregation, the strict and estimated
+incentive columns, the reward-reconciliation deadline and the uncertainty method (A091 §11).*
 
 Proposed outer planning budget: thirty calendar days of new exposure following
 freeze, followed by settlement/payout closeout. Set actual session/date counts
@@ -840,7 +893,7 @@ follow their own acceptance gates.
 | Parameter | Default planning treatment | Must be concrete before |
 | --- | --- | --- |
 | Live capital, loss, order count and attendance | Existing caps are upper bounds; operator may choose smaller limits; no increase in this plan | Each authorized economic session |
-| Minimum worthwhile return | Report break-even first, absolute profit, capital-hours and operating effort; operator selects practical hurdle | W7 freeze |
+| Minimum worthwhile return | Decided for F2 (owner 2026-11-13, DECISION_LOG): 3% net per week on the $300 sleeve after all fees, incl. rebates and rewards; report absolute profit, capital-hours and operating effort beside it | W7 freeze |
 | Statistical decision/alpha | Prospective proposal only; respect existing ledger and owner allocation | Confirmation scoring |
 | Reward-market availability | Unknown until exact-condition current evidence; no category-wide assumption | G1 |
 | Calibration and confirmation budget | Proposed five sessions/two payout cycles/fourteen days, then at most thirty exposure days | Cohort authorization/freeze |

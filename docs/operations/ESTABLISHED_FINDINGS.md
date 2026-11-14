@@ -151,9 +151,10 @@ sequence numbers, not calendar dates.
 | 10ba | Astra/sol reviews: model timing, simulator/accounting, recorder, automation and evidence limits; archived pin-specific findings, not deployment qualification |
 | 10bb | T032: SPECI floor support mismatch, verified routine/COR label selection, pilot isolation and metadata-only MRMS; serving repair undone |
 | 10bc | T030: ten scoped processing defects and sizes; subjective remaining-gap planning range, no score; census PARKED |
-| 10bd | T038: December policy profitability UNIDENTIFIED; PLANNING ESTIMATE (not a measurement) per session; Nov 16 KEEP-paired rule |
+| 10bd | T038: December policy profitability UNIDENTIFIED; PLANNING ESTIMATE (not a measurement) per session; KEEP-paired rule (its Nov 15/16 dates predate the owner's 11-09 lane move; seal 11-22 17:55) |
 | 10be | Edge-review cheap checks 2026-11-10 (ledger rows 122-125 D; owner 11-09 19:48): E1 price tilt KILL (−2.17 c/share [−6.88, +0.80]); E3 maker clock unmeasured (0 balanced condition-days); E6 dev interval size 0.72%..9.51% at nominal 5%; E7 snapshot timing does not clear (median 5.886 s vs 5 s); E8 named look: 4 of 132 market-days differ, all paid the strict-local-date band (describe-only, quarantined) |
 | 10bf | Edge-review queue completed 2026-11-10 (ledger rows 126-128; register X112-X117, §7): T003 finish DESCRIBE (11/720 = 1.53% [0.56, 2.78] positive event-days, execution unverified); E4 lowest-temperature overpricing KILL with a MEASURED, not pre-registered, opposite gap of about −10 to −11 pp (not an edge claim; designs A/B await the owner); dev T+1 model-vs-market read UNTESTABLE (0 verified T+1 vectors) |
+| 10bg | F2 Pin B first trading day 2026-11-13 (A091; one unsettled date, descriptive): reward model brackets venue accrual (1.36x P_many, 0.96x P_single); first-fill hazard ~0.21/band-hour vs T038's 0.12; +5 min markout +0.43 c/share vs mid drift −0.92; cross-cycle pair locked zero spread; 44% twelve-city coverage; ~75% of the sleeve idle; 4-dp positions vs 6-dp trades; no edge, no arm winner |
 
 ---
 
@@ -3279,6 +3280,9 @@ and every T+1/T+2 band; per-band rates 1 to 246 per day.
   two-sided size (20 shares, about 19.60 pUSD) does not fit the 10 pUSD per-band cap — is unchanged.
 - **What it changes:** the binding unknown is no longer the size of the pool but **the share a capped
   quoter can win**, next to what resting quotes lose to informed flow. Item 330 owns both.
+- *Note (2026-11-14): F2 Pin B quotes T+1 only, so its configured pool is the T+1 row above (about 1,200/day), not
+  same-day 2,800. Our live share has since been measured per session (RE-1, §10m; F2's first trading day, §10bg), and the
+  unit was confirmed by the first paid day (§10m).*
 
 ### 10b. Free disk is a daily sawtooth; the daily low is what binds
 
@@ -3456,8 +3460,8 @@ date clusters, 12 markets). Crossed date x market bootstrap, 2,000 draws. Values
   lifecycle already accepts order disappearance only inside 10-15 s, and the 2026-09-06 run measured
   10.359 s. A held quote's primary end-of-session action must therefore be an explicit acknowledged
   cancel; the dead-man is a backstop with up to 15 s of residual exposure.
-- **The 2026-09-06 wallet cannot satisfy master's isolated-wallet control:** the recorded cash readings
-  (275.48, 447.01397, 489.60767 pUSD) fail the `<= 100` isolated branch in the real validators; a
+- **The 2026-09-06 wallet cannot satisfy master's isolated-wallet control:** the three recorded cash readings
+  ([amount withheld: public repo], each above 100) fail the `<= 100` isolated branch in the real validators; a
   separately declared isolated wallet at 50 passes. Restoring isolation means a fresh dedicated wallet.
 - **Three 45-minute sessions cannot reach the RE-1 floor of 180 visible two-sided minutes**; a
   place-and-hold build needs a dated RE-1A treatment addendum before its first order.
@@ -3598,6 +3602,8 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
 - **Competition arrives within minutes of our quote.** The selected share halved 2-4 minutes after posting in every
   session (Miami 95.4% -> 3.55%; Atlanta 63.1% -> 4.07%) while midpoints barely moved. An "empty" band at selection is
   empty only until we post; selection-time six-hour projections overstate reward by an order of magnitude.
+  *Note (2026-11-14): on F2's first trading day (§10bg) the decay was band-specific and some shares rose later; it is not a
+  fixed factor.*
 - **Fills in sessions 1-8 came on the thinnest bands.** Four fills in sessions 1-8 (six minute-bearing attempts), at
   1.8, 12.3, 42.0 and 87.2 minutes, all at the quote price (three partial; Miami full but not through): 5.57 NO
   @0.48 (NYC), **75 YES @0.35 (Miami 90-91°F Sep 25; marked -8.5 c/share at +5 and +30 minutes, ~-6.4; the 00Z GFS
@@ -3626,7 +3632,7 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
   81°F; exact proceeds to reconcile from the wallet). Chicago 68-69°F Sep 25 YES: **resting maker sell 75 @0.37 GTC** (first S2 /
   Q-04 test; the bid side held only ~20 shares within 6 c). Neither earns rewards: `rewardsMinSize` was 100 on both same-day
   bands, above the 75-share lot. An open resting sell makes RE-1 refuse to start (`foreign_open_order`); cancel it first.
-  Wallet reader (100a, first live read 12:20 ET): Miami fill confirmed **75 @0.18 as taker, 12.9465 received** (fee ~0.55 at
+  Wallet reader (100a, first live read 12:20 ET): Miami fill confirmed **75 @0.18 as taker, [amount withheld: public repo] received** (fee ~0.55 at
   0.05·p(1−p), consistent with EF §10o); lot result −13.30. The owner withdrew the Chicago sell unfilled; 75 YES held to settlement.
 - **Reward terms change intraday (2026-09-25):** Chicago 68-69°F Sep 25 `rewards_min_size` read 100 (rate 73/day) at 15:01Z and
   **20** (rate 65-67/day) at ~17:05Z on both gamma and CLOB `/rewards/markets/<id>`. The "neither earns rewards" line above
@@ -3640,9 +3646,10 @@ numbered by **attempt**: attempts 1-9 are sessions 1, 2, none (opening check ref
 ### 10n. Open orders are limited to cash per market, not across markets — owner replication, 2026-09-24
 
 The venue's order-lifecycle documentation states `maxOrderSize = balance - sum(openOrderSize - filledAmount)` across open
-orders. **In practice it is not enforced.** With 96.15 pUSD cash the owner placed resting buys totalling **299.00 across four
-unrelated events** (Chicago 68-69°F Sep 25, 200 YES @0.36; Paris 29°C, 300 YES @0.27; Qingdao 22°C, 200 YES @0.37; Toronto
-20°C, 400 YES @0.18; all "until cancelled", 0 filled), and earlier 167.80 in one negative-risk event; all were accepted. The
+orders. **In practice it is not enforced.** With [amount withheld: public repo] of cash the owner placed resting buys totalling
+**[amount withheld: public repo], about three times that cash, across four unrelated events** (Chicago 68-69°F Sep 25, Paris
+29°C, Qingdao 22°C and Toronto 20°C, all YES, each order below cash; all "until cancelled", 0 filled), and earlier
+[amount withheld: public repo] in one negative-risk event; all were accepted. The
 app's "Cash" is the on-chain wallet, which moves only when a fill settles.
 
 - **Consequences:** reward capacity is bounded by resting size and the number of bands, not by cash; the binding risk
@@ -3664,6 +3671,9 @@ configured daily-high families and Taipei carry the weather fee schedule: taker 
 taker charges are shown on every date 2026-09-20..24 for every family. Gamma configures a **25% weather maker-rebate
 allocation**, paid daily in pUSD (1-dollar minimum) by filled maker liquidity weighted by the fee curve — a second revenue
 stream distinct from liquidity rewards, not a guaranteed payment to us. Optional builder fees can add charges to either side.
+*Note (2026-11-14): after F2's maker-only first day the account activity showed no MAKER_REBATE or REWARD row by 19:46 ET
+and one TAKER_REBATE-typed credit with a blank condition id, unallocated (§10bg; Q-24). Maker fee 0 held on all nine own
+trades.*
 
 - **Consequences:** fills now carry a rebate share as well as markout risk; our own taker exits would pay the fee; an informed
   taker pays ~1.25 c/share at mid to hit us. The earlier zeros were probably a missing field read as zero (the old evidence
@@ -3831,7 +3841,8 @@ no panel read. Source: host run by master-agent 2026-10-14 03:09-03:11 EDT, head
   **N_req = 706**; branch **UNDECIDABLE_AT_DELTA** (N_req > 28); decision **EMBARGO_END_UNCHANGED**.
 - **Caveat:** sigma_up is the one-sided 90% upper bound on sigma from 4 dates (3 degrees of freedom), so it is 2.27x
   sigma_d by construction. With sigma_d itself in place of sigma_up the same formula gives about 138 dates; both are far
-  above the 28-date ceiling, so the branch does not depend on that choice.
+  above the 28-date ceiling, so the branch does not depend on that choice. sigma_d is an SD across dates of date means:
+  do not convert a date requirement into independent band-days (RF §2).
 - **Consequences under the pre-registration, nothing more:** the panel stays 14 dates and runs descriptive only, with the
   achieved MDE reported; the owner's conditional (N_req <= 14 moves the embargo end 11-13 -> 10-31) does not fire, so the
   shadow scoring embargo end stays 2026-11-13. As a gate, the desk-study P&L comparison cannot decide the sign question at
@@ -5349,6 +5360,11 @@ has **no T+1 execution evidence**, so it is not the adopted T+1 forecast.
 mature T+1 dates**, with conservative net **>0** and an advantage **>$0.25/session**, using only
 evidence available by Nov 15 18:00 Toronto. KEEP is the least-bad default, not a profit forecast.
 
+*Date note (2026-11-14): the owner moved the lanes on 2026-11-09 (DECISION_LOG): learning 11-09..11-22, seal 11-22 17:55,
+confirmation 11-23..12-22. "Nov 16" and "Nov 15 18:00" are the pre-move dates, and "both cities" is the pre-breadth
+two-band design; the master states this rule's current form before the seal. F2's first trading day (§10bg) is one date and
+cannot meet "≥3 mature T+1 dates".*
+
 **Decision artifacts required:** planning and measured economics labelled separately; a cash forecast
 from PAID rewards plus carried inventory (never accrual or terminal marks alone); counterfactual
 evidence before any switch (deleting the expensive leg from paired receipts does not qualify the
@@ -5536,6 +5552,133 @@ Source reports are on the workstation under `C:\t\codex\T085`, `T086`, `T088` an
     closed to this read. No skill null, score kill or edge claim follows.
   - Records. Prereg `c4baa437…` on `codex/t088-t1-coverage` @ `ebe6a0c3`; register X117; archive
     `C:\archive\ruled-out\2026-11-10-T-plus-1-dev\`.
+
+### 10bg. F2 Pin B's first trading day, 2026-11-13: the live reward model brackets the venue's accrual, short markouts are positive while post-fill drift is negative, a cross-cycle pair locked zero spread, and coverage and capital use were low (DESCRIPTIVE, ONE UNSETTLED DATE) — analysis A091, 2026-11-13
+
+**Status: DESCRIPTIVE ONLY.** One trading date, ten quoted cities, thirteen touched conditions (buckets changed
+between sessions in three cities), one date cluster. No interval, test, edge claim, profit result or arm
+selection, and nothing here moves the owner's decision table (DECISION_LOG 2026-11-13). Read under the
+own-records opening (owner 2026-11-07 21:19) and the owner's 2026-11-13 ~18:47 no-peek waiver for F2's own
+evidence, with every read logged. Settlement of the six held 2026-11-14 conditions was pending at 19:02 ET.
+Wallet amounts are kept out of this public record. Source: `C:\t\codex\A091\REPORT.md` (sections cited
+below) with `fills.csv`, `bands.csv`, `uptime.csv`, `rewards.csv`, `competition.csv` and `capital.csv`;
+`out/verification.json` PASS (43 chains, 128,972 rows; all 87 order quantities, 9 trades, 7 holdings and the
+cash movement reconcile).
+
+- **Operation (§1, §10).** Same-day releases B090 to J under owner-carded pregate waivers fixed ten
+  live-only defect scopes (item 67). Five launches: the first posted nothing. Four serial order-bearing
+  sessions 13:13-18:45 ET posted 87 post-only BUY orders, all acknowledged, with no overlapping own order
+  intervals. Every session ended with an account-scope cancel. An independent account read at 18:45:40.970
+  showed zero open orders (GTD 18:46), consistent with §10i.
+- **Coverage (§1).**
+
+  | Clock | Coverage |
+  | --- | --- |
+  | Noon to 18:45 (405 min), at least one band quoting | 71.17% |
+  | Noon to 18:45, sum over the ten ever-quoted cities | 52.51% |
+  | Noon to 18:45, sum over all twelve configured cities | 43.75% |
+  | Intended 09:00-18:45 (585 min), twelve cities | 30.29% |
+
+  - Global zero-quote gaps totalled 116.75 minutes: 12:00-13:15 for prechecks and repairs, plus three
+    relaunch gaps.
+  - Two short sessions retired all ten bands `geoblock_stale` after 28 orders and no fill.
+  - Breadth refusals, none of them a cash refusal:
+    - NYC: unsupported tick.
+    - Denver: unsupported tick, or a midpoint outside the treatment.
+    - Seattle and Denver: absent from the last session, because every per-condition rewards response was
+      empty (`data=[]`) on all eleven open bands.
+    - Atlanta and Miami: excluded at the last restart, because their events were held.
+- **Fills (§2).**
+  - 9 confirmed maker trades on 8 of 87 orders (9.2%; 2 full, 6 partial), in 6 of 10 quoted cities.
+  - 0.164 filled orders per resting order-hour.
+  - Descriptive first-fill hazard **0.214 per at-risk band-hour** (6 first fills over 27.98 band-hours).
+    T038's judgmental prior was 0.50 per six-hour band, or 0.116 per hour under a constant hazard (§10bd).
+  - Mixed arms, late starts and censoring make this a description, not a fitted rate.
+- **Markouts (§2).** Share-weighted, cents per share, maker-signed. Each horizon is a different cohort, and
+  missingness follows retirement and reconciliation.
+
+  | Horizon | Trades / orders | Net markout | Mid drift from pre-fill |
+  | --- | --- | --- | --- |
+  | 1 min | 8 / 7 | +0.375 | −0.997 |
+  | 5 min | 6 / 6 | +0.430 | −0.923 |
+  | 15 min | 5 / 5 | +0.547 | −0.743 |
+  | 30 min | 5 / 5 | +0.401 | −0.890 |
+  | 60 min | 6 / 5 | +0.103 | −1.168 |
+
+  - The spread cushioned an adverse drift. The worst case was Austin's first YES: mid 0.250 to 0.225, −1.5 c
+    net.
+  - Selling the covered lots into the retained displayed bids, with the taker-fee kernel, gives
+    **−1.86 c/share at 5 min**, −1.85 at 15 min and −2.06 at 60 min (§11). These are lot-age snapshots, not an
+    exit policy.
+  - No informed-flow fraction, model correlation or settlement markout is identified.
+- **Inventory marks (§5).** The last in-band marks valued the lots about 5.5% above cost, but they span 15:03
+  to 18:44 and are not contemporaneous. Fresh public books at about 19:04 valued the same lots about 5.5%
+  below cost. Retired bands stop recording, so their stale marks mislead.
+- **Paired fills (§5, §7 C8).** Austin's YES filled at 0.24, and about 101 minutes and several requotes later
+  its NO filled at 0.76. The ten complete pairs cost 1.00 per pair in total and lock **zero** trading profit;
+  ten YES stay directional. The quoted pair's discount did not survive separate quote cycles.
+- **Rewards (§3).** Measured against the venue's latest condition accrual on 13 conditions, the live
+  recorder's minute-integrated estimates:
+  - The venue's accrual was **1.36x `P_many` and 0.96x `P_single`** in total. Per condition it was
+    1.18-1.52x `P_many`: between the two estimates on 9 of 13, and at most 1.10x `P_single` on the other 4.
+  - Per-order minute `scoring` read true on 2,912 of 2,916 observations. The legacy `scoring_seen` summary
+    reads false on one-leg bands because it needs two order ids (`re1_attended.py:383`).
+  - Accrual was about 0.019 per quoted band-hour and 0.73 c per filled share, below the documented 1-dollar
+    daily payout minimum.
+  - Selected conditions carried 12-32 per day, changing intraday, all with a 20-share minimum and a 4.5 c
+    maximum spread. The relevant configured pool is T+1, about 1,200 per day (§10a), not same-day 2,800.
+  - Strict attributed incentive cash is 0 (`reward_attribution_unproven`). The venue accrual is a campaign
+    estimate, not paid cash (owner 11-13: report both, DECISION_LOG).
+  - This validates the reward model's scale on our own books, conditionally. It is not a T009 replay and
+    not paid income.
+- **Competition (§3).** Competition was not a constant haircut:
+  - San Francisco's modelled `P_many` share went 5.98% at selection, 3.86% at the first live minute, 2.80% at
+    +5 min and 0.06% at +30 min.
+  - Los Angeles 70-71 fell about 47-fold from selection to the first live minute; other bands rose later.
+  - The median live `P_many` share per band run was 0.08-3.09% (17 runs).
+  - Causation by our posting is not identified. Re-validate selected economics before the first post.
+- **Fees and rebates (§4).**
+  - All 9 trades were maker: maker fee 0, no taker trade, and the cash decline matches purchases to six
+    decimals.
+  - By 19:46 ET the account activity showed no REWARD or MAKER_REBATE row, and one TAKER_REBATE-typed credit
+    with a blank condition id. That credit is unallocated, so it is not campaign income under the strict rail.
+  - The 25% fee-pool benchmark (§10o) is about 0.25 c per filled share. It is not an entitlement.
+- **Capital (§6).** On the noon-to-18:45 clock, the time-average uncommitted share of the $300 sleeve was
+  **75%**, and the peak filled-plus-resting charge was 38%. Cheap one-leg arms, ineligible cities, the late
+  start, retirements and held-event exclusions left the cash idle: the sleeve did not bind. T+1 carry over
+  several days is untested.
+- **Venue precision (§2, §10).** The positions endpoint reports size at **4 decimals**, while trades carry
+  **6**; one lot differed by less than 0.0001 share. The exact holdings proof failed on that difference, the
+  band stopped recording, and a restart excluded the held event. B090-J reconciles at venue precision.
+- **Cap semantics (§9).** `per_band_daily_filled_cap` is a prospective gross-dollar cap: gross filled basis
+  plus same-city live reserves, minus the replaced own reserve, plus the full proposed 20-share treatment,
+  must be ≤ 30 (`lfc_f2_breadth.py:133-165`). Austin's refused reload was correct. It is not a share cap, and
+  there was no overspend.
+- **Simulator (§8).** No T009 prediction existed for this regime. A valid fill/markout replay cannot be built
+  from the band minute journals. They have no public execution consumption ids or route identities, no
+  opportunity denominator, no measured latency clocks and no native maker census for rewards, and that
+  coverage cannot be recovered after the fact. The charter §2.7 maker accuracy gate cannot be met on this
+  day's records.
+- **Arms (§11), descriptive and city-confounded:**
+
+  | Arm | Accrual per quoted band-hour | Filled orders |
+  | --- | --- | --- |
+  | cheap 1.5 c | 0.0155 | 5 |
+  | cheap 2.5 c | 0.0119 | 0 |
+  | paired 1.5 c | 0.0326 | 2 |
+  | paired 2.5 c | 0.0249 | 1 |
+
+  No arm or offset winner.
+- **Noise against the hurdle (§11; an illustrative proxy, not fitted).** The proxy treats fresh mids as
+  independent payout probabilities on the frozen residual inventory.
+  - A one-sided 5%/80% comparison of 0% against the owner's 3% weekly hurdle needs about 1,042 dates.
+  - A 30-date confirmation has about 11% one-sided power.
+  - At a true 0%, the point result would cross 3% about a third of the time.
+  - §10r's σ_d is the SD of date means, not of independent band-days (RF §2).
+  - The owner's table acts on the point result by choice.
+- **Not established:** settled P&L; paid rewards or rebates and their attribution; any T+1 adverse-selection
+  rate, informed fraction or toxicity parameter; a best arm, offset or hour; whether one date's fill hazard,
+  coverage or capital use repeats.
 
 ## Related
 

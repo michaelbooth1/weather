@@ -21,12 +21,12 @@ and replay outside this timetable and without the capture-host resource/time
 admission.
 
 **One workstation exception: self-start campaign entry dates** (master ruling 2026-11-07, see DECISION_LOG).
-- **Which dates:** every date in the enrolled F2 campaign's learning or confirmation list, from 2026-11-10 to
+- **Which dates:** every date in the enrolled F2 campaign's learning or confirmation list, from 2026-11-09 to
   2026-12-22. If unsure whether today is one, treat it as one.
 - **The rule:** on those dates no agent starts a heavy command on the workstation after 08:30 America/Toronto
-  until that day's session has finished (about 15:30). Light work is fine.
-- **Why:** the session takes the same workload mutex and its own work lock in its only start window,
-  09:00–09:15. A heavy job holding the mutex then makes it DEFER and then MISS the day.
+  until that day's session and its postchecks have finished (fixed end 18:45). Light work is fine.
+- **Why:** the session takes the same workload mutex and its own work lock inside its entry window (the policy's
+  `start_window_toronto`). A heavy job holding the mutex makes it DEFER, and through the window end MISS it.
 - **Also on those dates:** no agent creates `C:\t\codex\HOLD_HEAVY`.
 
 **Workstation housekeeping traps (master, 2026-11-11):**
