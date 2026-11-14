@@ -47,6 +47,8 @@ def validate(row):
             raise PolicyRefused('unsupported_city_quote_partition')
     if days != sorted(set(days)):
         raise PolicyRefused('unsupported_city_quote_date')
+    if (mode == 'wide' or assignments) and row.get('schema_version') != 'lfc_campaign_policy_v0.4':
+        raise PolicyRefused('wide_requires_pinb')
     if (mode == 'wide' or assignments) and (
             type(row.get('policy_revision')) is not int or row['policy_revision'] < 7):
         raise PolicyRefused('wide_requires_policy_revision_7')
@@ -57,6 +59,19 @@ def economic_values(row):
     result = {key: deepcopy(row.get(key, value)) for key, value in DEFAULTS.items()}
     result['wide_offset_cents'] = '3.0'
     return result
+
+
+def field_keys(row, keys):
+    """Historical snapshots gain no implicit serialized fields."""
+    return set(keys) | (FIELDS & row.keys())
+
+
+def economic_keys(row, keys):
+    return set(keys) | FIELDS if configured(row) else set(keys) - FIELDS
+
+
+def economic_value(row, key):
+    return economic_values(row)[key] if key in FIELDS else row.get(key)
 
 
 def configured(row):
