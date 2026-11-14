@@ -1215,3 +1215,79 @@ def test_only_latest_claim_denial_is_raised_at_the_deadline(tmp_path, monkeypatc
     assert calls == ["fetch"]
     assert result.coordination_status == "cross_process_wait_timeout_fail_open"
     assert result.wait_timed_out is True
+
+
+def _peer_mkdir_after_missing_lstat(monkeypatch, receipt_parent, level, *, times):
+    """Report ``level`` missing, but let a "peer" create the whole chain first.
+
+    This is the #281 interleaving made deterministic: this walk's lstat of
+    ``level`` misses, a peer child's ``mkdir(parents=True)`` lands, and the
+    walk's next lstat sees the deeper directory.
+    """
+
+    original_lstat = fanout_module.os.lstat
+    target = os.path.abspath(level)
+    remaining = {"count": times}
+
+    def lstat(path):
+        if os.path.abspath(path) == target and (
+            remaining["count"] is None or remaining["count"] > 0
+        ):
+            if remaining["count"] is not None:
+                remaining["count"] -= 1
+            os.makedirs(receipt_parent, exist_ok=True)
+            raise FileNotFoundError(path)
+        return original_lstat(path)
+
+    monkeypatch.setattr(fanout_module.os, "lstat", lstat)
+    return remaining
+
+
+@pytest.mark.parametrize("level_name", ["root", "fetch_fanout", "sha256"])
+def test_peer_creating_the_receipt_chain_mid_walk_is_not_an_integrity_error(
+    tmp_path, monkeypatch, level_name,
+):
+    # #281: CI saw this as "ancestor exists below a missing directory" in
+    # round 0 of the real-process race, from an empty CAS root.
+    root = tmp_path / "shared-cas"
+    coordinator = CrossProcessMarketInvariantFetchFanout(root)
+    receipt_path, _ = coordinator._paths(
+        "nbm_probabilistic_tmax", REQUEST_KEY, CYCLE_KEY, "fleet-pass-1",
+    )
+    level = {
+        "root": coordinator.cas.root,
+        "fetch_fanout": coordinator.cas.root / "fetch_fanout",
+        "sha256": coordinator.cas.root / "fetch_fanout" / "sha256",
+    }[level_name]
+    if level_name != "root":
+        assert not level.exists()
+    remaining = _peer_mkdir_after_missing_lstat(
+        monkeypatch, receipt_path.parent, level, times=1,
+    )
+    calls = []
+
+    result = _fetch(coordinator, lambda: calls.append("provider") or dict(FETCH_VALUE))
+
+    assert remaining["count"] == 0, "the injected interleaving never ran"
+    assert calls == ["provider"]
+    assert result.fetched is True
+    assert receipt_path.is_file()
+
+
+def test_persistent_ancestor_inconsistency_still_fails_closed(tmp_path, monkeypatch):
+    root = tmp_path / "shared-cas"
+    coordinator = CrossProcessMarketInvariantFetchFanout(root)
+    receipt_path, _ = coordinator._paths(
+        "nbm_probabilistic_tmax", REQUEST_KEY, CYCLE_KEY, "fleet-pass-1",
+    )
+    level = coordinator.cas.root / "fetch_fanout"
+    _peer_mkdir_after_missing_lstat(monkeypatch, receipt_path.parent, level, times=None)
+    calls = []
+
+    with pytest.raises(
+        ForecastPayloadCASIntegrityError,
+        match="ancestor exists below a missing directory in 5 consecutive walks",
+    ):
+        _fetch(coordinator, lambda: calls.append("provider") or dict(FETCH_VALUE))
+
+    assert calls == []
