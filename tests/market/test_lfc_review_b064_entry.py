@@ -21,7 +21,7 @@ from weather.market.lfc_f2_policy import example_policy as two_band_policy
 
 
 @pytest.mark.spawns
-def test_slow_pre_entry_tick_crosses_begin_and_still_claims_exactly_once(tmp_path, monkeypatch):
+def test_slow_pre_entry_tick_crosses_begin_and_claims_once_per_tick(tmp_path, monkeypatch):
     row = example_policy(); row.update(enabled=True)
     entry = next(e for e in parse_policy(row).entries if e.local_date == '2026-11-11')
     began = entry.start - timedelta(minutes=5)
@@ -42,8 +42,11 @@ def test_slow_pre_entry_tick_crosses_begin_and_still_claims_exactly_once(tmp_pat
         assert coordinator.tick(lambda: load_policy(path)) == 'STARTED'
         assert runtime.go_count == 1 and len(state.ledger.autostart_claims) == 1
         assert not state.incidents()
+        assert coordinator.tick(lambda: load_policy(path)) == 'STARTED'
+        assert runtime.go_count == 2 and len(state.ledger.autostart_claims) == 2
+        clock.sleep((entry.end - clock.now()).total_seconds() + 1)
         assert coordinator.tick(lambda: load_policy(path)) == 'IDLE'
-        assert runtime.go_count == 1 and len(state.ledger.autostart_claims) == 1
+        assert runtime.go_count == 2 and not state.pending() and not state.incidents()
 
 
 @pytest.mark.spawns

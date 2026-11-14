@@ -202,6 +202,26 @@ def test_context_recording_failure_cannot_change_account_read_or_money(tmp_path)
     assert read == before and runtime.reward_estimate_gaps == {'account_reward_context_unavailable'}
 
 
+def test_malformed_venue_earnings_are_ancillary_without_fabricating_income(tmp_path):
+    from weather.market.lfc_campaign_proof import local_money_proof
+    controller, account, status, ledger, clock, _, _ = fixture(tmp_path)
+    account.fills_enabled = False
+    for raw in account.raws:
+        raw.accrual = lambda day: {'malformed_fixture': True}
+    capital = CapitalBook(ledger).figures()
+    result = controller.run()
+    assert result['cleanup_ok']
+    outcome = status.finish(success=True)
+    proof = local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
+                             attempt_id=controller.attempt_id, outcome=outcome)
+    assert proof['complete'] and proof['explained_gaps'] == ['campaign_reward_estimate_unavailable']
+    rewards = outcome['economics']['measured']['rewards']
+    assert rewards['strict_attributable']['recognized_native'] == 0
+    assert rewards['campaign_estimate']['estimated_native'] is None
+    assert rewards['campaign_estimate']['evidence_gaps'] == ['session_earnings_unavailable']
+    assert CapitalBook(ledger).figures() == capital
+
+
 def test_validated_own_stream_trade_flags_owner_touch_before_rest_is_available():
     from weather.market.lfc_f2_reward_estimate import capture_stream_context
     ledger = scope_ledger()

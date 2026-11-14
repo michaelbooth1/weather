@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import pytest
 from tests.market.test_lfc_campaign import MAKER, Mutexes
-from tests.market.test_lfc_review_b069_retry import interrupted, coordinator
+from tests.market.test_lfc_review_b069_retry import interrupted, coordinator, finish_window
 from weather.market.lfc_campaign_guard import account_lease
 from weather.market.lfc_campaign_state import AccountState
 from weather.market.lfc_campaign_control import latest_control, watch_status
@@ -39,6 +39,7 @@ def test_repeated_failed_appends_across_reboots_never_admit(tmp_path, monkeypatc
             assert watch_status(row, now=runtime.clock.now())[1] == 1
             assert ledger_path.read_bytes() == before and path.read_bytes() == original
             assert len(runtime.state.ledger.autostart_claims) == 1
+    finish_window(runtime, policy)
     for _ in range(2):
         reboot(runtime); runtime.clock.sleep(1)
         assert coordinator(runtime).tick(lambda: policy) == 'IDLE'
@@ -71,6 +72,7 @@ def test_append_fsync_gap_reopens_without_duplicate_or_hidden_anchored_loss(tmp_
     if after_crash == 'rollback_undurable_append':
         # Model loss of a whole trailing append on reboot; synthetic bytes only.
         ledger_path.write_bytes(before)
+    finish_window(runtime, policy)
     reboot(runtime); runtime.clock.sleep(1)
     assert coordinator(runtime).tick(lambda: policy) == ('INCIDENT' if after_crash == 'delete' else 'IDLE')
     if after_crash == 'delete':

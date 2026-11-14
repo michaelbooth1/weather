@@ -54,6 +54,7 @@ def test_owner_adapter_builds_two_independent_inert_clients_with_one_claim(tmp_p
             return reader
         raw = Raw(by_id[kw['condition']]['snapshot'], kw['directory'], clock=clock,
                   account=account, index=len(account.raws))
+        raw.fixture_stream_factory, raw.fixture_directory = kw['stream_factory'], kw['directory']
         def close():
             closed.append(raw.index)
             if close_failure and raw.index == 1:
@@ -94,6 +95,12 @@ def test_owner_adapter_builds_two_independent_inert_clients_with_one_claim(tmp_p
         assert outcome['orders_placed']['count'] == 4
         assert len(clients) == 3 and len(state.claims()) == 1 and ledger.counted_sessions() == 1
         assert [len(raw.calls) for raw in account.raws] == [2, 2]
+        from tests.market.test_lfc_f2_repost import campaign_stream, wire_trade
+        for raw in account.raws:
+            order = next(iter(raw.memory.orders.values()))
+            wire = wire_trade(dict(order, size_matched='5'), raw.memory.condition)
+            normalized = campaign_stream(raw)._normalize_event(wire)
+            assert normalized[0]['trade_id'] == wire['id']
         from weather.market.lfc_campaign_proof import local_money_proof
         proof = local_money_proof(status.evidence_directory, ledger=ledger, session_id=status.session_id,
                                  attempt_id=claim['attempt_id'], outcome=outcome)

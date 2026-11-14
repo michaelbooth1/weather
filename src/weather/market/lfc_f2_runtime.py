@@ -30,8 +30,8 @@ def stream_factory(registry, *, retain_trade_identity=False):
             if (self.retain_trade_identity and isinstance(item, dict) and
                     str(item.get('event_type') or '').lower() == 'trade'):
                 # PairStream historically retained the order and raw hash only.
-                # Breadth continuation must bind the wire trade ID to fresh REST
-                # evidence. Keep the old protocol's journal shape unchanged.
+                # Every F2 variant binds its wire trade ID to REST evidence.
+                # Explicit compatibility callers can still select the old shape.
                 trade_id = item.get('id')
                 if not isinstance(trade_id, str) or not trade_id.strip() or len(trade_id) > 256:
                     raise RuntimeError('repost_trade_identity_unproven')
@@ -99,7 +99,7 @@ def run_live(runtime, authority, status):
         status.session = coordinator
         public = LfcPublicBooks(clock=runtime.clock.now)
         registry = {}
-        factory = stream_factory(registry, retain_trade_identity=breadth)
+        factory = stream_factory(registry, retain_trade_identity=True)
         number = ledger.counted_sessions() + 1
         bindings = []
         for index, row in enumerate(selected, 1):

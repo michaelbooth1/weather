@@ -73,6 +73,11 @@ class Raw(RehearsalVenue):
     def balances(self):
         return {'available_collateral': '300'}
 
+    def accrual(self, day):
+        # Match the live adapter's normalized API shape; no asset earning is
+        # observed here. Malformed responses have a separate K8 witness.
+        return {'day': day, 'rows': [], 'total_earnings': [], 'simulated': True}
+
     def submit(self, request, *, checkpoint=lambda: None):
         response = super().submit(request, checkpoint=checkpoint)
         old = response['order_id']

@@ -16,15 +16,20 @@ from weather.market.lfc_ledger import Ledger, LedgerUnavailable, fetch_account_p
 from weather.market.lfc_recording_io import write_new
 
 
-@pytest.mark.parametrize('extra', ['0.000001', '5'])
+@pytest.mark.parametrize('extra', ['0.000001', '0.0001', '5'])
 def test_late_own_fill_and_foreign_same_token_surplus_are_not_absorbed(tmp_path, extra):
     ledger, _, clock, _ = fixture(tmp_path, personal=False)
     clock.value += timedelta(days=1)
     read = observation(ledger, clock, positions={'denver': str(Decimal(20)+Decimal(extra))}, cash='290')
     before = ledger.path.read_bytes()
-    with pytest.raises(CapitalRefused, match='capital_inventory_unreconciled'):
+    if Decimal(extra) >= Decimal('.0001'):
+        with pytest.raises(CapitalRefused, match='capital_inventory_unreconciled'):
+            synchronize(ledger, CapitalBook(ledger).inventory_anchor, read, anchor_mode='session')
+        assert ledger.path.read_bytes() == before
+    else:
         synchronize(ledger, CapitalBook(ledger).inventory_anchor, read, anchor_mode='session')
-    assert ledger.path.read_bytes() == before
+        assert ledger.L() == Decimal('10')  # Exact cost survives endpoint precision.
+        before = ledger.path.read_bytes()
     # Even a stale positions endpoint cannot hide a newly visible campaign trade.
     read['positions'][0]['size'] = '20'
     read['trades'][0]['maker_orders'][0]['matched_amount'] = str(Decimal(20)+Decimal(extra))
@@ -50,8 +55,9 @@ def test_unknown_submit_cannot_cross_an_anchor_before_late_fill(tmp_path):
     assert ledger.path.read_bytes() == before
 
 
-@pytest.mark.parametrize('observed', ['7', '6.999999', '7.000001'])
-def test_cancelled_partial_fill_requires_the_exact_recorded_quantity(tmp_path, observed):
+@pytest.mark.parametrize('observed,accepted', [('7', True), ('6.999999', True), ('7.000001', True),
+                                            ('6.9999', False), ('7.0001', False)])
+def test_cancelled_partial_fill_keeps_exact_basis_with_venue_precision(tmp_path, observed, accepted):
     ledger, _, clock, _ = fixture(tmp_path, personal=False)
     clock.value += timedelta(hours=1)
     ledger.record('session_start', session_id='partial')
@@ -62,9 +68,12 @@ def test_cancelled_partial_fill_requires_the_exact_recorded_quantity(tmp_path, o
     ledger.record('session_end', session_id='partial')
     clock.value += timedelta(hours=1)
     read = observation(ledger, clock, positions={'denver': '20', 'partial-token': observed}, cash='287.2')
-    if observed == '7':
+    if accepted:
         synchronize(ledger, CapitalBook(ledger).inventory_anchor, read, anchor_mode='session')
-        assert CapitalBook(Ledger.open(ledger.path, clock=clock.now)).inventory_anchor['positions']['partial-token'] == '7'
+        book = CapitalBook(Ledger.open(ledger.path, clock=clock.now))
+        assert book.inventory_anchor['positions']['partial-token'] == observed
+        assert book.lots['partial']['remaining_quantity'] == Decimal('7')
+        assert book.lots['partial']['remaining_basis'] == 2_800_000
     else:
         before = ledger.path.read_bytes()
         with pytest.raises(CapitalRefused, match='capital_inventory_unreconciled'):

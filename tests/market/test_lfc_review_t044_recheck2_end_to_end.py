@@ -167,9 +167,11 @@ def test_actual_tick_preserves_pre_post_vs_post_through_result_and_closure(tmp_p
             assert first.posts == nth - 1 and peer.posts == 2
             assert len(real_posts) == nth - 1
             assert account.cancel_all_calls == [300]
-        # The next scheduled tick must neither relatch a proved abort nor restart
-        # an ambiguous POST, even after reopening all retained state.
+        # After the entry window, a tick must neither relatch a proved abort
+        # nor restart an ambiguous POST, even after reopening retained state.
+        # Clean retries inside the window are separately covered under B090.
         runtime.reload_ledger()
+        clock.sleep(max(0, (controller.entry.end - clock.now()).total_seconds()) + 1)
         campaign.tick(lambda: policy)
         assert len(runs) == len(state.claims()) == 1
         assert bool(state.incidents()) is ambiguous

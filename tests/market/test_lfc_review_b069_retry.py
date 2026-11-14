@@ -38,6 +38,14 @@ def coordinator(runtime):
     return CampaignCoordinator(state=runtime.state, runtime=runtime, clock=runtime.clock, control_root=runtime.control_root)
 
 
+def finish_window(runtime, policy):
+    # B090 permits clean same-day retries. Closure-only assertions run after
+    # the entry window, retaining the real admission and persistence paths.
+    day = runtime.state.ledger.autostart_claims[-1]['local_date']
+    end = next(entry.end for entry in policy.entries if entry.local_date == day)
+    runtime.clock.sleep(max(0, (end - runtime.clock.now()).total_seconds()) + 1)
+
+
 def test_repeated_append_failures_are_retry_pending_then_one_clean_anchor(tmp_path, monkeypatch):
     runtime, policy, claim, path, original = interrupted(tmp_path, monkeypatch)
     ledger_path = runtime.state.ledger.path
@@ -60,6 +68,7 @@ def test_repeated_append_failures_are_retry_pending_then_one_clean_anchor(tmp_pa
             assert not runtime.state.ledger.autostart_incidents
             assert len(runtime.state.ledger.autostart_claims) == 1
     assert len(calls) == 3
+    finish_window(runtime, policy)
     for _ in range(2):
         runtime.clock.sleep(1)
         assert coordinator(runtime).tick(lambda: policy) == 'IDLE'
@@ -85,7 +94,7 @@ def test_after_fsync_exception_replays_one_anchor_on_the_same_state(tmp_path, mo
         assert coordinator(runtime).tick(lambda: policy) == 'RETRY_PENDING'
     assert hits and len(runtime.state.ledger.event_rows('autostart_close')) == 1
     assert not runtime.state.ledger.autostart_incidents and path.read_bytes() == original
-    runtime.clock.sleep(1)
+    finish_window(runtime, policy)
     assert coordinator(runtime).tick(lambda: policy) == 'IDLE'
     assert len(runtime.state.ledger.event_rows('autostart_close')) == 1
 
@@ -273,7 +282,7 @@ def test_new_no_intent_close_retries_each_append_stage(tmp_path, monkeypatch, ev
     assert coordinator(runtime).tick(lambda: policy) == 'RETRY_PENDING'
     path = runtime.state.root/'closed'/(claim['attempt_id']+'.json'); original = path.read_bytes()
     assert hits and not runtime.state.ledger.autostart_incidents
-    runtime.clock.sleep(1)
+    finish_window(runtime, policy)
     assert coordinator(runtime).tick(lambda: policy) == 'IDLE'
     assert len(runtime.state.ledger.event_rows('autostart_close')) == 1
     assert len(runtime.state.ledger.event_rows('autostart_no_intent_close')) == 1

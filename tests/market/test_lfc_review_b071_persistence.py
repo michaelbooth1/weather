@@ -5,7 +5,7 @@ import pytest
 
 from tests.market.test_lfc_campaign import MAKER, Mutexes
 from tests.market.test_lfc_review_b067_integrity import prepared
-from tests.market.test_lfc_review_b069_retry import coordinator
+from tests.market.test_lfc_review_b069_retry import coordinator, finish_window
 from weather.market.lfc_campaign_guard import account_lease
 from weather.market.lfc_campaign_state import AccountState
 from weather.market.lfc_campaign_control import latest_control, watch_status
@@ -55,7 +55,7 @@ def test_matching_stage_remains_retry_pending_across_ticks(tmp_path, monkeypatch
                 intents = runtime.state.ledger.event_rows('autostart_close_intent')
                 assert len(intents) == 1 and not runtime.state.ledger.event_rows('autostart_close')
             raw = intents[0]['canonical_closure_utf8'].encode('utf-8')
-        runtime.clock.sleep(1)
+        finish_window(runtime, policy)
         assert coordinator(runtime).tick(lambda: policy) == 'IDLE'
         path = runtime.state.root/'closed'/(claim['attempt_id']+'.json')
         assert path.read_bytes() == raw and not runtime.state.ledger.autostart_incidents
@@ -91,7 +91,7 @@ def test_complete_closure_append_exception_is_retry_pending(tmp_path, monkeypatc
             assert coordinator(runtime).tick(lambda: policy) == 'RETRY_PENDING'
         assert hits and not runtime.state.ledger.autostart_incidents
         assert len(runtime.state.ledger.event_rows(event)) == 1
-        cold(runtime); runtime.clock.sleep(1)
+        cold(runtime); finish_window(runtime, policy)
         assert coordinator(runtime).tick(lambda: policy) == 'IDLE'
         assert not runtime.state.ledger.autostart_incidents
         assert len(runtime.state.ledger.event_rows('autostart_close_intent')) == 1
