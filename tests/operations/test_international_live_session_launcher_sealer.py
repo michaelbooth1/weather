@@ -36,6 +36,15 @@ WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def fixture_git_executable(monkeypatch, tmp_path):
+    git_executable = tmp_path / "git.exe"
+    git_executable.write_bytes(b"fixture Git executable")
+    monkeypatch.setattr(
+        fixed_sealer, "canonical_git_executable", lambda: git_executable
+    )
+
+
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
