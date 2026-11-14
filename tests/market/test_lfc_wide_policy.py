@@ -4,7 +4,10 @@ import pytest
 
 from tests.market.lfc_pinb_fixtures import pinb_row
 from weather.market.lfc_campaign_policy import PolicyRefused
-from weather.market.lfc_wide_policy import apply_arm, assignment, disabled_successor, economic_values, validate
+from weather.market.lfc_wide_policy import (
+    FIELDS, apply_arm, assignment, disabled_successor, economic_keys, economic_value,
+    economic_values, field_keys, validate,
+)
 
 
 def wide_row():
@@ -117,3 +120,17 @@ def test_economic_identity_includes_exact_partition_and_canonical_offset():
     item['standard_cities'], item['wide_cities'] = item['wide_cities'], item['standard_cities']
     validate(row)
     assert economic_values(row) != original
+
+
+def test_old_snapshot_keys_and_economic_defaults_remain_unchanged():
+    original = pinb_row()
+    keys = {'policy_revision', 'quote_offset_pusd'}
+    explicit = original | {'quote_offset_mode': 'standard', 'wide_offset_cents': '3.0'}
+    assert field_keys(original, keys) == keys
+    assert field_keys(explicit, keys) == keys | {'quote_offset_mode', 'wide_offset_cents'}
+    assert economic_keys(original, keys | FIELDS) == economic_keys(explicit, keys | FIELDS) == keys
+    for key in FIELDS:
+        assert economic_value(original, key) == economic_value(explicit, key)
+    assert economic_keys(wide_row(), keys) == keys | FIELDS
+    with pytest.raises(PolicyRefused, match='wide_requires_pinb'):
+        validate(wide_row() | {'schema_version': 'lfc_campaign_policy_v0.3'})
