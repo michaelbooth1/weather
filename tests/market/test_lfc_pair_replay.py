@@ -15,6 +15,17 @@ from weather.market.lfc_pair_replay import (
     residual_variance, touch_evidence,
 )
 from weather.market.lfc_recording_io import file_sha
+from weather.market.lfc_pair_replay_fills import session_directories
+
+
+def test_real_a091_short_session_id_resolves_to_the_full_manifest_directory():
+    folder = 'session-F2-078690f3f7d243799e3acd6c677c7f09'
+    receipts = {folder+'/f2_manifest.json': {}, folder+'/band-7/journal.jsonl': {}}
+    assert session_directories(receipts, ['078690f3']) == {'078690f3': folder}
+    with pytest.raises(ValueError, match='replay_session_binding'):
+        session_directories(receipts | {'session-F2-078690f3other/f2_manifest.json': {}}, ['078690f3'])
+    with pytest.raises(ValueError, match='replay_session_binding'):
+        session_directories(receipts, ['missing'])
 
 
 AT = instant('2026-11-13T20:00:00Z')
