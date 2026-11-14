@@ -9,6 +9,7 @@ from weather.market.lfc_campaign_policy import PolicyRefused
 FIELDS = frozenset({'quote_offset_mode', 'wide_offset_cents', 'city_quote_offset_assignments'})
 DEFAULTS = {'quote_offset_mode': 'standard', 'wide_offset_cents': '3.0',
             'city_quote_offset_assignments': []}
+ARM_FIELDS = ('quote_offset_mode', 'wide_offset_cents', 'offset_assignment_source', 'standard_quote_offset_pusd')
 
 
 def validate(row):
@@ -103,11 +104,53 @@ def assignment(row, local_date, city):
 
 
 def disabled_successor(row, *, mode='wide'):
-    """Return a reviewable revision-7 dict, changing only the requested terms."""
-    if row.get('enabled') is not False or row.get('policy_revision') != 6:
-        raise PolicyRefused('wide_successor_requires_disabled_revision_6')
+    """Compatibility helper for a carried post-fill mode and a new distance."""
+    return successor_row(row, post_fill_mode=row.get('post_fill_mode', 'continue'), quote_offset_mode=mode)
+
+
+def successor_row(policy, *, post_fill_mode, quote_offset_mode, wide_offset_cents='3.0', city_assignments=None):
+    """Prepare current+1 economics, disabled, carrying every unrelated term."""
+    row = getattr(policy, 'raw', policy)
+    if (row.get('enabled') is not False or type(row.get('policy_revision')) is not int or
+            row['policy_revision'] < 6 or row.get('schema_version') != 'lfc_campaign_policy_v0.4'):
+        raise PolicyRefused('wide_successor_requires_disabled_revision_6_or_later')
     result = deepcopy(row)
-    result.update(revision=row['revision'] + 1, policy_revision=7,
-                  quote_offset_mode=mode, wide_offset_cents='3.0')
+    result.update(revision=row['revision'] + 1, policy_revision=row['policy_revision'] + 1,
+                  post_fill_mode=post_fill_mode, quote_offset_mode=quote_offset_mode,
+                  wide_offset_cents=wide_offset_cents)
+    if city_assignments is not None:
+        result['city_quote_offset_assignments'] = deepcopy(city_assignments)
+    from weather.market.lfc_pair_policy import validate as validate_pairs
+    validate_pairs(result)
     validate(result)
     return result
+
+
+def main(argv=None):
+    """Create one disabled successor from an owner-supplied policy copy."""
+    import argparse
+    from pathlib import Path
+    from weather.market.lfc_campaign_policy import load_policy, parse_policy
+    from weather.market.lfc_recording_io import read_bytes, strict_json, write_new
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument('--upgrade-from', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--post-fill-mode', choices=['continue', 'complete_pairs'], required=True)
+    parser.add_argument('--quote-offset-mode', choices=['standard', 'wide'], required=True)
+    parser.add_argument('--wide-offset-cents', default='3.0')
+    parser.add_argument('--city-assignments', type=Path)
+    args = parser.parse_args(argv)
+    if (not args.upgrade_from.is_absolute() or not args.output.is_absolute() or
+            args.city_assignments is not None and not args.city_assignments.is_absolute()):
+        parser.error('absolute paths required')
+    assignments = strict_json(read_bytes(args.city_assignments, 65536)) if args.city_assignments is not None else None
+    row = successor_row(load_policy(args.upgrade_from), post_fill_mode=args.post_fill_mode,
+        quote_offset_mode=args.quote_offset_mode, wide_offset_cents=args.wide_offset_cents,
+        city_assignments=assignments)
+    write_new(args.output, parse_policy(row).raw)
+    print('Prepared disabled current+1 policy; no runtime state changed.')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

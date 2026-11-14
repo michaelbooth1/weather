@@ -37,6 +37,9 @@ assignment is retained, including when the complement is the expensive leg.
 The complementary quote keeps the ordinary full size and uses
 `floor_to_tick(min(normal_quote, 1 - unpaired_average_cost - 0.015))`.
 The minimum-margin calculation is exact until the final downward tick rounding.
+With [wide quoting](lfc-wide-quotes.md), `normal_quote` uses the wide offset.
+The pair-cost cap still wins. A valid complementary hedge outside reward range
+can post with zero score; the normal wide-entry rule cannot move that cap inward.
 A failed price bound, venue minimum, reward minimum or ordinary screen grants
 no order. A valid proposal still needs the ordinary freshness, inventory,
 cash, gross-cap, cooldown, budget, fixed-end and cleanup gates. Neither touch

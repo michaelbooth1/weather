@@ -14,7 +14,8 @@ def economic_digest(policy):
     # Preserve those historical hashes; net adds its distinct identity field.
     if policy.raw.get('sleeve_loss_basis', 'gross') == 'gross':
         keys -= {'sleeve_loss_basis'}
-    return digest({key: policy.raw[key] for key in sorted(keys)})
+    from weather.market.lfc_wide_policy import FIELDS, economic_value
+    return digest({key: economic_value(policy.raw, key) if key in FIELDS else policy.raw[key] for key in sorted(keys)})
 
 
 def capture_window(policy):

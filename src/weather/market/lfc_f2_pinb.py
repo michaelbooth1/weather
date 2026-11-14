@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from weather.market import lfc_constants as C
 from weather.market import lfc_f2_breadth as breadth
 from weather.market import lfc_f2_policy as legacy
+from weather.market import lfc_wide_policy as wide
 from weather.market.lfc_campaign_policy import Entry, EARLIEST, MIN_SESSION_SECONDS, ZONE, exact_keys, wall_time
 from weather.market import lfc_pair_policy as pairs
 
@@ -55,8 +56,9 @@ class PinBEntry(Entry):
 def parse_pinb(row):
     if 'sleeve_loss_basis' not in row:
         legacy.refuse('explicit_sleeve_loss_basis_required')
-    exact_keys(row, pairs.field_keys(row, set(legacy.FIXED) | legacy.VARIABLE | breadth.FIELDS | FIELDS))
+    exact_keys(row, wide.field_keys(row, pairs.field_keys(row, set(legacy.FIXED) | legacy.VARIABLE | breadth.FIELDS | FIELDS)))
     pairs.validate(row)
+    wide.validate(row)
     if row['schema_version'] != SCHEMA:
         legacy.refuse('policy_identity')
     for key, value in SCHEDULE.items():
@@ -81,7 +83,7 @@ def parse_pinb(row):
         legacy.refuse('unsupported_trading_end_toronto')
     # Each transformed field has its own Pin B validation above. Every other
     # value still traverses the existing breadth, money and eligibility parser.
-    reference = deepcopy({k: v for k, v in row.items() if k not in FIELDS | {pairs.FIELD}})
+    reference = deepcopy({k: v for k, v in row.items() if k not in FIELDS | {pairs.FIELD} | wide.FIELDS})
     old = legacy.example_policy()
     reference.update({key: old[key] for key in SCHEDULE})
     reference.update(schema_version=breadth.SCHEMA, max_session_seconds=min(seconds, 21600))
@@ -115,12 +117,13 @@ def example_policy():
 
 def support_table():
     return {**breadth.support_table(), 'schema_version': SCHEMA,
-        'fields': sorted(set(legacy.FIXED) | legacy.VARIABLE | breadth.FIELDS | FIELDS | {pairs.FIELD}),
+        'fields': sorted(set(legacy.FIXED) | legacy.VARIABLE | breadth.FIELDS | FIELDS | {pairs.FIELD} | wide.FIELDS),
         'duration_seconds': [MIN_SESSION_SECONDS, MAX_SECONDS], 'trading_end_toronto_max': '18:45:00',
         'scheduler_containment': 'earliest_full_envelope_tick_plus_PT11H_including_30_minute_cleanup',
         'max_submits_per_band': 40, 'max_requotes_per_band': 16, 'schedule': SCHEDULE,
         'learning_leg_arms': ['paired', 'cheap'], 'confirmation_leg_arm': ['paired', 'cheap'],
-        'post_fill_mode': pairs.support()}
+        'post_fill_mode': pairs.support(), 'quote_offset_mode': ['standard', 'wide'],
+        'wide_offset_cents': ['3.0'], 'city_quote_offset_assignments': 'explicit_learning_date_city_partitions'}
 
 
 def upgrade_policy(policy):

@@ -49,6 +49,9 @@ packet. Extra files still refuse; retained ten-submit bands retain their bound.
 | `max_submits_per_band`, `max_requotes_per_band` | 40 and 16 |
 | `learning_leg_arms` | One or both of `paired`, `cheap`; default both |
 | `confirmation_leg_arm` | One supported arm; default `paired` |
+| `quote_offset_mode` | `standard` preserves historical quotes; `wide` uses the supported wide corridor. See [wide quotes](lfc-wide-quotes.md). |
+| `wide_offset_cents` | Exactly `3.0`; omitted historical fields retain standard economics and bytes. |
+| `city_quote_offset_assignments` | Optional explicit learning-date partitions of all configured cities into standard/wide groups; bound by economic revision and freeze. |
 | `post_fill_mode` | `continue` (default; omitted in older snapshots) or `complete_pairs` from policy revision 6; see [complete pairs](lfc-complete-pairs.md) |
 
 The leg arm is a deterministic hash of Toronto date and market, with a salt

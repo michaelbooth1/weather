@@ -38,6 +38,8 @@ def economic_fields(policy):
         fields |= PINB_FIELDS
         from weather.market.lfc_pair_policy import economic_keys
         fields = economic_keys(policy.raw, fields)
+        from weather.market.lfc_wide_policy import economic_keys as wide_keys
+        fields = wide_keys(policy.raw, fields)
     return fields if 'sleeve_loss_basis' in policy.raw else fields - {'sleeve_loss_basis'}
 
 
@@ -111,7 +113,8 @@ def arm(policy, local_date, market):
             key = ('lfc-leg-v1|' + local_date + '|' + market).encode()
             leg_arm = choices[int.from_bytes(hashlib.sha256(key).digest()[:8], 'big') % len(choices)]
         result.update(leg_arm=leg_arm, leg_arm_assignment=('learning-' if learning else 'fixed-')+leg_arm)
-    return result
+    from weather.market.lfc_wide_policy import apply_arm
+    return apply_arm(policy.raw, local_date, market, result)
 
 
 def row_arm(policy, now, market):
@@ -121,7 +124,9 @@ def row_arm(policy, now, market):
 def arm_field_keys(policy):
     keys = ('quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id')
     from weather.market.lfc_f2_pinb import enabled as pinb
-    return keys + (('leg_arm', 'leg_arm_assignment') if pinb(policy) else ())
+    keys += (('leg_arm', 'leg_arm_assignment') if pinb(policy) else ())
+    from weather.market.lfc_wide_policy import ARM_FIELDS, configured
+    return keys + (ARM_FIELDS if configured(policy.raw) else ())
 
 
 def band_market(start):

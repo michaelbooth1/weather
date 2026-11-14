@@ -1,12 +1,11 @@
 """W screens/evidence for existing guarded band hooks; no exchange adapter."""
 from weather.market.lfc_accounting import quantity
-from weather.market.lfc_wide_policy import configured
+from weather.market.lfc_wide_policy import ARM_FIELDS, configured
 from weather.market.lfc_wide_quote import CORRIDOR, entry_allowed, order_evidence, requote_legs
 from weather.market.mm_stage2_hold import HoldEnd
 
 
 WAIT = 'wide_price_wait'
-ARM_FIELDS = ('quote_offset_mode', 'wide_offset_cents', 'offset_assignment_source', 'standard_quote_offset_pusd')
 
 
 def is_wide(band):

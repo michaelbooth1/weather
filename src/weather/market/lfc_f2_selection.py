@@ -20,11 +20,13 @@ from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
 from weather.market.mm_stage2_hold import SCHEMA_VERSION, digest, utc
 from weather.market.mm_stage2_selection import reward_rate
-from weather.market.reward_quote import QuoteRefused, _levels, price_sized_reward_quote, reward_rate_eligible
+from weather.market.reward_quote import QuoteRefused, _levels, reward_rate_eligible
+from weather.market.lfc_wide_quote import price_quote
 
 
 DERIVED = {'eligible', 'refusal', 'quote', 'predicted_360_minutes', 'trade_legs',
-           'quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id', 'leg_arm', 'leg_arm_assignment'}
+           'quote_offset_pusd', 'quote_arm', 'arm_date_toronto', 'arm_market_id', 'leg_arm', 'leg_arm_assignment',
+           'quote_offset_mode', 'wide_offset_cents', 'offset_assignment_source', 'standard_quote_offset_pusd'}
 
 
 def trade_legs(policy, mid, *, cheap_arm=False):
@@ -103,7 +105,9 @@ def candidate(band, *, now, policy, held):
         legs = trade_legs(policy, mid, cheap_arm=assignment.get('leg_arm') == 'cheap')
         if enabled(policy):
             row.update(assignment)
-        quote = price_sized_reward_quote(**inputs, size=policy.raw['shares_per_leg'],
+        quote = price_quote(**inputs, size=policy.raw['shares_per_leg'],
+                    quote_offset_mode=assignment.get('quote_offset_mode', 'standard'),
+                    wide_offset_cents=assignment.get('wide_offset_cents', '3.0'),
                     per_order_ceiling=policy.raw['per_order_cap_pusd'], per_band_ceiling=policy.raw['per_band_cap_pusd'],
                     quote_offset=assignment['quote_offset_pusd'],
                     distance_window=policy.raw['requote_distance_cents'], trade_legs=legs,
