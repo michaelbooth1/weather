@@ -5,7 +5,7 @@ import pytest
 
 from tests.market.test_reward_quote import inputs
 from weather.market.lfc_wide_policy import apply_arm
-from weather.market.lfc_wide_runtime import authorize, check_entry, observe, posted
+from weather.market.lfc_wide_runtime import authorize, initialize, observe, posted
 from weather.market.mm_stage2_hold import HoldEnd
 
 
@@ -69,3 +69,16 @@ def test_standard_runtime_is_inert_and_original_arms_survive_override():
     wide = apply_arm({'quote_offset_mode': 'wide'}, '2026-11-20', 'miami', original)
     assert wide['quote_offset_pusd'] == '0.030' and wide['leg_arm'] == 'cheap'
     assert wide['quote_arm'] == 'learning-0.025' and wide['standard_quote_offset_pusd'] == '0.025'
+
+
+def test_initialize_uses_wide_band_only_for_the_assigned_city():
+    current, _ = band()
+    chosen = dict(quote_offset_mode='wide', wide_offset_cents='3.0',
+        offset_assignment_source='city_quote_offset_assignments', standard_quote_offset_pusd='0.015')
+    initialize(current, chosen)
+    assert current.scope['requote_distance_cents'] == ['2.5', '4.5']
+    assert current.scope['standard_quote_offset_pusd'] == '0.015'
+    current.REQUOTE_WINDOW = (Decimal(1), Decimal(3))
+    chosen['quote_offset_mode'] = 'standard'
+    initialize(current, chosen)
+    assert current.REQUOTE_WINDOW == (1, 3)
