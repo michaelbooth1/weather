@@ -680,6 +680,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
+        # A093 target-day inventory study; exact runner and pinned offline helpers.
+        @{
+            path = 'C:\t\codex\A093\src\target_study.py'
+            sha256 = '8b314e6e139daff4f0c88b156cfff421a5be6f098961266498eb89d59a276b36'
+        }
         # A093 outcome-blind development fill intake; exact runner awaiting master GO.
         @{
             path = 'C:\t\codex\A093\src\build_dataset.py'
