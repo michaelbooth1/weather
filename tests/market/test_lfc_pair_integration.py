@@ -103,7 +103,7 @@ def test_completion_wait_keeps_cooldown_cleanup_end_and_all_gate_refusals(tmp_pa
 
 
 def test_cheap_arm_quotes_expensive_complement_and_restores_original_arm_when_flat(tmp_path):
-    controller, account, _, _, _, _, _ = complete_fixture(tmp_path, seconds=300, cheap=True)
+    controller, account, status, ledger, _, _, _ = complete_fixture(tmp_path, seconds=300, cheap=True)
     band = controller.bands[0]
     original = tuple(band.TRADE_LEGS)
     result = controller.run()
@@ -114,6 +114,11 @@ def test_cheap_arm_quotes_expensive_complement_and_restores_original_arm_when_fl
     assert any(row['event'] == 'pair_completion_inventory' and row['u'] == '0' and
                row['effective_trade_legs'] == list(original) for row in rows)
     assert band.normal_trade_legs == original and band.scope['trade_legs'] == list(original)
+    from weather.market.lfc_campaign_proof import local_money_proof
+    outcome = status.finish(success=True)
+    proof = local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
+                             attempt_id='a'*32, outcome=outcome)
+    assert proof['complete'] and not proof['unknown_submit']
 
 
 def test_actual_partial_fill_full_completion_flips_and_quotes_only_new_complement(tmp_path):
