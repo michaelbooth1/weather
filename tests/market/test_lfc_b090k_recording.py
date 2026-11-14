@@ -206,6 +206,113 @@ def test_failed_geo_read_keeps_original_clock_and_late_success_is_fresh():
     assert fresh.collected_monotonic == 86 and fresh.collected_at_utc == clock.now().isoformat()
 
 
+def test_ten_actual_bands_make_two_geo_reads_per_minute(tmp_path):
+    from tests.market.test_lfc_f2_repost import fixture
+    controller, account, _, _, clock, _, _ = fixture(tmp_path, k=10, seconds=300)
+    account.fills_enabled = False
+    reads = []
+    def fetch():
+        reads.append(clock.seconds)
+        return {'blocked': False}
+    for raw in account.raws:
+        raw.geography = fetch
+    result = controller.run()
+    assert result['cleanup_ok'] and result['post_count'] == 20
+    assert reads == list(range(0, 300, 30))
+
+
+def test_account_proof_uses_original_shared_geo_clock_and_collects_new_read_when_due(tmp_path, monkeypatch):
+    from tests.market.test_lfc_campaign import MAKER, Mutexes
+    from tests.market.test_lfc_campaign_runtime import runtime_at
+    from weather.market import lfc_campaign_runtime, re1_transport
+    from weather.market.lfc_campaign_guard import account_lease
+    from weather.market.lfc_campaign_reads import account_read_age
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        sink, reads = journal(), []
+        shared = SharedGeoblock(runtime.clock, sink)
+        original = shared.read(lambda: {'blocked': False})
+        runtime._task_status = SimpleNamespace(session=SimpleNamespace(geoblock=shared,
+            journal=SimpleNamespace(handle=SimpleNamespace(closed=False))))
+        def measured(value):
+            runtime.clock.sleep(1)
+            return value
+        class Venue:
+            def __init__(self, *args, **kwargs):
+                assert kwargs['readonly'] is True
+            def open_orders(self): return measured([])
+            def trades(self): return measured([])
+            def balances(self): return measured({'available_collateral': '100'})
+            def geography(self):
+                reads.append(runtime.clock.monotonic())
+                return measured({'blocked': False})
+            def close(self): pass
+        monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda mode: ({'FUNDER_ADDRESS': MAKER}, None))
+        monkeypatch.setattr(re1_transport, 'build_client', lambda *args, **kwargs: object())
+        monkeypatch.setattr(re1_transport, 'OwnerVenue', Venue)
+        monkeypatch.setattr(lfc_campaign_runtime, 'fetch_account_positions', lambda maker: measured([]))
+        runtime.clock.sleep(20)
+        row = runtime.account_read_once()
+        assert reads == [] and account_read_age(row, runtime.clock.now()) == 24
+        assert row['component_times']['geography'] == {'started_at_utc': original.collected_at_utc,
+                                                      'ended_at_utc': original.collected_at_utc}
+        assert row['started_at_utc'] == original.collected_at_utc
+        assert row['geoblock_receipt_sha256'] == original.sha256
+        runtime.clock.sleep(6)
+        later = runtime.account_read_once()
+        assert reads == [34] and shared.receipt.collected_monotonic == 35
+        assert later['component_times']['geography']['ended_at_utc'] == runtime.clock.now().isoformat()
+        assert account_read_age(later, runtime.clock.now()) == 5
+        runtime._task_status.session.journal.handle.closed = True
+        independent = runtime.account_read_once()
+        assert reads == [34, 39] and account_read_age(independent, runtime.clock.now()) == 5
+
+
+def test_account_proof_never_falls_back_to_an_extra_read_or_refreshes_failed_receipt():
+    from weather.market.lfc_campaign import TransientPrecheck
+    from weather.market.lfc_f2_geoblock import account_receipt
+    clock, sink = Clock(), journal()
+    shared = SharedGeoblock(clock, sink)
+    coordinator = SimpleNamespace(geoblock=shared, journal=SimpleNamespace(handle=SimpleNamespace(closed=False)))
+    runtime = SimpleNamespace(clock=clock, _task_status=SimpleNamespace(session=coordinator))
+    calls = []
+    def fail():
+        calls.append(clock.seconds)
+        raise TimeoutError()
+    with pytest.raises(TransientPrecheck, match='account_geoblock_unavailable'):
+        account_receipt(runtime, fail)
+    with pytest.raises(TransientPrecheck, match='account_geoblock_unavailable'):
+        account_receipt(runtime, fail)
+    assert calls == [0] and shared.receipt is None
+    coordinator.journal.handle.closed = True
+    assert account_receipt(runtime, fail) is None and calls == [0]
+
+
+def test_account_proof_cached_failure_keeps_age_and_late_success_is_fresh():
+    from weather.market.lfc_campaign import TransientPrecheck
+    from weather.market.lfc_f2_geoblock import account_receipt
+    clock, sink = Clock(), journal()
+    shared = SharedGeoblock(clock, sink)
+    original = shared.read(lambda: {'blocked': False})
+    runtime = SimpleNamespace(clock=clock, _task_status=SimpleNamespace(session=SimpleNamespace(
+        geoblock=shared, journal=SimpleNamespace(handle=SimpleNamespace(closed=False)))))
+    calls = []
+    def failed():
+        calls.append(clock.seconds)
+        raise TimeoutError()
+    clock.seconds = 30
+    assert account_receipt(runtime, failed) is original
+    clock.seconds = 45
+    with pytest.raises(TransientPrecheck, match='account_geoblock_unavailable'):
+        account_receipt(runtime, failed)
+    assert calls == [30] and original.collected_monotonic == 0
+    clock.seconds = 60
+    def late():
+        clock.sleep(10)
+        return {'blocked': False}
+    assert account_receipt(runtime, late).collected_monotonic == 70
+
+
 @pytest.mark.parametrize('blocked', [True, None, 0, 'false'])
 def test_nonpassing_shared_geoblock_ends_whole_session(tmp_path, blocked):
     controller, account, _, ledger, clock = setup(tmp_path)

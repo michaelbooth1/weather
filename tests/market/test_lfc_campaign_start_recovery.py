@@ -67,4 +67,4 @@ def test_actual_start_check_failure_is_retained_and_empty_claim_recovers(tmp_pat
         closed = runtime.state.read(runtime.state.root / 'closed' / (claim['attempt_id'] + '.json'))
         assert closed['proof']['unknown_submit'] is False
         assert closed['proof']['authority'] == 'automatic_no_intent'
-        assert not runtime.state.ledger.legs and entry.local_date in runtime.state.consumed_dates()
+        assert not runtime.state.ledger.legs and entry.local_date not in runtime.state.consumed_dates()

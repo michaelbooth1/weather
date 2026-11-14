@@ -77,7 +77,7 @@ def test_enrollment_accepts_personal_pre_bridge_changes_and_binds_one_read(tmp_p
     assert not inventory_delta(ledger, anchor, anchor['positions'])['changed']
 
 
-@pytest.mark.parametrize('size', ['0', '19.999999'])
+@pytest.mark.parametrize('size', ['0', '19.9999'])
 def test_enrollment_cannot_hide_missing_or_short_campaign_holding(tmp_path, size):
     ledger, baseline, clock, read = fixture(tmp_path, bridge=False)
     read['positions'] = [{'asset': 'denver', 'size': size}, {'asset': 'nfl', 'size': '100'}]
@@ -108,7 +108,7 @@ def test_enrollment_preconditions_have_named_refusals(tmp_path, fault, code):
     assert CapitalBook(ledger).bridge is None
 
 
-@pytest.mark.parametrize('size', ['19.999999', '20.000001'])
+@pytest.mark.parametrize('size', ['19.9999', '20.0001'])
 def test_session_reanchor_refuses_campaign_surplus_or_shortfall(tmp_path, size):
     ledger, baseline, clock, _ = fixture(tmp_path)
     clock.value += timedelta(days=1)
@@ -117,6 +117,20 @@ def test_session_reanchor_refuses_campaign_surplus_or_shortfall(tmp_path, size):
     with pytest.raises(CapitalRefused, match='capital_inventory_unreconciled'):
         synchronize(ledger, CapitalBook(ledger).inventory_anchor, read, anchor_mode='session')
     assert ledger.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('mode', ['enrollment', 'session'])
+@pytest.mark.parametrize('size', ['19.999999', '20.000001'])
+def test_anchor_uses_venue_precision_without_losing_exact_campaign_basis(tmp_path, mode, size):
+    ledger, baseline, clock, _ = fixture(tmp_path, bridge=mode == 'session')
+    before = ledger.L()
+    clock.value += timedelta(days=1)
+    read = observation(ledger, clock, positions={'denver': size}, cash='290')
+    anchor = CapitalBook(ledger).inventory_anchor if mode == 'session' else baseline
+    result = synchronize(ledger, anchor, read, anchor_mode=mode)
+    assert result['cash_bridge_complete'] and not result['inventory']['changed']
+    assert ledger.L() == before == Decimal('10')
+    assert sum(Decimal(leg['size_matched']) for leg in ledger.legs.values()) == Decimal('20')
 
 
 def test_between_session_nfl_buy_withdrawal_and_cash_above_sleeve_do_not_grow_capital(tmp_path):

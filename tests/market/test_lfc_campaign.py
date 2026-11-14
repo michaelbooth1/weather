@@ -1,6 +1,6 @@
 """Fixture-only scheduled campaign tests.
 
-Guards: T026 B01/B02/M01-M07, B020 bounded deferral and no restart after claims.
+Guards: T026 B01/B02/M01-M07, B020 bounded deferral and no restart with unresolved claims.
 No runtime adapter, credentials, Scheduler, pilot root or venue is invoked.
 """
 from contextlib import contextmanager
@@ -234,8 +234,11 @@ def test_synthetic_trigger_pre_go_session_postchecks_and_control_status(tmp_path
         assert all(not {'tokens', 'event', 'fills', 'price', 'account'} & r.keys() for r in rows)
         missed = next(r for r in rows if r['phase'] == 'MISSED')
         assert missed['research_gaps'] is True and missed['orders_open_unproven'] is False
-        assert coordinator.tick(lambda: parse_policy(policy_row())) == 'IDLE'
-        assert runtime.go_count == 1
+        # B090 allows another clean attempt inside the same window. It still
+        # needs the ordinary wrapper/policy binding and fully closed state.
+        assert coordinator.tick(lambda: policy) == 'STARTED'
+        assert runtime.go_count == 2 and len(state.claims()) == 2
+        assert not state.pending() and not state.incidents()
 
 
 def test_crash_latch_survives_reboot_reinstall_and_campaign_rename(tmp_path):
@@ -347,7 +350,7 @@ def test_deleted_claim_or_incident_is_not_a_fresh_install(tmp_path):
             state.verify()
 
 
-def test_scheduled_entrypoint_synthetic_end_to_end_and_skip_after_reboot(tmp_path, monkeypatch):
+def test_scheduled_entrypoint_clean_retry_after_reboot_and_skip_after_window(tmp_path, monkeypatch):
     from weather.market import lfc_campaign_cli as cli
     from weather.market import lfc_campaign_runtime as runtime_module
     from weather.market.lfc_campaign_policy import load_policy
@@ -375,19 +378,20 @@ def test_scheduled_entrypoint_synthetic_end_to_end_and_skip_after_reboot(tmp_pat
     assert cli.main(args) == 0
     assert runtime.go_count == 1 and not state.pending()
     # Reboot creates a new runtime and verifies persisted account state. The
-    # scheduled dispatcher still refuses to run the consumed account/date.
+    # scheduled dispatcher can retry a clean closed date under B090.
     rebooted = AccountState(tmp_path / 'state', Ledger.open(state.ledger.path, clock=clock.now))
     monkeypatch.setattr(cli, 'bound_state', lambda *a, **kw: (rebooted.ledger.path.parent, rebooted))
     runtime2 = StubRuntime(rebooted, clock)
     monkeypatch.setattr(runtime_module, 'Runtime', lambda **kwargs: runtime2)
-    assert cli.main(args) == 0 and runtime2.go_count == 0
+    assert cli.main(args) == 0 and runtime2.go_count == 1
+    assert len(rebooted.claims()) == 2 and not rebooted.pending()
     row = policy_row()
     row['entries'][0].update(id='day2', local_date='2026-11-12', window_start_utc='2026-11-12T16:00:00Z',
                               window_end_utc='2026-11-12T17:00:00Z')
     policy_path.write_text(json.dumps(row))
     clock.value = NOW + timedelta(days=1, hours=1)
     args = wrapper_args()
-    assert cli.main(args) == 0 and runtime2.go_count == 0
+    assert cli.main(args) == 0 and runtime2.go_count == 1
     assert rebooted.skips()[0]['local_date'] == '2026-11-12'
 
 

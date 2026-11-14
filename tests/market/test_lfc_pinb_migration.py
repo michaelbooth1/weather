@@ -51,7 +51,8 @@ def test_pinb_takes_over_same_root_without_new_funding_or_date_reset(tmp_path, o
         assert state.verify()['state_id'] == identity
         assert CapitalBook(state.ledger).figures() == before and before['funding_native'] == 300_000_000
         assert state.ledger.rows[:len(original_rows)] == original_rows and closed.read_bytes() == original_close
-        assert state.consumed_dates() == {'2026-11-11', '2026-11-17'}
+        assert {row['local_date'] for row in state.claims()} == {'2026-11-11', '2026-11-17'}
+        assert not state.consumed_dates()  # B090 preserves history without a clean-claim date lock.
         assert len(state.ledger.event_rows('capital_bridge')) == 1
         close_empty(state, claim, clock.now())
         capture(state, new, clock.now())  # Not yet in the new capture window.

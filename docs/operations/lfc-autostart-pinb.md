@@ -74,6 +74,10 @@ It reads at most once per thirty seconds, including failed attempts. Every band
 uses the receipt's original collection clock and its existing freshness budget;
 reusing it never refreshes that clock. A successful new read is fresh even after
 a delayed band turn. A nonpassing receipt ends the session through normal cleanup.
+Account proofs collected while the coordinator journal is open share the same
+receipt. Their geography component keeps its original collection time and the
+account observation envelope includes that time; no cached read acquires a new
+clock. Independent account reads resume after the coordinator closes.
 
 For breadth bands, `thin_book_depth` cancels the band's orders and proves them
 terminal before waiting. The same condition and selected arm are screened on a

@@ -42,7 +42,9 @@ def test_one_failed_root_heartbeat_closes_without_campaign_incident(tmp_path, mo
         local = local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
                                  attempt_id=controller.attempt_id, outcome=outcome)
         assert local['complete'] and local['money_read_gaps'] == [], local
-        assert local['explained_gaps'] == ['heartbeat_unavailable']
+        # This legacy fixture has no normalized venue earnings response. K8
+        # names that ancillary gap without changing the money proof.
+        assert local['explained_gaps'] == ['campaign_reward_estimate_unavailable', 'heartbeat_unavailable']
         runtime = runtime_at_controller(controller, account, status, ledger, clock, monkeypatch)
         runtime.save_result(account.claim, {'session_id': controller.session_id,
             'private_evidence_directory': controller.directory.name, 'outcome': outcome,

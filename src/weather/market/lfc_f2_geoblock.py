@@ -63,3 +63,21 @@ def read_for_band(band):
             coordinator.account_fault_reason = 'geoblock'
             raise HoldEnd('geoblock')
     return receipt
+
+
+def account_receipt(runtime, fetch):
+    """In-session account proofs share the same read, including its old clock."""
+    coordinator = getattr(getattr(runtime, '_task_status', None), 'session', None)
+    shared = getattr(coordinator, 'geoblock', None)
+    handle = getattr(getattr(coordinator, 'journal', None), 'handle', None)
+    if shared is None or handle is None or handle.closed:
+        return None  # Ordinary independent reads before/after the coordinator.
+    receipt = shared.read(fetch)
+    if receipt is not None and receipt.blocked is not False:
+        from weather.market.lfc_campaign_state import StateRefused
+        coordinator.account_fault_reason = 'geoblock'
+        raise StateRefused('geoblock')
+    if receipt is None or runtime.clock.monotonic() - receipt.collected_monotonic >= 45:
+        from weather.market.lfc_campaign import TransientPrecheck
+        raise TransientPrecheck('account_geoblock_unavailable')
+    return receipt

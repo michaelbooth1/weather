@@ -4,6 +4,7 @@ Guards: T026 M02/M03/M04/M06/S01. Runtime tests never load owner credentials.
 """
 from copy import deepcopy
 from datetime import timedelta
+from decimal import Decimal
 import hashlib
 import json
 from types import SimpleNamespace
@@ -189,15 +190,21 @@ def test_account_components_keep_their_actual_local_observation_intervals(tmp_pa
         assert runtime.core_proof(runtime.state.ledger, row)['money_accounting_complete']
 
 
-def test_missing_pilot_holding_is_money_contradiction_and_microfills_are_retained(tmp_path):
+@pytest.mark.parametrize('matched,contradiction', [('.000001', False), ('.0001', True), ('20', True)])
+def test_missing_pilot_holding_is_money_contradiction_and_microfills_are_retained(tmp_path, matched, contradiction):
     with account_lease(MAKER, backend=Mutexes()):
         runtime = runtime_at(tmp_path)
-        fill(runtime, matched='.000001')
-        trades = [{'status': 'CONFIRMED', 'maker_orders': [{'order_id': 'o', 'matched_amount': '.000001'}]}]
+        fill(runtime, matched=matched)
+        trades = [{'status': 'CONFIRMED', 'maker_orders': [{'order_id': 'o', 'matched_amount': matched}]}]
         missing = runtime.core_proof(runtime.state.ledger, account_read(runtime, trades=trades))
-        assert missing['money_contradiction'] and missing['inventory']['missing_or_below_visibility'] == ['t']
+        # B090-J compares holdings at the venue's four-decimal precision; the
+        # exact filled quantity and cost remain in the ledger even below it.
+        assert missing['money_contradiction'] is contradiction
+        assert missing['inventory']['missing_or_below_visibility'] == ['t']
+        assert runtime.state.ledger.L() == Decimal(matched) * Decimal('.5')
+        assert Decimal(runtime.state.ledger.legs['i']['size_matched']) == Decimal(matched)
         present = runtime.core_proof(runtime.state.ledger, account_read(runtime, trades=trades,
-                                      positions=[{'asset': 't', 'size': '.000001'}]))
+                                      positions=[{'asset': 't', 'size': matched}]))
         assert present['money_accounting_complete'] and present['cleanup_proven']
 
 

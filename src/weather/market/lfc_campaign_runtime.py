@@ -522,6 +522,16 @@ class Runtime:
                        'positions': lambda: fetch_account_positions(self.state.maker),
                        'balances': venue.balances, 'geography': venue.geography}
             for name in ACCOUNT_READ_COMPONENTS:
+                if name == 'geography':
+                    from weather.market.lfc_f2_geoblock import account_receipt
+                    receipt = account_receipt(self, readers[name])
+                    if receipt is not None:
+                        stamp = receipt.collected_at_utc
+                        values[name] = {'blocked': receipt.blocked}
+                        values['geoblock_receipt_sha256'] = receipt.sha256
+                        times[name] = {'started_at_utc': stamp, 'ended_at_utc': stamp}
+                        start = min(start, datetime.fromisoformat(stamp))
+                        continue
                 observed_start = self.clock.now()
                 values[name] = readers[name]()
                 times[name] = {'started_at_utc': observed_start.isoformat(),

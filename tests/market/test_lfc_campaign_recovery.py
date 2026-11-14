@@ -1,4 +1,4 @@
-"""Claimed but unposted attempts recover from interruption without a retry.
+"""Claimed but unposted attempts close without placement in the recovery tick.
 
 Guards: B046 A1/A2/A3; durable no-intent proof, cleanup progress and ambiguity.
 """
@@ -26,7 +26,7 @@ def guarded_account():
 
 @pytest.mark.parametrize('reason', ['go_window_or_freshness_expired', 'account_read_stale',
     'inventory_changed_after_baseline', 'session_stalled', 'console_closed', 'logoff', 'power_loss'])
-def test_unposted_claim_after_hard_exit_closes_missed_and_keeps_date_consumed(tmp_path, reason):
+def test_unposted_claim_after_hard_exit_closes_missed_and_allows_clean_retry(tmp_path, reason):
     clock = Clock()
     state = state_at(tmp_path, clock)
     policy = parse_policy(policy_row())
@@ -40,13 +40,15 @@ def test_unposted_claim_after_hard_exit_closes_missed_and_keeps_date_consumed(tm
     coordinator = CampaignCoordinator(state=state, runtime=runtime, clock=clock, control_root=tmp_path / 'control')
     coordinator.tick(lambda: policy)
     assert not state.pending() and not state.incidents() and runtime.go_count == 0
-    assert state.ledger.open_sessions() == [] and claim['local_date'] in state.consumed_dates()
+    assert state.ledger.open_sessions() == [] and claim['local_date'] not in state.consumed_dates()
     closed = state.read(state.root / 'closed' / (claim['attempt_id'] + '.json'))
     assert closed['state'] == 'MISSED' and closed['proof']['authority'] == 'automatic_no_intent'
     assert closed['proof']['research_evidence_complete'] is False
     assert not attempt_intents(state.ledger, claim['attempt_id'])
     assert state.ledger.sessions['empty-band']['start']['synthetic_interruption'] == reason
-    with pytest.raises(StateRefused, match='account_date_consumed'): state.claim(policy.entries[0], policy, clock.now())
+    retry = state.claim(policy.entries[0], policy, clock.now())
+    assert retry['attempt_id'] != claim['attempt_id'] and state.pending() == [retry]
+    assert state.read(state.root / 'closed' / (claim['attempt_id'] + '.json')) == closed
 
 
 def test_reachable_postclaim_exception_is_saved_before_unposted_close(tmp_path):
