@@ -18,6 +18,7 @@ from weather.market.lfc_recording_io import file_sha, write_new
 from weather.market.mm_stage2_hold import HoldEnd, _order_id, cancel_ack_ids, digest
 from weather.market.re1_attended import GuardedJournal, SecretGuard, observe
 from weather.market.re1_resilience import HeartbeatLoop
+from weather.market import lfc_pair_runtime as pairs
 
 
 class PeerCashPending(RuntimeError):
@@ -112,16 +113,22 @@ class F2Band(PilotSession):
             self.scope['market_id'] = chosen['market_id']
             self.journal.record('quote_arm', **{key: self.scope[key] for key in
                 (*arm_field_keys(policy), 'market_id')})
+        pairs.initialize(self)
 
     def quote_steps(self, *, rehearsal_seconds=None):
         from weather.market.lfc_f2_repost import continue_quotes
-        yield from continue_quotes(self, super().quote_steps, rehearsal_seconds=rehearsal_seconds)
+        base = super().quote_steps
+        if pairs.enabled(self):
+            def base(*, rehearsal_seconds=None):
+                yield from pairs.cycle(self, super(F2Band, self).quote_steps, rehearsal_seconds=rehearsal_seconds)
+        yield from continue_quotes(self, base, rehearsal_seconds=rehearsal_seconds)
 
     def read_geoblock(self, *, force=False):
         from weather.market.lfc_f2_geoblock import read_for_band
         return read_for_band(self)
 
     def submit_steps(self, leg, price):
+        price = pairs.submit_price(self, leg, price)
         began, deferrals = None, 0
         while True:
             previous_submits = self.submits
@@ -195,6 +202,7 @@ class F2Band(PilotSession):
                 coordinator.retain('post_book_recording_unavailable', exception_type=type(exc).__name__)
 
     def project_trades(self, rows, *, source):
+        pairs.remember_trades(self, rows, source=source)
         ours = {oid: self.ledger.legs[self.ledger.by_order[oid]] for oid in self.known}
         changed = self.own_trades.ingest(rows or [], ours, source=source,
                                         observed_at_utc=self.clock.now().isoformat())
@@ -226,7 +234,12 @@ class F2Band(PilotSession):
         return {**super().terminal_extra(), 'own_trade_projection': self.own_trades.rows(),
                 'reward_estimates': list(self.reward_estimates.values()),
                 'reward_estimate_gaps': sorted(self.reward_estimate_gaps),
-                'reward_context': {'touches': list(self.reward_context.values()), 'gaps': []}}
+                'reward_context': {'touches': list(self.reward_context.values()), 'gaps': []},
+                **pairs.terminal_extra(self)}
+
+    def posted(self, oid, leg, price):
+        super().posted(oid, leg, price)
+        pairs.posted(self, oid)
 
     def leg_terminal(self, oid, row):
         before = self.ledger.legs[self.ledger.by_order[oid]]['size_matched']
@@ -240,6 +253,7 @@ class F2Band(PilotSession):
         observation = self.observe_snapshot(snapshot)
         self.minute_extra(snapshot)
         self.prices = [replacement_price(observation['adjusted_mid'], leg, self.OFFSET) for leg in (0, 1)]
+        pairs.cap_prices(self)
         self.market_time = self.clock.monotonic()
         self.journal.record('repost_market_snapshot', snapshot=snapshot, prices=list(map(str, self.prices)))
 
@@ -271,7 +285,7 @@ class F2Band(PilotSession):
                        share=observation['share_many'], policy=self.campaign_policy)
         except QuoteRefused as exc:
             raise HoldEnd(str(exc)) from None
-        return observation
+        return pairs.observe(self, snapshot, observation)
 
     def _gate(self, *, own_resting=Decimal(0)):
         reserve = self.size * sum(self.reserve_prices(), Decimal(0))
@@ -302,6 +316,7 @@ class F2Band(PilotSession):
         reserve, _ = self._gate(own_resting=sum((self.size * p for _, p in self.active.values()), Decimal(0)))
         self._cash(self.required('f2_post_balances', self.venue.balances), reserve)
         super().authorize_post(leg, price, size, rule)
+        pairs.authorize(self, leg, price, size)  # Includes the adjacent fresh submit snapshot.
 
     def before_post(self, request):
         self.control()
@@ -376,7 +391,7 @@ class F2Band(PilotSession):
             finally:
                 self.progress()
         result = super()._recover(name, observed)
-        if name == 'terminal_trades':
+        if name == 'terminal_trades' or name == 'lfc_trades' and pairs.enabled(self):
             self.project_trades(result, source='rest')
         return result
 

@@ -47,6 +47,7 @@ changing inventories, metrics, versions, or operational state.
 | Read-only wallet LAN routes (including the settlement watcher), startup, valuation and firewall | `docs/operations/wallet-reader.md` |
 | One-wallet attribution, neutral snapshots, FIFO and reconciliation | `docs/operations/portfolio-ledger.md` |
 | Maker pause/bleed/halt guard, owner-cleared latch and runtime placement contract | `docs/operations/maker-trading-guard.md` |
+| F2/LFC campaign policy, claims, proof, task and recovery; Pin B policy and migration; complete pairs; LFC recording | `docs/operations/lfc-autostart.md`, `lfc-autostart-pinb.md`, `lfc-complete-pairs.md`, `lfc-recording.md` |
 | Maker shadow runner: public-read allowlist, quotes tape, nightly 88a diagnostics, scoring embargo | `docs/operations/maker-shadow-runner.md` |
 | Mission status, responsible actor, dependencies, landing slots, owner requests | `docs/roadmap/work/W-####.yaml`; [work registry contract](roadmap/work/README.md) |
 | Mission board and night planning | `weather.reporting.roadmap.worktrack`; only production writes `docs/roadmap/work-board.md` in its docs step |

@@ -1,7 +1,7 @@
 # LFC owner-activated campaign
 
-Status: implementation contract; activation requires a reviewed, pre-gated pin
-and the owner's one-time registration and enablement. Read when preparing,
+Status: implementation contract; activation requires a reviewed pin with a full pregate receipt or
+an owner pregate waiver, and the owner's one-time registration and enablement. Read when preparing,
 operating or reviewing the scheduled LFC lane. This guide grants no agent
 authority to register, enable, run, cancel or sign.
 
@@ -13,7 +13,7 @@ snapshots keep their original contracts.
 
 The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action
 Register`, then `Verify`, edits the campaign file, then uses `Enable`. Register
-requires the reviewed head, qualified pregate receipt and existing interpreter;
+requires the reviewed head, a qualified pregate receipt (or, with `-OwnerWaivedPregate`, an owner waiver file of schema `weather.owner_pregate_waiver.v1` whose `head` equals `-QualifiedHead`; the release records its sha and path, and no tick re-validates it) and the existing interpreter;
 it creates a disabled Interactive/Limited task and reads its definition back.
 Readback accepts Scheduler's omission of the nine explicitly listed defaults
 in `Assert-LfcCampaignTaskXml`; present values, every other required element,
@@ -136,7 +136,7 @@ override F2. Parsing a file never activates it.
 | `local_event_dte` | A nonempty sorted subset of the reference horizons. Selection and every placement/requote use it; resting orders pull through normal cleanup at a disallowed market-local boundary. |
 | `band_limit_session`, `band_limit_concurrent`, `bands_per_event` | One each in this qualified controller, matching `k_max`. Unsupported expansion refuses. |
 | `start_window_toronto`, `trading_end_toronto` | Optional Toronto clock window must match each UTC entry. Full effective duration must fit by the absolute end even at the latest allowed start; incompatible windows refuse, never clip a late session. |
-| `max_sessions_per_day`, `concurrent_sessions` | One each; stable account/date claims and the account guard enforce both. |
+| `max_sessions_per_day`, `concurrent_sessions` | Both must be 1. A date claim no longer consumes the date (owner 2026-11-13, B090-H): a later attempt may start inside an open entry window when no session is open, no leg is unresolved and no claim is pending, writing `claims/<date>.<attempt>.json`. Incidents and owner closures still block. The account guard allows one open session. |
 | `max_session_seconds` | Global maximum within the same qualified duration range, combined with each entry's duration and optional fixed end; the effective end is recorded. |
 | `learning_dates`, `confirmation_dates` | Empty, or an inclusive two-date range. Configured ranges must be disjoint, within qualification, and cover the entry. Receipts label the lane; this grants no scientific confirmation claim. |
 | `capital_mode` | `committed_cost_no_recycling` only. Principal recycling and `fixed_sleeve_redeemed_principal_only` refuse. |
@@ -146,7 +146,7 @@ differs from this code's enforced contract. An unsupported expansion is a precis
 or implicit approval. Supported edits take effect for the next attempt; an
 admitted attempt uses its immutable snapshot. Changing campaign ID/revision or
 lowering a count does not reset account history. Enabling/disabling the campaign
-file and actual task are independent owner controls. A disabled task does not
+file and actual task are independent owner controls. A policy with `enabled: false` under an enabled task starts no new attempt, while ticks still finish pending postchecks and follow-up reads. A disabled task does not
 prove cancellation of an already running session.
 The running process reads task enablement at most once per minute, with a
 five-second read timeout. Policy disablement and the owner-only STOP checkpoints
@@ -169,7 +169,7 @@ Every placement, requote and resting-order check still enforces local T+1.
 
 | Fields | Enforcement |
 | --- | --- |
-| `market_ids`, `band_limit_session`, `band_limit_concurrent` | Captured built-in cities only; matching concurrent/session limits within that universe. One band per city/day and one account/date claim. No new city replaces an unavailable or retired city within the session. |
+| `market_ids`, `band_limit_session`, `band_limit_concurrent` | Captured built-in cities only; matching concurrent/session limits within that universe. One band per city per session; a date may hold several attempt claims (B090-H). No new city replaces an unavailable or retired city within the session. |
 | `on_first_band_fill` | The breadth value cancels the affected band's remaining orders, proves every original intent/ACK and terminal quantity, then reconciles fresh whole-account trades, inventory and native cash before continuation. The v0.2 retirement value remains supported. |
 | `per_band_daily_filled_cap_pusd` | Gross UTC-day filled cost basis plus all same-city resting reserve and proposed new reserve must fit. The single durable intent gate enforces it, including later policy revisions. Redemptions and profits never reduce this gross filled basis. |
 | `fill_cooldown_seconds` | Integer 60–3600 seconds; default 60. Wait after inventory is first proved, then obtain another fresh proof before quoting. During the wait, other bands, shared heartbeat, STOP and the fixed end continue normally. Unknown ACKs, quantities or statuses never authorize continuation. |
@@ -346,7 +346,7 @@ and redemption cash. Accrual and paid rewards are distinct; missing earned-scope
 or payment linkage stays unknown, never zero or predicted income. Rebates remain
 flagged separately from loss.
 
-The freeze captures at the first healthy tick from November 16 17:55 through
+For the retained Pin A (v0.3) policy only ([Pin B](lfc-autostart-pinb.md) seals November 22), the freeze captures at the first healthy tick from November 16 17:55 through
 November 17 08:55 Toronto, before pending-postcheck and incident early returns.
 This explicitly amends the earlier nominal 18:00 deadline for this lane. The
 receipt keeps its actual timestamp. A missing or late freeze emits an evidence
@@ -373,19 +373,21 @@ restore and perform owner-led continuity review before resuming.
 
 Every reachable post-claim exit persists a result in a finally block. After a
 hard exit, a durable claim with no leg intents automatically closes MISSED with
-research gaps, since that attempt could not have submitted an order. Its date
-stays consumed. A claim with intents cannot use this automatic closure.
+research gaps, since that attempt could not have submitted an order. Since B090-H the
+date stays open for a later attempt inside an open entry window. A claim with intents cannot use this automatic closure.
 
 The dispatcher finishes pending money postchecks and returns before considering
 a fresh entry. Known acknowledged attempts may finish read-only postchecks on
 later ticks after transient transport failure. It never adopts an unknown order,
 closes a crash as success or clears an ambiguous placement. Such an incident is
-sticky and consumes the date. The explicit `owner-recover` command requires an
+sticky and blocks every later entry until owner recovery. The explicit `owner-recover` command requires an
 owner terminal, incident-hash confirmation and fresh complete money proof; it
 cannot repair unknown order identities or invent missing inventory evidence.
 An owner-reviewed repair must resolve those facts first. Original flags remain.
 Every account observation and failed read is retained separately, including an
 early quantity mismatch followed by a later matching read during propagation.
+
+Every account proof, including a pending post-session money postcheck, carries a fresh geography read and refuses `geoblock` while it reads blocked. A pending postcheck therefore waits, fail-closed, and retries on later ticks; on 2026-11-13 one waited about 2.75 h while the workstation's location check read blocked, then completed on its own. A new entry waits behind it.
 
 Money proof requires complete bounded account reads, valid terminal identities
 and matched quantities, per-order fills, zero open orders and every token's
@@ -570,7 +572,7 @@ campaign's own marker can be released, and only
 after proved child containment. A busy job or transient pre-go read defers with
 bounded back-off inside the original start window. No claim or order is made
 before admission; no start occurs at or after the window end. A missed window
-is recorded without catch-up. A claimed attempt is never restarted.
+is recorded without catch-up; a date whose only record is `window_missed` reopens inside a later window on that date (B090-D). A claimed attempt is never restarted, but a new attempt may follow it on the same date once no session is open, no leg is unresolved and no claim is pending (B090-H).
 
 The market-local horizon is checked against the current clock before every
 placement/requote, again at the raw-POST callback after signing/metadata reads,
@@ -834,7 +836,7 @@ For a failed pre-enrollment F0 session, use this owner setup order:
 5. `Verify`, then perform the pre-enable check and `Enable` through the registrar.
    Check the reconciled `ENROLLMENT_FUNDING` result against the new F2 inventory anchor.
 
-Personal trades: only when status is idle, outside run hours; none while a session is open; no open orders at 09:00.
+Personal trades: only when status is idle, outside run hours; none while a session is open; no open orders from the start of the entry window until the session has started; an open order refuses admission (`account_not_empty`).
 
 Manual or automatic redemption is not manual trading. The owner chooses a
 manual redemption cadence or the separately authorized auto-redeem facility;
