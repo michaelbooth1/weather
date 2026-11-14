@@ -58,10 +58,12 @@ def test_failed_accounting_row_is_ignored_before_parsing_its_amounts():
     assert traded_shares([failed, trade()], {'own'}) == {'own': '5'}
 
 
-def test_lifecycle_or_rest_replay_does_not_restart_post_fill_recording():
+@pytest.mark.parametrize('post_fill_mode', ['continue', 'complete_pairs'])
+def test_lifecycle_or_rest_replay_does_not_restart_post_fill_recording(post_fill_mode):
     from weather.market.lfc_f2_controller import F2Band
     triggers, updates = [], []
     band = SimpleNamespace(known={'own'}, own_trades=OwnTradeProjection(),
+        campaign_policy=SimpleNamespace(raw={'post_fill_mode': post_fill_mode}),
         ledger=SimpleNamespace(by_order={'own': 'key'}, legs={'key': {}}),
         clock=SimpleNamespace(now=lambda: SimpleNamespace(isoformat=lambda: 'collection-time')),
         record_post_books=triggers.append,
