@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from weather.market.lfc_accounting import quantity
+from weather.market.lfc_capital import native
 from weather.market.lfc_pair_completion import OwnLot, instant, inventory
 
 
@@ -66,7 +67,8 @@ def held_inventory(records, legs, held_lots, *, campaign_id, condition_id, token
             continue
         if (row.get('condition_id') != condition_id or row.get('token_id') != leg['token_id'] or
                 row.get('side') != 'BUY' or row.get('liquidity_role') != 'MAKER' or
-                quantity(row['price']) != quantity(leg['price']) or row['token_id'] not in tokens):
+                native(quantity(row['price'])*quantity(row['shares']), ceil=True) !=
+                native(quantity(leg['price'])*quantity(row['shares']), ceil=True) or row['token_id'] not in tokens):
             raise ValueError('completion_projection_binding')
         by_order[oid].append(OwnLot(row['trade_id'], oid, campaign_id, condition_id,
             tokens.index(row['token_id']), row['shares'], row['price'], fill_time(row.get('exchange_match_time'))))

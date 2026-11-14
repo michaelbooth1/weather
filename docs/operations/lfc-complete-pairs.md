@@ -19,6 +19,10 @@ state and provenance stay in the journal. Four-decimal positions, wallet
 balances and a parent public trade's size never supply the residual quantity.
 The SDK's retained `matched_at` supplies the canonical exchange match clock;
 missing or conflicting time/identity/quantity evidence refuses.
+Keep the canonical execution price for FIFO cost. Venue division can express
+a price just beyond the posted tick; bind its allocation to the known limit
+by equal cost under the existing upward native-cost rounding rule. Quantities
+and FIFO costs retain trade precision.
 
 For each condition, match opposing campaign-owned lots FIFO at trade
 precision. Subtract evidenced capital-book removals, then calculate signed
@@ -59,6 +63,12 @@ quoting the complement.
 
 ## Offline replay
 
+For owner-supplied policy copies, `python -m weather.market.lfc_pair_policy
+--upgrade-from <absolute-copy> --output <absolute-new-file>` prepares a disabled
+successor. It changes only the ordinary revision, policy revision and mode of
+a disabled revision-5 source. All money, dates and clock fields carry through;
+the command has no task, account or enrollment capability.
+
 The replay constructs no venue, credential resolver, live tick or order
 capability. Run `python -m weather.market.lfc_pair_replay --help` for its two
 required absolute paths. Heavy invocations use the workstation wrapper's
@@ -68,8 +78,11 @@ required absolute paths. Heavy invocations use the workstation wrapper's
 `--input-root` is an immutable copy directory, with a `copy_manifest.json`
 array. Each row has the source path, absolute `copy` path, byte `length` and
 `sha256`. Reads must be listed, hash-bound regular files inside that directory.
-The copied inputs are the campaign policy, A091-format `fills.csv`/`bands.csv`,
-and retained per-band journals from the two November 13 filled sessions.
+The copied inputs are the campaign policy, ledger, A091-format
+`fills.csv`/`bands.csv`, band selections and retained per-band journals from the
+two November 13 filled sessions. K6 verifies CSV fill identities and quantities
+against terminal REST executions and reconstructs exact held FIFO inventory.
+The replay uses K6's execution prices after validating the native cost binding.
 `--output` is a new JSON file outside the copy directory. Existing output files
 are never overwritten. Source paths in the manifest are provenance only;
 the replay never opens them.

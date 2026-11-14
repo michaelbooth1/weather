@@ -114,7 +114,9 @@ def run_live(runtime, authority, status):
                 client.close()
                 raise
             raws.append(raw)
-            raw.allowed_trade_tokens = tuple(row['token_ids'][leg] for leg in row['trade_legs'])
+            from weather.market.lfc_pair_runtime import transport_legs
+            trade_legs = transport_legs(policy, row['trade_legs'])
+            raw.allowed_trade_tokens = tuple(row['token_ids'][leg] for leg in trade_legs)
             guard_signed_orders(raw)
             bindings.append((index, row, band_directory, raw))
             status.progress()
@@ -178,6 +180,9 @@ def run_live(runtime, authority, status):
                     confirmation=authority.confirmation(band_table(table, row['condition_id']), ledger),
                     attempt=attempt, scheduled_authority=authority)
             coordinator.bands.append(band)
+            if breadth:
+                from weather.market.lfc_pair_runtime import refresh_from_read
+                refresh_from_read(band, read)
         authority.check(starting=True)
         result = coordinator.run()
         status.open_rows, status.reason = coordinator.open_rows, result['reason']

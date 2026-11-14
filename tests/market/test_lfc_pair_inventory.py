@@ -1,5 +1,6 @@
 """Guards: T113 consumes canonical K6 money states, exact lots and removals."""
 from copy import deepcopy
+from decimal import Decimal as D
 
 import pytest
 
@@ -31,6 +32,19 @@ def test_canonical_trade_precision_and_cross_session_own_lots():
     assert str(value.u) == '14.999999'
     assert str(value.average_cost) == '0.26'
     assert str(value.pairs[0].shares) == '5.000001'
+
+
+def test_native_rounded_venue_price_keeps_canonical_cost_without_position_rounding():
+    records, legs, held = inputs()
+    records[0]['price'] = '0.260000000001'
+    # This increase crosses a native ceiling boundary and must refuse.
+    with pytest.raises(ValueError, match='completion_projection_binding'):
+        project(records, legs, held)
+    records[0]['price'] = '0.2800000056085686'
+    records[0]['shares'] = legs['o1']['size_matched'] = held['s1:1']['remaining_quantity'] = '14.263889'
+    legs['o1']['price'] = '.28'
+    value = project(records, legs, held)
+    assert value.average_cost == D('0.2800000056085686')
 
 
 @pytest.mark.parametrize('status', ['MATCHED', 'MINED', 'RETRYING'])

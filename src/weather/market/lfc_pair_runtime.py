@@ -16,6 +16,11 @@ def enabled(band):
     return mode(band.campaign_policy.raw) == COMPLETE_PAIRS
 
 
+def transport_legs(policy, normal_legs):
+    """An exact token pair lets the cheap arm buy its expensive complement."""
+    return (0, 1) if mode(policy.raw) == COMPLETE_PAIRS else tuple(normal_legs)
+
+
 def initialize(band):
     if not enabled(band):
         return

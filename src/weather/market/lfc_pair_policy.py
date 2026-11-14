@@ -59,3 +59,25 @@ def successor_row(policy):
 def support():
     return {'values': list(MODES), 'historical_default': CONTINUE,
             'complete_pairs_min_policy_revision': FIRST_REVISION, 'economic': True}
+
+
+def main(argv=None):
+    """Prepare a create-only disabled B successor from an owner-supplied copy."""
+    import argparse
+    from pathlib import Path
+    from weather.market.lfc_campaign_policy import load_policy, parse_policy
+    from weather.market.lfc_recording_io import write_new
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument('--upgrade-from', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args(argv)
+    if not args.upgrade_from.is_absolute() or not args.output.is_absolute():
+        parser.error('absolute paths required')
+    successor = parse_policy(successor_row(load_policy(args.upgrade_from)))
+    write_new(args.output, successor.raw)
+    print('Prepared disabled revision-6 complete-pairs policy; no runtime state changed.')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
