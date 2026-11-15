@@ -687,7 +687,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         }
         @{
             path = 'C:\t\codex\A093\src\target_study_clockfix.py'
-            sha256 = 'e43dedcbc8fd483356b4da98f7dc5438061f7ebe1ea4f74dcdb4110c2c6b04bc'
+            sha256 = '26e9c0bb7cf981a18176b5ad636bf234b4fb4fe2a4c1649172b692a7f507491b'
         }
         # A093 target-day inventory study; exact runner and pinned offline helpers.
         @{
