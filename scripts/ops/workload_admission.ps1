@@ -688,7 +688,7 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # A094 T+0 development mechanism screen; exact runner, master GO still required.
         @{
             path = 'C:\t\codex\A094\src\stage1.py'
-            sha256 = '73ba37c45367a5957cebce48f244a95ca73913f4779bce9d3ae0f2625fb24c63'
+            sha256 = '430e90ef9c2bd1c9529a79a49ea4a15a7058e28ce8aaf9ede95e2f6c606cf422'
         }
     )
 }

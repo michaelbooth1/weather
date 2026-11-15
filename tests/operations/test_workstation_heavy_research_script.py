@@ -102,7 +102,7 @@ SHIPPED_ENTRIES = [
     {"path": "C:\\t\\L59\\b0712\\scripts\\row28_run_v13.py",
      "sha256": "d23980b5123761ef0cfe46afa60274063aee66c84eb58169a55cb283a847f61d"},
     {"path": "C:\\t\\codex\\A094\\src\\stage1.py",
-     "sha256": "73ba37c45367a5957cebce48f244a95ca73913f4779bce9d3ae0f2625fb24c63"},
+     "sha256": "430e90ef9c2bd1c9529a79a49ea4a15a7058e28ce8aaf9ede95e2f6c606cf422"},
 ]
 
 
