@@ -130,6 +130,17 @@ It also answers the questions that previously required a manual dig:
   supplement process/lock/heartbeat liveness and do not assume that every
   supervisor artifact shares one schema;
 
+  Snapshot results retain `blocked`, `status`, `reason`, `error`, and
+  `skipped_reason` in loop status, cadence attribution, and diagnostics.
+  A BLOCK or an unexplained no-write result is an iteration error; an
+  all-BLOCK iteration cannot advance the clean-iteration marker. A deliberate
+  cadence skip can still be clean, but is never proof of a written snapshot.
+  `fleet_capture_liveness_v0.1` checks the current market-local day in live
+  mode, including markets with no tape today. Pre-window markets stay pending;
+  inside an open window, a BLOCK or no snapshot within `stale_after_minutes`
+  makes liveness non-OK. Its stale/blocked counts and per-market reasons describe
+  the failure. An old closed day's tape cannot stand in for today's writes;
+
 - **which** chain step failed and why (`failing step -> maker_paper_score ->
   maker_paper_input_budget_exceeded`), instead of a bare `error`, and whether a run is
   in flight right now (the stored `terminal` flag goes stale the moment a resume starts);
@@ -238,6 +249,16 @@ Classification and severity (`Get-FlagClass` plus a state-aware second pass):
   for 7 and 90 days (`host_stability` in its JSON); the watchdog carries it through.
 - `system clock is not synchronized` (and the stale-sync clock flags) is class
   `capture_integrity`: HIGH, CRITICAL inside the graded window.
+- Non-OK snapshot capture liveness is also `capture_integrity`: HIGH outside
+  12:00-18:00 and CRITICAL inside it. `status.ps1` exposes `capture_health`,
+  which the watchdog carries into `host_health_latest.json`. Fresh process
+  heartbeats and zero reported exceptions cannot override missing writes.
+- Generated event metadata older than 24 hours, an unreadable generation
+  timestamp, or a nonzero `WeatherLocationConfigRefresh` last result produces
+  an `event_metadata` WARN alert before the metadata validation age limit
+  blocks capture. Inspect the refresh task's log, repair the public Gamma
+  transport, and verify both fresh `generated_at_utc` and advancing snapshots.
+  The encoding contract is owned by [config inventory](../operations/config-inventory.md).
 - Staleness-sweep rows are class `staleness_sweep` and carry the sweep's severity: a sweep
   CRITICAL row is HIGH, and CRITICAL once the reported age is ≥ 3 days, the watchdog has
   seen it for ≥ 72 h, or it failed 3 consecutive times; an unreadable sweep snapshot starts
@@ -265,6 +286,27 @@ matches its registered SHA256. The pinned redeploy procedure is in
 [OPERATIONS_DESIGN.md](../operations/OPERATIONS_DESIGN.md#pinned-watchdog-redeploy).
 
 Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
+
+### Silent metadata outage observed 2026-11-15
+
+The capture host reported refresh failures from 2026-11-12 12:00 ET after
+Gamma began requiring gzip for event pages above 50. Once retained metadata
+crossed the capture validation age limit, snapshots were BLOCKed from about
+2026-11-13 02:30 through 2026-11-15 11:15 ET. A manual refresh with 50-event
+pages at 11:11 ET restored capture. During the outage the loop still reported
+`clean`, projected away the BLOCK reason, and fleet liveness reported OK by
+accepting old closed-day tapes. CLOB diagnostics also showed zero books.
+These are capture-host observations relayed with T115, not workstation mirror
+measurements. The regression fixtures reproduce the missing-write failure.
+
+The execution-tape seed loader independently rejects stale generated metadata
+and routes seed-load failures to `DISCONNECTED_SEED_ERROR`. This explains a
+shared failure mechanism; confirm a specific occurrence from
+`execution_tape_status.json`'s `last_seed_error` rather than inferring it from
+the state name alone. Do not reconstruct the missing market-path evidence.
+After guarded integration, deploy the reviewed pinned watchdog/status scripts
+through the existing redeploy procedure; a source merge alone does not update
+that deployment.
 
 ## This host loses power (WeatherBootRecovery)
 
