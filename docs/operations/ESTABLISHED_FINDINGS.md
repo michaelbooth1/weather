@@ -155,6 +155,7 @@ sequence numbers, not calendar dates.
 | 10be | Edge-review cheap checks 2026-11-10 (ledger rows 122-125 D; owner 11-09 19:48): E1 price tilt KILL (−2.17 c/share [−6.88, +0.80]); E3 maker clock unmeasured (0 balanced condition-days); E6 dev interval size 0.72%..9.51% at nominal 5%; E7 snapshot timing does not clear (median 5.886 s vs 5 s); E8 named look: 4 of 132 market-days differ, all paid the strict-local-date band (describe-only, quarantined) |
 | 10bf | Edge-review queue completed 2026-11-10 (ledger rows 126-128; register X112-X117, §7): T003 finish DESCRIBE (11/720 = 1.53% [0.56, 2.78] positive event-days, execution unverified); E4 lowest-temperature overpricing KILL with a MEASURED, not pre-registered, opposite gap of about −10 to −11 pp (not an edge claim; designs A/B await the owner); dev T+1 model-vs-market read UNTESTABLE (0 verified T+1 vectors) |
 | 10bg | F2 Pin B first trading day 2026-11-13 (A091; one unsettled date, descriptive): reward model brackets venue accrual (1.36x P_many, 0.96x P_single); first-fill hazard ~0.21/band-hour vs T038's 0.12; +5 min markout +0.43 c/share vs mid drift −0.92; cross-cycle pair locked zero spread; 44% twelve-city coverage; ~75% of the sleeve idle; 4-dp positions vs 6-dp trades; no edge, no arm winner |
+| 10bh | A094 T+0 pre-fill toxicity screen 2026-11-15 (ledger row 130, K kill-only; register X118): book/clock/model features rank toxic public maker fills slightly above price/time (AUC 0.655 [0.637, 0.674] vs 0.647; Brier −0.0015 [−0.0027, −0.0004]) but the fixed gate nets −0.034 c per original share [−0.299, +0.131] after nominal rebate stress; F2-context AUC 0.530; observed-high state missing; T+1 pre-fill idea PARKED, no new quoting term, T+1 transfer unverified |
 
 ---
 
@@ -5679,6 +5680,91 @@ cash movement reconcile).
 - **Not established:** settled P&L; paid rewards or rebates and their attribution; any T+1 adverse-selection
   rate, informed fraction or toxicity parameter; a best arm, offset or hour; whether one date's fill hazard,
   coverage or capital use repeats.
+
+### 10bh. A094 pre-fill toxicity screen: book, clock and model features rank toxic public maker fills slightly better than price and time, but the fixed gate's economics fail, so the T+1 pre-fill idea is PARKED (KILL of the T+0 screen; T+1 transfer unverified) — Codex Astra A094, ledger row 130 (K kill-only), 2026-11-15
+
+The question was whether signals available sixty seconds before a maker fill predict a toxic fill: a negative
+maker entry-price markout thirty minutes after it. The signals were the model/market divergence (captured served
+p), the information clock (station METAR minutes, nominal model-run schedules, captured refresh age, a fit-only
+METAR clock prior) and book/flow state (depth, imbalance, changes, a competition-score proxy, received-time flow).
+It is a **T+0 mechanism screen on other makers' public fills**. It does not test F2's own T+1 BUY20 queue, its
+quote distances or its income, and transfer to T+1 is unverified. Development evidence for a learning decision;
+**not an edge claim**.
+
+- **Design, frozen before the holdout.**
+  - Records. Prereg (the original T+1 feasibility protocol) `fbe91f0a…`; clarification 1 `b5e17e7f…`;
+    clarification 2 (the T+0 screen) `ca5e8318…`; clarification 3 (replay METAR) `f7b5f3e7…`; clarification 4
+    (missing books) `e64a0511…`; entry `26bc0062…`.
+  - Population. T081's 377,104 public trades, fourteen lead −1 trades excluded. Fit 08-20..09-07; one holdout
+    09-08..09-18.
+  - Model. L2 logistic, C = 0.1; training-only imputation and standardisation; missing indicators. The gate
+    threshold is the training risk's 80th percentile. Seven nested predictors run from F0 (native midpoint, its
+    square, spread, leg, local time) to full.
+  - Gate. At least 10 held-out dates, 5 markets and 100 fills per class; AUC >= 0.60 with lower bound > 0.50;
+    full − F0 Brier upper bound < 0; and a positive lower bound on the avoided net markout.
+  - Intervals. 2,000 whole-target-date bootstrap draws, with crossed date x market and circular block-3
+    sensitivities; the widest bound governs. Toxicity weights dates equally; markouts weight shares within a
+    date, then dates equally.
+- **Control.** T081's original-known settlement mask reproduced 289,124 marked trades and −0.432 c/share within
+  the frozen tolerance before any score.
+- **Support.** 197,418 training and 115,560 held-out fills; 11 held-out dates, 12 markets; 42,799 toxic and
+  72,761 non-toxic held-out fills.
+- **Result: the ranking conditions pass and the economic condition fails.**
+
+  | Predictor (held out) | AUC | Brier |
+  | --- | --- | --- |
+  | F0 (price/time) | 0.647 | 0.2194 |
+  | clock | 0.649 | 0.2192 |
+  | book | 0.652 | 0.2184 |
+  | model | 0.648 | 0.2193 |
+  | obs | 0.648 | 0.2193 |
+  | portable | 0.654 | 0.2181 |
+  | full | 0.655 | 0.2179 |
+
+  - Full AUC 0.655, widest 95% [0.637, 0.674]; full − F0 Brier −0.0015 [−0.0027, −0.0004]. Only the book group
+    clears the descriptive BH q = 0.10 family; the model-divergence and clock-prior increments establish no
+    advantage.
+  - The fixed gate lowers retained public-fill toxicity from **37.0% to 33.5%** by removing **21.5%** of held-out
+    public fills (**16.6%** of date-weighted shares; 12,229 toxic, 11,827 profitable, 644 zero-markout). Per
+    original share it avoids 0.784 c of bad markout but gives up 0.774 c of good markout and 0.044 c of nominal
+    rebate (0.0125·p(1−p) per removed share, zero maker charge).
+  - **Net avoided 30-minute loss after nominal rebate stress: −0.034 c per original public share, widest 95%
+    [−0.299, +0.131]; MDE80 about 0.29 c.** The point is adverse and the interval crosses zero: imprecise
+    economics, not a precise null. Clear-signal gate: FALSE.
+  - **F2 context.** On native price 0.20-0.80 with spread <= 6 c (37,395 held-out fills) the full AUC is only
+    **0.530** against F0's 0.515, and its Brier is worse (0.2522 against 0.2509). Reusing the fits at a
+    120-second lead gives 0.654 overall and 0.528 in that context. No subgroup was refit.
+  - Diagnostics, none adopted. The bottom model-gap quintile's +0.046 c is a diagnostic, not a strategy. The same
+    score's AUC is 0.662 at +5 min, 0.642 at +60 min and 0.364 for negative settlement markout: short-horizon
+    ranking is not settlement-risk ranking. At fill time, METAR-window toxicity is 40.5% against 36.7% outside
+    (within-date F0-residual contrast +2.31 pp, date SE 1.11; the +15-minute placebo has the opposite sign), and
+    forecast-schedule windows show 35.6% against 37.2% (−1.79 pp, SE 1.06). Nominal schedules are not measured
+    first arrivals.
+- **Limits.** The four captured observed-high fields (two margins, age and advisory deadness) were missing on every
+  scored row, although served probabilities covered 89.1% of held-out rows. So the observation comparator tested
+  only the fit-only quarter-hour clock prior, and its dead-band rule removed zero fills. This does not disprove a
+  fully observed 89b state estimator (digest, "Observation clock (89b)"). Stage-2 power is an assumption, not a
+  measurement: the portable scenario gives about 27% at six dates (N80 35), the full T+0 scenario 31% (N80 28),
+  and both economic points are negative.
+- **Data handling.** The 89b METAR archive is lost. Clarification 3 therefore refit the clock prior on fit dates
+  only, from T088 replay-input METAR: 228 files, 217 city-dates passing the checks. It is a shorter-window clock,
+  not an 89b replication or a WU floor. Book capture had capture-time NUL damage in 12 physical rows on 12
+  event-days (one capture around UTC 2026-09-03 05:2x, all twelve cities). The master verified that the capture
+  host's Miami 09-03 original is identical to the frozen input (sha256 `1d81356c…`), so it is genuine
+  capture-time loss, not transfer damage. Under clarification 4 the 12 complete JSON suffixes were kept,
+  nothing was imputed, and book lookups crossing the loss bracket were refused and treated as missing evidence
+  (13 sixty-second and 15 120-second feature rows excluded). The lost record count is unknown, not zero.
+- **Consequence.** **No new live quoting term** (pull, widen, skew or one-sided). The approved W-day recording
+  stays useful and the existing B/W terms stand. Stage 2 (a named non-F2 T+1 forward extract, or recording on
+  approved F2 days as a named test) needs an owner yes and is not recommended on this screen. A new pre-fill
+  term would need the owner's yes before the 11-22 17:55 seal. T+1 fill probability, T+1 income and A092's
+  weekly odds stay unidentified. This parks the idea; it does not prove every T+1 mechanism absent.
+- **Records.** `codex/a094-t0-mechanism` @ `2892d639` (ledger row 130 records the registration tip `76bebdbb`);
+  runner `312ee043…`; register X118; archive `C:\archive\ruled-out\2026-11-15-a094-prefill-toxicity\` (report,
+  preregs, result CSVs, `FINAL_SHA256SUMS`, `SHA256SUMS`); source `C:\t\codex\A094` on the workstation. The T+1
+  feasibility tables (`prediction_metrics.csv`, `quoting_rule_effects.csv`, `feasibility_by_arm.csv`) are
+  deliberately unestimated (NOT_IDENTIFIED), not measured zeros; the T+0 results are `metrics.csv`,
+  `selectivity.csv`, `rule_selectivity.csv`, `F2_context_metrics.csv` and `uncertainty.csv`.
 
 ## Related
 
