@@ -503,3 +503,65 @@ Still open:
 - #283 closes after its host worktree is removed;
 - #291 closes after its one non-identical file is checked;
 - the remaining 87 planned branch deletes resume overnight.
+
+## Final branch retirement (2026-11-15 about 00:50 ET)
+
+The remaining planned deletes ran after 00:30, each re-checked before it ran: 88 deleted (59 stale-unique, archive-tagged first), 363 already gone, 1 skipped. Remote branches: 1,156 on 11-13, 862 on 11-14 at 12:13, 414 after this run. #283 closed after its host worktree was removed, as `archive/pr-283-69af7d61`. #291 closed because master already carries its content, as `archive/pr-291-b27259ef`. Open PRs: 32.
+
+## Rescued research and report documents (2026-11-15)
+
+These 51 documents existed only on unmerged PR branches and are now copied to master. All are byte-identical except four, which have minimal audit fixes. `agent-report-2026-10-03-mrv2-w0-w1.md` had literal control characters rewritten as the intended `\b`/`\t` escapes. In `maker-replay-enrollment-template`, `maker-replay-execution-addendum` and `maker-replay-hurdles-preregistration`, links to the uncopied companion docs became plain text naming the missing file. Where several PRs carried the same path, the version on the PR with the newest commit was taken. Code-companion documents describe code that is not on master, so they were not copied. A privacy scan checked emails, 40-hex addresses, private IPs, owner name, wallet amounts and location terms; nothing new was found. Windows user-profile paths match existing master practice.
+
+| Document | Source PR (head) | Also on |
+| --- | --- | --- |
+| `docs/research/maker-replay-clarification-1-2026-09-27.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/research/maker-replay-clarification-2-2026-09-29.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/research/maker-replay-clarification-3-2026-10-01.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/research/maker-replay-clarification-4-draft.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/research/maker-replay-enrollment-template-2026-09-27.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/research/maker-replay-execution-addendum-2026-09-27.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/research/maker-replay-hurdles-preregistration-2026-09-27.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/research/maker-replay-v2-engineering-plan-DRAFT.md` | #269 (`632ccbdd`) | #176, #181, #260, #266 |
+| `docs/research/maker-replay-v2-registration-DRAFT.md` | #269 (`632ccbdd`) | #176, #181, #260, #266 |
+| `docs/research/one-sided-edge-preregistration-draft-2026-09-29.md` | #137 (`ad6646cc`) | - |
+| `docs/research/t1-fair-value-preregistration-2026-09-25.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110b-weather-maker-plugin.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110c-maker-contract-and-policy-fixes.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110e-maker-contract-hole.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110h-weather-plugin-dry-run-cli.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110j-c.md` | #142 (`6c9456f3`) | - |
+| `docs/roadmap/agent-report-2026-09-110l-maker-replay-harness.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110m-part2-pit-contract-split.md` | #103 (`d6fce554`) | - |
+| `docs/roadmap/agent-report-2026-09-110m-part5-repo-health-ratchets.md` | #106 (`0baf9306`) | - |
+| `docs/roadmap/agent-report-2026-09-110o-1.md` | #124 (`a6abf5fe`) | - |
+| `docs/roadmap/agent-report-2026-09-110o-5.md` | #285 (`a9ce8cb2`) | - |
+| `docs/roadmap/agent-report-2026-09-110r-replay-execution-pack.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110s-nightly-bundle-export.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110t-shadow-runner.md` | #137 (`ad6646cc`) | - |
+| `docs/roadmap/agent-report-2026-09-110u-t1-fair-value-scorer.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-110v-part2.md` | #117 (`4a7c0905`) | #174 |
+| `docs/roadmap/agent-report-2026-09-110v-part3.md` | #118 (`9e0a1c09`) | - |
+| `docs/roadmap/agent-report-2026-09-110v-part3-resolution.md` | #118 (`9e0a1c09`) | - |
+| `docs/roadmap/agent-report-2026-09-110v-part4.md` | #119 (`9f34619e`) | - |
+| `docs/roadmap/agent-report-2026-09-110w-one-sided-edge.md` | #137 (`ad6646cc`) | - |
+| `docs/roadmap/agent-report-2026-09-110z-reward-scan.md` | #129 (`43c76b8a`) | - |
+| `docs/roadmap/agent-report-2026-09-111a-plugin-dry-run-fixes.md` | #269 (`632ccbdd`) | #137, #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-111b-returned-branches-ci-green.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-111d-shadow-runner-reconcile.md` | #137 (`ad6646cc`) | - |
+| `docs/roadmap/agent-report-2026-09-111e-exam-executability.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-111e-exam-executability-revision.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-111f-reaction-diagnostic.md` | #143 (`6a6f05ef`) | - |
+| `docs/roadmap/agent-report-2026-09-111f-reaction-diagnostic-amendment-1.md` | #143 (`6a6f05ef`) | - |
+| `docs/roadmap/agent-report-2026-09-111g-compress-on-close-ci-correction.md` | #142 (`6c9456f3`) | - |
+| `docs/roadmap/agent-report-2026-09-111g-compress-on-close-landing.md` | #142 (`6c9456f3`) | - |
+| `docs/roadmap/agent-report-2026-09-111j-plugin-fair-value-binding.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-09-86a-settlement-truth-after-the-source-switch.md` | #86 (`d53e280a`) | - |
+| `docs/roadmap/agent-report-2026-10-01b-stage-b-trigger.md` | #153 (`f0f814ba`) | - |
+| `docs/roadmap/agent-report-2026-10-01-stage-b-trigger.md` | #153 (`f0f814ba`) | - |
+| `docs/roadmap/agent-report-2026-10-03-drive-reader-safety.md` | #174 (`f8471f43`) | - |
+| `docs/roadmap/agent-report-2026-10-03-mrv2-w0-w1.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-10-03-pull-cap-precheck.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-10-04-mrv2-w2.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-10-04-mrv2-w3-w5.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-10-111e-followup.md` | #269 (`632ccbdd`) | #181, #260, #266 |
+| `docs/roadmap/agent-report-2026-10-111k-plugin-captured-mass-and-knots.md` | #269 (`632ccbdd`) | #181, #260, #266 |
