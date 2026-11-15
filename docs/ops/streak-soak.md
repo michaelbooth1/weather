@@ -134,7 +134,13 @@ It also answers the questions that previously required a manual dig:
   `skipped_reason` in loop status, cadence attribution, and diagnostics.
   A BLOCK or an unexplained no-write result is an iteration error; an
   all-BLOCK iteration cannot advance the clean-iteration marker. A deliberate
-  cadence skip can still be clean, but is never proof of a written snapshot.
+  cadence skip can still be clean. Store lock contention (`store_locked`) and
+  the store's due check (`not_due_store`) are explicit skips; neither proves a
+  written snapshot. BLOCK/error fields still take precedence over skip reasons.
+  `ERRORING` alone does not restart the snapshot loop: its supervisor returns
+  `noop` while process, heartbeat, and writer lock remain healthy. Status flags
+  reach the watchdog as capture alerts (HIGH outside the graded window,
+  CRITICAL inside it).
   `fleet_capture_liveness_v0.1` checks the current market-local day in live
   mode, including markets with no tape today. Pre-window markets stay pending;
   inside an open window, a BLOCK or no snapshot within `stale_after_minutes`

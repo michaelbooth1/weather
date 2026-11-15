@@ -3,12 +3,14 @@
 import csv
 import json
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from weather.collection import collection_health as health
 from weather.collection import snapshot_tracker as tracker
+from weather.collection.snapshot_store import SnapshotStore
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import spec_for_id
 
@@ -45,7 +47,10 @@ def test_blocked_current_day_cannot_be_hidden_by_missing_or_old_tape(tmp_path, m
     assert REASON in liveness["reason"]
 
 
-@pytest.mark.parametrize("detail", [{"error": "disk write failed"}, {"skipped_reason": "maintenance"}, {}])
+@pytest.mark.parametrize("detail", [
+    {"error": "disk write failed"}, {"skipped_reason": "maintenance"},
+    {"skipped_reason": "store_locked"}, {"skipped_reason": "not_due_store"}, {},
+])
 def test_stale_unwritten_market_reports_reason(detail):
     liveness = health.fleet_capture_liveness([
         {"market_id": "toronto", "state": "AT_RISK", "latest_age_minutes": 23,
@@ -91,3 +96,61 @@ def test_unexplained_no_write_is_not_a_clean_iteration():
     tracker.finalize_iteration_error_state(status, {"toronto": {"written": False}},
                                            expected_market_ids=["toronto"], completed_at=NOW)
     assert status["last_iteration_outcome"] == "error"
+
+
+@pytest.mark.parametrize("skip_reason", ["store_locked", "not_due_store"])
+def test_store_skip_does_not_latch_iteration_error(tmp_path, monkeypatch, skip_reason):
+    store = SnapshotStore(root=tmp_path / "store")
+    event = {"slug": config_for_date(NOW.date(), "toronto").event_slug}
+    monkeypatch.setattr(store, "next_due_at", lambda **kwargs: NOW.isoformat())
+    monkeypatch.setattr(store, "is_due", lambda *args, **kwargs: False)
+    held_lock = store.acquire_lock() if skip_reason == "store_locked" else None
+    if skip_reason == "store_locked":
+        assert held_lock is not None
+    try:
+        result = store.maybe_write(event, None, SimpleNamespace(target_date=NOW.date()))
+    finally:
+        if held_lock is not None:
+            store.release_lock(held_lock)
+    assert result["written"] is False
+    assert result["skipped_reason"] == skip_reason
+    assert result.get("locked", False) == (skip_reason == "store_locked")
+    assert not store.lock_path.exists()
+
+    monkeypatch.setattr(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json")
+    monkeypatch.setattr(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl")
+    monkeypatch.setattr(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag")
+    monkeypatch.setattr(tracker, "all_specs", lambda: [spec_for_id("toronto")])
+    monkeypatch.setattr(tracker, "current_fleet_collection_health", lambda **kwargs: {"summary": {}, "markets": []})
+    status = tracker.run_loop(max_iterations=1, capture_fn=lambda **kwargs: result,
+                              now_fn=lambda: NOW, sleep_fn=lambda _: None)
+    assert status["last_iteration_outcome"] == "clean"
+    assert status["last_iteration_error_count"] == status["consecutive_errors"] == 0
+    assert status["last_error"] is None
+    persisted = json.loads((tmp_path / "loop_status.json").read_text())
+    diagnostic = json.loads((tmp_path / "diagnostics.jsonl").read_text().splitlines()[-1])
+    for projection in (persisted["last_market_results"]["toronto"],
+                       persisted["last_cadence_attribution"]["markets"]["toronto"],
+                       diagnostic["markets"]["toronto"]):
+        assert projection["written"] is False
+        assert projection["skipped_reason"] == skip_reason
+
+    # Repeated skips clear an earlier error latch without proving a tape write.
+    status.update(consecutive_errors=2, last_error="prior capture failed")
+    for _ in range(3):
+        errors = tracker.finalize_iteration_error_state(
+            status, {"toronto": result}, expected_market_ids=["toronto"], completed_at=NOW)
+        assert errors == {}
+        assert status["consecutive_errors"] == 0 and status["last_error"] is None
+
+
+@pytest.mark.parametrize("failure", [
+    {"blocked": True}, {"status": "BLOCK"}, {"status": "ERROR"}, {"error": "disk failed"},
+])
+def test_skip_reason_does_not_hide_capture_failure(failure):
+    status = {}
+    errors = tracker.finalize_iteration_error_state(
+        status, {"toronto": {"written": False, "skipped_reason": "store_locked", **failure}},
+        expected_market_ids=["toronto"], completed_at=NOW)
+    assert "toronto" in errors
+    assert status["last_iteration_outcome"] == "error" and status["consecutive_errors"] == 1
