@@ -10,7 +10,7 @@ Checked-in files under `config/` are classified by owner and freshness policy:
 | `locations.json` | Durable location registry | Hand-authored location, station, settlement, and source-plan facts. Volatile market-event fields are not stored here. |
 | `weather_universe.json` | Generated inactive registry | Public city/family settlement metadata; regenerate with `weather.market.generate_weather_universe` after reviewing input rule/station changes. No capture or `MarketSpec` activation. Owner: [weather universe](weather-universe.md). |
 | `weather_universe_rule_pins.json` | Reviewed rule contract | Independent per-city station pins, normalized rule-text hashes and each city/family's variant binding. Generator refuses source, ICAO, unit, family or text drift. Change only after rule review; [weather universe](weather-universe.md) owns normalization. |
-| `location_market_events.json` | Generated snapshot | Current Gamma API active-event metadata by location; stale after 7 days. |
+| `location_market_events.json` | Generated snapshot | Current Gamma API active-event metadata by location; capture freshness is enforced by `weather.operations.event_metadata_validation.DEFAULT_MAX_AGE_HOURS`. |
 | `candidate_markets.json` | Inactive candidate registry | New-city model lane candidate `MarketSpec` rows with their METAR label and print-cutoff rules ([new-city model lane](NEW_CITY_MODEL_LANE.md)). Never the default registry; read only by workstation research modules or under an explicit `WEATHER_MARKET_REGISTRY` override that live paths refuse. Activation is a reviewed `MarketSpec` change. |
 | `markets.json` | Deprecated compatibility shell | Empty external override file retained for `weather.market.market_registry`; built-in `MarketSpec` definitions remain authoritative. |
 | `model_variant_registry.json` | Hand-authored registry | Validate before promotion; active promoted artifacts must not point at ignored `data/` paths. |
@@ -37,6 +37,15 @@ python -m weather.operations.config_inventory --out data\backtest\config_invento
 ```
 
 Refresh generated market-event metadata:
+
+Gamma venue change observed 2026-11-12, repaired 2026-11-15: `/events` and
+`/events/keyset` pages with `limit > 50` require `Accept-Encoding: gzip`.
+The refresh retains 100-event pages to preserve offsets and request count;
+its shared Gamma transport decodes gzip only when `Content-Encoding` says so
+and accepts plain JSON too. HTTP failures include the venue's response hint.
+The passive maker-evidence reader uses the same encoding headers and its
+`requests` transport decodes the body. The maker-core feed queries by slug
+without a limit and is unaffected by this pagination rule.
 
 ```powershell
 python -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata config\location_market_events.json
