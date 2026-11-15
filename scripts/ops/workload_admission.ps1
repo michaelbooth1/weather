@@ -683,11 +683,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
         # A093 book-clock quality repair candidates; require master's new GO.
         @{
             path = 'C:\t\codex\A093\src\build_dataset_clockfix.py'
-            sha256 = '68bab5796e103aec81ac6b6a5444b9645f1c0b2fccc96106486112b2a0e65092'
+            sha256 = '3180600dd858e5831bea7b466c12d2e37b217fd1e409e0ba80cc957a8a899074'
         }
         @{
             path = 'C:\t\codex\A093\src\target_study_clockfix.py'
-            sha256 = 'b0a1faf0dce81ccb469c7d59f9c42262cec2acfabb44e6a692f78884983bf76c'
+            sha256 = '7ee10f2cba995cd3e7153b6efe6a8ca7b67aaf0f6f3cd2ad6c25b206a97c3442'
         }
         # A093 target-day inventory study; exact runner and pinned offline helpers.
         @{
