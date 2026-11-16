@@ -5,11 +5,14 @@ account client, order capability, quote checkpoint or completion join is used.
 An in-flight GET has a short timeout; stopping prevents subsequent reads/writes.
 """
 from dataclasses import dataclass
+import gzip
+from io import BytesIO
 import json
 from pathlib import Path
 import re
 from threading import Event, Lock, Thread
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from weather.market.mm_stage2_hold import utc
 from weather.market.re1_attended import GuardedJournal, SecretGuard
@@ -26,11 +29,18 @@ def public_book(condition, token):
     if re.fullmatch(r'[0-9]{1,256}', str(token)) is None:
         raise ValueError('post_book_token')
     request = Request('https://clob.polymarket.com/book?token_id=' + token,
-                      method='GET', headers={'Accept': 'application/json'})
+                      method='GET', headers={'Accept': 'application/json',
+                          'User-Agent': 'weather-stage2-public-rehearsal/1.0',
+                          'Accept-Encoding': 'identity'})
     with urlopen(request, timeout=2) as response:
         raw = response.read(BOOK_BYTES + 1)
         if response.status != 200 or response.geturl() != request.full_url or len(raw) > BOOK_BYTES:
             raise ValueError('post_book_response')
+        if response.headers.get('Content-Encoding', '').strip().lower() == 'gzip':
+            with gzip.GzipFile(fileobj=BytesIO(raw)) as decoded:
+                raw = decoded.read(BOOK_BYTES + 1)
+            if len(raw) > BOOK_BYTES:
+                raise ValueError('post_book_response')
     row = json.loads(raw)
     if (not isinstance(row, dict) or row.get('market') != condition or
             str(row.get('asset_id', row.get('token_id'))) != token):
@@ -132,6 +142,9 @@ class PostBookRecorder:
                     fields['ok'] = True
                 except Exception as exc:
                     fields.update(ok=False, exception_type=type(exc).__name__)
+                    if isinstance(exc, HTTPError):
+                        fields.update(http_status=exc.code, endpoint='/book')
+                        exc.close()
                 fields['collected_at_utc'] = utc(self.clock.now()).isoformat()
                 if not self.live(key):
                     return

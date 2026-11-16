@@ -3,6 +3,9 @@ from dataclasses import FrozenInstanceError
 from datetime import timedelta
 import json
 from threading import Event
+from io import BytesIO
+import gzip
+from urllib.error import HTTPError
 from types import SimpleNamespace
 
 import pytest
@@ -94,6 +97,54 @@ def test_failed_public_book_is_nonfatal_recorded_and_other_token_still_read(tmp_
     assert [row['ok'] for row in rows] == [False, True]
     assert rows[0]['exception_type'] == 'TimeoutError'
     assert 'never retain' not in (tmp_path / 'post_books.jsonl').read_text()
+    recorder.stop()
+
+
+@pytest.mark.parametrize('compressed', [False, True])
+def test_post_book_uses_working_public_reader_headers_and_decodes_gzip(monkeypatch, compressed):
+    from weather.market import lfc_f2_post_books as module
+    token, condition = '123', '0x' + 'c' * 64
+    book = {'market': condition, 'asset_id': token, 'bids': [], 'asks': []}
+    calls = []
+    class Reply(BytesIO):
+        status = 200
+        headers = {'Content-Encoding': 'gzip' if compressed else 'identity'}
+        def geturl(self): return 'https://clob.polymarket.com/book?token_id=123'
+    def opened(request, *, timeout):
+        calls.append(request)
+        # Reproduce the edge rejection that the default urllib agent permits.
+        if request.get_header('User-agent') != 'weather-stage2-public-rehearsal/1.0':
+            raise HTTPError(request.full_url, 403, 'fixture edge refusal', {}, BytesIO())
+        assert request.get_method() == 'GET' and request.data is None and timeout == 2
+        assert request.get_header('Accept-encoding') == 'identity'
+        raw = json.dumps(book).encode()
+        return Reply(gzip.compress(raw) if compressed else raw)
+    monkeypatch.setattr(module, 'urlopen', opened)
+    assert module.public_book(condition, token) == book
+    assert len(calls) == 1 and calls[0].full_url.endswith('/book?token_id=123')
+
+
+def test_post_book_gzip_limit_applies_to_decoded_body(monkeypatch):
+    from weather.market import lfc_f2_post_books as module
+    class Reply(BytesIO):
+        status = 200
+        headers = {'Content-Encoding': 'gzip'}
+        def geturl(self): return 'https://clob.polymarket.com/book?token_id=123'
+    monkeypatch.setattr(module, 'BOOK_BYTES', 100)
+    monkeypatch.setattr(module, 'urlopen', lambda *a, **kw: Reply(gzip.compress(b' ' * 1000)))
+    with pytest.raises(ValueError, match='post_book_response'): module.public_book('condition', '123')
+
+
+def test_recorder_retains_http_status_and_endpoint_without_error_text(tmp_path):
+    body = BytesIO(b'private-looking fixture text must not be retained')
+    def failed(condition, token):
+        raise HTTPError('https://clob.polymarket.com/book?token_id=123', 403, 'fixture refusal', {}, body)
+    recorder, band, _, _ = recording(tmp_path, get=failed)
+    recorder.watch(band, 'fill')
+    recorder.step()
+    rows = book_rows(tmp_path)
+    assert len(rows) == 2 and all(row['http_status'] == 403 and row['endpoint'] == '/book' for row in rows)
+    assert body.closed and 'private-looking' not in (tmp_path / 'post_books.jsonl').read_text()
     recorder.stop()
 
 

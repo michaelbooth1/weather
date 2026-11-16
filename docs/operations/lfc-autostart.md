@@ -33,6 +33,11 @@ balance/accrual/scoring samples keep `evidence_complete=false` independently;
 they do not turn that proven cleanup into a failed session exit. Missing money
 proof or unknown submissions still fail cleanup and the ordinary postchecks.
 
+The optional post-fill recorder uses the same public book endpoint and client
+identification as the quoting reader. It requests identity encoding and accepts
+bounded gzip responses; both wire and decoded size limits apply. HTTP failures
+retain the status and endpoint, without response bodies or authentication data.
+
 ## One task and one policy file
 
 The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action
