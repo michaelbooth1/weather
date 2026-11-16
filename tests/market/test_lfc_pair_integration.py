@@ -16,10 +16,12 @@ from weather.market.lfc_pair_runtime import initialize, refresh_from_read
 from weather.market.lfc_recording_io import strict_json
 
 
-def complete_fixture(tmp_path, *, seconds=300, cheap=False):
+def complete_fixture(tmp_path, *, seconds=300, cheap=False, bounds=None):
     row = successor_row(parse_policy(pinb_row()))
     if cheap:
         row['learning_leg_arms'] = ['cheap']
+    if bounds is not None:
+        row['leg_price_range'] = bounds
     controller, account, status, ledger, clock, runtime, read = fixture(
         tmp_path, policy_row=row, seconds=seconds)
     # The ordinary fixture omits match clocks. Real SDK records retain matched_at.
@@ -153,6 +155,39 @@ def test_completion_requires_fresh_full_inventory_proof_before_posting(tmp_path)
     assert band.submits == 2 and not ledger.unresolved_legs()
     assert controller.results[band.session_id]['reason'] == 'repost_inventory_unproven', result
     assert band.pair_state.u == 20  # Final cleanup evidence may describe U; never grants a post.
+
+
+def test_price_pause_without_new_fill_rechecks_books_after_60_seconds_without_another_cooldown(tmp_path):
+    controller, account, _, _, clock, _, _ = complete_fixture(tmp_path, seconds=600, bounds=['.20', '.75'])
+    band, raw = controller.bands[0], account.raws[0]
+    advance = account.advance
+    def only_first():
+        if account.fill_times:
+            account.fills_enabled = False
+        advance()
+    account.advance = only_first
+    ordinary = raw.snapshot
+    def snapshot(condition, tokens, *, checkpoint=lambda: None):
+        result = ordinary(condition, tokens, checkpoint=checkpoint)
+        if 90 <= clock.seconds < 180:
+            result = deepcopy(result)
+            # The ordinary midpoint/depth screens still pass. The normal NO
+            # quote falls below this policy's .20 bound, then books recover.
+            for side, price in [('yes_bids', '.79'), ('yes_asks', '.80'),
+                                ('no_bids', '.20'), ('no_asks', '.21')]:
+                result['quote_inputs'][side] = [{'price': price, 'size': '100'}]
+        return result
+    raw.snapshot = snapshot
+    result = controller.run()
+    assert result['cleanup_ok'], result
+    rows = journal(band)
+    paused = next(row for row in rows if row['event'] == 'pair_completion_paused')
+    orders = [row for row in rows if row['event'] == 'pair_completion_order']
+    assert len(orders) == 2 and all(row['completion_leg'] == 1 for row in orders)
+    from datetime import datetime
+    delay = (datetime.fromisoformat(orders[1]['recorded_at_utc']) -
+             datetime.fromisoformat(paused['recorded_at_utc'])).total_seconds()
+    assert 60 <= delay <= 62  # A second fill cooldown would incorrectly make this 120 seconds.
 
 
 def test_fill_pending_never_moves_inventory_and_k1_still_observes_canonical_completion(tmp_path):
