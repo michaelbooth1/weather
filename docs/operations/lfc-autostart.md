@@ -420,6 +420,11 @@ retained campaign tokens from enrollment. Their quantities must equal the latest
 anchor plus subsequent campaign fills minus observed redemptions. Both surplus
 and shortfall refuse. Non-campaign quantities and the wallet cash reference are
 updated between closed sessions. Every anchor remains in the append-only ledger.
+Positions snapshots use the venue's reporting precision; receipt-proved burns
+and campaign lots retain exact quantities. A negative expected-inventory
+residual strictly smaller than `lfc_accounting.POSITION_DUST` becomes zero for
+inventory comparison only. At or beyond that bound redemption scope refuses;
+cash, cost basis and returned principal remain exact.
 
 Ordinary activity and native-receipt collection begin at the latest anchor's
 activity coverage watermark minus a 30-minute overlap, clipped at ledger genesis.
