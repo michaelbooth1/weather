@@ -6,7 +6,7 @@ gains, losses and the funding ceiling continue on the existing capital book.
 from decimal import Decimal
 import re
 
-from weather.market.lfc_accounting import quantity, same_position, below_position
+from weather.market.lfc_accounting import POSITION_DUST, quantity, same_position, below_position
 from weather.market.mm_stage2_hold import digest, utc
 
 
@@ -62,8 +62,15 @@ def expected_inventory(ledger, anchor, book, *, cut=None):
         if adjustment['sequence'] >= anchor['ledger_cut']:
             token = adjustment['token_id']
             expected[token] = expected.get(token, Decimal(0)) + Decimal(adjustment['delta'])
-    if any(size < 0 for size in expected.values()):
-        raise ValueError('inventory_redemption_scope')
+    for token, size in expected.items():
+        if size < 0:
+            # Anchors retain the positions endpoint's reporting precision;
+            # receipt-proved burns retain exact quantity. Apply the same strict
+            # reporting bound used by inventory comparisons before quantity()
+            # rejects a negative residual. Cash and lot basis stay exact.
+            if size <= -POSITION_DUST:
+                raise ValueError('inventory_redemption_scope')
+            expected[token] = Decimal(0)
     return {token: str(size) for token, size in expected.items() if size}
 
 

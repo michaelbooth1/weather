@@ -420,6 +420,11 @@ retained campaign tokens from enrollment. Their quantities must equal the latest
 anchor plus subsequent campaign fills minus observed redemptions. Both surplus
 and shortfall refuse. Non-campaign quantities and the wallet cash reference are
 updated between closed sessions. Every anchor remains in the append-only ledger.
+Positions snapshots use the venue's reporting precision; receipt-proved burns
+and campaign lots retain exact quantities. A negative expected-inventory
+residual strictly smaller than `lfc_accounting.POSITION_DUST` becomes zero for
+inventory comparison only. At or beyond that bound redemption scope refuses;
+cash, cost basis and returned principal remain exact.
 
 Ordinary activity and native-receipt collection begin at the latest anchor's
 activity coverage watermark minus a 30-minute overlap, clipped at ledger genesis.
@@ -480,7 +485,14 @@ first and reduce spendable cash. Outside-hours personal withdrawals incur no
 campaign cost. Admission uses ledger-backed capital and observed spendable cash.
 Confirmed personal SDK trades are bound by trade/order identity in each new
 anchor. Gross purchases consume gains even when an equal personal sale leaves
-wallet cash unchanged. Sale proceeds remain owner cash. Unconfirmed, changed or
+wallet cash unchanged. Owner decision **2026-11-16**: confirmed personal sale
+proceeds and native-proved personal redemption cash first repay outstanding
+owner overdraw of the sleeve; only the remainder stays external owner cash.
+Native-proved deposits and incoming TIPs retain the same repayment rule.
+Repayment is capped at the outstanding overdraw and does not change funding,
+charged capital, campaign profit/incentives, retained-gains offset or headroom.
+Unattributed snapshot surplus, label quarantine, ambiguous credits and unproved
+redemption allocations never repay overdraw. Unconfirmed, changed or
 malformed personal flows defer with `f2_personal_trade_unproven` or
 `f2_personal_trade_changed`. Each new personal fill computes its fee as
 `size * (fee_rate_bps / 10000) * price * (1 - price)`, rounded per fill to five

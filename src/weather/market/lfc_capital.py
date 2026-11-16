@@ -433,7 +433,7 @@ class CapitalBook:
         self.pools_dirty = True
         self.legacy_reclassified += reduction
 
-    def credit(self, pool, cash, activity, *, sequence=None, native_proven=False):
+    def credit(self, pool, cash, activity, *, sequence=None, native_proven=False, owner_cash_native=0):
         if self.cash_capture_bindings.get(activity['id'], {}).get('surplus_only'):
             pool = 'external'  # Unresolved snapshot inclusion never proves a refill gain.
         # Physical excess cash may contain an indivisible allocation remainder.
@@ -452,6 +452,10 @@ class CapitalBook:
                     'proven_campaign_gain_native': gain,
                     'timestamp': activity['timestamp'],
                     'sequence': self.activity_sequences[activity['id']] if sequence is None else sequence}
+        if owner_cash_native:
+            if pool != 'external' or integer(owner_cash_native) > cash:
+                raise CapitalRefused('capital_owner_cash_allocation')
+            movement['owner_cash_native'] = owner_cash_native
         self.pool_movements.append(movement)
         self.pools_dirty = True
         return movement
@@ -487,7 +491,7 @@ class CapitalBook:
                 if overdraw and self.repays_owner_overdraw(move):
                     # The owner's later contribution first returns the sleeve
                     # cash the owner took; only the rest stays segregated.
-                    take = min(amount, overdraw)
+                    take = min(amount, overdraw, move.get('owner_cash_native', amount))
                     overdraw -= take
                     repaid += take
                     amount -= take
@@ -512,17 +516,25 @@ class CapitalBook:
         self.pools_dirty = False
 
     def repays_owner_overdraw(self, move):
-        """Only proved owner contributions repay an overdraw.
-
-        DEPOSIT and incoming TIP rows carry native cash and are owner money by
-        construction. Label-estimated quarantine, snapshot surpluses, personal
-        trade proceeds and redemption remainders never repay: each is either an
-        unproved estimate or may already be inside a captured cash snapshot.
-        """
+        """Owner decision 2026-11-16: confirmed owner cash repays the sleeve first."""
+        if move['pool'] != 'external' or any(q['grant'] is move for q in self.incoming_quarantines.values()):
+            return False
         activity = self.activities.get(move.get('activity_id'))
-        return (move['pool'] == 'external' and activity is not None and activity['cash_native'] is not None and
-                (activity['type'] == 'DEPOSIT' or activity['type'] == 'TIP' and activity.get('direction') == 'IN') and
-                not any(q['grant'] is move for q in self.incoming_quarantines.values()))
+        if (activity is not None and activity['cash_native'] is not None and
+                (activity['type'] == 'DEPOSIT' or activity['type'] == 'TIP' and activity.get('direction') == 'IN')):
+            return True  # Existing deposit/incoming-TIP attribution is unchanged.
+        if (self.bridge is None or move['sequence'] <= self.bridge['sequence'] or
+                any(grant is move for grant in self.wallet_quarantines) or
+                self.cash_capture_bindings.get(move.get('activity_id'), {}).get('surplus_only')):
+            return False
+        # Personal trade identities and cash were validated at their immutable
+        # snapshot. An arbitrary external snapshot surplus has no such source.
+        key = str(move.get('activity_id', ''))
+        personal = self.personal_trades.get(key[len('personal-'):]) if key.startswith('personal-') else None
+        if personal is not None:
+            return personal['side'] == 'SELL' and move['amount'] <= personal['cash_native']
+        return (activity is not None and activity.get('native_redemption') is not None and
+                not self.cash_before_bridge(activity) and move.get('owner_cash_native', 0) > 0)
 
     def undo_redemption(self, activity):
         key = activity['id']
@@ -578,7 +590,7 @@ class CapitalBook:
             parts = [{'token_id': activity['token_id'], 'quantity': activity['quantity'], 'cash_native': cash}]
         from weather.market.lfc_f2_owner_inventory import apply as apply_owner_inventory
         owner_tokens = apply_owner_inventory(self, owner_inventory, activity, sequence)
-        basis = principal = outside_cash = initial_owner_cash = 0
+        basis = principal = outside_cash = initial_owner_cash = proved_owner_cash = 0
         refused = []
         for part in parts:
             token, remaining = part['token_id'], quantity(part['quantity'])
@@ -587,6 +599,8 @@ class CapitalBook:
                     initial_owner_cash += part['cash_native'] or 0
                 else:
                     outside_cash += part['cash_native'] or 0
+                    if bundle is not None:
+                        proved_owner_cash += part['cash_native'] or 0
                 continue
             lots = [(k, lot) for k, lot in self.lots.items() if lot['token_id'] == token and
                     (bundle is not None or lot['condition_id'] == activity['condition_id']) and
@@ -615,8 +629,11 @@ class CapitalBook:
             # of which principal lot was redeemed can create sleeve headroom.
             owner_take = min(max(outside, Decimal(0)), remaining)
             remaining -= owner_take
-            outside_cash += (int(Decimal(part['cash_native']) * owner_take / total)
-                             if part['cash_native'] is not None else 0)
+            owner_cash = (int(Decimal(part['cash_native']) * owner_take / total)
+                          if part['cash_native'] is not None else 0)
+            outside_cash += owner_cash
+            if bundle is not None:
+                proved_owner_cash += owner_cash
             self.removed[token] = self.removed.get(token, Decimal(0)) + total
             self.removal_events.append({'activity_id': key, 'token_id': token, 'quantity': str(total),
                 'outside_quantity': str(owner_take), 'timestamp': activity['timestamp']})
@@ -647,7 +664,7 @@ class CapitalBook:
             if key not in self.unknown:
                 self.unknown.append(key)
         if cash is not None:
-            self.credit('external', outside_cash, activity)
+            self.credit('external', outside_cash, activity, owner_cash_native=proved_owner_cash)
             self.credit('profit' if basis and not activity.get('principal_unproved') else 'external',
                         max(0, cash - principal - outside_cash - initial_owner_cash), activity)
             if not self.cash_before_bridge(activity):
