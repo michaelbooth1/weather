@@ -3,13 +3,13 @@
 This document owns the owner-approved Pin B policy and takeover of an existing
 Pin A account. Read it for `lfc_campaign_policy_v0.4`; the ordinary execution,
 money, STOP, evidence and recovery contracts remain in [LFC autostart](lfc-autostart.md).
-Code qualification and an immutable final pin precede every owner command here.
+Code qualification (a full pregate, or an owner card with an explicit pregate waiver file) and an immutable final pin precede every owner command here.
 Agents never register, enable, run a task, create STOP or touch the live root.
 
 ## Policy
 
 The new schema keeps older policy snapshots readable. Its default start window
-is 09:00–09:15 Toronto, its fixed trading end is 18:45 and its maximum duration
+is 09:00–09:15 Toronto (the owner may widen `start_window_toronto` in the policy file, up to the parser's 2-hour cap, without a new revision), its fixed trading end is 18:45 and its maximum duration
 is 35,100 seconds. A late go shortens the session and never moves that end.
 Every session still ends before the existing 23:50Z hard stop. The wrapper
 binds the policy bytes and latest possible end plus cleanup; its task has an
@@ -49,16 +49,19 @@ packet. Extra files still refuse; retained ten-submit bands retain their bound.
 | `max_submits_per_band`, `max_requotes_per_band` | 40 and 16 |
 | `learning_leg_arms` | One or both of `paired`, `cheap`; default both |
 | `confirmation_leg_arm` | One supported arm; default `paired` |
+| `post_fill_mode` | `continue` (default; omitted in older snapshots) or `complete_pairs` from policy revision 6; see [complete pairs](lfc-complete-pairs.md) |
 
 The leg arm is a deterministic hash of Toronto date and market, with a salt
 independent of the existing 0.015/0.025 distance arm. The cheap arm uses the
 existing CHEAP token-selection contract: select the cheaper leg at the band's
-selection snapshot, retain that selected side for the band-day and reserve
-only its quote cost. The assignment and actual selected `trade_legs` are bound
+selection snapshot and retain that original arm. While flat, quote only that
+side and reserve its quote cost. With `complete_pairs`, nonflat inventory instead
+quotes its capped complement, including the expensive leg, then returns to the
+original arm when flat. The assignment and actual selected `trade_legs` are bound
 into the plan, band journal, ledger intents and outcome. A quote-side change
 is never inferred from a reward payment. Confirmation uses one configured leg
 arm and one offset; economic edits require a new policy revision and apply
-only to an unclaimed session.
+only to an unclaimed session. Start-window edits are not economic (B090-I) and apply to the date's next attempt.
 
 The disabled Pin B example uses a 30 pUSD daily filled-basis cap per band. This
 is an already supported policy value. The 15.80 order, 19.60 resting band and
@@ -177,7 +180,7 @@ records that actual time; it is never backdated to 17:55.
 ## Owner takeover
 
 The master supplies the final immutable Pin B worktree and successful pregate
-receipt before takeover. Budget roughly five to ten minutes after the prior
+receipt, or the owner's pregate waiver file, before takeover. Budget roughly five to ten minutes after the prior
 session has completed normal cleanup/postchecks; do not force that time target
 by clearing evidence, latches or work locks. Keep the prior release and source.
 
@@ -196,7 +199,7 @@ by clearing evidence, latches or work locks. Keep the prior release and source.
    disabled task definition and both account identities before replacing only
    that task's action. The new task remains disabled; the old release is kept.
 5. Verify the new task/release, edit `enabled` to true in the one campaign file,
-   then enable through the same registrar. No manual task start is required.
+   then enable through the same registrar. No manual task start is required. If Enable refuses only for pending postchecks, the pre-enable check's narrow exception ([LFC autostart](lfc-autostart.md)) lets the first tick run them.
 
 Never run old Pin A code against a root after it has acquired Pin B-only
 snapshots. Retaining older snapshots is supported by Pin B; an older binary

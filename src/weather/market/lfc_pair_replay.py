@@ -246,6 +246,10 @@ def run(input_root, output):
     policy = SimpleNamespace(raw=strict_json(read_bytes(inputs.path('campaign.json'), 65536)))
     fills, band_rows = inputs.csv('fills.csv'), inputs.csv('bands.csv')
     bands = {(r['session'], r['band']): r for r in band_rows}
+    from weather.market.lfc_pair_replay_fills import verify_fills
+    canonical = verify_fills(inputs, fills, bands, campaign_id=policy.raw['campaign_id'])
+    records = {(r['trade_id'], r['own_order_id']): r for r in canonical['records']}
+    fills = [dict(fill, price=records[(fill['trade_id'], fill['order_id'])]['price']) for fill in fills]
     sessions = sorted({r['session'] for r in fills})
     books = {}
     # Restrict the journal reads to the two retained sessions containing fills.
@@ -283,6 +287,7 @@ def run(input_root, output):
     report = {'analysis': 'T113 copied November 13 proposal and touch replay',
         'fill_assumption': 'Observed A fills filtered by complementary side and margin cap; no new fills assumed.',
         'touch_is_fill': False, 'inputs_sha256': inputs.used, 'fills': rows,
+        'canonical_fill_verification': canonical,
         'a_inventory': {c: s.evidence() for c, s in actual.items()},
         'b_filtered_inventory': {c: s.evidence() for c, s in filtered.items()},
         'book_coverage': coverage,

@@ -36,6 +36,8 @@ def economic_fields(policy):
     from weather.market.lfc_f2_pinb import enabled as pinb, FIELDS as PINB_FIELDS
     if pinb(policy):
         fields |= PINB_FIELDS
+        from weather.market.lfc_pair_policy import economic_keys
+        fields = economic_keys(policy.raw, fields)
     return fields if 'sleeve_loss_basis' in policy.raw else fields - {'sleeve_loss_basis'}
 
 

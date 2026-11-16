@@ -86,6 +86,8 @@ def prove(runtime, band, read):
     ids = {str(row['id']) for row in read['trades'] if row.get('id') is not None}
     if not band.observed_trade_ids <= ids:
         raise TransientPrecheck('repost_stream_fill_unproven')
+    from weather.market.lfc_pair_runtime import refresh_from_read
+    refresh_from_read(band, read)
     return {'inventory_proven': True, 'unknown_submit': False, 'cleanup_proven': False,
             'read_sha256': digest(read), 'ledger_head_sha256': ledger.previous,
             'proven_trade_ids': sorted(ids), 'capital': capital}

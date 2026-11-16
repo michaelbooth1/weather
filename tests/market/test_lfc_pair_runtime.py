@@ -23,6 +23,13 @@ def band(value=None):
         journal=SimpleNamespace(record=lambda event, **row: events.append((event, row))), events=events)
 
 
+def test_cheap_transport_scope_has_only_exact_pair_for_b_and_original_side_for_continue():
+    for leg in (0, 1):
+        assert runtime.transport_legs(SimpleNamespace(raw={}), (leg,)) == (leg,)
+        assert runtime.transport_legs(SimpleNamespace(raw={'post_fill_mode': 'continue'}), (leg,)) == (leg,)
+        assert runtime.transport_legs(SimpleNamespace(raw={'post_fill_mode': 'complete_pairs'}), (leg,)) == (0, 1)
+
+
 def test_replacement_is_capped_before_ordinary_submit_and_overheld_side_refuses():
     b = band()
     assert runtime.submit_price(b, 1, D('.76')) == D('.74')
