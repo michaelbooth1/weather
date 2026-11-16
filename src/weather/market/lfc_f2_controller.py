@@ -391,7 +391,7 @@ class F2Band(PilotSession):
             finally:
                 self.progress()
         result = super()._recover(name, observed)
-        if name == 'terminal_trades':
+        if name == 'terminal_trades' or name == 'lfc_trades' and pairs.enabled(self):
             self.project_trades(result, source='rest')
         return result
 

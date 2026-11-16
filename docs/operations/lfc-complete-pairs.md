@@ -17,6 +17,9 @@ its existing `money_counted` lifecycle rule. Exact own-order terminal totals
 must agree before campaign lots authorize another quote. Provisional/final
 state and provenance stay in the journal. Four-decimal positions, wallet
 balances and a parent public trade's size never supply the residual quantity.
+Live refresh reuses the band's K6 projection, so lagging REST cannot downgrade
+a confirmed stream execution. The successful cleanup reconciliation GET also
+feeds it, including fills first proved during final cancellation.
 The SDK's retained `matched_at` supplies the canonical exchange match clock;
 missing or conflicting time/identity/quantity evidence refuses.
 Keep the canonical execution price for FIFO cost. Venue division can express
@@ -83,7 +86,7 @@ array. Each row has the source path, absolute `copy` path, byte `length` and
 The copied inputs are the campaign policy, ledger, A091-format
 `fills.csv`/`bands.csv`, band selections and retained per-band journals from the
 two November 13 filled sessions. K6 verifies CSV fill identities and quantities
-against terminal REST executions and reconstructs exact held FIFO inventory.
+against stream and terminal REST executions and reconstructs exact held FIFO inventory.
 The replay uses K6's execution prices after validating the native cost binding.
 `--output` is a new JSON file outside the copy directory. Existing output files
 are never overwritten. Source paths in the manifest are provenance only;

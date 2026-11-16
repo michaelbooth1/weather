@@ -4,7 +4,8 @@ from decimal import Decimal as D
 
 import pytest
 
-from weather.market.lfc_pair_inventory import fill_time, held_inventory
+from weather.market.lfc_pair_inventory import fill_time, held_inventory, project_read
+from weather.market.lfc_own_trades import OwnTradeProjection
 
 
 def inputs():
@@ -32,6 +33,21 @@ def test_canonical_trade_precision_and_cross_session_own_lots():
     assert str(value.u) == '14.999999'
     assert str(value.average_cost) == '0.26'
     assert str(value.pairs[0].shares) == '5.000001'
+
+
+def test_confirmed_stream_projection_survives_lagging_rest_and_adds_its_match_clock():
+    projection = OwnTradeProjection()
+    legs = {'o': {'price': '.24', 'token_id': 'yes', 'condition_id': 'c', 'side': 'BUY'}}
+    stream = {'official_event_type': 'trade', 'trade_id': 't', 'official_trade_status': 'CONFIRMED',
+              'order_id': 'o', 'fill_size': '20', 'fill_price': '.24', 'clob_token_id': 'yes',
+              'condition_id': 'c', 'side': 'BUY'}
+    projection.ingest([stream], legs, source='stream', observed_at_utc='2026-11-13T20:00:02Z')
+    rest = {'id': 't', 'status': 'MINED', 'matched_at': '2026-11-13T20:00:00Z',
+            'maker_orders': [{'order_id': 'o', 'matched_amount': '20', 'price': '.24'}]}
+    rows = project_read([rest], legs, observed_at_utc='2026-11-13T20:00:03Z', projection=projection)
+    assert len(rows) == 1 and rows[0]['status'] == 'CONFIRMED' and rows[0]['final']
+    assert rows[0]['shares'] == '20' and rows[0]['exchange_match_time'] == rest['matched_at']
+    assert {p['source'] for p in rows[0]['provenance']} == {'rest', 'stream'}
 
 
 def test_native_rounded_venue_price_keeps_canonical_cost_without_position_rounding():

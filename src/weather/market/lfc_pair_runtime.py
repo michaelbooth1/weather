@@ -85,7 +85,7 @@ def refresh_from_read(band, read):
         return
     from weather.market.lfc_pair_inventory import from_read
     state, records = from_read(band.ledger, read, campaign_id=band.campaign_policy.raw['campaign_id'],
-                               condition_id=band.condition, tokens=band.tokens)
+                               condition_id=band.condition, tokens=band.tokens, projection=band.own_trades)
     band.pair_latest_trades = read['trades']
     accept_inventory(band, state, records)
 
