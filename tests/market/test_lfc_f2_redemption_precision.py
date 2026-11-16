@@ -255,6 +255,34 @@ def test_t40_start_gate_inventory_keeps_strict_reporting_bound_for_personal_burn
             inventory_delta(ledger, t40, {'denver': '20', '102': '12.3456'})
 
 
+def test_t40_start_gate_accepts_exact_campaign_lot_burn_after_truncated_report(tmp_path):
+    """The T-40 bound is token-neutral: an own 6-decimal lot burned before GO
+    no longer raises against its truncated T-40 report (B090-K3 change)."""
+    clock = Clock()
+    clock.value = NOW
+    ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=clock.now, maker_address=MAKER)
+    baseline = take_baseline(label='t40', now=clock.now(), maker_address=MAKER,
+        positions=[], open_orders=[], available_collateral='300')
+    write_baseline(tmp_path, baseline, ledger)
+    filled(ledger, 'fractional', token='101', size='12.345678')
+    synchronize(ledger, baseline, observation(ledger, clock, positions={'101': '12.3456'}, cash='293.827161'),
+                anchor_mode='enrollment')
+    clock.value += timedelta(minutes=5)
+    t40 = take_baseline(label='t40', now=clock.now(), maker_address=MAKER,
+        positions=[{'asset': '101', 'size': '12.3456', 'conditionId': 'c'}], open_orders=[],
+        available_collateral='293.827161')
+    write_baseline(tmp_path, t40, ledger)
+    clock.value += timedelta(minutes=1)
+    source = activity(cash='12.345678', size='12.345678', token='101', tx='auto-campaign')
+    source['timestamp'] = int(clock.now().timestamp())
+    record_activity(ledger, source)
+    book = CapitalBook(ledger)
+    assert book.removed == {'101': Decimal('12.345678')} and book.lots['fractional']['remaining_quantity'] == 0
+    result = inventory_delta(ledger, t40, {})
+    assert result['changed'] == [] and result['expected'] == {}
+    assert inventory_delta(ledger, t40, {'101': '0.0001'})['changed'] == ['101']
+
+
 def test_late_personal_receipt_against_lagging_endpoint_catches_up_by_reported_quantity(tmp_path):
     """Read-bound owner catch-up compares 4-decimal reads only; the receipt bounds it."""
     held, amount = '12.3456', 12_345_678
