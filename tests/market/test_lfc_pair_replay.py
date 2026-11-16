@@ -11,7 +11,7 @@ import pytest
 
 from weather.market.lfc_pair_completion import OwnLot, instant, inventory
 from weather.market.lfc_pair_replay import (
-    CopiedInputs, RecordedBook, candidate, read_books, replay_fills,
+    CopiedInputs, RecordedBook, candidate, full_size_touch_sensitivity, read_books, replay_fills,
     residual_variance, touch_evidence,
 )
 from weather.market.lfc_recording_io import file_sha
@@ -178,3 +178,18 @@ def test_unlisted_input_and_manifest_escape_refuse(tmp_path):
     manifest.write_text(json.dumps([{'copy': str(escaped)}]), encoding='utf-8')
     with pytest.raises(ValueError):
         CopiedInputs(root)
+
+
+def test_twenty_share_touch_sensitivity_reports_flip_without_calling_it_a_fill():
+    state = inventory([own('t', 'o', 0, '5.31', '.27')], campaign_id='campaign', condition_id='c')
+    rows = [{'condition_id': 'c', 'market': 'los-angeles', 'completion_leg': 1,
+             'touch_evidence': True, 'capped_completion_price': '.69',
+             'first_touch_at_utc': (AT+timedelta(minutes=1)).isoformat(),
+             'first_touch_displayed_size': '5'}]
+    result = full_size_touch_sensitivity(rows, {'c': state}, {'c': '.33'})
+    assert state.u == D('5.31')  # sensitivity never mutates the filtered trace.
+    assert result['hypothetical_over_completions'] == 1
+    scenario = result['scenarios'][0]
+    assert scenario['hypothetical_u_after'] == '-14.69'
+    assert scenario['observed_fill'] is False and scenario['assumed_execution'] is True
+    assert scenario['displayed_size_at_touch'] == '5'

@@ -156,6 +156,36 @@ def residual_variance(states, probabilities):
                 for c, s in states.items()), Decimal(0))
 
 
+def full_size_touch_sensitivity(rows, states, probabilities):
+    """Stress the first touched proposal at 20 shares; explicitly hypothetical.
+
+    This is not a fill model. Displayed ask size, maker queue and the subsequent
+    counterfactual path cannot prove that such an execution would occur.
+    """
+    changed, scenarios = dict(states), []
+    for row in rows:
+        condition = row['condition_id']
+        if row.get('touch_evidence') is not True or any(r['condition_id'] == condition for r in scenarios):
+            continue
+        before = states[condition]
+        if not before.completing:
+            continue
+        residuals = [OwnLot(l.trade_id, l.order_id, l.campaign_id, condition, l.leg, shares, l.price, l.at_utc)
+                     for l, shares in before.residuals]
+        hypothetical = OwnLot('hypothetical-touch', 'hypothetical-order', before.campaign_id, condition,
+            row['completion_leg'], 20, row['capped_completion_price'], instant(row['first_touch_at_utc']))
+        after = inventory([*residuals, hypothetical], campaign_id=before.campaign_id, condition_id=condition)
+        changed[condition] = after
+        scenarios.append({'condition_id': condition, 'market': row['market'], 'u_before': str(before.u),
+            'hypothetical_u_after': str(after.u), 'hypothetical_completion_size': '20',
+            'hypothetical_price': row['capped_completion_price'], 'touch_at_utc': row['first_touch_at_utc'],
+            'displayed_size_at_touch': row['first_touch_displayed_size'],
+            'over_completion': before.u*after.u < 0, 'assumed_execution': True, 'observed_fill': False})
+    return {'assumption': 'One hypothetical full 20-share execution per touched condition; no queue/fill claim.',
+            'scenarios': scenarios, 'hypothetical_over_completions': sum(r['over_completion'] for r in scenarios),
+            'hypothetical_residual_variance_proxy': str(residual_variance(changed, probabilities))}
+
+
 def replay_fills(fills, books, bands, *, policy, end):
     """Two transparent traces: actual A and B-filtered observed fills, no new fills."""
     actual, filtered, rows = [], [], []
@@ -241,16 +271,27 @@ def run(input_root, output):
         c = bands[(fill['session'], fill['band'])]['condition_id']
         p = quantity(fill['latest_public_mid'])
         probabilities[c] = p if fill['leg'].lower() == 'yes' else 1-p
+    coverage = {}
+    for c in actual:
+        times = sorted({book.at for book in books[c] if book.at <= end})
+        gaps = [(b-a).total_seconds() for a, b in zip(times, times[1:])]
+        coverage[c] = {'book_count': len(times), 'first_book_at_utc': times[0].isoformat() if times else None,
+            'last_book_at_utc': times[-1].isoformat() if times else None,
+            'largest_gap_seconds': max(gaps, default=None),
+            'seconds_without_close_book': (end-times[-1]).total_seconds() if times else None,
+            'gaps_over_90_seconds': sum(g > 90 for g in gaps)}
     report = {'analysis': 'T113 copied November 13 proposal and touch replay',
         'fill_assumption': 'Observed A fills filtered by complementary side and margin cap; no new fills assumed.',
         'touch_is_fill': False, 'inputs_sha256': inputs.used, 'fills': rows,
         'a_inventory': {c: s.evidence() for c, s in actual.items()},
         'b_filtered_inventory': {c: s.evidence() for c, s in filtered.items()},
+        'book_coverage': coverage,
         'a_residual_variance_proxy': str(residual_variance(actual, probabilities)),
         'b_filtered_residual_variance_proxy': str(residual_variance(filtered, probabilities)),
         'probabilities': {c: str(p) for c, p in probabilities.items()},
         'over_completions': sum(len(s.flips) for s in filtered.values()),
         'new_completion_fills_assumed': 0,
+        'full_size_touch_sensitivity': full_size_touch_sensitivity(rows, filtered, probabilities),
         'full_day_dry_run': 'NOT_REPRODUCIBLE',
         'missing_for_full_day': ['Recorded day begins after 13:43 ET, not 09:00.',
             'No continuous post-retirement or post-fill books for several bands.',
