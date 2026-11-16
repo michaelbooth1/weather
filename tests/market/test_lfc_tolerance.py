@@ -77,7 +77,7 @@ def test_readiness_never_retries_a_failed_account_fact(readiness, name, value, r
 
 def test_readiness_still_refuses_slow_heartbeat_latency(readiness):
     run, venue, clock, _ = readiness
-    venue.heartbeat = lambda: clock.sleep(8 / 3) or {'status': 'ok'}
+    venue.heartbeat = lambda: clock.sleep(3) or {'status': 'ok'}
     with pytest.raises(TransientPrecheck, match='heartbeat_latency_budget'): run()
 
 

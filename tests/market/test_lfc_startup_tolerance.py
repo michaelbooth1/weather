@@ -2,7 +2,6 @@
 
 Guards: T119 Monday 17:07Z closed WebSocket surfaces as user_stream_readiness.
 """
-from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -24,7 +23,7 @@ def test_startup_transport_defers_then_recovers_same_claim_before_any_session(er
         calls.append('start')
         if calls.count('start') < 3: raise error
     start_stream(SimpleNamespace(start=start), runtime=runtime, authority=authority,
-        status=SimpleNamespace(progress=lambda: None),
+        status=SimpleNamespace(progress=lambda: None, owner_stop=lambda: False),
         journal=SimpleNamespace(record=lambda event, **kw: rows.append((event, kw))))
     assert calls == ['start', 'check', 'start', 'check', 'start']
     assert len(rows) == 2 and all(row[0] == 'startup_stream_unavailable' for row in rows)
@@ -45,5 +44,16 @@ def test_startup_retry_never_hides_invalid_events_placement_or_window_end(mode):
     expected = StateRefused if mode == 'after_placement' else HoldEnd if mode == 'window' else RuntimeError
     with pytest.raises(expected):
         start_stream(SimpleNamespace(start=start), runtime=runtime, authority=authority,
-            status=SimpleNamespace(progress=lambda: None), journal=SimpleNamespace(record=lambda *a, **kw: None))
+            status=SimpleNamespace(progress=lambda: None, owner_stop=lambda: False),
+            journal=SimpleNamespace(record=lambda *a, **kw: None))
     assert len(calls) == (0 if mode == 'after_placement' else 1)
+
+
+def test_startup_wait_observes_owner_stop_before_another_connection():
+    calls = []
+    runtime = SimpleNamespace(clock=Clock())
+    authority = SimpleNamespace(entry=SimpleNamespace(permits=lambda now: True))
+    with pytest.raises(HoldEnd, match='owner_stop'):
+        start_stream(SimpleNamespace(start=lambda: calls.append(True)), runtime=runtime, authority=authority,
+            status=SimpleNamespace(progress=lambda: None, owner_stop=lambda: True), journal=None)
+    assert not calls

@@ -12,7 +12,7 @@ from pathlib import Path
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_capital import CapitalBook, CapitalRefused, SCALE
 from weather.market.lfc_f2_breadth import arm_field_keys
-from weather.market.lfc_completion import complete_evidence, evidence_flags
+from weather.market.lfc_completion import evidence_flags
 from weather.market.lfc_pilot import PilotSession, write_session_end
 from weather.market.lfc_recording_io import file_sha, write_new
 from weather.market.mm_stage2_hold import HoldEnd, _order_id, cancel_ack_ids, digest
@@ -679,12 +679,19 @@ class F2Coordinator:
         self.posts = sum(band.posts for band in self.bands)
         self.known = {oid: band.session_id for band in self.bands for oid in band.known}
         self.fill_seen = any(band.fill_seen for band in self.bands)
+        from weather.market.lfc_campaign_proof import ANCILLARY_SAMPLES, ANCILLARY_EVENT_GAPS, MONEY_READ_GAPS
+        supported_gaps = ({'sample_' + name for name in ANCILLARY_SAMPLES} | ANCILLARY_EVENT_GAPS |
+                          MONEY_READ_GAPS | {'scoring_missed', 'minute_missed'})
+        private_money_intact = (not self.evidence_failed and len(self.results) == len(self.bands) and
+            all(self.results[b.session_id].get('failure_type') is None and
+                b._evidence_faults <= supported_gaps for b in self.bands))
         self.evidence_failed |= (len(self.results) != len(self.bands) or any(b.evidence_failed for b in self.bands))
         flags = {'evidence_complete': not self.evidence_failed, 'inventory_proven': self.inventory_proven,
                  'unknown_submit': self.posts != len(self.known)}
         # Root cancellation plus the final whole-account money/inventory proof
         # owns cleanup. Ancillary sampling gaps remain evidence_complete=false.
-        self.cleanup_ok = self.cancellation_ok and self.inventory_proven and not flags['unknown_submit']
+        self.cleanup_ok = (self.cancellation_ok and self.inventory_proven and
+                           not flags['unknown_submit'] and private_money_intact)
         manifest = {'session_id': self.session_id, 'attempt_id': self.attempt_id,
                     'schema_version': ('lfc_f2_manifest_v0.2' if self.scope['protocol'] == 'lfc_autostart_v3' else 'lfc_f2_manifest_v0.1'), 'policy_sha256': self.policy.sha256, 'bands': []}
         for band in self.bands:

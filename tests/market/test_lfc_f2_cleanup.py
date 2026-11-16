@@ -102,3 +102,11 @@ def test_missing_ancillary_samples_preserve_money_clean_cleanup(tmp_path, missin
     assert outcome['evidence_complete'] is False
     assert local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
                             attempt_id=controller.attempt_id, outcome=outcome)['complete']
+
+
+def test_unclassified_core_fault_cannot_be_hidden_by_a_clean_account_read(tmp_path):
+    controller, account, status, ledger, clock = setup(tmp_path)
+    controller.bands[0].note_evidence_fault('unclassified_core_fault')
+    result = controller.run()
+    assert result['cancellation_ok'] and result['inventory_proven'] and not result['unknown_submit']
+    assert result['cleanup_ok'] is False

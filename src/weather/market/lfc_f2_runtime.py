@@ -50,7 +50,13 @@ def start_stream(raw, *, runtime, authority, status, journal):
     from weather.market.lfc_campaign_runtime import transient_read_error
     from weather.market.lfc_campaign_state import StateRefused
     from weather.market.mm_stage2_hold import HoldEnd
+    def waiting():
+        status.progress()
+        if status.owner_stop():
+            raise HoldEnd('owner_stop')
+    raw.startup_checkpoint = waiting
     while authority.entry.permits(runtime.clock.now()):
+        waiting()
         if runtime.state.ledger.open_sessions() or runtime.state.ledger.unresolved_legs():
             raise StateRefused('stream_retry_after_placement')
         try:

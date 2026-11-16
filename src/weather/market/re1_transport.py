@@ -401,6 +401,7 @@ class OwnerVenue:
         self.event_count = 0
 
     def start(self, *, checkpoint=lambda: None):
+        checkpoint = getattr(self, 'startup_checkpoint', checkpoint)
         for attempt in range(2):
             if attempt or self.stream.health()['state'] in {'FAILED', 'STOPPED'}:
                 self.replace_stream()
