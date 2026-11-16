@@ -9,6 +9,12 @@ For the v0.4 schedule, arm experiment and takeover of an existing campaign,
 read [Pin B policy and migration](lfc-autostart-pinb.md). Retained v0.1-v0.3
 snapshots keep their original contracts.
 
+The shared rotating-ID heartbeat sends sequentially on its own worker. Each
+request uses a fresh connection with a total deadline across network phases;
+transient failure retries immediately. The ACK-age cutoff remains eight seconds,
+and a late response cannot revive a stale lease. Heartbeat timeout limits live in
+`re1_transport`; readiness does not widen them with ordinary reader timeouts.
+
 ## One task and one policy file
 
 The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action

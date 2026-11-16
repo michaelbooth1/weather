@@ -16,6 +16,37 @@ from tests.market.test_mm_stage2_rewards import sdk_fixture
 from weather.market.re1_transport import OwnerVenue, bounded_rows
 
 
+def test_heartbeat_total_deadline_closes_transport_before_fresh_retry(monkeypatch):
+    import asyncio
+    import httpx
+    from urllib.request import Request
+    from weather.market.re1_transport import heartbeat_open
+    events = []
+    class Client:
+        def __init__(self, **kwargs):
+            assert kwargs['trust_env'] is False
+            self.number = len([e for e in events if e == 'new'])
+            events.append('new')
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): events.append('closed')
+        def stream(self, *args, **kwargs): return self
+        status_code = 200
+        async def aiter_bytes(self):
+            yield b'{"heartbeat_id":'
+            if self.number == 0:
+                # Each phase is within the socket timeout; their sum is not.
+                await asyncio.sleep(.06)
+                await asyncio.sleep(.06)
+            yield b'"next"}'
+    monkeypatch.setattr(httpx, 'AsyncClient', Client)
+    request = Request('https://fixture.invalid/v1/heartbeats', data=b'{}', method='POST')
+    with pytest.raises(TimeoutError): heartbeat_open(request, timeout=.09)
+    assert events == ['new', 'closed', 'closed']
+    reply = heartbeat_open(request, timeout=.09)
+    assert json.loads(reply.read()) == {'heartbeat_id': 'next'}
+    assert events == ['new', 'closed', 'closed', 'new', 'closed', 'closed']
+
+
 def test_undecodable_order_read_is_transient_and_other_errors_are_not():
     class UnexpectedResponseError(Exception):
         pass

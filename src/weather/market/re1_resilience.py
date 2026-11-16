@@ -128,6 +128,8 @@ class HeartbeatLoop:
         except Exception as exc:
             if not transient(exc):
                 self.failure = 'heartbeat_failed'
+            else:
+                self.next_send = self.clock.monotonic()
             try:
                 self.journal.record('heartbeat_unavailable', exception_type=type(exc).__name__)
             except BaseException:
@@ -138,7 +140,10 @@ class HeartbeatLoop:
             def worker():
                 while not self.stopped.is_set():
                     self.step()
-                    self.stopped.wait(.1)
+                    # A failed attempt has already spent its network budget.
+                    # Retry immediately, on this worker only, preserving ID order.
+                    delay = min(.1, max(0, self.next_send - self.clock.monotonic()))
+                    self.stopped.wait(delay)
             self.thread = Thread(target=worker, name='re1-heartbeat', daemon=True)
             self.thread.start()
         else:

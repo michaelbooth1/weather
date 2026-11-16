@@ -8,11 +8,13 @@ transport-level GET-only guard. No .env is accessed merely by importing this fil
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import asyncio
 from decimal import Decimal
 from functools import lru_cache
 import json
 import hashlib
 import logging
+from io import BytesIO
 from pathlib import Path
 import re
 import subprocess
@@ -39,9 +41,47 @@ RPC = 'https://polygon.drpc.org'
 GEOBLOCK = 'https://polymarket.com/api/geoblock'
 
 
+HEARTBEAT_TIMEOUT = 2.0  # 2 s cadence + three attempts fit before the 8 s ACK limit.
+
+
+def heartbeat_open(request, *, timeout):
+    """One fresh connection and one total deadline across connect/TLS/read.
+
+    Cancellation closes the request before the next rotating-ID send. A socket
+    timeout alone can be spent repeatedly by different network phases.
+    """
+    import httpx
+    async def exchange():
+        async with httpx.AsyncClient(trust_env=False, timeout=timeout) as client:
+            async with client.stream(request.get_method(), request.full_url,
+                    headers=dict(request.header_items()), content=request.data) as response:
+                raw = bytearray()
+                async for chunk in response.aiter_bytes():
+                    raw.extend(chunk)
+                    if len(raw) > 65536:
+                        raise RuntimeError('heartbeat_response_too_large')
+                if response.status_code != 200:
+                    raise HTTPError(request.full_url, response.status_code, 'heartbeat_http', {}, BytesIO(raw))
+                result = BytesIO(raw)
+                result.status = 200
+                return result
+    async def bounded():
+        return await asyncio.wait_for(exchange(), timeout=timeout)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(bounded())
+    finally:
+        # Do not wait for a cancelled resolver's executor during loop shutdown.
+        # Its cancelled coroutine cannot open a connection or send a request.
+        loop.close()
+
+
 class Re1Heartbeat(OfficialHeartbeatSender):
     """Current documented v1 rotating-ID contract; Stage 1 stays unchanged."""
     def __init__(self, **kwargs):
+        kwargs['timeout_seconds'] = min(kwargs.get('timeout_seconds', HEARTBEAT_TIMEOUT), HEARTBEAT_TIMEOUT)
+        if kwargs.get('opener') is None:
+            kwargs['opener'] = heartbeat_open
         super().__init__(**kwargs)
         self.heartbeat_id = ''
         self.last_response = None
@@ -309,8 +349,7 @@ class OwnerVenue:
         self.readers = RewardsReaders(client, purpose='explicit_post_session_collect' if readonly else 'sealed_stage2_scoring')
         self.sender = Re1Heartbeat(signer_address=client.signer, api_key=fields['API_KEY'],
             api_secret=fields['API_SECRET'], api_passphrase=fields['API_PASSPHRASE'],
-            # Capped at 5 s so one hung request still leaves a retry inside the 8 s stale limit (2026-09-24 review).
-            timeout_seconds=min(self.timeouts.get('heartbeat', 2), 5))
+            timeout_seconds=min(self.timeouts.get('heartbeat', HEARTBEAT_TIMEOUT), HEARTBEAT_TIMEOUT))
         self.stream_args = None
         self.stream_number = 0
         self.directory = directory

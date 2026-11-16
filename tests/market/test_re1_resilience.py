@@ -215,6 +215,37 @@ def test_one_hung_heartbeat_is_retried_inside_the_stale_limit():
     assert beat.failure is None and len(calls) >= 10
 
 
+@pytest.mark.parametrize('old_timeout', [False, True])
+def test_monday_two_slow_failures_recover_only_with_bounded_requests(monkeypatch, old_timeout):
+    from urllib.error import URLError
+    from weather.market.re1_transport import Re1Heartbeat
+    monkeypatch.setattr('weather.market.re1_owner_checks.code_identity', lambda: 'a' * 40)
+    clock, attempts = Clock(), []
+    def opened(request, *, timeout):
+        attempts.append(clock.seconds)
+        if len(attempts) in (2, 3):
+            clock.seconds += min(4.5, timeout)
+            raise URLError('fixture shared-path timeout')
+        clock.seconds += .44
+        return SimpleNamespace(status=200, read=lambda *a: b'{"heartbeat_id":"next"}', close=lambda: None)
+    sender = Re1Heartbeat(signer_address='0x' + 'a' * 40, api_key='fixture', api_secret='Zml4dHVyZQ==',
+                          api_passphrase='fixture', opener=opened)
+    if old_timeout:
+        sender._timeout_seconds = 5  # The released sender's upper bound.
+    beat = HeartbeatLoop(clock, sender.send, SimpleNamespace(record=lambda *a, **k: None), threaded=False)
+    beat.start()
+    clock.seconds = 2
+    beat.step()
+    assert beat.next_send == clock.seconds  # No cadence wait after a failed send.
+    beat.step()
+    beat.step()
+    if old_timeout:
+        assert beat.failure == 'heartbeat_stale' and len(attempts) == 3
+    else:
+        assert beat.failure is None and len(attempts) == 4
+        assert beat.last_ack == pytest.approx(6.44) and beat.last_ack - .44 < 8
+
+
 def test_latency_table_uses_nearest_rank_p95():
     assert latency(range(1, 21)) == dict(min=1, median=10.5, p95=19, max=20, count=20)
 
