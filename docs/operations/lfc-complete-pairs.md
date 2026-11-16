@@ -84,7 +84,7 @@ required absolute paths. Heavy invocations use the workstation wrapper's
 array. Each row has the source path, absolute `copy` path, byte `length` and
 `sha256`. Reads must be listed, hash-bound regular files inside that directory.
 The copied inputs are the campaign policy, ledger, A091-format
-`fills.csv`/`bands.csv`, band selections and retained per-band journals from the
+`fills.csv`/`bands.csv`, session selections and retained per-band journals from the
 two November 13 filled sessions. K6 verifies CSV fill identities and quantities
 against stream and terminal REST executions and reconstructs exact held FIFO inventory.
 The replay uses K6's execution prices after validating the native cost binding.
