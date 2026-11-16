@@ -77,8 +77,14 @@ def inventory_delta(ledger, baseline, current, *, proven_resting=None):
                 continue
             token = removal['token_id']
             expected[token] = expected.get(token, Decimal(0)) - quantity(removal['quantity'])
-            if expected[token] < 0:
-                raise ValueError('inventory_redemption_scope')
+        for token, size in expected.items():
+            if size < 0:
+                # A T-40 baseline keeps the positions endpoint's 4-decimal
+                # report; a proved burn is exact. Same strict bound as
+                # lfc_f2_inventory.expected_inventory; cash stays exact.
+                if size <= -POSITION_DUST:
+                    raise ValueError('inventory_redemption_scope')
+                expected[token] = Decimal(0)
     observed = {str(t): quantity(v) for t, v in current.items() if quantity(v)}
     expected = {t: v for t, v in expected.items() if v}
     changed = sorted(t for t in set(expected) | set(observed)

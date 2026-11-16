@@ -9,7 +9,7 @@ from copy import deepcopy
 from decimal import Decimal, ROUND_CEILING
 import re
 
-from weather.market.lfc_accounting import quantity
+from weather.market.lfc_accounting import POSITION_DUST, quantity
 from weather.market.mm_stage2_hold import digest, utc
 from weather.market.lfc_sleeve_loss import GROSS, retained_gains, sleeve_charge
 
@@ -618,6 +618,16 @@ class CapitalBook:
             outside -= (sum((quantity(r['outside_quantity']) for r in self.removal_events if r['token_id'] == token), Decimal(0)) -
                         quantity(anchor.get('outside_removed_totals', {}).get(token, 0)))
             capacity = outside + sum((lot['remaining_quantity'] for _, lot in lots), Decimal(0))
+            if (outside > 0 and 0 < remaining - capacity < POSITION_DUST and
+                    not any(lot['token_id'] == token and lot['terminal_sequence'] < sequence
+                            for lot in self.lots.values())):
+                # A token the campaign never held is owner inventory only. Its
+                # anchor carries the positions endpoint's 4-decimal report, while
+                # the receipt or row carries the exact burn. A strictly
+                # sub-reporting excess is the owner's unreported remainder, so the
+                # whole burn and payout stay owner-side. Campaign tokens keep
+                # exact lot capacity: any excess over their lots still refuses.
+                outside = capacity = remaining
             anchor_time = utc(anchor.get('snapshot_at_utc', anchor['at_utc'])).timestamp() if anchor else 0
             if 'ledger_cut' in anchor:
                 anchor_time = int(anchor_time)

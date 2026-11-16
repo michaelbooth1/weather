@@ -424,7 +424,15 @@ Positions snapshots use the venue's reporting precision; receipt-proved burns
 and campaign lots retain exact quantities. A negative expected-inventory
 residual strictly smaller than `lfc_accounting.POSITION_DUST` becomes zero for
 inventory comparison only. At or beyond that bound redemption scope refuses;
-cash, cost basis and returned principal remain exact.
+cash, cost basis and returned principal remain exact. The T-40 start-gate
+comparison applies the same bound. A redemption of a token the campaign never
+held may exceed its anchor's reported owner quantity by strictly less than
+`POSITION_DUST`. The whole exact burn and its payout are then owner-side
+(external cash), never a lot, loss or gain. A campaign token keeps exact lot
+capacity, including any owner quantity held on the same token; any excess over
+its lots still refuses. The capital book replays every retained row, so a
+release that changes this rule is upgraded only after a copy of the live ledger
+replays to identical capital state under the old and new heads.
 
 Ordinary activity and native-receipt collection begin at the latest anchor's
 activity coverage watermark minus a 30-minute overlap, clipped at ledger genesis.
