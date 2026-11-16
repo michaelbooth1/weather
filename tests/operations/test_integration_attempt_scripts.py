@@ -399,7 +399,9 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
         text=True,
     )
     assert wrong_class.returncode != 0
-    assert "orchestration_wrapper or an explicitly manual_reviewed_change" in wrong_class.stderr
+    # PowerShell console hosts may wrap the same refusal across multiple lines.
+    refusal = " ".join(wrong_class.stderr.split())
+    assert "orchestration_wrapper or an explicitly manual_reviewed_change" in refusal
 
     command[command.index("schema_registry")] = "manual_reviewed_change"
     created = subprocess.run(
