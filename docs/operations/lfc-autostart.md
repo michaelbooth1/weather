@@ -15,6 +15,12 @@ transient failure retries immediately. The ACK-age cutoff remains eight seconds,
 and a late response cannot revive a stale lease. Heartbeat timeout limits live in
 `re1_transport`; readiness does not widen them with ordinary reader timeouts.
 
+Readiness retries only transient transport errors a bounded number of times per
+sample. Ordinary readers have a five-second timeout floor. Private bootstrap may
+replace one failed connection; the new subscription and server PONG must both
+be proven. Every failed stream keeps its separate journal. Account emptiness,
+balances, positions and geoblock requirements are unchanged.
+
 ## One task and one policy file
 
 The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action

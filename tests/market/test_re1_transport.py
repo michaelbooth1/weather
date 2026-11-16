@@ -137,7 +137,7 @@ def test_json_read_request_identifies_attended_commit(monkeypatch, url, body):
         def geturl(self): return url
     def opened(request, *, timeout):
         requests.append(request)
-        assert request.full_url == url and timeout == 2
+        assert request.full_url == url and timeout == 5
         assert request.get_method() == ('GET' if body is None else 'POST')
         assert request.data == (None if body is None else json.dumps(body).encode())
         assert dict(request.header_items()) == {

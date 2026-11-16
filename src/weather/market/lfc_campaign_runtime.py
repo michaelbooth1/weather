@@ -31,8 +31,9 @@ from weather.market.mm_stage2_hold import digest
 def transient_read_error(exc):
     from urllib.error import HTTPError, URLError
     from weather.market.mm_account_reads import AmbiguousAccountRead
+    from weather.market.re1_resilience import transient
     status = getattr(getattr(exc, 'response', None), 'status_code', getattr(exc, 'status', getattr(exc, 'code', None)))
-    return (isinstance(exc, (TransientPrecheck, TimeoutError, ConnectionError, AmbiguousAccountRead)) or
+    return (transient(exc) or isinstance(exc, (TransientPrecheck, TimeoutError, ConnectionError, AmbiguousAccountRead)) or
             isinstance(exc, URLError) and not isinstance(exc, HTTPError) or
             type(status) is int and (status == 429 or 500 <= status <= 599) or
             type(exc).__module__.startswith(('httpx', 'httpcore')) and type(exc).__name__ in {
@@ -749,11 +750,22 @@ class Runtime:
                              ('positions', venue.positions), ('balances', venue.balances),
                              ('geoblock', venue.geography), ('heartbeat', venue.heartbeat)]:
                 values = []
-                for _ in range(6 if name == 'heartbeat' else 3):
-                    if not entry.permits(self.clock.now()) or not self.task_enabled():
-                        raise TransientPrecheck('pre_go_window_or_task_changed')
-                    started = self.clock.monotonic()
-                    result = fn()
+                for sample in range(6 if name == 'heartbeat' else 3):
+                    for attempt in range(3):
+                        if not entry.permits(self.clock.now()) or not self.task_enabled():
+                            raise TransientPrecheck('pre_go_window_or_task_changed')
+                        started = self.clock.monotonic()
+                        try:
+                            result = fn()
+                            break
+                        except Exception as exc:
+                            if not transient_read_error(exc) or isinstance(exc, TransientPrecheck):
+                                raise
+                            write_new(directory / f'{name}-{sample}-{attempt}-unavailable.json', {
+                                'fact': name, 'sample': sample, 'attempt': attempt,
+                                'exception_type': type(exc).__name__, 'at_utc': self.clock.now().isoformat()})
+                            if attempt == 2:
+                                raise TransientPrecheck('readiness_transport_unavailable') from None
                     values.append(self.clock.monotonic() - started)
                     if name == 'open_orders' and result != []:
                         raise StateRefused('account_not_empty')
@@ -764,17 +776,18 @@ class Runtime:
                 timings[name] = latency(values)
             if max(2, 3 * timings['heartbeat']['p95']) >= 8:
                 raise TransientPrecheck('heartbeat_latency_budget')
-            return {'timeouts_seconds': {name: max(2, 3 * row['p95']) for name, row in timings.items()},
+            return {'timeouts_seconds': {name: 2 if name == 'heartbeat' else max(5, 3 * row['p95'])
+                                         for name, row in timings.items()},
                     'latency_seconds': timings, 'selection_sha256': file_sha(directory / 'selection.json'),
                     'readiness_directory': directory.relative_to(self.state.root).as_posix(),
                     'sidecar_scope': {'market_id': selected['market_id'], 'event_date': selected['target_date'],
                                       'event_slug': selected['event_slug'],
                                       'condition_ids': selected['event_condition_ids']}}
-        except (TimeoutError, ConnectionError):
-            raise TransientPrecheck('readiness_transport_unavailable') from None
-        except RuntimeError as exc:
+        except Exception as exc:
             if str(exc) == 'user_stream_readiness':
                 raise TransientPrecheck('private_stream_not_ready') from None
+            if transient_read_error(exc) and not isinstance(exc, TransientPrecheck):
+                raise TransientPrecheck('readiness_transport_unavailable') from None
             raise
         finally:
             venue.close()

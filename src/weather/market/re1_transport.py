@@ -39,9 +39,10 @@ from weather.paths import REPO_ROOT
 ASSETS = ('0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB')
 RPC = 'https://polygon.drpc.org'
 GEOBLOCK = 'https://polymarket.com/api/geoblock'
-
-
 HEARTBEAT_TIMEOUT = 2.0  # 2 s cadence + three attempts fit before the 8 s ACK limit.
+READ_TIMEOUT = 5
+STREAM_TRANSPORT_ERRORS = frozenset({'ConnectionError', 'TimeoutError', 'OSError', 'SSLEOFError',
+    'SSLError', 'WebSocketConnectionClosedException', 'WebSocketTimeoutException'})
 
 
 def heartbeat_open(request, *, timeout):
@@ -156,7 +157,7 @@ def re1_user_agent():
     return 'weather-re1-attended/' + code_identity()[:9]
 
 
-def json_read(url, *, body=None, timeout=2, journal=None):
+def json_read(url, *, body=None, timeout=READ_TIMEOUT, journal=None):
     assert_no_ambient_proxy_configuration()
     request = Request(url, data=None if body is None else json.dumps(body).encode(),
                       headers={'Accept': 'application/json', 'Content-Type': 'application/json',
@@ -191,7 +192,7 @@ def condition_configurations(condition, *, journal=None):
     return rows
 
 
-def geography(*, timeout=2):
+def geography(*, timeout=READ_TIMEOUT):
     value = json_read(GEOBLOCK, timeout=timeout)
     if type(value.get('blocked')) is not bool:
         raise RuntimeError('geoblock_unreadable')
@@ -212,7 +213,7 @@ def build_client(fields, *, readonly=False, timeout=10):
         raise RuntimeError('signer_funder_identity')
     if PRODUCTION_CONFIG.clob_url != HOST or PRODUCTION_CONFIG.rpc_url != RPC:
         raise RuntimeError('pinned_sdk_endpoint_changed')
-    if fetch_wallet_deployed(maker, kind, timeout_seconds=2) is not True:
+    if fetch_wallet_deployed(maker, kind, timeout_seconds=READ_TIMEOUT) is not True:
         raise RuntimeError('existing_wallet_required_no_deployment')
     logger = logging.Logger('re1-sdk-disabled')
     logger.disabled = True
@@ -239,7 +240,7 @@ def build_client(fields, *, readonly=False, timeout=10):
                 raise RuntimeError('non_clob_mutation_forbidden')
         for name in ('gamma', 'data', 'clob', 'secure_clob', 'relayer', 'rfq', 'combos', 'builder_gateway'):
             transport = getattr(client._ctx, name)
-            transport._client.timeout = httpx.Timeout(max(2, timeout))
+            transport._client.timeout = httpx.Timeout(max(READ_TIMEOUT, timeout))
             transport._client.event_hooks['request'].append(constrain)
         if fields['API_KEY'] not in client.fetch_api_keys():
             raise RuntimeError('supplied_credentials_not_active')
@@ -358,7 +359,8 @@ class OwnerVenue:
             self.stream_args = dict(tokens=tokens, guard=guard, known_order_ids=self.known_order_ids,
                 api_key=fields['API_KEY'], secret=fields['API_SECRET'],
                 passphrase=fields['API_PASSPHRASE'], maker_address=self.maker, condition_id=condition,
-                connect_timeout_seconds=self.timeouts.get('user_stream', 2), heartbeat_seconds=5, inbound_silence_seconds=10)
+                connect_timeout_seconds=max(READ_TIMEOUT, self.timeouts.get('user_stream', READ_TIMEOUT)),
+                heartbeat_seconds=5, inbound_silence_seconds=10)
             self.stream = self.stream_factory(**self.stream_args, journal_path=Path(directory) / 'user-stream.jsonl')
         self.event_count = 0
 
@@ -391,16 +393,31 @@ class OwnerVenue:
                 transport._client.event_hooks['response'].append(retain)
         self._journal_hooks_installed = True
 
-    def start(self):
-        self.stream.start()
-        end = time.monotonic() + 20
-        while time.monotonic() < end:
-            evidence = self.stream.bootstrap_evidence()
-            if evidence['transport_active'] and evidence['server_pong_observed'] and evidence['account_wide_subscription_sent']:
-                return
-            if self.stream.health()['state'] == 'FAILED': break
-            time.sleep(.1)
-        raise RuntimeError('user_stream_readiness')
+    def replace_stream(self):
+        self.stream.stop(timeout_seconds=2)
+        self.stream_number += 1
+        self.stream = self.stream_factory(**self.stream_args,
+            journal_path=Path(self.directory) / f'user-stream-{self.stream_number}.jsonl')
+        self.event_count = 0
+
+    def start(self, *, checkpoint=lambda: None):
+        for attempt in range(2):
+            if attempt or self.stream.health()['state'] in {'FAILED', 'STOPPED'}:
+                self.replace_stream()
+            self.stream.start()
+            end = time.monotonic() + 20
+            while time.monotonic() < end:
+                checkpoint()
+                evidence = self.stream.bootstrap_evidence()
+                if evidence['transport_active'] and evidence['server_pong_observed'] and evidence['account_wide_subscription_sent']:
+                    return
+                health = self.stream.health()
+                if health['state'] == 'FAILED':
+                    if health['failure_type'] not in STREAM_TRANSPORT_ERRORS:
+                        raise RuntimeError('user_stream_invalid_event')
+                    break
+                time.sleep(.1)
+        raise ConnectionError('user_stream_readiness')
 
     def events(self):
         health = self.stream.health()
@@ -415,17 +432,12 @@ class OwnerVenue:
             return new  # Drain fills before attempting a reconnect.
         # Avoid rehashing a growing journal once a second for six hours.
         if health['state'] == 'FAILED':
-            if health['failure_type'] not in {'ConnectionError', 'TimeoutError', 'OSError',
-                    'WebSocketConnectionClosedException', 'WebSocketTimeoutException'}:
+            if health['failure_type'] not in STREAM_TRANSPORT_ERRORS:
                 if getattr(self.stream, 'failed_market_trade', False):
                     return [dict(event_type='failed_trade_event', official_event_type='trade',
                                  condition_id=self.condition, force_order_read=True)]
                 raise RuntimeError('user_stream_invalid_event')
-            self.stream.stop(timeout_seconds=2)
-            self.stream_number += 1
-            self.stream = self.stream_factory(**self.stream_args,
-                journal_path=Path(self.directory) / f'user-stream-{self.stream_number}.jsonl')
-            self.event_count = 0
+            self.replace_stream()
             self.stream.start()
             raise ConnectionError('user_stream_reconnecting')
         if (health['state'] not in {'TRANSPORT_CONNECTED_UNPROVEN', 'SUBSCRIPTION_PROVEN'} or
@@ -450,10 +462,11 @@ class OwnerVenue:
         options = {'market': self.condition} if after is None else {'market': self.condition, 'after': str(after)}
         return bounded_rows(self.client.list_account_trades(**options), seconds=getattr(self, 'trades_seconds', None))
     def positions(self):
-        evidence = fetch_current_positions(self.maker, self.condition, timeout_seconds=self.timeouts.get('positions', 2))
+        evidence = fetch_current_positions(self.maker, self.condition,
+            timeout_seconds=max(READ_TIMEOUT, self.timeouts.get('positions', READ_TIMEOUT)))
         if evidence.get('status') != 'OBSERVED': raise RuntimeError('positions_unreadable')
         return evidence['rows']
-    def geography(self): return geography(timeout=self.timeouts.get('geoblock', 2))
+    def geography(self): return geography(timeout=max(READ_TIMEOUT, self.timeouts.get('geoblock', READ_TIMEOUT)))
     def heartbeat(self):
         if self.readonly and not getattr(self, 'preflight', False): raise RuntimeError('read_only')
         if self.readonly and self.open_orders() != []:
@@ -477,7 +490,7 @@ class OwnerVenue:
         for i, asset in enumerate(ASSETS):
             result = json_read(RPC, body={'jsonrpc': '2.0', 'id': i + 1, 'method': 'eth_call',
                 'params': [{'to': asset, 'data': '0x70a08231' + self.maker[2:].lower().rjust(64, '0')}, 'latest']},
-                timeout=self.timeouts.get('balances', 2))
+                timeout=max(READ_TIMEOUT, self.timeouts.get('balances', READ_TIMEOUT)))
             if result.get('id') != i + 1 or 'error' in result or re.fullmatch(r'0x[0-9a-fA-F]{64}', result.get('result', '')) is None:
                 raise RuntimeError('asset_balance_unreadable')
             assets[asset] = str(Decimal(int(result['result'], 16)) / 1_000_000)
