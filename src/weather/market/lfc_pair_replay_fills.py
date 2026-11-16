@@ -12,13 +12,26 @@ from weather.market.lfc_recording_io import strict_json
 TERMINAL = re.compile(r'"event"\s*:\s*"terminal_trades"')
 
 
+def session_directories(receipts, sessions):
+    """A091 CSV uses short session IDs; resolve only an unambiguous copy."""
+    result = {}
+    for prefix in sessions:
+        candidates = {key.split('/')[0] for key in receipts
+                      if key.startswith('session-F2-'+prefix) and key.endswith('/f2_manifest.json')}
+        if len(candidates) != 1:
+            raise ValueError('replay_session_binding')
+        result[prefix] = candidates.pop()
+    return result
+
+
 def verify_fills(inputs, fills, bands, *, campaign_id):
     """Read only hashed copies. Geography journal events are never decoded."""
     ledger = Ledger.open(inputs.path('ledger.jsonl'))
     legs = {oid: dict(ledger.legs[key], intent_key=key, side='BUY') for oid, key in ledger.by_order.items()}
+    directories = session_directories(inputs.receipts, {fill['session'] for fill in fills})
     trades, observed = [], None
-    journals = sorted({key for key in inputs.receipts if key.endswith('/journal.jsonl') and any(
-        key.startswith('session-F2-'+fill['session']+'/') for fill in fills)})
+    journals = sorted({key for key in inputs.receipts if key.endswith('/journal.jsonl') and
+                       key.split('/')[0] in directories.values()})
     for relative in journals:
         with inputs.path(relative).open(encoding='utf-8') as stream:
             for line in stream:
@@ -45,7 +58,7 @@ def verify_fills(inputs, fills, bands, *, campaign_id):
         condition = band['condition_id']
         if condition in states:
             continue
-        selections = [key for key in inputs.receipts if key.startswith('session-F2-'+fill['session']+'/')
+        selections = [key for key in inputs.receipts if key.startswith(directories[fill['session']]+'/')
                       and key.endswith('/'+fill['band']+'/selection.json')]
         if len(selections) != 1:
             raise ValueError('replay_selection_coverage')
