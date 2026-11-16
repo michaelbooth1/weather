@@ -78,6 +78,11 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 # A missed send is tolerated by the independent heartbeat
                 # freshness/failure checks; it is not missing money evidence.
                 gaps.add(event)
+            elif event == 'startup_stream_unavailable':
+                if requests or responses or orders or row.get('exception_type') not in {
+                        'RuntimeError', 'ConnectionError', 'TimeoutError'}:
+                    raise ValueError('private_startup_gap_after_placement')
+                gaps.add(event)
             elif event == 'campaign_task_readback_unavailable':
                 if (row.get('readback_reason') not in {'timeout', 'failed', 'invalid'} or
                         type(row.get('consecutive_failures')) is not int or

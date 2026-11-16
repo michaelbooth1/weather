@@ -21,6 +21,12 @@ replace one failed connection; the new subscription and server PONG must both
 be proven. Every failed stream keeps its separate journal. Account emptiness,
 balances, positions and geoblock requirements are unchanged.
 
+Before any band session or order intent exists, F2 startup defers a transient
+private-stream bootstrap failure and retries within the original claim and entry
+window. It retains the failure type, checks task/policy/clock authority, and still
+refreshes the whole-account go proof before placement. Invalid private events
+remain fatal. This retry path cannot re-enter an order-capable session.
+
 ## One task and one policy file
 
 The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action

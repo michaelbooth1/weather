@@ -41,6 +41,34 @@ def stream_factory(registry, *, retain_trade_identity=False):
     return CampaignPairStream
 
 
+def start_stream(raw, *, runtime, authority, status, journal):
+    """Defer a pre-placement transport gap within this claim's entry window.
+
+    No coordinator run, band start, intent or POST exists at this point. This
+    loop never retries an order-capable phase or consumes another claim.
+    """
+    from weather.market.lfc_campaign_runtime import transient_read_error
+    from weather.market.lfc_campaign_state import StateRefused
+    from weather.market.mm_stage2_hold import HoldEnd
+    while authority.entry.permits(runtime.clock.now()):
+        if runtime.state.ledger.open_sessions() or runtime.state.ledger.unresolved_legs():
+            raise StateRefused('stream_retry_after_placement')
+        try:
+            raw.start()
+            return
+        except Exception as exc:
+            if not transient_read_error(exc):
+                raise
+            journal.record('startup_stream_unavailable', exception_type=type(exc).__name__)
+            status.progress()
+            # Startup may spend several connect/PONG intervals. Preserve drift,
+            # STOP, task and policy checks without treating setup as a hung loop.
+            authority.resync()
+            authority.check()
+            runtime.clock.sleep(1)
+    raise HoldEnd('start_window_expired')
+
+
 def run_live(runtime, authority, status):
     """Called only after durable account/date claim and the owner setup gates."""
     from weather.market.lfc_campaign_runtime import selection_account_screen
@@ -120,7 +148,7 @@ def run_live(runtime, authority, status):
             status.progress()
         # Every exact-pair stream exists before either can receive an event.
         for raw in raws:
-            raw.start()
+            start_stream(raw, runtime=runtime, authority=authority, status=status, journal=coordinator.journal)
             status.progress()
         if breadth:
             read = authority.refresh_go(progress=status.progress)

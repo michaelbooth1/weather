@@ -37,7 +37,7 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
     owner_runtime_fixture(tmp_path, monkeypatch, fills=fills)
 
 
-def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0, audit=None):
+def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0, audit=None, startup_failures=0):
     clock = Clock(NOW)
     row = example_policy(); row['max_session_seconds'] = 900 if fills or setup_latency else 300
     if setup_latency:
@@ -50,7 +50,7 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
     rows = cities()
     table = build_table(rows, now=NOW, policy=policy, cash='300', capital=CapitalBook(ledger).figures())
     snapshots = {r['condition_id']: r['snapshot'] for r in rows}
-    clients, raws, signed_guards, sources = [], [], [], []
+    clients, raws, signed_guards, sources, start_gaps = [], [], [], [], []
     class Client:
         def __init__(self, readonly):
             self.readonly, self.closed = readonly, False
@@ -79,7 +79,12 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
         raw = FundedRaw(snapshots[kwargs['condition']], kwargs['directory'], clock=clock,
                         account=account, index=len(raws))
         raw.fixture_stream_factory = kwargs['stream_factory']
-        raw.start = lambda: clock.sleep(setup_latency / 4)
+        def start():
+            clock.sleep(setup_latency / 4)
+            if raw.index == 0 and len(start_gaps) < startup_failures:
+                start_gaps.append(True)
+                raise RuntimeError('user_stream_readiness')
+        raw.start = start
         raw.close = client.close
         raws.append(raw)
         return raw
@@ -159,6 +164,7 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
         outcome = status.finish(success=True)
         assert outcome['state'] == 'COMPLETE' and len(outcome['bands']) == 12
         assert len(raws) == len(signed_guards) == 12 and len(clients) == 13
+        assert len(start_gaps) == startup_failures
         assert sources == ['live'] and all(c.closed for c in clients)
         assert len(ledger.legs) >= 24 and ledger.counted_sessions() == 1
         if fills:
@@ -180,3 +186,8 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
             (NOW + timedelta(seconds=first_post)) - __import__('datetime').datetime.fromisoformat(go_read['started_at_utc'])
             ).total_seconds() if go_read else None, 'claims': len(ledger.autostart_claims),
             'incidents': state.incidents(), 'posts': len(ledger.legs)}
+
+
+def test_closed_private_stream_during_setup_defers_same_claim_then_completes(tmp_path, monkeypatch):
+    result = owner_runtime_fixture(tmp_path, monkeypatch, startup_failures=2)
+    assert result['claims'] == 1 and not result['incidents'] and result['posts'] >= 24
