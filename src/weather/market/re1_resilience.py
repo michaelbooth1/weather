@@ -140,9 +140,12 @@ class HeartbeatLoop:
             def worker():
                 while not self.stopped.is_set():
                     self.step()
+                    if self.failure:
+                        self.stopped.set()
+                        break
                     # A failed attempt has already spent its network budget.
                     # Retry immediately, on this worker only, preserving ID order.
-                    delay = min(.1, max(0, self.next_send - self.clock.monotonic()))
+                    delay = .1 if self.sends_dropped else min(.1, max(0, self.next_send - self.clock.monotonic()))
                     self.stopped.wait(delay)
             self.thread = Thread(target=worker, name='re1-heartbeat', daemon=True)
             self.thread.start()

@@ -116,6 +116,15 @@ def test_heartbeat_daemon_and_main_stall_stop():
     assert not beat.thread.is_alive()
 
 
+def test_fatal_heartbeat_ack_stops_worker_without_spinning():
+    beat = HeartbeatLoop(Clock(), lambda: {'status': 'invalid'},
+        SimpleNamespace(record=lambda *a, **k: None), threaded=True)
+    beat.start()
+    beat.thread.join(timeout=1)
+    assert beat.failure == 'heartbeat_acknowledgment' and beat.stopped.is_set()
+    assert not beat.thread.is_alive()
+
+
 def test_zero_post_attempt_does_not_consume_session_and_sixty_marker_cap(tmp_path):
     now = Clock().now()
     for i in range(1, 61):
