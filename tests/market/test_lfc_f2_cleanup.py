@@ -82,3 +82,23 @@ def test_shared_real_heartbeat_keeps_other_band_running_after_primary_journal_cl
     outcome = status.finish(success=True)
     assert local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
                             attempt_id=controller.attempt_id, outcome=outcome)['complete']
+
+
+@pytest.mark.parametrize('missing', ['accrual', 'final_balances', 'both'])
+def test_missing_ancillary_samples_preserve_money_clean_cleanup(tmp_path, missing):
+    controller, account, status, ledger, clock = setup(tmp_path)
+    for raw in account.raws:
+        def unavailable(*args): raise TimeoutError('synthetic ancillary sample outage')
+        if missing in {'accrual', 'both'}: raw.accrual = unavailable
+        if missing in {'final_balances', 'both'}:
+            original = raw.balances
+            raw.balances = lambda _original=original: unavailable() if clock.seconds >= 300 else _original()
+    result = controller.run()
+    assert result['cleanup_ok'] and result['cancellation_ok'] and result['inventory_proven']
+    assert not result['evidence_complete'] and not result['unknown_submit']
+    assert not account.open_orders() and not ledger.unresolved_legs()
+    outcome = status.finish(success=True)
+    assert outcome['cleanup_ok'] and outcome['state'] == 'COMPLETE'
+    assert outcome['evidence_complete'] is False
+    assert local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
+                            attempt_id=controller.attempt_id, outcome=outcome)['complete']

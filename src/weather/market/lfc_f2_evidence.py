@@ -159,5 +159,5 @@ class F2Status(SessionStatus):
                 'orders_cancelled': {'count': len(cancelled), 'ids': sorted(cancelled)},
                 'orders_open_at_exit': None if coordinator.open_rows is None else [_order_id(r) for r in coordinator.open_rows],
                 'fills': fills, 'cancellation_requested': True, 'cancellation_proven': coordinator.cancellation_ok,
-                'cleanup_ok': coordinator.cleanup_ok and flags['evidence_complete'], **flags,
+                'cleanup_ok': coordinator.cleanup_ok, **flags,
                 'evidence_sha256': hashes, 'economics': economics(coordinator)}

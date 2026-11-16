@@ -667,7 +667,9 @@ class F2Coordinator:
         self.evidence_failed |= (len(self.results) != len(self.bands) or any(b.evidence_failed for b in self.bands))
         flags = {'evidence_complete': not self.evidence_failed, 'inventory_proven': self.inventory_proven,
                  'unknown_submit': self.posts != len(self.known)}
-        self.cleanup_ok = self.cancellation_ok and complete_evidence(flags)
+        # Root cancellation plus the final whole-account money/inventory proof
+        # owns cleanup. Ancillary sampling gaps remain evidence_complete=false.
+        self.cleanup_ok = self.cancellation_ok and self.inventory_proven and not flags['unknown_submit']
         manifest = {'session_id': self.session_id, 'attempt_id': self.attempt_id,
                     'schema_version': ('lfc_f2_manifest_v0.2' if self.scope['protocol'] == 'lfc_autostart_v3' else 'lfc_f2_manifest_v0.1'), 'policy_sha256': self.policy.sha256, 'bands': []}
         for band in self.bands:

@@ -27,6 +27,12 @@ window. It retains the failure type, checks task/policy/clock authority, and sti
 refreshes the whole-account go proof before placement. Invalid private events
 remain fatal. This retry path cannot re-enter an order-capable session.
 
+For F2, root cleanup succeeds when account-wide cancellation, inventory and final
+money accounting are proven and no submission is unknown. Missing ancillary
+balance/accrual/scoring samples keep `evidence_complete=false` independently;
+they do not turn that proven cleanup into a failed session exit. Missing money
+proof or unknown submissions still fail cleanup and the ordinary postchecks.
+
 ## One task and one policy file
 
 The owner runs `scripts/ops/register_lfc_campaign_task.ps1` with `-Action
