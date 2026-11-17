@@ -57,6 +57,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "tools.research.nbm_target_fix",
         "weather.backtesting.backtest",
         "weather.backtesting.evening_fix_scorer",
+        "weather.backtesting.low_ask_calibration",
         "weather.backtesting.replay",
         "weather.backtesting.replay_ablation",
         "weather.backtesting.replay_backtest",
