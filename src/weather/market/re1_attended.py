@@ -184,6 +184,9 @@ class Session:
         return observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=self.REWARD_TERMS,
                        window=self.REQUOTE_WINDOW, min_reward_rate=self.MIN_REWARD_RATE)
 
+    def check_pending_quote(self, snapshot, leg, price):
+        self.observe_snapshot(snapshot)
+
     def before_first_post(self):
         """Called after the opening check and before the first submit (selection/exclusion records)."""
 
@@ -556,7 +559,7 @@ class Session:
                                    else number(values['reward_min_size']) != SIZE)
                                   or not reward_rate_eligible(values['reward_rate_per_day'], self.MIN_REWARD_RATE)):
             raise HoldEnd('reward_terms')
-        self.observe_snapshot(snapshot)
+        self.check_pending_quote(snapshot, leg, price)
         rule = snapshot['rules'][self.tokens[leg]]
         if number(rule['tick_size']) != Decimal('.01') or number(rule['min_order_size']) > size or number(rule['fee_rate_bps']) < 0:
             raise HoldEnd('market_rules')

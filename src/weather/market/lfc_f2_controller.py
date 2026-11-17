@@ -298,6 +298,18 @@ class F2Band(PilotSession):
             raise HoldEnd(str(exc)) from None
         return reserve, Decimal(figures['charged_native']) / SCALE - own_resting
 
+    def check_pending_quote(self, snapshot, leg, price):
+        from weather.market.lfc_f2_pinb import enabled as pinb
+        from weather.market.reward_quote import reward_distance_allowed
+        observation = self.observe_snapshot(snapshot)
+        if not pinb(self.campaign_policy) or (pairs.enabled(self) and pairs.require_state(self).completing):
+            return
+        mid = quantity(observation['adjusted_mid'])
+        distance = ((mid if leg == 0 else 1 - mid) - price) * 100
+        maximum = quantity(snapshot['quote_inputs']['reward_max_spread_cents'])
+        if not reward_distance_allowed(distance, *self.REQUOTE_WINDOW, maximum):
+            raise HoldEnd('outside_leave_alone_window')
+
     def _cash(self, balances, reserve):
         own = sum((self.size * price for _, price in self.active.values()), Decimal(0))
         try:

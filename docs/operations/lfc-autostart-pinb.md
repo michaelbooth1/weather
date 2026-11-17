@@ -68,6 +68,13 @@ is an already supported policy value. The 15.80 order, 19.60 resting band and
 300 sleeve caps, spendable-cash check and native accounting rail are unchanged.
 Money proof still precedes every fill continuation. Rewards/rebates contribute
 zero to refill without the already required campaign-only attribution proof.
+
+At the public-book read immediately before order authorization, each new
+ordinary Pin B quote must still satisfy the selected distance window and lie
+strictly inside the venue reward width. An out-of-window pending price ends
+the band through ordinary cleanup before that submission is counted. This
+check evaluates only the pending token. A nonflat complete-pairs quote uses
+the existing capped-complement checks.
 The December success look and actual-cash verdict are unchanged.
 
 ## Operational observations and temporary depth pauses

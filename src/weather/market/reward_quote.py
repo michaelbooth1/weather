@@ -76,6 +76,11 @@ def reward_rate_eligible(rate, min_reward_rate=40):
     return rate > floor if floor == 0 else rate >= floor
 
 
+def reward_distance_allowed(distance, low, high, maximum):
+    """Cents from the sized midpoint; a quote at the reward boundary earns zero."""
+    return low <= distance <= high and distance < maximum
+
+
 def _price_reward_quote(
     *,
     yes_bids: Iterable[Mapping[str, object]],
@@ -157,7 +162,7 @@ require explicit size and ceilings; no profile is selected by this calculation.
     if max((yes, no)[leg] for leg in trade_legs) * size > order_cap or reserve > band_cap:
         raise QuoteRefused("capital_ceiling_exceeded")
     distances = ((mid - yes) * 100, (1 - mid - no) * 100)
-    if any(not low <= distances[leg] <= high or distances[leg] >= maximum for leg in trade_legs):
+    if any(not reward_distance_allowed(distances[leg], low, high, maximum) for leg in trade_legs):
         raise QuoteRefused("outside_leave_alone_window")
     own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum)) if leg in trade_legs else 0
                   for leg, d in enumerate(distances)), float(mid))
