@@ -17,6 +17,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from weather.backtesting.replay_fidelity import distribution_l1
 from weather.time import utc_now
 from weather.paths import data_path
 
@@ -208,18 +209,6 @@ def as_int_distribution(distribution):
         except (TypeError, ValueError):
             continue
     return out
-
-
-def distribution_l1(left, right):
-    """Sum of absolute per-bucket probability differences (0 == identical).
-
-    The replay fidelity canary: replaying a record with the *same* code version
-    that produced it must reproduce its recorded distribution (L1 ~ 0).
-    """
-    a = as_int_distribution(left)
-    b = as_int_distribution(right)
-    keys = set(a) | set(b)
-    return sum(abs(a.get(key, 0.0) - b.get(key, 0.0)) for key in keys)
 
 
 # --- Replay -----------------------------------------------------------------

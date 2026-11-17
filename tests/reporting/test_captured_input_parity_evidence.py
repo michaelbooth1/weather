@@ -214,7 +214,7 @@ def _captured_record(bundle, *, now, event_slug, target_date, snapshot_id="snaps
     return record
 
 
-def _write_honest_market_day(root: Path, bundle, *, now, target_date):
+def _write_honest_market_day(root: Path, bundle, *, now, target_date, recorded_distribution=None):
     config = config_for_date(target_date, "nyc")
     folder = root / config.event_slug
     captured = _captured_record(
@@ -223,6 +223,9 @@ def _write_honest_market_day(root: Path, bundle, *, now, target_date):
         event_slug=config.event_slug,
         target_date=target_date,
     )
+    if recorded_distribution is not None:
+        captured["recorded_distribution"] = recorded_distribution
+        captured["captured_input_hash"] = canonical_payload_sha256(captured, omit=("captured_input_hash",))
     bands = _bands()
     snapshot = {
         "snapshot_id": captured["snapshot_id"],
@@ -414,6 +417,36 @@ def _resign_envelope_pair(served_envelope, replay_envelope):
         finalize_self_hash(served, hash_field=EVIDENCE_HASH_FIELD),
         finalize_self_hash(replay, hash_field=EVIDENCE_HASH_FIELD),
     )
+
+
+@pytest.mark.parametrize(("replayed", "expected_code"), [
+    ({"density_f": {72.2: 1.0}}, "serving_bundle_fingerprint_mismatch"),
+    ({72: 1.0}, "serving_distribution_incomparable"),
+])
+def test_generator_blocks_disjoint_or_incomparable_base_distributions(tmp_path, replayed, expected_code):
+    paths, _, _, releases, pointer = _active_fixture(tmp_path / "fixture", functional=True)
+    bundle = _load(pointer, releases, paths["repo"])
+    now = datetime(2025, 1, 10, 12, tzinfo=timezone.utc)
+    source, _ = _write_honest_market_day(
+        tmp_path / "snapshots", bundle, now=now, target_date=now.date(),
+        recorded_distribution={"density_f": {72.1: 1.0}},
+    )
+
+    class ReplayModel(CapturedReplayModel):
+        def estimate_distribution_result(self, sources, now=None):
+            return DistributionResult(distribution=replayed, active_model_kind="fixture")
+
+    with pytest.raises(CapturedInputParityEvidenceError) as raised:
+        generate_captured_input_parity_evidence(
+            market_id="nyc", target_date=now.date(), now=now,
+            captured_inputs_path=source["captured"], snapshot_tape_path=source["snapshots"],
+            served_tape_path=source["served"], served_out=tmp_path / "served.json", replay_out=tmp_path / "replay.json",
+            pointer_path=pointer, releases_root=releases, repo_root=paths["repo"],
+            check_runtime=False, model_factory=ReplayModel,
+        )
+    assert raised.value.code == expected_code
+    if expected_code == "serving_bundle_fingerprint_mismatch":
+        assert raised.value.context["distribution_l1"] == 2.0
 
 
 def test_honest_generation_is_self_hashed_and_comparator_passes_then_blocks_tamper(tmp_path):

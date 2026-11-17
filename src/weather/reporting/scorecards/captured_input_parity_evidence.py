@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.backtesting.replay_fidelity import distribution_l1
 from weather.collection.live_variant_predictions import (
     build_live_variant_prediction_rows,
 )
@@ -594,25 +595,6 @@ def _index_snapshot_context(
     return indexed
 
 
-def _distribution(recorded: Any) -> dict[int, float]:
-    normalized: dict[int, float] = {}
-    for bucket, probability in (recorded or {}).items():
-        try:
-            numeric_bucket = int(bucket)
-            numeric_probability = float(probability)
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(numeric_probability):
-            normalized[numeric_bucket] = numeric_probability
-    return normalized
-
-
-def _distribution_l1(left: Any, right: Any) -> float:
-    first = _distribution(left)
-    second = _distribution(right)
-    return sum(abs(first.get(key, 0.0) - second.get(key, 0.0)) for key in set(first) | set(second))
-
-
 def _build_model_payload(model_client: Any, record: Mapping[str, Any]) -> tuple[dict[str, Any], Any]:
     built_at = _parse_timestamp(
         record.get("built_at") or record.get("captured_at_local"),
@@ -630,7 +612,15 @@ def _build_model_payload(model_client: Any, record: Mapping[str, Any]) -> tuple[
             next_action="recapture complete release-bound replay inputs",
             snapshot_id=record.get("snapshot_id"),
         )
-    l1 = _distribution_l1(distribution, recorded_distribution)
+    try:
+        l1 = distribution_l1(distribution, recorded_distribution)
+    except ValueError as exc:
+        raise _block(
+            "serving_distribution_incomparable",
+            str(exc),
+            next_action="verify the recorded and replayed probability representations",
+            snapshot_id=record.get("snapshot_id"),
+        ) from exc
     if l1 > BASE_DISTRIBUTION_L1_TOLERANCE:
         raise _block(
             "serving_bundle_fingerprint_mismatch",

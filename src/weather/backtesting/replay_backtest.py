@@ -190,31 +190,46 @@ def fidelity_summary(fidelity_rows):
             changed.append(f)
     reconstructed = [f for f in fidelity_rows if f["reconstructed"]]
 
-    def mean_l1(rows):
-        return sum(r["l1"] for r in rows) / len(rows) if rows else None
+    def stats(rows):
+        values = [row["l1"] for row in rows if row["l1"] is not None]
+        return (sum(values) / len(values), max(values)) if values else (None, None)
 
-    same_mean = mean_l1(same_identity)
-    legacy_mean = mean_l1(legacy_same_label)
-    changed_mean = mean_l1(changed)
+    same_mean, same_max = stats(same_identity)
+    legacy_mean, legacy_max = stats(legacy_same_label)
+    changed_mean, changed_max = stats(changed)
+    reconstructed_mean, _ = stats(reconstructed)
+    incomparable = [row for row in same_identity if row["l1"] is None]
+    above_tolerance = [
+        row for row in same_identity
+        if row["l1"] is not None and row["l1"] > FIDELITY_FAITHFUL_L1
+    ]
+    faithful = bool(same_identity) and not incomparable and not above_tolerance
     return {
         "same_identity_n": len(same_identity),
         "same_identity_mean_l1": same_mean,
-        "same_identity_max_l1": max((r["l1"] for r in same_identity), default=None),
-        "same_identity_faithful": (same_mean is not None and same_mean <= FIDELITY_FAITHFUL_L1),
+        "same_identity_max_l1": same_max,
+        "same_identity_faithful": faithful,
+        "same_identity_incomparable_n": len(incomparable),
+        "same_identity_above_tolerance_n": len(above_tolerance),
+        "same_identity_row_tolerance": FIDELITY_FAITHFUL_L1,
+        "same_identity_failure_examples": [
+            {key: row.get(key) for key in ("market_id", "date", "snapshot_id", "l1", "comparison_issue")}
+            for row in (incomparable + above_tolerance)[:10]
+        ],
         # Back-compat aliases for older tests/callers; these now mean exact
         # replay identity, not the human version string.
         "same_version_n": len(same_identity),
         "same_version_mean_l1": same_mean,
-        "same_version_max_l1": max((r["l1"] for r in same_identity), default=None),
-        "same_version_faithful": (same_mean is not None and same_mean <= FIDELITY_FAITHFUL_L1),
+        "same_version_max_l1": same_max,
+        "same_version_faithful": faithful,
         "legacy_same_version_n": len(legacy_same_label),
         "legacy_same_version_mean_l1": legacy_mean,
-        "legacy_same_version_max_l1": max((r["l1"] for r in legacy_same_label), default=None),
+        "legacy_same_version_max_l1": legacy_max,
         "changed_version_n": len(changed),
         "changed_version_mean_l1": changed_mean,
-        "changed_version_max_l1": max((r["l1"] for r in changed), default=None),
+        "changed_version_max_l1": changed_max,
         "reconstructed_n": len(reconstructed),
-        "reconstructed_mean_l1": mean_l1(reconstructed),
+        "reconstructed_mean_l1": reconstructed_mean,
     }
 
 
@@ -395,25 +410,30 @@ def run_replay_backtest(
                 continue
             snaps_in_corpus += 1
             distribution = replay_distribution(model, record)
+            recorded_distribution = record.get("recorded_distribution")
+            recorded_identity_hash = identity_hash(record.get("model_identity"))
+            replayed_identity = replay_model_identity(model) if recorded_identity_hash else None
+            try:
+                l1 = distribution_l1(distribution, recorded_distribution)
+                comparison_issue = None
+            except ValueError as exc:
+                l1 = None
+                comparison_issue = str(exc)
+            fidelity_rows.append({
+                "snapshot_id": str(snapshot_id),
+                "date": date_label,
+                "market_id": market_id,
+                "recorded_version": record.get("model_version"),
+                "replayed_version": replay_model_version(model),
+                "recorded_identity_hash": recorded_identity_hash,
+                "replayed_identity_hash": identity_hash(replayed_identity),
+                "l1": l1,
+                "comparison_issue": comparison_issue,
+                "reconstructed": reconstructed,
+            })
             if not distribution:
                 continue
             snaps_scored += 1
-
-            recorded_distribution = record.get("recorded_distribution")
-            if recorded_distribution:
-                replayed_identity = replay_model_identity(model)
-                recorded_identity = record.get("model_identity")
-                fidelity_rows.append({
-                    "snapshot_id": str(snapshot_id),
-                    "date": date_label,
-                    "market_id": market_id,
-                    "recorded_version": record.get("model_version"),
-                    "replayed_version": replay_model_version(model),
-                    "recorded_identity_hash": identity_hash(recorded_identity),
-                    "replayed_identity_hash": identity_hash(replayed_identity),
-                    "l1": distribution_l1(distribution, recorded_distribution),
-                    "reconstructed": reconstructed,
-                })
 
             for _, band_series in group.iterrows():
                 band = band_series.to_dict()
@@ -629,6 +649,21 @@ def write_report(results, out_path):
         "and are excluded from the canary.",
         "",
     ]
+    if "same_identity_incomparable_n" in fid:
+        lines += [
+            f"Of the same-identity rows, {fid['same_identity_above_tolerance_n']} exceed "
+            f"the per-row L1 tolerance of {fid['same_identity_row_tolerance']:g} and "
+            f"{fid['same_identity_incomparable_n']} have incomparable distributions. "
+            "The mean and maximum summarize comparable rows.",
+            "",
+        ]
+        if fid.get("same_identity_failure_examples"):
+            lines += markdown_table(
+                ["Market", "Date", "Snapshot", "L1", "Comparison issue"],
+                [[row["market_id"], row["date"], row["snapshot_id"], fmt_num(row["l1"]),
+                  row["comparison_issue"] or "above tolerance"] for row in fid["same_identity_failure_examples"]],
+            )
+            lines.append("")
     lines += markdown_table(
         ["Cohort", "Snapshots", "Mean L1", "Max L1", "Verdict"],
         [
@@ -871,11 +906,13 @@ def main():
     if fid.get("same_identity_n"):
         verdict = "faithful" if fid.get("same_identity_faithful") else "CHECK CORPUS"
         print(f"Fidelity canary: {fid['same_identity_n']} same-identity snapshots, "
-              f"mean L1 {fid['same_identity_mean_l1']:.5f} ({verdict})")
+              f"mean L1 {fmt_num(fid['same_identity_mean_l1'], 5)}, "
+              f"{fid['same_identity_above_tolerance_n']} above tolerance, "
+              f"{fid['same_identity_incomparable_n']} incomparable ({verdict})")
     elif fid.get("legacy_same_version_n"):
         print("Fidelity canary: no exact-identity snapshots yet; "
               f"{fid['legacy_same_version_n']} legacy same-label snapshot(s) excluded "
-              f"(mean L1 {fid['legacy_same_version_mean_l1']:.5f})")
+              f"(mean L1 {fmt_num(fid['legacy_same_version_mean_l1'], 5)})")
     print(f"Report written to {args.out}")
 
     if args.save_baseline:

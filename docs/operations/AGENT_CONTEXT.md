@@ -123,6 +123,9 @@ protected slices, and after-cost trading evidence where applicable.
 
 - Frozen-tape or captured-input replay is preferred over reconstructing inputs
   from current code or future data.
+- Replay fidelity compares each matching-identity snapshot on its native bucket
+  or canonical Fahrenheit density grid. The canary reports rows outside tolerance
+  and rows with incomparable distributions. Mean L1 summarizes comparable rows.
 - Snapshot coverage and settlement-label quality determine whether a market-day
   is countable. Partial, stale, reconstructed, or release-unbound rows must not
   be silently upgraded.

@@ -71,6 +71,30 @@ class TestReplayHelpers(unittest.TestCase):
     def test_distribution_l1_measures_difference(self):
         self.assertAlmostEqual(distribution_l1({25: 1.0}, {25: 0.6, 26: 0.4}), 0.8)
 
+    def test_density_l1_compares_fractional_grid_coordinates(self):
+        recorded = json.loads(json.dumps(continuous_density_payload({70.1: 0.25, 70.2: 0.75})))
+        self.assertEqual(distribution_l1(recorded, continuous_density_payload({70.1: 0.25, 70.2: 0.75})), 0)
+        self.assertEqual(distribution_l1(recorded, {"canonical_density_f": {70.3: 1.0}}), 2)
+
+    def test_invalid_or_mixed_probability_maps_are_incomparable(self):
+        for other in ({}, {"unknown": {}}, {2: float("nan")}, {2.1: 1}, {"density_f": {2: 1}}, {"2": 0.5, 2: 0.5}):
+            with self.subTest(other=other), self.assertRaises(ValueError):
+                distribution_l1({2: 1}, other)
+
+    def test_fidelity_canary_reports_a_single_failure_in_a_large_cohort(self):
+        match = {"recorded_identity_hash": "abc", "replayed_identity_hash": "abc", "reconstructed": False}
+        cohort = [dict(match, l1=0.0) for _ in range(199)] + [dict(match, l1=2.0)]
+        summary = fidelity_summary(cohort)
+        self.assertEqual(summary["same_identity_mean_l1"], 0.01)
+        self.assertEqual(summary["same_identity_max_l1"], 2.0)
+        self.assertEqual(summary["same_identity_above_tolerance_n"], 1)
+        self.assertFalse(summary["same_version_faithful"])
+        summary = fidelity_summary([dict(match, l1=None), dict(match, l1=0.01)])
+        self.assertEqual(summary["same_identity_incomparable_n"], 1)
+        self.assertEqual(summary["same_identity_above_tolerance_n"], 0)
+        self.assertFalse(summary["same_identity_faithful"])
+        self.assertTrue(fidelity_summary([dict(match, l1=0.01)])["same_identity_faithful"])
+
     def test_parse_built_at_reads_built_at(self):
         parsed = parse_built_at({"built_at": NOW.isoformat()})
         self.assertEqual(parsed.hour, 14)
