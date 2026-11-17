@@ -13,12 +13,12 @@ This module is the pure engine (no scoring, no I/O beyond reading the corpus);
 import json
 import csv
 import math
-import re
 from datetime import datetime
 from pathlib import Path
 
 from weather.time import utc_now
 from weather.paths import data_path
+from weather.units import temperature_band_key
 
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.market.market_registry import DEFAULT_MARKET_ID
@@ -128,32 +128,27 @@ def _boolish(value):
     return None
 
 
-def _numeric_band_value(value):
-    if value in (None, ""):
-        return None
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(numeric):
-        return None
-    if abs(numeric - round(numeric)) < 1e-9:
-        return int(round(numeric))
-    return numeric
+def _replay_band_key(band):
+    """Use canonical signed endpoints, retaining missing legacy upper values.
+
+    CSV readers can represent an absent upper endpoint as NaN (including a
+    serialized ``"nan"``). These legacy cells may recover from the label or
+    lower endpoint; malformed finite values and contradictory bands may not.
+    """
+    row = dict(band)
+    for field in ("bin_value_hi", "bin_value_hi_c"):
+        try:
+            numeric = float(row.get(field))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(numeric):
+            row[field] = None
+    return temperature_band_key(row)
 
 
 def band_value_hi(band):
-    explicit = _numeric_band_value(
-        band.get("bin_value_hi_c")
-        if band.get("bin_value_hi_c") not in (None, "")
-        else band.get("bin_value_hi")
-    )
-    if explicit is not None:
-        return explicit
-    value = _numeric_band_value(band.get("bin_value_c") or band.get("bin_value"))
-    label = band.get("range_label")
-    numbers = re.findall(r"\d+", str(label or ""))
-    return int(numbers[-1]) if len(numbers) >= 2 else value
+    """Return the validated native upper endpoint, including zero and signs."""
+    return _replay_band_key(band)[2]
 
 
 def source_status_kind(item):
@@ -247,13 +242,12 @@ def replay_distribution(model, record):
 def band_bin_data(band):
     """Translate a recorded ``snapshots_long`` row into the ``bin_data`` shape
     that ``bin_probability`` consumes. New tapes store ``bin_value_hi_c``
-    explicitly; legacy tapes reconstruct the upper endpoint from ``range_label``
-    so F range bands ("90-91") still score both buckets."""
-    value = _numeric_band_value(band.get("bin_value_c") or band.get("bin_value"))
+    explicitly; legacy tapes use the canonical signed label parser. Invalid
+    bands retain missing endpoints and cannot be scored."""
+    kind, value, value_hi = _replay_band_key(band)
     label = band.get("range_label")
-    value_hi = band_value_hi(band)
     return {
-        "kind": band.get("bin_kind"),
+        "kind": kind,
         "value": value,
         "value_hi": value_hi,
         "label": label,
@@ -266,8 +260,11 @@ def band_model_probability(model, distribution, band):
     """Model probability for one market band from a replayed distribution,
     computed exactly as production records it: ``bin_probability`` applies the
     same market-bin calibration using the context ``estimate_distribution`` just
-    set on the model."""
-    return model.bin_probability(distribution, band_bin_data(band))
+    set on the model. Invalid band evidence remains unscored."""
+    bin_data = band_bin_data(band)
+    if bin_data["value"] is None or bin_data["value_hi"] is None:
+        return None
+    return model.bin_probability(distribution, bin_data)
 
 
 def replay_model_version(model):

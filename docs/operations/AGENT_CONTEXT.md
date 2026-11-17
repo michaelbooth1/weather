@@ -24,6 +24,9 @@ generated reports for dynamic state.
   626/626 measured 08-01..09-29 market-days) and the venue-rule value from it.
   Read it with `weather.backtesting.venue_label_reader` (on the cutover branch
   until it lands). Rounding and band parsing use the canonical unit helpers.
+  Captured-input replay uses inclusive native endpoints. Legacy tapes recover
+  the upper endpoint from the signed band label, including ranges through zero.
+  Contradictory band fields leave the projected model probability unavailable.
 - **Training and evaluation labels for built-in markets follow the venue rule
   for target dates on or after 2026-10-23:** the highest routine METAR
   temperature on the local date (SPECI excluded, remark T-group tenths with a
