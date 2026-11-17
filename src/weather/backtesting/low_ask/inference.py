@@ -11,7 +11,7 @@ import random
 from datetime import timedelta
 from statistics import NormalDist
 
-from .contracts import CITIES, FIRST, LAST, number, require
+from .contracts import CITIES, DATE_COUNT, FIRST, LAST, number, require
 
 ALPHA = 0.0125
 FLOOR = 0.25
@@ -64,10 +64,16 @@ def robust_scale(matrix: list[list[float]]) -> float:
     return max(iid, block, city, lrv_standard_error(daily))
 
 
-def interval(matrix: list[list[float]], *, critical: float | None, resamples=RESAMPLES) -> dict:
+def interval(matrix: list[list[float]], *, critical: float | None, resamples=RESAMPLES,
+             population_days=DATE_COUNT) -> dict:
+    """Resample a declared population; evaluate always uses the restart dates.
+
+    Historical N75 calibration witnesses explicitly supply population_days=75.
+    They do not certify the N68 restart or enter its final evaluate path.
+    """
     require(resamples >= 100, "resamples")
     n, m = len(matrix), len(matrix[0])
-    require(n == 75 and m == 12 and all(len(row) == m for row in matrix), "primary_population")
+    require(n == population_days and n >= 20 and m == 12 and all(len(row) == m for row in matrix), "primary_population")
     require(all(math.isfinite(v) and -10.225 <= v <= 10 for row in matrix for v in row), "panel_bounds")
     mean = sum(map(sum, matrix)) / (n*m)
     daily = [sum(row)/m for row in matrix]
@@ -76,7 +82,11 @@ def interval(matrix: list[list[float]], *, critical: float | None, resamples=RES
     for _ in range(resamples):
         dates = [rng.randrange(n) for _ in range(n)]
         distributions["date"].append(sum(daily[i] for i in dates)/n - mean)
-        block_dates = [(start+j) % n for start in (rng.randrange(n) for _ in range(n//BLOCK)) for j in range(BLOCK)]
+        # Draw enough circular blocks, then truncate to exactly n dates. N68
+        # needs a final two-date partial block; dividing 66 draws by 68 biases
+        # even a constant panel and silently changes the test statistic.
+        block_dates = [(start+j) % n for start in (rng.randrange(n) for _ in range(math.ceil(n/BLOCK)))
+                       for j in range(BLOCK)][:n]
         distributions["block3"].append(sum(daily[i] for i in block_dates)/n - mean)
         city_weights = [0] * m
         for _ in range(m):
@@ -148,7 +158,7 @@ def completeness(ledger: dict) -> dict:
             "both_executable_city_days": executable,
             "both_filled_by_city": by_city, "both_filled_by_date": by_date,
             "captured_city_counts_by_date": {day: good.get(day, 0) for day in by_date},
-            "scheduled_slots": 75*12*2,
+            "scheduled_slots": DATE_COUNT*len(CITIES)*2,
             "filled_slots": sum(row["status"] in {"filled", "resolved"} for row in ledger["decisions"])}
 
 

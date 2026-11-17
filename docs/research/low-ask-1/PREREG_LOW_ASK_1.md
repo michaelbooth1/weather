@@ -16,15 +16,22 @@ owns the charter/deadline/claimant amendments. Dated DESIGN_B's proposed opening
 is superseded by this recorded approval; its technical choices remain defaults
 for confirmation before freeze.
 
+Restart authority: owner 2026-11-17 about 18:0x ET, verbatim **"restart it"**,
+relayed by the capture-host master as T123. Master's reading: only the local
+target start and freeze deadline move to November 24. The master must show
+the charter amendment to the owner, land it before either affected freeze,
+and confirm that receipt before this candidate can freeze. This file is not
+that confirmation. No earlier date becomes readable through the restart.
+
 Fixed universe: Atlanta, Austin, Chicago, Dallas, Denver, Houston, Los Angeles,
 Miami, New York City, San Francisco, Seattle and Toronto, **lowest** events only.
 The code's slug/timezone/station/unit map is authoritative for this candidate;
 dated captured rules supply source/bins. A changed rule is not silently remapped.
 Denver uses KDEN, not serving-model KBKF. No highest or other-city subgroup.
 
-Fixed local target dates: 2026-11-17..2027-01-30, 75 dates, 900 scheduled
-city-days and 1,800 slots. No automatic shift or replacement after a missed
-freeze. Freeze strictly before 2026-11-17T05:00:00Z. Commissioning Nov 14–16 is
+Fixed local target dates: 2026-11-24..2027-01-30, 68 dates, 816 scheduled
+city-days and 1,632 slots. No automatic shift or replacement after a missed
+freeze. Freeze strictly before 2026-11-24T05:00:00Z. Restart commissioning is
 synthetic/identity/coverage/latency only; no historical price/outcome read or
 performance adjustment. No expansion-study raw data or unsealed loggers.
 
@@ -113,7 +120,7 @@ recorded cost and 5*(1+.0125+.01)=$5.1125, never trusting the doubtful debit.
 
 Primary statistic: equal scheduled-city-day mean net dollars, both slots
 summed, with all missing/skipped slots zero. Report portfolio dollars/date
-also. Filled-share return is diagnostic only. All 75 dates and twelve cities
+also. Filled-share return is diagnostic only. All 68 dates and twelve cities
 remain in the denominator, never select profitable/complete dates.
 
 Economic floor **$0.25/scheduled city-day**, confirmed by the master.
@@ -122,7 +129,11 @@ filled/resolved, or skipped only for cash_cap, market_cap or depth_reuse.
 The two-filled-slot count is diagnostic; cash losses cannot turn a KILL into
 DESCRIBE by reducing completeness. Require complete rule/observation/book/
 resolution provenance for fills. The >=68 adequate-date and >=11/12-city
-thresholds remain **provisional until Nov 14-16 coverage counts** (method rule 17).
+thresholds remain **provisional until restart commissioning counts** (method rule 17).
+They have not been scaled down: 810 of 816 city-days and all 68 dates are
+required under the unchanged master terms. Chicago missing throughout leaves
+only 748 city-days and cannot qualify. A changed gate needs an explicit
+pre-freeze ruling; no trial-value inspection may choose it.
 Define an
 adequately captured date, outcome-blind, as >=11 of twelve cities having both
 slots reach full executable-input validation (capital shortage may block the
@@ -162,7 +173,9 @@ p-value is labelled separately at the look and cannot lend rejection rank.
 Calendar block length **3**; seed **20261110**; **20,000** resamples. Retain
 both slots and all cities within each local target-date cluster. Report
 date-clustered and circular calendar block-date intervals, crossed city x
-block-date sensitivity and Bartlett lag-3 date-portfolio long-run variance. Use the
+block-date sensitivity and Bartlett lag-3 date-portfolio long-run variance.
+Each circular block bootstrap draws ceil(68/3) length-three blocks, truncates
+the last to keep exactly 68 dates, and divides by 68. Use the
 widest one-sided envelope and largest corresponding centered-bootstrap p-value.
 This is a fixed-city finite-portfolio estimand, not global-city extrapolation.
 
@@ -174,83 +187,40 @@ if its calibrated bound clears zero, otherwise 1); combine it with the largest
 centered-bootstrap/LRV p-value. This cannot manufacture a p-value smaller than
 the local alpha. Heavy calibration must target this exact scale/statistic.
 
-MASTER RULINGS B1-B4 (2026-11-10 18:3x) replace the earlier generator and
-power scope. `weather.backtesting.low_ask_calibration` owns exact indexed arms.
-Size covers every phi={0,.22,.5}, common city shock correlation={0,.25,.5},
-persistent share={0,.25} and spread/clustered mechanism: all 36 base arms.
-Cross them with support 810, full capture 900, and Chicago-missing 825.
-Add ask-.93 nulls to the four strongest dependence arms (phi=.5/common=.5,
-both persistent shares and mechanisms), at each support: **120 size arms**.
+### Restart calibration obligation — unresolved, no scientific freeze
 
-Support 810 removes seven dates and six additional city-days on six distinct
-retained dates; 68 dates have >=11 executable cities. Spread chooses the
-seven dates uniformly; clustered puts three of the same seven contiguously.
-Support 900 removes nothing; 825 removes Chicago on all 75 dates. No best
-date selection or outcome-dependent completeness. Cash-cap skips count as
-executable-validated, never as source failures. These are synthetic support
-stress cases, not assertions that capture will meet the counts.
+The preserved N75 implementation and immutable plans are
+[CALIBRATION_PLAN.md](CALIBRATION_PLAN.md) and
+[CALIBRATION_V2_PLAN.md](CALIBRATION_V2_PLAN.md). They describe T093's
+completed v1 and partially completed v2 attempts. They are historical
+calibration evidence, not an N68 certificate. V1 is SCREEN_ONLY; v2 already
+failed the planning-power gate at 100% assumed eligibility and remains
+incomplete. No receipt is relabelled, recomputed or replaced for this restart.
+V2's ask-.90 option was never adopted into this paper rule; the restart
+retains the uncapped November 10 execution policy.
 
-Both five-share cuts share one binary city-day venue outcome. The Gaussian
-copula uses stationary AR(1) innovations with the stated common-city share.
-Persistent city effects are **fixed**, not redrawn per panel: deterministic
-normal-quantile offsets are centred to zero 12-city mean and unit variance.
-A common probit threshold makes retained-city average survival equal the
-declared marginal (eleven cities for support825, twelve otherwise). Centring
-latent offsets alone would not preserve it after
-the nonlinear CDF. No parameter is fitted on trial data.
+The restart needs a separately registered N68 calibration plan that preserves
+the received-input rule, realized cash, fixed centred city effects, fees,
+capital caps, effect definitions, alpha .0125, .9925 training quantile and
+>=80% planning-power gate. The master must resolve N68 source-support masks
+and their completeness interpretation before a seeded run. N75 supports
+810/900/825 do not describe 68 dates; an 810-city-day N68 mask can miss only
+six city-days, while full capture is 816 and Chicago-missing is 748. No
+trained critical value, maximum size bound, MDE or power is asserted for N68.
 
-At ask .80, all-in cost/share is .818 and null marginal survival is .818.
-Ask .93's null survival equals its exact all-in cost **.943255** (MASTER C2),
-so the retained-city boundary null has zero pre-rationing mean. Power alternatives
-add delta_city_day/(10*support/900) to .818, giving the named intended-unit
-effect **before cash rationing**. Do not normalize profits after cash blocks.
-The .14346/share date-SD remains a planning proxy, never an imposed SD.
+A CALIBRATED freeze requires N68 size/power receipts bound to this exact
+inference hash and trial endpoints. Until then calibration is NOT_RUN and
+freeze is refused. If the master explicitly authorizes a SCREEN_ONLY freeze,
+its dated disposition hash is mandatory and the trial cannot claim SUCCESS:
+its final family p-value is 1. A power waiver is never inferred from
+"restart it". The measured N75 planning failure remains disclosed.
 
-The generated policy uses **realized cash**, matching core accounting:
-debit all-in cost at fill; release actual $5 or $0 per slot after 1 day (.9)
-or 3 days (.1), resolving before same-instant fills in UTC/city/cut order.
-Losses are permanent and gains stay. Refuse if cash < cost or locked+cost
->$300. Exact integer-microdollar accounting matches the two asks' Decimal
-costs. There is no daily reset, nominal-debit refund or null re-centring.
-The policy's own drift, including endogenous cash rationing, is calibrated.
-Report cash_cap counts, P(binding), ending cash and date SD for every arm/
-effect. The bounded final-panel envelope remains [-10.225,+10].
-
-Each size arm has >=20,000 training and >=20,000 independent validation
-panels. Critical value = maximum empirical **.9925** training quantile of
-raw mean/robust-scale over all 120 arms, floored at the normal critical value.
-Validation never retunes it. Simultaneous one-sided 95% Clopper-Pearson size
-upper bounds spend .05/120 per arm and must all be <=.0125.
-
-Power has 2,000 panels for every ask-.80 arm/effect, with the actual fixed
-20,000-resample local success rule, point floor and executable-count gates.
-Report all original **144 cells**, plus the 900/825-support cells: 432 total.
-The ask-.93 additions are null-only. Only the **810-support planning arm**,
-phi=.22/common=.5/persistent=0, in **both** missingness mechanisms, must
-clear >=80% lower-confidence power at delta=.6741 dollars/city-day.
-Those two bounds spend .05/2; other diagnostic cells use .05/432. This is
-the master's smallest planning arm with alternative date SD proxy ~1.63,
-at least T086's 1.4346 (method rule 19). Stronger arms retain size protection;
-their low diagnostic power cannot independently force SCREEN_ONLY.
-
-Report generated date SD / 1.4346, also / 1.63, per cell, and the realized
-trial date SD / 1.4346 at the sealed deciding look. Null/power RNG streams
-are disjoint; common random numbers are reused across the four alternatives.
-No panel that fails the analytic gates can be rescued by its bootstrap.
-Power remains conditional on the external full-family Holm package.
-If any size gate or either planning power bound fails, the receipt is plainly
-SCREEN_ONLY with measured power, for the owner's effect/alpha/N decision.
-Never tune after validation. This draft claims no full calibration result.
-
-Planning assumptions retained from DESIGN_B (DERIVED from T086 aggregates,
-not a new read): intended-share effects .09490, .07490, .06741 and .05000;
-planning date SD .14346/share; phi .22; SE multiplier 1.25064. Multiply both
-mean/SD by ten for scheduled-city-day dollars. At 75 dates, normal power at
-.06741/share is about 84%; at .05 about 57%. These are proxies, never actual
-ask-profit power. The operational power default is >=80% lower-confidence
-validated power at .06741/share with the economic point-floor rule included;
-report all four planning effects and missingness/cash-lock stresses. Unavailable
-power => SCREEN_ONLY/DESCRIBE. No outcome-based resize or extension.
+Planning effects inherited from DESIGN_B/T093 are assumptions derived from
+spent development aggregates, not new data reads. The original intended-share
+effects .09490, .07490, .06741 and .05000, date-SD proxy .14346/share, phi .22
+and SE multiplier 1.25064 remain planning inputs. Multiply mean/SD by ten for
+scheduled-city-day dollars. N75 normal-power proxies are not N68 results.
+No outcome-based resize, alpha change, ask cap, date extension or adaptation.
 
 ## Success, kill, inconclusive and finality
 
@@ -266,8 +236,10 @@ power => SCREEN_ONLY/DESCRIBE. No outcome-based resize or extension.
 
 ## Dev-window reuse, freeze and master confirmations
 
-DEV_WINDOW_LEDGER inherited count is **216** in the stacked state-of-play;
-T093 opens zero dev/trial values and increments it by zero. T086 selected the
+DEV_WINDOW_LEDGER at the fetched restart base states:
+- reuse count: at least 218
+
+T123 opens zero dev/trial values and increments it by zero. T086 selected the
 direction on spent dev evidence; T090 supplied the design, not new data.
 Zero prior trial exposure must be proved by the claimant/exposure receipt,
 not inferred from a missing log. No interval or power assumption is fitted on
@@ -284,7 +256,7 @@ Master 2026-11-10 18:3x confirms defaults 1, 3, 4, 7 and 8: economic floor,
 block length, seed/resamples, all-in capital interpretations and frozen
 L=max(30s, deployed p95), with no receipt meaning no start. Defaults 2, 5
 and 6 are changed exactly as recorded above. The 68-date/11-city thresholds
-remain provisional pending commissioning coverage counts; the revised
+remain provisional pending restart commissioning coverage counts; the revised
 generator, calibration and power receipt still require reviewed GO and
 pre-freeze binding. Every
 DESIGN_B resource estimate (16–21 hours, <2 GiB export, 0.1–0.25 monitoring

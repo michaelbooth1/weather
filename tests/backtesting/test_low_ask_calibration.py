@@ -28,7 +28,7 @@ def test_small_bootstrap_matches_scalar_pass_and_negative_control():
     passed = cal.bootstrap_success(panels, 3.0, weights)
     expected = []
     for matrix in panels:
-        report = interval(matrix.tolist(), critical=3.0, resamples=256)
+        report = interval(matrix.tolist(), critical=3.0, resamples=256, population_days=75)
         expected.append(report["mean"] > .25 and report["lower"] > 0 and report["pvalue"] <= .0125)
     assert passed.tolist() == expected
     assert expected[:2] == [True, False]
@@ -52,7 +52,7 @@ def test_bootstrap_nondegenerate_components_match_scalar_final_look():
     panels += np.array([-.2, .1, .45])[:, None, None]
     components = cal.bootstrap_components(panels, cal.bootstrap_weights(256))
     for j, matrix in enumerate(panels):
-        scalar = interval(matrix.tolist(), critical=3, resamples=256)
+        scalar = interval(matrix.tolist(), critical=3, resamples=256, population_days=75)
         for name, result in components.items():
             assert result["pvalue"][j] == pytest.approx(scalar["pvalues"][name], abs=1e-14)
             assert result["lower"][j] == pytest.approx(scalar["intervals"][name][0], abs=1e-12)

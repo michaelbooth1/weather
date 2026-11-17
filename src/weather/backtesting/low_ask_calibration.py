@@ -19,7 +19,7 @@ from datetime import timedelta
 from functools import cache
 from pathlib import Path
 
-from weather.backtesting.low_ask.contracts import CITIES, FIRST, local_cut, timezone_fingerprint
+from weather.backtesting.low_ask.contracts import CITIES, DATE_COUNT, FIRST, local_cut, timezone_fingerprint
 from weather.backtesting.low_ask.inference import PLANNING_DATE_SD
 from weather.paths import repo_path
 
@@ -485,6 +485,8 @@ def main(argv=None):
     parser.add_argument("--arm-set", choices=("v1", "cap90"), default="v1")
     parser.add_argument("--ask-cap", type=float)
     args = parser.parse_args(argv)
+    if DATE_COUNT != N:
+        parser.error("historical N75 calibration cannot certify the N68 restart; use a reviewed N68 plan")
     is_v2 = args.arm_set == "cap90"
     arms = CAP90_ARMS if is_v2 else SIZE_ARMS
     study_seed = V2_SEED if is_v2 else SEED

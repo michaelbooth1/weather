@@ -61,7 +61,7 @@ def synthetic_rows(event=None, price="0.40", size="5"):
 
 
 def run(rows, as_of=None):
-    return simulate(rows, as_of=as_of or datetime(2026, 11, 18, 12, tzinfo=UTC), latency_seconds=Decimal(30))
+    return simulate(rows, as_of=as_of or datetime(2026, 11, 25, 12, tzinfo=UTC), latency_seconds=Decimal(30))
 
 
 def actual(result, city="atlanta", day=FIRST):
@@ -89,10 +89,10 @@ def test_dst_cuts_are_local_wall_time(day, hour, expected):
 
 
 def test_date_line_and_pacific_next_utc_date():
-    assert iso(local_cut(FIRST, "Pacific/Auckland", 17)) == "2026-11-17T04:00:00Z"
-    assert iso(local_cut(FIRST, "Pacific/Honolulu", 18)) == "2026-11-18T04:00:00Z"
+    assert iso(local_cut(FIRST, "Pacific/Auckland", 17)) == "2026-11-24T04:00:00Z"
+    assert iso(local_cut(FIRST, "Pacific/Honolulu", 18)) == "2026-11-25T04:00:00Z"
     rows = synthetic_rows(synthetic_event("seattle"))
-    assert iso(local_cut(FIRST, "America/Los_Angeles", 18)) == "2026-11-18T02:00:00Z"
+    assert iso(local_cut(FIRST, "America/Los_Angeles", 18)) == "2026-11-25T02:00:00Z"
     assert [r["status"] for r in actual(run(rows), "seattle")] == ["filled", "filled"]
 
 
@@ -188,8 +188,8 @@ def test_ties_at_band_edge_require_exactly_one_container():
 
 
 @pytest.mark.parametrize("change,reason", [
-    ({"response_utc": "2026-11-17T22:00:27Z"}, "book_integrity"),
-    ({"exchange_utc": "2026-11-17T22:00:20Z"}, "book_integrity"),
+    ({"response_utc": "2026-11-24T22:00:27Z"}, "book_integrity"),
+    ({"exchange_utc": "2026-11-24T22:00:20Z"}, "book_integrity"),
     ({"active": False}, "book_integrity"),
     ({"integrity_ok": False}, "book_integrity"),
     ({"asks": [["0.40", "4.99"], ["0.41", "100"]]}, "partial_fill_refused"),
@@ -199,8 +199,8 @@ def test_ties_at_band_edge_require_exactly_one_container():
 def test_first_full_book_failure_does_not_choose_later_favorable_book(change, reason):
     rows = synthetic_rows()
     rows["books"][0].update(change)
-    later = dict(rows["books"][0], received_utc="2026-11-17T22:00:31Z", response_utc="2026-11-17T22:00:30Z",
-                 exchange_utc="2026-11-17T22:00:30Z", active=True, integrity_ok=True,
+    later = dict(rows["books"][0], received_utc="2026-11-24T22:00:31Z", response_utc="2026-11-24T22:00:30Z",
+                 exchange_utc="2026-11-24T22:00:30Z", active=True, integrity_ok=True,
                  asks=[["0.20", "100"]], book_id="later", sequence=99)
     rows["books"].append(later)
     assert actual(run(rows))[0]["reason"] == reason
@@ -287,7 +287,7 @@ def test_late_integrity_failure_preserves_population_and_loss_bound():
     event = rows["events"][0]
     rows["resolutions"] = [resolution(event)]
     rows["integrity"] = [{"event_id": event["event_id"], "book_id": rows["books"][0]["book_id"],
-                          "ok": False, "received_utc": "2026-11-18T10:00:00Z", "evidence_sha256": H}]
+                          "ok": False, "received_utc": "2026-11-25T10:00:00Z", "evidence_sha256": H}]
     result = run(rows)
     assert len(actual(result)) == 2 and result["doubtful_fills"] == 1
     assert Decimal(result["net_lower"]) == Decimal("-2.2225")
@@ -298,9 +298,9 @@ def test_known_bad_proof_is_not_filled_and_repeat_receipt_cannot_undo_correction
     rows = synthetic_rows()
     event = rows["events"][0]
     rows["integrity"] = [{"event_id": event["event_id"], "book_id": rows["books"][0]["book_id"],
-                          "ok": False, "received_utc": "2026-11-17T22:00:29Z", "evidence_sha256": H}]
+                          "ok": False, "received_utc": "2026-11-24T22:00:29Z", "evidence_sha256": H}]
     assert actual(run(rows))[0]["reason"] == "book_integrity"
-    repeat = dict(rows["observations"][0], received_utc="2026-11-17T21:59:00Z", source_sequence=99)
+    repeat = dict(rows["observations"][0], received_utc="2026-11-24T21:59:00Z", source_sequence=99)
     rows["observations"].append(repeat)
     with pytest.raises(Refusal, match="first_seen_identity"):
         run(rows)

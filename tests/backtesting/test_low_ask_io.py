@@ -26,7 +26,7 @@ from weather.backtesting.low_ask.core import simulate
 from weather.backtesting.low_ask.contracts import LOOK, number
 
 
-def write_pack(root, rows=None, as_of="2026-11-18T12:00:00Z"):
+def write_pack(root, rows=None, as_of="2026-11-25T12:00:00Z"):
     root.mkdir(parents=True, exist_ok=True)
     rows = deepcopy(rows or synthetic_rows())
     specs = []
@@ -106,7 +106,7 @@ def test_immutable_cumulative_receipt_and_no_backdated_additions(tmp_path):
     path, manifest = write_pack(tmp_path)
     _, loaded = load_pack(path)
     previous = loaded["receipt"]
-    manifest["as_of_utc"] = "2026-11-18T13:00:00Z"
+    manifest["as_of_utc"] = "2026-11-25T13:00:00Z"
     manifest["previous_receipt_sha256"] = digest(canonical(previous))
     path.write_bytes(canonical(manifest))
     _, second = load_pack(path, previous)
@@ -165,14 +165,20 @@ def test_dedicated_executable_blocks_actual_import_before_client_load():
 
 
 def synthetic_freeze(manifest):
-    return {"schema_version": "low_ask_freeze_v1", "trial": "LOW-ASK-1", "frozen_utc": "2026-11-15T12:00:00Z", "code_sha256": runner.code_hashes(),
+    return {"schema_version": "low_ask_freeze_v1", "trial": "LOW-ASK-1", "frozen_utc": "2026-11-20T12:00:00Z", "code_sha256": runner.code_hashes(),
         "prereg_sha256": digest(runner.repo_path("docs/research/low-ask-1/PREREG_LOW_ASK_1.md").read_bytes()),
         "input_contract_sha256": digest(runner.repo_path("docs/research/low-ask-1/INPUT_CONTRACT.md").read_bytes()),
         **{k: manifest[k] for k in ("producer_id", "reader_sha256", "transform_sha256", "timezone_sha256", "timezone_version", "latency_receipt", "capital")},
         "public_key_sha256": H, "claimants": ["F3-SIM-1", "LOW-ASK-1"], "state_root": str(Path.cwd() / "synthetic-state"),
         "gates": {k: True for k in ("foundations_landed", "capture_verified", "scoped_pack_verified", "latency_verified",
                     "authority_amendment", "claimant_scope_zero_exposure", "master_defaults_confirmed", "two_replays_match")},
-        "calibration": {"status": "SCREEN_ONLY", "receipt_sha256": None, "critical_value": None, "power_lower": None}}
+        "restart_authority": {"amendment_commit": "a" * 40,
+            "charter_sha256": digest(runner.repo_path("docs/operations/EDGE_TRIAL_CHARTER.md").read_bytes()),
+            "owner_seen_utc": "2026-11-17T23:00:00Z", "master_confirmed_utc": "2026-11-18T00:00:00Z",
+            "screen_only_disposition_sha256": H},
+        "calibration": {"status": "SCREEN_ONLY", "receipt_sha256": None, "critical_value": None, "power_lower": None,
+            "first_date": FIRST.isoformat(), "last_date": LAST.isoformat(), "date_count": 68,
+            "inference_sha256": runner.code_hashes()["src/weather/backtesting/low_ask/inference.py"]}}
 
 
 def test_agent_receipt_and_errors_never_reveal_values(tmp_path, monkeypatch, capsys):
@@ -193,7 +199,7 @@ def test_agent_receipt_and_errors_never_reveal_values(tmp_path, monkeypatch, cap
         from contextlib import nullcontext
         monkeypatch.setattr(runner, "state_lock", lambda _: nullcontext())
     receipt = runner.accrue(path, freeze_path, digest(canonical(freeze)), tmp_path / "public.json", tmp_path / "sealed",
-                            now=datetime(2026, 11, 18, 13, tzinfo=UTC))
+                            now=datetime(2026, 11, 25, 13, tzinfo=UTC))
     # Economic fields exist only in the payload handed to the sealer.
     assert captured[0]["ledger"]["decisions"][0]["ask"] == "0.40"
     public = canonical(receipt)
@@ -215,12 +221,12 @@ def test_agent_receipt_and_errors_never_reveal_values(tmp_path, monkeypatch, cap
 def test_freeze_deadline_and_code_binding(tmp_path):
     _, manifest = write_pack(tmp_path)
     freeze = synthetic_freeze(manifest)
-    now = datetime(2026, 11, 18, tzinfo=UTC)
+    now = datetime(2026, 11, 25, tzinfo=UTC)
     runner.validate_freeze(freeze, digest(canonical(freeze)), now)
-    freeze["frozen_utc"] = "2026-11-17T05:00:00Z"
+    freeze["frozen_utc"] = "2026-11-24T05:00:00Z"
     with pytest.raises(Refusal, match="freeze_deadline"):
         runner.validate_freeze(freeze, digest(canonical(freeze)), now)
-    freeze["frozen_utc"] = "2026-11-15T12:00:00Z"
+    freeze["frozen_utc"] = "2026-11-20T12:00:00Z"
     freeze["code_sha256"] = {}
     with pytest.raises(Refusal, match="code_binding"):
         runner.validate_freeze(freeze, digest(canonical(freeze)), now)
@@ -285,20 +291,20 @@ def test_final_report_releases_account_summary_only_at_consumed_look(tmp_path, m
 def test_primary_fixed_population_and_missing_calibration_prevent_pass():
     ledger = simulate(synthetic_rows(), as_of=LOOK, latency_seconds=number("30"))
     panel = panel_from_ledger(ledger)
-    assert len(panel) == 75 and all(len(row) == 12 for row in panel)
+    assert len(panel) == 68 and all(len(row) == 12 for row in panel)
     assert sum(map(sum, panel)) == pytest.approx(-4.22)
     report = evaluate(ledger, calibration={"status": "SCREEN_ONLY"}, family_pvalues={"F3-SIM-1": 0.001},
                       claimants=["F3-SIM-1", "LOW-ASK-1"], resamples=128)
-    assert report["mean"] == pytest.approx(-4.22/900)
+    assert report["mean"] == pytest.approx(-4.22/816)
     assert report["verdict"] == "DESCRIBE"
     assert report["both_filled_city_days"] == 1 and report["adequate_dates"] == 0
     assert report["both_filled_by_city"]["atlanta"] == 1
-    assert len(report["both_filled_by_date"]) == 75
-    assert report["scheduled_slots"] == 1800 and report["filled_slots"] == 2
+    assert len(report["both_filled_by_date"]) == 68
+    assert report["scheduled_slots"] == 1632 and report["filled_slots"] == 2
 
 
 def test_bootstrap_positive_control_and_full_family_holm():
-    panel = [[0.5] * 12 for _ in range(75)]
+    panel = [[0.5] * 12 for _ in range(68)]
     result = interval(panel, critical=3.0, resamples=128)
     assert result["mean"] == result["lower"] == result["upper"] == 0.5
     assert result["pvalue"] == 0.0125
@@ -316,7 +322,7 @@ def test_ineligible_trial_exports_one_for_family_not_a_small_diagnostic_pvalue()
     ledger = {"decisions": [
         {"target_date": (FIRST+timedelta(days=d)).isoformat(), "city": city, "cut": hour,
          "status": "resolved", "shares": "5", "conservative_net": "0.25"}
-        for d in range(75) for city in CITIES for hour in (17, 18)],
+        for d in range(68) for city in CITIES for hour in (17, 18)],
         "doubtful_fills": 1, "unresolved": 0}
     report = evaluate(ledger, calibration={"status": "CALIBRATED", "critical_value": "3"},
                       family_pvalues={"F3-SIM-1": .03}, claimants=["F3-SIM-1", "LOW-ASK-1"], resamples=128)
@@ -333,12 +339,12 @@ def test_cap_blocked_slots_are_executable_and_cannot_hide_an_economic_kill():
         {"target_date": (FIRST+timedelta(days=d)).isoformat(), "city": city, "cut": hour,
          "status": "resolved" if d < 72 and d % 2 == 0 and city == sorted(CITIES)[(d//2) % 12] else "skip", "shares": "5",
          "conservative_net": "-4.09", "reason": "cash_cap"}
-        for d in range(75) for city in CITIES for hour in (17, 18)],
+        for d in range(68) for city in CITIES for hour in (17, 18)],
         "doubtful_fills": 0, "unresolved": 0}
     report = evaluate(ledger, calibration={"status": "CALIBRATED", "critical_value": "3"},
                       family_pvalues={"F3-SIM-1": .03}, claimants=["F3-SIM-1", "LOW-ASK-1"], resamples=128)
-    assert report["both_executable_city_days"] == 900 and report["adequate_dates"] == 75
-    assert report["both_filled_city_days"] == 36
+    assert report["both_executable_city_days"] == 816 and report["adequate_dates"] == 68
+    assert report["both_filled_city_days"] == 34
     assert report["verdict"].startswith("KILL_")
 
 
@@ -347,7 +353,7 @@ def test_freeze_refuses_more_than_four_claimants(tmp_path):
     freeze = synthetic_freeze(manifest)
     freeze["claimants"] += ["third", "fourth", "fifth"]
     with pytest.raises(Refusal, match="claimants"):
-        runner.validate_freeze(freeze, digest(canonical(freeze)), datetime(2026, 11, 18, tzinfo=UTC))
+        runner.validate_freeze(freeze, digest(canonical(freeze)), datetime(2026, 11, 25, tzinfo=UTC))
 @pytest.mark.skipif(os.name != "nt", reason="Native Windows CNG seal")
 def test_native_oaep_seal_roundtrip_randomness_and_fixed_length():
     # Ephemeral SYNTHETIC crypto key in RAM only. No account, credential or file.

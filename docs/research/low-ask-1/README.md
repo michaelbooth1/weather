@@ -5,23 +5,32 @@ synthetic witnesses and draft preregistration. It does not configure or start ca
 Read [INPUT_CONTRACT.md](INPUT_CONTRACT.md) when building the F3 export and
 [PREREG_LOW_ASK_1.md](PREREG_LOW_ASK_1.md) when reviewing or binding the trial.
 
-Stacked dependency: `origin/claude/weather-expansion-foundations-sq-20261110`
-at `78d0aa66`. After T046 lands, merge `origin/master` into
-`codex/low-ask-1-20261110`; do not rebase. Runtime adoption belongs to the master.
+T123 restarts the owner-approved dates at 2026-11-24..2027-01-30, retaining
+the 2027-02-09 18:00 Toronto look and all other terms. T046 is ancestral to
+the recorded restart base. The master-based restart branch merges the preserved
+T093 history; no history is rewritten. Runtime adoption belongs to the master.
 
-The candidate is **NOT FROZEN**. The master confirms the stated defaults and
+The candidate is **NOT FROZEN**. The master must confirm the owner saw the
+landed charter amendment before either affected freeze. The master confirms the stated defaults and
 supplies the prerequisite receipts and custodian public key before binding a
 freeze. Missing prerequisites refuse accrual. No package installation is needed;
 sealing uses Windows CNG. No private key is read by the process.
 
-The separate [synthetic calibration plan](CALIBRATION_PLAN.md) uses the existing
+The separate historical N75 [synthetic calibration plan](CALIBRATION_PLAN.md) uses the existing
 NumPy/SciPy pins under reviewed workstation-heavy admission. It is never loaded
 by the paper executable; its smoke tests do not establish size or power.
 
-The [calibration-v2 owner-option plan](CALIBRATION_V2_PLAN.md) preregisters the
+The historical N75 [calibration-v2 owner-option plan](CALIBRATION_V2_PLAN.md) preregisters the
 ask-.90 cap redesign and three assumed eligibility fractions. Its new streams,
 execution mask and F2 resource guards require the master's diff check before
 the seeded attempt. V1 evidence remains attached to its reviewed commit.
+Neither plan certifies N68. A new N68 plan/receipt or an explicit SCREEN_ONLY
+disposition is needed; the executable binds population and inference hash.
+The ask-.90 option has not been adopted into the paper policy.
+
+The unchanged 810 both-executable city-day and 68 adequate-date gates now
+apply to 816 scheduled city-days / 68 dates. Chicago absent throughout cannot
+qualify. No completeness gate is silently scaled to the shorter window.
 
 The canonical entry point is:
 

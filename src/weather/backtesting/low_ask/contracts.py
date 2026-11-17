@@ -10,9 +10,10 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 UTC = timezone.utc
-FIRST = date(2026, 11, 17)
+FIRST = date(2026, 11, 24)
 LAST = date(2027, 1, 30)
-FREEZE_BEFORE = datetime(2026, 11, 17, 5, tzinfo=UTC)
+DATE_COUNT = (LAST - FIRST).days + 1
+FREEZE_BEFORE = datetime(2026, 11, 24, 5, tzinfo=UTC)
 LOOK = datetime(2027, 2, 9, 23, tzinfo=UTC)
 CITIES = {
     "atlanta": ("America/New_York", "KATL", "F"),

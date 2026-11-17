@@ -9,7 +9,7 @@ policy and deciding look. No capture configuration change is part of this packag
 ## Scope and closed physical inputs
 
 Only International Polymarket **lowest** events for the twelve slugs in
-`contracts.CITIES`, local target dates 2026-11-17 through 2027-01-30 inclusive.
+`contracts.CITIES`, local target dates 2026-11-24 through 2027-01-30 inclusive.
 There is one event per city-date. Missing events remain scheduled zero
 opportunities. Never export highest, other cities, expansion-study loggers,
 pilot/account records, model vectors, forecasts, Gamma display prices, NO
@@ -231,7 +231,27 @@ claimants; unweighted Holm), and
 absolute `state_root`. The latter binds continuation/locking and the consumed
 look marker across every invocation. Every prerequisite boolean must be true. The code
 hash map covers every owned Python module plus parser/bucketing/initializer/path
-dependencies. Freeze time must be strictly before 2026-11-17T05:00:00Z.
+dependencies. Freeze time must be strictly before 2026-11-24T05:00:00Z.
+The restart has 68 local dates, 816 scheduled city-days and 1,632 slots.
+Earlier LOW-ASK-1 dates refuse.
+
+The freeze adds mandatory `restart_authority` with exact fields
+`amendment_commit charter_sha256 owner_seen_utc master_confirmed_utc
+screen_only_disposition_sha256`. The master supplies the landed amendment's
+full 40-hex commit and current charter's raw SHA256, attests when the owner
+saw it, and confirms that before freeze: owner_seen <= master_confirmed <=
+frozen_utc. These are external master attestations, not code-generated proof
+of owner review or landing. The master verifies the landed commit; the reader
+performs no Git/network fetch. Missing evidence refuses before input loading.
+
+The `calibration` object has exact fields `status receipt_sha256 critical_value
+power_lower first_date last_date date_count inference_sha256`. Endpoints and
+count must match this N68 restart and the inference hash must match the pinned
+code map. N75 receipts cannot certify it. CALIBRATED additionally needs its
+size/power receipt, critical value and power lower >=.80. A SCREEN_ONLY freeze
+requires an explicit dated master disposition SHA256 in restart_authority;
+without that, do not freeze. SCREEN_ONLY can never PASS and exports p=1 to
+the final family. A NOT_RUN candidate is not a valid freeze object.
 The repository bootstrap/shim bytes are pinned too. The dedicated entry point
 retires the benign startup console shim and its stdlib subprocess import from
 its own module cache, then denies re-import; other preloaded clients refuse.

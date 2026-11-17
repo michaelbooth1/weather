@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 from weather.paths import repo_path
 
-from .contracts import (CAPS, FREEZE_BEFORE, LOOK, UTC, canonical, digest, exact,
+from .contracts import (CAPS, DATE_COUNT, FIRST, LAST, FREEZE_BEFORE, LOOK, UTC, canonical, digest, exact,
                         instant, iso, json_bytes, number, require, sha, timezone_fingerprint)
 from .core import simulate
 from .isolation import assert_no_order_path
@@ -32,12 +33,20 @@ def code_hashes() -> dict:
 
 def validate_freeze(freeze: dict, expected_sha: str, now: datetime) -> None:
     exact(freeze, "schema_version trial frozen_utc code_sha256 prereg_sha256 input_contract_sha256 producer_id reader_sha256 "
-          "transform_sha256 timezone_sha256 timezone_version latency_receipt capital public_key_sha256 gates calibration claimants state_root")
+          "transform_sha256 timezone_sha256 timezone_version latency_receipt capital public_key_sha256 gates calibration claimants state_root restart_authority")
     require(digest(canonical(freeze)) == sha(expected_sha), "freeze_hash")
     require(freeze["schema_version"] == "low_ask_freeze_v1", "freeze_schema")
     require(freeze["trial"] == "LOW-ASK-1", "freeze_trial")
     frozen = instant(freeze["frozen_utc"])
     require(frozen < FREEZE_BEFORE and frozen <= now, "freeze_deadline")
+    authority = freeze["restart_authority"]
+    exact(authority, "amendment_commit charter_sha256 owner_seen_utc master_confirmed_utc screen_only_disposition_sha256")
+    require(isinstance(authority["amendment_commit"], str)
+            and re.fullmatch(r"[0-9a-f]{40}", authority["amendment_commit"]) is not None, "amendment_commit")
+    require(instant(authority["owner_seen_utc"]) <= instant(authority["master_confirmed_utc"]) <= frozen,
+            "owner_seen_confirmation")
+    require(digest(repo_path("docs/operations/EDGE_TRIAL_CHARTER.md").read_bytes())
+            == sha(authority["charter_sha256"]), "charter_binding")
     require(freeze["code_sha256"] == code_hashes(), "code_binding")
     require(freeze["capital"] == CAPS, "capital_binding")
     require(freeze["reader_sha256"] == freeze["code_sha256"]["src/weather/backtesting/low_ask/pack.py"], "reader_code_binding")
@@ -55,8 +64,14 @@ def validate_freeze(freeze: dict, expected_sha: str, now: datetime) -> None:
     exact(freeze["gates"], "foundations_landed capture_verified scoped_pack_verified latency_verified "
           "authority_amendment claimant_scope_zero_exposure master_defaults_confirmed two_replays_match")
     require(all(value is True for value in freeze["gates"].values()), "freeze_prerequisites")
-    exact(freeze["calibration"], "status receipt_sha256 critical_value power_lower")
+    exact(freeze["calibration"], "status receipt_sha256 critical_value power_lower first_date last_date date_count inference_sha256")
+    require((freeze["calibration"]["first_date"], freeze["calibration"]["last_date"], freeze["calibration"]["date_count"])
+            == (FIRST.isoformat(), LAST.isoformat(), DATE_COUNT), "calibration_population")
+    require(freeze["calibration"]["inference_sha256"] == freeze["code_sha256"]["src/weather/backtesting/low_ask/inference.py"],
+            "calibration_statistic")
     require(freeze["calibration"]["status"] in {"SCREEN_ONLY", "CALIBRATED"}, "calibration_status")
+    if freeze["calibration"]["status"] == "SCREEN_ONLY":
+        sha(authority["screen_only_disposition_sha256"])
     if freeze["calibration"]["status"] == "CALIBRATED":
         sha(freeze["calibration"]["receipt_sha256"])
         require(number(freeze["calibration"]["critical_value"]) >= number("2.241402727604947")
