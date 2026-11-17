@@ -14,3 +14,9 @@ docs/roadmap/repair-ceiling-single-environment-runtime-bundle-*.zip filter=lfs d
 # Byte-exact NOAA NBP station blocks (space-padded rows and separator line are the
 # bulletin format the parser tests read); git diff --check must not flag them.
 tests/fixtures/nbm_target_fix/p0/*.txt -whitespace
+
+# Hash-pinned session-1 preregistration locks: their SHA-256 is recorded in DECISION_LOG
+# and the folder README, so their bytes (each has one trailing space) must never change;
+# git diff --check must not flag them.
+docs/research/session1-freeze-2026-11-07/FREEZE-FINAL.md -whitespace
+docs/research/session1-freeze-2026-11-07/FREEZE-FINAL-v2.md -whitespace
