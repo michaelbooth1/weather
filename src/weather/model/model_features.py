@@ -1324,8 +1324,8 @@ class FeatureModelMixin:
                 coef_data = lr_coefs[str(cutoff_hour)]
                 feature_names = coef_data["feature_names"]
                 classes = coef_data["classes"]
-                coef = coef_data["coef"] # Shape: (n_classes, n_features)
-                intercept = coef_data["intercept"] # Shape: (n_classes,)
+                coef = coef_data["coef"]
+                intercept = coef_data["intercept"]
                 scaler_mean = coef_data["scaler_mean"]
                 scaler_scale = coef_data["scaler_scale"]
                 imputer_median = coef_data["imputer_median"]
@@ -1352,8 +1352,11 @@ class FeatureModelMixin:
                     else:
                         scaled_vec.append(0.0)
                         
-                # Compute logits: z_c = sum_j coef_{c, j} * x_j + intercept_c
-                import math
+                # sklearn stores a binary classifier as the second class's
+                # log odds against a zero reference logit for the first class.
+                if len(classes) == 2 and len(coef) == len(intercept) == 1:
+                    coef = ([0.0] * len(scaled_vec), coef[0])
+                    intercept = (0.0, intercept[0])
                 logits = []
                 for c_idx in range(len(classes)):
                     z = sum(coef[c_idx][j] * scaled_vec[j] for j in range(len(scaled_vec))) + intercept[c_idx]

@@ -4,8 +4,10 @@ import unittest
 from datetime import datetime
 
 import numpy as np
+from sklearn.linear_model import LogisticRegression
 
 from weather.calibration.feature_probability_calibration import temperature_scale_distribution
+from weather.model.model_features import FeatureModelMixin
 from weather.model.toronto_model import TorontoHighTempModel
 
 
@@ -22,6 +24,28 @@ class DummyImputer:
 
 
 class TestFeatureModelServingCalibration(unittest.TestCase):
+    def test_lr_fallback_matches_fitted_binary_and_multiclass_estimator(self):
+        model = FeatureModelMixin()
+        model.load_feature_model_hgb = lambda: {}
+        model.extract_live_features = lambda sources, cutoff_hour, now=None: {
+            "current_temp": sources["temp"], "wind_group": None, "cloud_group": None,
+        }
+        train = [[-2.0], [-1.0], [0.0], [1.0], [2.0], [3.0]]
+        for labels in ([-5, -5, -5, -5, 2, 2], [-5, -5, 0, 0, 2, 2]):
+            with self.subTest(labels=labels):
+                fitted = LogisticRegression(C=0.5, random_state=42).fit(train, labels)
+                model.load_feature_model_coefs = lambda: {"9": {
+                    "feature_names": ["current_temp"], "classes": fitted.classes_.tolist(),
+                    "coef": fitted.coef_.tolist(), "intercept": fitted.intercept_.tolist(),
+                    "scaler_mean": [0.0], "scaler_scale": [1.0], "imputer_median": [0.0],
+                }}
+                for temp in (-5.0, 0.0, 3.0):
+                    distribution, kind = model.predict_feature_distribution({"temp": temp}, 9, None)
+                    self.assertEqual(kind, "lr")
+                    self.assertEqual(set(distribution), set(fitted.classes_))
+                    expected = fitted.predict_proba([[temp]])[0]
+                    np.testing.assert_allclose([distribution[c] for c in fitted.classes_], expected)
+
     def test_hgb_bundle_temperature_is_applied_at_serving(self):
         model = TorontoHighTempModel()
         model.extract_live_features = lambda sources, cutoff_hour, now=None: {

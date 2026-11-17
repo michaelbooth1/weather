@@ -172,7 +172,8 @@ candidate-specific exact-distribution calibration, fit receipt, and report.
 The HGB parameters come from the verified parent estimator. The legacy LR
 artifact does not serialize its constructor parameters, so this lane freezes
 and receipts the serving-compatible `C=0.5`, `max_iter=1000`,
-`random_state=42` contract. Serving support is a positive-mass contiguous
+`random_state=42` contract. For a binary LR, the single coefficient row is
+the second class's log odds against the first. Serving support is a positive-mass contiguous
 native integer range declared separately from estimator classes, with a
 two-bucket C or four-bucket F upper margin. The serving path uses the artifact's
 target-date-aligned prior when present; legacy artifacts retain their existing
