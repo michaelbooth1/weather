@@ -35,6 +35,11 @@ class CampaignCoordinator:
                    'DISABLED': 'campaign_disabled', 'RUNNING': 'running', 'POSTCHECK_PENDING': 'postcheck_pending',
                    'COMPLETE': 'completed', 'INCIDENT': 'account_incident'}
         incidents = active_incidents(self.state, retained_only=phase == 'RETRY_PENDING')
+        from weather.market.lfc_eligible_time import campaign_observation
+        try:
+            campaign_observation(self, getattr(self, '_eligibility_policy', None), incidents=bool(incidents))
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            self.eligible_time_evidence_gap = True  # Observational; never grants admission.
         if incidents:
             attempt = incidents[0]['attempt_id']
             phase, kwargs['incident'] = 'INCIDENT', True
@@ -137,6 +142,7 @@ class CampaignCoordinator:
             policy = load_policy()
         except (OSError, ValueError) as exc:
             policy_error = exc
+        self._eligibility_policy = policy
         if policy is not None and policy.f2:
             from weather.market.lfc_f2_freeze import capture, capture_window, verify
             capture(self.state, policy, self.clock.now())

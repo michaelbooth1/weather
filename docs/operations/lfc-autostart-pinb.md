@@ -72,6 +72,15 @@ The December success look and actual-cash verdict are unchanged.
 
 ## Operational observations and temporary depth pauses
 
+Private `eligible-time` observations record the campaign's open-window/no-halt
+clock even when its enabled flag is false. Selected-band journals separately
+record ordinary screen results and acknowledged order identities. Matching
+observations at most ninety seconds apart bound eligible/ineligible intervals;
+transitions, missing starts/ends and longer gaps are unknown. Task-off periods
+without observations cannot certify uptime. The window clock alone does not
+prove city eligibility, resting exposure or minimum-size reward qualification.
+These observations never supply order or capital authority.
+
 The coordinator shares one immutable geoblock pass/fail receipt across bands.
 It reads at most once per thirty seconds, including failed attempts. Every band
 uses the receipt's original collection clock and its existing freshness budget;
