@@ -1483,6 +1483,12 @@ Keep these for at least 14 days:
 - every 3.11.0 release manifest;
 - `$R`.
 
+`venv-cp3110` sits untracked in the repository root, and `agent_docs_audit` scans untracked
+Markdown that git does not ignore. Its site-packages Markdown then fails the audit and the
+documentation transaction's completion checks (it happened on 2026-11-17). Add `/venv-cp3110/` to the
+checkout's `.git/info/exclude` after C10. That file is host-local, needs no commit and leaves the
+rollback copy in place.
+
 Uninstalling 3.11.0 is a later, separate owner decision. The 3.11.9 home is a plain directory with no
 uninstall entry, so uninstalling 3.11.0 cannot touch it.
 
