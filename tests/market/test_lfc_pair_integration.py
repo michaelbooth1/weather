@@ -39,7 +39,6 @@ def journal(band):
 
 
 def test_partial_cheap_fill_with_divided_native_price_writes_terminal_packet(tmp_path, monkeypatch):
-    from math import inf, nextafter
     from tests.market import test_lfc_f2_repost as fixtures
     from weather.market.lfc_capital import ASSET, native
     controller, account, status, ledger, clock, _, _ = complete_fixture(tmp_path, cheap=True)
@@ -50,7 +49,7 @@ def test_partial_cheap_fill_with_divided_native_price_writes_terminal_packet(tmp
             orders = [r for r in account.raws[0].memory.orders.values() if r['status'] == 'LIVE']
             if orders:
                 changed = orders[0]
-                changed['original_size'] = '6.123457'
+                changed['original_size'] = '7.123457'
         if account.fill_times:
             account.fills_enabled = False
         advance()
@@ -61,10 +60,8 @@ def test_partial_cheap_fill_with_divided_native_price_writes_terminal_packet(tmp
         for maker in row['maker_orders']:
             shares = D(maker['matched_amount'])
             amount = D(native(D(maker['price']) * shares, ceil=True)) / 1000000
-            price = float(amount / shares)
-            if D(str(price)) * shares <= amount:
-                price = nextafter(price, inf)
-            maker['price'] = str(price)
+            maker['price'] = str(float(amount / shares))
+            assert D(maker['price']) * shares > amount
         return row
     monkeypatch.setattr(fixtures, 'wire_trade', lambda *a: divided(wire(*a)))
     for raw in account.raws:
