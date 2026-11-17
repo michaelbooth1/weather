@@ -36,6 +36,32 @@ def safe_traceback(tb):
     return frames
 
 
+def exception_diagnostic(exc):
+    """Retain chained stack text without source paths, code, locals or arbitrary messages."""
+    allowed = {'completion_projection_binding', 'completion_inventory_unproven',
+               'repost_terminal_unproven', 'f2_band_count', 'f2_band_already_closed'}
+    seen, chain, text = set(), [], []
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        frames, tb = [], exc.__traceback__
+        while tb is not None:
+            # Reuse the L3 frame policy for each frame, retaining the whole stack.
+            frames.append(safe_traceback(tb)[0])
+            tb = tb.tb_next
+        kind = type(exc).__name__
+        kind = kind if re.fullmatch('[A-Za-z_]{1,96}', kind) else 'Exception'
+        message = exc.args[0] if len(exc.args) == 1 and type(exc.args[0]) is str and exc.args[0] in allowed else None
+        chain.append({'exception_type': kind, 'traceback': frames, 'message': message,
+                      'message_omitted': message is None})
+        text.extend(f"  {f['module']}:{f['line']} in {f['function']}" for f in frames)
+        text.append(kind + (': ' + message if message else ' [message omitted]'))
+        exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+        if exc is not None:
+            text.append('Caused by / during handling:')
+    return {'traceback_text': '\n'.join(text), 'exception_chain': chain,
+            'traceback_policy': 'class_and_safe_frames_allowlisted_messages_only'}
+
+
 def tick_log(root, *, now, attempt_id, exit_code, frames=()):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)

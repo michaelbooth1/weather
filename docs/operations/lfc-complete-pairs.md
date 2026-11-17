@@ -30,7 +30,13 @@ of a native cash boundary snaps to that boundary. This prevents a serialized
 division tail from being ceiled into an extra native unit. Larger cost
 differences still refuse; ledger money rules, quantities and FIFO costs retain
 their existing precision. Unexpected F2 exceptions retain safe module/function/
-line frames in the root journal, without exception text or local values.
+line frames in the root journal. The complete chained stack is also rendered
+as private text using module/function/line only. Messages are retained only
+from a fixed safe-code allowlist; arbitrary messages, paths, source lines and
+local values are omitted. The windowless child's stderr is drained into the
+private diagnostics directory, rotating to retained siblings at the log bound.
+Each bounded stderr line retains its byte count/hash and recognized safe frame
+or exception class; arbitrary text is omitted to exclude credentials and paths.
 
 For each condition, match opposing campaign-owned lots FIFO at trade
 precision. Subtract evidenced capital-book removals, then calculate signed

@@ -29,6 +29,9 @@ def fixture(tmp_path, body):
     declaration = "STATUS_ROOT = Path(r'C:\\t\\pilot\\status\\control')"
     assert text.count(declaration) == 1
     launcher.write_text(text.replace(declaration, 'STATUS_ROOT = Path(' + repr(str(tmp_path / 'public-status')) + ')'))
+    text = launcher.read_text()
+    launcher.write_text(text.replace("PRIVATE_LOG_ROOT = Path.home() / '.weather-lfc-20261009' / 'diagnostics'",
+        'PRIVATE_LOG_ROOT = Path(' + repr(str(tmp_path / 'private-log')) + ')'))
     (ops / 'lfc_campaign_task.ps1').write_text(body)
     pythonw = Path(sys.executable).with_name('pythonw.exe')
     row = {'schema_version': 'lfc_campaign_release_v0.1', 'task_name': 'WeatherLFCCampaign',
@@ -106,3 +109,32 @@ Start-Sleep -Seconds 60
         for handle in handles:
             if kernel.WaitForSingleObject(handle, 0) != 0: kernel.TerminateProcess(handle, 1)
             kernel.CloseHandle(handle)
+
+
+def test_private_stderr_rotation_retains_safe_frames_and_hashes_unsafe_text(tmp_path, monkeypatch):
+    import importlib.util
+    import io
+    spec = importlib.util.spec_from_file_location('fixture_windowless', REPO_ROOT / 'scripts/ops/lfc_campaign_windowless.py')
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    monkeypatch.setattr(module, 'LOG_BYTES', 1)
+    raw = b'  File "C:\\private\\lfc_pair_inventory.py", line 73, in held_inventory\nValueError: token=do-not-store\n'
+    module.retain_stderr(io.BytesIO(raw), tmp_path)
+    files = list(tmp_path.glob('campaign-child-stderr*.jsonl'))
+    assert len(files) == 2
+    rows = [json.loads(line) for p in files for line in p.read_bytes().splitlines()]
+    assert sum(row['bytes'] for row in rows) == len(raw)
+    assert any(row.get('safe_frame', {}).get('function') == 'held_inventory' for row in rows)
+    assert any(row.get('exception_type') == 'ValueError' for row in rows)
+    assert b'do-not-store' not in b''.join(p.read_bytes() for p in files)
+    assert b'private' not in b''.join(p.read_bytes() for p in files)
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != 'nt', reason='Windows GUI-subsystem process')
+def test_windowless_child_stderr_reaches_private_log_with_exit_code(tmp_path):
+    pythonw, launcher, release, _ = fixture(tmp_path, "[Console]::Error.WriteLine('ValueError: synthetic-private'); exit 7")
+    child = subprocess.run(argv(pythonw, launcher, release), env=clean_native_environment(), timeout=15)
+    assert child.returncode == 7
+    rows = [json.loads(line) for p in (tmp_path / 'private-log').glob('*.jsonl') for line in p.read_bytes().splitlines()]
+    assert rows and any(row.get('exception_type') == 'ValueError' for row in rows)
+    assert 'synthetic-private' not in json.dumps(rows)

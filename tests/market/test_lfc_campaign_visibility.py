@@ -16,7 +16,36 @@ from weather.market.lfc_campaign_guard import AdmissionBusy, account_lease
 from weather.market.lfc_campaign_policy import parse_policy
 from weather.market.lfc_campaign_state import StateRefused
 from weather.market.lfc_campaign_visibility import (DISK_FLOOR_BYTES, LOG_BYTES, STALL_SECONDS,
-    disk_headroom, notify_control, safe_traceback, stalled, tick_log)
+    disk_headroom, exception_diagnostic, notify_control, safe_traceback, stalled, tick_log)
+
+
+def test_full_exception_chain_text_omits_paths_secrets_and_arbitrary_messages():
+    def nested():
+        raise ValueError('completion_projection_binding')
+    try:
+        try:
+            nested()
+        except ValueError as cause:
+            raise RuntimeError('credential=fixture-secret C:\\private\\secret') from cause
+    except RuntimeError as exc:
+        row = exception_diagnostic(exc)
+    text = json.dumps(row)
+    assert 'nested' in text and 'completion_projection_binding' in text
+    assert len(row['exception_chain']) == 2
+    assert row['exception_chain'][0]['message_omitted']
+    assert 'fixture-secret' not in text and 'private' not in text
+
+
+def test_exception_text_retains_frames_beyond_l3_list_limit():
+    def nested(depth):
+        if depth:
+            return nested(depth - 1)
+        raise ValueError('completion_projection_binding')
+    try:
+        nested(80)
+    except ValueError as exc:
+        row = exception_diagnostic(exc)
+    assert len(row['exception_chain'][0]['traceback']) == 82
 
 
 @pytest.fixture(autouse=True)

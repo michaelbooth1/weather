@@ -8,6 +8,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import stat
 from pathlib import Path
 import subprocess
 import sys
@@ -16,7 +18,41 @@ from datetime import datetime, timedelta, timezone
 
 
 STATUS_ROOT = Path(r'C:\t\pilot\status\control')
+PRIVATE_LOG_ROOT = Path.home() / '.weather-lfc-20261009' / 'diagnostics'
+LOG_BYTES = 1024 ** 2
 IMPORT_OVERRIDES = ('PYTHONPATH', 'PYTHONHOME', 'WEATHER_MARKET_REGISTRY')
+
+
+def retain_stderr(stream, root):
+    """Drain bounded lines, rotate without deletion, never persist arbitrary secrets/paths."""
+    root = Path(root)
+    def redirected(path):
+        return path.exists() and bool(path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT) if os.name == 'nt' else path.is_symlink()
+    if any(redirected(p) for p in (root, *root.parents)):
+        raise ValueError('campaign_stderr_path_refused')
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / 'campaign-child-stderr.jsonl'
+    while True:
+        raw = stream.readline(8192)
+        if not raw:
+            break
+        line = raw.decode('utf-8', errors='replace').strip()
+        row = {'at_utc': datetime.now(timezone.utc).isoformat(), 'bytes': len(raw),
+               'sha256': hashlib.sha256(raw).hexdigest(), 'text_omitted': True}
+        frame = re.fullmatch(r'File "[^"]+[/\\]((?:lfc|re1)_[a-z_]+)\.py", line ([0-9]+), in ([A-Za-z_<>]+)', line)
+        error = re.fullmatch(r'(ValueError|RuntimeError|TypeError|KeyError|OSError|TimeoutError|ConnectionError)(?::.*)?', line)
+        if frame:
+            row['safe_frame'] = {'module': frame[1], 'line': int(frame[2]), 'function': frame[3]}
+        elif error:
+            row['exception_type'] = error[1]
+        if redirected(path):
+            raise ValueError('campaign_stderr_path_refused')
+        if path.exists() and path.stat().st_size >= LOG_BYTES:
+            path.rename(root / ('campaign-child-stderr-' + uuid.uuid4().hex + '.jsonl'))
+        with path.open('ab') as handle:
+            handle.write((json.dumps(row, sort_keys=True) + '\n').encode())
+            handle.flush()
+            os.fsync(handle.fileno())
 
 
 def append_refusal(path, raw):
@@ -163,24 +199,26 @@ def run(release_path, expected_sha):
             file_sha(__file__) != binding['launcher_sha256']):
         raise ValueError('campaign_windowless_binding')
     shell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-    # No pipes or inherited console handles: PS and its contained child share
-    # the owner's session, with no visible window. The tick writes its own safe
-    # rotating log and status. Never expose raw stderr or credential paths here.
+    # No inherited console: stderr is drained to private rotating diagnostics.
+    # Arbitrary text is hashed/omitted; safe stack frames and classes survive.
     with open(os.devnull, 'r+b') as sink:
         job, child = ChildJob(), None
         try:
             child = subprocess.Popen([str(shell), '-NoProfile', '-NonInteractive', '-File',
                 str(root / 'scripts/ops/lfc_campaign_task.ps1'), '-ReleasePath', str(release_path),
                 '-ReleaseSha256', expected_sha, '-TaskStartedUtc', task_started_utc().isoformat()],
-                cwd=root, stdin=sink, stdout=sink, stderr=sink,
+                cwd=root, stdin=sink, stdout=sink, stderr=subprocess.PIPE,
                 creationflags=subprocess.CREATE_NO_WINDOW | 0x4, close_fds=True)
             job.resume(child)
+            retain_stderr(child.stderr, PRIVATE_LOG_ROOT)
             return child.wait()
         finally:
             job.close()
             if child is not None:
                 if child.poll() is None: child.kill()
                 child.wait()
+                if child.stderr is not None:
+                    child.stderr.close()
 
 
 def main():
