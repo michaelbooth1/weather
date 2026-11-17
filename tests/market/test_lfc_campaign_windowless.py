@@ -138,3 +138,16 @@ def test_windowless_child_stderr_reaches_private_log_with_exit_code(tmp_path):
     rows = [json.loads(line) for p in (tmp_path / 'private-log').glob('*.jsonl') for line in p.read_bytes().splitlines()]
     assert rows and any(row.get('exception_type') == 'ValueError' for row in rows)
     assert 'synthetic-private' not in json.dumps(rows)
+
+
+@pytest.mark.spawns
+@pytest.mark.skipif(os.name != 'nt', reason='Windows GUI-subsystem process')
+def test_stderr_recording_failure_preserves_child_cleanup_and_reports_failure(tmp_path):
+    marker = tmp_path / 'cleanup-complete'
+    pythonw, launcher, release, _ = fixture(tmp_path,
+        f"[Console]::Error.WriteLine('ValueError: synthetic'); Start-Sleep -Milliseconds 100; Set-Content -LiteralPath '{marker}' -Value 'cleaned'; exit 0")
+    (tmp_path / 'private-log').write_text('synthetic root obstruction')
+    child = subprocess.run(argv(pythonw, launcher, release), env=clean_native_environment(), timeout=15)
+    assert marker.exists() and child.returncode == 1
+    rows = [json.loads(line) for p in (tmp_path / 'public-status').glob('*.jsonl') for line in p.read_bytes().splitlines()]
+    assert any(row['reason'] == 'campaign_stderr_unavailable' for row in rows)

@@ -13,6 +13,7 @@ import stat
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -28,9 +29,13 @@ def retain_stderr(stream, root):
     root = Path(root)
     def redirected(path):
         return path.exists() and bool(path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT) if os.name == 'nt' else path.is_symlink()
-    if any(redirected(p) for p in (root, *root.parents)):
-        raise ValueError('campaign_stderr_path_refused')
-    root.mkdir(parents=True, exist_ok=True)
+    failed = False
+    try:
+        if any(redirected(p) for p in (root, *root.parents)):
+            raise ValueError('campaign_stderr_path_refused')
+        root.mkdir(parents=True, exist_ok=True)
+    except (OSError, ValueError):
+        failed = True
     path = root / 'campaign-child-stderr.jsonl'
     while True:
         raw = stream.readline(8192)
@@ -45,14 +50,20 @@ def retain_stderr(stream, root):
             row['safe_frame'] = {'module': frame[1], 'line': int(frame[2]), 'function': frame[3]}
         elif error:
             row['exception_type'] = error[1]
-        if redirected(path):
-            raise ValueError('campaign_stderr_path_refused')
-        if path.exists() and path.stat().st_size >= LOG_BYTES:
-            path.rename(root / ('campaign-child-stderr-' + uuid.uuid4().hex + '.jsonl'))
-        with path.open('ab') as handle:
-            handle.write((json.dumps(row, sort_keys=True) + '\n').encode())
-            handle.flush()
-            os.fsync(handle.fileno())
+        if failed:
+            continue  # Keep draining: logging failure must not interrupt child cleanup.
+        try:
+            if redirected(path):
+                raise ValueError('campaign_stderr_path_refused')
+            if path.exists() and path.stat().st_size >= LOG_BYTES:
+                path.rename(root / ('campaign-child-stderr-' + uuid.uuid4().hex + '.jsonl'))
+            with path.open('ab') as handle:
+                handle.write((json.dumps(row, sort_keys=True) + '\n').encode())
+                handle.flush()
+                os.fsync(handle.fileno())
+        except (OSError, ValueError):
+            failed = True
+    return not failed
 
 
 def append_refusal(path, raw):
@@ -202,22 +213,47 @@ def run(release_path, expected_sha):
     # No inherited console: stderr is drained to private rotating diagnostics.
     # Arbitrary text is hashed/omitted; safe stack frames and classes survive.
     with open(os.devnull, 'r+b') as sink:
-        job, child = ChildJob(), None
+        job, child, reader = ChildJob(), None, None
+        recorded = []
         try:
             child = subprocess.Popen([str(shell), '-NoProfile', '-NonInteractive', '-File',
                 str(root / 'scripts/ops/lfc_campaign_task.ps1'), '-ReleasePath', str(release_path),
                 '-ReleaseSha256', expected_sha, '-TaskStartedUtc', task_started_utc().isoformat()],
                 cwd=root, stdin=sink, stdout=sink, stderr=subprocess.PIPE,
                 creationflags=subprocess.CREATE_NO_WINDOW | 0x4, close_fds=True)
+            def capture():
+                try:
+                    recorded.append(retain_stderr(child.stderr, PRIVATE_LOG_ROOT))
+                except Exception:
+                    recorded.append(False)
+                    try:
+                        while child.stderr.read(8192):
+                            pass  # Preserve cleanup even after an unexpected logger fault.
+                    except OSError:
+                        pass
+            reader = threading.Thread(target=capture, name='lfc-private-stderr', daemon=True)
+            reader.start()  # Before resume: a thread-start failure cannot launch orders.
             job.resume(child)
-            retain_stderr(child.stderr, PRIVATE_LOG_ROOT)
-            return child.wait()
+            code = child.wait()
+            job.close()  # Kill residual descendants before waiting for their pipe EOF.
+            job = None
+            reader.join(timeout=5)
+            complete = not reader.is_alive() and recorded == [True]
+            if not complete:
+                try:
+                    refusal_row('campaign_stderr_unavailable')
+                except OSError:
+                    pass
+            return code if complete or code else 1
         finally:
-            job.close()
+            if job is not None:
+                job.close()
             if child is not None:
                 if child.poll() is None: child.kill()
                 child.wait()
-                if child.stderr is not None:
+                if reader is not None:
+                    reader.join(timeout=5)
+                if child.stderr is not None and (reader is None or not reader.is_alive()):
                     child.stderr.close()
 
 

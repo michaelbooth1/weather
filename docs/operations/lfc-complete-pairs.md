@@ -37,6 +37,9 @@ local values are omitted. The windowless child's stderr is drained into the
 private diagnostics directory, rotating to retained siblings at the log bound.
 Each bounded stderr line retains its byte count/hash and recognized safe frame
 or exception class; arbitrary text is omitted to exclude credentials and paths.
+Recording failure keeps stderr draining through ordinary child cleanup, then
+reports a safe launcher failure. Residual descendants are terminated before
+waiting for their stderr EOF; logging cannot extend their lifetime.
 
 For each condition, match opposing campaign-owned lots FIFO at trade
 precision. Subtract evidenced capital-book removals, then calculate signed
