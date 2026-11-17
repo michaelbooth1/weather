@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from weather.market import gamma_http
+from weather.operations import location_config_refresh as refresh
 from weather.operations.location_config_refresh import fetch_gamma_events, main
 
 
@@ -53,6 +54,24 @@ def test_406_includes_venue_hint_without_cli_traceback(tmp_path, monkeypatch, ca
     assert "Gamma HTTP 406" in message and "gzip_required" in message and hint in message
     assert "Traceback" not in message
     assert not output.exists()
+
+
+@pytest.mark.parametrize("beyond_bound", [[], [{"id": "more"}]])
+def test_full_last_page_requires_a_proven_end_of_listing(monkeypatch, beyond_bound):
+    pages = iter([[{"id": "one"}, {"id": "two"}], beyond_bound])
+    calls = []
+
+    def listing(url, **kwargs):
+        calls.append(parse_qs(urlsplit(url).query))
+        return next(pages)
+
+    monkeypatch.setattr(refresh, "gamma_json", listing)
+    if beyond_bound:
+        with pytest.raises(gamma_http.GammaRequestError, match="retrieval bound"):
+            refresh.fetch_gamma_events(limit=2, max_pages=1)
+    else:
+        assert refresh.fetch_gamma_events(limit=2, max_pages=1) == ([{"id": "one"}, {"id": "two"}], [0, 2])
+    assert [(call["limit"], call["offset"]) for call in calls] == [(["2"], ["0"]), (["1"], ["2"])]
 
 
 @pytest.mark.parametrize("wrapped", [False, True])

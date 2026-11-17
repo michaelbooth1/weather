@@ -51,7 +51,7 @@ def test_location_refresh_revalidates_target_date_before_success() -> None:
     )
 
     refresh = '"weather.operations.location_config_refresh"'
-    validation = '"weather.operations.event_metadata_validation"'
+    validation = '"--validate-target-date"'
     assert text.index(refresh) < text.index(validation)
     assert '$targetDate = (Get-Date).ToString("yyyy-MM-dd")' in text
     assert 'if ([string]$validation.target_date -ne $targetDate' in text

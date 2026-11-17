@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from weather.operations import event_metadata_validation as gate
+from weather.operations import location_config_refresh as refresh
 from weather.operations.location_config_refresh import build_location_market_events
 
 
@@ -89,6 +90,51 @@ def test_validation_passes_when_generated_metadata_matches_live_gamma_tokens():
     assert payload["summary"]["pass_count"] == 1
     assert payload["market_rows"][0]["active_day_evidence_countable"] is True
     assert payload["validation_hash"]
+
+
+@pytest.mark.parametrize("case", ["empty", "mismatched_tokens", "replace_error", "valid"])
+def test_scheduled_refresh_publishes_only_valid_complete_bytes(tmp_path, monkeypatch, case):
+    locations = tmp_path / "locations.json"
+    metadata = tmp_path / "events.json"
+    receipt = tmp_path / "receipt.json"
+    locations.write_text(json.dumps(locations_payload()), encoding="utf-8")
+    metadata.write_bytes(b'{"last_good": true}\n')
+    previous = (locations.read_bytes(), metadata.read_bytes())
+    proposed = [event()]
+    if case == "empty":
+        proposed = []
+    elif case == "mismatched_tokens":
+        proposed = [event(markets=[market(yes="wrong")])]
+    monkeypatch.setattr(refresh, "fetch_gamma_events", lambda: (proposed, [0]))
+    monkeypatch.setattr(gate, "selected_specs", lambda _: [gate.spec_for_id("atlanta")])
+    monkeypatch.setattr(gate.PolymarketClient, "get_event", lambda self: event())
+
+    args = ["--locations", str(locations), "--event-metadata", str(metadata),
+            "--validate-target-date", TARGET_DATE, "--validation-json", str(receipt),
+            "--validation-report", str(tmp_path / "report.md")]
+    if case == "valid":
+        refresh.main(args)
+        assert json.loads(metadata.read_bytes())["locations"][0]["latest_event_slug"] == EVENT_SLUG
+        check = json.loads(receipt.read_bytes())
+        assert (check["status"], check["target_date"], check["event_metadata_path"]) == (
+            "PASS", TARGET_DATE, str(metadata))
+        assert check["live_fetch"]["enabled"]
+        return
+    if case == "replace_error":
+        def fail_replace(self, dest):
+            assert dest == metadata
+            raise OSError("simulated rename failure")
+
+        monkeypatch.setattr(type(metadata), "replace", fail_replace)
+        with pytest.raises(OSError, match="simulated rename failure"):
+            refresh.main(args)
+        assert not receipt.exists()
+    else:
+        with pytest.raises(SystemExit) as failure:
+            refresh.main(args)
+        assert failure.value.code == 2
+        assert json.loads(receipt.read_bytes())["status"] != "PASS"
+    assert (locations.read_bytes(), metadata.read_bytes()) == previous
 
 
 def test_report_and_write_outputs_render_markdown_tables(tmp_path):

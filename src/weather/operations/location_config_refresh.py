@@ -9,6 +9,8 @@ import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.io import write_text_atomic
+from weather.operations import event_metadata_validation as validation
 from weather.paths import config_path
 from weather.schema_registry import schema_version
 from weather.market.gamma_http import GammaRequestError, gamma_json
@@ -61,10 +63,7 @@ def load_json(path: str | Path) -> dict:
 
 
 def write_json(path: str | Path, payload: dict) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return path
+    return write_text_atomic(path, json.dumps(payload, indent=2) + "\n")
 
 
 def gamma_events_url(*, tag_slug: str, active: bool, closed: bool, limit: int, offset: int) -> str:
@@ -88,20 +87,25 @@ def fetch_gamma_events(
 ) -> tuple[list[dict], list[int]]:
     events: list[dict] = []
     offsets: list[int] = []
-    for page in range(int(max_pages)):
+    for page in range(int(max_pages) + 1):
         offset = page * int(limit)
+        # At the existing bound, distinguish an exact full last page from a
+        # truncated listing without fetching another full page.
+        verifying_end = page == int(max_pages)
         url = gamma_events_url(
             tag_slug=tag_slug,
             active=active,
             closed=closed,
-            limit=limit,
+            limit=1 if verifying_end else limit,
             offset=offset,
         )
         page_events = gamma_json(url, user_agent=USER_AGENT, timeout=timeout_seconds)
-        if not isinstance(page_events, list):
-            raise ValueError("Gamma events response must be a list")
+        if not isinstance(page_events, list) or any(not isinstance(row, dict) for row in page_events):
+            raise GammaRequestError("Gamma events response must be a list of event objects")
         offsets.append(offset)
-        events.extend(row for row in page_events if isinstance(row, dict))
+        if verifying_end and page_events:
+            raise GammaRequestError(f"Gamma event listing exceeds the {max_pages}-page retrieval bound")
+        events.extend(page_events)
         if len(page_events) < int(limit):
             break
     return events, offsets
@@ -368,6 +372,9 @@ def main(argv=None):
     parser.add_argument("--locations", default=str(DEFAULT_LOCATIONS))
     parser.add_argument("--event-metadata", default=str(DEFAULT_EVENT_METADATA))
     parser.add_argument("--events-json", default="", help="Optional fixture events JSON instead of live Gamma fetch.")
+    parser.add_argument("--validate-target-date", help="Independently validate this date before publishing.")
+    parser.add_argument("--validation-json", default=str(validation.DEFAULT_JSON_OUT))
+    parser.add_argument("--validation-report", default=str(validation.DEFAULT_REPORT_OUT))
     parser.add_argument(
         "--metadata-only",
         action="store_true",
@@ -376,6 +383,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     events = None
     if args.events_json:
+        if args.validate_target_date:
+            parser.error("--events-json is an offline fixture mode and cannot request live validation")
         payload = load_json(args.events_json)
         events = payload.get("events") if isinstance(payload, dict) else payload
     try:
@@ -386,9 +395,23 @@ def main(argv=None):
         )
     except GammaRequestError as exc:
         parser.exit(1, f"Location config refresh failed: {exc}\n")
+    receipt = None
+    if args.validate_target_date:
+        receipt = validation.build_validation_payload(
+            target_date=args.validate_target_date,
+            locations_path=args.locations,
+            event_metadata_path=args.event_metadata,
+            locations_payload=locations_payload,
+            event_metadata_payload=event_payload,
+        )
+        if receipt["status"] != "PASS":
+            validation.write_outputs(receipt, json_out=args.validation_json, report_out=args.validation_report)
+            parser.exit(2, f"Event metadata validation: {receipt['status']}; kept existing config\n")
+    write_json(args.event_metadata, event_payload)
     if not args.metadata_only:
         write_json(args.locations, locations_payload)
-    write_json(args.event_metadata, event_payload)
+    if receipt is not None:
+        validation.write_outputs(receipt, json_out=args.validation_json, report_out=args.validation_report)
     print(
         "Location config refresh: locations={locations} events={events}".format(
             locations=len(locations_payload.get("locations") or []),

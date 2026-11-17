@@ -1,6 +1,5 @@
-# Refreshes the generated Polymarket event-metadata config from live data, then
-# independently validates today's configured markets against live Gamma before
-# reporting task success.
+# Independently validates the proposed Polymarket event metadata against today's
+# live Gamma events before replacing the config read by capture workers.
 #
 # Regenerates config/location_market_events.json so the collection loops always
 # hold the current and upcoming daily temperature-market events plus their CLOB
@@ -23,39 +22,27 @@ if (-not (Test-Path $python)) {
     throw "venv python not found at $python -- run from the repo with its venv created."
 }
 
+$targetDate = (Get-Date).ToString("yyyy-MM-dd")
+$validationJson = Join-Path $RepoRoot "data\backtest\event_metadata_validation.json"
+$validationReport = Join-Path $RepoRoot "data\backtest\event_metadata_validation_report.md"
 $arguments = @(
     "-m",
     "weather.operations.location_config_refresh",
     "--locations",
     $Locations,
     "--event-metadata",
-    $EventMetadata
-)
-$targetDate = (Get-Date).ToString("yyyy-MM-dd")
-$validationJson = Join-Path $RepoRoot "data\backtest\event_metadata_validation.json"
-$validationReport = Join-Path $RepoRoot "data\backtest\event_metadata_validation_report.md"
-$validationArguments = @(
-    "-m",
-    "weather.operations.event_metadata_validation",
-    "--target-date",
-    $targetDate,
-    "--locations",
-    $Locations,
-    "--event-metadata",
     $EventMetadata,
-    "--json-out",
+    "--validate-target-date",
+    $targetDate,
+    "--validation-json",
     $validationJson,
-    "--report-out",
+    "--validation-report",
     $validationReport
 )
 
 Push-Location $RepoRoot
 try {
     & $python @arguments
-    if ($LASTEXITCODE -ne 0) {
-        exit $LASTEXITCODE
-    }
-    & $python @validationArguments
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

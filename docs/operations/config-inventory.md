@@ -48,14 +48,18 @@ The passive maker-evidence reader uses the same encoding headers and its
 without a limit and is unaffected by this pagination rule.
 
 ```powershell
-python -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata config\location_market_events.json
+python -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata config\location_market_events.json --validate-target-date (Get-Date -Format yyyy-MM-dd)
 ```
 
-On the production host, `scripts/ops/refresh_location_config.ps1` follows that
-refresh with an independent live target-date validation and reports task
-success only when its receipt is readable, dated today, and `PASS`. Keep the
-validation after the refresh: the 07:05 paper-maker launch precedes the 09:30
-daily chain that otherwise produces this gate.
+On the production host, `scripts/ops/refresh_location_config.ps1` passes
+`--validate-target-date` to the refresh. It checks the proposed metadata in
+memory against independently fetched Gamma events for the scheduled local date.
+A failed check writes its diagnostic receipt and preserves both config files.
+A listing that fills the retrieval bound uses a one-event end probe. A further
+event or malformed listing fails the refresh before publication.
+A passing check publishes the event metadata by atomic replacement, updates
+the registry refresh timestamp, then writes the receipt. The task requires a
+readable, same-date `PASS` before the 07:05 paper-maker launch.
 
 Event and location counts are volatile. Read the generated JSON or run the
 inventory command for current values rather than copying them into prose.
