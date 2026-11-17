@@ -81,6 +81,12 @@ without observations cannot certify uptime. The window clock alone does not
 prove city eligibility, resting exposure or minimum-size reward qualification.
 These observations never supply order or capital authority.
 
+The private `per_band_daily_filled_cap` stop event names its policy cap, city
+and UTC day. Native filled cost plus resting reserve minus the band's replaced
+reserve plus the full proposal is retained as `counted_native`, beside
+`threshold_native` and available headroom. Legacy unmapped cost remains counted
+and is identified separately. The strict greater-than cap comparison is unchanged.
+
 The coordinator shares one immutable geoblock pass/fail receipt across bands.
 It reads at most once per thirty seconds, including failed attempts. Every band
 uses the receipt's original collection clock and its existing freshness budget;

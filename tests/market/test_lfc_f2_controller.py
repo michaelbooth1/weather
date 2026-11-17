@@ -303,6 +303,12 @@ def test_submit_and_requote_limits_are_per_band_and_price_caps_dominate(tmp_path
     with pytest.raises(HoldEnd) as stop:
         first.submit(0, Decimal('.80'))
     assert stop.value.reason == 'capital_cap'
+    from weather.market.lfc_recording_io import strict_json
+    diagnostics = [strict_json(raw) for raw in first.journal.path.read_bytes().splitlines()
+                   if strict_json(raw)['event'] == 'cap_stop']
+    assert any(row['cap_name'] == 'per_order_cap_pusd' and
+               Decimal(row['counted_cost_pusd']) == 16 and
+               Decimal(row['threshold_pusd']) == Decimal('15.80') for row in diagnostics)
     for band in controller.bands:
         band.journal.close()
     controller.journal.close()

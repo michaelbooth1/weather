@@ -168,6 +168,23 @@ class F2Band(PilotSession):
                 # freshness checks remain in force on every resumed turn.
                 yield 5
 
+    def submit(self, leg, price, **kwargs):
+        try:
+            return super().submit(leg, price, **kwargs)
+        except HoldEnd as exc:
+            if exc.reason == 'capital_cap':
+                size = quantity(kwargs.get('size') if kwargs.get('size') is not None else self.size)
+                proposed = sum(self.reserve_prices()) * size
+                for name, counted, threshold in (
+                        ('per_order_cap_pusd', quantity(price) * size, self.order_cap),
+                        ('per_band_cap_pusd', proposed, self.band_cap),
+                        ('profile_band_ceiling_pusd', proposed, self.BAND_CEILING)):
+                    if counted > threshold:
+                        self.journal.record('cap_stop', cap_name=name, counted_cost_pusd=str(counted),
+                            threshold_pusd=str(threshold), condition_id=self.condition,
+                            quote_day_utc=self.clock.now().date().isoformat())
+            raise
+
     def call(self, name, fn, **request):
         previous_posts = self.posts
         try:
@@ -311,6 +328,14 @@ class F2Band(PilotSession):
                        own_resting=own_resting, journal=self.journal)
             figures = CapitalBook(self.ledger).gate(reserve=reserve, own_resting=own_resting)
         except CapitalRefused as exc:
+            if str(exc) == 'capital_total_ceiling':
+                figures = CapitalBook(self.ledger).figures()
+                from weather.market.lfc_capital import native
+                self.journal.record('cap_stop', cap_name='owner_funding_ceiling_pusd',
+                    counted_native=figures['charged_native'] - native(own_resting) + native(reserve, ceil=True),
+                    threshold_native=figures['funding_native'], charged_native=figures['charged_native'],
+                    own_native=native(own_resting), proposed_native=native(reserve, ceil=True),
+                    quote_day_utc=self.clock.now().date().isoformat())
             raise HoldEnd(str(exc)) from None
         return reserve, Decimal(figures['charged_native']) / SCALE - own_resting
 

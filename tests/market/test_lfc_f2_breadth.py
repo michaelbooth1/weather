@@ -148,6 +148,24 @@ def test_daily_pair_gate_includes_prospective_reserve_and_excludes_other_city(tm
     assert daily_gate(ledger, ledger.sessions['toronto']['start'], reserve='24.2')['remaining_native'] == 0
 
 
+def test_cap_stop_diagnostic_reproduces_exact_comparison_without_money_write(tmp_path):
+    from types import SimpleNamespace
+    ledger = ledger_at(tmp_path); install(ledger, cash='300')
+    start(ledger, 'toronto')
+    post(ledger, 'toronto', 'resting', price='.5')
+    rows = []
+    journal = SimpleNamespace(record=lambda event, **fields: rows.append({'event': event, **fields}))
+    before = ledger.path.read_bytes()
+    with pytest.raises(CapitalRefused, match='per_band_daily_filled_cap'):
+        daily_gate(ledger, ledger.sessions['toronto']['start'], reserve='35', own_resting='2', journal=journal)
+    row = rows[0]
+    assert row['cap_name'] == 'per_band_daily_filled_cap_pusd'
+    assert row['market_id'] == 'toronto' and row['quote_day_utc'] == '2026-11-11'
+    assert row['counted_native'] == 43_000_000 and row['threshold_native'] == 40_000_000
+    assert row['filled_native'] + row['resting_native'] - row['own_native'] + row['proposed_native'] == row['counted_native']
+    assert row['headroom_native'] == 32_000_000 and ledger.path.read_bytes() == before
+
+
 def test_breadth_examples_are_disabled_exact_defaults_and_k2_remains_readable():
     import json
     from weather.paths import REPO_ROOT

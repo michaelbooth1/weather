@@ -164,7 +164,11 @@ def daily_gate(ledger, start, *, reserve, own_resting=0, journal=None):
     if used['filled_native'] + used['resting_native'] - own + reserve > cap:
         detail = {key: used[key] for key in ('filled_native', 'resting_native')}
         detail.update(own_native=own, proposed_native=reserve, cap_native=cap,
-                      headroom_native=cap - used['filled_native'] - used['resting_native'] + own)
+                      headroom_native=cap - used['filled_native'] - used['resting_native'] + own,
+                      cap_name='per_band_daily_filled_cap_pusd', market_id=market, quote_day_utc=day,
+                      counted_native=used['filled_native'] + used['resting_native'] - own + reserve,
+                      threshold_native=cap, unmapped_legacy_native=used['unmapped_legacy_native'],
+                      native_decimals=6, comparison='counted_native > threshold_native')
         if journal is not None:
             journal.record('per_band_daily_filled_cap', **detail)
         raise CapitalRefused('per_band_daily_filled_cap')
