@@ -38,6 +38,78 @@ def journal(band):
     return [strict_json(line) for line in band.journal.path.read_bytes().splitlines()]
 
 
+def test_partial_cheap_fill_with_divided_native_price_writes_terminal_packet(tmp_path, monkeypatch):
+    from math import inf, nextafter
+    from tests.market import test_lfc_f2_repost as fixtures
+    from weather.market.lfc_capital import ASSET, native
+    controller, account, status, ledger, clock, _, _ = complete_fixture(tmp_path, cheap=True)
+    advance, wire = account.advance, fixtures.wire_trade
+    def partial():
+        changed = None
+        if not account.fill_times and clock.seconds >= account.next_fill:
+            orders = [r for r in account.raws[0].memory.orders.values() if r['status'] == 'LIVE']
+            if orders:
+                changed = orders[0]
+                changed['original_size'] = '6.123457'
+        if account.fill_times:
+            account.fills_enabled = False
+        advance()
+        if changed is not None:
+            changed['original_size'] = '20'
+    account.advance = partial
+    def divided(row):
+        for maker in row['maker_orders']:
+            shares = D(maker['matched_amount'])
+            amount = D(native(D(maker['price']) * shares, ceil=True)) / 1000000
+            price = float(amount / shares)
+            if D(str(price)) * shares <= amount:
+                price = nextafter(price, inf)
+            maker['price'] = str(price)
+        return row
+    monkeypatch.setattr(fixtures, 'wire_trade', lambda *a: divided(wire(*a)))
+    for raw in account.raws:
+        trades = raw.trades
+        raw.trades = lambda trades=trades: [divided(row) for row in trades()]
+        def balances():
+            spent = sum(native(D(row['price']) * D(row['size_matched']), ceil=True)
+                        for peer in account.raws for row in peer.memory.orders.values())
+            cash = D(300) - D(spent) / 1000000
+            return {'available_collateral': str(cash), 'assets': {ASSET: str(cash)},
+                    'collateral_evidence': {'balance': str(native(cash))}}
+        raw.balances = balances
+    result = controller.run()
+    band = controller.bands[0]
+    assert result['cleanup_ok'], result
+    assert result['failure_type'] is None and not ledger.unresolved_legs()
+    assert (band.directory / 'prediction.json').is_file()
+    assert (band.directory / 'session_end.json').is_file()
+    assert any(row['event'] == 'pair_completion_order' for row in journal(band))
+    from weather.market.lfc_campaign_proof import local_money_proof
+    proof = local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
+                             attempt_id='a'*32, outcome=status.finish(success=True))
+    assert proof['complete'] and not proof['unknown_submit'], proof
+
+
+def test_unexpected_coordinator_exception_retains_frames_without_private_text(tmp_path):
+    controller, _, _, _, clock, _, _ = complete_fixture(tmp_path)
+    sleep = clock.sleep
+    raised = []
+    def fail_once(seconds):
+        if not raised:
+            raised.append(True)
+            raise ValueError('inert-private-value-must-not-be-logged')
+        sleep(seconds)
+    clock.sleep = fail_once
+    result = controller.run()
+    rows = [strict_json(line) for line in controller.journal.path.read_bytes().splitlines()]
+    fault, = [row for row in rows if row['event'] == 'f2_exception']
+    assert result['reason'] == 'f2_exception' and result['failure_type'] == 'ValueError'
+    assert fault['exception_type'] == 'ValueError' and fault['traceback']
+    assert any(frame['module'] == 'weather.market.lfc_f2_controller' for frame in fault['traceback'])
+    assert all(set(frame) == {'module', 'function', 'line'} for frame in fault['traceback'])
+    assert 'inert-private-value-must-not-be-logged' not in controller.journal.path.read_text()
+
+
 def test_parser_and_economic_digest_retain_continue_identity_and_distinguish_b():
     old = parse_policy(pinb_row())
     explicit = parse_policy(old.raw | {'post_fill_mode': 'continue'})

@@ -24,8 +24,13 @@ The SDK's retained `matched_at` supplies the canonical exchange match clock;
 missing or conflicting time/identity/quantity evidence refuses.
 Keep the canonical execution price for FIFO cost. Venue division can express
 a price just beyond the posted tick; bind its allocation to the known limit
-by equal cost under the existing upward native-cost rounding rule. Quantities
-and FIFO costs retain trade precision.
+by equal cost under the existing upward native-cost rounding rule. Before that
+comparison only, a product within one binary64 price ULP times the exact shares
+of a native cash boundary snaps to that boundary. This prevents a serialized
+division tail from being ceiled into an extra native unit. Larger cost
+differences still refuse; ledger money rules, quantities and FIFO costs retain
+their existing precision. Unexpected F2 exceptions retain safe module/function/
+line frames in the root journal, without exception text or local values.
 
 For each condition, match opposing campaign-owned lots FIFO at trade
 precision. Subtract evidenced capital-book removals, then calculate signed

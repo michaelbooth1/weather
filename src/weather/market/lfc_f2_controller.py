@@ -614,6 +614,10 @@ class F2Coordinator:
             failed = exc
             self.reason = (exc.reason if isinstance(exc, HoldEnd) else
                            'owner_interrupt' if isinstance(exc, KeyboardInterrupt) else 'f2_exception')
+            if self.reason == 'f2_exception':
+                from weather.market.lfc_campaign_visibility import safe_traceback
+                self.retain('f2_exception', exception_type=type(exc).__name__,
+                            traceback=safe_traceback(exc.__traceback__))
         finally:
             if self.post_books is not None:
                 self.post_books.stop()

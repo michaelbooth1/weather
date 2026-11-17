@@ -63,6 +63,29 @@ def test_native_rounded_venue_price_keeps_canonical_cost_without_position_roundi
     assert value.average_cost == D('0.2800000056085686')
 
 
+@pytest.mark.parametrize('price', ['0.3700001486088659', '0.37000014860886589'])
+def test_native_boundary_float_tail_does_not_reject_a_proved_partial_fill(price):
+    records, legs, held = inputs()
+    records, legs, held = records[:1], {'o1': legs['o1']}, {'s1:1': held['s1:1']}
+    records[0].update(price=price, shares='6.123457')
+    legs['o1'].update(price='.37', size_matched='6.123457')
+    held['s1:1']['remaining_quantity'] = '6.123457'
+    value = project(records, legs, held)
+    assert value.yes_shares == D('6.123457')
+    assert value.unpaired_cost == D(price) * D('6.123457')
+    assert value.average_cost == D(price)
+
+
+@pytest.mark.parametrize('price', ['0.3700001486088660', '0.3700003119192335', '.370001'])
+def test_native_boundary_tolerance_does_not_accept_a_real_cost_mismatch(price):
+    records, legs, held = inputs()
+    records[0].update(price=price, shares='6.123457')
+    legs['o1'].update(price='.37', size_matched='6.123457')
+    held['s1:1']['remaining_quantity'] = '6.123457'
+    with pytest.raises(ValueError, match='completion_projection_binding'):
+        project(records, legs, held)
+
+
 @pytest.mark.parametrize('status', ['MATCHED', 'MINED', 'RETRYING'])
 def test_provisional_money_counted_fills_preserve_k6_money_rule(status):
     records, legs, held = inputs()

@@ -5,6 +5,7 @@ Terminal own-order totals and evidenced held-lot quantities must agree exactly.
 """
 from datetime import datetime, timezone
 from decimal import Decimal
+from math import ulp
 
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_capital import native
@@ -35,6 +36,22 @@ def project_read(trades, legs, *, observed_at_utc, projection=None, source='rest
                  row.get('matched_at') or row.get('match_time')) for row in trades]
     projection.ingest(rows, legs, source=source, observed_at_utc=observed_at_utc)
     return projection.rows()
+
+
+def execution_native_cost(price, shares):
+    """Bind venue division prices without ceiling a binary64 tail twice.
+
+    The venue serializes native cash / exact shares as a floating price. Only
+    a product within one binary64 price ULP of a native boundary may snap to
+    that boundary. The canonical execution price and FIFO cost stay exact;
+    ledger/native money rules are unchanged.
+    """
+    price, shares = quantity(price), quantity(shares)
+    amount = price * shares
+    boundary = amount.quantize(Decimal('0.000001'))
+    if abs(amount - boundary) <= Decimal(str(ulp(float(price)))) * abs(shares):
+        amount = boundary
+    return native(amount, ceil=True)
 
 
 def held_inventory(records, legs, held_lots, *, campaign_id, condition_id, tokens):
@@ -68,7 +85,7 @@ def held_inventory(records, legs, held_lots, *, campaign_id, condition_id, token
             continue
         if (row.get('condition_id') != condition_id or row.get('token_id') != leg['token_id'] or
                 row.get('side') != 'BUY' or row.get('liquidity_role') != 'MAKER' or
-                native(quantity(row['price'])*quantity(row['shares']), ceil=True) !=
+                execution_native_cost(row['price'], row['shares']) !=
                 native(quantity(leg['price'])*quantity(row['shares']), ceil=True) or row['token_id'] not in tokens):
             raise ValueError('completion_projection_binding')
         by_order[oid].append(OwnLot(row['trade_id'], oid, campaign_id, condition_id,
