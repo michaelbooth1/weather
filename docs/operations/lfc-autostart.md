@@ -766,6 +766,11 @@ later admission still revalidates originals and the owner decision. This
 `owner-recover` path refuses missing or changed originals. The separate
 `owner-close` path above acknowledges the evidence fault with research incomplete
 and independently proves money; it does not waive that fault into a PASS.
+Economics followups revalidate the committed operational owner-close binding
+and omit that attempt's supplement. They do not retry its acknowledged missing
+packet as ordinary complete private evidence. Changed or newly lost artifacts
+still fail that binding and create a new occurrence; an existing occurrence
+still requires its own owner closure. No research completeness is inferred.
 Completed attempt closures are staged and flushed, then bound by a flushed
 `autostart_close_intent` ledger record before create-only publication. Small
 closures retain their complete canonical bytes in that intent; larger ones

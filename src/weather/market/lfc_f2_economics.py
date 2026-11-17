@@ -113,11 +113,17 @@ def accrual_evidence(root, ledger, sessions):
 
 def publish_supplements(runtime):
     """A new hash names each new observation; the original outcome is immutable."""
+    from weather.market.lfc_campaign_owner_close import binding as operational_binding
     state, ledger = runtime.state, runtime.state.ledger
     for claim in state.claims():
         sessions = [sid for sid, row in ledger.sessions.items()
                     if row['start'].get('autostart_attempt_id') == claim['attempt_id']]
         if not sessions or not all(ledger.sessions[sid]['end'] is not None for sid in sessions):
+            continue
+        # An operational owner decision retains research gaps, not a complete
+        # original packet. Revalidate its hashes/N1 binding, then omit the
+        # supplement instead of retrying strict proof and re-latching that gap.
+        if operational_binding(state, claim['attempt_id']) is not None:
             continue
         result, result_sha, _ = state.retained_result(claim)
         if not result['outcome'].get('f2_session'):
