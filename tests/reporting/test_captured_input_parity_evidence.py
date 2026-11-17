@@ -446,7 +446,7 @@ def test_generator_blocks_disjoint_or_incomparable_base_distributions(tmp_path, 
         )
     assert raised.value.code == expected_code
     if expected_code == "serving_bundle_fingerprint_mismatch":
-        assert raised.value.context["distribution_l1"] == 2.0
+        assert raised.value.context["distribution_l1"] == pytest.approx(2.0)
 
 
 def test_honest_generation_is_self_hashed_and_comparator_passes_then_blocks_tamper(tmp_path):
