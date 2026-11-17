@@ -258,6 +258,22 @@ def test_correction_received_after_next_day_first_report_is_rejected():
     assert row["label_note"] == "rejected_late_corrections=1"
 
 
+@pytest.mark.parametrize("valid", ["2026-08-24 14:51", "2026-08-24T14:51:00+00:00"])
+@pytest.mark.parametrize("cor_first", [False, True])
+def test_receipt_belongs_to_its_revision(valid, cor_first):
+    original = f"X,{valid},25," + _metar("KLGA", "241451", "25", "T02500100") + ",2026-08-24T14:53:00Z"
+    late = f"X,{valid},26.1," + _metar("KLGA", "241451", "26", "T02610100", cor=True) + ",2026-08-25T05:00:00Z"
+    rows = [late, original] if cor_first else [original, late]
+    rows.append("X,2026-08-25 04:51,15," + _metar("KLGA", "250451", "15", "T01500100") + ",")
+    reports = vrl.reports_from_csv("\n".join(["station,valid,tmpc,metar,receipt_time", *rows]),
+                                   NYC, "KLGA", declared_report_type=3)
+    receipts = {r["corrected"]: r["receipt_utc"].isoformat() for r in reports if r["local_date"] == "2026-08-24"}
+    assert receipts == {False: "2026-08-24T14:53:00+00:00", True: "2026-08-25T05:00:00+00:00"}
+    daily = vrl.venue_daily_labels(reports, NYC)["2026-08-24"]
+    assert daily["max_temp_bucket"] == 77
+    assert daily["label_corrected_report_count"] == 0
+
+
 # --- composite: cutover, WU fallback, station ---------------------------------
 
 

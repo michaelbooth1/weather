@@ -241,8 +241,8 @@ def cloud_text(row):
     return "|".join(layer for layer in layers if layer not in (None, "", "M", "null"))
 
 
-def normalize_csv(text, spec):
-    records = []
+def normalized_csv_rows(text, spec):
+    """Yield each accepted source row with its normalized weather record."""
     reader = csv.DictReader(io.StringIO(text))
     for row in reader:
         utc_dt = parse_valid_utc(row.get("valid"))
@@ -251,7 +251,7 @@ def normalize_csv(text, spec):
             continue
         local_dt = utc_dt.astimezone(spec.tz)
         dew_c = to_float(row.get("dwpc"))
-        records.append(hourly_record(
+        yield row, hourly_record(
             source=SOURCE,
             spec=spec,
             station=spec.icao,
@@ -269,7 +269,11 @@ def normalize_csv(text, spec):
             clouds=cloud_text(row),
             source_report_type="METAR/ASOS",
             source_quality=row.get("metar") or row.get("raw") or "",
-        ))
+        )
+
+
+def normalize_csv(text, spec):
+    records = [record for _, record in normalized_csv_rows(text, spec)]
     records.sort(key=lambda item: item["valid_time_utc"])
     return records
 

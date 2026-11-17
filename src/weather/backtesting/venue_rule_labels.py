@@ -34,7 +34,6 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
-import io
 import json
 import sys
 from collections import defaultdict
@@ -54,7 +53,7 @@ from weather.sources.metar_history import (
     MetarClient,
     classify_report_type,
     is_corrected_report,
-    normalize_csv,
+    normalized_csv_rows,
     parse_date,
     report_temperature_c,
 )
@@ -206,18 +205,14 @@ def native_value(temperature_c, unit):
     return c_to_native(float(temperature_c), unit, digits=None)
 
 
-def _receipt_times(text):
-    """Optional ``receipt_time`` column keyed by IEM ``valid`` (AWC receipts)."""
-
-    out = {}
-    for row in csv.DictReader(io.StringIO(text)):
-        value = (row.get("receipt_time") or "").strip()
-        if value and row.get("valid"):
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            out[row["valid"].strip()] = parsed.astimezone(timezone.utc)
-    return out
+def _receipt_time(row):
+    value = (row.get("receipt_time") or "").strip()
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def reports_from_csv(text, spec, station, declared_report_type=None):
@@ -228,13 +223,11 @@ def reports_from_csv(text, spec, station, declared_report_type=None):
     """
 
     station_spec = replace(spec, icao=station)
-    receipts = _receipt_times(text)
     reports = []
-    for record in normalize_csv(text, station_spec):
+    for row, record in normalized_csv_rows(text, station_spec):
         raw = record.get("source_quality") or ""
         temperature_c, basis = report_temperature_c(raw)
         valid_utc = datetime.fromisoformat(record["valid_time_utc"])
-        iem_valid = valid_utc.strftime("%Y-%m-%d %H:%M")
         reports.append({
             "station": station,
             "valid_time_utc": valid_utc,
@@ -244,7 +237,7 @@ def reports_from_csv(text, spec, station, declared_report_type=None):
             "corrected": is_corrected_report(raw),
             "temperature_c": temperature_c,
             "value_basis": basis,
-            "receipt_utc": receipts.get(iem_valid),
+            "receipt_utc": _receipt_time(row),
             "raw": raw,
         })
     reports.sort(key=lambda item: item["valid_time_utc"])
