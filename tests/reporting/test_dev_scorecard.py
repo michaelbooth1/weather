@@ -149,6 +149,75 @@ def test_market_as_candidate_gives_ratio_exactly_one_everywhere(tmp_path):
         assert row["model_minus_market"]["estimate"] == pytest.approx(0.0, abs=1e-15)
 
 
+def _replace_layout_frame(root, name, frame):
+    manifest_path = root / data.MANIFEST
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"][name]["sha256"] = _parquet(frame, root / name)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_permuted_band_rows_preserve_vector_scores(tmp_path):
+    root = write_layout(tmp_path / "lay", n_dates=1, markets=("m1",))
+    bands = pd.read_parquet(root / data.BANDS_FILE)
+    vectors = bands[["row_key", "band_index", "p_served"]].rename(columns={"p_served": "p"})
+    path = tmp_path / "candidate.parquet"
+    vectors.to_parquet(path)
+    spec = data.CandidateSpec("vectors", str(path), no_training=True)
+
+    def all_hours():
+        payload = sc.run_score(root, "2026-08-01", "2026-08-01", spec, min_train_dates=0)
+        return next(row for row in payload["rows"] if row["market"] == "ALL" and row["block"] == "all")
+
+    reference = all_hours()
+    _replace_layout_frame(root, data.BANDS_FILE, bands.iloc[[1, 0, 2, 3, 5, 4]])
+    layout = data.load_layout(root, *data.check_range("2026-08-01", "2026-08-01"))
+    assert layout.reordered_band_snapshots == 2
+    result = all_hours()
+    assert result["brier_model"] == pytest.approx(reference["brier_model"])
+    assert result["model_minus_served"]["estimate"] == pytest.approx(0, abs=1e-15)
+
+
+@pytest.mark.parametrize(("name", "column", "value", "error"), [
+    (data.BANDS_FILE, "band_index", 1, "exactly once"),
+    (data.BANDS_FILE, "band_index", 0.5, "integer"),
+    (data.BANDS_FILE, "row_key", "wrong", "contiguous"),
+    (data.LABELS_FILE, "winner", 3, "winner"),
+    (data.LABELS_FILE, "winner", 1.5, "winner"),
+    (data.LABELS_FILE, "date", "2026-08-02", "disagrees"),
+    (data.MARKET_FILE, "market", "wrong", "disagrees"),
+    (data.MARKET_FILE, "band_index", 1, "one market price"),
+])
+def test_layout_refuses_ambiguous_score_identity(tmp_path, name, column, value, error):
+    root = write_layout(tmp_path / "lay", n_dates=2)
+    frame = pd.read_parquet(root / name)
+    if isinstance(value, float):
+        frame[column] = frame[column].astype(float)
+    frame.loc[0, column] = value
+    _replace_layout_frame(root, name, frame)
+    with pytest.raises(data.LayoutError, match=error):
+        sc.run_score(root, "2026-08-01", "2026-08-02", data.CandidateSpec("served"), min_train_dates=0)
+
+
+def test_fractional_candidate_band_index_is_refused(tmp_path):
+    root = write_layout(tmp_path / "lay", n_dates=1)
+    vectors = pd.read_parquet(root / data.BANDS_FILE)[["row_key", "band_index", "p_served"]]
+    vectors = vectors.rename(columns={"p_served": "p"}).astype({"band_index": float})
+    vectors.loc[0, "band_index"] = 0.5
+    path = tmp_path / "candidate.parquet"
+    vectors.to_parquet(path)
+    with pytest.raises(data.Refused, match="integer"):
+        sc.run_score(root, "2026-08-01", "2026-08-01", data.CandidateSpec("vectors", str(path), no_training=True),
+                     min_train_dates=0)
+
+
+def test_matching_iso_and_parquet_dates_identify_the_same_day(tmp_path):
+    root = write_layout(tmp_path / "lay", n_dates=2)
+    labels = pd.read_parquet(root / data.LABELS_FILE)
+    labels["date"] = pd.to_datetime(labels.date).dt.date
+    _replace_layout_frame(root, data.LABELS_FILE, labels)
+    assert len(data.load_layout(root, *data.check_range("2026-08-01", "2026-08-02")).dates) == 2
+
+
 def test_served_ratio_matches_an_independent_cell_computation(tmp_path):
     payload = _score(tmp_path, data.CandidateSpec("served"))
     root = tmp_path / "lay"

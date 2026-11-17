@@ -117,6 +117,7 @@ class Layout:
     file_sha256: dict
     label_source: str
     dates: list = field(default_factory=list)
+    reordered_band_snapshots: int = 0
 
 
 def _read_manifest(root):
@@ -158,7 +159,62 @@ def _in_range(frame, start, end, name):
     if (days > DEV_LAST).any():
         raise Refused(f"refused: {name} holds a row after {DEV_LAST} despite its manifest")
     keep = (days >= start) & (days <= end)
-    return frame.loc[keep.to_numpy()].reset_index(drop=True)
+    selected = frame.loc[keep.to_numpy()].reset_index(drop=True)
+    local_days = days[keep]
+    selected["date"] = local_days.map({d: d.isoformat() for d in local_days.unique()}).to_numpy()
+    return selected
+
+
+def _align_layout(snaps, bands, labels, market):
+    """Align native band indices and verify the identities used for training and scoring."""
+    if snaps.row_key.isna().any() or snaps.row_key.duplicated().any():
+        raise LayoutError("missing or duplicate row_key in inputs_snapshots")
+    snapshots = snaps.set_index("row_key")
+    counts = pd.to_numeric(snaps.n_bands, errors="coerce").to_numpy(dtype=float)
+    if not ((counts >= 1) & (counts <= len(bands)) & (counts == np.floor(counts))).all():
+        raise LayoutError("n_bands must be a positive integer within the layout")
+    counts = counts.astype(int)
+    if counts.sum() != len(bands) or not np.array_equal(bands.row_key, np.repeat(snaps.row_key, counts)):
+        raise LayoutError("inputs_bands is not contiguous per snapshot in snapshot order")
+
+    identity = snapshots[["date", "market"]]
+    for name, frame in ((BANDS_FILE, bands), (LABELS_FILE, labels), (MARKET_FILE, market)):
+        parent = identity.reindex(frame.row_key)
+        if not all(np.array_equal(parent[col].to_numpy(), frame[col].to_numpy()) for col in ("date", "market")):
+            raise LayoutError(f"{name}: date or market disagrees with snapshot row_key")
+
+    if labels.row_key.duplicated().any() or len(labels) != len(snaps):
+        raise LayoutError("expected exactly one label per snapshot")
+    label_counts = pd.Series(counts, index=snapshots.index).reindex(labels.row_key).to_numpy()
+    winner = pd.to_numeric(labels.winner, errors="coerce").to_numpy(dtype=float)
+    if not ((winner >= 0) & (winner < label_counts) & (winner == np.floor(winner))).all():
+        raise LayoutError("winner must identify an integer band of its snapshot")
+
+    market_pos = snapshots.index.get_indexer(market.row_key)
+    market_index = pd.to_numeric(market.band_index, errors="coerce").to_numpy(dtype=float)
+    if not ((market_index >= 0) & (market_index < counts[market_pos]) &
+            (market_index == np.floor(market_index))).all():
+        raise LayoutError("market band_index must be an integer in its snapshot's range")
+    offsets = np.cumsum(counts) - counts
+    market_keys = offsets[market_pos] + market_index.astype(int)
+    if len(market_keys) != len(bands) or pd.Index(market_keys).has_duplicates:
+        raise LayoutError("expected one market price per snapshot and band_index")
+
+    if not len(bands):
+        return bands, 0
+    starts = np.repeat(offsets, counts)
+    index = pd.to_numeric(bands.band_index, errors="coerce").to_numpy(dtype=float)
+    if not ((index >= 0) & (index < np.repeat(counts, counts)) & (index == np.floor(index))).all():
+        raise LayoutError("band_index must be an integer in its snapshot's range")
+    positions = starts + index.astype(int)
+    expected = np.arange(len(bands))
+    if np.array_equal(positions, expected):
+        return bands, 0
+    order = np.argsort(positions)
+    if not np.array_equal(positions[order], expected):
+        raise LayoutError("expected each band_index exactly once per snapshot")
+    reordered = np.logical_or.reduceat(positions != expected, offsets)
+    return bands.iloc[order].reset_index(drop=True), int(reordered.sum())
 
 
 def load_layout(root, start, end):
@@ -173,14 +229,8 @@ def load_layout(root, start, end):
     leaked = LABELISH & (set(snaps.columns) | set(bands.columns))
     if leaked:
         raise LeakageError(f"layout inputs carry label/market columns {sorted(leaked)}")
-    if snaps.row_key.duplicated().any():
-        raise LayoutError("duplicate row_key in inputs_snapshots")
-    n = snaps.n_bands.to_numpy(int)
-    offsets = np.concatenate([[0], np.cumsum(n)[:-1]]).astype(int)
-    if len(bands) != int(n.sum()) or (len(snaps) and not (
-            bands.row_key.to_numpy()[offsets] == snaps.row_key.to_numpy()).all()):
-        raise LayoutError("inputs_bands is not contiguous per snapshot in snapshot order")
     labels = frames[LABELS_FILE]
+    bands, reordered = _align_layout(snaps, bands, labels, frames[MARKET_FILE])
     label_source = DEFAULT_LABEL_SOURCE
     if "label_source" in labels.columns:
         sources = sorted(labels.label_source.astype(str).unique())
@@ -190,7 +240,7 @@ def load_layout(root, start, end):
         raise Refused("refused: a label dated 2026-10-23 or later is outside the WU label rule")
     return Layout(snaps=snaps, bands=bands, labels=labels, market=frames[MARKET_FILE],
                   manifest_sha256=manifest_sha, file_sha256=shas, label_source=label_source,
-                  dates=sorted(snaps.date.astype(str).unique()))
+                  dates=sorted(snaps.date.astype(str).unique()), reordered_band_snapshots=reordered)
 
 
 # ----------------------------------------------------------------------------- folds

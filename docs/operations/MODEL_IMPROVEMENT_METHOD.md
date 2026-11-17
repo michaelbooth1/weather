@@ -82,7 +82,9 @@ score rule, population and effect size. These research allocation gates neither 
 an economic trial of an executable, capital-bounded policy; independent forecasts remain controls.
 
 1. **Dev R against the served model** on the dev scorecard (`weather.reporting.scorecards.dev_scorecard`).
-   Use the paired `model_minus_control` on identical rows. Report the served positive control first.
+   Use the paired `model_minus_control` on identical rows. The scorecard aligns bands by their
+   per-snapshot integer index and checks the date and market of each input against its snapshot key.
+   Each snapshot needs one winner inside its band range. Report the served positive control first.
    A pass here is necessary and cheap: served under-uses its own captured guidance (RF "Capture NBH").
 2. **Against MG-1**, the zero-parameter NBM read. Both of L3's arms beat served but fail this gate at
    07-12: +0.080 [+0.020, +0.142] (EF §10ab). Beating served while losing to MG-1 means the candidate

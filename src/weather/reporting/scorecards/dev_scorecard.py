@@ -164,14 +164,15 @@ class Table:
     def candidate_vector(self, frame):
         """Rule-4 floor mask, renormalise, served fallback (HARNESS v2/v3 semantics)."""
         frame = frame[frame.row_key.isin(self.snap_pos.index)]
-        if frame.duplicated(["row_key", "band_index"]).any():
-            raise data.Refused("refused: duplicate (row_key, band_index) in candidate")
         pos = self.snap_pos.reindex(frame.row_key.to_numpy()).to_numpy().astype(int)
-        bi = frame.band_index.to_numpy(int)
-        if len(bi) and ((bi < 0) | (bi >= self.n[pos])).any():
-            raise data.Refused("refused: candidate band_index out of range")
+        bi = pd.to_numeric(frame.band_index, errors="coerce").to_numpy(dtype=float)
+        if not ((bi >= 0) & (bi < self.n[pos]) & (bi == np.floor(bi))).all():
+            raise data.Refused("refused: candidate band_index must be an integer in its snapshot's range")
+        positions = self.offsets[pos] + bi.astype(int)
+        if pd.Index(positions).has_duplicates:
+            raise data.Refused("refused: duplicate (row_key, band_index) in candidate")
         pc = np.full(len(self.bands), np.nan)
-        pc[self.offsets[pos] + bi] = frame.p.to_numpy(float)
+        pc[positions] = frame.p.to_numpy(float)
         given = ~np.isnan(pc)
         if (pc[given] < 0).any() or not np.isfinite(pc[given]).all():
             raise data.Refused("refused: candidate probabilities must be finite and >= 0")
@@ -405,6 +406,7 @@ def run_score(layout_root, start, end, spec, fold_days=7, gap_days=1, min_train_
         **({"control": control_id, "control_coverage": control_reasons} if control is not None else {}),
         "provenance": {"labels": layout.label_source, "label_rule": "WU settlement labels (dates < 2026-10-23)",
                        "market": "captured p_market_yes per band (layout market file)",
+                       "layout_reordered_band_snapshots": layout.reordered_band_snapshots,
                        "layout_manifest_sha256": layout.manifest_sha256, "layout_files": layout.file_sha256},
         "constants": {"draws": DRAWS, "seed": SEED, "cluster_floor": CLUSTER_FLOOR, "mde_effect": MDE_EFFECT,
                       "market_brier_floor": MARKET_BRIER_FLOOR, "log_eps": LOG_EPS},
