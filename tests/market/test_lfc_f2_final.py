@@ -33,18 +33,24 @@ def guarded_account():
         yield
 
 
-def settled_ledger(tmp_path):
+def settled_ledger(tmp_path, *, token_rates=False):
     ledger = ledger_at(tmp_path)
     for key, token in [('loser', '111'), ('winner', '222')]:
         filled(ledger, key, token=token, condition=CONDITION)
     install(ledger, cash='280')
+    raw, refs = json.loads(resolution()), json.loads(tokens())
+    if token_rates:
+        raw['data'][0].pop('payouts')
+        for ref, rate in zip(refs['data'], (0, 1)):
+            ref['final_price'] = rate
     record_settlement(tmp_path, CONDITION, clock=lambda: NOW,
-        get=lambda path, params: resolution() if path.endswith('resolutions') else tokens())
+        get=lambda path, params: json.dumps(raw if path.endswith('resolutions') else refs).encode())
     return ledger
 
 
-def test_unburned_zero_payout_is_realized_loss_and_still_physical_inventory(tmp_path):
-    ledger = settled_ledger(tmp_path)
+@pytest.mark.parametrize('token_rates', [False, True])
+def test_unburned_zero_payout_is_realized_loss_and_still_physical_inventory(tmp_path, token_rates):
+    ledger = settled_ledger(tmp_path, token_rates=token_rates)
     original_l = ledger.L()
     before = CapitalBook(ledger).figures()
     assert record_zero_payouts(ledger, tmp_path) == 1

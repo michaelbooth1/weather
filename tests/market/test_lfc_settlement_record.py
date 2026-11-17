@@ -70,11 +70,14 @@ def test_split_payout_is_terminal_without_invented_winner():
     assert resolution_result(CONDITION, resolution(payouts=[500_000, 500_000]), tokens(), traded_tokens=['111']) == (True, None, ['111', '222'])
 
 
-def test_resolved_lifecycle_without_payouts_stays_pending(tmp_path):
+def test_resolved_lifecycle_without_onchain_token_proof_stays_pending(tmp_path):
     raw = json.loads(resolution())
     raw['data'][0]['payouts'] = None
+    refs = json.loads(tokens())
+    for ref in refs['data']:
+        ref['resolved'] = False
     row = record_settlement(tmp_path, CONDITION,
-        get=lambda path, params: json.dumps(raw).encode() if path.endswith('resolutions') else tokens())
+        get=lambda path, params: json.dumps(raw).encode() if path.endswith('resolutions') else json.dumps(refs).encode())
     assert row['terminal'] is False and row['winning_token_id'] is None
     assert not (tmp_path / 'settlement' / (CONDITION + '.json')).exists()
 
@@ -195,7 +198,7 @@ def test_public_get_redirect_is_not_followed(monkeypatch):
     assert error.value.status == 302
 
 
-def test_recorded_public_shapes_have_intact_receipts_and_no_invented_payout():
+def test_recorded_public_shapes_have_intact_receipts_and_onchain_token_payouts():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1] / 'fixtures' / 'lfc_recording' / 'public_v2_20261106'
     provenance = json.loads((root / 'provenance.json').read_bytes())
@@ -208,4 +211,38 @@ def test_recorded_public_shapes_have_intact_receipts_and_no_invented_payout():
     traded = [r['token_id'] for r in refs]
     assert set(recorder.select_token_pair(condition, refs, traded)) == set(traded)
     assert resolution_result(condition, (root / 'resolutions.json').read_bytes(),
-        (root / 'tokens.json').read_bytes(), traded_tokens=traded) == (False, None, [])
+        (root / 'tokens.json').read_bytes(), traded_tokens=traded) == (True, traded[1], traded)
+
+
+@pytest.mark.parametrize('rates,winner', [([0, 1], '222'), ([1, 0], '111'), ([.5, .5], None)])
+def test_resolved_token_rates_normalize_to_exact_native_slots(tmp_path, rates, winner):
+    from weather.market.lfc_settlement_record import settlement_payouts, validate_settlement
+    raw = json.loads(resolution()); raw['data'][0].pop('payouts')
+    raw['data'][0]['price'] = '69'  # UMA lifecycle price never supplies payout.
+    refs = json.loads(tokens())
+    for ref, rate in zip(refs['data'], rates):
+        ref['final_price'] = rate
+    row = record_settlement(tmp_path, CONDITION,
+        get=lambda path, params: json.dumps(raw).encode() if path.endswith('resolutions') else json.dumps(refs).encode())
+    assert row['terminal'] is True and row['winning_token_id'] == winner
+    assert settlement_payouts(row) == [int(rate * 1_000_000) for rate in rates]
+    assert validate_settlement(tmp_path / 'settlement' / (CONDITION + '.json'), CONDITION) == row
+
+
+@pytest.mark.parametrize('change', ['unknown_module', 'bad_sum', 'precision', 'long_precision', 'opposite', 'unknown_rate', 'unresolved'])
+def test_unknown_or_incomplete_token_payout_forms_fail_closed(tmp_path, change):
+    raw = json.loads(resolution()); raw['data'][0].pop('payouts'); raw['data'][0]['price'] = '1000000000000000000'
+    refs = json.loads(tokens())
+    refs['data'][0]['final_price'] = 0; refs['data'][1]['final_price'] = 1
+    if change == 'unknown_module':
+        for ref in refs['data']: ref['module'] = 'future_unknown'
+    if change == 'bad_sum': refs['data'][0]['final_price'] = .5
+    if change == 'precision': refs['data'][0]['final_price'] = .0000001
+    if change == 'long_precision': refs['data'][0]['final_price'] = '0.000000' + '9' * 80
+    if change == 'opposite': refs['data'][0]['opposite_token_id'] = '999'
+    if change == 'unknown_rate': refs['data'][0]['final_price'] = None
+    if change == 'unresolved': refs['data'][0]['resolved'] = False
+    row = record_settlement(tmp_path, CONDITION,
+        get=lambda path, params: json.dumps(raw).encode() if path.endswith('resolutions') else json.dumps(refs).encode())
+    assert row['terminal'] is False
+    assert not (tmp_path / 'settlement' / (CONDITION + '.json')).exists()

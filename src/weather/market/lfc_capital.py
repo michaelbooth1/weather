@@ -350,12 +350,11 @@ class CapitalBook:
                 from weather.market.lfc_f2_wallet_cash import captured_debit
                 captured_debit(self, item, self.cash_out - cash_out_before)
         elif event == 'capital_zero_resolution':
-            from weather.market.lfc_settlement_record import validate_settlement_row, envelope
-            from weather.market.lfc_recording_io import response_bytes
+            from weather.market.lfc_settlement_record import validate_settlement_row, settlement_payouts
             record = validate_settlement_row(row['settlement'], row['condition_id'])
             if record.get('terminal') is not True or row.get('settlement_sha256') != digest(record):
                 raise CapitalRefused('capital_zero_resolution_evidence')
-            payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']
+            payouts = settlement_payouts(record)
             zero_tokens = {token for token, payout in zip(record['token_ids'], payouts) if payout == 0}
             keys = row.get('intent_keys')
             if not isinstance(keys, list) or not keys or len(keys) != len(set(keys)):

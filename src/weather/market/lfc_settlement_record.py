@@ -7,6 +7,7 @@ Contract: https://data-api.polymarket.com/v2/docs (Resolution and TokenRef).
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal, InvalidOperation, localcontext
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -104,22 +105,68 @@ def select_token_pair(condition, rows, traded_tokens):
 
 
 def resolution_result(condition, resolution_raw, tokens_raw, *, traded_tokens):
-    """Use on-chain payout slots and reference ids only, never final_price or price."""
+    """Accept payout slots or resolved on-chain TokenRef rates; never UMA price."""
     rows = envelope(resolution_raw)['data']
     if any(condition_id(r['condition_id']) != condition for r in rows) or len(rows) > 1:
         raise ValueError('resolution_condition_scope')
     if not rows or rows[0]['status'] != 'resolved':
         return False, None, []
-    payouts = rows[0].get('payouts')
-    if payouts is None:
-        # UMA lifecycle can say resolved before terminal CTF payout evidence is served.
+    refs = envelope(tokens_raw)['data']
+    if rows[0].get('payouts') is None and not refs:
         return False, None, []
+    pair = select_token_pair(condition, refs, traded_tokens)
+    payouts = payout_slots(rows[0], refs, pair)
+    if payouts is None:
+        return False, None, []
+    winner = next((pair[i] for i, payout in enumerate(payouts) if payout == 1_000_000), None)
+    return True, winner, pair
+
+
+def payout_slots(resolution, refs, pair):
+    """TokenRef.resolved means on-chain payout; its final_price is a rate, not a book price."""
+    payouts = resolution.get('payouts')
+    if payouts is None:
+        selected = [row for row in refs if row.get('token_id') in pair]
+        if len(selected) != 2 or len({(r['module'], r.get('structural_condition_id')) for r in selected}) != 1:
+            raise ValueError('resolution_token_payout_scope')
+        if any(r['module'] not in {'v1_ctf', 'binary', 'neg_risk'} for r in selected):
+            raise ValueError('resolution_token_module_unknown')
+        if any(r.get('resolved') is not True or r.get('final_price') is None for r in selected):
+            return None
+        payouts = []
+        for index, token in enumerate(pair):
+            row = next(r for r in selected if r['token_id'] == token)
+            value = row['final_price']
+            if (row['outcome_index'] != index or isinstance(value, bool) or
+                    not isinstance(value, (int, float, str))):
+                raise ValueError('resolution_token_payout_unreadable')
+            try:
+                rate = Decimal(str(value))
+            except InvalidOperation:
+                raise ValueError('resolution_token_payout_unreadable') from None
+            if (not rate.is_finite() or not 0 <= rate <= 1 or
+                    len(rate.as_tuple().digits) > 2048 or abs(rate.as_tuple().exponent) > 2048):
+                raise ValueError('resolution_token_payout_unreadable')
+            opposite = row.get('opposite_token_id')
+            if opposite is not None and opposite != pair[1 - index]:
+                raise ValueError('resolution_token_payout_scope')
+            with localcontext() as context:
+                context.prec = max(40, len(rate.as_tuple().digits) + 10)
+                scaled = rate * 1_000_000
+                if scaled != scaled.to_integral_value():
+                    raise ValueError('resolution_token_payout_unreadable')
+                payouts.append(int(scaled))
     if (not isinstance(payouts, list) or len(payouts) != 2 or
             any(type(p) is not int or p < 0 for p in payouts) or sum(payouts) != 1_000_000):
         raise ValueError('resolution_payouts_unreadable')
-    pair = select_token_pair(condition, envelope(tokens_raw)['data'], traded_tokens)
-    winner = next((pair[i] for i, payout in enumerate(payouts) if payout == 1_000_000), None)
-    return True, winner, pair
+    return payouts
+
+
+def settlement_payouts(record):
+    """Shared normalization for recorder, capital replay and final evidence."""
+    resolution = envelope(response_bytes(record['resolution']))['data'][0]
+    refs = envelope(response_bytes(record['tokens']))['data']
+    return payout_slots(resolution, refs, record['token_ids'])
 
 
 def record_settlement(root, condition, *, clock=None, get=public_get, traded_tokens=None, recover_corrupt=False):
@@ -150,7 +197,7 @@ def record_settlement(root, condition, *, clock=None, get=public_get, traded_tok
         resolution_raw = read('/v2/resolutions', {'condition': condition})
         rows = envelope(resolution_raw)['data']
         tokens_raw = (read('/v2/tokens', {'condition': condition})
-                      if rows and rows[0].get('status') == 'resolved' and rows[0].get('payouts') is not None
+                      if rows and rows[0].get('status') == 'resolved'
                       else b'{"data":[]}')
         terminal, winner, pair = resolution_result(condition, resolution_raw, tokens_raw, traded_tokens=traded_tokens)
     except Exception as exc:

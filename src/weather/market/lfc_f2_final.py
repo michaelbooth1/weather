@@ -11,8 +11,8 @@ from pathlib import Path
 from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_f2_economics import final_cash_assessment
-from weather.market.lfc_recording_io import read_recovered, response_bytes, write_new, file_sha
-from weather.market.lfc_settlement_record import envelope, validate_settlement
+from weather.market.lfc_recording_io import read_recovered, write_new, file_sha
+from weather.market.lfc_settlement_record import settlement_payouts, validate_settlement
 from weather.market.mm_stage2_hold import digest
 from weather.operations.live_path_security import validate_contained_regular_file
 
@@ -83,7 +83,7 @@ def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
                 validate_contained_regular_file(Path(root), p), lot['condition_id']))
             hashes[str(Path(accepted).relative_to(root))] = file_sha(accepted)
             if record['terminal'] and lot['token_id'] in record['token_ids']:
-                payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']
+                payouts = settlement_payouts(record)
                 payout = payouts[record['token_ids'].index(lot['token_id'])]
         row = {'intent_key': key, 'session_id': lot['session_id'], 'token_id': lot['token_id'],
                'quantity_at_cutoff': str(left), 'counted_as_cash_native': 0}

@@ -18,9 +18,15 @@ is repeatable; `--root` overrides the normal pilot root. The verified campaign
 ledger supplies leg-intent token identities; local settlement labels are never
 read. The public Data API v2 resolution and token
 reference responses are retained verbatim with SHA256 and observation time.
-Payout slots identify the winner; prices are ignored. Split payouts have no
-invented binary winner. A resolved lifecycle without payout evidence remains
-pending; missing resolution remains unknown.
+Native `payouts` slots identify the winner. Without that array, an exact pair
+of TokenRefs with `resolved=true` and native-precision `final_price` payout
+rates supplies the same slots. The venue's [Resolution/TokenRef contract](https://data-api.polymarket.com/v2/docs)
+defines these as on-chain payout evidence. Both rates must be known, finite,
+between zero and one, and sum to one; modules outside the supported binary
+families refuse. A provided opposite-token ID must agree. The adapter never
+uses UMA lifecycle `price`, `proposed_price`, book prices or labels as payout.
+Split payouts have no invented binary winner. A resolved lifecycle without
+payout proof remains pending; missing resolution remains unknown.
 For migrated markets, only the reference pair containing the campaign's traded
 token IDs is selected. A failed match preserves the raw read under `pending/`
 with a reason code. Analysis refuses a leg outside the recorded pair and a

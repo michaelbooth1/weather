@@ -2,8 +2,8 @@
 from pathlib import Path
 
 from weather.market.lfc_capital import CapitalBook
-from weather.market.lfc_recording_io import read_recovered, response_bytes
-from weather.market.lfc_settlement_record import envelope, validate_settlement
+from weather.market.lfc_recording_io import read_recovered
+from weather.market.lfc_settlement_record import settlement_payouts, validate_settlement
 from weather.market.mm_stage2_hold import digest
 from weather.operations.live_path_security import validate_contained_regular_file
 
@@ -21,7 +21,7 @@ def record_zero_payouts(ledger, root):
             validate_contained_regular_file(Path(root), p), condition))
         if not record['terminal']:
             continue
-        payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']
+        payouts = settlement_payouts(record)
         zeros = {token for token, payout in zip(record['token_ids'], payouts) if payout == 0}
         keys = sorted(key for key, lot in CapitalBook(ledger).lots.items() if lot['condition_id'] == condition and
                       lot['token_id'] in zeros and lot['remaining_basis'] and lot['remaining_quantity'])

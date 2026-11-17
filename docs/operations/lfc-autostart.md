@@ -904,8 +904,12 @@ the account inventory proof. Redemption follows the separate rule above.
 A retained resolution with an exact zero payout books that lot's remaining basis
 as realized loss without requiring a burn. Its unswept physical quantity remains
 in account inventory reconciliation and appears separately from carried economic
-inventory. A later burn cannot charge the same basis twice. Prices never settle
-these lots; a conflicting positive payout refuses.
+inventory. A later burn cannot charge the same basis twice. The
+[settlement adapter](lfc-recording.md#venue-settlement) normalizes both supported
+on-chain payout forms for capital replay and final evidence. UMA lifecycle
+`price` alone never settles a lot; a conflicting positive payout refuses.
+A terminal winner still needs ordinary redemption/cash proof before it becomes
+received income.
 
 After the December evidence cutoff, the cleared owner/custodian may create one
 read-only snapshot with the qualified interpreter:
