@@ -4,7 +4,7 @@
   "owner": "weather.market",
   "freshness_policy": {
     "source": "hand-authored durable location and station facts",
-    "event_metadata_path": "C:/Users/micha/Desktop/github/weather/config/location_market_events.json",
+    "event_metadata_path": "config/location_market_events.json",
     "volatile_event_metadata": "config/location_market_events.json"
   },
   "volatile_fields": [],
@@ -1869,8 +1869,8 @@
     }
   ],
   "event_metadata": {
-    "last_refreshed_at_utc": "2026-11-15T16:11:56.364094+00:00",
-    "path": "C:/Users/micha/Desktop/github/weather/config/location_market_events.json",
+    "last_refreshed_at_utc": "2026-11-17T05:00:03.129144+00:00",
+    "path": "config/location_market_events.json",
     "schema_version": "location_market_events_v0.1"
   }
 }
