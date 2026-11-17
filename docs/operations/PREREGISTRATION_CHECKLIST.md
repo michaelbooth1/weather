@@ -48,6 +48,9 @@ Fair means the same floor, the same calibration and the same rows. The paired de
 
 ## Forward pre-registrations: (f) power gate and (g) futility
 
+Start each numeric field with its finite value. Decimal and scientific notation are accepted.
+Put the source, units and explanation after the value. Use whole dates for N, final N and N80.
+
 A pre-registration that spends forward dates must also carry (f) and (g), checked with `--forward`. They apply to
 new pre-registrations only. Bound tests (B, MG-1, L6_G, R-ODC P1) never change, and B gets no futility look
 (MODEL_IMPROVEMENT_METHOD §5 rule 7). Both sections are written as `- key: value` field lines so the checker can

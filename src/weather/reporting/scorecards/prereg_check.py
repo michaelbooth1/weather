@@ -129,11 +129,15 @@ LOOK = re.compile(r"^look\s+(\d+)$", re.I)
 BOUND = re.compile(r"^(HARM|FUTILE)\s+if\s+([tz])\s*>\s*([-+]?\d+(?:\.\d+)?)$", re.I)
 HEX = re.compile(r"\b[0-9a-f]{12,64}\b")
 FORWARD_REQUIRED = ("sigma_d", "rho", "vif", "delta", "n", "mde80", "power", "class", "intervals")
+FORWARD_NUMBER = re.compile(r"\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(?=\s|$|[(;]|,(?!\d))")
 
 
 def _num(text):
-    m = NUMBER.search((text or "").replace("−", "-"))
-    return float(m.group(0)) if m else None
+    match = FORWARD_NUMBER.match((text or "").replace("−", "-"))
+    if match is None:
+        return None
+    value = float(match.group(1))
+    return value if math.isfinite(value) else None
 
 
 def _fields(body):
@@ -155,7 +159,7 @@ def check_power_gate(body):
     missing = [k for k in FORWARD_REQUIRED if k not in f]
     if missing:
         return [f"(f) power gate: does not state {', '.join(missing)}"], None
-    vals = {k: _num(HEX.sub("", f[k])) for k in FORWARD_REQUIRED if k not in ("class", "intervals")}
+    vals = {k: _num(f[k]) for k in FORWARD_REQUIRED if k not in ("class", "intervals")}
     bad = [k for k, v in vals.items() if v is None]
     if bad:
         return [f"(f) power gate: no number for {', '.join(bad)}"], None
@@ -164,7 +168,7 @@ def check_power_gate(body):
     src = f["sigma_d"].lower()
     if bool(re.search(r"\bhistory\b", src)) == bool(re.search(r"\bdev\b", src)):
         problems.append("(f) power gate: sigma_d must name exactly one source block, history or dev (never pooled)")
-    if not HEX.search(f["sigma_d"]):
+    if not HEX.search(FORWARD_NUMBER.sub("", f["sigma_d"], count=1)):
         problems.append("(f) power gate: sigma_d does not cite its file sha256 (>= 12 hex)")
     if sigma <= 0 or delta <= 0 or vif <= 0:
         problems.append("(f) power gate: sigma_d, delta and VIF must be positive")
@@ -174,8 +178,11 @@ def check_power_gate(body):
     else:
         floor = max(1.0, (1 + rho) / (1 - rho))
         ratio = _num(f.get("block3 ratio"))
-        if ratio is not None:
-            floor = max(floor, ratio ** 2)
+        if "block3 ratio" in f:
+            if ratio is None or ratio <= 0:
+                problems.append("(f) power gate: block3 ratio must be a positive finite number")
+            else:
+                floor = max(floor, ratio * ratio)
         if vif < floor * (1 - 1e-3):
             problems.append(f"(f) power gate: VIF {vif:g} is below the serial-dependence floor {floor:.3f} "
                             "(max of 1, (1 + rho) / (1 - rho) and the block3 ratio squared)")
@@ -183,6 +190,9 @@ def check_power_gate(body):
     if planned is None or planned < MIN_FORWARD_N:
         problems.append(f"(f) power gate: N must be an integer of at least {MIN_FORWARD_N}")
     se = sigma * math.sqrt(vif) / math.sqrt(n) if n > 0 else math.inf
+    if not math.isfinite(se) or se <= 0:
+        problems.append("(f) power gate: standard error must be positive and finite")
+        return problems, planned
     if mde < Z80 * se * (1 - MDE_TOLERANCE):
         problems.append(f"(f) power gate: MDE80 {mde:g} is below 2.802 x sigma_d x sqrt(VIF) / sqrt(N) = "
                         f"{Z80 * se:.5f}")
@@ -200,8 +210,10 @@ def check_power_gate(body):
         problems.append("(f) power gate: class must be POWERED or SCREEN")
     elif (cls == "POWERED") != (delta >= mde):
         problems.append(f"(f) power gate: class {cls} contradicts delta {delta:g} against MDE80 {mde:g}")
-    elif cls == "SCREEN" and _num(f.get("n80")) is None:
-        problems.append("(f) power gate: a SCREEN must state N80")
+    elif cls == "SCREEN":
+        n80 = _num(f.get("n80"))
+        if n80 is None or n80 < 1 or not n80.is_integer():
+            problems.append("(f) power gate: a SCREEN must state N80 as a positive integer")
     iv = f["intervals"].lower()
     if "date-clustered" not in iv or not re.search(r"block[-\s]?3", iv):
         problems.append("(f) power gate: intervals must name the date-clustered and the block-3 interval")
@@ -215,7 +227,9 @@ def check_futility(body, planned):
     final = _num(f.get("final n"))
     if final is None:
         problems.append("(g) futility: does not state final N")
-    elif planned is not None and int(final) != planned:
+    elif not final.is_integer():
+        problems.append("(g) futility: final N must be an integer")
+    elif planned is not None and final != planned:
         problems.append(f"(g) futility: final N {final:g} differs from the power gate's N {planned}")
     horizon = final if final is not None else math.inf
     for k, kind, stat, bound in RULE_B:

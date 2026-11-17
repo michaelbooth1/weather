@@ -262,6 +262,30 @@ def test_powered_class_needs_delta_at_or_above_mde(tmp_path):
     assert _forward(tmp_path, text)["verdict"] == "PASS"
 
 
+def test_scientific_delta_cannot_qualify_an_underpowered_design(tmp_path):
+    text = (FORWARD.replace("delta: 0.0060", "delta: 1e-6").replace("class: SCREEN", "class: POWERED")
+            .replace("power: 0.64", "power: 0.99"))
+    result = _forward(tmp_path, text)
+    assert result["verdict"] == "REFUSED"
+    assert any("overstates" in message for message in result["problems"])
+
+
+@pytest.mark.parametrize(("old", "new", "verdict"), [
+    ("sigma_d: 0.0110", "sigma_d: 1.1e-2", "PASS"),
+    ("rho: +0.42", "rho: +.42", "PASS"),
+    ("delta: 0.0060", "delta: 6e-", "REFUSED"),
+    ("sigma_d: 0.0110", "sigma_d: 0,0110", "REFUSED"),
+    ("0.0110 (dev, MG-1 - served 00-16, 2026-08-15..09-29, sha256 b1a504bcf9e5)", "0.000000000001 (dev)", "REFUSED"),
+    ("N: 45\n- MDE80", "N: 1e999\n- MDE80", "REFUSED"),
+    ("block3 ratio: 1.32", "block3 ratio: unknown", "REFUSED"),
+    ("final N: 45", "final N: 45.5", "REFUSED"),
+    ("N80: 65", "N80: -2", "REFUSED"),
+])
+def test_forward_numbers_are_read_as_complete_values(tmp_path, old, new, verdict):
+    assert old in FORWARD
+    assert _forward(tmp_path, FORWARD.replace(old, new))["verdict"] == verdict
+
+
 def test_looks_at_or_after_final_n_are_dropped(tmp_path):
     short = (FORWARD.replace("- N: 45", "- N: 30").replace("- final N: 45", "- final N: 30")
              .replace("- MDE80: 0.0076", "- MDE80: 0.0093").replace("- power: 0.64", "- power: 0.47"))
