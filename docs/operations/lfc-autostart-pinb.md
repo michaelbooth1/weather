@@ -137,6 +137,14 @@ carry both `strict_attributable` and `campaign_estimate`. Strict recognition and
 the existing capital attribution rule remain unchanged: unproved income
 contributes zero. The estimate never enters capital, headroom or refill.
 
+Strict diagnostics bind each accrual candidate to its retained condition/day/
+asset/source hash and enumerate the campaign's acknowledged order candidates
+across attempts. These are candidates, not the venue's earning-order population.
+The supported earnings format has no earning-order binding; neither a caller's
+complete-history flag nor an amount/date match closes that gap. Nonzero strict
+recognition still requires authoritative earning-order coverage and native
+payment linkage. Unsupported evidence remains zero with explicit gap codes.
+
 The estimate records venue earnings for each UTC condition-day on which the
 campaign acknowledged a quote, once across attempts and legs. It retains native
 asset units, the earned date, accrual identity, source hash and actual collection

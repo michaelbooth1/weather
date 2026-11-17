@@ -247,9 +247,23 @@ def summary(ledger, sessions, *, observations=(), contexts=(), receipts=(), paym
                       for row in asset['missing_condition_days']} if by_asset else set(scope))
     missing = [{'earned_date': day, 'condition_id': condition} for day, condition in sorted(missing_pairs)]
     pusd = next((row['estimated_native'] for row in by_asset if row['cash_asset']['asset_address'] == ASSET), None)
+    bindings = []
+    for row in entries:
+        candidates = sorted({ledger.legs[key]['order_id'] for sid in row['campaign_session_ids']
+            for key in ledger.sessions[sid]['legs'] if ledger.legs[key]['condition_id'] == row['condition_id']
+            and ledger.legs[key]['order_id'] is not None})
+        bindings.append({'accrual_id': row['accrual_id'], 'earned_date': row['earned_date'],
+            'condition_id': row['condition_id'], 'cash_asset': row['cash_asset']['asset_address'],
+            'source_record_sha256': row['source_record_sha256'],
+            'candidate_campaign_order_ids': candidates, 'earning_order_ids': None,
+            'order_attribution_proven': False,
+            'reason': 'venue_condition_day_total_has_no_earning_order_binding'})
     return {'strict_attributable': {'recognized_native': 0, 'cash_asset': ASSET,
                 'state': 'unproven_contributes_zero', 'capital_credit_native': 0,
-                'basis': 'existing_complete_earned_order_and_native_payment_proof_required'},
+                'basis': 'existing_complete_earned_order_and_native_payment_proof_required',
+                'order_binding_candidates': bindings,
+                'evidence_gaps': ['complete_earning_order_population_unproven',
+                                  'accrual_to_native_payment_link_unproven'] if scope else []},
             'campaign_estimate': {'label': 'CAMPAIGN_ESTIMATE', 'basis': 'venue_condition_day_earnings',
                 'earned_date_timezone': 'UTC', 'cash_asset': primary['cash_asset']['asset_address'] if primary else None,
                 'native_decimals': 6, 'asset_estimates': by_asset, 'estimated_pusd_native': pusd,

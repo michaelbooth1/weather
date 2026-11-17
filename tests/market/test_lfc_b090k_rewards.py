@@ -67,6 +67,24 @@ def test_unquoted_intent_never_claims_condition_day_earnings():
     assert estimate['entries'] == [] and estimate['estimated_native'] == 0
 
 
+def test_strict_binding_names_own_orders_without_promoting_condition_day_totals():
+    ledger = scope_ledger(two_sessions=True)
+    rows = observations(lag=2)
+    # Neither invented caller metadata nor absent contamination is venue proof.
+    for row in rows:
+        row.update(order_ids=['campaign-order'], order_history_complete=True, payment_verified=True)
+    rails = summary(ledger, ['first'], observations=rows,
+                    contexts=[{'order_history_complete': True, 'touches': [], 'gaps': []}])
+    strict = rails['strict_attributable']
+    assert strict['recognized_native'] == strict['capital_credit_native'] == 0
+    assert len(strict['order_binding_candidates']) == 2
+    for binding in strict['order_binding_candidates']:
+        assert binding['candidate_campaign_order_ids'] == ['campaign-order', 'campaign-repost']
+        assert binding['earning_order_ids'] is None and not binding['order_attribution_proven']
+    assert 'complete_earning_order_population_unproven' in strict['evidence_gaps']
+    assert rails['campaign_estimate']['estimated_pusd_native'] == 1_250_000
+
+
 def test_missing_is_unknown_and_recorded_zero_is_zero():
     ledger = scope_ledger()
     missing = summary(ledger, ledger.sessions)['campaign_estimate']
