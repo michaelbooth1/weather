@@ -818,6 +818,10 @@ class Runtime:
         finally:
             self.preparing_f2 = False
 
+    def eligible_time_owner_stop(self):
+        from weather.market.lfc_session_status import OWNER_STOP_FILE
+        return OWNER_STOP_FILE.exists()  # Presence only; observation grants no authority.
+
     def pre_go_once(self, entry, policy):
         self.lease.check()
         from weather.market.lfc_session_status import OWNER_STOP_FILE

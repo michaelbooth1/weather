@@ -51,8 +51,12 @@ def campaign_observation(coordinator, policy, *, incidents=False):
         return
     now = utc(coordinator.clock.now())
     entry = next((e for e in policy.entries if e.start <= now < (e.fixed_end or e.session_end(e.start))), None)
-    eligible = entry is not None and not coordinator.state.ledger.halted and not incidents
-    reason = 'window_open_no_halt' if eligible else 'halt' if incidents or coordinator.state.ledger.halted else 'window_closed'
+    stop_reader = getattr(getattr(coordinator, 'runtime', None), 'eligible_time_owner_stop', None)
+    owner_stop = stop_reader() if callable(stop_reader) else None
+    halted = incidents or coordinator.state.ledger.halted or owner_stop is True
+    eligible = False if entry is None or halted else True if owner_stop is False else None
+    reason = ('window_closed' if entry is None else 'halt' if halted else
+              'window_open_no_halt' if eligible else 'halt_observation_unavailable')
     point = {'at_utc': now.isoformat(), 'scope': 'campaign_window', 'eligible': eligible,
              'reason': reason, 'policy_sha256': policy.sha256,
              'enabled': policy.raw['enabled'], 'market_eligibility': 'unknown_without_fresh_band_screen'}
@@ -86,11 +90,12 @@ def running_observation(coordinator, *, halted=False):
     previous = getattr(coordinator, '_window_observation', None)
     if previous and not halted and (now - utc(previous['at_utc'])).total_seconds() < 30:
         return
+    has_halt = halted or coordinator.status.stop_seen or coordinator.ledger.halted
     point = {'at_utc': now.isoformat(), 'scope': 'campaign_window',
              'policy_sha256': coordinator.policy.sha256,
-             'eligible': not halted and not coordinator.ledger.halted and
+             'eligible': not has_halt and
                  coordinator.entry.start <= now < coordinator.entry.session_end(coordinator.entry.start),
-             'reason': 'quoting_halted' if halted else 'window_open_no_halt'}
+             'reason': 'quoting_halted' if has_halt else 'window_open_no_halt'}
     coordinator.retain('campaign_eligible_time', observation=point,
         interval=interval(previous, point) if previous else None)
     coordinator._window_observation = point

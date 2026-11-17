@@ -30,7 +30,8 @@ def test_disabled_observation_is_still_eligible_and_halt_is_separate(tmp_path):
     policy = controller.policy
     saved = []
     state = SimpleNamespace(root=tmp_path, ledger=ledger, save=lambda path, row: saved.append(row))
-    coordinator = SimpleNamespace(state=state, clock=clock)
+    coordinator = SimpleNamespace(state=state, clock=clock,
+                                  runtime=SimpleNamespace(eligible_time_owner_stop=lambda: False))
     policy.raw['enabled'] = False
     campaign_observation(coordinator, policy)
     assert saved[-1]['observation']['eligible'] is True
@@ -38,6 +39,12 @@ def test_disabled_observation_is_still_eligible_and_halt_is_separate(tmp_path):
     campaign_observation(coordinator, policy, incidents=True)
     assert saved[-1]['observation']['eligible'] is False
     assert saved[-1]['observation']['reason'] == 'halt'
+    coordinator.runtime.eligible_time_owner_stop = lambda: True
+    campaign_observation(coordinator, policy)
+    assert saved[-1]['observation']['reason'] == 'halt'
+    coordinator.runtime = None
+    campaign_observation(coordinator, policy)
+    assert saved[-1]['observation']['eligible'] is None
 
 
 def test_controller_retains_band_intervals_without_changing_orders(tmp_path):
@@ -50,3 +57,19 @@ def test_controller_retains_band_intervals_without_changing_orders(tmp_path):
     assert observations[-1]['observation']['reason'] == 'quoting_halted'
     assert any(r['interval'] and r['interval']['eligible'] is True for r in observations)
     assert result['cleanup_ok'] and result['post_count'] == 4
+
+
+def test_observer_preserves_original_screen_exception_class(tmp_path, monkeypatch):
+    from weather.market import lfc_f2_controller
+    from weather.market.reward_quote import QuoteRefused
+    controller, account, status, ledger, clock = setup(tmp_path)
+    fault = QuoteRefused('synthetic_unreadable_levels')
+    def fail(*args, **kwargs):
+        raise fault
+    monkeypatch.setattr(lfc_f2_controller, 'observe', fail)
+    with pytest.raises(QuoteRefused) as result:
+        controller.bands[0].observe_snapshot({})
+    assert result.value is fault and not ledger.legs
+    for band in controller.bands:
+        band.journal.close()
+    controller.journal.close()

@@ -303,22 +303,25 @@ class F2Band(PilotSession):
                 type(self.attempt.get('session_number')) is int and self.attempt['session_number'] >= 1)
 
     def observe_snapshot(self, snapshot):
-        from weather.market.lfc_f2_selection import check_book
-        from weather.market.reward_quote import QuoteRefused
         try:
-            observation = observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=True,
-                window=self.REQUOTE_WINDOW, trade_legs=self.TRADE_LEGS, min_reward_rate=self.MIN_REWARD_RATE)
-            check_book(snapshot['quote_inputs'], mid=observation['adjusted_mid'], size=self.size,
-                       share=observation['share_many'], policy=self.campaign_policy)
-            result = pairs.observe(self, snapshot, observation)
-        except QuoteRefused as exc:
-            self.observe_eligibility(False, str(exc))
-            raise HoldEnd(str(exc)) from None
-        except HoldEnd as exc:
-            self.observe_eligibility(False, exc.reason)
+            result = self.ordinary_snapshot_observation(snapshot)
+        except BaseException as exc:
+            self.observe_eligibility(False, exc.reason if isinstance(exc, HoldEnd) else 'screen_unreadable')
             raise
         self.observe_eligibility(True, 'ordinary_screen_passed')
         return result
+
+    def ordinary_snapshot_observation(self, snapshot):
+        from weather.market.lfc_f2_selection import check_book
+        from weather.market.reward_quote import QuoteRefused
+        observation = observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=True,
+            window=self.REQUOTE_WINDOW, trade_legs=self.TRADE_LEGS, min_reward_rate=self.MIN_REWARD_RATE)
+        try:
+            check_book(snapshot['quote_inputs'], mid=observation['adjusted_mid'], size=self.size,
+                       share=observation['share_many'], policy=self.campaign_policy)
+        except QuoteRefused as exc:
+            raise HoldEnd(str(exc)) from None
+        return pairs.observe(self, snapshot, observation)
 
     def _gate(self, *, own_resting=Decimal(0)):
         reserve = self.size * sum(self.reserve_prices(), Decimal(0))
@@ -626,11 +629,11 @@ class F2Coordinator:
                 steps[band.session_id] = band.run_steps()
                 due[band.session_id] = self.clock.monotonic()
             while steps:
-                from weather.market.lfc_eligible_time import running_observation
-                running_observation(self)
                 self.status.checkpoint()
                 loop.tick()
                 loop.check()
+                from weather.market.lfc_eligible_time import running_observation
+                running_observation(self)
                 for band in self.bands:
                     key = band.session_id
                     if key not in steps or self.clock.monotonic() < due[key]:
