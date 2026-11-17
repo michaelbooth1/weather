@@ -278,8 +278,12 @@ class F2Band(PilotSession):
     def observe_snapshot(self, snapshot):
         from weather.market.lfc_f2_selection import check_book
         from weather.market.reward_quote import QuoteRefused
+        matched = self.own_trades.traded_shares() if self.active else {}
+        resting = {leg: (price, self.size - quantity(matched.get(oid, 0)))
+                   for oid, (leg, price) in self.active.items()}
         observation = observe(snapshot, self.prices, self.size, self.SIZES, reward_terms=True,
-            window=self.REQUOTE_WINDOW, trade_legs=self.TRADE_LEGS, min_reward_rate=self.MIN_REWARD_RATE)
+            window=self.REQUOTE_WINDOW, trade_legs=self.TRADE_LEGS, min_reward_rate=self.MIN_REWARD_RATE,
+            resting_by_leg=resting)
         try:
             check_book(snapshot['quote_inputs'], mid=observation['adjusted_mid'], size=self.size,
                        share=observation['share_many'], policy=self.campaign_policy)

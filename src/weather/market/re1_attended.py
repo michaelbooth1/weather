@@ -72,11 +72,15 @@ class GuardedJournal(HoldJournal):
             super().record(event, **self.guard.clean(fields))
 
 
-def observe(snapshot, prices, size=SIZE, sizes=SIZES, *, reward_terms=True, window=(1, 3), trade_legs=(0, 1), min_reward_rate=40):
+def observe(snapshot, prices, size=SIZE, sizes=SIZES, *, reward_terms=True, window=(1, 3),
+            trade_legs=(0, 1), min_reward_rate=40, resting_by_leg=None):
     """84b scoring: hold prices may drift; drift requests a re-quote, not exit.
 
 Reuse the estimator formulas; do not invoke 80b's hold-only re-pricing gates.
 True touch remains a separate submit safety check. Plain mid is sensitivity.
+F2 passes acknowledged outstanding (token price, remaining size) by leg.
+An empty mapping evaluates an unposted proposal against the entire book.
+None preserves the historical attended estimator's full-lot assumption.
 reward_terms=False and window are the live-fill calibration session-0 mode only (unrewarded market, 5c offset):
 the reward-term exits and the reward-share estimate are skipped and the mid uses every displayed level.
 """
@@ -105,6 +109,8 @@ the reward-term exits and the reward-share estimate are skipped and the mid uses
     yes, no = map(number, prices)
     visible = all(sum(s for p, s in levels if p == price) >= size
                   for leg, (levels, price) in enumerate(((yb, yes), (nb, no))) if leg in trade_legs)
+    if resting_by_leg is not None:
+        visible = visible and all(resting_by_leg.get(leg) == ((yes, no)[leg], size) for leg in trade_legs)
 
     def shares(at):
         scores = []
@@ -112,8 +118,15 @@ the reward-term exits and the reward-share estimate are skipped and the mid uses
             aggregate = {}
             for p, s in levels:
                 aggregate[p] = aggregate.get(p, Decimal(0)) + s
-            if leg in trade_legs:
+            if resting_by_leg is None and leg in trade_legs:
                 aggregate[own_price] = max(Decimal(0), aggregate.get(own_price, Decimal(0)) - size)
+            elif resting_by_leg is not None and leg in resting_by_leg:
+                token_price, remaining = resting_by_leg[leg]
+                book_price = token_price if leg == 0 else 1 - token_price
+                # A public level smaller than the known remainder cannot
+                # contain that complete order. Keep its ambiguous depth.
+                if 0 < remaining <= aggregate.get(book_price, Decimal(0)):
+                    aggregate[book_price] -= remaining
             scores.append(side_score([(float(p), float(s)) for p, s in aggregate.items() if s > 0],
                                      float(at), float(maximum), float(minimum))[0])
         own = q_min(*(order_score(float(size), float(d), float(maximum), float(minimum)) if leg in trade_legs else 0

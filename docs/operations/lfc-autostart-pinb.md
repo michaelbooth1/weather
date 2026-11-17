@@ -117,6 +117,14 @@ the prospective gross admission calculation is unchanged.
 
 ## Two recorded reward views
 
+The fresh F2 share estimate takes own depth from acknowledged active order IDs.
+It subtracts the known outstanding quantity once, at its resting price on the
+YES book or the mirrored price of a NO bid. Before the first acknowledgement,
+all displayed depth counts as competition. A smaller public level cannot
+establish that it includes the full outstanding quantity and stays in the
+estimate. Even an acknowledged order and matching aggregate level are sampled
+on different clocks, so the resulting share remains a planning scenario.
+
 Daily economics, immutable economics supplements and final decision-page inputs
 carry both `strict_attributable` and `campaign_estimate`. Strict recognition and
 the existing capital attribution rule remain unchanged: unproved income
