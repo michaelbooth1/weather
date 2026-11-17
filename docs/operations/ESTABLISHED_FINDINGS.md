@@ -156,6 +156,8 @@ sequence numbers, not calendar dates.
 | 10bf | Edge-review queue completed 2026-11-10 (ledger rows 126-128; register X112-X117, §7): T003 finish DESCRIBE (11/720 = 1.53% [0.56, 2.78] positive event-days, execution unverified); E4 lowest-temperature overpricing KILL with a MEASURED, not pre-registered, opposite gap of about −10 to −11 pp (not an edge claim; designs A/B await the owner); dev T+1 model-vs-market read UNTESTABLE (0 verified T+1 vectors) |
 | 10bg | F2 Pin B first trading day 2026-11-13 (A091; one unsettled date, descriptive): reward model brackets venue accrual (1.36x P_many, 0.96x P_single); first-fill hazard ~0.21/band-hour vs T038's 0.12; +5 min markout +0.43 c/share vs mid drift −0.92; cross-cycle pair locked zero spread; 44% twelve-city coverage; ~75% of the sleeve idle; 4-dp positions vs 6-dp trades; no edge, no arm winner |
 | 10bh | A094 T+0 pre-fill toxicity screen 2026-11-15 (ledger row 130, K kill-only; register X118): book/clock/model features rank toxic public maker fills slightly above price/time (AUC 0.655 [0.637, 0.674] vs 0.647; Brier −0.0015 [−0.0027, −0.0004]) but the fixed gate nets −0.034 c per original share [−0.299, +0.131] after nominal rebate stress; F2-context AUC 0.530; observed-high state missing; T+1 pre-fill idea PARKED, no new quoting term, T+1 transfer unverified |
+| 10bi | A093 target-day management of carried inventory 2026-11-16 (ledger row 129, K kill-only; register X119): no alternative cleared the positive-lower-bound requirement against B; target-day B minus holding −0.16 c/share [−6.12, +5.85] unresolved; hold residuals to settlement, keep B's 1.5 c pair cap, no stop/SELL/looser cap before the seal |
+| 10bj | F2 Pin B Friday settlement and Monday run A 2026-11-16 (T120/T121; descriptive, two live dates, one settled): Friday +13.62 pUSD before rewards (Miami +25.07, rest −11.45); Monday 311 quoting min, 13 fills 162.28 sh, Chicago 37% of cost; +30 min −0.49 c/share vs purchase, −1.89 c vs pre-fill mid; fills per order-hour ~1.87x A092; reward per city-hour 31.6% below A092; gates uncertifiable/FAIL |
 
 ---
 
@@ -5765,6 +5767,82 @@ quote distances or its income, and transfer to T+1 is unverified. Development ev
   feasibility tables (`prediction_metrics.csv`, `quoting_rule_effects.csv`, `feasibility_by_arm.csv`) are
   deliberately unestimated (NOT_IDENTIFIED), not measured zeros; the T+0 results are `metrics.csv`,
   `selectivity.csv`, `rule_selectivity.csv`, `F2_context_metrics.csv` and `uncertainty.csv`.
+
+### 10bi. A093 target-day management of carried inventory: no alternative to holding qualified, so B days keep the 1.5 c pair cap and target-day residuals are held to settlement (no alternative beat B; target-day B versus holding unresolved) — Codex Astra A093, ledger row 129 (K kill-only), 2026-11-16
+
+The question was what to do on the target day (09:00-18:45 Toronto) with shares F2 already holds. The options
+were to hold to settlement, run B's complete-pairs schedule, add a bounded-loss stop, sell, or quote with a
+looser cap. History has no T+1 acquisitions. Each city-date is therefore seeded at 09:00 with one standardized
+20-share lot: an eligible native token from fresh paired books nearest mid 0.30, at an assumed overnight basis of
+`floor_tick(mid − 0.02)`. A separate panel uses actual native maker BUY proxies before 09:00. That is early T+0
+inventory, not T+1 evidence. Development evidence for a learning decision; **not an edge claim**.
+
+- **Design, frozen before the holdout.** 53 frozen rules, from the prereg (`9512974a…`) and the target-day
+  amendment A4 (`1269a0d6…`). Clarifications A5-A14 record data and executability repairs: the book-clock
+  quality rule, malformed and oversized book rows, and the pending-fill cash reservation. T081 cohort
+  08-20..09-18, 360 city-dates. Fit 08-20..09-04 (16 dates); one holdout 09-05..09-18 (14 dates). 353
+  eligible standardized seeds and 326 early-fill seeds. The fit selects the largest positive lower
+  crossed-bootstrap bound against B, with a positive union lower bound, no worse 5% expected shortfall, and
+  less unpaired exposure or capital use. Selection froze 2026-11-15 08:58:54Z, and the single holdout claim
+  bound it at 09:00:00Z. The 89b clock archive is lost, so the clock was refit on fit dates only from replay
+  METAR; that deviation was recorded before the holdout. These are heavily reused development dates (reuse
+  count 218), not a pristine holdout.
+- **Result.** No alternative cleared the first positive-lower-bound requirement, so the tie-break never ran and
+  B stays selected. The descriptive target-day holdout difference, B minus holding, is −0.16 c/share,
+  exploratory 95% [−6.12, +5.85]. That is unresolved, and it is a conditional held-lot comparison, not evidence
+  that our T+1 entries earn those returns. Clock training has adequate complete-day coverage only for Toronto,
+  and flow lacks causal receipt times. A092's planning sensitivity puts B's weekly net at $9.34 when
+  target-day residuals are held, against $1.60 when B is applied on the target day. That is a simulation
+  sensitivity, not a measured income.
+- **Decision use.** Hold target-day residuals to settlement under the current live scope. Keep the approved
+  A/B/W schedule and B's 1.5 c fill-day pair cap. Add no taker stop, SELL capability, looser cap or new
+  target-day quoting rule before the 11-22 seal. Record actual target-day cash, depth and outcomes on live days.
+- **Records.** `codex/a093-postfill-intake` (ledger row 129 records the registration tip `70df2030d`; later
+  executability fixes under the standing pre-authorization); report sha256 `aae37881…`; register X119; archive
+  `C:\archive\ruled-out\2026-11-15-a093-target-day\` (report, preregs, clarifications, result CSVs,
+  `SHA256SUMS`; transfer zip `a3ffea30…`); full source with data and runtime at `C:\t\codex\A093` on the
+  workstation (about 0.9 GB).
+
+### 10bj. F2 Pin B: Friday 11-13 settled positive on one city, and Monday 11-16's run A bought more per order-hour but saw the market move against its fills (DESCRIPTIVE; two live dates, one settled) — Codex T120 and T121, 2026-11-16
+
+Two live dates on the owner's shared wallet, maker BUYs held to settlement. Purchases and trading P&L are in
+native pUSD. Venue reward estimates are in USDC.e and shown separately from the strict recognized rail. This
+is descriptive evidence for the owner's learning week. It is **not an edge or income claim**, and it is not
+evidence for the decision table, which applies after the confirmation dates.
+
+- **Friday settled.** Nine trades on eight orders made +13.62 pUSD of trading P&L before rewards. Miami's two
+  YES fills (+25.07) carried it; the other seven lost −11.45.
+- **Monday run A** (B090-K2):
+  - 311.13 quoting minutes: 53.2% of 09:00-18:45 and 98.3% of session runtime. Friday's figure was 49% of
+    its planned day; coverage across cities was lower on both days.
+  - Three stale-heartbeat halts and one startup failure, from transport failures (item 67 §2026-11-16).
+  - 66 orders, all terminal: 62 cancelled, 4 matched. 13 fills, 162.28 shares for 67.64 pUSD in 7 cities,
+    all held into the Nov-17 markets.
+  - Chicago's 65.39 shares used 37% of Monday's purchase money. The $30 cap is per band per day in pUSD, not
+    in shares, so it does not spread risk evenly at low prices.
+- **Fill quality.** Purchases were below the pre-fill mid, but the market then moved against them. Monday +30
+  min, on the 8 of 13 fills (53.8% of shares) with a recoverable mid: −0.488 c/share against the purchase price
+  and −1.894 c/share against the pre-fill mid. Friday's +5 min markout was positive while drift was negative
+  (§10bg). The dedicated post-fill recorder captured none of Monday's 162.28 shares: 1,301 of 1,311 requests
+  failed `HTTPError` because no User-Agent was sent. That is fixed in B090-L2.
+- **Fill rate.** Distinct filled orders per order-hour rose from 0.164 (Friday) to 0.323 (Monday). That is
+  about 1.87 times A092's Monday low-service mean of 0.172.
+- **Rewards.** The estimated accrual is 0.674 (Friday) and 0.633 (Monday), USDC.e. Neither is proven paid to
+  the campaign, so the strict rail stays 0. Reward per quoted city-hour was 0.0199, 31.6% below A092's
+  low-service forecast of 0.0291; A092's reward forecast was optimistic.
+- **Gates.** Monday's uptime gate is uncertifiable, because no eligible-time denominator is recorded. Its
+  marks gate fails, at 53.8% of shares against the required 95%. Under the 11-14 rule (DECISION_LOG),
+  Wednesday's W does not start and the week returns to narrow B.
+- **Instrument gaps** (operations backlog):
+  - eligible-time intervals are not recorded;
+  - the settlement adapter reads resolved responses that lack a `payouts` array as non-terminal;
+  - strict reward attribution is missing;
+  - cap stops lack diagnostics.
+- **Proposals, not adopted.** A per-city residual-share limit (about 40 shares) and a reselection rule are
+  candidate economic terms and need the owner's yes. On Friday's trace B would have blocked Miami's second
+  YES, which paid. No wider prices, bigger orders, higher caps or city exclusions are justified by two dates.
+- **Records.** `C:\t\codex\T120\REPORT.md` and `C:\t\codex\T121\REPORT.md` (workstation). T121's ledger
+  snapshot sha256 is `a19ed958…`: 792 rows, with predecessor hashes continuous.
 
 ## Related
 
