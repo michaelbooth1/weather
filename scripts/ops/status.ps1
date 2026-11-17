@@ -2228,14 +2228,17 @@ if (Test-Path $settleRoot) {
     elseif (-not $settlementCheck.ok) {
         $flags.Add("settlement-hole checker could not read every ledger: $(@($settlementCheck.errors) -join ', ')")
     }
-    elseif (@($settlementCheck.holes).Count -gt 0) {
-        $holes = @($settlementCheck.holes)
+    elseif (@($settlementCheck.authoritative_holes).Count -gt 0) {
+        $holes = @($settlementCheck.authoritative_holes)
         $worst = $holes[0].date
         $dates = ($holes | ForEach-Object { $_.date }) -join ", "
         $settleHole = "SETTLEMENT HOLE: {0} date(s) unsettled in the last {1} days [{2}] - worst {3}, up to {4} of {5} market(s) - each needs an EXPLICIT per-date backfill; the next chain run will not retry it" -f `
             $holes.Count, $windowDays, $dates, $worst, ($holes | Measure-Object -Property markets -Maximum).Maximum, $settlementCheck.market_count
         $flags.Add($settleHole)
     }
+} else {
+    $settleHole = "SETTLEMENT HOLE: the expected settlements directory is missing"
+    $flags.Add($settleHole)
 }
 
 # ---- git / push ----

@@ -686,7 +686,10 @@ through `STAGE_A_END_STEP`, Stage B starts at `promotion_refresh`. Facts that de
   Do not declare a date unrecoverable from a count of failed tries; the source has recovered on a later attempt.
 - **The alarm has a horizon.** The `SETTLEMENT HOLE` flag in `status.ps1` scans `$windowDays = 14`
   (`weather.operations.settlement_hole_check --window-days`). An older hole drops out of the briefing while still
-  unsettled. For an older range run the checker with larger `--window-days` and `--tail-lines` inside the heavy-work window, or
+  unsettled. The checker uses the registry denominator and the latest ledger revision in the bounded suffix.
+  Its JSON `holes` counts dates without a reported value. The status alarm uses `authoritative_holes`,
+  which requires the same finite `daily_summary` settlement as the one-date backfill. Missing ledgers
+  are listed separately. For an older range run the checker with larger `--window-days` and `--tail-lines` inside the heavy-work window, or
   read the per-market ledgers under `data/settlements/`.
 - **Replay-status evidence is incremental.** `replay_status_backfill` used to JSON-parse `snapshots.jsonl`, replay
   inputs and the reconstructed corpus of every folder on every pass, including folders it then skips as
