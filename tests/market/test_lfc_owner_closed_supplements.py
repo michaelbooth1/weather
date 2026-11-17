@@ -65,5 +65,5 @@ def test_supplement_skip_revalidates_owner_decision_and_original_hashes(
             publish_supplements(runtime)
         if corruption == 'new_artifact_change':
             assert len(runtime.state.ledger.autostart_incidents) == 2
-            assert runtime.state.incidents()[0]['attempt_id'] != first
+            assert runtime.state.retained_incidents()[0]['attempt_id'] != first
         assert not list((runtime.state.root/'economics').glob('*.json'))
