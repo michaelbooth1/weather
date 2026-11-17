@@ -918,3 +918,65 @@ was released when the tick exited.
     dates.
 - **Settlement** of the six held 11-14 conditions was pending at 19:02 ET; D+1/D+2 reward and rebate reads
   follow. Wallet amounts are kept out of this public record.
+
+## 2026-11-16 F2 Pin B Monday run A (releases B090-K, K1, K2) and the Tuesday release B090-L2
+
+- **Enable blockers, fixed the same morning** (owner decisions, DECISION_LOG 2026-11-16 ~09:08 and ~09:31):
+  - B090-K (Codex T112) sealed, but Enable refused `inventory_redemption_scope`. The owner's auto-redeem
+    burns at 6 decimals against the venue's 4-decimal positions. That left a token's expected position a
+    hair below zero. B090-K1 `aa38532f` (T117) clamps a negative residual strictly inside the position dust
+    to zero; at or beyond the dust it still refuses.
+  - The funding proof then refused. Weekend personal trades on the shared wallet had left an owner overdraw
+    of the sleeve, and personal sale proceeds did not repay it by contract. The owner changed the rule.
+    B090-K2 `149467a6` (T117r2) lets confirmed personal SELL proceeds and native-proved owner redemption
+    cash repay the outstanding overdraw first, capped, with deposits unchanged. It was sealed at 09:47 under
+    an owner pregate waiver, and Enable passed with the full $300 enrolment.
+- **Sessions** (four claims; trading 10:03-17:12, short of the 18:45 fixed end):
+  - Sessions 1 and 2 (10:03-10:16, 10:23-10:35) halted `heartbeat_stale`. Each went at least 8 s without
+    a heartbeat ACK, because requests failed after about 4.5-5.3 s against a normal p95 of about 0.65 s
+    (Codex T118). The second outage also dropped all seven private streams. Cancellation and inventory
+    were proven both times.
+  - 10:43-10:59 were readiness deferrals, then the 09:00-11:00 entry window closed. The owner moved the
+    window to 12:00-14:00; the policy refuses a window longer than 2 h, so 09:00-17:30 was refused.
+  - Session 3 (12:07) ended at startup: the private stream closed, surfaced as
+    `RuntimeError('user_stream_readiness')`. It placed no orders.
+  - Session 4 ran from about 12:2x until 17:12 and halted `heartbeat_stale`. No restart followed because
+    the start window had closed at 14:00.
+  - Every session closed money-clean. `cleanup_ok=false` was an evidence flag: final balance and accrual
+    samples were missing.
+- **Result** (Codex T120 `C:\t\codex\T120\REPORT.md`, workstation):
+  - 311 quoting minutes: 53% of 09:00-18:45 and 98% of session runtime.
+  - 66 orders, all terminal. 13 fills, 162.28 shares for 67.64 pUSD across 7 cities, held into the
+    Nov-17 markets.
+  - No incident; cash and inventory reconcile.
+  - Monday's gates could not pass. The uptime gate is uncertifiable, because no eligible-time
+    denominator is recorded. The marks gate fails: the post-fill recorder got 0 of 162.28 shares (1,301
+    HTTP errors from a missing User-Agent). Under the 11-14 rule (DECISION_LOG), Wednesday's W does not
+    start, and the week returns to narrow B.
+- **Learn and adjust** (owner ~17:32, DECISION_LOG): Codex T121 `C:\t\codex\T121\REPORT.md`
+  (workstation); measured results in [EF §10bj](../../operations/ESTABLISHED_FINDINGS.md). It recommends
+  operational fixes only, and keeping Tuesday's B unchanged. Possible later economic terms (owner yes
+  needed) are a per-city residual-share limit and a reselection rule.
+- **Tuesday release B090-L2 `d15e8f02`** (Codex T119, `codex/b090l2-tolerance-20261116` plus a `-ssh`
+  mirror; base `149467a6`). Contents:
+  - The workstation peer's personal-redemption dust tolerance, `1af4eba0`.
+  - Heartbeat: 2 s total per attempt, a fresh connection and an immediate retry. The 8 s ACK limit and the
+    20 s watchdog are unchanged.
+  - Readiness: a 5 s floor, three tries and one private reconnect.
+  - A private-startup transport failure defers within the same claim.
+  - Cleanup's money-clean result is reported separately from sample gaps.
+  - The recorder sends User-Agent, Accept and identity encoding, and keeps the HTTP status.
+  - B, complete pairs (T113 `8f2b018f`), rebased without conflicts.
+
+  It passed 458 focused tests and the docs audit. A ledger-copy CapitalBook replay must print IDENTICAL
+  under `149467a6` and `d15e8f02` before the seal. The owner card for Tue 08:00-08:50 installs campaign
+  revision 6 with `post_fill_mode: complete_pairs` and the window back at 09:00-11:00. The sequence is
+  Upgrade, Verify, then Enable, under an owner pregate waiver.
+- **Still open:**
+  - eligible-time interval recording;
+  - a settlement payout-schema adapter (resolved responses without a `payouts` array read as
+    non-terminal);
+  - strict reward attribution;
+  - cap diagnostics;
+  - the 2 h start-window cap;
+  - bot memory growth.
