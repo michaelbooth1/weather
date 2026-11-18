@@ -18,12 +18,15 @@ from weather.market.weather_universe import BinInterval, WeatherCitySpec, load_w
 UTC = timezone.utc
 
 
-def unreadable_time_dates(report: MetarReport, zone: ZoneInfo) -> frozenset[date]:
+def unreadable_time_dates(report: MetarReport, zone: ZoneInfo, *, as_of: datetime | None = None) -> frozenset[date]:
     """Receipt-scoped dates, or fetched local dates when receipt order is unknown."""
     if not report.has_unreadable_time:
         return frozenset()
     if report.receipt_time is None:
-        first, last = report.fetch_start.astimezone(zone).date(), report.fetch_end.astimezone(zone).date()
+        end = min(report.fetch_end, aware_utc(as_of)) if as_of is not None else report.fetch_end
+        if end < report.fetch_start:
+            return frozenset()
+        first, last = report.fetch_start.astimezone(zone).date(), end.astimezone(zone).date()
         return frozenset(first + timedelta(days=i) for i in range((last - first).days + 1))
     received = report.receipt_time.astimezone(zone)
     midnight = datetime.combine(received.date(), time.min, zone).astimezone(UTC)
@@ -142,7 +145,7 @@ class MetarSettlementAdapter:
                     flag for flag in report.flags if flag == "ambiguous_source_revision"))))
             station_reports.append(report)
         unassigned_defects = [r for r in station_reports if r.routine
-                              and local_date in unreadable_time_dates(r, zone)
+                              and local_date in unreadable_time_dates(r, zone, as_of=as_of)
                               and (r.t_group_c is not None or r.body_temperature_c is not None or r.has_parse_defect)]
         records = [r for r in station_reports if r.observation_time is not None and r.observation_time <= as_of]
         next_reports = [r for r in records if r.routine
@@ -168,17 +171,24 @@ class MetarSettlementAdapter:
         day_reports = [r for r in selected_reports if r.temperature_c is not None]
         if parse_defects:
             notes.append("routine_day_parse_defect")
-        if any(r.receipt_time is None for r in records):
+        if any(r.receipt_time is None for r in records) or any(r.receipt_time is None for r in unassigned_defects):
             notes.append("publication_cutoff_unverified_without_receipt_times")
         final = as_of >= cutoff
         if not day_reports:
             if parse_defects:
                 return DailySettlement(spec.slug, local_date, "source_unavailable", cutoff=cutoff,
                                        notes=tuple(notes), fallback_deadline=fallback_deadline)
-            if as_of >= fallback_deadline and wu_values is not None and (wu_read_at is None or wu_read_at <= as_of):
+            day_end = datetime.combine(tomorrow, time.min, zone).astimezone(UTC)
+            if wu_values is not None and wu_read_at is not None and wu_read_at < day_end:
+                notes.append("wu_read_before_target_day_complete")
+            if as_of >= fallback_deadline and wu_values is not None and (
+                wu_read_at is None or day_end <= wu_read_at <= as_of
+            ):
                 high, low = map(Decimal, wu_values)
                 if not (high.is_finite() and low.is_finite() and low <= high):
                     raise ValueError("invalid WU daily extrema")
+                if wu_read_at is None or wu_read_at < fallback_deadline:
+                    notes.append("wu_post_deadline_read_unverified")
                 return DailySettlement(spec.slug, local_date, "wu_fallback", maximum=high, minimum=low,
                                        cutoff=fallback_deadline, source="wu_daily_history", notes=tuple(notes),
                                        fallback_deadline=fallback_deadline, source_read_at=wu_read_at)

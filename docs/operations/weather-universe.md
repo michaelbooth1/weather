@@ -100,7 +100,9 @@ fetch diagnostics, and it cannot affect any station-day.
 Unreadable observation times are counted as `unreadable_time_lines`. Without a
 receipt time, a potentially qualifying routine line blocks finality only for its
 own station, on every station-local date covered by its retained `fetch_start`
-and `fetch_end` (inclusive). `unreadable_time_without_receipt` remains a diagnostic
+and `fetch_end` (inclusive), capped at the evaluation instant. These timestamps
+bound the requested observation period. They do not date retrieval or revision
+publication. `unreadable_time_without_receipt` remains a diagnostic
 counter; it does not authorize dropping the line. With a receipt, a potentially
 qualifying routine line can affect only that
 station's receipt-local date and, through exactly two elapsed hours after local
@@ -147,7 +149,10 @@ Without qualifying temperatures the fallback clause is separately gated on
 already arrived. `wu_values=None` means unknown, never empty. Until the deadline,
 or while WU remains unknown, the result is unresolved (`missing` or
 `awaiting_wu_fallback`) and eliminates no bins. After that deadline, supplied
-native-unit WU extrema produce `wu_fallback`; only explicit `wu_empty=True`
+native-unit WU extrema from a completed local target day produce `wu_fallback`.
+A supplied read before that day ended cannot establish its daily extrema.
+An undated offline pair, or a completed-day pair read before the fallback
+deadline, carries `wu_post_deadline_read_unverified`. Only explicit `wu_empty=True`
 with no qualifying AWC value and `fallback_deadline <= wu_read_at <= as_of`
 permits the lowest bracket. Unknown/stale/future emptiness stays unresolved.
 Contradictory WU
