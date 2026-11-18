@@ -198,11 +198,18 @@ def target_date_from_args(*, target_date=None, as_of=None):
 
 
 def selected_specs(market_ids=None):
-    ids = {str(market_id).strip() for market_id in market_ids or [] if str(market_id).strip()}
     specs = all_specs()
-    if ids:
-        specs = [spec for spec in specs if spec.id in ids]
-    return specs
+    if not specs:
+        raise ValueError("settled-day checks require a nonempty market registry")
+    if market_ids is None:
+        return specs
+    ids = {str(market_id).strip() for market_id in market_ids if str(market_id).strip()}
+    if not ids:
+        raise ValueError("an explicit settled-day market selection must contain a market")
+    unknown = ids.difference(spec.id for spec in specs)
+    if unknown:
+        raise ValueError(f"unknown settled-day markets: {', '.join(sorted(unknown))}")
+    return [spec for spec in specs if spec.id in ids]
 
 
 def daily_summary_status(spec, target_date):
@@ -501,7 +508,8 @@ def repair_missing_settlements(
         market_ids=market_ids,
     )
     specs = selected_specs(market_ids)
-    write_resolution_specs(Path(ledger_root) / "resolution_specs.json", specs=specs)
+    # The file describes the whole ledger root, even for a targeted repair.
+    write_resolution_specs(Path(ledger_root) / "resolution_specs.json")
     labels = labels_by_slug(labels_csv)
     ledgers = ledger_by_slug(ledger_root, specs)
     labels_to_merge = []
@@ -682,7 +690,7 @@ def write_outputs(payload, json_out, report_out):
 
 
 def parse_market_ids(value):
-    if not value:
+    if value is None:
         return None
     return [part.strip() for part in str(value).split(",") if part.strip()]
 
@@ -693,7 +701,7 @@ def add_common_args(parser):
     parser.add_argument("--ledger-root", default=str(DEFAULT_LEDGER_ROOT))
     parser.add_argument("--target-date", default="")
     parser.add_argument("--as-of", default="")
-    parser.add_argument("--markets", default="")
+    parser.add_argument("--markets", help="Comma-separated known market IDs. Omit to check the whole registry.")
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     return parser

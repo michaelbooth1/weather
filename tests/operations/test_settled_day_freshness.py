@@ -3,6 +3,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
 
 from weather.backtesting.settlement_ledger import (
     read_jsonl,
@@ -12,9 +16,42 @@ from weather.backtesting.settlement_ledger import (
 from weather.market.market_config import event_slug_for_date
 from weather.operations.settled_day_freshness import (
     build_freshness_payload,
+    parse_market_ids,
     read_labels_csv,
     repair_missing_settlements,
+    selected_specs,
 )
+
+
+@pytest.mark.parametrize("markets", ["missing", "first,missing", "", ", ,"])
+def test_explicit_market_scope_refused_before_reading_inputs(markets):
+    with patch("weather.operations.settled_day_freshness.all_specs", return_value=[SimpleNamespace(id="first")]), \
+         patch("weather.operations.settled_day_freshness.labels_by_slug", side_effect=AssertionError("read inputs")):
+        with pytest.raises(ValueError, match="settled-day market"):
+            build_freshness_payload(target_date="2001-01-02", market_ids=parse_market_ids(markets))
+
+
+def test_market_scope_requires_nonempty_registry():
+    with patch("weather.operations.settled_day_freshness.all_specs", return_value=[]):
+        with pytest.raises(ValueError, match="nonempty market registry"):
+            selected_specs()
+
+
+def test_scoped_repair_keeps_full_ledger_root_resolution_catalog(tmp_path):
+    specs = [SimpleNamespace(id="first"), SimpleNamespace(id="second")]
+    row = {"market_id": "first", "needs_finalization": False}
+    with patch("weather.operations.settled_day_freshness.all_specs", return_value=specs), \
+         patch("weather.backtesting.settlement_ledger.all_specs", return_value=specs), \
+         patch("weather.backtesting.settlement_ledger.resolution_spec_for", side_effect=lambda spec: {"market_id": spec.id}), \
+         patch("weather.operations.settled_day_freshness.market_row", return_value=row):
+        payload = repair_missing_settlements(
+            target_date="2001-01-02", snapshots_root=tmp_path / "snapshots",
+            labels_csv=tmp_path / "labels.csv", ledger_root=tmp_path / "ledger",
+            market_ids=["first"], reconcile_polymarket=False,
+        )
+    assert [item["market_id"] for item in payload["markets"]] == ["first"]
+    catalog = json.loads((tmp_path / "ledger" / "resolution_specs.json").read_text(encoding="utf-8"))
+    assert [item["market_id"] for item in catalog["markets"]] == ["first", "second"]
 
 
 def _write_snapshot_tape(root, target_date, *, market_id="nyc", high=77):

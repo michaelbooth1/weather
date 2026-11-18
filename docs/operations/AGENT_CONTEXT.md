@@ -32,6 +32,7 @@ generated reports for dynamic state.
   label amendment did not repair serving floors; the support constraint below
   still binds. Contract:
   [venue-rule labels](venue-rule-labels.md).
+- The settled-day freshness report and repair accept known market IDs in `--markets`. An omitted selection covers the registry. A scoped repair updates only the selected markets' settlement artifacts and preserves the complete resolution catalog for the ledger root.
 - The venue's own source is declared per location in `config/locations.json`
   `settlement`. Hong Kong settles on a 0.1 °C HKO value that the venue
   truncates (`band_mapping: floor_to_whole_degree`), so the release
