@@ -63,10 +63,12 @@ market registry + location/event config
 ```
 
 Snapshot and backfill writers keep an explicit model version. When it is
-missing, they use a recorded replay or feature version compatible with the
-recorded scorer family. If only the family is known, the display identifies
-it as unversioned. Legacy records with no scorer or version information keep
-the historical display default.
+missing, they use an original feature or recorded replay version compatible with
+the recorded scorer family. A reconstructed replay cannot supply the original
+version. Conflicting original revisions receive an unknown-version display. If
+only the family is known, the display identifies it as unversioned. Legacy
+records with no original scorer or version information keep the historical
+display default.
 
 The CLOB capture loop is intentionally separate from the slower weather/model
 snapshot loop. The observation-trigger loop can request recomputation when

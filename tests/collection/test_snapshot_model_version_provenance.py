@@ -1,7 +1,10 @@
 import csv
+import json
+from types import SimpleNamespace
 
 import pytest
 
+import weather.collection.snapshot_store as snapshot_store
 from weather.collection.snapshot_store import MODEL_VERSION, SnapshotStore, snapshot_model_version
 from weather.reporting.validation.point_in_time_evaluation import canonicalize_raw_row
 
@@ -56,3 +59,53 @@ def test_known_family_resolves_replay_display_and_preserves_explicit_version():
     assert snapshot_model_version({**model, **result}) == "model version unrecorded (conflicting scorer families)"
     assert snapshot_model_version({}, replay_version="original-replay-version") == "original-replay-version"
     assert snapshot_model_version({}) == MODEL_VERSION
+
+
+OLD_HGB = "v0.4 HGBC feature-based ML model"
+NEW_HGB = "v0.5 HGBC feature-based ML model"
+UNVERSIONED_HGB = "HGBC feature-based ML model (version unrecorded)"
+
+
+@pytest.mark.parametrize(
+    ("kind", "replay_file", "source", "feature_version", "recorded_version", "top_version", "expected"),
+    [
+        ("hgb", "reconstructed", None, OLD_HGB, NEW_HGB, None, OLD_HGB),
+        ("hgb", "normal", "reconstructed", OLD_HGB, NEW_HGB, None, OLD_HGB),
+        ("hgb", "normal", None, OLD_HGB, NEW_HGB, None, "model version unrecorded (conflicting original versions)"),
+        ("hgb", "normal", None, OLD_HGB, OLD_HGB, None, OLD_HGB),
+        ("hgb", "normal", None, OLD_HGB, NEW_HGB, "explicit", "explicit"),
+        ("hgb", "reconstructed", None, None, NEW_HGB, None, UNVERSIONED_HGB),
+        ("hgb", "normal", None, None, OLD_HGB, None, OLD_HGB),
+        ("hgb", "normal", None, UNVERSIONED_HGB, OLD_HGB, None, OLD_HGB),
+        (None, "normal", None, None, "opaque-original", None, "opaque-original"),
+        (None, "reconstructed", None, None, "later-reconstruction", None, MODEL_VERSION),
+    ],
+)
+def test_explanation_backfill_distinguishes_original_versions_from_reconstruction(
+    tmp_path, monkeypatch, kind, replay_file, source, feature_version, recorded_version, top_version, expected
+):
+    store = object.__new__(SnapshotStore)
+    store._set_paths(tmp_path, "synthetic-event")
+    event = SimpleNamespace(target_date="2025-08-01", market_id="synthetic")
+    monkeypatch.setattr(snapshot_store, "config_from_event", lambda *args, **kwargs: event)
+    snapshot = {
+        "snapshot_id": "example",
+        "captured_at_utc": "2025-08-01T12:00:00+00:00",
+        "model_version": top_version,
+        "feature_vector": {"model_version": feature_version},
+        "distribution_components": {"active_model_kind": kind},
+        "model_explanation": {"summary": "synthetic"},
+    }
+    store.append_jsonl(store.jsonl_path, snapshot)
+    reconstructed = store.root / snapshot_store.REPLAY_RECONSTRUCTED_FILENAME
+    if replay_file == "normal":
+        # A reconstructed duplicate in a separate file cannot demote the original.
+        store.append_jsonl(reconstructed, {"snapshot_id": "example", "model_version": "ignored duplicate"})
+    path = store.replay_inputs_path if replay_file == "normal" else reconstructed
+    store.append_jsonl(path, {"snapshot_id": "example", "model_version": recorded_version, "source": source})
+
+    assert store.backfill_snapshot_explanations()["written_snapshot_count"] == 1
+    payload = json.loads(store.snapshot_explanations_jsonl_path.read_text(encoding="utf-8"))
+    assert payload["model_version"] == expected
+    with store.snapshot_explanations_long_path.open(encoding="utf-8", newline="") as handle:
+        assert {row["model_version"] for row in csv.DictReader(handle)} == {expected}

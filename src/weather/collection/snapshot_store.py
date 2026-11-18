@@ -580,7 +580,7 @@ SNAPSHOT_EXPLANATION_COLUMNS = [
 ]
 
 
-def snapshot_model_version(model, *, replay_version=None):
+def snapshot_model_version(model, *, replay_version=None, replay_reconstructed=False):
     """Choose a captured display label without assigning a current release to an older scorer."""
     if model.get("model_version"):
         return model["model_version"]
@@ -595,13 +595,28 @@ def snapshot_model_version(model, *, replay_version=None):
     kind = next(iter(kinds), None)
     feature = model.get("feature_vector")
     feature_version = feature.get("model_version") if isinstance(feature, dict) else None
-    for version in (replay_version, feature_version):
+    # The reconstruction writer can supply its own model version, including a
+    # later revision with the same scorer family as an original feature row.
+    originals = (feature_version,) if replay_reconstructed else (feature_version, replay_version)
+    candidates = set()
+    for version in originals:
         if isinstance(version, str) and version.strip():
-            # A reconstructed replay can carry the historical HGBC writer default.
             display = version.removesuffix(" (version unrecorded)")
             label_kind = next((k for k, label in _SCORER_DISPLAY_NAMES.items() if display.endswith(label)), None)
             if kind not in _SCORER_DISPLAY_NAMES or label_kind is None or label_kind == kind:
-                return version
+                candidates.add(version)
+    if len(candidates) > 1:
+        # An explicit revision can refine a family-only original of the same family.
+        for label in _SCORER_DISPLAY_NAMES.values():
+            if f"{label} (version unrecorded)" in candidates and all(
+                v.removesuffix(" (version unrecorded)").endswith(label) for v in candidates
+            ):
+                candidates.remove(f"{label} (version unrecorded)")
+                break
+    if len(candidates) > 1:
+        return "model version unrecorded (conflicting original versions)"
+    if candidates:
+        return candidates.pop()
     if kind in _SCORER_DISPLAY_NAMES:
         return f"{_SCORER_DISPLAY_NAMES[kind]} (version unrecorded)"
     return MODEL_VERSION
@@ -2647,7 +2662,7 @@ class SnapshotStore:
                     rows.append(payload)
         return rows
 
-    def replay_inputs_by_snapshot(self):
+    def replay_inputs_by_snapshot(self, *, reconstructed_ids=None):
         rows_by_snapshot = {
             row.get("snapshot_id"): row
             for row in self.read_jsonl(self.replay_inputs_path)
@@ -2658,6 +2673,8 @@ class SnapshotStore:
             snapshot_id = row.get("snapshot_id")
             if snapshot_id and snapshot_id not in rows_by_snapshot:
                 rows_by_snapshot[snapshot_id] = row
+                if reconstructed_ids is not None:
+                    reconstructed_ids.add(snapshot_id)
         return rows_by_snapshot
 
     def snapshot_band_bins(self, snapshot):
@@ -2836,7 +2853,8 @@ class SnapshotStore:
 
     def backfill_snapshot_explanations(self, *, limit=None):
         existing = self.existing_explanation_snapshot_ids()
-        replay_inputs = self.replay_inputs_by_snapshot()
+        reconstructed_ids = set()
+        replay_inputs = self.replay_inputs_by_snapshot(reconstructed_ids=reconstructed_ids)
         written = 0
         skipped_existing = 0
         skipped_missing_payload = 0
@@ -2875,7 +2893,13 @@ class SnapshotStore:
                 "distribution_components": snapshot.get("distribution_components") or {},
                 "probability_calibration_context": snapshot.get("probability_calibration_context") or {},
                 "feature_vector": snapshot.get("feature_vector") or {},
-                "model_version": snapshot_model_version(snapshot, replay_version=replay.get("model_version")),
+                "model_version": snapshot_model_version(
+                    snapshot,
+                    replay_version=replay.get("model_version"),
+                    replay_reconstructed=(
+                        snapshot_id in reconstructed_ids or str(replay.get("source") or "").lower() == "reconstructed"
+                    ),
+                ),
                 "model_explanation": snapshot.get("model_explanation") or {},
                 "analog_search": snapshot.get("analog_search") or {},
                 "boundary_transitions": snapshot.get("boundary_transitions") or {},
