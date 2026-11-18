@@ -7,10 +7,13 @@ import errno
 import hashlib
 import inspect
 import json
+import math
 import os
 import time
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
+from numbers import Number
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -573,6 +576,16 @@ SNAPSHOT_EXPLANATION_COLUMNS = [
     "payload_hash",
     "payload_json",
 ]
+
+
+def _finite_probability_operand(value):
+    if isinstance(value, bool) or not isinstance(value, (Number, str)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 class SnapshotStore:
@@ -2258,25 +2271,36 @@ class SnapshotStore:
         }
 
     def check_snapshot_probabilities(self, distribution, long_rows, model_client, calibration_context=None):
+        """Compare each listed band independently; persist an incomplete comparison as skipped."""
         checked = 0
         max_abs_diff = 0.0
         failures = []
+        unchecked = Counter()
         if not distribution:
             return {"status": "skipped", "rows_checked": 0, "reason": "empty distribution"}
         for row in long_rows:
-            stored = row.get("model_probability")
-            bin_data = self.row_bin_data(row)
-            if stored is None or bin_data is None:
+            stored = _finite_probability_operand(row.get("model_probability"))
+            if stored is None:
+                unchecked["missing_or_invalid_stored"] += 1
                 continue
-            recomputed = self.model_bin_probability(
+            try:
+                bin_data = self.row_bin_data(row)
+            except (TypeError, ValueError, OverflowError):
+                unchecked["invalid_bin"] += 1
+                continue
+            if bin_data is None:
+                unchecked["missing_bin"] += 1
+                continue
+            recomputed = _finite_probability_operand(self.model_bin_probability(
                 model_client,
                 distribution,
                 bin_data,
                 calibration_context=calibration_context or {},
-            )
-            diff = abs(float(stored) - float(recomputed))
-            checked += 1
-            max_abs_diff = max(max_abs_diff, diff)
+            ))
+            if recomputed is None:
+                unchecked["missing_or_invalid_recomputed"] += 1
+                continue
+            diff = abs(stored - recomputed)
             if diff > SNAPSHOT_PROBABILITY_TOLERANCE:
                 failures.append({
                     "range_label": row.get("range_label"),
@@ -2284,6 +2308,12 @@ class SnapshotStore:
                     "recomputed": recomputed,
                     "abs_diff": diff,
                 })
+            elif (min(stored, recomputed) < -SNAPSHOT_PROBABILITY_TOLERANCE
+                  or max(stored, recomputed) > 1 + SNAPSHOT_PROBABILITY_TOLERANCE):
+                unchecked["probability_out_of_range"] += 1
+            else:
+                checked += 1
+                max_abs_diff = max(max_abs_diff, diff)
         if failures:
             first = failures[0]
             raise ValueError(
@@ -2291,6 +2321,16 @@ class SnapshotStore:
                 f"{first['range_label']}: stored={first['stored']} "
                 f"recomputed={first['recomputed']} diff={first['abs_diff']}"
             )
+        if unchecked or not checked:
+            return {
+                "status": "skipped",
+                "rows_checked": checked,
+                "rows_unchecked": sum(unchecked.values()),
+                "unchecked_reasons": dict(unchecked),
+                "reason": "incomplete band comparison" if unchecked else "no band rows",
+                "max_abs_diff": max_abs_diff if checked else None,
+                "tolerance": SNAPSHOT_PROBABILITY_TOLERANCE,
+            }
         return {
             "status": "pass",
             "rows_checked": checked,

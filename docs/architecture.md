@@ -67,6 +67,12 @@ snapshot loop. The observation-trigger loop can request recomputation when
 low-cost live observations change. See the
 [operations topology](operations/OPERATIONS_DESIGN.md).
 
+Each snapshot records a per-band probability self-check. A pass means every
+listed band had usable stored and recomputed probabilities that agreed within
+the snapshot tolerance. An empty or incomplete comparison records `skipped`
+and preserves the snapshot. A finite mismatch above tolerance still stops the
+snapshot write. An event can list only part of the temperature distribution.
+
 The Streamlit Operator Control Room is a read-only projection of persisted
 reporting and operations evidence. `weather.reporting.market.operator_control_room`
 owns its exact-target-date reduction and fail-closed `HOLD` decision; the
