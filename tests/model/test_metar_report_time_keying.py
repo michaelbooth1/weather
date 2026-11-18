@@ -52,6 +52,69 @@ def metar_sources(data):
     return {"metar": {"ok": True, "data": data}}
 
 
+@pytest.mark.parametrize("second_minute", [10, 50])
+def test_station_current_fold_uses_latest_metar_observation_and_floor(second_minute):
+    model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+    later_utc = f"2026-11-01T06:{second_minute:02d}:00Z"
+    # The provider payload is reversed. The parser returns target-day rows
+    # ordered by their observation instants, before station current is derived.
+    records = [
+        awc_row(later_utc, "2026-11-01T07:00:00Z", 15, icao="KLGA"),
+        awc_row("2026-11-01T05:50:00Z", "2026-11-01T06:00:00Z", 10, icao="KLGA"),
+    ]
+    sources = metar_sources(model.parse_metar_payload(records))
+    station = model.derive_station_observations_source(sources)["data"]
+    assert station["latest"]["obs_time"] == later_utc
+    assert station["current_temp_native"] == 59
+    observed = model.effective_observed_high_context({}, {}, station, 7)
+    assert observed["effective_observed_floor_high"] == 59
+
+
+def test_station_current_fold_uses_swob_observation_offset():
+    model = TorontoHighTempModel(target_date="2026-11-01", market_id="toronto")
+    rows = [
+        {"local_time": "2026-11-01T01:50:00-04:00", "local_date": "2026-11-01", "air_temp_native": 8},
+        {"local_time": "2026-11-01T01:10:00-05:00", "local_date": "2026-11-01", "air_temp_native": 12},
+    ]
+    sources = {"eccc_swob": {"ok": True, "data": {"rows": rows}}}
+    station = model.derive_station_observation_data(sources)
+    assert station["source"] == "eccc_swob"
+    assert station["current_temp_native"] == 12
+
+
+@pytest.mark.parametrize("second_stamp", [
+    None, "bad", "2026-11-01T01:10:00", "2026-10-31T05:10:00Z", "2026-11-01T06:11:00Z",
+])
+def test_station_current_fold_preserves_clock_selection_for_incomplete_rows(second_stamp):
+    model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+    rows = [
+        {"time": "01:50", "obs_time": "2026-11-01T05:50:00Z", "temp_native": 50},
+        {"time": "01:10", "obs_time": second_stamp, "temp_native": 59},
+    ]
+    station = model.derive_station_observation_data(metar_sources({"rows": rows}))
+    assert station["current_temp_native"] == 50
+
+
+def test_station_current_fold_preserves_regular_day_first_equal_minute():
+    model = TorontoHighTempModel(target_date="2026-11-02", market_id="nyc")
+    rows = [
+        {"time": "01:50", "obs_time": "2026-11-02T06:50:01Z", "temp_native": 50},
+        {"time": "01:50", "obs_time": "2026-11-02T06:50:30Z", "temp_native": 59},
+    ]
+    assert model.derive_station_observation_data(metar_sources({"rows": rows}))["current_temp_native"] == 50
+
+
+def test_station_current_fold_keeps_captured_station_envelope():
+    model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+    rows = [
+        {"time": "01:50", "obs_time": "2026-11-01T05:50:00Z", "temp_native": 50},
+        {"time": "01:10", "obs_time": "2026-11-01T06:10:00Z", "temp_native": 59},
+    ]
+    sources = metar_sources({"rows": rows})
+    sources["station_observations"] = {"ok": True, "data": {"rows": rows, "current_temp_native": 50}}
+    assert model.station_observation_data(sources)["current_temp_native"] == 50
+
+
 def test_parser_contract_is_bumped_to_v4_and_recorded_on_fetch():
     assert SOURCE_PAYLOAD_CONTRACTS["metar"] == ("metar-parser-v4", "metar-payload-v1")
     model = TorontoHighTempModel(target_date="2026-08-29", market_id="miami")

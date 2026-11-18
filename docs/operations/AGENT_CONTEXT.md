@@ -59,6 +59,9 @@ generated reports for dynamic state.
   max-since-07:00 summary. This is the implemented hard floor for every stage. This
   exception never admits forecast, climatology, post-cutoff, unit-implausible,
   or missing evidence.
+  During the repeated local hour, newly derived METAR or SWOB station current
+  uses observation instants when every candidate's timestamp agrees with its
+  target date and printed minute. Incomplete timestamps retain clock ordering.
 - The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
   standing-high partial, late-day continuation) have a stricter anchor when WU
   is empty. Owner decision 2026-10-05, PR #191, `lockin-anchor-v3`:

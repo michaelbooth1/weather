@@ -26,7 +26,7 @@ from weather.io import (
     write_json_atomic,
 )
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
-from weather.time import provider_hourly_local_times
+from weather.time import parse_datetime, provider_hourly_local_times
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
@@ -398,13 +398,43 @@ class SourceFetchMixin:
             normalized.append(row)
         return normalized
 
+    def latest_station_observation(self, source, rows):
+        """Resolve the repeated hour when every row has a corroborating observation instant."""
+        latest, minute = self.latest_source_row(rows)
+        if latest is None:
+            return None
+        field = "obs_time" if source == "metar" else "local_time"
+        observed = parse_datetime(latest.get(field), default_tz=None)
+        if observed is None or observed.utcoffset() is None:
+            return latest
+        local = observed.astimezone(self.spec.tz)
+        # The clock winner can only be overtaken by a lower clock minute if
+        # it lies in the first occurrence of the fall-back hour.
+        if (local.date() != self.target_date or local.hour * 60 + local.minute != minute
+                or local.replace(fold=1).utcoffset() >= local.utcoffset()):
+            return latest
+        newest = latest
+        newest_utc = observed.astimezone(timezone.utc)
+        for row in rows:
+            stamp = parse_datetime(row.get(field), default_tz=None)
+            if stamp is None or stamp.utcoffset() is None:
+                return latest
+            row_local = stamp.astimezone(self.spec.tz)
+            if (row_local.date() != self.target_date
+                    or row_local.hour * 60 + row_local.minute != self.minute_of_day(row.get("time"))):
+                return latest
+            stamp_utc = stamp.astimezone(timezone.utc)
+            if stamp_utc > newest_utc and row_local.fold == 1:
+                newest, newest_utc = row, stamp_utc
+        return newest
+
     def derive_station_observation_data(self, sources):
         for source in self.station_observation_source_order():
             data = self.source_data(sources, source)
             if not data:
                 continue
             station_rows = self.station_feature_rows(source, data)
-            latest, _ = self.latest_source_row(station_rows)
+            latest = self.latest_station_observation(source, station_rows)
             latest = latest or data.get("latest") or data
             if source == "eccc_swob":
                 current = self.row_air_temp_native(latest)
