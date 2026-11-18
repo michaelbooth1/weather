@@ -68,6 +68,8 @@ generated reports for dynamic state.
   - METAR rows are keyed by observation time (AWC `obsTime`, or the raw
     `DDHHMMZ` group), never by AWC's nominal `reportTime`. So the D-1 23:5x
     report carried into D as a "00:00" row (the M0 defect) is excluded.
+    An invalid raw hour or minute leaves this time source unavailable. The
+    floor reader can still use the row's separate observation clock.
   - Once any late-day stage acts, no mass is left below the anchor bucket: it
     moves onto that bucket. Before lock-in (`lockin-anchor-v4`) the same move
     applies at the same-day METAR high bucket, because the pre-lock-in hard

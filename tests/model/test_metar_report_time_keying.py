@@ -14,6 +14,7 @@ Guards: metar-parser-v4 obsTime keying (M0, docs/operations/AGENT_CONTEXT.md; PR
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -295,3 +296,29 @@ def test_snapshot_writer_records_v4_and_retained_raw_reparses_to_the_same_rows(t
     replay_model = TorontoHighTempModel(target_date="2026-08-29", market_id="miami")
     assert replay_model.parse_metar_payload(retained) == data["rows"]
     assert [row["time"] for row in data["rows"]] == ["23:53"]
+
+
+@pytest.mark.parametrize("clock", ["292400Z", "291260Z"])
+def test_malformed_raw_clock_preserves_the_recorded_observation_fallback(clock):
+    from weather.model.feature_store import row_temp_native
+    from weather.model.model_distribution import DistributionMixin
+    from weather.model.observed_running_max import running_max_since_midnight
+
+    target = datetime(2026, 8, 29, 12, tzinfo=timezone.utc)
+
+    class FloorModel(DistributionMixin):
+        spec = SimpleNamespace(tz=timezone.utc, display_unit="F")
+        target_date = target.date()
+
+    model = FloorModel()
+    model.row_temp_native = row_temp_native
+    raw = f"METAR KZZZ {clock} 20/15"
+    row = {"raw": raw, "temp_native": 68, "report_time": target.isoformat(),
+           "obs_time": "2026-08-29T11:51:00+00:00"}
+    metar = {"rows": [row]}
+    assert model.metar_observation_local_time(row) is None
+    assert model.lockin_observed_rows(metar=metar, now=target)[0] == [(711, "11:51", 68)]
+    assert running_max_since_midnight({}, metar, target_date=target.date(), tz=timezone.utc,
+                                      unit="F", cutoff_hour=12, now=target) == (68, 711)
+    # A separately clocked AWC observation remains the primary time source.
+    assert model.metar_observation_local_time(row, {raw: target.timestamp()}) == target

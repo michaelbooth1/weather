@@ -68,6 +68,8 @@ def metar_observation_local_time(row, tz, raw_obs_times=None):
         return None
     report_utc = report_dt.astimezone(timezone.utc)
     day, hour, minute = (int(part) for part in match.groups())
+    if hour > 23 or minute > 59:
+        return None
     for offset in (0, -1, -2, 1):
         candidate = report_utc + timedelta(days=offset)
         if candidate.day == day:
