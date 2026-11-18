@@ -95,6 +95,10 @@ generated reports for dynamic state.
   are kept as before. Rows captured under `metar-parser-v3` are not rewritten;
   their raw payloads retain `obsTime` for an explicit v4 re-derivation.
 
+A cached source may be reused or substituted after a fetch failure only when its
+recorded fetch is at or before the read clock and within its source TTL. Dashboard
+age remains nonnegative; only the signed elapsed time establishes eligibility.
+
 Paid weather data is allowed only per source with explicit owner approval
 recorded in DECISION_LOG (owner 2026-10-23). Never commit credentials, and add
 no environment variables, operator commands, or roadmap dependencies for an

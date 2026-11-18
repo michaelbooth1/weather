@@ -26,7 +26,7 @@ from weather.io import (
     write_json_atomic,
 )
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
-from weather.time import provider_hourly_local_times
+from weather.time import age_minutes, provider_hourly_local_times
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
@@ -209,6 +209,10 @@ def percentile(values, q):
     hi = min(lo + 1, len(values) - 1)
     frac = pos - lo
     return values[lo] * (1.0 - frac) + values[hi] * frac
+
+
+def _signed_cache_age_minutes(fetched_at, local_zone):
+    return age_minutes(datetime.now(timezone.utc), fetched_at, default_tz=local_zone)
 
 
 class SourceFetchMixin:
@@ -556,8 +560,8 @@ class SourceFetchMixin:
         cached_item = self.load_last_good_sources().get(name)
         if not cached_item or cached_item.get("target_date") != self.target_date.isoformat():
             return None
-        cache_age_minutes = self.cache_age_minutes(cached_item.get("fetched_at"))
-        if cache_age_minutes is None or cache_age_minutes > max_age_minutes:
+        cache_age_minutes = _signed_cache_age_minutes(cached_item.get("fetched_at"), self.spec.tz)
+        if cache_age_minutes is None or not 0 <= cache_age_minutes <= max_age_minutes:
             return None
         return {
             "data": cached_item.get("data") or {},
@@ -973,10 +977,13 @@ class SourceFetchMixin:
                 failure_status = self.source_failure_status(item)
                 ttl_minutes = self.source_cache_ttl_minutes(name)
                 cached_item = cache.get(name)
-                cache_age_minutes = self.cache_age_minutes(cached_item.get("fetched_at")) if cached_item else None
+                cache_age_minutes = (
+                    _signed_cache_age_minutes(cached_item.get("fetched_at"), self.spec.tz)
+                    if cached_item else None
+                )
                 cache_is_recent = (
                     cache_age_minutes is not None
-                    and cache_age_minutes <= ttl_minutes
+                    and 0 <= cache_age_minutes <= ttl_minutes
                 )
                 if failure_status in {
                     "expected_current_day_unavailable",
@@ -1044,10 +1051,12 @@ class SourceFetchMixin:
                     if restore_error:
                         stale_detail = f" {restore_error}."
                     elif cached_item and cached_item.get("target_date") == self.target_date.isoformat():
-                        stale_detail = (
-                            f" Last good cache is {cache_age_minutes:.0f} minutes old (TTL {ttl_minutes} min)."
-                            if cache_age_minutes is not None else " Last good cache age is unknown."
-                        )
+                        if cache_age_minutes is None:
+                            stale_detail = " Last good cache age is unknown."
+                        elif cache_age_minutes < 0:
+                            stale_detail = " Last good fetch time is in the future."
+                        else:
+                            stale_detail = f" Last good cache is {cache_age_minutes:.0f} minutes old (TTL {ttl_minutes} min)."
                     status = (
                         failure_status
                         if failure_status in {"rate_limited", "settlement_source_auth_failure"}
@@ -1077,18 +1086,9 @@ class SourceFetchMixin:
         return blended
 
     def cache_age_minutes(self, fetched_at):
-        if not fetched_at:
-            return None
-        try:
-            parsed = datetime.fromisoformat(str(fetched_at))
-        except ValueError:
-            return None
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=self.spec.tz)
-        # Elapsed time between UTC instants: subtracting two datetimes that share
-        # ``spec.tz`` is wall-clock arithmetic and is off by the DST shift (DST-M2).
-        elapsed = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
-        return max(0.0, elapsed.total_seconds() / 60.0)
+        """Nonnegative display age; reuse decisions use the signed elapsed time."""
+        elapsed = _signed_cache_age_minutes(fetched_at, self.spec.tz)
+        return max(0.0, elapsed) if elapsed is not None else None
 
     def source_cache_ttl_minutes(self, name):
         """Per-source last-good cache TTL in minutes (item 17). Observation /

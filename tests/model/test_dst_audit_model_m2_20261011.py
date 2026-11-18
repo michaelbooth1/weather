@@ -204,3 +204,27 @@ def test_wu_history_ttl_decision_in_blend_with_last_good(monkeypatch, tmp_path, 
         assert output["status"] == "stale_cache"
         assert output["cache_status"] == "fallback"
         assert output["cache_age_minutes"] == pytest.approx(served_age)
+
+
+@pytest.mark.parametrize("offset_minutes,eligible", [(-21, False), (-20, True), (0, True), (5, False), (240, False)])
+def test_reusable_source_requires_fetch_at_or_before_now(monkeypatch, offset_minutes, eligible):
+    now = datetime(2026, 7, 15, 12, 0, tzinfo=TORONTO)
+    _freeze(monkeypatch, now)
+    fetched = now + timedelta(minutes=offset_minutes)
+    cached = {"open_meteo": {"target_date": now.date().isoformat(),
+                             "fetched_at": fetched.isoformat(), "data": {"value": 1}}}
+    client = SimpleNamespace(spec=SimpleNamespace(tz=TORONTO), target_date=now.date(),
+                             load_last_good_sources=lambda: cached)
+    result = model_sources.SourceFetchMixin.cached_source_for_reuse(client, "open_meteo", 20)
+    assert (result is not None) == eligible
+    if eligible:
+        assert result["cache_age_minutes"] == -offset_minutes
+
+
+def test_failed_source_rejects_last_good_from_future(monkeypatch, tmp_path):
+    now = datetime(2026, 7, 15, 12, 0, tzinfo=TORONTO)
+    output = _blend_wu_history(monkeypatch, tmp_path, now + timedelta(minutes=5), now)
+    assert output["ok"] is False
+    assert output["cache_status"] == "miss"
+    assert "cache_age_minutes" not in output
+    assert "future" in output["error"]
