@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -104,6 +105,22 @@ def state_lock(root: Path):
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
+def reserve_snapshot_directory(root: Path, output: Path) -> Path:
+    """Reserve the canonical destination under the state lock, before any final look."""
+    destination = output.resolve()
+    require(destination != root and destination.is_relative_to(root), "output_scope")
+    parts = destination.relative_to(root).parts
+    # The next accrual reads this same spelling with pack.safe_file.
+    require(all(":" not in part and "\\" not in part for part in parts), "output_path")
+    require(parts[0].rstrip(" .").casefold() not in {
+        "head.json", "head.pending", "look_consumed", "snapshot.lock",
+    }, "output_state_file")
+    if os.path.lexists(output):
+        raise FileExistsError("output_exists")
+    destination.mkdir(parents=True, exist_ok=False)
+    return destination
+
+
 def accrue(manifest_path: Path, freeze_path: Path, freeze_sha: str, key_path: Path,
            output: Path, *, now: datetime, previous_path: Path | None = None,
            look: bool = False, family_path: Path | None = None) -> dict:
@@ -113,8 +130,7 @@ def accrue(manifest_path: Path, freeze_path: Path, freeze_sha: str, key_path: Pa
     require(now >= LOOK if look else now < LOOK, "look_clock")
     key = read_public_key(key_path)
     require(digest(canonical(key)) == freeze["public_key_sha256"], "seal_key_binding")
-    root = Path(freeze["state_root"])
-    require(output.resolve().is_relative_to(root.resolve()) and output.resolve() != root.resolve(), "output_scope")
+    root = Path(freeze["state_root"]).resolve()
     with state_lock(root):
         head = root / "HEAD.json"
         previous = json_bytes(bounded_bytes(head, 4 * 1024 * 1024)) if head.exists() else None
@@ -130,6 +146,10 @@ def accrue(manifest_path: Path, freeze_path: Path, freeze_sha: str, key_path: Pa
             require(family_path is not None, "family_file")
             require(family_path.is_file() and manifest_path.is_file(), "look_files_missing")
             require(family_path.stat().st_size <= 64*1024, "family_bytes")
+            if os.path.lexists(root / "LOOK_CONSUMED"):
+                raise FileExistsError("look_consumed")
+        output = reserve_snapshot_directory(root, output)
+        if look:
             # Consume exactly once, before the final manifest or economic data.
             create_exclusive(root / "LOOK_CONSUMED", canonical({"freeze_sha256": freeze_sha, "look_utc": iso(now)}))
         return process_snapshot(manifest_path, freeze, freeze_sha, key, output, now=now,
@@ -176,19 +196,19 @@ def process_snapshot(manifest_path: Path, freeze: dict, freeze_sha: str, key: di
                       replay_sha256=result["replay_sha256"])
     ciphertext, seal_receipt = seal_payload({"ledger": result, "input_receipt": loaded["receipt"],
                                           "freeze_sha256": freeze_sha}, key)
+    root = Path(freeze["state_root"]).resolve()
     receipt = dict(loaded["receipt"], schema_version="low_ask_receipt_v1", freeze_sha256=freeze_sha, seal=seal_receipt,
-                   snapshot=output.relative_to(Path(freeze["state_root"])).as_posix(),
+                   snapshot=output.relative_to(root).as_posix(),
                    previous_receipt_sha256=manifest["previous_receipt_sha256"],
                    integrity_defect_count=sum(not r["ok"] for r in loaded["rows"]["integrity"]))
     # No fill counts, selected bands, skip reasons, prices or economic digest.
-    output.mkdir(parents=True, exist_ok=False)
     create_exclusive(output / "ledger.sealed", ciphertext)
     create_exclusive(output / "receipt.json", canonical(receipt))
     if report is not None:
         create_exclusive(output / "final_report.json", canonical(report))
-    root = Path(freeze["state_root"])
-    temporary = root / "HEAD.pending"
-    with temporary.open("wb") as handle:
+    # Keep the replacement on HEAD's volume and leave any older staging file intact.
+    with tempfile.NamedTemporaryFile(dir=root, prefix="HEAD.", suffix=".pending", delete=False) as handle:
+        temporary = Path(handle.name)
         handle.write(canonical(receipt))
         handle.flush()
         os.fsync(handle.fileno())

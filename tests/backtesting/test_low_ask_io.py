@@ -260,6 +260,64 @@ def test_final_look_time_gate_consumed_once_even_on_failure(tmp_path, monkeypatc
         runner.accrue(*args, now=LOOK, look=True, family_path=tmp_path / "family.json")
 
 
+@pytest.fixture
+def snapshot_destination_case(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    manifest_path, manifest = write_pack(tmp_path / "pack")
+    key = {"n_hex": "synthetic-public-only", "e": 65537}
+    freeze = synthetic_freeze(manifest)
+    freeze.update(state_root=str(state), public_key_sha256=digest(canonical(key)))
+    freeze_path = tmp_path / "freeze.json"
+    freeze_path.write_bytes(canonical(freeze))
+    monkeypatch.setattr(runner, "read_public_key", lambda _: key)
+    ciphertext = b"synthetic-cipher"
+    monkeypatch.setattr(runner, "seal_payload", lambda *_: (ciphertext, {"ciphertext_sha256": digest(ciphertext)}))
+    if os.name != "nt":
+        from contextlib import nullcontext
+        monkeypatch.setattr(runner, "state_lock", lambda _: nullcontext())
+    return state, (manifest_path, freeze_path, digest(canonical(freeze)), tmp_path / "public.json")
+
+
+@pytest.mark.parametrize("name", ["occupied", "ordinary-file/child", "HEAD.pending", "HEAD.json/child",
+                                  "LOOK_CONSUMED/child", "snapshot.lock/child", "../outside"])
+def test_snapshot_destination_refuses_before_look(snapshot_destination_case, tmp_path, monkeypatch, name):
+    state, arguments = snapshot_destination_case
+    (state / "occupied").mkdir()
+    (state / "ordinary-file").write_bytes(b"existing")
+    family = tmp_path / "family.json"
+    family.write_bytes(b"{}")
+    monkeypatch.setattr(runner, "process_snapshot", lambda *_args, **_kwargs: pytest.fail("final input was opened"))
+    with pytest.raises((Refusal, OSError)):
+        runner.accrue(*arguments, state / name, now=LOOK, look=True, family_path=family)
+    assert not (state / "LOOK_CONSUMED").exists()
+    assert not (state / "HEAD.json").exists()
+    assert not (tmp_path / "outside").exists()
+    assert (state / "ordinary-file").read_bytes() == b"existing"
+    assert list((state / "occupied").iterdir()) == []
+
+
+@pytest.mark.parametrize("relative", [True, False], ids=["relative-cli", "absolute-with-parent"])
+def test_snapshot_destination_canonical_receipt_continues(snapshot_destination_case, monkeypatch, relative):
+    state, arguments = snapshot_destination_case
+    monkeypatch.chdir(state)
+    (state / "alias").mkdir()
+    # An orphaned legacy staging file from a prior interruption is never overwritten.
+    (state / "HEAD.pending").write_bytes(b"old staging bytes")
+    now = datetime(2026, 11, 25, 15, tzinfo=UTC)
+    output = Path("alias") / ".." / "nested" / "first"
+    receipt = runner.accrue(*arguments, output if relative else state / output, now=now)
+    assert receipt["snapshot"] == "nested/first"
+    manifest_path = arguments[0]
+    manifest = json_bytes(manifest_path.read_bytes())
+    manifest.update(previous_receipt_sha256=digest(canonical(receipt)), as_of_utc="2026-11-25T13:00:00Z")
+    manifest_path.write_bytes(canonical(manifest))
+    next_receipt = runner.accrue(*arguments, state / "next", now=now)
+    assert next_receipt["previous_receipt_sha256"] == digest(canonical(receipt))
+    assert json_bytes((state / "HEAD.json").read_bytes()) == next_receipt
+    assert (state / "HEAD.pending").read_bytes() == b"old staging bytes"
+
+
 def test_final_report_releases_account_summary_only_at_consumed_look(tmp_path, monkeypatch):
     from weather.backtesting.low_ask import inference
     path, manifest = write_pack(tmp_path / "pack", as_of="2027-02-09T23:00:00Z")
