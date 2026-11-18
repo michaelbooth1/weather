@@ -1258,7 +1258,7 @@ def build_historical_feature_record(
     current_temp = row_temp_native(current_obs)
     if current_temp is None and strict:
         return None
-    temp_7am = closest_temperature_native(rows, 420, 60)
+    temp_7am = closest_temperature_native(obs_before, 420, 60)
     if temp_7am is None and strict:
         return None
     rise_from_7am = (

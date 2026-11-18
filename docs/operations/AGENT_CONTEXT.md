@@ -83,7 +83,9 @@ generated reports for dynamic state.
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
   turn a non-resolution source into a hard floor.
 - Intraday features align to the effective WU printed cutoff. Wall-clock time
-  can advance before WU history prints a row. Any station rescue used as a
+  can advance before WU history prints a row. For `rise_from_7am`, both
+  training and serving select the nearest available reading within one hour
+  of 07:00 local from the printed-cutoff prefix. Any station rescue used as a
   floor must be captured by the build and must not use an observation after
   the model-emission time.
 - Station observation rows are keyed on the observation instant and its
