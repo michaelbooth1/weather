@@ -1292,8 +1292,11 @@ class DistributionMixin(DistributionSignalMixin):
         station_source = station.get("station_observation_source") or station.get("source")
         if station_source not in (None, "metar") or not row_sets[0]:
             row_sets.append(station.get("rows") or [])
-        now_minute = now.hour * 60 + now.minute if now is not None else None
-        now_local = now.astimezone(tz) if now is not None and now.tzinfo else None
+        local_now = now.astimezone(tz) if now is not None and now.tzinfo else now
+        now_minute = local_now.hour * 60 + local_now.minute if local_now is not None else None
+        now_utc = now.astimezone(timezone.utc) if now is not None and now.tzinfo else None
+        local_day = target or (local_now.date() if local_now is not None else None)
+        midnight = datetime.combine(local_day, datetime.min.time(), tzinfo=tz) if local_day else None
         rows = []
         excluded = 0
         for source_rows in row_sets:
@@ -1308,7 +1311,7 @@ class DistributionMixin(DistributionSignalMixin):
                     if target is not None and observed.date() != target:
                         excluded += 1
                         continue
-                    if now_local is not None and observed > now_local:
+                    if now_utc is not None and observed.astimezone(timezone.utc) > now_utc:
                         continue
                     minute = observed.hour * 60 + observed.minute
                 else:
@@ -1317,9 +1320,17 @@ class DistributionMixin(DistributionSignalMixin):
                         continue
                     if now_minute is not None and minute > now_minute:
                         continue
-                rows.append((minute, "%02d:%02d" % divmod(minute, 60), value))
+                    # A clock-only capture cannot identify the repeated hour. Use
+                    # its first occurrence for ordering; retain its wall-minute cutoff.
+                    if midnight is not None:
+                        observed = midnight + timedelta(minutes=minute)
+                order = minute * 60
+                if observed is not None:
+                    start = midnight or observed.replace(hour=0, minute=0, second=0, microsecond=0, fold=0)
+                    order = (observed.astimezone(timezone.utc) - start.astimezone(timezone.utc)).total_seconds()
+                rows.append((order, (minute, "%02d:%02d" % divmod(minute, 60), value)))
         rows.sort(key=lambda item: item[0])
-        return rows, excluded
+        return [row for _, row in rows], excluded
 
     def row_obs_time_local(self, row):
         """Local time of a row's own ``obs_time`` (ISO UTC), or None."""

@@ -27,6 +27,8 @@ move, SWOB as a hard floor, sentinel readings, raw-less D-1 rows).
 import math
 import random
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -698,3 +700,51 @@ def test_stored_row_without_raw_keyed_to_the_prior_day_is_excluded():
     *_, anchor = _stage_inputs(model, {"metar": metar}, _night(model, 2, 0))
     assert anchor["excluded_prior_day_rows"] == 1
     assert anchor["bucket"] == _oracle_bucket(22.0)
+
+
+@pytest.mark.parametrize("time_basis", ["obs_time", "awc_epoch", "report_group"])
+def test_lockin_fold_uses_observation_instant_for_cutoff_and_first_high(time_basis):
+    # The later 01:10 EST is still in the future at the first 01:55 EDT.
+    # It is present by the second 01:15 EST, when the earlier 01:50 EDT is
+    # also available and remains the first time the tied high was reached.
+    model = object.__new__(TorontoHighTempModel)
+    model.spec = SimpleNamespace(tz=ZoneInfo("America/New_York"), display_unit="F")
+    model.target_date = datetime(2026, 11, 1).date()
+    first = datetime.fromisoformat("2026-11-01T05:50:00+00:00")
+    second = datetime.fromisoformat("2026-11-01T06:10:00+00:00")
+    metar = {"rows": [], "raw_payload": []}
+    for instant in (second, first):  # deliberately reverse the physical order
+        item = awc_metar_item(instant, 10.0, "KLGA")
+        row = {"temp_native": 50.0}
+        if time_basis == "obs_time":
+            row["obs_time"] = instant.isoformat()
+        else:
+            row.update(raw=item["rawOb"], report_time=item["reportTime"])
+            if time_basis == "awc_epoch":
+                metar["raw_payload"].append(item)
+        metar["rows"].append(row)
+    early_now = datetime.fromisoformat("2026-11-01T05:55:00+00:00")
+    late_now = datetime.fromisoformat("2026-11-01T06:15:00+00:00")
+    early, _ = model.lockin_observed_rows(metar=metar, now=early_now)
+    late, _ = model.lockin_observed_rows(metar=metar, now=late_now)
+    assert [t for _, t, _ in early] == ["01:50"]
+    assert [t for _, t, _ in late] == ["01:50", "01:10"]
+    anchor = model.late_day_lockin_anchor(
+        history={}, history_max=None, guidance_floor=None, metar=metar, now=late_now,
+    )
+    assert anchor["first_reached_time"] == "01:50"
+    assert anchor["metar_bucket"] == 50
+
+
+def test_lockin_fold_clock_only_rows_keep_local_cutoff():
+    model = object.__new__(TorontoHighTempModel)
+    model.spec = SimpleNamespace(tz=ZoneInfo("America/New_York"), display_unit="F")
+    model.target_date = datetime(2026, 11, 1).date()
+    metar = {"rows": [
+        {"time": "01:10", "temp_native": 40},
+        {"time": "01:20", "temp_native": 51},
+        {"obs_time": "2026-11-01T06:05:00Z", "temp_native": 46},
+    ]}
+    captured = datetime.fromisoformat("2026-11-01T06:15:00+00:00")
+    rows, _ = model.lockin_observed_rows(metar=metar, now=captured)
+    assert [(t, v) for _, t, v in rows] == [("01:10", 40), ("01:05", 46)]

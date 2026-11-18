@@ -79,6 +79,9 @@ generated reports for dynamic state.
     floor for these stages. This acceptance does not override the dated-rule
     support constraint; an inadmissible anchor cannot justify a hard zero.
   - With WU history present, the stages keep the WU high, unchanged.
+  - The flagship checks timestamped lock-in rows and orders first highs by absolute
+    observation time across a repeated local hour. A clock-only legacy row uses
+    the local-minute cutoff and the first occurrence for ordering.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
   turn a non-resolution source into a hard floor.
