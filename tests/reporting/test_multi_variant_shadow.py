@@ -2,12 +2,14 @@ import csv
 import json
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
     ATTRIBUTION_SCHEMA_VERSION,
     attribution_sidecar_rows,
     build_payload,
+    normalize_rows,
     read_prediction_rows,
     render_report,
     write_attribution_sidecar,
@@ -15,6 +17,7 @@ from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
     write_long_csv,
     write_report,
 )
+from weather.reporting.candidate_lifecycle import variant_evidence_growth
 
 
 def _row(variant_id, day, probability, current=0.50, market=0.50, outcome=1, **extra):
@@ -41,6 +44,48 @@ def _row(variant_id, day, probability, current=0.50, market=0.50, outcome=1, **e
 
 
 class TestMultiVariantShadow(unittest.TestCase):
+    def test_binary_outcome_preserves_required_field_and_validation_reasons(self):
+        valid = (0, 1, 0.0, 1.0, False, True, "0", "1.0", " 0e3 ", Decimal("1"))
+        invalid = (-0.5, 0.5, 0.9, -0.4, 1.49, 1.5, 2, "NaN", float("nan"), float("inf"),
+                   Decimal("sNaN"), "0.99999999999999999999", "1e-400", "_1", "void", "garbage", {})
+        missing = (None, "", " ", "-")
+        values = valid + invalid + missing
+        rows, errors = normalize_rows([
+            _row("test", "2001-01-01", 0.5, outcome=value) for value in values
+        ] + [{k: v for k, v in _row("test", "2001-01-01", 0.5).items() if k != "outcome"}])
+        self.assertEqual([row["outcome"] for row in rows], [0, 1, 0, 1, 0, 1, 0, 1, 0, 1])
+        self.assertEqual([e["row_number"] for e in errors],
+                         list(range(len(valid) + 1, len(values) + 2)))
+        self.assertEqual([e["errors"] for e in errors],
+                         [["outcome must be 0 or 1"]] * len(invalid)
+                         + [["missing required field: outcome"]] * (len(missing) + 1))
+
+    def test_binary_outcome_exclusions_reach_public_scores_and_evidence(self):
+        cases = [(0, .10), (1, .90), (.5, .95), (.9, .05), (-.4, .95), ("", .85)]
+        rows = [_row("test", f"2001-01-{i:02d}", p, outcome=outcome)
+                for i, (outcome, p) in enumerate(cases, 1)]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "predictions.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=rows[0])
+                writer.writeheader()
+                writer.writerows(rows)
+            exports = read_prediction_rows([path])
+        payload = build_payload(exports, use_variant_registry=False)
+        self.assertEqual(payload["status"], "ERROR")
+        self.assertEqual(payload["summary"]["raw_rows"], 6)
+        self.assertEqual(payload["summary"]["scored_rows"], 2)
+        self.assertEqual(payload["summary"]["settled_label_count"], 2)
+        variant, = payload["variants"]
+        self.assertEqual(variant["aggregate"]["n"], 2)
+        self.assertAlmostEqual(variant["aggregate"]["variant_brier"], .01)
+        self.assertEqual(variant["daily_first"]["n_days"], 2)
+        self.assertEqual(variant["aggregate"]["base_rate"], .5)
+        growth = variant_evidence_growth.build_payload(exports, shadow_markets=[])
+        self.assertEqual(growth["summary"]["settled_label_count"], 2)
+        self.assertEqual(growth["summary"]["market_day_count"], 2)
+        self.assertEqual(growth["validation_errors"], payload["validation_errors"])
+
     def test_build_payload_scores_daily_first_and_separates_tracks(self):
         rows = [
             _row("exact_catchup", "2026-06-11", 0.80, current=0.60, market=0.70, outcome=1),

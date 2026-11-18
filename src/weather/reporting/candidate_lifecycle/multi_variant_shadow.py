@@ -4,6 +4,8 @@ This module owns the common evidence layer for running several shadow model
 variants over the same settled rows. It does not serve a model and does not
 select a promotion candidate; it normalizes variant probabilities into a
 long-form table, scores paired deltas, and reports experiment-governance issues.
+Each scored row requires a settled binary outcome. Missing labels and supplied
+nonbinary values have distinct validation errors and are excluded from evidence.
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ import json
 import math
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+from numbers import Real
 from pathlib import Path
 
 from weather.paths import data_path
@@ -234,6 +238,22 @@ def clamp_probability(value):
     return max(0.0, min(1.0, value))
 
 
+def _binary_outcome(value):
+    """Preserve the exact value of numeric text in prediction exports."""
+    if isinstance(value, str):
+        if "_" in value:
+            return None
+        try:
+            value = Decimal(value)
+        except InvalidOperation:
+            return None
+    if isinstance(value, Decimal) and not value.is_finite():
+        return None
+    if isinstance(value, (Real, Decimal)) and value in (0, 1):
+        return int(value)
+    return None
+
+
 def parse_bool(value, default=False):
     if isinstance(value, bool):
         return value
@@ -293,17 +313,17 @@ def normalize_row(raw, row_number=None):
     out["recorded_probability"] = clamp_probability(out["recorded_probability"])
     out["market_yes"] = clamp_probability(out["market_yes"])
 
-    outcome = maybe_float(_first_value(raw, "outcome"))
-    if outcome is None:
-        out["outcome"] = None
-    else:
-        out["outcome"] = int(round(outcome))
-        if out["outcome"] not in {0, 1}:
-            errors.append("outcome must be 0 or 1")
+    outcome = _first_value(raw, "outcome")
+    if isinstance(outcome, str):
+        outcome = outcome.strip()
+    out["outcome"] = _binary_outcome(outcome)
 
     for field in REQUIRED_FIELDS:
         if out.get(field) in (None, ""):
-            errors.append(f"missing required field: {field}")
+            if field == "outcome" and outcome not in (None, "", "-"):
+                errors.append("outcome must be 0 or 1")
+            else:
+                errors.append(f"missing required field: {field}")
 
     if row_number is not None:
         out["_row_number"] = row_number
