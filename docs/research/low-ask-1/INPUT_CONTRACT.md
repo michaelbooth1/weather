@@ -248,7 +248,7 @@ The `calibration` object has exact fields `status receipt_sha256 critical_value
 power_lower first_date last_date date_count inference_sha256`. Endpoints and
 count must match this N68 restart and the inference hash must match the pinned
 code map. N75 receipts cannot certify it. CALIBRATED additionally needs its
-size/power receipt, critical value and power lower >=.80. A SCREEN_ONLY freeze
+size/power receipt, critical value and a power lower bound in [.80, 1]. A SCREEN_ONLY freeze
 requires an explicit dated master disposition SHA256 in restart_authority;
 without that, do not freeze. SCREEN_ONLY can never PASS and exports p=1 to
 the final family. A NOT_RUN candidate is not a valid freeze object.
@@ -265,8 +265,13 @@ fixed padded ledger payload. The public `low_ask_receipt_v1` has file hashes/lin
 row/defect counts and ciphertext hash only; economic state, selected bands,
 skip reasons, fills and deterministic economic digest are encrypted. The seal
 uses a trial-specific OAEP label and random padding; plaintext length is inside.
-It also records the neutral `snapshot` path below the frozen root; the next
-invocation verifies this prior sealed artifact's digest before continuing.
+It also records the canonical `snapshot` path relative to the frozen root.
+The next invocation verifies the prior sealed artifact's digest before
+continuing. Under the state lock, the runner reserves a fresh destination
+inside that root before creating `LOOK_CONSUMED`. Existing destinations,
+unusable parents and reserved state paths refuse at reservation. Once the
+runner creates the marker, it keeps it through any later failure. HEAD is
+replaced atomically from a fresh same-volume staging file.
 No tracebacks or input values are printed on refusal. Failed snapshots leave no
 plaintext file and never overwrite prior evidence.
 

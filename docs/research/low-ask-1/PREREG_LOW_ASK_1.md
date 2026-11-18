@@ -151,10 +151,15 @@ decrypt even its own restart output; it replays cumulative immutable inputs.
 No post-look selective top-up or second deciding look after favourable finality.
 Any public venue correction later is evidence correction only.
 
-At the look unknown/doubtful payouts are zero for the PASS lower bound. For
-decision-dependence checks also bound unknowns above by $1/share. If the
-conclusion depends on them, DESCRIBE. Capture/fairness/power failures are
-DESCRIBE, never an economic strategy KILL disguised as a fidelity result.
+At the look, keep the recorded fills and cash chronology fixed. Bound each
+unresolved payout from $0 to $1 per share and use the resulting city-day
+profit ranges to bound the confidence limits and p-value across all legal
+assignments. The ranges also cover fractional payouts and may include
+combinations the venue cannot pay. Report an economic verdict only if it
+holds throughout these ranges. For a certified verdict, pass the upper
+p-value bound to Holm. If the verdict cannot be certified, report DESCRIBE
+and pass p=1 to Holm. Doubtful fills or failed capture, fairness, or power
+gates also yield DESCRIBE.
 
 ## Inference, calibration envelope and power gate
 

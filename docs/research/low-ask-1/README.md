@@ -63,9 +63,10 @@ adapters. The library functions return private economic state for synthetic test
 and the pinned process; they are not an agent-facing inspection API.
 
 At the single final look, append `--look --family-file <family.json>` to the
-same command. It refuses before the look time and consumes the fixed
-`state_root/LOOK_CONSUMED` marker before opening deciding inputs. Retain a
-failed look as spent. The family file is exactly `{claimants,pvalues}`:
+same command. After the look time arrives, it reserves the new snapshot
+directory, then creates `state_root/LOOK_CONSUMED` before opening deciding
+inputs. A failure after marker creation spends the look. The family file is
+exactly `{claimants,pvalues}`:
 the frozen full claimant list, and the other claimants' final one-sided
 p-values. LOW-ASK-1's p-value is computed internally. A successful look writes
 `final_report.json` alongside the seal; never run `--look` as a rehearsal on
