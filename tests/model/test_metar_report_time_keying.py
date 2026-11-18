@@ -12,14 +12,17 @@ Guards: metar-parser-v4 obsTime keying (M0, docs/operations/AGENT_CONTEXT.md; PR
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from weather.model.model_sources import SOURCE_PAYLOAD_CONTRACTS
 from weather.model.source_adapters import fetch_source
 from weather.model.toronto_model import TorontoHighTempModel
+from weather.units import c_to_native
 
 
 def _epoch(iso_utc):
@@ -52,17 +55,30 @@ def metar_sources(data):
     return {"metar": {"ok": True, "data": data}}
 
 
+def station_fold_model(*, day=1, unit="F"):
+    model = object.__new__(TorontoHighTempModel)
+    model.market_id = "synthetic-station-fold"
+    model.target_date = date(2026, 11, day)
+    model.high_so_far_shadow_variant = None
+    model.spec = SimpleNamespace(
+        id=model.market_id, icao="KZZZ" if unit == "F" else "CZZZ", tz=ZoneInfo("EST5EDT"),
+        display_unit=unit, sources=("metar",) if unit == "F" else ("eccc_swob",),
+        c_to_native=lambda value: c_to_native(value, unit),
+    )
+    return model
+
+
 @pytest.mark.parametrize("second_minute", [10, 50])
 def test_station_current_fold_uses_latest_metar_observation_and_floor(second_minute):
-    model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+    model = station_fold_model()
     later_utc = f"2026-11-01T06:{second_minute:02d}:00Z"
     # The provider payload is reversed. The parser returns target-day rows
     # ordered by their observation instants, before station current is derived.
     records = [
-        awc_row(later_utc, "2026-11-01T07:00:00Z", 15, icao="KLGA"),
-        awc_row("2026-11-01T05:50:00Z", "2026-11-01T06:00:00Z", 10, icao="KLGA"),
+        awc_row(later_utc, "2026-11-01T07:00:00Z", 15, icao=model.spec.icao),
+        awc_row("2026-11-01T05:50:00Z", "2026-11-01T06:00:00Z", 10, icao=model.spec.icao),
     ]
-    sources = metar_sources(model.parse_metar_payload(records))
+    sources = metar_sources(model.metar_data_from_payload(records))
     station = model.derive_station_observations_source(sources)["data"]
     assert station["latest"]["obs_time"] == later_utc
     assert station["current_temp_native"] == 59
@@ -71,7 +87,7 @@ def test_station_current_fold_uses_latest_metar_observation_and_floor(second_min
 
 
 def test_station_current_fold_uses_swob_observation_offset():
-    model = TorontoHighTempModel(target_date="2026-11-01", market_id="toronto")
+    model = station_fold_model(unit="C")
     rows = [
         {"local_time": "2026-11-01T01:50:00-04:00", "local_date": "2026-11-01", "air_temp_native": 8},
         {"local_time": "2026-11-01T01:10:00-05:00", "local_date": "2026-11-01", "air_temp_native": 12},
@@ -86,7 +102,7 @@ def test_station_current_fold_uses_swob_observation_offset():
     None, "bad", "2026-11-01T01:10:00", "2026-10-31T05:10:00Z", "2026-11-01T06:11:00Z",
 ])
 def test_station_current_fold_preserves_clock_selection_for_incomplete_rows(second_stamp):
-    model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+    model = station_fold_model()
     rows = [
         {"time": "01:50", "obs_time": "2026-11-01T05:50:00Z", "temp_native": 50},
         {"time": "01:10", "obs_time": second_stamp, "temp_native": 59},
@@ -96,7 +112,7 @@ def test_station_current_fold_preserves_clock_selection_for_incomplete_rows(seco
 
 
 def test_station_current_fold_preserves_regular_day_first_equal_minute():
-    model = TorontoHighTempModel(target_date="2026-11-02", market_id="nyc")
+    model = station_fold_model(day=2)
     rows = [
         {"time": "01:50", "obs_time": "2026-11-02T06:50:01Z", "temp_native": 50},
         {"time": "01:50", "obs_time": "2026-11-02T06:50:30Z", "temp_native": 59},
@@ -105,7 +121,7 @@ def test_station_current_fold_preserves_regular_day_first_equal_minute():
 
 
 def test_station_current_fold_keeps_captured_station_envelope():
-    model = TorontoHighTempModel(target_date="2026-11-01", market_id="nyc")
+    model = station_fold_model()
     rows = [
         {"time": "01:50", "obs_time": "2026-11-01T05:50:00Z", "temp_native": 50},
         {"time": "01:10", "obs_time": "2026-11-01T06:10:00Z", "temp_native": 59},
