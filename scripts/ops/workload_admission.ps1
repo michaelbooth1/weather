@@ -680,6 +680,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
+        # A095r1 offline measurement, exact workstation script.
+        @{
+            path = 'C:\t\codex\A095\r1_label_floor.py'
+            sha256 = '328466f2aff36ff61caa7f0fc265ca5b6d4af173b2f0c38e3093e7ee95b9a19a'
+        }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
