@@ -511,3 +511,25 @@ replaying later stages against the same captured inputs and event ladder.
 
 Update when the rule, cutover, station precedence, output columns, or a label
 consumer's wiring changes.
+
+### Cold evening probability diagnostic
+
+An already observed high can have rescued the flagship hard floor while the
+separate cold station anchor is absent. For an offline paired diagnostic call
+`weather.backtesting.cold_upper_shadow.evaluate_cold_upper_shadow` with the
+receipt-bound floor packet above, a separate captured input to
+`apply_late_day_lockin`, the dated venue spec and the serving market spec.
+Both stages must identify the same event, model, capture and as-of instant. The
+input to the upper operator supplies its own degree vector, effective WU state,
+incumbent anchor and strength, selected fresh current source, observation instant
+and native reading. The companion hard-floor vector supplies no upper-tail weights.
+
+Only a provisional same-day Fahrenheit high at the serving/venue station is
+eligible. Its typed running maximum must round to the incumbent hard bound. The
+latest visible routine reading must match the captured model current. Earlier
+and later observations, revisions and receipts retain their separate clocks.
+A missing source, WU print, existing strength, temperature outside the cold
+range, or unequal hard bound leaves the prior unchanged. The positive evening
+shaper tapers above-high weights and preserves every supported degree; preserve
+the named stage when scoring with the capture-time venue ladder. Its output
+is a stage diagnostic, subject to downstream recalibration and source revisions.
