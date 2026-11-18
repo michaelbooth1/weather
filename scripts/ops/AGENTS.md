@@ -150,7 +150,7 @@ propagate.
 
 Validate PowerShell syntax without executing scripts (a clean parse proves neither parameter binding nor that a script runs),
 run the focused Python tests, and update the operations design or owning runbook when a task contract changes. Prove a disable by
-`Settings.Enabled`; State stays `Running` while an instance runs (C2, 2026-10-22). Put `$Host.SetShouldExit(<code>)` right before
+`Settings.Enabled`; State stays `Running` while an instance runs. Put `$Host.SetShouldExit(<code>)` right before
 an `exit` in an advanced script's `finally` and first in an exiting `trap`, or Ctrl+C exits 0 ([development.md](../../docs/development.md)).
 Variable names are case-insensitive (a loop `$d` or `$p` silently overwrites a path `$D` or `$P`): before launching any new ops script, scan its AST for case-clashing variable names and run it once in its list-only or plan mode ([development.md](../../docs/development.md)).
 

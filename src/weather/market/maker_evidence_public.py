@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import requests
 
 from weather.market.maker_evidence_store import encoded
+from weather.market.gamma_http import gamma_request_headers
 from weather.market.reward_share_estimate import evaluate_sample, parse_levels
 
 GAMMA = "https://gamma-api.polymarket.com"
@@ -82,7 +83,9 @@ class PublicReader:
         self.count += 1
         timeout = min(self.timeout, remaining)
         try:
-            with self.session.request("POST" if body is not None else "GET", url, params=params,
+            headers = (gamma_request_headers(self.session.headers["User-Agent"])
+                       if parsed.netloc == "gamma-api.polymarket.com" else None)
+            with self.session.request("POST" if body is not None else "GET", url, params=params, headers=headers,
                                       json=body, timeout=timeout, stream=True, allow_redirects=False) as response:
                 chunks, total = [], 0
                 for chunk in response.iter_content(65536):
