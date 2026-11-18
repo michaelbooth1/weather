@@ -75,7 +75,7 @@ def validate_freeze(freeze: dict, expected_sha: str, now: datetime) -> None:
     if freeze["calibration"]["status"] == "CALIBRATED":
         sha(freeze["calibration"]["receipt_sha256"])
         require(number(freeze["calibration"]["critical_value"]) >= number("2.241402727604947")
-                and number(freeze["calibration"]["power_lower"]) >= number("0.80"), "calibration_gate")
+                and number("0.80") <= number(freeze["calibration"]["power_lower"]) <= 1, "calibration_gate")
 
 
 def create_exclusive(path: Path, data: bytes) -> None:

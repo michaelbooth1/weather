@@ -26,6 +26,7 @@ execution mask and F2 resource guards require the master's diff check before
 the seeded attempt. V1 evidence remains attached to its reviewed commit.
 Neither plan certifies N68. A new N68 plan/receipt or an explicit SCREEN_ONLY
 disposition is needed; the executable binds population and inference hash.
+The calibrated power lower bound must be a probability in [0.80, 1].
 The ask-.90 option has not been adopted into the paper policy.
 
 The unchanged 810 both-executable city-day and 68 adequate-date gates now

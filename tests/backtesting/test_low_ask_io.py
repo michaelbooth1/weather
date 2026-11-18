@@ -354,6 +354,27 @@ def test_freeze_refuses_more_than_four_claimants(tmp_path):
     freeze["claimants"] += ["third", "fourth", "fifth"]
     with pytest.raises(Refusal, match="claimants"):
         runner.validate_freeze(freeze, digest(canonical(freeze)), datetime(2026, 11, 25, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(("power", "valid"), [("0.80", True), ("1", True),
+                                              ("0.79999", False), ("1.00001", False), ("80", False)])
+def test_freeze_power_probability_precedes_consumed_look(tmp_path, power, valid):
+    _, manifest = write_pack(tmp_path / "synthetic-pack")
+    freeze = synthetic_freeze(manifest)
+    freeze["state_root"] = str(tmp_path / "state")
+    freeze["calibration"].update(status="CALIBRATED", receipt_sha256=H, critical_value="3", power_lower=power)
+    freeze_bytes = canonical(freeze)
+    if valid:
+        runner.validate_freeze(freeze, digest(freeze_bytes), LOOK)
+    else:
+        frozen = tmp_path / "freeze.json"
+        frozen.write_bytes(freeze_bytes)
+        with pytest.raises(Refusal, match="calibration_gate"):
+            runner.accrue(tmp_path / "absent-manifest", frozen, digest(freeze_bytes), tmp_path / "absent-key",
+                          tmp_path / "state" / "final", now=LOOK, look=True, family_path=tmp_path / "absent-family")
+        assert not (tmp_path / "state" / "LOOK_CONSUMED").exists()
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Native Windows CNG seal")
 def test_native_oaep_seal_roundtrip_randomness_and_fixed_length():
     # Ephemeral SYNTHETIC crypto key in RAM only. No account, credential or file.
