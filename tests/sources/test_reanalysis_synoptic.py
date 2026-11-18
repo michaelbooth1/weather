@@ -19,6 +19,7 @@ from weather.sources.reanalysis_synoptic import (
     load_reanalysis_synoptic_features,
     pressure_level_raw_path,
     render_pressure_level_cache_status_markdown,
+    summarize_feature_rows,
     write_feature_csv,
 )
 from weather.sources.reanalysis_history import DEFAULT_ROOT as REANALYSIS_DEFAULT_ROOT
@@ -214,6 +215,44 @@ class TestReanalysisSynoptic(unittest.TestCase):
         self.assertEqual(index["2025-06-02"]["reanalysis_sea_breeze_context_flag"], 1.0)
         self.assertEqual(index["2025-06-02"]["reanalysis_lake_breeze_context_flag"], 0.0)
         self.assertIsNone(index["2025-06-01"]["reanalysis_prev_day_max_temp"])
+
+    def test_loader_and_source_summary_agree_on_numeric_feature_cells(self):
+        temp = "reanalysis_prev_day_temperature_850hpa_c"
+        flag = "reanalysis_coastal_flag"
+        available = "reanalysis_synoptic_available"
+        cells = [
+            ("-7.5", "0", "1"), ("0", 1.0, 0.0), (float("inf"), "true", True),
+            ("-inf", 2, "sensor error"), (True, ".5", -1), ("1e999", False, "1e999"),
+            ("sensor error", None, None),
+        ]
+        rows = [{"local_date": f"2025-06-{i:02d}", temp: t, flag: f, available: a}
+                for i, (t, f, a) in enumerate(cells, 1)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "features.csv"
+            write_feature_csv(path, rows)
+            index = load_reanalysis_synoptic_features(path)
+        summary = summarize_feature_rows(NYC, rows)
+
+        self.assertEqual([index[r["local_date"]][temp] for r in rows], [-7.5, 0.0, None, None, None, None, None])
+        self.assertEqual([index[r["local_date"]][flag] for r in rows], [0.0, 1.0, None, None, None, None, None])
+        self.assertEqual([index[r["local_date"]][available] for r in rows], [1.0, 0.0, None, None, None, None, None])
+        self.assertEqual([summary["present_by_field"][col] for col in (temp, flag, available)], [2, 2, 2])
+        self.assertEqual(summary["available_rows"], 1)
+
+    def test_pressure_availability_requires_at_least_one_usable_measurement(self):
+        temp = "reanalysis_prev_day_temperature_850hpa_c"
+        height = "reanalysis_prev_day_geopotential_height_500hpa_m"
+        daily = [{"local_date": f"2025-06-{i:02d}", "max_temp": "82", "min_temp": "70"} for i in (1, 2, 3)]
+        rows = build_reanalysis_synoptic_rows(NYC, daily, pressure_level_daily_metrics={
+            date(2025, 6, 1): {temp: float("inf"), height: True},
+            date(2025, 6, 2): {temp: "-8.5", height: "sensor error"},
+        })
+        self.assertEqual(rows[1]["reanalysis_pressure_level_available"], 0.0)
+        self.assertIsNone(rows[1][temp])
+        self.assertIsNone(rows[1][height])
+        self.assertEqual(rows[2]["reanalysis_pressure_level_available"], 1.0)
+        self.assertEqual(rows[2][temp], -8.5)
+        self.assertIsNone(rows[2][height])
 
     def test_lagged_teleconnections_do_not_use_target_month(self):
         daily = [

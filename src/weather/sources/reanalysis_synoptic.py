@@ -4,6 +4,9 @@ The normalized historical hourly schema is shared by several sources, so the
 richer reanalysis-only signals live in this sidecar. Training and validation
 can opt into the sidecar; live serving defaults these features to missing until
 source-lag and parity gates explicitly promote them.
+
+Feature CSV values are finite numbers. Availability and indicator fields use
+numeric 0/1. The training reader and source summary use the same decoding rule.
 """
 from __future__ import annotations
 
@@ -209,7 +212,17 @@ def mean(values):
 
 
 def field_value(row, key):
-    return to_float((row or {}).get(key))
+    """Parse the numeric sidecar representation at both read and summary time."""
+    try:
+        # CSV serializes booleans as True/False, not as the numeric 0/1 flags.
+        value = float(str((row or {}).get(key)))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(value):
+        return None
+    if key.endswith(("_flag", "_available")) and value not in (0.0, 1.0):
+        return None
+    return value
 
 
 def month_end(year, month):
@@ -1147,7 +1160,7 @@ def build_reanalysis_synoptic_rows(
                 "reanalysis_prev_day_geopotential_height_500hpa_m",
                 "reanalysis_prev_day_thickness_1000_500hpa_m",
             ):
-                value = pressure_level_metrics.get(feature_key)
+                value = field_value(pressure_level_metrics, feature_key)
                 if value is not None:
                     features[feature_key] = value
                     pressure_level_present = True
@@ -1204,10 +1217,10 @@ def load_reanalysis_synoptic_features(path=None, spec=None, root=None):
 def summarize_feature_rows(spec, rows):
     rows = list(rows or [])
     present_by_field = {
-        column: sum(1 for row in rows if row.get(column) not in (None, ""))
+        column: sum(1 for row in rows if field_value(row, column) is not None)
         for column in REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
     }
-    available_rows = sum(1 for row in rows if to_float(row.get("reanalysis_synoptic_available")) == 1.0)
+    available_rows = sum(1 for row in rows if field_value(row, "reanalysis_synoptic_available") == 1.0)
     return {
         "schema_version": REANALYSIS_SYNOPTIC_SCHEMA_VERSION,
         "source": SOURCE,
