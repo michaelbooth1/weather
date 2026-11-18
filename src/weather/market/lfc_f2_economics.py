@@ -125,7 +125,10 @@ def publish_supplements(runtime):
         # supplement instead of retrying strict proof and re-latching that gap.
         if operational_binding(state, claim['attempt_id']) is not None:
             continue
-        result, result_sha, _ = state.retained_result(claim)
+        result, result_sha, local = state.retained_result(claim)
+        if (local.get('missing_terminal_orders') and
+                not (state.root / 'closed' / (claim['attempt_id'] + '.json')).exists()):
+            continue  # POSTCHECK must bind the actual GETs before supplementing.
         if not result['outcome'].get('f2_session'):
             continue
         facts = measured(ledger, sessions)

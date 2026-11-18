@@ -56,8 +56,18 @@ class ScopedVenue:
         self.coordinator.validate_account_orders(rows)
         return [row for row in rows if self.coordinator.order_session(row) == self.session_id]
 
-    def events(self):
+    def account_events(self):
         rows = self.raw.events()
+        for row in rows or ():
+            if row.get('event_type') == 'account_redemption_notice':
+                reason = 'account_redemption_notice'
+                self.coordinator.account_fault_reason = reason
+                self.coordinator.retain(reason, raw_event_sha256=row['raw_event_sha256'])
+                raise HoldEnd(reason)
+        return rows
+
+    def events(self):
+        rows = self.account_events()
         band = next(b for b in self.coordinator.bands if b.session_id == self.session_id)
         from weather.market.lfc_f2_breadth import enabled
         if enabled(self.coordinator.policy):
@@ -396,16 +406,32 @@ class F2Band(PilotSession):
         return result
 
     def terminal_order_read(self, oid, recover):
-        """Prove unresolved legs before the one-shot historical probes."""
+        """Prove unresolved legs first, with one shared in-band retry budget."""
         from weather.market.mm_account_reads import order_terminal
+        from weather.market.re1_resilience import transient
+
         def probe(order_id):
             self.progress()
             try:
-                return self.venue.order(order_id), None
+                row = self.venue.order(order_id)
             except Exception as exc:
-                return None, type(exc).__name__
+                return None, type(exc).__name__, transient(exc)
             finally:
                 self.progress()
+            if order_terminal(row, order_id=order_id, size=self.size):
+                return row, None, False
+            if isinstance(row, dict) and _order_id(row) == order_id and str(
+                    row.get('status', '')).upper() in {'LIVE', 'DELAYED', 'UNMATCHED'}:
+                return None, 'OrderNotTerminal', True  # Terminal propagation may lag.
+            return None, 'OrderBindingError', False
+
+        def wait(delay):
+            remaining = self._terminal_order_deadline - self.clock.monotonic()
+            if remaining <= 0:
+                return False
+            self.clock.sleep(min(delay, remaining))
+            return self.clock.monotonic() < self._terminal_order_deadline
+
         if self._terminal_order_deadline is None:
             self._terminal_order_deadline = self.clock.monotonic() + getattr(self, '_terminal_read_seconds', 10)
             unresolved = [order_id for order_id in self.known if self.ledger.legs.get(
@@ -414,26 +440,32 @@ class F2Band(PilotSession):
             # consumes the retry budget. Historical reads cannot spend it first.
             self._terminal_first_reads = {order_id: probe(order_id) for order_id in unresolved}
             pending = unresolved
+            delay, rounds = 1, 0
             while pending:
-                pending = [order_id for order_id in pending if
-                    self._terminal_first_reads[order_id][1] is not None or not order_terminal(
-                        self._terminal_first_reads[order_id][0], order_id=order_id, size=self.size)]
-                remaining = self._terminal_order_deadline - self.clock.monotonic()
-                if not pending or remaining <= 0:
-                    break
-                self.clock.sleep(min(1, remaining))
-                if self.clock.monotonic() >= self._terminal_order_deadline:
+                pending = [order_id for order_id in pending if self._terminal_first_reads[order_id][2]]
+                if not pending or not wait(delay):
                     break
                 for order_id in pending:
                     if self.clock.monotonic() >= self._terminal_order_deadline:
                         break
                     self._terminal_first_reads[order_id] = probe(order_id)
-        # Already-terminal legs are read exactly once, after unresolved proof.
-        # Native per-GET transport bounds still apply to every attempt.
-        row, error = (self._terminal_first_reads.pop(oid) if oid in self._terminal_first_reads else probe(oid))
-        if error is None and order_terminal(row, order_id=oid, size=self.size):
+                rounds += 1
+                delay = 2 if rounds >= 2 else 1
+        historical = oid not in self._terminal_first_reads
+        if historical:
+            row, error, retryable = (probe(oid) if self.clock.monotonic() < self._terminal_order_deadline
+                                      else (None, 'TerminalReadBudget', True))
+            for delay in (1, 2):
+                if not retryable or not wait(delay):
+                    break
+                row, error, retryable = probe(oid)
+            if error == 'OrderNotTerminal':
+                retryable = False  # A historically proved terminal order cannot reopen.
+        else:
+            row, error, retryable = self._terminal_first_reads.pop(oid)
+        if error is None:
             return row
-        self._retain('terminal_order_unavailable', order_id=oid, exception_type=error or 'OrderNotTerminal')
+        self._retain('terminal_order_unavailable', order_id=oid, exception_type=error, retryable=retryable)
         raise TimeoutError('terminal_order_unavailable')
 
     def cleanup(self):

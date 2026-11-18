@@ -162,7 +162,7 @@ def poll_waiting_stream(band):
     if band.active or any(band.ledger.legs[key]['status'] != 'terminal'
                           for key in band.ledger.sessions[band.session_id]['legs']):
         raise HoldEnd('repost_terminal_unproven')
-    rows = band.required('repost_user_stream', band.venue.raw.events, checkpoint=False)
+    rows = band.required('repost_user_stream', band.venue.account_events, checkpoint=False)
     if not isinstance(rows, list):
         raise HoldEnd('repost_user_stream_unreadable')
     now = band.clock.monotonic()

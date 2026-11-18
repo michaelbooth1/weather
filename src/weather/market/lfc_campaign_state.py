@@ -273,7 +273,8 @@ class AccountState:
             key = ('private', sha, digest(sessions), signatures)
             local = self._retained_cache.memo(key, lambda: local_money_proof(
                 self.ledger.path.parent / relative, ledger=self.ledger,
-                session_id=result['session_id'], attempt_id=claim['attempt_id'], outcome=result['outcome']),
+                session_id=result['session_id'], attempt_id=claim['attempt_id'], outcome=result['outcome'],
+                terminal_backfill=result.get('terminal_backfill') is True),
                 cacheable=all(signature[-1] is not None for signature in signatures))
             if local.get('complete') is not True or local != result.get('local_money_proof'):
                 raise ValueError('private_evidence_changed')
@@ -350,9 +351,25 @@ class AccountState:
                     self.owner_close_binding(claim, proof)
                     continue
                 _, sha, local = self.retained_result(claim)
-                if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
+                try:
+                    if local.get('missing_terminal_orders'):
+                        anchor, = event_rows(self.ledger, 'autostart_close', field='attempt_id',
+                                             value=claim['attempt_id'])
+                        proof = self.read_uncached(path, expected_sha256=anchor['file_sha256'])['proof']
+                    self.validate_postcheck_binding(proof, sha, local)
+                except (OSError, ValueError, KeyError, TypeError, StateRefused):
                     self.evidence_fault(claim['attempt_id'], artifact='closed/private-proof-binding')
-                    raise StateRefused('closed_private_evidence_binding')
+                    raise StateRefused('closed_private_evidence_binding') from None
+
+    def validate_postcheck_binding(self, proof, result_sha, local):
+        if proof.get('result_sha256') != result_sha or proof.get('private_evidence_sha256') != digest(local):
+            raise StateRefused('closeout_private_evidence_binding')
+        if missing := local.get('missing_terminal_orders'):
+            from weather.market.lfc_campaign_reads import validate_terminal_backfill
+            read = proof.get('account_read')
+            if not isinstance(read, dict) or proof.get('read_sha256') != digest(read):
+                raise StateRefused('closeout_terminal_backfill_digest')
+            validate_terminal_backfill(self.ledger, missing, read, now=self.ledger.clock())
 
     def owner_result_binding(self, claim):
         """Only retained originals, never an inferred automatic clean result."""
@@ -538,8 +555,7 @@ class AccountState:
                 self.owner_close_binding(claim, proof)
             else:
                 _, sha, local = self.retained_result(claim)
-                if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
-                    raise StateRefused('closeout_private_evidence_binding')
+                self.validate_postcheck_binding(proof, sha, local)
         if proof.get('ledger_head_sha256', self.ledger.previous) != self.ledger.previous:
             raise StateRefused('closeout_proof_stale')
         proof = {**proof, 'ledger_head_sha256': self.ledger.previous}

@@ -4,6 +4,7 @@ All clocks, account reads and cancellations are inert local fixtures.
 """
 from decimal import Decimal
 from types import SimpleNamespace
+import pytest
 
 from tests.market.test_lfc_campaign import Mutexes
 from tests.market.test_lfc_f2_controller import MAKER, NOW, setup
@@ -73,7 +74,7 @@ def test_fixed_end_read_lag_past_three_seconds_keeps_typed_gap(tmp_path):
     assert local['complete'] and 'terminal_order_unavailable' in local['money_read_gaps'], local
 
 
-def test_repost_proves_unresolved_before_thirty_slow_terminal_probes():
+def test_repost_proves_unresolved_then_bounds_thirty_slow_historical_reads():
     band = object.__new__(F2Band)
     band.clock, band.size = Clock(NOW), Decimal(20)
     old = [f'old-{i}' for i in range(30)]
@@ -82,7 +83,8 @@ def test_repost_proves_unresolved_before_thirty_slow_terminal_probes():
         oid: {'status': 'acknowledged' if oid == 'unresolved' else 'terminal'} for oid in band.known})
     band._terminal_order_deadline, band._terminal_read_seconds = None, 10
     band.progress = lambda: None
-    band._retain = lambda *a, **k: None
+    gaps = []
+    band._retain = lambda event, **fields: gaps.append(fields)
     calls, proved = [], []
 
     def read(oid):
@@ -98,10 +100,17 @@ def test_repost_proves_unresolved_before_thirty_slow_terminal_probes():
     band.venue = SimpleNamespace(order=read)
     # The shared Session enumerates historical orders in insertion order.
     for oid in band.known:
-        assert band.terminal_order_read(oid, None)['id'] == oid
+        if oid in old and band.clock.seconds >= 10:
+            with pytest.raises(TimeoutError, match='terminal_order_unavailable'):
+                band.terminal_order_read(oid, None)
+        else:
+            assert band.terminal_order_read(oid, None)['id'] == oid
     assert calls[0] == ('unresolved', 0)
     assert proved == [4] and all(at >= 4 for oid, at in calls if oid in old)
-    assert all(sum(oid == seen for seen, _ in calls) == 1 for oid in old)
+    queried = {oid for oid, _ in calls if oid in old}
+    assert 0 < len(queried) < len(old)
+    assert {row['order_id'] for row in gaps} == set(old) - queried
+    assert all(row['retryable'] and row['exception_type'] == 'TerminalReadBudget' for row in gaps)
 
 
 def test_sample_scoring_fault_then_fill_reposts_without_cancelling_peers(tmp_path, monkeypatch):

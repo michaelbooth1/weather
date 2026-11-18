@@ -19,9 +19,13 @@ MONEY_READ_GAPS = {'terminal_order_unavailable', 'terminal_positions_unavailable
                    'cleanup_cancel_unavailable', 'cleanup_cancel_all_unavailable', 'fill_order_unavailable',
                    'f2_account_read_unavailable', 'f2_account_cancel_unavailable', 'f2_account_cleanup_pending',
                    'repost_inventory_unavailable', 'repost_peer_proof_pending'}
+TERMINAL_RETRY_ERRORS = {'TimeoutError', 'ConnectionError', 'URLError', 'TransportError',
+                         'RateLimitError', 'ReadTimeout', 'ConnectTimeout', 'ReadError',
+                         'ConnectError', 'RemoteProtocolError', 'OrderNotTerminal'}
 
 
-def journal_contract(path, prediction, *, legacy=False, owner_review=False, allow_open=False, expected_head=None, submit_limit=10):
+def journal_contract(path, prediction, *, legacy=False, owner_review=False, allow_open=False,
+                     expected_head=None, submit_limit=10, terminal_read_gaps=None):
     """Stream the exact chained journal; a gap name cannot replace core rows."""
     if path.stat().st_size > 256 * 1024 * 1024:
         raise ValueError('private_journal_limit')
@@ -97,6 +101,14 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 gaps.add(event)
             elif event in MONEY_READ_GAPS:
                 money_gaps.add(event)
+                if event == 'terminal_order_unavailable' and terminal_read_gaps is not None:
+                    oid = row.get('order_id')
+                    if not isinstance(oid, str) or not oid:
+                        raise ValueError('terminal_read_gap_identity')
+                    retryable = row.get('retryable', row.get('exception_type') in TERMINAL_RETRY_ERRORS)
+                    if retryable is not True:
+                        raise ValueError('terminal_read_gap_unclassified')
+                    terminal_read_gaps.add(oid)
             elif event == 'repost_inventory_proven':
                 # Only this completed live-read phase supersedes these exact
                 # retry gaps. Missing originals/ACKs and N1 faults still fail
@@ -186,7 +198,8 @@ def owner_originals(directory, *, ledger, session_id, attempt_id, outcome):
             'raw_flags': evidence_flags(prediction), 'resolved_legs_sha256': hashlib.sha256(canonical_bytes(legs)).hexdigest()}
 
 
-def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, legacy=False):
+def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, legacy=False,
+                      terminal_backfill=False):
     """Later complete account reads may resolve supported GET gaps, never file loss.
 
     Raw flags survive unchanged. A failure_type, or one scoring gap beside an
@@ -200,7 +213,8 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
         directory = Path(directory).absolute()
         if outcome.get('f2_session') is True:
             from weather.market.lfc_f2_evidence import money_proof
-            return money_proof(directory, ledger=ledger, session_id=session_id, attempt_id=attempt_id, outcome=outcome)
+            return money_proof(directory, ledger=ledger, session_id=session_id, attempt_id=attempt_id,
+                               outcome=outcome, terminal_backfill=terminal_backfill)
         session = ledger.sessions[session_id]
         if (session['end'] is None or session['start'].get('autostart_attempt_id') != attempt_id or
                 legacy and (attempt_id is not None or session['start'].get('autostart_attempt_id'))):
@@ -225,7 +239,12 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
                 evidence_flags(ending) != flags or evidence_flags(session['end']) != flags or
                 prediction.get('failure_type') is not None):
             return result
-        requests, responses, orders, gaps, money_gaps = journal_contract(directory / 'journal.jsonl', prediction, legacy=legacy, submit_limit=submit_limit)
+        terminal_gaps = set() if terminal_backfill else None
+        requests, responses, orders, gaps, money_gaps = journal_contract(
+            directory / 'journal.jsonl', prediction, legacy=legacy, submit_limit=submit_limit,
+            terminal_read_gaps=terminal_gaps)
+        if terminal_backfill and (terminal_gaps - set(ids) or set(orders) - set(ids)):
+            return result
         # Pre-enrollment producers did not emit typed faults. Only their explicit
         # complete proof is automatically supported; failed legacy proof requires
         # the separate recorded owner review, never an inferred scoring exemption.
@@ -239,6 +258,7 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
             return dict(result, failure='unclassified_private_evidence_fault', raw_flags=flags)
         if len(requests) != len(legs) or len(responses) != len(legs):
             return result
+        missing = []
         for number, (leg, request, response) in enumerate(zip(legs, requests, responses), 1):
             intent_name, ack_name = f'submit-{number}.intent.json', f'submit-{number}.ack.json'
             intent_path = validate_regular_nonreparse_file(directory / intent_name)
@@ -254,8 +274,13 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
                 return result
             hashes[intent_name], hashes[ack_name] = file_sha(intent_path), file_sha(ack_path)
             order = orders.get(leg['order_id'])
-            if order is None and not money_gaps:
-                return result
+            if order is None:
+                if terminal_backfill:
+                    if leg['order_id'] not in terminal_gaps:
+                        return result
+                    missing.append(leg['order_id'])
+                elif not money_gaps:
+                    return result
             if order is not None and not order_terminal(order, order_id=leg['order_id'], size=leg['size']):
                 return result
             if order is not None and leg['status'] == 'terminal' and quantity(order['size_matched']) != quantity(leg['size_matched']):
@@ -264,6 +289,7 @@ def local_money_proof(directory, *, ledger, session_id, attempt_id, outcome, leg
             return dict(result, failure='unexplained_false_evidence_flag', raw_flags=flags)
         return {'complete': True, 'unknown_submit': False, 'raw_flags': flags,
                 'explained_gaps': sorted(gaps), 'money_read_gaps': sorted(money_gaps),
-                'failure_type': prediction.get('failure_type'), 'evidence_sha256': hashes}
+                'failure_type': prediction.get('failure_type'), 'evidence_sha256': hashes,
+                **({'missing_terminal_orders': missing} if missing else {})}
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError):
         return result

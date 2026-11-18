@@ -478,9 +478,10 @@ class Runtime:
                 finally:
                     self.lease = None
 
-    def read_account(self):
+    def read_account(self, *, terminal_order_ids=()):
         try:
-            read = self.account_read_once()
+            read = (self.account_read_once(terminal_order_ids=terminal_order_ids)
+                    if terminal_order_ids else self.account_read_once())
             # Retain every observation, including an early quantity mismatch
             # that a later bounded read explains as propagation delay.
             self.state.save('account-reads/' + uuid.uuid4().hex + '.json',
@@ -497,7 +498,7 @@ class Runtime:
                 raise TransientPrecheck('account_read_unavailable') from None
             raise
 
-    def account_read_once(self):
+    def account_read_once(self, *, terminal_order_ids=()):
         """Read-only SDK route, retaining bounded source responses in the runtime.
 
         The independent LAN reader remains useful owner evidence, not an extra
@@ -518,6 +519,7 @@ class Runtime:
             from weather.market import lfc_constants as C
             venue.trades_seconds = C.TRADE_READ_SECONDS
             start = self.clock.now()
+            terminal_orders = self.read_missing_terminal_orders(venue, terminal_order_ids)
             values, times = {}, {}
             readers = {'open_orders': venue.open_orders, 'trades': venue.trades,
                        'positions': lambda: fetch_account_positions(self.state.maker),
@@ -537,9 +539,8 @@ class Runtime:
                 values[name] = readers[name]()
                 times[name] = {'started_at_utc': observed_start.isoformat(),
                                'ended_at_utc': self.clock.now().isoformat()}
-            terminal_orders = {}
             for leg in self.state.ledger.unresolved_legs():
-                if leg['order_id'] is not None:
+                if leg['order_id'] is not None and leg['order_id'] not in terminal_orders:
                     observed_start = self.clock.now()
                     order = venue.order(leg['order_id'])
                     terminal_orders[leg['order_id']] = {'row': order, 'started_at_utc': observed_start.isoformat(),
@@ -577,6 +578,31 @@ class Runtime:
             raise TransientPrecheck('account_transport_unavailable') from None
         finally:
             venue.close()
+
+    def read_missing_terminal_orders(self, venue, order_ids):
+        from weather.market.lfc_campaign_reads import TerminalBackfillRefused, terminal_order_facts
+        deadline = self.clock.monotonic() + 90
+        observations = {}
+        for oid in order_ids:
+            for delay in (0, 1, 2):
+                if self.clock.monotonic() + delay >= deadline:
+                    raise TerminalBackfillRefused('terminal_order_backfill_deadline')
+                if delay:
+                    self.clock.sleep(delay)
+                begin = self.clock.now()
+                try:
+                    row = venue.order(oid)
+                except Exception as exc:
+                    if not transient_read_error(exc):
+                        raise TerminalBackfillRefused('terminal_order_backfill_unreadable') from exc
+                    continue
+                if terminal_order_facts(self.state.ledger, oid, row):
+                    observations[oid] = {'row': row, 'started_at_utc': begin.isoformat(),
+                                         'ended_at_utc': self.clock.now().isoformat()}
+                    break
+            else:
+                raise TerminalBackfillRefused('terminal_order_backfill_unreadable')
+        return observations
 
     def original_baseline(self, ledger):
         policy_path = getattr(self, 'policy_path', None)
@@ -973,8 +999,10 @@ class Runtime:
         session = status.session
         self.reload_ledger()
         from weather.market.lfc_campaign_proof import local_money_proof
+        terminal_backfill = outcome.get('f2_session') is True
         local = (local_money_proof(status.evidence_directory, ledger=self.state.ledger, session_id=status.session_id,
-                                   attempt_id=claim['attempt_id'], outcome=outcome)
+                                   attempt_id=claim['attempt_id'], outcome=outcome,
+                                   terminal_backfill=terminal_backfill)
                  if status.evidence_directory is not None else {'complete': False,
                      'unknown_submit': bool(self.state.ledger.unacknowledged_intents())})
         result = {'exit_code': code, 'session_id': status.session_id, 'outcome': outcome,
@@ -983,6 +1011,7 @@ class Runtime:
                   **evidence_flags(outcome), 'unknown_submit': (bool(self.state.ledger.unacknowledged_intents()) or
                       session is not None and session.posts != len(session.known)),
                   'local_money_proof': local,
+                  **({'terminal_backfill': True} if terminal_backfill else {}),
                   'public_coverage': self.sidecar.report if self.sidecar is not None else
                                      {'configured': False, 'research_evidence_complete': False, 'gap': 'not_configured'}}
         return result
@@ -1032,7 +1061,15 @@ class Runtime:
             # No adoption and no closing crashed sessions. Only owner recovery
             # may address missing private identities or an interrupted cleanup.
             return {'money_accounting_complete': False, 'cleanup_proven': False, 'unknown_submit': True}
-        read = self.read_account()
+        from weather.market.lfc_campaign_reads import TerminalBackfillRefused, validate_terminal_backfill
+        missing = local.get('missing_terminal_orders', ())
+        def read_for_postcheck():
+            try:
+                return self.read_account(terminal_order_ids=missing) if missing else self.read_account()
+            except TerminalBackfillRefused:
+                self.state.evidence_fault(claim['attempt_id'], artifact='private-terminal-backfill')
+                raise
+        read = read_for_postcheck()
         # Known acknowledged identities may finish bounded GET accounting. This
         # never adopts an intent, closes a crash or retries a placement.
         self.core_proof(ledger, read)  # Validate account/scope/completeness before any ledger append.
@@ -1052,8 +1089,14 @@ class Runtime:
             if not proof.get('money_contradiction'):
                 break
             self.clock.sleep(2)
-            read = self.read_account()
+            read = read_for_postcheck()
             proof = self.core_proof(ledger, read)
+        if missing:
+            try:
+                validate_terminal_backfill(ledger, missing, read, now=self.clock.now())
+            except TerminalBackfillRefused:
+                self.state.evidence_fault(claim['attempt_id'], artifact='private-terminal-backfill')
+                raise
         proof.update(research_evidence_complete=result.get('evidence_complete') is True,
                      result_sha256=result_sha, private_evidence_sha256=digest(local),
                      raw_evidence_flags=evidence_flags(result), account_read=read,

@@ -247,8 +247,7 @@ def check(state, *, full=False, owner_fault_review=False):
             elif (any(s['start'].get('autostart_attempt_id') == attempt for s in ledger.sessions.values()) or
                   any(r['attempt_id'] == attempt for r in ledger.autostart_results)):
                 _, sha, local = state.retained_result(claim)
-                if proof.get('result_sha256') != sha or proof.get('private_evidence_sha256') != digest(local):
-                    raise StateRefused('closeout_private_evidence_binding')
+                state.validate_postcheck_binding(proof, sha, local)
         except LedgerUnavailable as exc:
             # A dedicated no-intent/owner restoration append may occur during
             # binding. Ledger write errors are not lost closure evidence.

@@ -738,6 +738,18 @@ from `research_evidence_complete` and public coverage. A missed scoring read or
 optional sidecar gap remains visible without permanently stranding a money-clean
 account. An unexplained missing core proof remains unknown and blocks starts.
 
+F2 retries terminal GETs with backoff inside the shared band cleanup budget.
+An earlier valid terminal row remains evidence when a repeat GET times out.
+For new results, a journaled retryable failure against an exact acknowledged
+order can leave a named terminal read pending. POSTCHECK must fetch each such
+missing order and validate its identity, size, status and matched quantity
+before closing the attempt. It retains the observations in the hash-bound
+account read. The original journals, result and research flags remain intact.
+An untyped gap, an order still unreadable after the bounded retries, or a
+contradiction latches an evidence incident. A recognized account-wide
+auto-redeem notice stops quoting and enters ordinary account cleanup and proof.
+Only the account proof can verify the resulting cash and inventory changes.
+
 Private completion requires the chained session journal, matching submit intent
 and ACK files, terminal identities/quantities and prediction/end bindings. Each
 result has its own ledger hash anchor. Pending finalization reopens and hashes

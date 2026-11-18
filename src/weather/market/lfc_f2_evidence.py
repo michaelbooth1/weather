@@ -38,7 +38,8 @@ def manifest_at(directory):
     return row
 
 
-def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=False):
+def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=False,
+                terminal_backfill=False):
     from weather.market.lfc_campaign_proof import journal_contract, local_money_proof, owner_originals
     directory = Path(directory).absolute()
     manifest = manifest_at(directory)
@@ -99,7 +100,8 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
         evidence = {'evidence_sha256': band['evidence_sha256']}
         proof = (owner_originals(directory / relative, ledger=ledger, session_id=sid, attempt_id=attempt_id, outcome=evidence)
                  if owner else local_money_proof(directory / relative, ledger=ledger, session_id=sid,
-                                                attempt_id=attempt_id, outcome=evidence))
+                                                attempt_id=attempt_id, outcome=evidence,
+                                                terminal_backfill=terminal_backfill))
         if not owner and (proof.get('complete') is not True or proof.get('unknown_submit') is not False):
             raise ValueError('f2_private_band_incomplete')
         proofs.append(proof)
@@ -111,10 +113,12 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
                                        for key in ledger.sessions[b['session_id']]['legs']] or
             prediction.get('unknown_submit') is not False or prediction.get('failure_type') is not None):
         raise ValueError('f2_private_order_coverage')
+    missing = [oid for proof in proofs for oid in proof.get('missing_terminal_orders', ())]
     return {'complete': True, 'unknown_submit': False, 'raw_flags': evidence_flags(prediction),
             'evidence_sha256': hashes, 'bands': proofs,
             'explained_gaps': sorted(root_gaps | {gap for p in proofs for gap in p['explained_gaps']}),
-            'money_read_gaps': sorted(root_money_gaps | {gap for p in proofs for gap in p['money_read_gaps']})}
+            'money_read_gaps': sorted(root_money_gaps | {gap for p in proofs for gap in p['money_read_gaps']}),
+            **({'missing_terminal_orders': missing} if missing else {})}
 
 
 class F2Status(SessionStatus):
