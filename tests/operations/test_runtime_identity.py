@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from weather.runtime_identity import (
+    _git_head_identity,
     current_identity_for,
     get_runtime_identity,
     identities_match,
@@ -11,6 +12,65 @@ from weather.runtime_identity import (
 
 
 class TestRuntimeIdentity(unittest.TestCase):
+    def test_linked_worktree_reads_its_named_head_from_the_common_refs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main = root / "main" / ".git"
+            admin = main / "worktrees" / "topic"
+            admin.mkdir(parents=True)
+            work = root / "topic"
+            work.mkdir()
+            (work / ".git").write_text("gitdir: ../main/.git/worktrees/topic\n", encoding="utf-8")
+            (admin / "HEAD").write_text("ref: refs/heads/team/topic\n", encoding="utf-8")
+            (main / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+            (admin / "commondir").write_text("../..\n", encoding="utf-8")
+            (main / "packed-refs").write_text(
+                "# pack-refs with: peeled\n" + "1" * 40 + " refs/heads/team/topic-other\n"
+                + "2" * 40 + " refs/heads/team/topic\n^" + "3" * 40 + "\n", encoding="utf-8",
+            )
+            self.assertEqual(_git_head_identity(work), ("team/topic", "2" * 12))
+            ref = main / "refs" / "heads" / "team" / "topic"
+            ref.parent.mkdir(parents=True)
+            ref.write_text("4" * 64 + "\n", encoding="utf-8")
+            (admin / "commondir").write_text(str(main) + "\n", encoding="utf-8")
+            identity = get_runtime_identity(work, scope_files=["missing.py"])
+            self.assertEqual((identity["git_branch"], identity["git_commit"]), ("team/topic", "4" * 12))
+            self.assertIsNone(identity["git_dirty"])
+            self.assertIsNone(identity["dirty_fingerprint"])
+            ref.write_text("bad ref contents\n", encoding="utf-8")
+            self.assertEqual(_git_head_identity(work), ("team/topic", "unknown"))
+
+    def test_detached_and_invalid_heads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = root / ".git"
+            git.mkdir()
+            head = git / "HEAD"
+            self.assertEqual(_git_head_identity(root), ("unknown", "unknown"))
+            head.write_text("a" * 40 + "\n", encoding="utf-8")
+            self.assertEqual(_git_head_identity(root), ("detached", "a" * 12))
+            head.write_text("invalid-object-id\n", encoding="utf-8")
+            self.assertEqual(_git_head_identity(root), ("unknown", "unknown"))
+            head.write_text("ref: refs/heads/missing\n", encoding="utf-8")
+            (git / "commondir").write_text("missing-dir\n", encoding="utf-8")
+            self.assertEqual(_git_head_identity(root), ("missing", "unknown"))
+
+    def test_worktree_private_ref_stays_local(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            admin = root / "admin"
+            repo = root / "checkout"
+            repo.mkdir()
+            (repo / ".git").write_text("gitdir: ../admin\n", encoding="utf-8")
+            ref = "refs/worktree/private"
+            for base, oid in ((admin, "a" * 40), (root / "shared", "b" * 40)):
+                target = base / ref
+                target.parent.mkdir(parents=True)
+                target.write_text(oid + "\n", encoding="utf-8")
+            (admin / "commondir").write_text("../shared\n", encoding="utf-8")
+            (admin / "HEAD").write_text("ref: " + ref + "\n", encoding="utf-8")
+            self.assertEqual(_git_head_identity(repo), (ref, "a" * 12))
+
     def test_runtime_identity_reads_head_without_git_process(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

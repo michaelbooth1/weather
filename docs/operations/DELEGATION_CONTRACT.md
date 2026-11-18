@@ -151,7 +151,9 @@ graded window.** Doing so carries no capture risk and §2 requires it; §5 canno
 without the resulting commit hash.
 
 The capture supervisors fingerprint the **source files in the production host's working tree**
-(`runtime_identity.identity_source: git_filesystem`). A branch on `origin` is a remote ref: it
+(`runtime_identity.identity_source: git_filesystem`). The recorded revision comes from the
+local HEAD and ref files, including the shared ref directory of a linked worktree. This
+filesystem reader leaves `git_dirty` unknown. A branch on `origin` is a remote ref: it
 changes no file in that tree, so it cannot change the fingerprint and cannot trigger a
 `STALE_CODE` readoption.
 

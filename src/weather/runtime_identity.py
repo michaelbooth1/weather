@@ -9,6 +9,7 @@ The source fingerprint deliberately covers Python code, supervisor scripts, the
 Streamlit app, and requirements, while excluding model/data artifacts.
 """
 import hashlib
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +38,7 @@ def utc_now_iso():
 def _read_text(path):
     try:
         return Path(path).read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
+    except (OSError, ValueError):
         return ""
 
 
@@ -51,25 +52,34 @@ def _git_dir(repo_root):
     prefix = "gitdir:"
     if not text.lower().startswith(prefix):
         return None
-    git_dir = Path(text[len(prefix):].strip())
+    location = text[len(prefix):].strip()
+    if not location:
+        return None
+    git_dir = Path(location)
     if not git_dir.is_absolute():
         git_dir = marker.parent / git_dir
     return git_dir
 
 
 def _read_git_ref(git_dir, ref):
-    if not git_dir or not ref or ".." in Path(ref).parts:
+    if (not git_dir or not ref or not ref.startswith("refs/") or "\\" in ref or ":" in ref
+            or any(part in ("", ".", "..") for part in ref.split("/"))):
         return ""
-    direct = _read_text(Path(git_dir) / ref)
+    base = Path(git_dir)
+    if not ref.startswith(("refs/bisect/", "refs/worktree/", "refs/rewritten/")):
+        common = _read_text(base / "commondir")
+        if common:
+            base = base / common
+    direct = _read_text(base / ref)
     if direct:
         return direct
-    packed = _read_text(Path(git_dir) / "packed-refs")
+    packed = _read_text(base / "packed-refs")
     for line in packed.splitlines():
         line = line.strip()
         if not line or line.startswith(("#", "^")):
             continue
         parts = line.split()
-        if len(parts) >= 2 and parts[1] == ref:
+        if len(parts) == 2 and parts[1] == ref:
             return parts[0]
     return ""
 
@@ -83,10 +93,13 @@ def _git_head_identity(repo_root):
         return "unknown", "unknown"
     if head.startswith("ref:"):
         ref = head.partition(":")[2].strip()
-        branch = ref.removeprefix("refs/heads/") or ref
-        commit = _read_git_ref(git_dir, ref) or "unknown"
-        return branch, commit[:12] if commit != "unknown" else commit
-    return "detached", head[:12]
+        branch = ref.removeprefix("refs/heads/") or "unknown"
+        commit = _read_git_ref(git_dir, ref)
+    else:
+        branch, commit = None, head
+    if not re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit):
+        return branch or "unknown", "unknown"
+    return branch or "detached", commit[:12]
 
 
 def _source_files(repo_root):
