@@ -96,8 +96,13 @@ SNAPSHOT_INTERVAL = timedelta(minutes=10)
 SNAPSHOT_DUE_TOLERANCE = timedelta(seconds=60)
 DEFAULT_MARKET_CONFIG = config_for_date()
 DEFAULT_SNAPSHOT_ROOT = data_path() / "snapshots" / DEFAULT_MARKET_CONFIG.event_slug
-# Fallback used only when a snapshot's model dict carries no model_version.
+# Compatibility display for legacy payloads with no recorded scorer identity.
 MODEL_VERSION = MODEL_VERSION_HGB
+_SCORER_DISPLAY_NAMES = {
+    "hgb": "HGBC feature-based ML model",
+    "lr": "LogisticRegression feature-based ML model",
+    "empirical": "empirical lookup baseline",
+}
 
 # Replay corpus: each snapshot persists the full merged model `sources` plus the
 # exact build `now`, so any future model version can be re-run over the captured
@@ -575,6 +580,33 @@ SNAPSHOT_EXPLANATION_COLUMNS = [
 ]
 
 
+def snapshot_model_version(model, *, replay_version=None):
+    """Choose a captured display label without assigning a current release to an older scorer."""
+    if model.get("model_version"):
+        return model["model_version"]
+
+    kinds = set()
+    for payload in (model, model.get("distribution_components"), model.get("distribution_result")):
+        family = payload.get("active_model_kind") if isinstance(payload, dict) else None
+        if isinstance(family, str) and family in _SCORER_DISPLAY_NAMES:
+            kinds.add(family)
+    if len(kinds) > 1:
+        return "model version unrecorded (conflicting scorer families)"
+    kind = next(iter(kinds), None)
+    feature = model.get("feature_vector")
+    feature_version = feature.get("model_version") if isinstance(feature, dict) else None
+    for version in (replay_version, feature_version):
+        if isinstance(version, str) and version.strip():
+            # A reconstructed replay can carry the historical HGBC writer default.
+            display = version.removesuffix(" (version unrecorded)")
+            label_kind = next((k for k, label in _SCORER_DISPLAY_NAMES.items() if display.endswith(label)), None)
+            if kind not in _SCORER_DISPLAY_NAMES or label_kind is None or label_kind == kind:
+                return version
+    if kind in _SCORER_DISPLAY_NAMES:
+        return f"{_SCORER_DISPLAY_NAMES[kind]} (version unrecorded)"
+    return MODEL_VERSION
+
+
 class SnapshotStore:
     def __init__(
         self,
@@ -703,7 +735,7 @@ class SnapshotStore:
         trigger_context = self.normalized_trigger_context(trigger_context)
         trigger_summary = self.trigger_summary(trigger_context)
         distribution = model.get("distribution", {}) or {}
-        model_version = model.get("model_version") or MODEL_VERSION
+        model_version = snapshot_model_version(model)
         model_identity = model.get("model_identity") or self.model_identity(model_client)
         config_identity = {
             "event_slug": self.event_slug,
@@ -922,6 +954,8 @@ class SnapshotStore:
 
         feature_vector = model.get("feature_vector")
         if feature_vector:
+            if not model.get("model_version"):
+                feature_vector = {**feature_vector, "model_version": model_version}
             feature_row = audit_row(
                 {
                     "snapshot_id": snapshot_id,
@@ -2676,11 +2710,13 @@ class SnapshotStore:
             except (TypeError, ValueError):
                 invalid_snapshot_rows += 1
                 continue
-            model_version = snapshot.get("model_version") or MODEL_VERSION
+            model_version = snapshot_model_version(snapshot)
             feature_vector = snapshot.get("feature_vector")
             if snapshot_id in feature_existing:
                 skipped_existing_features += 1
             elif feature_vector:
+                if not snapshot.get("model_version"):
+                    feature_vector = {**feature_vector, "model_version": model_version}
                 feature_rows.append(audit_row(
                     {
                         "snapshot_id": snapshot_id,
@@ -2839,7 +2875,7 @@ class SnapshotStore:
                 "distribution_components": snapshot.get("distribution_components") or {},
                 "probability_calibration_context": snapshot.get("probability_calibration_context") or {},
                 "feature_vector": snapshot.get("feature_vector") or {},
-                "model_version": snapshot.get("model_version") or replay.get("model_version") or MODEL_VERSION,
+                "model_version": snapshot_model_version(snapshot, replay_version=replay.get("model_version")),
                 "model_explanation": snapshot.get("model_explanation") or {},
                 "analog_search": snapshot.get("analog_search") or {},
                 "boundary_transitions": snapshot.get("boundary_transitions") or {},
