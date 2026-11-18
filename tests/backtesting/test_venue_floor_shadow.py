@@ -90,6 +90,32 @@ def test_actual_lockin_operator_moves_excluded_mass_to_equal_native_anchor(famil
     assert out["candidate"]["excluded_after_mass"] == 0
 
 
+@pytest.mark.parametrize(("family", "old", "eligible"), [
+    ("highest", 94, {92, 94, 96}), ("lowest", 90, {90, 92}),
+])
+def test_recorded_exact_calibration_preserves_captured_uniform_prior_and_degree_direction(family, old, eligible):
+    spec, packet = fixture(family)
+    packet["incumbent_bound"] = old
+    packet["prior"].update(stage="pre_calibration_model", calibration=dict(capture_sha256="5" * 64,
+        resolution_weight=0, cutoff_hour=20, exact_distribution={"prior_weight": 1}))
+    packet["evidence"]["reports"] = [row("METAR KZZZ 101550Z 33/20 RMK T03330200")]
+    out = evaluate_floor_shadow(packet, spec)
+    assert out["incumbent"]["mass"][92] == 0
+    assert set(k for k, p in out["candidate"]["mass"].items() if p > 0) == eligible
+    assert out["candidate"]["mass"][92] == pytest.approx(1 / len(eligible))
+    packet["prior"]["calibration"]["exact_distribution"] = {"enabled": False}
+    out = evaluate_floor_shadow(packet, spec)
+    assert out["incumbent"]["mass"] == out["candidate"]["mass"]
+
+
+def test_empty_calibration_support_is_unscorable():
+    spec, packet = fixture()
+    packet["incumbent_bound"] = 999
+    packet["prior"].update(stage="pre_calibration_model", calibration=dict(capture_sha256="5" * 64,
+        resolution_weight=0, cutoff_hour=20, exact_distribution={}))
+    assert evaluate_floor_shadow(packet, spec)["reason"] == "empty_calibrated_support"
+
+
 def test_no_reports_yet_does_not_create_a_bound():
     spec, packet = fixture()
     out = evaluate_floor_shadow(packet, spec)

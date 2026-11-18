@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from weather.market.metar_reports import aware_utc, header_station, parse_metar
 from weather.market.metar_settlement import MetarSettlementAdapter
 from weather.market.venue_settlement_rules import native_decimal, settlement_bucket
+from weather.model.calibration_runtime import apply_exact_distribution_calibration
 from weather.sources.metar_history import report_temperature_c
 
 
@@ -36,10 +37,24 @@ def _degree_mass(values):
     return mass
 
 
-def _apply(mass, bound, family, stage):
+def _apply(mass, bound, family, prior):
     excluded = {k for k in mass if bound is not None and (k < bound if family == "highest" else k > bound)}
     before_mass = math.fsum(mass[k] for k in excluded)
-    if stage == "input_to_apply_lockin_observed_floor":
+    if prior["stage"] == "pre_calibration_model":
+        context = prior["calibration"]
+        # The canonical transform uses only ordering relative to the bound.
+        # Reflect both the grid and the comparator to implement the lowest mirror.
+        direction = 1 if family == "highest" else -1
+        oriented = {direction * k: p for k, p in mass.items()}
+        calibrated = apply_exact_distribution_calibration(
+            oriented, {"exact_distribution": context["exact_distribution"]},
+            floor_bucket=direction * bound if bound is not None else None,
+            resolution_weight=context["resolution_weight"], cutoff_hour=context["cutoff_hour"],
+        )
+        if not calibrated:
+            return None
+        weights = {direction * k: p for k, p in calibrated.items()}
+    elif prior["stage"] == "input_to_apply_lockin_observed_floor":
         weights = {k: 0.0 if k in excluded else p for k, p in mass.items()}
         if bound is not None:
             weights[bound] = weights.get(bound, 0.0) + before_mass
@@ -74,10 +89,15 @@ def evaluate_floor_shadow(packet, spec):
         raise ValueError("rule station, market or unit mismatch")
     if any(rule[k] != packet[k] for k in ("market", "station", "unit", "family")):
         raise ValueError("reviewed rule identity mismatch")
-    if prior["stage"] not in {"post_live_signals", "input_to_apply_lockin_observed_floor"} or not all(_hash(x) for x in
+    if prior["stage"] not in {"post_live_signals", "input_to_apply_lockin_observed_floor", "pre_calibration_model"} or not all(_hash(x) for x in
             (prior["capture_sha256"], prior["model_sha256"], rule["sha256"], evidence["capture_sha256"])):
         raise ValueError("requires captured operator input and source/rule identities")
     mass = _degree_mass(prior["mass"])
+    if prior["stage"] == "pre_calibration_model":
+        context = prior["calibration"]
+        if (not _hash(context["capture_sha256"]) or not isinstance(context["exact_distribution"], dict)
+                or not 0 <= context["resolution_weight"] <= 1 or not 0 <= context["cutoff_hour"] <= 23):
+            raise ValueError("requires the exact captured calibration context")
     incumbent = packet["incumbent_bound"]
     if incumbent is not None and type(incumbent) is not int:
         raise ValueError("incumbent bound must be a native integer or null")
@@ -85,6 +105,8 @@ def evaluate_floor_shadow(packet, spec):
                   unit=spec.market_unit, as_of=as_of.isoformat(), rule_basis=rule["basis"],
                   rule_sha256=rule["sha256"], prior_capture_sha256=prior["capture_sha256"], model_sha256=prior["model_sha256"],
                   evidence_capture_sha256=evidence["capture_sha256"], stage=prior["stage"])
+    if prior["stage"] == "pre_calibration_model":
+        status["calibration_capture_sha256"] = prior["calibration"]["capture_sha256"]
 
     def abstain(reason):
         return dict(**status, status="abstained", reason=reason)
@@ -154,11 +176,13 @@ def evaluate_floor_shadow(packet, spec):
         bound = settlement_bucket(bound, "C") if state == "wu_fallback" else int(bound)
     witness = result.maximum_observation if family == "highest" else result.minimum_observation
     condition, revisions = result.condition_for(family)
+    old, new = _apply(mass, incumbent, family, prior), _apply(mass, bound, family, prior)
+    if old is None or new is None:
+        return abstain("empty_calibrated_support")
     return dict(**status, status=state, source=result.source, conditional_until=condition.isoformat(),
                 invalidating_events=list(revisions), routine_count=result.observation_count,
                 witness_observation=witness.observation_time.isoformat() if witness else None,
                 witness_receipt=witness.receipt_time.isoformat() if witness else None,
                 witness_corrected=witness.corrected if witness else None,
                 witness_value_basis=witness.value_basis if witness else None,
-                incumbent=_apply(mass, incumbent, family, prior["stage"]),
-                candidate=_apply(mass, bound, family, prior["stage"]))
+                incumbent=old, candidate=new)

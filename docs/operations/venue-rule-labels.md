@@ -491,8 +491,12 @@ The output compares the incumbent and routine-only bounds on the same prior.
 millionth and normalizes, matching the first explicit highest-floor stage.
 `input_to_apply_lockin_observed_floor` requires the actual function argument
 captured inside an isolated replay. It moves all excluded probability to the
-anchor, including when the anchor was absent from the original grid. The
-incumbent bound is the argument at that same stage. For the optional lowest mirror
+anchor, including when the anchor was absent from the original grid.
+`pre_calibration_model` uses the canonical exact-distribution calibration
+with the captured exact-distribution settings, resolution weight, cutoff hour
+and context digest. It preserves the disabled setting and abstains if either
+calibrated distribution is empty. The incumbent bound is the argument at
+that same stage. For the optional lowest mirror
 the excluded side is strictly hotter than the running minimum. Both report
 original and surviving mass on that side. Running bounds can change after a
 correction. A complete capture with no routine report yet yields no candidate
