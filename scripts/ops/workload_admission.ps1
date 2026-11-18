@@ -685,6 +685,26 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\codex\A095\r1_label_floor.py'
             sha256 = '328466f2aff36ff61caa7f0fc265ca5b6d4af173b2f0c38e3093e7ee95b9a19a'
         }
+        # A095r1 offline measurement, exact workstation script.
+        @{
+            path = 'C:\t\codex\A095\r1_labels_history.py'
+            sha256 = '5a23ce00f720f7296baf625ecbdc0e21cdb0177813c5299ebb45ed8148c3fac7'
+        }
+        # A095r1 offline measurement, exact workstation script.
+        @{
+            path = 'C:\t\codex\A095\r1_f2.py'
+            sha256 = '06d5336764dd723d079139ea278696c3ac29ce473125722cca6ad45b74f2a6e5'
+        }
+        # A095r1 offline measurement, exact workstation script.
+        @{
+            path = 'C:\t\codex\A095\r1_tail.py'
+            sha256 = '7d257b3e686c92185775b0a6bc68d9cff2ab0b6d380de7df64c98c9c96ee04cd'
+        }
+        # A095r1 offline measurement, exact workstation script.
+        @{
+            path = 'C:\t\codex\A095\r1-winter\winter_panel.py'
+            sha256 = 'df9d0cf51c7fc29551f39915e77c1ba9d4b90a52519460debb809c1748b64ba7'
+        }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
