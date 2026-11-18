@@ -230,8 +230,12 @@ def test_daily_refresh_registration_holds_stage_b_disabled_without_opt_in():
     assert "$evidenceTaskReadback = @(Get-ScheduledTask" in registration
     assert 'Settings.ExecutionTimeLimit -ne "PT8H40M"' in registration
     assert "Test-WeatherLocalDailyStartBoundary -StartBoundary ([string]$evidenceTaskTriggers[0].StartBoundary) -At $EvidenceAt" in registration
-    assert '$evidenceTaskState -ne "Disabled"' in registration
-    assert '$evidenceTaskState -eq "Disabled"' in registration
+    # Settings.Enabled proves the enable/disable: a running instance keeps State
+    # 'Running' after Disable-ScheduledTask (pyup C2 NO-GO 2026-10-22).
+    assert "$evidenceTaskEnabled = $evidenceTaskReadback[0].Settings.Enabled" in registration
+    assert "-not $EnableEvidenceTask -and $evidenceTaskEnabled -ne $false" in registration
+    assert "$EnableEvidenceTask -and $evidenceTaskEnabled -ne $true" in registration
+    assert '$evidenceTaskState -ne "Disabled"' not in registration
 
 
 def test_daily_refresh_parser_accepts_delegated_child_contract():

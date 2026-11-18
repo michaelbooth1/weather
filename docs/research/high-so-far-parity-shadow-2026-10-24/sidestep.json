@@ -1,0 +1,45 @@
+{
+ "by_block": {
+  "00-05": {
+   "covered": 20764,
+   "mean_raise": 0.0,
+   "raised": 0
+  },
+  "00-16": {
+   "covered": 59633,
+   "mean_raise": 0.0,
+   "raised": 0
+  },
+  "06-09": {
+   "covered": 13931,
+   "mean_raise": 0.0,
+   "raised": 0
+  },
+  "07-12": {
+   "covered": 21695,
+   "mean_raise": 0.0,
+   "raised": 0
+  },
+  "10-12": {
+   "covered": 10954,
+   "mean_raise": 0.0,
+   "raised": 0
+  },
+  "13-16": {
+   "covered": 13984,
+   "mean_raise": 0.0,
+   "raised": 0
+  },
+  "17-23": {
+   "covered": 24168,
+   "mean_raise": 0.0,
+   "raised": 0
+  }
+ },
+ "floor_bucket_raised": 0,
+ "hgb_feature_changed_share": 0.2977648132142514,
+ "hgb_feature_shift_mean": 0.6539822817631805,
+ "mg1_covered": 83801,
+ "share_raised": 0.0,
+ "with_fix_row": 83304
+}

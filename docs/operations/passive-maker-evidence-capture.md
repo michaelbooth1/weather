@@ -28,8 +28,9 @@ score of zero but remains a reward-eligible candidate.
 Select ten per city, reserving its best three per day-ahead first and filling
 the remaining slot by score (condition ID breaks ties). If fewer than three
 exist in a day, record the shortage; never fabricate coverage. Capture both
-tokens together and the full `/rewards/markets/<condition>` record for every
-selected condition. The full CLOB record is retained separately from Gamma's
+tokens together. The full `/rewards/markets/<condition>` record of a selected
+condition is read every cycle for built-ins through the 88a hold and on change otherwise
+(data layer v2 S9, below), separately from Gamma's
 ranking terms so discrepancies are visible. Exact repeated pagination rows
 are dropped and logged; conflicting rows or repeated cursors refuse the cycle.
 
@@ -57,8 +58,178 @@ next UTC day. Separate public trade connections continue at the existing
 execution tape's event-driven cadence, with ten-second application heartbeats.
 They retain only explicit `last_trade_price` replies and record disconnects and
 gaps. They cover the entire selected universe because this worker does not
-assume another tape's current subscriptions. Overlapping public trades must be
-deduplicated by an analysis consumer; no own-account fill or backfill is claimed.
+assume another tape's current subscriptions. Trades that overlap another tape's
+capture must be deduplicated by an analysis consumer; no own-account fill or
+backfill is claimed.
+
+A trade-channel token-set swap (about once a minute) is make-before-break. The new
+sockets connect and subscribe while the old ones stay open. The old ones close once
+every new socket has received its first data frame (the venue's book snapshot), and
+never more than 5 s (`SWAP_OVERLAP_SECONDS`) after the swap began; they then stop
+within the existing 8 s stop bound. At most two generations of sockets are open at
+once. A trade seen on both sockets is journaled once. The venue's `last_trade_price`
+has no trade id, so the identity is the execution tape's trade fingerprint fields
+(asset, market, price, side, size, fee rate, timestamp, transaction hash). A socket's
+n-th sighting of an identity is journaled only when no other socket has already seen
+it n times, so genuine identical trades on one socket are kept. A frame that is
+entirely repeats is not journaled; a mixed frame keeps its exact bytes with
+`duplicate_trades: <n>` on its row. Dedupe memory holds at most 16,384 identities
+for at most 120 s (about 4 MB). The raw update channel stays break-before-make,
+since its frames have no identity to dedupe. Every token-set change and every stop
+journals a `stream_tokens` row (`channel`, token count, and references to the
+wanted subscriptions; an empty list means nothing is wanted). The inspector checks
+those references like the lifecycle ones.
+
+Each socket thread only reads, sends `PING` and stamps receipt time; a per-session
+writer thread journals the session's rows in arrival order from a queue bounded at
+4,096 frames and 64 MiB (the reader blocks only that far behind and never drops a frame), so an
+fsync or the store lock cannot stop the socket being drained and pinged. Stream,
+trade and lifecycle rows carry the reader's receipt time in `captured_at_utc`; the
+segment still rolls on the write clock. Frames received before a drop are journaled
+before the `disconnected` lifecycle row and the `stream_gap` row, both stamped when
+reading stopped. The 30-second inbound-silence deadline is judged only after a
+receive has just timed out. A venue close frame raises `VenueCloseError` and its
+gap text carries `code=<n> reason=<text>`; an empty data frame is liveness, not a
+close. Reconnects wait a jittered delay in [d/2, d], doubling from 2 s to 30 s after
+failures; a session that stayed connected for 60 s resets it to the base.
+
+## Reward records by change trigger (S9)
+
+Selection never used the per-condition CLOB reward reply (ranking uses Gamma's
+terms), yet reading it for every selected band each minute was about 83% of the
+recorder's public REST. `weather.market.maker_evidence_rewards` replaces that read for
+pilot bands now and for built-in bands only after the 88a panel hold:
+
+- **Built-ins stay legacy through the hold.** Built-in bands keep the pre-S9
+  every-minute read of every selected band's record (`read_every_cycle`; same request
+  order, change keys and universe row shape) unless `built_in_reward_cadence` is
+  `event_driven` **and** the time is at or after UTC 2026-10-31T00:00Z
+  (`BUILT_IN_LEGACY_UNTIL`). Before that the setting is ignored, except in a scratch dry
+  run. `status.json` `rewards.built_in_cadence` says which cadence ran.
+
+- **Sweep (VR-4).** One paged pass over `/rewards/markets/current` (GET, allowlisted,
+  `next_cursor` until `LTE=`, `-1` or empty) at most every 15 minutes, a few pages per
+  cycle. Each page is journaled as a bounded projection (cursor, row count, hash of its
+  canonical rows); the documented sweep fields of selected bands are journaled
+  change-only (`rewards_current`, a full baseline each segment); a `rewards_sweep`
+  event closes each pass with the changed and removed ids. A sweep error is journaled
+  and counted, never fails a cycle, and retries after 15 minutes.
+- **Trigger.** A selected band's full record is read when it is first selected, when
+  its Gamma terms change, when its sweep row changes, every 15 minutes while the sweep
+  is stale (30 min) or off, and at the latest hourly. Reads are capped at 20 per cycle,
+  ordered by lane (built-ins first), reason, then age. Universe rows carry
+  `clob_reward_content_sha256`, `clob_reward_age_seconds` and `clob_reward_reason`.
+- **Kill switch.** `core_recorder_only.rewards_sweep` in `config/capture_families.json`
+  is `on` or `off` (lands `off`), reloaded each cycle; off falls back to the
+  stale-recheck cadence.
+
+`REQUEST_BUDGET_PER_HOUR` (0.4 req/s) is the plan's acceptance bound for the
+event-driven cadence. The registry's `request_budget` stays `not_declared` while built-ins
+run the legacy cadence (about 2 req/s, mostly reward reads); declare it when
+`built_in_reward_cadence` flips.
+
+## Recorder-only pilot (S2 P1)
+
+`config/capture_families.json` block `core_recorder_only` lists at most ten
+**recorder-only** markets the core process records alongside the built-ins: a
+non-built-in id and location, a `highest` series slug prefix, an IANA zone,
+day-aheads 0-2 and band policy `top10_reward_ranked`. The loader refuses built-in ids,
+locations or slug prefixes, family prefixes, duplicates and unknown fields; a bad block
+is journaled once (`recorder_only_config_error`) and the pilot stays off
+(`CONFIG_ERROR`) while the built-in cycle is unchanged. The shipped rows are R1 (the P1
+cities London, Shanghai, Paris, Seoul and Tokyo) and R2 (Munich, Madrid, Beijing,
+Wellington and Hong Kong, id `hong_kong`).
+
+**It lands disabled** (`pilot: "off"`, `rewards_sweep: "off"`,
+`built_in_reward_cadence: "legacy"`): the rows are validated every cycle but nothing is
+captured, so landing changes no built-in record. Switching on after the post-landing
+verification is a config-only change landed through the roll-free path: set `pilot` and
+`rewards_sweep` to `on`; the running recorder re-reads the block on its next cycle (no
+restart). Flip `built_in_reward_cadence` to `event_driven` only after UTC 10-30; it has
+no effect before 2026-10-31T00:00Z.
+
+**R1+R2 on.** Per the owner's 2026-10-23 phase-2 plan (`DECISION_LOG.md` lines 258/259,
+day-1 receipt allowance at line 265) the shipped block sets `pilot: "on"` for all ten
+rows; `rewards_sweep` stays `off` and `built_in_reward_cadence` stays `legacy`. Ten rows
+mean 100 pilot bands and 200 trade tokens, so the `pilot_trades` channel runs two sockets
+of at most 100 tokens. The S2+S9 receipts are measured after the flip; the 24 h receipt for UTC
+11-03 and 11-04 is recorded in the [data layer v2 plan](DATA_LAYER_V2_PLAN.md) (*S2+S9 24 h receipt*):
+pilot within budget, core over the 0.4 total under legacy cadence (the budget applies after the
+`event_driven` flip), built-ins' selection unchanged (separate check 11-05); the receipt is complete.
+
+The pilot shares the core process (owner Q1 via master, 10-15). A failed pilot cycle or
+a failed or closed pilot trade socket is the pilot's own `DEGRADED`; the built-in cycle,
+its reads and its journals continue (tested in `capture()` itself).
+
+Owner Q16 (2026-10-15): these bands are **outside** the 10-01 maker-P&L
+pre-registration's 12-market stratum. Every pilot universe row carries
+`stratum: outside_10_01_maker_pnl_prereg_12_market_stratum`, `lane` and the config's
+`config_sha256`, and every pilot read lands in a pilot partition: `discovery-pilot`,
+`book-<token>` for pilot tokens only, `universe-pilot-<id>`, rewards `-pilot`, and a
+separate trade socket journaling `trades-pilot.jsonl` (channel `pilot_trades`). No
+pilot token joins the raw update stream, `books.jsonl`, `ranking_books.jsonl`,
+`trades.jsonl` or the core discovery journal, so the panel inputs and the update cap
+are unchanged. The pilot runs after the core cycle, is skipped in the Red disk band,
+and any failure is journaled (`recorder_only_cycle_error`) as `DEGRADED` without
+failing the cycle. A test ratchet holds the built-in selection identical with the
+pilot on, sweep off, malformed or absent.
+
+## Capture families
+
+`--family <id>` records one family from
+[`config/capture_families.json`](../../config/capture_families.json) instead of the
+core universe, as a **separate process with its own root**,
+`data/maker_evidence_families/<id>` (the core root and `--extra-conditions` are
+refused). The core 88a root, its discovery captures and every reader of them stay
+unchanged: a lowest-temperature slug inside them would make the pinned exam
+exporter refuse with `unregistered_event`, and the family's reads would share the
+core 55-second cycle.
+
+A family names, per registry city, an event-slug prefix (dates are formed as for
+the core family, in the city's own time zone), its excluded cities with the reason,
+its day-aheads and its bounds. The first family, `lowest_temperature`, covers the 11
+cities the lowest-temperature desk study (2026-10-02) admitted for passive capture;
+Chicago is excluded because its own F1 was falsified.
+
+Each minute a family discovers its events in batches of 12 slugs, keeps **every**
+active condition (no ranking, no reward filter; bound `max_conditions`), and reads
+both tokens' books. Gamma's reward terms arrive with discovery every minute and are
+stored change-only in the selection projection. The full CLOB
+`/rewards/markets/<condition>` record is read when a condition's Gamma terms change,
+when it is new, or after `reward_sweep_minutes`, at most
+`max_reward_reads_per_cycle` per minute (changed first, then oldest). Reward records
+share one journal per family and universe rows one change-only journal per city.
+Universe rows carry the family, Gamma's scalar terms and the latest CLOB record hash
+and rate.
+
+A family opens **no websocket**: trades and raw updates stay with the core recorder
+(at 100 tokens per connection, the lowest-temperature universe alone would need eight
+more sockets). It stops at its own `stop_below_free_gib` floor (70 GiB for
+`lowest_temperature`), above the core Critical brake, so it yields disk before the
+core recorder does. Below the floor it opens no journal; each one-minute retry only
+rewrites `status.json` with `STOPPED_FAMILY_DISK_FLOOR`. Its journals are
+`canonical_evidence` (`passive_capture_family_evidence`).
+
+`scripts/ops/register_maker_evidence_family_capture.ps1 -Family lowest_temperature`
+registers `WeatherMakerEvidenceLowestTemperature` with the same S4U/IgnoreNew/one-minute
+contract. Only the production operator registers it, after integration. The task name
+must be `WeatherMakerEvidence<PascalCaseId>` (the registrar refuses any other): the
+monitor finds each family's task by that name. A new family passes its own `-TaskName`
+and adds its `config/scheduled_tasks.json` row.
+
+**Monitoring.** `weather.reporting.market.capture_family_status` reads every family in
+the config from its bounded `status.json` (never the journals). `status.ps1` prints one
+`FAMILY` line per family (state, status age, conditions against `max_conditions`, free
+space against the family floor, mean request rate, task state) and the cockpit's Health
+column shows the same rows. The alarms are the core recorder's: while the family's task
+is registered and enabled, a missing or unreadable status, a status older than 180 s, or
+any state other than `CAPTURING` is a `CAPTURE_FAMILY` FLAG. **A family stopped at its
+own floor (`STOPPED_FAMILY_DISK_FLOOR`) is a WARN with its reason, not a capture failure**:
+it is yielding disk to the core recorder as designed, and the disk itself is alarmed by
+the disk lines. That floor status is rewritten every one-minute retry, so a stale one
+is still a FLAG (the retries have died). An unregistered or disabled family is
+informational only. The cockpit cannot see the Scheduler, so it holds any family that
+has written a status to the alarms.
 
 ## Storage and brakes
 
@@ -108,6 +279,14 @@ Writes stop before the total uncompressed journal/manifest working set reaches
 and measured peak raw bytes; reaching the bound fails visibly rather than
 silently reducing capture. Verified compression runs in Green, Amber and Red;
 Critical stops capture. Compression delay cannot bypass the raw limit.
+`raw_working_fraction` is the peak against that limit; `status.ps1` warns
+(`MAKER_EVIDENCE_LATCH`) at one half.
+
+The core recorder fsyncs journals in groups (the execution-tape precedent): appends
+mark a file dirty and a flusher syncs dirty files at least every second, and before
+any seal. Three consecutive fsync failures latch the writer and stop capture as
+`STOPPED_STORAGE_FAILURE`. `status.json` `storage` reports appends, fsync calls and
+failures. Family recorders keep per-append fsync.
 
 The v2 writer refuses a legacy v1 root. Preserve legacy evidence and inspect it
 using its original bound reader; start v2 in a new root. There is no implicit
@@ -124,6 +303,49 @@ Windows process priority is IDLE (Scheduler
 priority 10); buffers, reply sizes and universe size are bounded. The worker is
 independent of snapshot/CLOB supervisors and never calls them.
 
+### Torn journal after power loss
+
+At startup `EvidenceStore._recover` replays and seals every segment folder that has
+no `manifest.json`/`manifest.json.gz` (normally only the one the writer had open).
+A hard power loss can leave a journal there with a NUL-filled or partial last line,
+and recovery then refuses to start rather than truncate it. **Detection:**
+`WeatherMakerEvidenceCapture` returns `LastTaskResult` 1 at every PT5M trigger,
+`status.json` goes stale (`status.ps1` flags `MAKER_EVIDENCE`). The task runs
+`pythonw.exe` and persists no traceback; when one is captured it ends in `_recover`
+at `json.loads` (`UnicodeDecodeError` for a NUL tail; a partial line gives
+`JSONDecodeError` or `torn journal or invalid record offset`). Confirm read-only from
+the journal tails in step 1. Incident: host power
+loss 2026-11-02, five `reward-*.jsonl` journals, about six hours dark.
+
+**Procedure** (operator, while the task is failing, so no process holds
+`.writer.lock`):
+
+1. In the unsealed `<UTC-day>/<HH>-<segment-id>/` folder only, list the `*.jsonl`
+   whose tail is NUL bytes or lacks a final newline.
+2. Record each file's SHA-256 and size. Move it byte-exact to
+   `data\maker_evidence_quarantine\<UTC-day>\<segment-id-folder>\` (outside the
+   store root, which recovery globs). Re-hash after the move, and write
+   `QUARANTINE_RECEIPT.json` there with the before/after hashes, sizes, source paths
+   and reason.
+3. `Start-ScheduledTask -TaskName WeatherMakerEvidenceCapture`, or wait for the next
+   trigger. Recovery seals the remaining journals; the quarantined ones are absent
+   from that segment's `manifest.json`. Confirm `CAPTURING` in `status.json` and
+   record the gap in the panel notes.
+
+Never truncate, repair or rewrite a journal, and never touch a sealed segment.
+Quarantined files are retained evidence: never delete them.
+
+The same failure mode also reaches the order-book tapes. Each of four 2026-09-03 `order_books_summary.csv` files
+(austin, dallas and houston at line 1432, nyc at line 6712) has one row whose `capture_id` is a NUL-filled run of
+about 205-212 K characters. The row's other 51 columns are intact, and the bytes are as captured (they match the
+2026-11-06 re-copy's batch 1 sha256 values). This is likely an unclean-shutdown preallocation. Python's `csv` module
+refuses such a row (field limit 131072), which stopped the WS-3 dev projection on 2026-11-06. The workstation's
+byte-level NUL scan of B's 10 markets found NUL lines only on 2026-09-02 and 09-03; its scan hash and per-window
+counts are in [the dated scan report](../roadmap/agent-report-2026-11-06-order-book-nul-scan.md).
+
+WS-3 drops exactly the NUL lines through one pinned shared filter (C14 Clarification 2 in
+`docs/research/ws3-early-warning-prereg-signature-2026-11-06.md`). Never repair the tapes themselves.
+
 ## Commands and registration
 
 From an integrated checkout with the pinned dependencies installed:
@@ -131,12 +353,17 @@ From an integrated checkout with the pinned dependencies installed:
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --help
 .\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --dry-run --duration-seconds 1800 --root C:\scratch\maker-evidence-new-run
+.\venv\Scripts\python.exe -m weather.market.maker_evidence_capture --dry-run --duration-seconds 5400 --root C:\scratch\s2s9-run --recorder-only-config C:\scratch\capture_families-pilot-on.json
 .\scripts\ops\register_maker_evidence_capture.ps1 -WhatIf
 ```
 
-The dry run requires a new scratch root, rejects an active RE-1 preflight/live
-process without opening its files, and reserves one minute for teardown before
-19:45 America/Toronto. The process guard is checked each cycle. It writes the
+The dry run (1,800-5,400 s) requires a new root with a path part named `scratch`, rejects
+an active RE-1 preflight/live process without opening its files, and reserves one minute for teardown before
+19:45 America/Toronto. The process guard is checked each cycle.
+`--recorder-only-config` (dry run only; production reads the default path) points the
+dry run at a copy of `capture_families.json`, e.g. with the pilot, the sweep and
+`event_driven` on to measure S9 before the switch-on; a dry run honours `event_driven`
+before the hold ends because its root is scratch. It writes the
 same evidence as production, using public reads only.
 
 After it stops, the bounded offline inspector verifies every manifest payload
@@ -149,13 +376,40 @@ and incremental update bytes per 30-minute active window. These are observed-win
 extrapolations, not a full-day guarantee. Perform this scratch verification on the workstation; broader
 production-day inspection remains subject to the host load policy.
 
+`python -m weather.market.maker_evidence_disconnects --date <local date>` replays
+only the `stream_lifecycle`, `stream_gap`, `stream_tokens` and `subscription`
+journals (plain or gzip). It reports socket drops by cause, channel and local hour,
+venue close codes, connect failures, orderly stops and session lifetimes, listing
+each input with its SHA-256. It is read-only and opens no connection.
+
+Dark time is judged per token, never per subscription key. A swap rekeys every socket,
+so the earlier per-key figure kept an old key "dark" until that exact token set came
+back: 53,760 s on 2026-09-29, against 283 s with no trade socket connected at all.
+That field (`dark_seconds_by_cause`) had no downstream reader and is removed.
+`coverage_by_channel.<channel>` reports:
+
+- `token_dark_seconds_total`, `per_token_dark_seconds`, `darkest_tokens`: time a token
+  was wanted while no connected session's subscription included it, taking the union
+  across every subscription that contains it. The total is in token-seconds.
+- `token_dark_seconds_by_cause`: that time by the end cause of the session whose end
+  opened the gap. `awaiting_connect` is time a token was wanted before its first
+  covering connect.
+- `all_sockets_down_seconds` and `all_sockets_down_gap_seconds`: time the channel
+  wanted any token while none of its sockets was connected.
+- `wanted_basis`. `stream_tokens_rows` uses the journaled wanted sets.
+  `inferred_from_session_rows` covers journals written before those rows existed: a
+  token stays wanted after its coverage ends only if the channel's next connect round
+  (connects within 10 s of the first) covers it again, or until that round began
+  after a failure. For those journals, all-sockets-down spans the channel's first to
+  last row.
+
 Run the offline compression/integrity inspection through the workstation heavy
 wrapper, which keeps the existing host/principal and shared-lease checks:
 
 ```powershell
 $inspectArgs = @('-m', 'weather.market.maker_evidence_inspect', '--root', 'C:\scratch\maker-evidence-new-run', '--day', '2026-09-23')
 $inspectEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -Compress -InputObject $inspectArgs)))
-.\scripts\ops\workstation_heavy.ps1 -Kind weather_heavy -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 $inspectEncoded -RepoRoot $PWD.Path
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ops\workstation_heavy.ps1 -Kind weather_heavy -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 $inspectEncoded -RepoRoot $PWD.Path
 ```
 
 Only the offline inspector is added to that module allowlist; the network
@@ -179,15 +433,299 @@ freeze (Swarm P audit F2, 2026-10-07).
 and subsequent triggers keep refusing capture until disk recovers. The worker
 never stops another process. `scripts/ops/status.ps1` reads `status.json`, flags
 missing/stale/non-capturing state when armed and displays band count/disk/cap.
+A reader holding `status.json` makes the replace fail on Windows; the recorder retries it
+(5 tries within 2 s) and, if still blocked, journals a WARN `status_write_failed` event, counts
+`status_write_misses` in the next status, and keeps capturing.
 After changing this worker, the production operator must explicitly re-adopt
 its task; it has no effect on the existing supervisors' adoption behavior.
+
+### Explicit restart (88a-R)
+
+Owner Q11 (2026-10-15): new capture families adopt code by explicit restart, with
+running-vs-disk code identity shown in status. The recorder stamps `source_sha256`
+for each `weather.*` module it imported; `status.ps1` compares those with the files
+on disk and reports `maker_evidence_code` (`CURRENT`, `STALE` with the modules, or
+`UNKNOWN`) on the `MAKER` line and in JSON, warning `MAKER_EVIDENCE_CODE` when stale.
+It also prints a `PILOT` line and warns `MAKER_EVIDENCE_PILOT` on `DEGRADED` or
+`CONFIG_ERROR`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\restart_maker_evidence_capture.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\restart_maker_evidence_capture.ps1 -Apply
+```
+
+Report-only without `-Apply`. It refuses outside 00:30-01:00 local, without a
+readable status, when the status pid is not the running core recorder (`--family` or
+`--dry-run` refuse), or while a raw update window is active. `-Apply` stops that
+process only; the task's existing PT5M trigger starts the new one (it never touches
+the Scheduler). It waits up to `-WaitSeconds` (default 420) for a new pid in
+`CAPTURING` and prints a JSON receipt with `gap_seconds` and the identity after.
+Exit 0 only for `RESTARTED_CURRENT`; 2 refused, 3 not restarted, 4 not current.
+Record the gap in the panel notes.
+
+### Torn-journal quarantine tool
+
+`scripts/ops/maker_evidence_torn_quarantine.ps1` performs the torn-journal recovery
+after a hard power loss: it moves the unsealed segment's torn journals byte-exact to
+`data\maker_evidence_quarantine\<UTC-day>\<segment>\` with a receipt, so the next
+recorder start can seal the rest. It is report-only unless `-Apply`. The default root
+is the core `data\maker_evidence`, checked against `WeatherMakerEvidenceCapture`. A
+family root needs an explicit `-Root` and `-QuarantineRoot`, and is checked against a
+task only when `-TaskName` is given. It never starts or changes a scheduled task;
+start the recorder yourself afterwards.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\maker_evidence_torn_quarantine.ps1 -Apply
+```
+
+- It holds byte 0 of `.writer.lock` for the whole pass, refuses while a recorder holds
+  it, and releases it on every exit.
+- Before a writer-alive refusal (`REFUSED_WRITER_ALIVE`: a recorder process for the root, or a
+  sharing or lock violation on `.writer.lock`), it runs a read-only mirror of
+  `EvidenceStore._recover` over the whole store, with shared opens and no writes.
+  - Every unsealed segment, whenever written, is checked record by record: strict UTF-8, a strict
+    JSON object per line, no integer over 4300 digits, the offset chain, the 16 MiB line bound,
+    and an integer `response_bytes` of at most 12 digits on stream records.
+  - Every sealed `manifest.json` or `manifest.json.gz` must parse and name the store schema. A gzip
+    manifest must be one member whose CRC32 and size footer match, with no trailing bytes. A
+    folder named like a manifest, or a legacy `manifest.jsonl*` at day level, is a problem.
+  - Footprint: at most 20,000 journal and manifest paths, and the uncompressed bytes plus an
+    upper bound of every manifest recovery would write when sealing the unsealed segments must
+    stay under the 500 MB bound. Sealing is accounted without the reserve, so a segment with
+    thousands of journals can cross it.
+  - The only exemption is the live writer's own segment: the single newest unsealed segment in a
+    UTC day folder. A partial last line there passes only if the file moves during a 2-second
+    wait. A tail that stays still is torn, which is the crash-looping recorder case.
+  - A tail still partial after the wait but whose length changed also counts as in flight
+    (clean), on movement alone; that partial tail is never verified. This is accepted because
+    only a live writer extends a file. If the writer later dies mid-line, the next run sees a
+    still tail and returns exit 3. The task repeats every minute for 15 minutes after boot, so
+    that run comes within minutes; after the window it is the next boot's run.
+  - The result carries `torn_tail_found`: `true`, `false`, or `null`. It is `false` only when
+    everything was positively verified. It is `null` on any unreadable file or folder, reparse
+    point, record or manifest that recovery would refuse, or more than 64 unsealed segments (only
+    the first 64 are scanned). Lists in the result are capped at 20, with counts.
+  - Any torn tail is `REFUSED_WRITER_ALIVE_TORN` (exit 3), even if other files failed
+    (`torn_tail_scan` then starts `partial:`). A recorder cannot start over it, or something
+    other than a recorder holds the lock.
+- Any other failure to open or lock `.writer.lock` (access denied, I/O) is
+  `REFUSED_LOCK_UNAVAILABLE` (exit 2), never the writer-alive path.
+- It acts only on a single unsealed segment. It moves at most 10 non-empty, non-dot
+  `*.jsonl` without a final newline. Root, quarantine, day, segment and journal must not
+  be reparse points, and root and quarantine must be on one volume.
+- Each move is a same-volume rename with SHA-256 before and after.
+  `QUARANTINE_INTENT.json` is written first and `QUARANTINE_RECEIPT.json` last. A rerun
+  reconciles from the intent. If the receipt failed and the recorder has since sealed
+  the segment, the rerun reports `REPORT_AFTER_SEAL`, and `-Apply` writes the receipt
+  (`RECONCILED_AFTER_SEAL`).
+- `UNRESOLVED` (exit 5, nothing moved) means a NUL inside a newline-terminated journal,
+  quarantined bytes that no longer match the intent, or an intent without a receipt
+  whose source segment is gone.
+- Every no-action (`NOOP_*`) result also reads the task's last result. If it is 1, and
+  newer than that segment's receipt when one exists, the result becomes
+  `TORN_SIGNATURE_UNRESOLVED` (exit 5). Examples: a torn `manifest.json`, or corruption
+  this tool may not move.
+  If the tool's own run coincided with a recorder trigger, this can be a false alarm:
+  start the task and rerun.
+
+Exit codes:
+
+| Code | Results |
+| --- | --- |
+| 0 | `NOOP_*`, `REPORT*`, `QUARANTINED`, `RECONCILED`, `RECONCILED_AFTER_SEAL` |
+| 2 | refused |
+| 3 | `REFUSED_WRITER_ALIVE_TORN`: a writer holds the store and an unsealed segment it is not writing has a torn tail; nothing moved |
+| 4 | failed mid-apply, or `FAILED_HASH_READ`; rerun reconciles, or reports `UNRESOLVED` (hash mismatch) |
+| 5 | unresolved; needs a human |
+| 6 | internal error; lock released |
+
+`-Apply` appends one line per pass to `data\alerts\maker_evidence_torn_quarantine.jsonl`.
+
+### Torn-journal quarantine at boot (Stage 2)
+
+`WeatherMakerEvidenceTornQuarantine` runs the same tool unattended after a reboot (owner yes
+2026-11-02). Master registers it on the capture host only after Stage 1 has landed there.
+**It is not registered until then.** The canonical definition is the checked-in
+`scripts/ops/tasks/WeatherMakerEvidenceTornQuarantine.xml`, and
+`scripts/ops/register_maker_evidence_torn_quarantine.ps1` registers that definition and nothing
+else. The registrar substitutes three values into it: the current user, the checkout root and the
+Windows PowerShell path.
+
+- Trigger: at startup with no delay, then every minute for 15 minutes. The Scheduler repetition is
+  the bounded poll from the design, so the Stage 1 script is unchanged. There is no
+  `StartWhenAvailable`.
+- Settings: IgnoreNew, a 5-minute run limit, and it runs on batteries. Principal: current-user
+  S4U/Limited.
+- Action: `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+  "<root>\scripts\ops\maker_evidence_torn_quarantine_boot.ps1"`. The boot wrapper runs
+  `maker_evidence_torn_quarantine.ps1 -Apply` on the core root in a child PowerShell and passes its
+  exit code through. The one exception is `REFUSED_WRITER_ALIVE` (exit 2: a running recorder or a
+  held `.writer.lock`). It becomes 0 only when the same JSON says `torn_tail_found` is `false`, that
+  is, the recovery-mirror scan verified the whole store. A missing or `null` value stays 2, and
+  `REFUSED_WRITER_ALIVE_TORN` stays 3. Family roots stay operator-run.
+- Behavior on a normal boot:
+  - Before the recorder starts, a run classifies under the lock and moves torn tails, if there are
+    any.
+  - The recorder's next PT5M trigger then seals the rest. This task never starts the recorder
+    itself.
+  - Once the recorder is up, it has sealed every older segment and writes only its own. Every
+    later run is then a clean `REFUSED_WRITER_ALIVE` mapped to 0, so the window ends with
+    `LastTaskResult` 0. Each such run reads the live segment once (up to the 100 MB rotation size)
+    and, if its tail is mid-write, waits 2 seconds.
+- Collision with the recorder's first start, which is likely: the recorder task has
+  `StartWhenAvailable`, so its catch-up start falls near the boot trigger. A quarantine run holds
+  the lock for a few seconds.
+  - If the recorder starts during that hold, it refuses ("already has a writer") and retries 5
+    minutes later.
+  - Meanwhile the next quarantine run reports `TORN_SIGNATURE_UNRESOLVED` (exit 5).
+  - The first run after the recorder is up returns 0 again. Capture starts at most one PT5M
+    interval late.
+- Race: the recorder starts first over a torn segment, or crash-loops on one (killed mid-write
+  after boot, then refused by recovery at every start), or something else holds the lock.
+  - Each quarantine run that sees a writer alive (process or lock) and a still torn tail returns
+    `REFUSED_WRITER_ALIVE_TORN`, exit 3, and moves nothing. Boot time plays no part, so Fast
+    Startup does not matter. `status.ps1` flags `WeatherMakerEvidenceTornQuarantine 0x3
+    unexpected`.
+  - The recorder then fails in recovery and releases the lock, and the next run quarantines. A
+    later 0 clears the flag.
+  - If 0x3 is still the last result after the window, the recorder kept winning the race.
+    Operator: confirm `REFUSED_WRITER_ALIVE_TORN` in
+    `data\alerts\maker_evidence_torn_quarantine.jsonl`. Wait until no recorder process runs for
+    the core root, which is the case while `WeatherMakerEvidenceCapture` is failing. Then run the
+    tool by hand, report-only and then `-Apply` (see the tool section), and start the recorder task.
+  - A scan that cannot verify the store (`torn_tail_found` `null`) stays exit 2 and is flagged the
+    same way. Read `torn_tail_scan` and `torn_tail_scan_problems` in the alert row. The problem
+    names the file and the record offset that recovery would refuse; treat it as the manual
+    torn-journal procedure, not as something this tool moves.
+- Timeout overlap. At the PT5M limit, Task Scheduler may end only the wrapper and leave its Stage 1
+  child running.
+  - The next run sees that orphan's lock as a live writer. While a torn tail remains, that
+    is exit 3. Once the orphan has moved the tails, it is a clean refusal mapped to 0, which hides
+    the overlap.
+  - The orphan still holds the lock, finishes or fails on its own, and appends its own log line.
+  - A Stage 1 pass normally takes seconds. If the task history shows a timeout (run terminated at
+    the limit), look for a leftover `maker_evidence_torn_quarantine.ps1` process and read its log
+    line once it ends.
+- A non-zero last result shows in `status.ps1` like any `Weather*` task. A non-zero result at the
+  end of the 15-minute window stays visible until the next boot and needs a human. That covers
+  exit 2 (cap, several unsealed segments, volume or reparse refusals, `REFUSED_LOCK_UNAVAILABLE`,
+  an unverified writer-alive scan), 3, 4, 5 and 6. Read
+  `data\alerts\maker_evidence_torn_quarantine.jsonl`.
+
+Registration (production agent only, never on the workstation):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\register_maker_evidence_torn_quarantine.ps1 -ExpectedSourceTip <full tip> -ExpectedScriptSha256 <sha256 of maker_evidence_torn_quarantine.ps1> -ExpectedBootWrapperSha256 <sha256 of maker_evidence_torn_quarantine_boot.ps1> -WhatIf
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\register_maker_evidence_torn_quarantine.ps1 -ExpectedSourceTip <full tip> -ExpectedScriptSha256 <sha256 of maker_evidence_torn_quarantine.ps1> -ExpectedBootWrapperSha256 <sha256 of maker_evidence_torn_quarantine_boot.ps1>
+```
+
+- `-WhatIf` prints PowerShell's own `What if:` line, one JSON plan line and then the exact XML. It
+  touches nothing: no host check, git call or Scheduler call.
+- Both modes refuse when the Stage 1 script or the boot wrapper does not hash to its pin.
+- Without `-WhatIf`, the registrar refuses unless all of the following hold: it is on the
+  dedicated capture host, the checkout is at `-ExpectedSourceTip` with no tracked change, and no
+  task of that name exists. It never replaces a task: an access or service error on the existence
+  check stops it, and `Register-ScheduledTask` runs without `-Force`.
+- After registering, it reads back the action, trigger, principal and settings.
+  - On any mismatch or readback error it disables the task, proves `Settings.Enabled` is false, and
+    fails.
+  - If disabling fails, the error says so and the task must be disabled by hand.
+  - On success it prints the exported XML and its SHA-256 for the record.
+- The action runs the checkout's scripts. A later merge that changes either script changes what
+  runs at boot, with no re-registration. Every log line records the running Stage 1
+  `script_sha256`.
+- Undo: `Disable-ScheduledTask -TaskName WeatherMakerEvidenceTornQuarantine` (an owner decision,
+  like the registration).
 
 The central schema registration is additive. Its shared-registry placement
 means deployment must use the repository roll-verdict tool; independence of
 the worker does not itself prove the entire branch roll-free.
 
+## Counterfactual fill tape (item 330 build 2 input)
+
+`weather.market.maker_counterfactual_tape` is an offline, read-only reader of
+sealed 88a days. It writes the COUNTERFACTUAL quote-minute and fill tape that
+the item 330 build 2 toxicity fit (`maker_core.replay.toxicity`) consumes. It
+is not imported by the capture worker, so it is roll-free. It is on the
+workstation-heavy offline allowlist. On the capture host it runs only as the
+night job `cftape_host_run.ps1` (claude/night-plans), under the shared lease,
+with the same slot, caps and exit codes as FC-11.
+
+```powershell
+python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog-strictly_through --fill-rule strictly_through --dry-run
+python -m weather.market.maker_counterfactual_tape export --root <88a root> --out-dir C:\cftape-out\backlog-strictly_through --fill-rule strictly_through --max-days 1 --deadline <iso> --code-commit <head>
+python -m weather.market.maker_counterfactual_tape to-jsonl --tape-dir C:\cftape-out\backlog-strictly_through --maker-side YES --output <new file>.jsonl [--settlement-json <file>]
+```
+
+**Fill rule per run.** Each run uses one `--fill-rule` (default `at_price`),
+recorded in every receipt. A backlog holds one rule: `export` refuses (exit 2)
+an `--out-dir` that already holds day receipts of the other rule. The host
+wrapper writes `backlog-<rule>`, so the two rules are two runs. Build 2's
+default fit uses `strictly_through` (print < bid); `at_price` (print ≤ bid) is
+its declared sensitivity. `print_side` is the print's recorded aggressor (taker)
+side, kept as is; a resting BUY is hit by an aggressor SELL.
+
+**Embargo and reads**
+- Only dates on or before 2026-09-29 are read. A day folder's date comes from
+  its name. Folders dated 2026-09-30..2026-10-15, or after `--max-date`, are
+  never listed, stat'ed or opened. A `--max-date` after 09-29 is refused
+  (exit 2).
+- Inside an allowed day, a universe band whose event date (from its slug) is
+  after 09-29 is dropped before any of its `book-<asset>` journals is opened.
+  Its prints are parsed and discarded. Both are counted in the day receipt.
+- Inputs are opened read-only with share read/write/delete.
+  `.writer.lock` and `status.json` are never opened, and no lock is taken.
+- An unsealed segment is listed and counted, never read.
+- Every journal is checked against its manifest: decompressed bytes and SHA-256.
+- A damaged segment (unreadable file, bad or truncated gzip, manifest
+  mismatch) fails only its own day: that day gets a mismatch receipt and stays
+  unsealed, and the run continues.
+
+**Output**
+- Output goes under an `--out-dir` outside `data\` and outside the 88a root:
+  - `tape/utc_day=<D>/cf_minutes.parquet` and `cf_fills.parquet`, zstd;
+  - `receipts/<D>.json`, which records input segments with manifest SHA-256,
+    dispositions, row counts, the SHA-256 and bytes of each output, module
+    SHA-256 and commit;
+  - `run_receipt_<stamp>.json`.
+- Files are create-only. A day without a receipt is an interrupted attempt; its
+  leftover tables are renamed `*.orphan-<stamp>`.
+- Only a day whose checks all match is sealed. A mismatch writes
+  `receipts/<D>.mismatch-<stamp>.json` and is redone after the
+  never-attempted days.
+- `--dry-run` lists folders and reads directory-entry sizes only. Its output
+  estimate is an unmeasured placeholder.
+- Rollback: delete the output folder. Nothing else is written.
+
+**Record semantics.** The tape is per UTC day. It never reads a neighbouring
+day, so a minute that would start after midnight, and a mark due after
+midnight, are omitted and counted. A token's 88a book snapshot captured at `c`
+opens the exposure minute `ceil_minute(c)`.
+
+| Field | Semantics |
+| --- | --- |
+| `cf_minutes` row | One per token and minute. It is a hypothetical resting BUY of 20 shares at that token's best bid. The first snapshot in a minute wins. A row needs `0 < bid < 1`. Its context is taken at `c`. |
+| `cf_fills` row | The first `last_trade_price` print on the token in `[minute, minute + 60 s)` that crosses the bid under the run's rule (`maker_core.shadow.paper.crosses`): `at_price` print ≤ bid, `strictly_through` print < bid. `size = min(print size, 20)`, and `crossing_prints_in_minute` counts every crossing print. Prints repeated by overlapping connections count once. |
+| Context | Trailing only, as in build 2's `toxicity_features.weather_fill_context`. Imbalance and depth come from the latest YES book no more than 120 s old, summing all levels. `last_print_size`, `burst_prints` (1 s) and `sweep_bands` (60 s, distinct conditions of the event in the 88a universe) come from prints strictly before the instant, as build 2's `FillContext` requires (4ae3602fa): the fill's own print, and any print at or after the fill instant, are excluded. A fill's book is also strictly before the fill; a minute's book is its quote snapshot at the context instant. `horizon_days` is the event date minus the market-local date. Close is the end of the local event day. |
+| Weather fields | Scheduled print, model cycle and decided probability are null. `station` lets a workstation step add the scheduled-print clock. |
+| Marks | Marks `1m`, `5m` and `30m` are the first two-sided YES snapshot in `[fill + h, fill + h + 120 s]`, at mid. |
+| `settlement_p_yes` | Null in the tape. `to-jsonl --settlement-json` supplies `{condition_id: {"p_yes", "observed_at_utc"}}`; build 2 requires the observation time, dates it against the embargo, and refuses one before the fill, so a settlement read on 09-30 or later cannot enter the fit. The adapter withholds the settlement label (the fill is kept with `settlement_p_yes` null, so the exposure-minute hazard is unbiased) when none is given, when it was observed before the fill, or when it was observed on or after 09-30, and counts each reason in the create-only `<output>.receipt.json` (`fills_settlement_withheld`, `fills_with_settlement`). |
+
+**Build 2 mapping.** `to-jsonl` writes build 2's neutral records:
+
+- columns `ctx_*` map to `context.*`, and `ctx_ft_*` map to
+  `context.feature_times`;
+- `mark_<h>_*` map to `marks`;
+- `quote_price` maps to fill `price`, on the maker token's axis.
+
+Build 2 keys exposure minutes by `(condition_id, minute_utc)`, so one JSONL
+file holds one `--maker-side`. The tape keeps both sides. Before a table is
+read, the adapter checks its SHA-256 against the day receipt. Any record date
+after 09-29 is refused.
+
 ## Update when
 
 Update with selection, endpoints, timing, CLI, byte/disk brakes, storage,
-registration or status changes. Verify with the focused maker-evidence tests,
+registration, status, restart, reward-trigger, recorder-only or capture-family changes. Verify with the focused maker-evidence tests,
 import architecture, storage/schema tests and the required timed scratch run.

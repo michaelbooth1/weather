@@ -18,6 +18,18 @@ DEFAULT_REPORT = data_path("backtest", "config_inventory_report.md")
 DEFAULT_LOCATIONS_MAX_AGE_DAYS = 7
 
 CONFIG_POLICIES = {
+    "weather_universe_rule_pins.json": {
+        "owner": "weather.market.universe_rule_contract",
+        "classification": "reviewed_rule_contract",
+        "freshness_policy": "review_each_rule_variant_or_city_family_binding_change",
+        "max_age_days": None,
+    },
+    "weather_universe.json": {
+        "owner": "weather.market.weather_universe",
+        "classification": "generated_inactive_registry",
+        "freshness_policy": "regenerate_from_reviewed_public_rules_and_station_inputs",
+        "max_age_days": None,
+    },
     "scheduled_tasks.json": {
         "owner": "weather.operations.operating_reference",
         "classification": "hand_authored_registry",
@@ -60,6 +72,12 @@ CONFIG_POLICIES = {
         "freshness_policy": "review_when_station_or_provenance_changes",
         "max_age_days": None,
     },
+    "venue_rule_stations.json": {
+        "owner": "weather.backtesting.venue_rule_labels",
+        "classification": "hand_authored_registry",
+        "freshness_policy": "add_a_dated_entry_when_the_venue_station_changes",
+        "max_age_days": None,
+    },
     "no_market_extra_locations.json": {
         "owner": "weather.reporting.location_analysis.extra_location_registry",
         "classification": "local_shadow_registry",
@@ -76,6 +94,12 @@ CONFIG_POLICIES = {
         "owner": "weather.execution_host",
         "classification": "single_active_execution_host_registry",
         "freshness_policy": "review_and_merge_for_each_executor_reassignment",
+        "max_age_days": None,
+    },
+    "capture_families.json": {
+        "owner": "weather.market.maker_evidence_family",
+        "classification": "hand_authored_registry",
+        "freshness_policy": "review_with_desk_study_go_or_family_scope_changes",
         "max_age_days": None,
     },
 }

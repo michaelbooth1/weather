@@ -16,6 +16,18 @@ alarms · §4 backlog and branch traps · §4a maker-economics traps · §5 how 
 
 ## 1. Retracted model claims
 
+### "Never weaken the floor" permits hard-zeroing every lower observed bucket — SUPERSEDED
+
+The historical floor improvement did not license zeroing an outcome possible under a different
+dated resolution rule. The clarified contract is: **hard-zero only outcomes impossible under the
+event's dated resolution rule and admissible observations** (B022; [domain context](AGENT_CONTEXT.md)).
+T032 traces SPECI-inclusive serving against routine-only labels: 15/671 dev station-days (2.24%)
+have a higher rounded maximum, with real Atlanta 94°F versus routine-only 92°F. Under the rule from
+10-23 this can zero the eventual winning band; it does not relabel the pre-cutover Atlanta payout.
+Labels exclude SPECI and select accepted COR; a real max-changing COR pair and incidence remain
+unmeasured, with the census PARKED. F0/F2 book pricing has no direct floor exposure. The serving
+repair is roll-sensitive and undone. Source: `C:\archive\reviews\T032\TRACE.md`; EF §10bb.
+
 ### The 24.69% absorption claim — RETRACTED
 
 Published, then found to **cross zero under crossed date x market clustering**. It was produced with
@@ -55,10 +67,46 @@ not the centre mechanism. The actual mechanism is floor truncation (`ESTABLISHED
 
 On the clean regime it is **1.24x**. The larger figure came from windows mixing artifact regimes.
 
-### "Recalibration will close the gap" — FALSE BY DECOMPOSITION
+### "Recalibration will close the gap" — OLD EXPLANATION SUPERSEDED
 
-98.88% resolution / 1.12% reliability. There is almost no calibration error left to harvest. The gap
-is information. Calibration work is not a path to edge.
+The earlier explanation was: "98.88% resolution / 1.12% reliability. There is almost no calibration
+error left to harvest. The gap is information. Calibration work is not a path to edge."
+**Superseded 2026-08-09 by `-09-56a`** ([EF §1c](ESTABLISHED_FINDINGS.md#section-index)): the tested
+monotone families recover at most about 16.5% (16.494%) of the historical B/C Brier gap; the interval
+includes zero. The old split is a different panel/estimand and is not a standing prohibition.
+This bound is not universal over calibration or economic policies, and that surface is tainted for
+post-10-09 claims (register §1 row 3). **A score kill is not a statement about trading profit.**
+The tested workstream stays closed. T016 confirmed the stale paragraph; T029 checked the source
+identities, without rerunning outcomes: `C:\archive\reviews\T016\VERIFY.md` #10;
+`C:\archive\reviews\T029\REVIEW.md` §3.
+
+### "Forecast accuracy is the product outcome; superiority must precede maker trials" — SUPERSEDED 2026-11-05
+
+EF §0c hardened the August forecast aspiration into a project-wide sequencing rule. The owner's
+11-05 ~21:50 [DECISION_LOG](DECISION_LOG.md) row defines edge as profit in an accurately simulated
+fair trial, including maker/reward profit; ~22:03 approves the plan. Forecast scores remain component
+diagnostics and independent controls, not authorization or veto for a capital-bounded executable
+policy's economic trial. The historical wording remains labelled in EF §0c. Trace:
+`C:\archive\reviews\T029\REVIEW.md` §§1, 3, rank 7; no other owner proposal is adopted here.
+
+### "Score kills prove no tradable lever or that all free information is priced" — OVERGENERALIZED
+
+X92 rejects the specified 5%-Brier-sized market-reliability effect on three US11 dev arms; it does
+not test executable-price profit. R28a's 0.2236 score threshold likewise is not a cash threshold.
+X31/X32 are underpowered; X35 is a gate closure with an interval reaching its reference effect;
+unrun family extensions are scheduling/rule dispositions, not empirical nulls. **A score kill is not
+a statement about trading profit.** Keep numbers, study closures and reopen conditions; distinguish
+no demonstrated gain, a precise null at a named effect, UNTESTABLE and CLOSED-BY-RULE. Sources:
+`C:\archive\reviews\T013\REPORT.md` #10; `C:\archive\reviews\T029\REVIEW.md` §3; register §6.
+
+### "Later information can only flatter a model, so its null is firmer" — FALSE IN GENERAL
+
+A misspecified predictor can get worse on a later input; receipt selection can change the sampled
+distribution. A particular paired correction may show optimism, but it supplies no monotonicity
+theorem for other models, filters or economic policies. MG-2 and MG-1 sharing snapshot keys does
+not give them identical information sets. Preserve the recorded results and bound test rules;
+date any deployability claim by actual receipt. Sources: `C:\archive\reviews\T013\REPORT.md` #11;
+`C:\archive\reviews\T029\REVIEW.md` §3; EF §10ba.
 
 ### "Production served 0.0 on the realized band" (Denver 2026-06-08) — REPLAY ARTIFACT
 
@@ -185,6 +233,52 @@ untested. It fooled us because the reports sat on unmerged branches whose ids we
   guidance-shaped input looked like a lead. Score a source as a paired increment over the best no-source or captured-data
   control.
 
+### R-D blend "a 07-12 win for the NBM family" — WRONG INCUMBENT, SUPERSEDED (2026-10-25)
+
+- **What it looked like:** lane L2's R-D, a walk-forward hour-wise blend of MG-1 and P3d_N_fix, beat MG-1 at 07-12 by
+  −0.0467 [−0.0665, −0.0257] (crossed [−0.0835, −0.0134]) with every hour below 0, a pre-registered WIN.
+- **What is true:** MG-1 is not the composite's pre-13 arm; L6 (MG-1 plus the own-observation stack) is. Re-asked
+  against L6 under R-F, both blends are NULL: blend(MG-1, P3d_N_fix) − L6 +0.0243 [−0.0033, +0.0523] and
+  blend(L6, P3d_N_fix) − L6 −0.0096 [−0.0187, +0.0003]. No Clarification was written. `ESTABLISHED_FINDINGS.md` §10af.
+- **Why it fooled us:** the comparator was the family's historical reference, not the arm actually in the candidate.
+  Score every rung against the strongest incumbent that would be replaced.
+
+### "A season-matched P3d_N beats MG-2 at 13-16 by about 0.05" — WRONG COMPARATOR, RETRACTED (2026-10-27)
+
+- **What it looked like:** SM-N (the P3d_N spec refitted on Oct-Dec 2021-25 rows) beat "MG-2's P3d_N" at 13-15 by
+  about 0.05 Brier (SM_N − P3d_N −0.0519 [−0.0590, −0.0454], reported beside SM-H's row 48), and was flagged as a
+  season-matched gain MG-2 was missing at 13-16.
+- **What is true:** the comparator was the dev state `dff5d797…`, which was never bound. Against MG-2's served arm
+  (P3d_N_fwd through the `c6cc39f7…` state) SM-N is worse: +0.00356 [+0.00185, +0.00523] at 13-16 (C10-sel rule
+  `8c59c1b6…`, DEV_WINDOW_LEDGER row 50 on `claude/l2-dev-ledger-rows-20261026`). The season gain is already in
+  `c6cc39f7` (P3d_N_fwd − dev state −0.0569 [−0.0631, −0.0505]). C10 was opened and not adopted. SM-H's own −0.0669 was
+  against the same dev state; re-decided against the served arm it is −0.01273 [−0.01625, −0.00936] (row 51).
+  `ESTABLISHED_FINDINGS.md` §10al; register X40.
+- **Why it fooled us:** the same shape as the R-D blend: the comparator was a convenient state of the family, not the
+  arm actually served. Score every candidate against the bound, served state it would replace.
+
+### "Toronto has no NBM guidance" — SOURCE PROPERTY CONFUSED WITH CAPTURE SCOPE, RETRACTED (2026-10-26)
+
+- **What it looked like:** the exhaustion register (S1 "no coverage", S13 "Toronto has no NBM", §5 order 12 "because it
+  has no NBM") and EF §10h's "none for Toronto" read as a fact about the sources.
+- **What is true:** the NBP bulletin carries CYYZ ("CYYZ NBM V4.1 NBP GUIDANCE"), the NBS and NBH bulletins carry CYYZ,
+  and HRRR's CONUS grid contains it. Only production's NBM-family capture is US-only (lever inventory F1; the
+  replay ablation files NBM under the `official_us_guidance` family). Toronto has never had an NBM-family guidance control because nothing captured
+  one, not because none exists. [Lever inventory](LEVER_INVENTORY_2026-10-26.md) F1 and row 1.
+- **Why it fooled us:** "absent from our capture" was written as "absent". State coverage as a property of the capture
+  and check the source's own station list before calling a market uncovered.
+### Dead-bucket stage A "$0.37/day, worth a forward paper test" — LOOK-AHEAD, RETRACTED (2026-10-25)
+
+- **What it looked like:** lane L11's stage A (rule r2, 13-16 local, 08-10..09-29) bought NO on buckets the observed
+  running max had already killed and showed $0.37/day [0.12, 0.69] on 57 trades, lower CI above 0.
+- **What is true:** the code dated a bucket's death at the METAR's observation time plus an assumed 10 minutes, not at
+  when the capture held the report. Re-dated by receipt (rule r4, `fac8cd72…`), the same mechanism gives
+  **$0.03/day [0.00, 0.09] on 21 trades**; Toronto under r4 gives $0.00 on 0 trades. The 57 trades were the late-receipt
+  tail: the book rows were read before the system had the killing report. The mechanism is closed fleet-wide.
+  `ESTABLISHED_FINDINGS.md` §10ad; [stage A results and audit](../research/market-blend-l11-2026-10-25/results-deadbucket-stage-a.md).
+- **Why it fooled us:** "observed at or before the book row" was checked; "received at or before the book row" was
+  assumed. Date every input by its receipt in the capture. The same audit found P3d_N's `last_in_hour` emitter (§10ad).
+
 ---
 
 ## 2. Statistical traps
@@ -237,6 +331,16 @@ same way.
 **Always deduplicate to `(market, target_date)` and then apply `promotion_countable`.** A
 support figure that was not deduplicated is not a support figure. This is the same family as the
 mismatched-denominator error that produced the retracted 78% absorption "leak".
+
+### "EF §10r's σ_d of 4.713 is a per-band SD, so more bands a day shrink the error" — FALSE
+
+- **What it looked like:** σ_d is quoted "per band-day".
+- **What is true:** it is the sample SD across 4 dates of the date-mean per-band-day profit. Its 30-date SE
+  (about 0.86 per band-day) is correct; converting it into a count of independent band-days is not. At the
+  owner's 3% weekly hurdle (about 0.107 per band-day at 12 a day) it implies about 11,963 dates, not
+  band-days. A091's separate current-position proxy still leaves a 30-date confirmation about 11% one-sided
+  power for 0% against 3%. `ESTABLISHED_FINDINGS.md` §10r, §10bg; A091 §7 F7, §11.
+- **Why it fooled us:** the unit in the label was read as the sampling unit.
 
 ---
 
@@ -389,15 +493,47 @@ reporting a **downstream block**, not a task fault.
 | Task | Result | What it actually means |
 | --- | ---: | --- |
 | `WeatherTrainingWindow` | **2** | `training_window.log`: `[RETRAIN] promoting non-success nightly status to window exit 2`. The nightly retrain is blocked by the season window (0 / 12,600 cells). Capture stops and is restored — on 2026-08-06 in **20 seconds**. |
-| `WeatherDailySettlementPromotionRefresh` | **1** | The chain errors at `settled_day_analysis_barrier`, which is the documented, expected stop. |
+| `WeatherDailySettlementPromotionRefresh` | **2** (was 1 before the lane split) | Stage A completes with status `critical`: the promotion lane is `BLOCKED` (`live_variant_settlement_scorecard` blocked, `promotion_lane_blocked`), and the first blocker is `settled_day_analysis_barrier` with `result_status` `DIAGNOSTIC_ONLY`. The learning lane still runs. |
 
-`WeatherTrainingWindow` will report **2 every night until the season window lands**, and the chain
-will report **1 every day until `-09-29a` merges.** Neither number changing is progress; neither
-number staying is an incident.
+`WeatherTrainingWindow` will report **2 every night until the season window lands**. The Stage-A
+chain will report **2 on every target day that has a settled label which is not promotion-countable**.
+Neither number changing is progress; neither number staying is an incident.
+
+**Why Stage A exits 2 (checked in code 2026-10-14; seen daily 10-09..10-13).** It is not the reserved
+confirmation window or the scoring embargo: nothing on this path reads a date range.
+- The barrier reports `DIAGNOSTIC_ONLY` when any selected settled label for the target date is not
+  promotion-countable (`daily_refresh_settled_day.py`, `_label_countability_from_freshness`). One market
+  is enough.
+- A label counts only if its material-coverage grade is `strict_complete`, `minor_gap_material` or
+  `manual_override`, and its WU settlement reconciliation is `match` (`settlement_ledger.py`,
+  `promotion_countability`, `material_coverage_grade`). Grades that fail include `decisive_gap`,
+  `low_capture_ratio`, `insufficient_captures`, `stale_source`, `sparse_settlement_source`,
+  `missing_tape` and `missing_settlement`.
+- The promotion gate accepts only `PASS` from the barrier (`daily_refresh_registry.py`,
+  `action_statuses`), so the promotion lane is `BLOCKED`.
+- A blocked promotion lane makes the run `critical`, and `critical` exits 2 (`daily_refresh.py`, run
+  status; `daily_refresh_cli.py`, `exit_code_for_status`). [Operations design](OPERATIONS_DESIGN.md)
+  documents that "a blocked settled-day barrier ... still yields a completed, critical Stage-A manifest".
+- No end date can be derived from code. The barrier clears only on a target day whose labels are all
+  countable; after that, the other promotion gates still apply.
+
+Exit 2 is expected only when the run status is `critical`, `errors` is empty, there are no contained
+step errors, and the first promotion blocker is the barrier's `DIAGNOSTIC_ONLY` verdict. Treat these as
+real faults: exit 1 (`error` or `unreadable`), the status `deferred` or `interrupted` (also exit 2), a
+barrier `BLOCK`, or a blocker on another step. Which markets failed, and why, is in the barrier's
+`label_countability.material_coverage_blocked_sample` (or its `reason`). That is settlement data: honour the
+[reserved confirmation window](reserved-confirmation-window.md) before reading it for a reserved date.
 
 **The distinguishing evidence is the log, not the exit code.** For the training window, check that
 `[RESTORE]` lines follow the `[STOP]` lines in `data\logs\training_window.log` — that is the only
 part that can cost a streak day. If capture was restored, exit 2 is a healthy run.
+
+**Correction (master ruling R18, 2026-11-01): Stage-A rc 2 has four cause classes; read the manifest's
+`first_blocker` code, not the exit code.** (1) Barrier `DIAGNOSTIC_ONLY` = by design (above). (2)
+`exchange_economics_rule_drift` = a real fault, failing since about 2026-10-20, not 10-08 (10-08 was a separate
+episode, closed by the 10-10 matcher merge). (3) `settlement_source_audit` `BLOCK` = a real fault; the cause is
+ruled per case. (4) A transient pre-step deferral = a real fault, fixed by the pre-step retry (`cd93c4e7`). The
+`WeatherTrainingWindow` "2 every night" row above is stale: the task has been Disabled since its 2026-08-13 run.
 
 ### "A live PID proves it still owns an old lock" — FALSE UNDER PID REUSE
 
@@ -445,6 +581,25 @@ the collision as designed.
   hypothesis to trace, not a finding.
 - **Why it fooled us:** two alarms that co-occur invite a causal arrow. Only 2 of the 10 dates have a
   provable cause at all, because the chain's status file is overwritten daily.
+
+### "`scoring_seen = false` means a cheap-arm band did not score" — FALSE
+
+- **What it looked like:** the legacy session summary `scoring_seen` read false on cheap (one-leg) bands on
+  2026-11-13.
+- **What is true:** the summary requires exactly two active order ids (`re1_attended.py:383`), so a one-leg
+  band reads false while its order scores. 2,912 of 2,916 per-order minute `scoring` observations were true.
+  Use per-order scoring; a strategy-aware flag is the pending fix. `ESTABLISHED_FINDINGS.md` §10bg; A091 §3, §10.
+- **Why it fooled us:** a two-leg summary field outlived the arm design.
+
+### "Austin's `per_band_daily_filled_cap` retirement below $30 of fills is a cap bug" — FALSE
+
+- **What it looked like:** on 2026-11-13 the Austin band retired on the $30 cap with gross fills well under 30.
+- **What is true:** the cap is prospective: gross filled basis + same-city live reserves − the replaced own
+  reserve + the full proposed 20-share treatment must be ≤ 30 (`lfc_f2_breadth.py:133-165`). The refreshed
+  pair's reserve did not fit the remaining headroom, so the reload was correctly refused. There was no
+  overspend or arithmetic defect, and it is not a 30-share cap. The fix is reason text that prints filled,
+  resting, proposed, cap and headroom. `ESTABLISHED_FINDINGS.md` §10bg; A091 §9.
+- **Why it fooled us:** a short label hid the prospective term.
 
 ---
 
@@ -524,6 +679,38 @@ the outcome, not the vocabulary of the modules near it.**
 
 ## 4a. Maker-economics traps
 
+### "Conservative fills or f imply conservative net profit" — FALSE IN GENERAL
+
+Removing a losing fill can increase profit and leave simulated rewards accruing; removing a winning
+fill does the reverse. Queue, complementary-token executions, inventory, cash and reward response
+must form a coherent policy path. A reserve proportional to filled purchase cost is not the latent
+informed-fill fraction and cannot cover an omitted fill. Anonymous L2 reward scenarios do not form
+a universal two-sided bracket or model the competition our posting induces. These are analytical
+and source-trace findings, not measured loss rates. Sources: `C:\archive\reviews\T013\REPORT.md`
+#1, #4; `C:\archive\reviews\T014\REPORT.md` F02–F05, F07–F08; `C:\archive\reviews\T023\PLAN-TO-VERDICT.md` §2.
+
+### "Accuracy PASS, cleanup or exit 0 certifies the whole experiment" — FALSE
+
+T014's reviewed gate did not compare predicted cash, positions, settlement and net P&L; receipt
+reconciliation was narrower than predictive validation. T021 separates those claims and conditional
+lifecycle arithmetic, with missing/unsupported dependencies retained as NQ. T022 found cleanup
+could omit fill evidence. T024 retained an interruption witness with exit 0 and a FAIL receipt;
+T026's archived handback reports wallet PASS despite a missing holding. Preserve the failing attempt
+and exact pin; a later review or source fix is not evidence of deployment. Sources:
+`C:\archive\reviews\T014\REPORT.md` F01, F14, F18–F19; `C:\archive\reviews\T021\REVIEW.md` F02, F07, F14;
+`C:\archive\reviews\T022\REPORT.md` F05; `C:\archive\reviews\T024\REPORT.md` F1;
+`C:\archive\reviews\T026r1\last.md`.
+
+### "Recorder configuration or cloud hosting proves usable evidence" — FALSE
+
+T018's desired workload exceeded its fixed request budget, with memory/disk/shutdown gaps and weak
+coverage predicates. Cadence targets, a live process and sampled RSS are not proof of valid complete
+books or bounded shutdown. T027's cloud traffic/cost scenarios are planning evidence; hosting does
+not repair scheduling or qualify a strategy. T028's MRMS path emits no weather rows, while its
+"marine dark" narrative conflated capture with a disabled training sidecar. Sources:
+`C:\archive\reviews\T018\REPORT.md` B1–B6; `C:\archive\reviews\T027\CLOUD.md`;
+`C:\archive\reviews\T028\DATA-SOURCES.md` D8–D9. No successor or present runtime is certified here.
+
 ### "Liquidity rewards are about $16 a day — a subsidy, not a business" — TRUE FOR 2026-06-13, STALE SINCE (2026-09-19)
 
 - **What it looked like:** `MARKET_MAKING_PLAN.md` Part 0 measured about $1 per event per day and
@@ -540,10 +727,75 @@ the outcome, not the vocabulary of the modules near it.**
 - **What this does NOT say:** that the July verdict was wrong — its input is stale, and its first leg
   (a reward-qualifying two-sided quote does not fit the 10 pUSD band cap) is unchanged. Nor that the
   pool is income: it is shared by Q-score, **our share is unmeasured**, no paid reward has ever been
-  observed, and the unit is unconfirmed by any paid epoch.
+  observed, and the unit is unconfirmed by any paid epoch. *Update 2026-11-14: a paid reward has since been observed
+  (UTC 09-24, k ≈ 1.05 against the model, EF §10m), which confirms the unit; our live share is measured per session
+  (EF §10m, §10bg).*
 - **Why it fooled us:** a dated measurement hardened into a constant. Every later document cited the
   conclusion, nobody re-opened the input, and nobody summed a column we collected daily. Pattern 4 in
   `HOW_WE_GET_THINGS_WRONG.md`.
+
+### "A paired-arm fill locks the quoted spread" — TRUE ONLY WITHIN ONE QUOTE CYCLE (2026-11-14)
+
+- **What it looked like:** the paired arm posts YES and NO 1.5 or 2.5 c from the mid, so a both-leg fill
+  seemed to lock about 2 × offset per pair (the F2 going-in ledger's C8 arithmetic).
+- **What is true:** the lock holds only if both legs fill at the same quoted pair. On 2026-11-13 Austin's YES
+  filled at 0.24 and, about 101 minutes and several requotes later, its NO at 0.76: ten complete pairs at
+  total cost 1.00 per pair, zero locked trading profit, and ten unpaired YES carried to settlement. Requotes
+  move each leg with the mid, so the original discount does not survive separate cycles.
+  `ESTABLISHED_FINDINGS.md` §10bg; A091 §5, §7 C8.
+- **Why it fooled us:** arithmetic on a static quote was read as a property of a requoting policy.
+
+### "A positive short markout means our fills were not picked off" — FALSE ON 2026-11-13
+
+- **What it looked like:** on F2's first trading day the share-weighted net markouts (later mid minus fill
+  price) were positive at 1, 5, 15, 30 and 60 minutes on the covered fills.
+- **What is true:** the same cohorts' mids drifted down from their pre-fill level (−0.92 c/share at 5 min);
+  the spread cushioned an adverse move. Selling into the displayed bids after the taker-fee kernel gave
+  −1.86 c/share at 5 min, and fresh post-session marks were about 5.5% below cost. Cohorts differ by horizon
+  and missingness follows operational events. RE-1's −8.5 c Miami mark that later reversed (§10m) is the
+  opposite failure: short marks mislead in both directions. `ESTABLISHED_FINDINGS.md` §10bg, §10m; A091 §2, §11.
+- **Why it fooled us:** a mark against our own price measures spread captured, not information.
+
+### "Retirement (last in-band) marks value our held inventory" — FALSE
+
+- **What it looked like:** each band's last in-band mid looks like the latest price for its lot.
+- **What is true:** on 2026-11-13 the last in-band marks spanned 15:03 to 18:44 and valued the lots about
+  5.5% above cost; fresh public books at about 19:04 valued them about 5.5% below cost. Recording stops when
+  a band retires, so stale marks are carried. Value inventory only from a fresh book within a stated age, and
+  record market-only books after retirement and fills (owner 2026-11-13, DECISION_LOG).
+  `ESTABLISHED_FINDINGS.md` §10bg; A091 §5.
+- **Why it fooled us:** a non-contemporaneous set of marks looked like a close.
+
+### "F2's reward pool is about 2,800 a day" — WRONG HORIZON (2026-11-14)
+
+- **What it looked like:** the digest's configured pool, "about 2,800 per day", was carried into the F2 brief.
+- **What is true:** 2,800 is the same-day (T+0) pool. F2 quotes T+1 only; the configured T+1 pool was about
+  1,200 per day (08-15..09-19). F2's selected conditions carried 12-32 per day on 2026-11-13, changing
+  intraday. Neither figure is our income; our share is measured per condition.
+  `ESTABLISHED_FINDINGS.md` §10a, §10bg.
+- **Why it fooled us:** a headline number lost its horizon label.
+
+### "A 20-share quote wins about 0.39 of a band's reward pool" — RETRACTED AS A LIVE EXPECTATION (2026-11-14)
+
+- **What it looked like:** item 330's 09-16/17 desk read gave a median per-band mean modelled share of 0.39
+  (0.11-0.60) for a 20-share same-day quote, and the digest said displayed qualifying competition is thin.
+- **What is true:** live share falls within minutes of posting. In RE-1 the selected share halved within
+  2-4 minutes in every session (§10m). On F2's first trading day (T+1, 17 band runs) the median live
+  `P_many` share was 0.08-3.1% and selection-time shares 0.08-6.0%; trajectories differed by band and some
+  rose later, so no fixed decay factor holds either. The venue's accrual agreed with the live model (§10bg).
+  Item 330 itself called the 0.39 "too good to take at face value". `ESTABLISHED_FINDINGS.md` §10m, §10bg.
+- **Why it fooled us:** displayed depth before our quote is not the competition after it.
+
+### "Unproven attribution means the campaign earned no incentives" — FALSE
+
+- **What it looked like:** the shared-account code books every unattributed reward or rebate credit as
+  `reward_attribution_unproven`, contributing 0 to capital refill.
+- **What is true:** that is a conservative recognized-cash rail. On 2026-11-13 the venue accrued rewards on
+  the campaign's own conditions while strict attributed cash was 0, and one unallocated TAKER_REBATE-typed
+  credit appeared. The owner's rule (2026-11-13, DECISION_LOG) is to report both: the strict rail and a
+  campaign estimate. A payment that cannot be allocated leaves the business net incomplete; the zero-refill
+  default alone does not select stop. `ESTABLISHED_FINDINGS.md` §10bg; A091 §3, §11.
+- **Why it fooled us:** an accounting default looked like a measurement.
 
 ---
 

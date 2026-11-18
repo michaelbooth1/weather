@@ -2248,7 +2248,7 @@ class TestMarketMicrostructure(unittest.TestCase):
             console_path = tmp_path / "clob_loop_console.log"
             console_path.write_text("legacy-console\n", encoding="utf-8")
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 self.assertEqual(stdout.tell(), 0)
                 self.assertIs(stdout, stderr)
                 stdout.write("new-child-console\n")
@@ -2278,7 +2278,7 @@ class TestMarketMicrostructure(unittest.TestCase):
             tmp_path = Path(tmp)
             calls = {}
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 calls["command"] = command
                 calls["cwd"] = cwd
                 return FakeProcess()
@@ -2336,7 +2336,7 @@ class TestMarketMicrostructure(unittest.TestCase):
             lock_path = tmp_path / ".clob_loop_status.json.writer.lock"
             lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
 
-            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0, env=None):
                 return FakeProcess()
 
             with patch.object(mm, "CLOB_LOOP_STATUS_PATH", tmp_path / "clob_loop_status.json"), \

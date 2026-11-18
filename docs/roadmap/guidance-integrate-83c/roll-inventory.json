@@ -1,0 +1,3815 @@
+[
+  {
+    "branch": "codex/integrate-1-research-20260921",
+    "source_tip": "c04200081e87b4607c149cb502ce34b4ad7410cf",
+    "base": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9",
+    "tool_verdict": "UNDECIDABLE",
+    "reason": "No live closure evidence on workstation",
+    "per_file": [
+      {
+        "path": ".codex/hooks/pre_tool_use_host_load.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-results-2026-09-79a-completion.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-results-2026-09-79a.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-review-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-summary-2026-09-79a.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-test-plan-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/morning-guidance-candidate-preregistration-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-79a-workstation-what-does-the-market-know-completion.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-79a-workstation-what-does-the-market-know.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-81a-workstation-morning-guidance-candidate.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-82a-workstation-is-the-guidance-read-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-79a-what-does-the-market-know.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-81a-morning-guidance-candidate.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-82a-is-the-guidance-read-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "scripts/ops/workload_admission.ps1",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_codex_host_load_hook.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_missing_information_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_morning_guidance_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_nbm_target_trace_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_workload_admission_script.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_methods.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_pipeline.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_supplement.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_morning_guidance.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_nbm_target_trace.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/analysis_settings.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/checks.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/clocks.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/extract.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/fetch_iem.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/guidance_archive.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/methods.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/regimes.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/supplement.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/DESIGN.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/candidate.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/evidence.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/publish.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/score.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/statistics.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/test_morning_guidance.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/artifact-selectors.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/file-manifest.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/picks.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/supplement.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t0-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t1-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t2-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t2-summary.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/tokens.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/publish.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/roll-files.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      }
+    ]
+  },
+  {
+    "branch": "codex/integrate-2-parser-20260921",
+    "source_tip": "c6c58155faf6f78c6ba714eff1abebc8ee28ef18",
+    "base": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9",
+    "tool_verdict": "UNDECIDABLE",
+    "reason": "No live closure evidence on workstation",
+    "per_file": [
+      {
+        "path": ".codex/hooks/pre_tool_use_host_load.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/AGENT_CONTEXT.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/nbm-target-period-contract.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-results-2026-09-79a-completion.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-results-2026-09-79a.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-review-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-summary-2026-09-79a.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-test-plan-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/morning-guidance-candidate-preregistration-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-79a-workstation-what-does-the-market-know-completion.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-79a-workstation-what-does-the-market-know.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-81a-workstation-morning-guidance-candidate.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-82a-workstation-is-the-guidance-read-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-83a-workstation-read-the-guidance-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-83b-workstation-finish-the-guidance-repair.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/full-suite.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/hosted-ci.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/roll-inventory.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/roll-verdict.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/verification.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/window.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/contracts.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/fixture-hashes.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/inputs.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/p0.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/roll-inventory.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/roll-verdict.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/selectors.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/train-serve-feature-parity.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/verification.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-79a-what-does-the-market-know.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-81a-morning-guidance-candidate.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-82a-is-the-guidance-read-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "scripts/ops/workload_admission.ps1",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/model/feature_store.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/model/model_features.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/model/model_sources.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/operations/forecast_payload_cas_migration.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/schema_registry_data.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/sources/nbm_probabilistic_tmax.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-PGUM.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-PGUM.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_codex_host_load_hook.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_missing_information_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_morning_guidance_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_nbm_target_trace_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_schema_registry.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_workload_admission_script.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_methods.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_pipeline.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_supplement.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_morning_guidance.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_nbm_target_trace.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/sources/test_nbm_target_fix.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/analysis_settings.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/checks.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/clocks.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/extract.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/fetch_iem.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/guidance_archive.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/methods.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/regimes.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/supplement.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/DESIGN.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/candidate.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/evidence.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/publish.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/score.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/statistics.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/test_morning_guidance.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_fix.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/artifact-selectors.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/file-manifest.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/picks.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/supplement.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t0-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t1-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t2-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t2-summary.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/tokens.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/publish.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/roll-files.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/research_harness.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      }
+    ]
+  },
+  {
+    "branch": "codex/integrate-3-reuse-20260921",
+    "source_tip": "f1e7350ad77bfaf1cd860821c31aa4b56634f405",
+    "base": "e28530af67c7371fc7b2c08bbd0e26cfe72a28f9",
+    "tool_verdict": "UNDECIDABLE",
+    "reason": "No live closure evidence on workstation",
+    "per_file": [
+      {
+        "path": ".codex/hooks/pre_tool_use_host_load.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/AGENT_CONTEXT.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/data-retention-policy.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/data-storage-class-contract.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/operations/nbm-target-period-contract.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-results-2026-09-79a-completion.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-results-2026-09-79a.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-review-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-summary-2026-09-79a.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/missing-information-test-plan-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/research/morning-guidance-candidate-preregistration-2026-09-21.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-79a-workstation-what-does-the-market-know-completion.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-79a-workstation-what-does-the-market-know.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-81a-workstation-morning-guidance-candidate.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-82a-workstation-is-the-guidance-read-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-83a-workstation-read-the-guidance-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-83b-workstation-finish-the-guidance-repair-part-b.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-83b-workstation-finish-the-guidance-repair.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/agent-report-2026-09-83c-workstation-one-branch-ready-to-qualify.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/guidance-integrate-83c/full-suite.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/guidance-integrate-83c/national-bulletin-cost.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/guidance-integrate-83c/parity.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/guidance-integrate-83c/roll-inventory.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/guidance-integrate-83c/roll-layer-1.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/guidance-integrate-83c/roll-layer-2.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/guidance-integrate-83c/roll-layer-3.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/full-suite.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/hosted-ci.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/roll-inventory.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/roll-verdict.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/verification.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-finish-83b/window.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/contracts.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/fixture-hashes.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/inputs.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/p0.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/roll-inventory.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/roll-verdict.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/selectors.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/train-serve-feature-parity.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbm-target-fix-20260921/verification.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbp-reuse-83b/hosted-ci.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbp-reuse-83b/roll-inventory.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbp-reuse-83b/roll-verdict.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/nbp-reuse-83b/verification.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-79a-what-does-the-market-know.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-81a-morning-guidance-candidate.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "docs/roadmap/workstation-handoff-2026-09-82a-is-the-guidance-read-for-the-right-day.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "scripts/ops/workload_admission.ps1",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/collection/forecast_payload_fetch_fanout.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/model/feature_store.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/model/model_features.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/model/model_sources.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/operations/forecast_payload_cas_migration.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/operations/storage_classes.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/schema_registry_data.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "src/weather/sources/nbm_probabilistic_tmax.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/collection/test_nbp_cycle_reuse.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/20260917T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T00Z-PGUM.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbm_target_fix/p0/20260917T12Z-PGUM.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/fixtures/nbp_reuse_complete_20260917T07Z.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_codex_host_load_hook.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_missing_information_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_morning_guidance_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_nbm_target_trace_admission.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_schema_registry.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_storage_classes.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/operations/test_workload_admission_script.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_methods.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_pipeline.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_missing_information_supplement.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_morning_guidance.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/reporting/test_nbm_target_trace.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tests/sources/test_nbm_target_fix.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/analysis_settings.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/checks.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/clocks.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/extract.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/fetch_iem.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/guidance_archive.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/methods.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/regimes.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/missing_information/supplement.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/DESIGN.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/candidate.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/evidence.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/publish.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/score.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/statistics.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/morning_guidance/test_morning_guidance.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_fix.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/README.md",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/__init__.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/artifact-selectors.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260917T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260918T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T01Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T07Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T13Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KATL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KAUS.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KBKF.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KDAL.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KHOU.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLAX.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KLGA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KMIA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KORD.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSEA.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/blocks/20260919T19Z-KSFO.txt",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/file-manifest.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/picks.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/supplement.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t0-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t1-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t2-receipt.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/t2-summary.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/evidence/tokens.csv",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/publish.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/roll-files.json",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/nbm_target_trace/run.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      },
+      {
+        "path": "tools/research/research_harness.py",
+        "verdict": "UNDECIDABLE",
+        "live_closure_available": false
+      }
+    ],
+    "receipt_leaf_paths_included": true
+  }
+]

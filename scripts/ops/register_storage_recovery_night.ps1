@@ -9,6 +9,10 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $PSScriptRoot 'scheduled_task_test_guard.ps1')
+$schedulerCommands = @('Get-ScheduledTask','Register-ScheduledTask','Export-ScheduledTask')
+if (-not $PreflightOnly) { $schedulerCommands += 'Get-ScheduledTaskInfo' }
+Assert-WeatherScheduledTaskTestIsolation -Command $schedulerCommands
 . (Join-Path $PSScriptRoot 'storage_recovery_night_contract.ps1')
 Assert-WeatherNightSource $sourceRoot $ExpectedSourceTip
 . (Join-Path $PSScriptRoot 'workload_admission.ps1')

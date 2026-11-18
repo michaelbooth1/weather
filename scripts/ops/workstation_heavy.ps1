@@ -1,15 +1,27 @@
 # Run approved offline heavy Python work on a non-capture workstation while
 # holding the same host-global mutex as a portable International live stage.
 #
-# Without -Queue a busy lease is refused immediately (unchanged). With -Queue the
-# caller takes a FIFO ticket and waits up to -QueueTimeoutSeconds (default 4 h);
-# a timeout exits 75 without starting anything. The child tree is owned by a
-# kill-on-close Job either way.
+# Admission takes one of -SlotCount concurrent workstation slots (default 3).
+# Slot 1 is the legacy single lease that older wrapper copies take, so their
+# holders count as one slot. A slot is admitted only with at least
+# -MinAvailableMemoryGB of available physical memory (default 6) and commit
+# charge at or below -MaxCommitPercent (default 90). Without -Queue a full or
+# guarded admission is refused immediately. With -Queue the caller takes a FIFO
+# ticket and waits up to -QueueTimeoutSeconds (default 4 h) for any free slot
+# that passes the guard; a timeout exits 75 without starting anything. The child
+# tree is owned by a kill-on-close Job either way.
+#
+# Kind research_script runs one named script under C:\t\<lane>\ that
+# Get-WeatherWorkstationResearchScriptAllowlist pins by exact path and sha256,
+# as "python -I <script> <args>". The script is opened deny-write before
+# admission, hashed from that handle, and held until the child exits; a volume
+# below -MinFreeDiskGB (default 50 GiB) refuses the start. The exit code and the
+# Job's peak committed memory (whole tree) are printed and queue-logged.
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("pytest", "compileall", "weather_heavy")]
+    [ValidateSet("pytest", "compileall", "weather_heavy", "research_script")]
     [string]$Kind,
     [Parameter(Mandatory = $true)][string]$PythonPath,
     [Parameter(Mandatory = $true)][string]$ArgumentsBase64,
@@ -17,7 +29,11 @@ param(
     [switch]$Queue,
     [ValidateRange(1, 86400)][int]$QueueTimeoutSeconds = 14400,
     [ValidateRange(100, 60000)][int]$QueuePollMilliseconds = 2000,
-    [ValidateRange(1, 3600)][int]$QueueReportSeconds = 60
+    [ValidateRange(1, 3600)][int]$QueueReportSeconds = 60,
+    [ValidateRange(1, 8)][int]$SlotCount = 3,
+    [ValidateRange(0, 1024)][double]$MinAvailableMemoryGB = 6,
+    [ValidateRange(1, 100)][double]$MaxCommitPercent = 90,
+    [ValidateRange(20, 4096)][double]$MinFreeDiskGB = 50
 )
 
 $ErrorActionPreference = "Stop"
@@ -137,11 +153,62 @@ switch ($Kind) {
         ) {
             throw "weather-heavy workload must be an offline training/replay module"
         }
+        $argumentRefusal = Get-WeatherWorkstationOfflineArgumentRefusal `
+            -Module $module -Arguments @($arguments | Select-Object -Skip 2)
+        if ($null -ne $argumentRefusal) {
+            throw $argumentRefusal
+        }
+    }
+    "research_script" {
+        if (
+            $arguments[0] -cne "-I" -or
+            @($arguments | Where-Object {
+                $_ -cmatch '(?i)\A--?(?:live|execute|place|cancel|promote)(?:=|\z)'
+            }).Count -gt 0
+        ) {
+            throw "research-script workload requires exact '-I <script>' arguments and no live switch"
+        }
+        $researchScriptPath = [string]$arguments[1]
+        $argumentRefusal = Get-WeatherWorkstationOfflineArgumentRefusal `
+            -Module $researchScriptPath -Arguments @($arguments | Select-Object -Skip 2)
+        if ($null -ne $argumentRefusal) {
+            throw $argumentRefusal
+        }
+        if ($null -eq ([Weather.Operations.KillOnCloseJob].GetMethod("PeakJobMemoryUsedBytes"))) {
+            throw "research-script workload needs the Job peak-memory query; start a fresh PowerShell"
+        }
+        # Deny writers, renames and deletes from the hash until the child exits.
+        $researchScriptStream = $null
+        # Open only paths below the local root; the refusal below checks the full shape.
+        if ($researchScriptPath.StartsWith(
+            (Get-WeatherWorkstationResearchScriptRoot) + "\",
+            [StringComparison]::Ordinal
+        )) {
+            try {
+                $researchScriptStream = [IO.FileStream]::new(
+                    $researchScriptPath,
+                    [IO.FileMode]::Open,
+                    [IO.FileAccess]::Read,
+                    [IO.FileShare]::Read
+                )
+            }
+            catch { $researchScriptStream = $null }
+        }
+        $researchScriptSha256 = if ($researchScriptStream) {
+            Get-WeatherStreamSha256 -Stream $researchScriptStream
+        } else { "" }
+        $researchRefusal = Get-WeatherWorkstationResearchScriptRefusal `
+            -ScriptPath $researchScriptPath -ActualSha256 $researchScriptSha256
+        if ($null -ne $researchRefusal) {
+            if ($researchScriptStream) { $researchScriptStream.Dispose() }
+            throw $researchRefusal
+        }
     }
 }
 
 $workloadName = "WorkstationOffline-{0}-{1}" -f $Kind, $PID
 $queueTimeoutExitCode = 75
+$minAvailableMemoryBytes = [long][Math]::Floor($MinAvailableMemoryGB * 1GB)
 if ($Queue) {
     $lease = Enter-WeatherHeavyWorkloadLeaseQueued `
         -RepoRoot $RepoRoot `
@@ -149,7 +216,10 @@ if ($Queue) {
         -ExecutionHostProfile "workstation_offline_v1" `
         -TimeoutSeconds $QueueTimeoutSeconds `
         -PollMilliseconds $QueuePollMilliseconds `
-        -ReportSeconds $QueueReportSeconds
+        -ReportSeconds $QueueReportSeconds `
+        -SlotCount $SlotCount `
+        -MinAvailableMemoryBytes $minAvailableMemoryBytes `
+        -MaxCommitPercent $MaxCommitPercent
     if ($null -eq $lease) {
         [Console]::Error.WriteLine((
             "workstation-heavy queue wait timed out after {0} s; nothing was started" -f
@@ -159,24 +229,80 @@ if ($Queue) {
     }
 }
 else {
-    $lease = Enter-WeatherHeavyWorkloadLease `
+    # The "Enter-WeatherHeavyWorkloadLease" contract of slot 1 is unchanged; the
+    # slot entry point takes it, or an extra slot, under the same rules.
+    $lease = Enter-WeatherWorkstationHeavySlotLease `
         -RepoRoot $RepoRoot `
         -Workload $workloadName `
-        -ExecutionHostProfile "workstation_offline_v1"
+        -SlotCount $SlotCount `
+        -MinAvailableMemoryBytes $minAvailableMemoryBytes `
+        -MaxCommitPercent $MaxCommitPercent
     if ($null -eq $lease) {
-        throw "workstation-heavy execution is blocked by another heavy or portable live lease"
+        throw (
+            "workstation-heavy execution is blocked by another heavy or portable " +
+            "live lease ({0})"
+        ) -f $script:WeatherWorkstationSlotRefusal
     }
 }
+$slotId = [int]$lease.WorkstationSlotId
+# Per-job BLAS/OpenMP thread cap so concurrent slots share the cores; a caller
+# may lower it but never raise it.
+$threadCap = Resolve-WeatherWorkstationThreadCap -SlotCount $SlotCount
+$threadCapRecord = [ordered]@{
+    cap = $threadCap.Cap
+    logical_processors = $threadCap.LogicalProcessors
+    values = $threadCap.Values
+}
+[Console]::Out.WriteLine((
+    "workstation-heavy: admitted to slot {0} of {1} (busy before: {2})" -f
+    $slotId, $SlotCount, ((@($lease.BusySlotsAtAdmission)) -join ",")
+))
+[Console]::Out.WriteLine((
+    "workstation-heavy: thread cap {0} of {1} logical processors ({2})" -f
+    $threadCap.Cap, $threadCap.LogicalProcessors,
+    ((@($threadCap.Values.Keys | ForEach-Object { "{0}={1}" -f $_, $threadCap.Values[$_] })) -join " ")
+))
+[Console]::Out.Flush()
 
 $job = $null
 $child = $null
+# Default-fail: only the child's own exit code replaces it.
 $exitCode = 1
+$childWaited = $false
+$peakJobMemoryBytes = $null
 try {
+    if ($Kind -ceq "research_script") {
+        $researchRefusal = Get-WeatherWorkstationResearchScriptRefusal `
+            -ScriptPath $researchScriptPath -ActualSha256 $researchScriptSha256
+        if ($null -ne $researchRefusal) { throw $researchRefusal }
+        $minFreeDiskBytes = [long][Math]::Floor($MinFreeDiskGB * 1GB)
+        foreach ($volumePath in @($researchScriptPath, $resolvedRepoRoot)) {
+            $volume = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($volumePath))
+            if ($volume.AvailableFreeSpace -lt $minFreeDiskBytes) {
+                throw (
+                    "research-script workload refused: {0} has {1} free bytes, below the {2} floor" -f
+                    $volume.Name, $volume.AvailableFreeSpace, $minFreeDiskBytes
+                )
+            }
+        }
+    }
     $job = New-WeatherKillOnCloseJob
     $argumentString = ConvertTo-WeatherWindowsArgumentString -Tokens $arguments
     [Environment]::SetEnvironmentVariable(
         "WEATHER_WORKSTATION_WRAPPER_ACTIVE",
         "1",
+        "Process"
+    )
+    foreach ($threadVariable in @($threadCap.Values.Keys)) {
+        [Environment]::SetEnvironmentVariable(
+            $threadVariable,
+            [string]$threadCap.Values[$threadVariable],
+            "Process"
+        )
+    }
+    [Environment]::SetEnvironmentVariable(
+        "WEATHER_WORKSTATION_WRAPPER_SLOT",
+        [string]$slotId,
         "Process"
     )
     [Environment]::SetEnvironmentVariable(
@@ -197,8 +323,17 @@ try {
     }
     $child.WaitForExit()
     $exitCode = $child.ExitCode
+    $childWaited = $true
+}
+catch {
+    # The exit issued from the finally below discards an uncaught error, so print it here.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
+    throw
 }
 finally {
+    # Set the host exit code before any cleanup: a cleanup statement that is
+    # aborted by Ctrl+C would otherwise leave this advanced script exiting 0.
+    $Host.SetShouldExit($exitCode)
     $teardownTransitionError = $null
     $jobTeardownError = $null
     if ($null -ne $lease) {
@@ -211,6 +346,23 @@ finally {
     if ($job -and $null -eq $teardownTransitionError) {
         try { $job.TerminateAndWait(5000) }
         catch { $jobTeardownError = $_ }
+    }
+    if ($Kind -ceq "research_script") {
+        # Read after teardown so the high-water mark covers the whole tree.
+        if ($job -and $childWaited) {
+            try { $peakJobMemoryBytes = [UInt64]$job.PeakJobMemoryUsedBytes() }
+            catch { $peakJobMemoryBytes = $null }
+        }
+        if ($researchScriptStream) { $researchScriptStream.Dispose() }
+        if ($childWaited) {
+            [Console]::Out.WriteLine((
+                "workstation-heavy: research_script exit_code={0} peak_job_memory_bytes={1} script_sha256={2}" -f
+                $exitCode,
+                $(if ($null -eq $peakJobMemoryBytes) { "unavailable" } else { $peakJobMemoryBytes }),
+                $researchScriptSha256
+            ))
+            [Console]::Out.Flush()
+        }
     }
     if ($child) { $child.Dispose() }
     if ($job) { $job.Dispose() }
@@ -226,11 +378,24 @@ finally {
     }
     if ($null -ne $teardownTransitionError) { throw $teardownTransitionError }
     if ($jobTeardownError) { throw $jobTeardownError }
+    # As before, the queue "finish" event is written only after the child was waited for.
+    if ($Queue -and $childWaited) {
+        $finishExtra = @{
+            exit_code = $exitCode
+            slot_id = $slotId
+            slot_count = $SlotCount
+            thread_cap = $threadCapRecord
+        }
+        if ($Kind -ceq "research_script") {
+            $finishExtra.script_path = $researchScriptPath
+            $finishExtra.script_sha256 = $researchScriptSha256
+            $finishExtra.peak_job_memory_bytes = $peakJobMemoryBytes
+        }
+        Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "finish" `
+            -Ticket ([long]$lease.QueueTicket) -Position ([int]$lease.QueuePosition) `
+            -WaitedSeconds ([double]$lease.QueueWaitedSeconds) -Workload $workloadName `
+            -Extra $finishExtra
+    }
+    $Host.SetShouldExit($exitCode)
+    exit $exitCode
 }
-if ($Queue) {
-    Write-WeatherHeavyWorkloadQueueEvent -RepoRoot $RepoRoot -Event "finish" `
-        -Ticket ([long]$lease.QueueTicket) -Position 1 `
-        -WaitedSeconds ([double]$lease.QueueWaitedSeconds) -Workload $workloadName `
-        -Extra @{ exit_code = $exitCode }
-}
-exit $exitCode

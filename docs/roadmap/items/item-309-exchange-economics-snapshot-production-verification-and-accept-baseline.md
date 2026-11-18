@@ -168,3 +168,7 @@ old label-then-address-line shape may carry the address on the adjacent line
 (review fix round 1, 2026-10-09). Rule-document hashes are not part of the snapshot hash or the drift
 comparison, so the changed page hash needs no baseline re-acceptance. The
 explicit-acceptance checkbox above is unaffected.
+
+Landed: the matcher fix (with review round 1) reached `master` in the 2026-10-10
+`claude/integration-20261010-econ-nors` integration (`8aebd1b5f`). Whether the scheduled
+refresh has passed since is read from its own status file, not from this item.

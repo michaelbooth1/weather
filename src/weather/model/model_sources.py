@@ -26,6 +26,7 @@ from weather.io import (
     write_json_atomic,
 )
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
+from weather.time import provider_hourly_local_times
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
@@ -33,12 +34,22 @@ from weather.sources.nbm_probabilistic_tmax import (
     NBM_PROB_TMAX_SCHEMA_VERSION,
     nbp_cycle_key,
     nbp_cycle_candidates,
+    nbp_target_cycle_candidates,
+    NBM_NBP_PARSER_V2,
+    NBPClockError,
     nbp_request_key,
     nbp_text_url,
     parse_nbp_station_tmax,
 )
 from weather.sources.forecast_payload_fanout import MarketInvariantFetchFanout
-from weather.forecast_payload_contracts import nbm_nbp_cycle_key_from_bulletin
+from weather.forecast_payload_contracts import (
+    NBM_NBP_ENCODING,
+    nbm_nbp_cycle_key_from_bulletin,
+)
+from weather.shared_forecast_payload_cas import (
+    SHARED_FORECAST_PAYLOAD_CAS_ROOT,
+    SharedForecastPayloadCAS,
+)
 from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceExpectedUnavailable,
@@ -89,6 +100,20 @@ OPEN_METEO_GLOBAL_MODEL_MEMBERS = (
     "ncep_aigfs025",
     "gfs_graphcast025",
 )
+# Open-Meteo stopped serving these ids: the response carries an all-null column
+# (no HTTP error). They are no longer requested; the parser still reads the
+# column when a response has one, so served output from any captured response
+# is unchanged and the member is still captured (as null) under its own key.
+OPEN_METEO_GLOBAL_MODEL_RETIRED = ("gfs_graphcast025",)
+# Requested and recorded under the separate payload key ``capture_only_models``
+# only. They never enter day_model_highs, day_max_native, rows or any served
+# feature; ecmwf_aifs025_single is the provider's current AIFS id (the served
+# ecmwf_aifs025 key keeps reading the old id). Serving it is a separate lever.
+OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY = ("ecmwf_aifs025_single",)
+OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS = tuple(
+    model for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS
+    if model not in OPEN_METEO_GLOBAL_MODEL_RETIRED
+) + OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 SOURCE_FAMILY_COOLDOWN_PATH_ENV = "WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"
 NBM_NATIONAL_TEXT_FANOUT = MarketInvariantFetchFanout(max_entries=2)
@@ -98,6 +123,19 @@ TORONTO_OFFICIAL_CANADIAN_SOURCES = {
     "eccc_gem": "official_gridded_forecast",
 }
 TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
+
+# The last-good cache keeps a market-invariant response body (the national NBM
+# bulletin, ~35 MB) only by reference once the shared forecast payload CAS holds
+# the exact bytes. The fallback path restores the body before serving, so the
+# snapshot writer still sees the attested text.
+LAST_GOOD_PAYLOAD_ATTESTATION_KEY = "forecast_payload_attestation"
+LAST_GOOD_PAYLOAD_TEXT_REF_KEY = "text_ref"
+LAST_GOOD_PAYLOAD_CAS_NAME = "shared_forecast_payload"
+LAST_GOOD_PAYLOAD_HASH_ALGORITHM = "sha256"
+# Digests whose restore failure or fan-out declaration mismatch was already
+# logged by this process; every later save or pass would repeat it.
+_LAST_GOOD_RESTORE_FAILURES_LOGGED = set()
+_LAST_GOOD_DECLARATION_MISMATCHES_LOGGED = set()
 
 # Explicit capture contracts for every source adapter. These version the
 # parser/normalizer code that turned a provider response into the source data
@@ -121,7 +159,8 @@ SOURCE_PAYLOAD_CONTRACTS = {
         "open-meteo-air-quality-payload-v1",
     ),
     "open_meteo_global_models": (
-        "open-meteo-global-models-parser-v1",
+        # v2: payload schema gained capture_only_models and retired_model_members.
+        "open-meteo-global-models-parser-v2",
         "open-meteo-global-models-payload-v1",
     ),
     "nws_hourly": ("nws-hourly-parser-v1", "nws-hourly-payload-v1"),
@@ -610,6 +649,9 @@ class SourceFetchMixin:
                 return
             merged = self.load_last_good_sources()
             merged.update(cache)
+            # Returns copies: blend_with_last_good serves the same data objects
+            # it caches, so the merged items must never be mutated.
+            merged = self.last_good_sources_with_payload_refs(merged)
             self.validate_last_good_sources_cache(merged)
             self.validate_last_good_sources_cache_size(merged)
             write_json_atomic(cache_path, merged)
@@ -623,6 +665,148 @@ class SourceFetchMixin:
         if override is not None:
             return Path(override)
         return self.spec.data_root / "last_good_sources.json"
+
+    def last_good_payload_cas(self):
+        """Shared forecast payload CAS used to dereference last-good bodies.
+
+        The capture path injects the snapshot writer's store as
+        ``shared_forecast_payload_cas``; an isolated capture child also reaches
+        it through its cross-process fan-out. Every other reader (replay,
+        calibration, research) uses the fleet default root, so it can restore
+        and keep references instead of re-inflating the cache.
+        """
+        cas = getattr(self, "shared_forecast_payload_cas", None)
+        if cas is not None:
+            return cas
+        fanout_cas = getattr(getattr(self, "market_invariant_fetch_fanout", None), "cas", None)
+        if fanout_cas is not None:
+            return fanout_cas
+        return SharedForecastPayloadCAS(SHARED_FORECAST_PAYLOAD_CAS_ROOT)
+
+    def last_good_sources_with_payload_refs(self, cache):
+        cas = self.last_good_payload_cas()
+        return {
+            name: self.last_good_item_with_payload_ref(name, item, cas)
+            for name, item in cache.items()
+        }
+
+    def last_good_item_with_payload_ref(self, name, item, cas):
+        """Return a copy of one cache item whose attested body is a CAS reference.
+
+        The body is replaced only when the shared CAS already holds a blob of
+        the right digest and size; any doubt keeps it inline (old behaviour).
+        """
+        if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
+            return item
+        data = item["data"]
+        raw_payload = data.get("raw_payload")
+        if not isinstance(raw_payload, dict) or LAST_GOOD_PAYLOAD_TEXT_REF_KEY in raw_payload:
+            return item
+        attestation = raw_payload.get(LAST_GOOD_PAYLOAD_ATTESTATION_KEY)
+        if not isinstance(attestation, dict) or attestation.get("market_invariant") is not True:
+            return item
+        body_field = str(attestation.get("body_field") or "").strip()
+        encoding = str(attestation.get("encoding") or NBM_NBP_ENCODING).lower()
+        body = raw_payload.get(body_field) if body_field else None
+        if (
+            not isinstance(body, str)
+            or encoding != NBM_NBP_ENCODING
+            or not raw_payload.get("payload_hash")
+        ):
+            return item
+        try:
+            body_bytes = body.encode(NBM_NBP_ENCODING)
+            payload_bytes = len(body_bytes)
+            # Always hash the body (~0.1 s for 35 MB): the reference must name
+            # these bytes, and contains() below only checks presence and size.
+            digest = hashlib.sha256(body_bytes).hexdigest()
+            single_fetch = attestation.get("single_fetch")
+            single_fetch = single_fetch if isinstance(single_fetch, dict) else {}
+            declared = single_fetch.get("prepublished_payload_hash")
+            if (
+                declared
+                and (
+                    str(declared).lower() != digest
+                    or single_fetch.get("prepublished_payload_bytes") != payload_bytes
+                )
+                and digest not in _LAST_GOOD_DECLARATION_MISMATCHES_LOGGED
+            ):
+                # The fan-out declaration is only a cross-check; the computed
+                # digest wins. Logged once per digest.
+                _LAST_GOOD_DECLARATION_MISMATCHES_LOGGED.add(digest)
+                logger.warning(
+                    "Last good %s fan-out payload declaration disagrees with its body; using sha256 %s",
+                    name,
+                    digest,
+                )
+            if cas.contains(digest, expected_bytes=payload_bytes) is not True:
+                return item
+            text_ref = {
+                "cas": LAST_GOOD_PAYLOAD_CAS_NAME,
+                "payload_hash_algorithm": LAST_GOOD_PAYLOAD_HASH_ALGORITHM,
+                "payload_hash": digest,
+                "payload_ref": cas.relative_ref(digest),
+                "payload_bytes": payload_bytes,
+                "body_field": body_field,
+            }
+        except Exception as e:
+            logger.warning("Keeping last good %s payload inline: %s", name, e)
+            return item
+        stripped_raw = {key: value for key, value in raw_payload.items() if key != body_field}
+        stripped_raw[LAST_GOOD_PAYLOAD_TEXT_REF_KEY] = text_ref
+        return {**item, "data": {**data, "raw_payload": stripped_raw}}
+
+    def last_good_data_with_payload_body(self, data):
+        """Restore a CAS-referenced body into a copy of cached source data.
+
+        Returns ``(data, None)`` when restored or nothing is referenced, and
+        ``(None, error)`` when the reference cannot be proven. Never raises.
+        """
+        if not isinstance(data, dict):
+            return data, None
+        raw_payload = data.get("raw_payload")
+        if not isinstance(raw_payload, dict) or LAST_GOOD_PAYLOAD_TEXT_REF_KEY not in raw_payload:
+            return data, None
+        try:
+            text_ref = raw_payload[LAST_GOOD_PAYLOAD_TEXT_REF_KEY]
+            if not isinstance(text_ref, dict):
+                raise ValueError("text_ref must be an object")
+            if (
+                text_ref.get("cas") != LAST_GOOD_PAYLOAD_CAS_NAME
+                or text_ref.get("payload_hash_algorithm") != LAST_GOOD_PAYLOAD_HASH_ALGORITHM
+            ):
+                raise ValueError("text_ref names an unsupported store")
+            body_field = str(text_ref.get("body_field") or "").strip()
+            if not body_field or body_field in raw_payload:
+                raise ValueError("text_ref body_field is missing or already present")
+            digest = str(text_ref.get("payload_hash") or "")
+            payload_bytes = text_ref.get("payload_bytes")
+            if not isinstance(payload_bytes, int) or isinstance(payload_bytes, bool):
+                raise ValueError("text_ref payload_bytes must be an integer")
+            cas = self.last_good_payload_cas()
+            if text_ref.get("payload_ref") != cas.relative_ref(digest):
+                raise ValueError("text_ref payload_ref does not match its hash")
+            # read() verifies the SHA-256 digest and the byte count.
+            body_bytes = cas.read(digest, expected_bytes=payload_bytes)
+            body = body_bytes.decode(NBM_NBP_ENCODING)
+            if hashlib.sha1(body_bytes).hexdigest() != raw_payload.get("payload_hash"):
+                raise ValueError("restored body does not match payload_hash (SHA-1)")
+        except Exception as e:
+            error = f"Last good payload reference could not be restored: {e}"
+            text_ref = raw_payload.get(LAST_GOOD_PAYLOAD_TEXT_REF_KEY)
+            digest = str(text_ref.get("payload_hash") or "") if isinstance(text_ref, dict) else ""
+            # Log once per digest: every later pass would repeat the same miss.
+            if digest not in _LAST_GOOD_RESTORE_FAILURES_LOGGED:
+                _LAST_GOOD_RESTORE_FAILURES_LOGGED.add(digest)
+                logger.warning("%s (sha256 %s)", error, digest or "unknown")
+            return None, error
+        restored_raw = {
+            key: value
+            for key, value in raw_payload.items()
+            if key != LAST_GOOD_PAYLOAD_TEXT_REF_KEY
+        }
+        restored_raw[body_field] = body
+        return {**data, "raw_payload": restored_raw}, None
 
     def with_source_fetch_meta(self, data, metadata):
         if isinstance(data, dict):
@@ -824,18 +1008,26 @@ class SourceFetchMixin:
                         output.setdefault("cache_status", "auth_failure")
                     blended[name] = output
                     continue
-                if (
+                cache_usable = bool(
                     cached_item
                     and cached_item.get("target_date") == self.target_date.isoformat()
                     and cache_is_recent
-                ):
+                )
+                # A body kept by CAS reference is restored and proven before it
+                # is served; an unprovable reference is a cache miss.
+                cached_data, restore_error = (
+                    self.last_good_data_with_payload_body(cached_item["data"])
+                    if cache_usable
+                    else (None, None)
+                )
+                if cache_usable and restore_error is None:
                     fallback_status = self.source_cache_fallback_status(failure_status)
                     output = {
                         "ok": True,
                         "stale": True,
                         "status": fallback_status,
                         "fetched_at": cached_item["fetched_at"],
-                        "data": cached_item["data"],
+                        "data": cached_data,
                         "error": item.get("error", "Unknown error"),
                         "latency_ms": item.get("latency_ms"),
                         "cache_age_minutes": cache_age_minutes,
@@ -849,7 +1041,9 @@ class SourceFetchMixin:
                     blended[name] = output
                 else:
                     stale_detail = ""
-                    if cached_item and cached_item.get("target_date") == self.target_date.isoformat():
+                    if restore_error:
+                        stale_detail = f" {restore_error}."
+                    elif cached_item and cached_item.get("target_date") == self.target_date.isoformat():
                         stale_detail = (
                             f" Last good cache is {cache_age_minutes:.0f} minutes old (TTL {ttl_minutes} min)."
                             if cache_age_minutes is not None else " Last good cache age is unknown."
@@ -873,6 +1067,10 @@ class SourceFetchMixin:
                     output["ttl_minutes"] = ttl_minutes
                     output["degradation_state"] = self.source_degradation_state(status, item)
                     output.setdefault("cache_status", "miss")
+                    if restore_error:
+                        # Distinct from a TTL miss: the entry was recent but its
+                        # referenced body could not be proven.
+                        output["cache_status"] = "fallback_unprovable"
                     blended[name] = output
                     
         self.save_last_good_sources(cache)
@@ -887,7 +1085,10 @@ class SourceFetchMixin:
             return None
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=self.spec.tz)
-        return max(0.0, (datetime.now(self.spec.tz) - parsed.astimezone(self.spec.tz)).total_seconds() / 60.0)
+        # Elapsed time between UTC instants: subtracting two datetimes that share
+        # ``spec.tz`` is wall-clock arithmetic and is off by the DST shift (DST-M2).
+        elapsed = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+        return max(0.0, elapsed.total_seconds() / 60.0)
 
     def source_cache_ttl_minutes(self, name):
         """Per-source last-good cache TTL in minutes (item 17). Observation /
@@ -1542,15 +1743,21 @@ class SourceFetchMixin:
         rows = []
         day_rows = []
         day_temps = []  # all of today's forecast hours, for the daily-max feature
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             temp = self.to_number(self.array_get(hourly, "temperature_2m", index))
             if temp is not None:
                 day_temps.append(temp)
-            local_dt = dt.replace(tzinfo=self.spec.tz)
+            local_dt = dt
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
@@ -1615,12 +1822,18 @@ class SourceFetchMixin:
         hourly = payload.get("hourly", {}) or {}
         rows = []
         day_rows = []
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
-            local_dt = dt.replace(tzinfo=self.spec.tz)
+            local_dt = dt
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
@@ -1652,16 +1865,24 @@ class SourceFetchMixin:
             "temperature_unit": self.spec.om_temperature_unit,
             "timezone": self.spec.timezone,
             "forecast_days": 2,
-            "models": ",".join(OPEN_METEO_GLOBAL_MODEL_MEMBERS),
+            "models": ",".join(OPEN_METEO_GLOBAL_MODEL_REQUEST_IDS),
         })
         hourly = payload.get("hourly", {}) or {}
         rows = []
         day_rows = []
         model_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS}
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        capture_only_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY}
+        capture_only_day_rows = []
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             model_payloads = {}
             model_temps = []
@@ -1672,9 +1893,16 @@ class SourceFetchMixin:
                     model_temps.append(value)
                     model_day_temps[model].append(value)
                 model_payloads[model] = values
+            capture_only_row = {"valid_time": dt.isoformat()}
+            for model in OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY:
+                value = self.to_number(self.array_get(hourly, f"temperature_2m_{model}", index))
+                capture_only_row[model] = value
+                if value is not None:
+                    capture_only_day_temps[model].append(value)
+            capture_only_day_rows.append(capture_only_row)
             row = {
                 "time": dt.strftime("%H:%M"),
-                "valid_time": dt.replace(tzinfo=self.spec.tz).isoformat(),
+                "valid_time": dt.isoformat(),
                 "models": model_payloads,
                 "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
             }
@@ -1700,6 +1928,16 @@ class SourceFetchMixin:
             "row_count": len(day_rows),
             "payload_hash": self.payload_hash(payload),
             "model_members": list(OPEN_METEO_GLOBAL_MODEL_MEMBERS),
+            "retired_model_members": list(OPEN_METEO_GLOBAL_MODEL_RETIRED),
+            "capture_only_models": {
+                "status": "capture_only_not_served",
+                "members": list(OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY),
+                "day_model_highs": {
+                    model: max(values) if values else None
+                    for model, values in capture_only_day_temps.items()
+                },
+                "day_rows": capture_only_day_rows,
+            },
             "model_run_age_hours": None,
             "model_run_age_status": "not_exposed_by_open_meteo_forecast",
             "run_to_run_high_change": None,
@@ -1783,7 +2021,10 @@ class SourceFetchMixin:
             }
         tried_urls = []
         last_payload = None
-        for run_time in nbp_cycle_candidates(datetime.now(timezone.utc), hours_back=24):
+        now = datetime.now(timezone.utc)
+        for run_time in nbp_target_cycle_candidates(
+            now, self.target_date, cycles=nbp_cycle_candidates(now, hours_back=24)
+        ):
             url = nbp_text_url(run_time)
             tried_urls.append(url)
             try:
@@ -1809,7 +2050,8 @@ class SourceFetchMixin:
                         "response_received_at": response_received_at,
                     }
 
-                fanout_result = fanout.fetch(
+                fetch_bulletin = getattr(fanout, "fetch_reusable_nbp", fanout.fetch)
+                fanout_result = fetch_bulletin(
                     source="nbm_probabilistic_tmax",
                     request_key=nbp_request_key(url),
                     cycle_key=nbp_cycle_key(run_time),
@@ -1827,13 +2069,22 @@ class SourceFetchMixin:
                 if self.http_status(exc) in {403, 404}:
                     continue
                 raise
-            payload = parse_nbp_station_tmax(
-                text,
-                self.spec.icao,
-                self.target_date,
-                source_url=url,
-                fetched_at=fetched_at,
-            )
+            try:
+                payload = parse_nbp_station_tmax(
+                    text,
+                    self.spec.icao,
+                    self.target_date,
+                    source_url=url,
+                    fetched_at=fetched_at,
+                    parser_version=NBM_NBP_PARSER_V2,
+                )
+            except NBPClockError as exc:
+                payload = exc.payload
+            # Keep network time in fetched_at; cycle age describes this use.
+            captured_at = datetime.now(timezone.utc)
+            if payload.get("issued_at"):
+                issued_at = datetime.fromisoformat(payload["issued_at"].replace("Z", "+00:00"))
+                payload["cycle_age_at_use_hours"] = (captured_at - issued_at).total_seconds() / 3600.
             payload["tried_urls"] = list(tried_urls)
             fanout_metadata = {
                 "request_key": fanout_result.request_key,
@@ -1894,6 +2145,7 @@ class SourceFetchMixin:
             attestation["single_fetch"] = fanout_metadata
             if fanout_result.reused:
                 payload[FETCH_META_KEY] = {
+                    "parser_version": NBM_NBP_PARSER_V2,
                     "status": "fresh_cache",
                     "stale": False,
                     "cache_status": "fresh_cache",
@@ -1911,6 +2163,7 @@ class SourceFetchMixin:
                 }
             else:
                 payload[FETCH_META_KEY] = {
+                    "parser_version": NBM_NBP_PARSER_V2,
                     "status": "fresh",
                     "stale": False,
                     "cache_status": "live",
@@ -1922,7 +2175,7 @@ class SourceFetchMixin:
                         "response_received_at"
                     ),
                 }
-            if payload.get("available"):
+            if payload.get("available") or str(payload.get("reason", "")).startswith("nbp_capture_time_"):
                 return payload
             last_payload = payload
         if last_payload is not None:
@@ -2136,10 +2389,16 @@ class SourceFetchMixin:
         rows = []
         day_rows = []
         model_day_temps = {model: [] for model in models}
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             model_payloads = {}
             model_temps = []
@@ -2156,7 +2415,7 @@ class SourceFetchMixin:
                 model_payloads[model] = values
             row = {
                 "time": dt.strftime("%H:%M"),
-                "valid_time": dt.replace(tzinfo=self.spec.tz).isoformat(),
+                "valid_time": dt.isoformat(),
                 "models": model_payloads,
                 "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
             }
@@ -2230,10 +2489,16 @@ class SourceFetchMixin:
         day_temps = []
         day_spreads = []
         member_day_temps = {key: [] for key in member_keys}
-        now = datetime.now(self.spec.tz).replace(tzinfo=None)
-        for index, raw_time in enumerate(hourly.get("time", []) or []):
-            dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date:
+        now = datetime.now(self.spec.tz)
+        # Aware market-local valid times: Open-Meteo labels carry one fixed
+        # response offset, so they are read as UTC instants (DST-safe).
+        local_times = provider_hourly_local_times(
+            hourly.get("time", []) or [],
+            self.spec.tz,
+            payload.get("utc_offset_seconds"),
+        )
+        for index, dt in enumerate(local_times):
+            if dt is None or dt.date() != self.target_date:
                 continue
             temp = self.to_number(self.array_get(hourly, "temperature_2m", index))
             members = [
@@ -2250,7 +2515,7 @@ class SourceFetchMixin:
                 day_temps.append(temp)
             if spread is not None:
                 day_spreads.append(spread)
-            local_dt = dt.replace(tzinfo=self.spec.tz)
+            local_dt = dt
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),

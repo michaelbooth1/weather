@@ -1385,6 +1385,33 @@ def _build_harness(
     )
 
 
+# Outer subprocess timeouts for _invoke are hang BACKSTOPS, not assertions: the
+# contract of every test is its marker/log assertions. A backstop is derived as
+# HOST_LOAD_FACTOR * (measured harness overhead + the test's injected waits).
+#
+# RECONCILER_HARNESS_OVERHEAD_SECONDS: workstation wall time of one complete
+# reconciler run through the fake scheduler with no injected wait. Measured
+# 2026-10-29 at up to ~30 s per _invoke (good/delayed_start success paths and the
+# stop-timeout path's post-timeout terminal proof, ~28 snapshot RPCs), dominated
+# by Windows PowerShell 5.1 and git child-process starts; rounded up to 35 s.
+# HOST_LOAD_FACTOR: the capture host with three capture workers ran the same
+# _invoke ~2.1x slower (stop_timeout 62.995 s against ~30 s); 2.5 adds margin.
+# Hosted CI is scaled separately by ci_scaled_timeout in _invoke.
+#
+# A backstop must stay below a fake hang's duration only where the outer timeout
+# itself is the containment detector (the read_hang cases below, which keep 20 s
+# under their 60 s hang). Where a marker assertion detects an unkilled hang
+# (push_stop_rpc_timed_out, push_start_rpc_timed_out, terminal-proof times), the
+# backstop may exceed the hang.
+RECONCILER_HARNESS_OVERHEAD_SECONDS = 35
+HOST_LOAD_FACTOR = 2.5
+
+
+def _harness_backstop_seconds(*injected_seconds: float) -> float:
+    """Outer hang backstop for one _invoke: load factor x (overhead + injected waits)."""
+    return HOST_LOAD_FACTOR * (RECONCILER_HARNESS_OVERHEAD_SECONDS + sum(injected_seconds))
+
+
 def _invoke(
     harness: Harness,
     *,
@@ -1412,7 +1439,7 @@ def _invoke(
     journal_remote_drift: bool = False,
     journal_helper_drift: bool = False,
     now: str = "2026-09-01T01:30:00",
-    timeout: float = 60,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     assert WINDOWS_POWERSHELL is not None
     assert REAL_GIT is not None
@@ -1522,7 +1549,9 @@ def _invoke(
         cwd=harness.production,
         env=environment,
         check=False,
-        timeout=ci_scaled_timeout(timeout),
+        timeout=ci_scaled_timeout(
+            _harness_backstop_seconds() if timeout is None else timeout
+        ),
     )
 
 
@@ -1870,7 +1899,11 @@ def test_start_identity_deadline_is_not_extended_by_marker_journaling(
     # budget (10 s here, or its CI-scaled value) by one second: 11000 ms
     # everywhere except hosted CI.
     start_budget_ms = ci_scaled_seconds(10, cap=20) * 1000
-    result = _invoke(harness, journal_delay_ms=start_budget_ms + 1000, timeout=90)
+    result = _invoke(
+        harness,
+        journal_delay_ms=start_budget_ms + 1000,
+        timeout=_harness_backstop_seconds((start_budget_ms + 1000) / 1000),
+    )
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
@@ -1910,7 +1943,7 @@ def test_scheduler_helper_drift_after_start_journal_spends_without_dispatch(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, journal_helper_drift=True, timeout=90)
+    result = _invoke(harness, journal_helper_drift=True)
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
@@ -1964,7 +1997,9 @@ def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
     result = _invoke(
         harness,
         task_mode="read_hang_at_stop_reserve",
-        timeout=60,
+        # The terminal-proof-time assertions below, not this backstop, detect an
+        # unclamped read.
+        timeout=_harness_backstop_seconds(_read_hang_at_stop_reserve_ms() / 1000),
     )
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
@@ -2090,7 +2125,8 @@ def test_post_start_readback_failure_is_bounded_by_pt15m(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, task_mode="readback_failure")
+    # 120 s is harness margin under host load (62.8 s seen); the contract is the PT15M assertion below.
+    result = _invoke(harness, task_mode="readback_failure", timeout=120)
 
     assert result.returncode != 0
     assert _start_lines(harness) == ["WeatherOneShotPush"]
@@ -2124,6 +2160,8 @@ def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns
     harness = _build_harness(tmp_path)
     before = _production_state(harness)
 
+    # This outer timeout IS the containment detector for the 60 s fake hang, so it
+    # stays well below 60 s instead of using _harness_backstop_seconds().
     result = _invoke(harness, task_mode=task_mode, timeout=20)
 
     assert result.returncode != 0
@@ -2206,7 +2244,11 @@ def test_ci_scaled_read_budget_still_kills_a_read_slower_than_the_scaled_budget(
     )
     before = _production_state(harness)
 
-    result = _invoke(harness, task_mode="read_delay_beyond_ci_budget", timeout=60)
+    result = _invoke(
+        harness,
+        task_mode="read_delay_beyond_ci_budget",
+        timeout=_harness_backstop_seconds(scaled_read + 3),
+    )
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert result.returncode != 0, diagnostic
@@ -2226,7 +2268,6 @@ def test_normal_helper_exit_still_kills_its_surviving_descendant(
         harness,
         dry_run=True,
         task_mode="read_returns_spawn_child",
-        timeout=60,
     )
 
     diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
@@ -2255,10 +2296,15 @@ def test_successful_start_with_lost_response_is_spent_and_never_passes(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    # The helper's injected RPC deadline remains ten seconds; this outer
-    # allowance also covers the independent post-timeout task/ref/remote
-    # attestations, each of which now runs in its own kill-on-close child.
-    result = _invoke(harness, task_mode="start_success_lost_response", timeout=60)
+    # The helper's injected RPC deadline remains ten seconds (the
+    # push_start_rpc_timed_out assertion, not the outer timeout, proves it was
+    # killed); the backstop also covers the independent post-timeout
+    # task/ref/remote attestations, each in its own kill-on-close child.
+    result = _invoke(
+        harness,
+        task_mode="start_success_lost_response",
+        timeout=_harness_backstop_seconds(ci_scaled_seconds(10, cap=20)),
+    )
 
     assert result.returncode != 0
     assert _start_lines(harness) == ["WeatherOneShotPush"]
@@ -2279,7 +2325,7 @@ def test_successful_start_with_claimed_error_is_spent_and_never_passes(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, task_mode="start_success_claimed_error", timeout=60)
+    result = _invoke(harness, task_mode="start_success_claimed_error")
 
     assert result.returncode != 0
     assert _start_lines(harness) == ["WeatherOneShotPush"]
@@ -2300,7 +2346,14 @@ def test_stop_timeout_is_terminal_non_pass_and_is_not_retried(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    result = _invoke(harness, task_mode="stop_timeout", timeout=60)
+    # The Stop RPC is killed at its injected 3 s budget (push_stop_rpc_timed_out
+    # below); the backstop covers ~17 s of preflight/merge before Start and ~10 s
+    # of post-timeout terminal-proof snapshots, under capture-host load.
+    result = _invoke(
+        harness,
+        task_mode="stop_timeout",
+        timeout=_harness_backstop_seconds(ci_scaled_seconds(3, cap=20)),
+    )
 
     assert result.returncode != 0
     assert _start_lines(harness) == ["WeatherOneShotPush"]

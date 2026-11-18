@@ -80,6 +80,71 @@ A missing file, stale digest, or same-size/same-mtime content change fails the
 sealed build. Files outside the declared set remain uncached. There is no
 persistent cache, implicit seal, or scheduled live-input reuse.
 
+## Reconciliation timing and the learning barrier
+
+Traced from code 2026-10-16 (no host data read). `_classify` in the audit labels a
+row `SOURCE_DISAGREEMENT` when Polymarket reconciliation is `mismatch`, or when
+any supporting bucket (WU final, weather.com max-since-7, live normalized high,
+snapshot high, market resolution) differs from the canonical ledger value. That
+check runs before the `PROVISIONAL` and `UNRECONCILED` checks, so a row whose
+reconciliation is still `not_closed`, `fetch_error` or `not_requested` is labelled
+a disagreement as soon as one supporting source differs. Classification is
+unchanged by the policy below.
+
+**Decided policy (owner, 2026-10-16, "Option 1"; implemented).** An undecided
+`SOURCE_DISAGREEMENT` row defers instead of blocking the settled-day analysis
+barrier, and stays non-countable:
+
+- `settlement_label_gate_for_target_dates(..., defer_undecided_disagreement=True)`
+  defers a blocking row only when all hold: status `SOURCE_DISAGREEMENT`;
+  reconciliation in `UNDECIDED_RECONCILIATION_STATUSES` (`not_closed`: event not
+  resolved; `fetch_error`: Gamma fetch failed; `not_requested`: Polymarket never
+  consulted, which a requested re-finalize would decide); and a
+  `disagreement_sources` list that does not contain `market_resolution`. A
+  disagreement with Polymarket's own winning band is a substantive mismatch, and a
+  row without the list cannot prove otherwise, so both keep blocking.
+- Still blocking, as before: `mismatch`; `unavailable` (closed event, no winning
+  band) and any empty or other status; `SOURCE_REVISION`, `PROVISIONAL`,
+  `UNRECONCILED` and every other class; missing audit rows. A deferred row never
+  hides another row's blocker on the same date.
+- Deferred rows are listed as `deferred_non_countable`
+  (`date:market:SOURCE_DISAGREEMENT:<reconciliation>`) with `deferral_policy`; the
+  gate adds both keys only in deferral mode, so default output is unchanged.
+- Only the daily `settlement_source_audit` step (the barrier's
+  `label_provenance_audit` dependency) uses deferral mode, and reports
+  `target_date_deferred_non_countable`; the status summary and run report carry it.
+- Non-countability is unchanged and enforced where it was: the audit row keeps
+  `promotion_blocker` true and `proof_grade_label` false; label
+  `promotion_countable` still requires reconciliation `match`
+  (`promotion_countability`, `PROMOTION_RECONCILIATION_STATUSES`); trading evidence
+  calls the strict gate, which still blocks the date. A deferred row becomes
+  countable only after a later finalize records `match`.
+
+A blocking row whose reconciliation is `match` is rescued as before and listed
+under `non_countable_reconciled`. The daily retry
+(`_provisional_target_blocker_slugs` in `daily_refresh_trading_steps.py`)
+re-reconciles only when every remaining blocker is `PROVISIONAL`; deferred rows
+are not blockers, so they neither prevent nor join that retry, and nothing
+re-reconciles them automatically (that was Option 2, not chosen).
+
+Follow-up candidate (new owner question, not decided): `PROVISIONAL` and
+`UNRECONCILED` rows with the same undecided reconciliation still block, so the
+rule is asymmetric; the owner approved deferral for `SOURCE_DISAGREEMENT` only
+(master-agent ruling 2026-10-16).
+
+**History.** `daily_refresh_status.json` and the audit JSON are overwritten each
+run. `data/backtest/daily_progress_ledger.jsonl` gets one row per non-dry run,
+also on BLOCK days (it is written after the step loop). Its
+`daily_refresh_blockers` field lists failed steps with `root_cause_class`; the
+barrier entry (`settled_day_analysis_barrier`) also carries
+`audit_blocker_classes`, the sorted classes of the audit step's target-date
+blockers. Two additive JSON fields record per-row detail:
+`settlement_audit_target_date_blockers` (`target_date`, `market_id`,
+`blocker_class`) and `settlement_audit_deferred_non_countable` (the same plus
+`reconciliation_status` and `countable: false`). Rows written before this change
+lack them; the ledger schema version is unchanged because the fields are additive
+and the CSV writer keeps the union of columns.
+
 ## Verification and acceptance
 
 Use the project interpreter and the host's required admission wrapper. The
@@ -100,5 +165,5 @@ historical ledger, completed daily chain, promotion readiness, or market edge.
 ## Update this file when
 
 Update when revision ordering, index ownership, public APIs/CLI options,
-publication behavior, resource bounds, sealed hash rules, or consumer contracts
-change. Run the agent documentation audit and matching owner tests.
+publication behavior, resource bounds, sealed hash rules, consumer contracts,
+or the reconciliation retry and barrier policy change. Run the agent documentation audit and matching owner tests.

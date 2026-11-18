@@ -85,8 +85,10 @@ class Fixture:
         store.append_jsonl(store.root / "replay_inputs.jsonl", {"snapshot_id": sid, "sources": sources or {}})
         if nbm_cycle:
             issue = datetime.strptime(nbm_cycle, "%Y%m%dT%HZ").replace(tzinfo=timezone.utc)
-            data = nbm_v1.parse_nbp_station_tmax(bulletin(nbm_cycle), station, target,
-                                                 nbm_v1.nbp_text_url(issue), fetched.isoformat())
+            # These rows model captures made by production parser v1 (2026-09); the
+            # in-tree default is v2 once the repair lands, so bind v1 explicitly.
+            data = nbm_v1.parse_nbp_station_tmax_v1(bulletin(nbm_cycle), station, target,
+                                                    nbm_v1.nbp_text_url(issue), fetched.isoformat())
             store.write_forecast_payloads({"nbm_probabilistic_tmax": {"ok": True, "fetched_at": fetched.isoformat(),
                                                                       "data": data}},
                                           sid, captured, "fixture",

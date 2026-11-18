@@ -32,8 +32,10 @@ Contract of :func:`run_command` (mirrors ``subprocess.run([... '-Command', scrip
   visible to the next. Scripts that guard ``Add-Type`` with ``-as [type]`` (as the
   ops scripts do) are unaffected; never convert a test whose assertion depends on a
   type being absent.
-* A call that exceeds ``timeout`` kills the host's whole process tree, raises
-  :class:`subprocess.TimeoutExpired`, and the next call starts a new host.
+* The host runs in a kill-on-close Job (``tests/process_job.py``). A call that
+  exceeds ``timeout`` terminates that Job -- the host and its own descendants,
+  never a parent-PID walk -- raises :class:`subprocess.TimeoutExpired`, and the
+  next call starts a new host. Closing the host also ends any grandchild it left.
 
 Set ``WEATHER_TEST_POWERSHELL_HOST=0`` to run every call as a real child process
 instead (same signature, same result type) -- the escape hatch for debugging and for
@@ -51,6 +53,8 @@ import subprocess
 import threading
 from collections.abc import Mapping
 from pathlib import Path
+
+from tests.process_job import KillOnCloseJob
 
 
 POWERSHELL_EXECUTABLE = "powershell.exe"
@@ -284,17 +288,18 @@ def _encode_command(script: str) -> str:
     return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
 
-def _kill_tree(process: subprocess.Popen[bytes]) -> None:
-    if process.poll() is None:
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(process.pid)],
-            capture_output=True,
-            check=False,
-        )
+def _kill_tree(process: subprocess.Popen[bytes], job: KillOnCloseJob | None) -> None:
+    # Job containment, never a parent-PID walk: only the host and its own
+    # descendants are Job members, so no unrelated orphan can be hit.
     try:
+        if job is not None:
+            job.terminate(timeout=10)
         process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+    except (OSError, TimeoutError, subprocess.TimeoutExpired):
         process.kill()
+    finally:
+        if job is not None:
+            job.close()
 
 
 class SharedPowerShellHost:
@@ -303,6 +308,7 @@ class SharedPowerShellHost:
     def __init__(self, executable: str = POWERSHELL_EXECUTABLE) -> None:
         self._executable = executable
         self._process: subprocess.Popen[bytes] | None = None
+        self._job: KillOnCloseJob | None = None
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._nonce = ""
         self._launch_module_path = ""
@@ -319,7 +325,12 @@ class SharedPowerShellHost:
         host_script = _HOST_SCRIPT.replace("__NONCE__", _NONCE_VARIABLE).replace(
             "__LAUNCH_MODULE_PATH__", _LAUNCH_MODULE_PATH_VARIABLE
         )
-        self._process = subprocess.Popen(
+        # The host and every grandchild a script starts are members of one
+        # kill-on-close Job, the only tree-kill unit this module uses.
+        if self._job is not None:
+            self._job.close()  # a previous host that died on its own
+        self._job = KillOnCloseJob()
+        self._process = self._job.popen(
             [
                 self._executable,
                 "-NoProfile",
@@ -364,14 +375,20 @@ class SharedPowerShellHost:
 
     def close(self) -> None:
         process, self._process = self._process, None
+        job, self._job = self._job, None
         if process is None:
+            if job is not None:
+                job.close()
             return
         try:
             assert process.stdin is not None
             process.stdin.close()
             process.wait(timeout=10)
         except (OSError, subprocess.TimeoutExpired):
-            _kill_tree(process)
+            _kill_tree(process, job)
+        else:
+            if job is not None:
+                job.close()  # ends any grandchild the host left behind
 
     def run(
         self,
@@ -404,7 +421,8 @@ class SharedPowerShellHost:
                 )
             except TimeoutError:
                 process, self._process = self._process, None
-                _kill_tree(process)
+                job, self._job = self._job, None
+                _kill_tree(process, job)
                 raise subprocess.TimeoutExpired(
                     [self._executable, "-Command", script], timeout or 0
                 ) from None

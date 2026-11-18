@@ -1,0 +1,109 @@
+{
+  "mission": "2026-09-83d",
+  "runs": [
+    {
+      "layer": 2,
+      "tip": "b18250dc56af87d9b7f245a08ee42034cec82dd8",
+      "run_id": 35639776530,
+      "conclusion": "failure",
+      "passed": 5700,
+      "failed": 1,
+      "skipped": 496,
+      "warnings": 1,
+      "subtests_passed": 921,
+      "seconds": 452.66,
+      "url": "https://github.com/michaelbooth1/weather/actions/runs/35639776530"
+    },
+    {
+      "layer": 3,
+      "tip": "bc2e15c689e6b808699956666dcca538fa4230a6",
+      "run_id": 35639778955,
+      "conclusion": "failure",
+      "passed": 5728,
+      "failed": 1,
+      "skipped": 496,
+      "warnings": 1,
+      "subtests_passed": 921,
+      "seconds": 325.76,
+      "url": "https://github.com/michaelbooth1/weather/actions/runs/35639778955"
+    },
+    {
+      "layer": 2,
+      "tip": "abd648c7c2de55289e88dc7d023136b981e2cb74",
+      "run_id": 35640872573,
+      "conclusion": "success",
+      "passed": 5701,
+      "failed": 0,
+      "skipped": 496,
+      "warnings": 1,
+      "subtests_passed": 921,
+      "seconds": 465.86,
+      "url": "https://github.com/michaelbooth1/weather/actions/runs/35640872573"
+    },
+    {
+      "layer": 3,
+      "tip": "f66dc1c5de96a603f0e508a0a55d3b24dee7cf69",
+      "run_id": 35640872069,
+      "conclusion": "success",
+      "passed": 5729,
+      "failed": 0,
+      "skipped": 496,
+      "warnings": 1,
+      "subtests_passed": 921,
+      "seconds": 404.91,
+      "url": "https://github.com/michaelbooth1/weather/actions/runs/35640872069"
+    }
+  ],
+  "failed_test": "tests/operations/test_missing_information_admission.py::test_only_exact_research_module_added_to_admission",
+  "cause": "The strict test expected three exact research module names, while the approved merged admission list has four, including tools.research.nbm_target_fix.",
+  "disposition": "Added only the already-approved fourth exact name under mission 83a section 5 ownership of the allowlist and its tests. Kept strict ordered equality; no admission policy change.",
+  "logs": [
+    {
+      "path": "scratch/83d-ci-layer-2-failed.txt",
+      "exists": true,
+      "sha256": "434f19ccff1eeb90e2d56a21c1e293b317cc2c41f46a910fa55e4dc572c9b281"
+    },
+    {
+      "path": "scratch/83d-ci-layer-2-passed.txt",
+      "exists": true,
+      "sha256": "a29dccffada0326196c6949fa20fee66dd1754df2269e93d918a4677250680d7"
+    },
+    {
+      "path": "scratch/83d-ci-layer-3-failed.txt",
+      "exists": true,
+      "sha256": "cbe91f88b2aa9182a3e56178eaca0c607962022365e76bd4ff1b0c074e936ea5"
+    },
+    {
+      "path": "scratch/83d-ci-layer-3-passed.txt",
+      "exists": true,
+      "sha256": "d6fdc2e6a7e1a5994b13b9598b34b8752fb2353ea45f4918fb1e1d8176dfc36f"
+    }
+  ],
+  "native_launch": [
+    {
+      "layer": 2,
+      "tested_tip": "abd648c7c2de55289e88dc7d023136b981e2cb74",
+      "run_id": 35640872613,
+      "conclusion": "success",
+      "url": "https://github.com/michaelbooth1/weather/actions/runs/35640872613"
+    },
+    {
+      "layer": 3,
+      "tested_tip": "f66dc1c5de96a603f0e508a0a55d3b24dee7cf69",
+      "run_id": 35640872057,
+      "conclusion": "success",
+      "url": "https://github.com/michaelbooth1/weather/actions/runs/35640872057"
+    }
+  ],
+  "hook": {
+    "layer": 2,
+    "tested_tip": "abd648c7c2de55289e88dc7d023136b981e2cb74",
+    "run_id": 35640872584,
+    "conclusion": "success",
+    "platforms": [
+      "Ubuntu",
+      "Windows"
+    ],
+    "url": "https://github.com/michaelbooth1/weather/actions/runs/35640872584"
+  }
+}

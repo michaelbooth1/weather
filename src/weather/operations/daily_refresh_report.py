@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from weather.io import write_text_atomic
+
 
 def render_report(payload):
     admission = payload.get("capture_resource_admission") or {}
@@ -117,7 +119,10 @@ def render_report(payload):
             if result.get("skipped"):
                 detail = result.get("reason") or "skipped"
             else:
-                detail = f"fetched {result.get('fetched_ranges')} ranges; errors {result.get('error_count')}"
+                detail = (
+                    f"fetched {result.get('fetched_ranges')} ranges; errors {result.get('error_count')}; "
+                    f"offset-refused rows {result.get('offset_refused_row_count', 0)}"
+                )
         elif step.get("name") == "ingest_quality_gate":
             if result.get("skipped"):
                 detail = result.get("reason") or "skipped"
@@ -158,6 +163,9 @@ def render_report(payload):
                     f"revised {result.get('revised_label_count')}; "
                     f"unreconciled {result.get('unreconciled_label_count')}"
                 )
+                deferred = result.get("target_date_deferred_non_countable") or []
+                if deferred:
+                    detail += f"; deferred non-countable {len(deferred)}"
         elif step.get("name") == "observed_floor_safety_monitor":
             detail = (
                 f"{result.get('status')} (target {result.get('target_date')}); "
@@ -734,7 +742,6 @@ def render_report(payload):
 
 
 def write_report(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_report(payload), encoding="utf-8")
-    return path
+    # Atomic: Stage A rewrites the report after every step, and the 11:55
+    # teardown can kill the process mid-write.
+    return write_text_atomic(Path(path), render_report(payload), encoding="utf-8")

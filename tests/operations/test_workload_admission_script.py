@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -157,17 +156,21 @@ def _outer_job_owns_host_mutex() -> bool:
     kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     kernel32.ReleaseMutex.argtypes = [ctypes.c_void_p]
     kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    handle = kernel32.OpenMutexW(0x00100000, False, HOST_GLOBAL_MUTEX)  # SYNCHRONIZE
-    if not handle:
-        return False
-    try:
-        result = kernel32.WaitForSingleObject(handle, 0)
-        if result in (0x00000000, 0x00000080):  # WAIT_OBJECT_0, WAIT_ABANDONED
-            kernel32.ReleaseMutex(handle)
-            return False
-        return True
-    finally:
-        kernel32.CloseHandle(handle)
+    # Workstation slots 2..8 count too: the portable live profile takes every slot mutex.
+    names = (HOST_GLOBAL_MUTEX, *(f"{HOST_GLOBAL_MUTEX}.Slot{slot}" for slot in range(2, 9)))
+    for name in names:
+        handle = kernel32.OpenMutexW(0x00100000, False, name)  # SYNCHRONIZE
+        if not handle:
+            continue
+        try:
+            result = kernel32.WaitForSingleObject(handle, 0)
+            if result in (0x00000000, 0x00000080):  # WAIT_OBJECT_0, WAIT_ABANDONED
+                kernel32.ReleaseMutex(handle)
+                continue
+            return True
+        finally:
+            kernel32.CloseHandle(handle)
+    return False
 
 
 OUTER_WORKSTATION_LEASE = (
@@ -181,6 +184,7 @@ WRAPPERS = (
     "clob_tiering_run.ps1",
     "clob_raw_tape_tiering_run.ps1",
     "daily_refresh.ps1",
+    "oracle_author_test_run.ps1",
 )
 
 
@@ -212,7 +216,11 @@ def _install_workstation_wrapper(repo_root: Path) -> Path:
             + "    Join-Path (Split-Path -Parent (Split-Path -Parent "
             + "$PSScriptRoot)) '.test-heavy-workload.poison'\n"
             + "}\n"
-            + "function Get-WeatherActiveWorkstationHeavyProcess { @() }\n",
+            + "function Get-WeatherActiveWorkstationHeavyProcess { @() }\n"
+            + "function Get-WeatherWorkstationMemoryReading {\n"
+            + "    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; "
+            + "AvailablePhysicalBytes = 16GB; CommitPercent = 40.0 }\n"
+            + "}\n",
             encoding="utf-8",
         )
     return target_ops / "workstation_heavy.ps1"
@@ -232,6 +240,9 @@ def _workstation_wrapper_argv(repo_root: Path, arguments: list[str]) -> list[str
         _argument_contract(arguments),
         "-RepoRoot",
         str(repo_root),
+        # These tests pin the single-lease contract; concurrent slots: test_workstation_heavy_slots.py.
+        "-SlotCount",
+        "1",
     ]
 
 
@@ -273,10 +284,18 @@ $record = [ordered]@{
         raise AssertionError(result.stderr)
 
 
-def _inside_heavy_window() -> bool:
-    now = datetime.now()
-    minute = now.hour * 60 + now.minute
-    return 30 <= minute < 9 * 60
+# Injected after dot-sourcing workload_admission.ps1 in a test's own PowerShell child: a
+# script-scope Get-Date shadows the cmdlet for the lease functions, so the agent_heavy
+# window check (Get-WeatherHeavyWorkloadPolicyWindow, unchanged) sees 02:00 local while
+# the clock keeps running. The test then exercises acquisition at any hour, CI (UTC)
+# included, without touching the production window.
+_HEAVY_WINDOW_CLOCK_PS = (
+    "$script:WeatherTestClockOffset = (Microsoft.PowerShell.Utility\\Get-Date).Date.AddHours(2) - "
+    "(Microsoft.PowerShell.Utility\\Get-Date)\n"
+    "function Get-Date { param([string]$Format) "
+    "$fake = (Microsoft.PowerShell.Utility\\Get-Date) + $script:WeatherTestClockOffset; "
+    "if ($Format) { return $fake.ToString($Format) }; return $fake }\n"
+)
 
 
 @pytest.mark.ratchet
@@ -288,13 +307,53 @@ def test_every_heavy_wrapper_uses_the_shared_lease() -> None:
         assert "Exit-WeatherHeavyWorkloadLease" in text, name
 
 
+@pytest.mark.spawns
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
-@pytest.mark.skipif(not _inside_heavy_window(), reason="lease acquisition is policy-blocked now")
+def test_release_overwrites_the_owner_record_with_a_released_marker(tmp_path: Path) -> None:
+    """L28 review M2: memory_commit_guard.ps1 must never read a released lease as live.
+
+    No mutex is taken: the lease object carries only the record stream, so this runs at
+    any hour and inside an outer workstation lease.
+    """
+    lock = tmp_path / "heavy_workload.lock"
+    readonly = tmp_path / "readonly.lock"
+    v3 = json.dumps({"schema_version": "weather_heavy_workload_lease_v3", "workload": "holder", "pid": 4})
+    lock.write_text(v3 + "  padding that must not survive the overwrite", encoding="utf-8")
+    readonly.write_text(v3, encoding="utf-8")
+    script = (
+        f". '{LEASE_SCRIPT}'\n"
+        f"$stream = [IO.File]::Open('{lock}', 'Open', 'ReadWrite', 'Read')\n"
+        "$lease = [pscustomobject]@{ Workload = 'holder'; Stream = $stream }\n"
+        "Exit-WeatherHeavyWorkloadLease -Lease $lease\n"
+        "$disposed = -not $stream.CanRead\n"
+        f"$ro = [IO.File]::Open('{readonly}', 'Open', 'Read', 'ReadWrite')\n"
+        "Exit-WeatherHeavyWorkloadLease -Lease ([pscustomobject]@{ Workload = 'holder'; Stream = $ro }) 3>$null\n"
+        "[pscustomobject]@{ disposed = $disposed; ro_disposed = -not $ro.CanRead } | ConvertTo-Json -Compress\n"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == {"disposed": True, "ro_disposed": True}
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    assert set(record) == {"schema_version", "workload", "released_at"}
+    assert record["schema_version"] == "weather_heavy_workload_lease_released_v1"
+    assert record["workload"] == "holder"
+    # A stream that cannot be written leaves the record alone and still disposes.
+    assert json.loads(readonly.read_text(encoding="utf-8"))["pid"] == 4
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
 @pytest.mark.skipif(OUTER_WORKSTATION_LEASE, reason="outer workstation lease owns mutex")
 def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> None:
     holder = tmp_path / "holder.ps1"
     holder.write_text(
         f". '{LEASE_SCRIPT}'\n"
+        f"{_HEAVY_WINDOW_CLOCK_PS}"
         f"$lease = Enter-WeatherHeavyWorkloadLease -RepoRoot '{tmp_path}' -Workload holder\n"
         "if ($null -eq $lease) { Write-Output 'BLOCKED'; exit 3 }\n"
         "Write-Output 'ACQUIRED'\n"
@@ -305,6 +364,7 @@ def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> Non
     contender = tmp_path / "contender.ps1"
     contender.write_text(
         f". '{LEASE_SCRIPT}'\n"
+        f"{_HEAVY_WINDOW_CLOCK_PS}"
         f"$lease = Enter-WeatherHeavyWorkloadLease -RepoRoot '{tmp_path}' -Workload contender\n"
         "if ($null -eq $lease) { Write-Output 'BLOCKED'; exit 3 }\n"
         "Write-Output 'ACQUIRED'\n"
@@ -334,6 +394,14 @@ def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> Non
     assert blocked.returncode == 3
     assert blocked.stdout.strip() == "BLOCKED"
     assert owner.wait(timeout=10) == 0
+    # Release overwrites the owner record before the handle closes: no pid survives
+    # for a reader (memory_commit_guard.ps1) to admit (L46 M2 stale-record variant).
+    released = json.loads((tmp_path / "data" / "logs" / "heavy_workload.lock").read_text(encoding="utf-8"))
+    assert released == {
+        "schema_version": "weather_heavy_workload_lease_released_v1",
+        "workload": "holder",
+        "released_at": released["released_at"],
+    }
 
     recovered = subprocess.run(
         [*POWERSHELL, "-File", str(contender)],
@@ -445,13 +513,26 @@ def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_re
     modules = re.findall(r'"([A-Za-z0-9_.-]+)"', match.group(1))
     assert modules.count("weather.operations.workstation_cold_archive_stage") == 1
     assert modules.count("weather.operations.workstation_cold_archive_restore") == 1
+    # O7: the mrv2 calibration-bundle transfer driver and the build-2 toxicity fit,
+    # exact modules only (no parent, no child).
+    maker_modules = {"maker_core.replay.toxicity", "maker_core.replay.v2.transfer_cli"}
+    for module in maker_modules:
+        assert modules.count(module) == 1
+    assert not any(m.startswith("maker_core.") and m not in maker_modules for m in modules)
     assert "weather.operations.verified_cold_archive" not in modules
     assert "weather.operations" not in modules
     assert "rclone" not in modules
     assert all(
         module.startswith("weather.")
-        or module in {"tools.research.guidance_all_hours.run", "tools.research.missing_information.run", "tools.research.morning_guidance.run",
-                      "tools.research.nbm_target_trace.run"}
+        or module in {
+            "maker_core.replay.toxicity",
+            "maker_core.replay.v2.transfer_cli",
+            "tools.research.guidance_all_hours.run",
+            "tools.research.missing_information.run",
+            "tools.research.morning_guidance.run",
+            "tools.research.nbm_target_trace.run",
+            "tools.research.nbm_target_fix",
+        }
         for module in modules
     )
 
@@ -1972,7 +2053,17 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
 ) -> None:
     _write_non_capture_assignment(tmp_path)
     focused = tmp_path / "test_wrapper_child.py"
-    focused.write_text("def test_ok():\n    assert 2 + 2 == 4\n", encoding="utf-8")
+    # The child copies the owner record while the lease is held; on release the
+    # record is overwritten with a released marker (memory guard L46 M2).
+    focused.write_text(
+        "from pathlib import Path\n"
+        "def test_ok():\n"
+        f"    root = Path({str(tmp_path)!r})\n"
+        "    held = (root / 'data' / 'logs' / 'heavy_workload.lock').read_text(encoding='utf-8')\n"
+        "    (root / 'held_record.json').write_text(held, encoding='utf-8')\n"
+        "    assert 2 + 2 == 4\n",
+        encoding="utf-8",
+    )
     approved_arguments = base64.b64encode(
         json.dumps(["-m", "pytest", str(focused), "-q"]).encode("utf-8")
     ).decode("ascii")
@@ -1989,6 +2080,8 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
             approved_arguments,
             "-RepoRoot",
             str(tmp_path),
+            "-SlotCount",
+            "1",
         ],
         capture_output=True,
         text=True,
@@ -1996,9 +2089,12 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
     )
     assert approved.returncode == 0, approved.stderr
     assert "1 passed" in approved.stdout
-    owner = json.loads((tmp_path / "data" / "logs" / "heavy_workload.lock").read_text())
+    owner = json.loads((tmp_path / "held_record.json").read_text(encoding="utf-8"))
     assert owner["execution_host_profile"] == "workstation_offline_v1"
     assert owner["policy_window"] == "workstation_offline"
+    released = json.loads((tmp_path / "data" / "logs" / "heavy_workload.lock").read_text(encoding="utf-8"))
+    assert released["schema_version"] == "weather_heavy_workload_lease_released_v1"
+    assert "pid" not in released
 
     rejected = subprocess.run(
         [
@@ -2017,6 +2113,8 @@ def test_workstation_wrapper_executes_approved_pytest_and_rejects_live_mode(
             ).decode("ascii"),
             "-RepoRoot",
             str(tmp_path),
+            "-SlotCount",
+            "1",
         ],
         capture_output=True,
         text=True,
@@ -2204,6 +2302,8 @@ def test_failed_job_teardown_durably_poison_blocks_other_repo_roots(
             arguments,
             "-RepoRoot",
             str(repo_a),
+            "-SlotCount",
+            "1",
         ],
         capture_output=True,
         text=True,

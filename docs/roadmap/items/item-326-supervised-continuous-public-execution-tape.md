@@ -53,6 +53,12 @@ Scope:
 - [x] Explicitly register and start the task off-window; prove exact action,
   S4U/Limited principal, low priority, one worker/lock owner, current runtime
   identity, and healthy coexistence with all three core capture workers.
+- [ ] Cut reconnect churn (2026-09-29: 1,968 disconnects): branch
+  `codex/trade-stream-coverage-20261003` moves tape work off the socket reader,
+  records venue close codes, and resets/jitters reconnect backoff; draft PR,
+  roll-sensitive, not before 2026-10-14. The production disconnect
+  classification of 09-29 is still owed:
+  [report](../agent-report-2026-10-03-trade-stream-coverage.md).
 - [ ] Complete a forward soak long enough to observe rollover, reconnect/gap
   accounting, storage growth, non-deleting log rotation, and alert behavior;
   record measurements only in `ESTABLISHED_FINDINGS.md`.

@@ -1,8 +1,13 @@
-"""Exercise monitor helpers against synthetic evidence, never the live host scripts."""
+"""Exercise monitor helpers against synthetic evidence, never the live host scripts.
+
+Guards: Stage-A completion must not hide a failed settlement/promotion verdict.
+"""
 import hashlib
 import json
 import os
+import re
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -138,6 +143,169 @@ def test_reward_records_not_heartbeat(case, tmp_path):
         assert "no producer registered" in finding["detail"]
 
 
+# (manifest status or None/"malformed", manifest age h, report text or None, report age h, severity, source)
+STAGE_A_CASES = {
+    "completed_fresh": ("COMPLETED", 22, "Status: **ok**", 22, "OK", "manifest"),
+    "completed_old": ("COMPLETED", 36, "Status: **ok**", 36, "WARN", "manifest"),
+    "completed_stale": ("COMPLETED", 60, "Status: **ok**", 60, "CRITICAL", "manifest"),
+    # The defect: killed at 11:55 after per-step checkpoints, so the report is fresh.
+    "killed_with_fresh_report": ("RUNNING", 20, "Status: **running**", 20, "CRITICAL", "manifest"),
+    "killed_report_says_ok": ("RUNNING", 20, "Status: **ok**", 1, "CRITICAL", "manifest"),
+    "running_now": ("RUNNING", 0.5, "Status: **running**", 0.5, "WARN", "manifest"),
+    "error_status": ("ERROR", 20, "Status: **error**", 20, "CRITICAL", "manifest"),
+    "missing_manifest_running_report": (None, 0, "Status: **running**", 1, "CRITICAL", "report"),
+    "missing_manifest_finished_report": (None, 0, "Status: **ok**", 20, "OK", "report"),
+    "malformed_manifest_running_report": ("malformed", 1, "Status: **running**", 1, "CRITICAL", "report"),
+    "missing_both": (None, 0, None, 0, "CRITICAL", "none"),
+}
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", [
+    "pass", "blocked", "skipped", "diagnostic", "critical_payload", "missing_barrier",
+    "diagnostic_critical_payload", "diagnostic_mismatch", "diagnostic_missing_count",
+    "diagnostic_count_contradiction", "diagnostic_negative_count", "diagnostic_error_step",
+    "diagnostic_invalid_target", "diagnostic_boolean_count", "diagnostic_missing_payload",
+    "mismatch", "missing_target", "error_step", "error_manifest", "running",
+    "missing", "malformed", "empty_object", "scalar", "array", "single_element_array", "null_root",
+    "missing_payload", "invalid_target", "null_barrier", "missing_step_status",
+    "missing_count", "negative_count", "count_contradiction", "boolean_count", "string_count",
+    "nested_barrier_array", "status_array", "payload_array", "target_array", "count_array",
+])
+def test_stage_a_barrier_does_not_confuse_completion_with_success(case, tmp_path):
+    manifest = dict(
+        status="COMPLETED", payload_status="ok", target_date="2026-10-07",
+        barrier=dict(status="PASS", step_status="ok", target_date="2026-10-07", blocker_count=0),
+    )
+    fixture_case = case
+    if case.startswith("diagnostic_"):
+        manifest["barrier"]["status"] = "DIAGNOSTIC_ONLY"
+        fixture_case = case.removeprefix("diagnostic_")
+    if fixture_case == "blocked":
+        manifest["barrier"].update(status="BLOCK", step_status="error", blocker_count=1)
+        manifest["payload_status"] = "critical"
+    elif fixture_case == "skipped":
+        manifest["barrier"]["status"] = "SKIPPED"
+    elif fixture_case == "diagnostic":
+        manifest["barrier"]["status"] = "DIAGNOSTIC_ONLY"
+    elif fixture_case == "critical_payload":
+        manifest["payload_status"] = "critical"
+    elif case == "missing_barrier":
+        del manifest["barrier"]
+    elif fixture_case == "mismatch":
+        manifest["barrier"]["target_date"] = "2026-10-06"
+    elif case == "missing_target":
+        del manifest["target_date"]
+    elif fixture_case == "error_step":
+        manifest["barrier"]["step_status"] = "error"
+    elif case == "error_manifest":
+        manifest["status"] = "ERROR"
+    elif case == "running":
+        manifest.update(status="RUNNING", payload_status="running")
+    elif case == "empty_object":
+        manifest = {}
+    elif case == "scalar":
+        manifest = "COMPLETED"
+    elif case == "array":
+        manifest = [manifest, manifest]
+    elif case == "single_element_array":
+        manifest = [manifest]
+    elif case == "null_root":
+        manifest = None
+    elif fixture_case == "missing_payload":
+        del manifest["payload_status"]
+    elif fixture_case == "invalid_target":
+        manifest["target_date"] = manifest["barrier"]["target_date"] = "2026-99-99"
+    elif case == "null_barrier":
+        manifest["barrier"] = None
+    elif case == "missing_step_status":
+        del manifest["barrier"]["step_status"]
+    elif fixture_case == "missing_count":
+        del manifest["barrier"]["blocker_count"]
+    elif fixture_case == "negative_count":
+        manifest["barrier"]["blocker_count"] = -1
+    elif fixture_case == "count_contradiction":
+        manifest["barrier"]["blocker_count"] = 1
+    elif fixture_case == "boolean_count":
+        manifest["barrier"]["blocker_count"] = False
+    elif case == "string_count":
+        manifest["barrier"]["blocker_count"] = "0"
+    elif case == "nested_barrier_array":
+        manifest["barrier"] = [manifest["barrier"]]
+    elif case == "status_array":
+        manifest["status"] = [manifest["status"]]
+    elif case == "payload_array":
+        manifest["payload_status"] = [manifest["payload_status"]]
+    elif case == "target_array":
+        manifest["target_date"] = [manifest["target_date"]]
+    elif case == "count_array":
+        manifest["barrier"]["blocker_count"] = [0]
+    if case != "missing":
+        (tmp_path / "stage_a.json").write_text(
+            "{broken" if case == "malformed" else json.dumps(manifest), encoding="utf-8",
+        )
+    result = ps(
+        "staleness_sweep.ps1", ["Get-WeatherStageABarrierFinding"],
+        "Set-StrictMode -Version Latest; "
+        "Get-WeatherStageABarrierFinding -ManifestPath (Join-Path $root 'stage_a.json') | ConvertTo-Json -Compress",
+        tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    finding = json.loads(result.stdout)
+    # A held Stage-B rollup can make the parent critical after a passing barrier.
+    # This check owns the barrier, not that separate aggregate verdict.
+    assert finding["severity"] == {
+        "pass": "OK", "critical_payload": "OK", "running": "WARN",
+        "diagnostic": "WARN", "diagnostic_critical_payload": "WARN",
+    }.get(case, "CRITICAL")
+    if case == "blocked":
+        assert "2026-10-07" in finding["detail"]
+        assert "barrier=BLOCK" in finding["detail"]
+        assert "blockers=1" in finding["detail"]
+
+
+def test_stage_a_barrier_finding_is_wired_to_the_settlement_manifest():
+    source = (ROOT / "scripts/ops/staleness_sweep.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("$stageABarrier = Get-WeatherStageABarrierFinding")
+    end = source.index("# ---- 3. serving artifacts ----", start)
+    call_site = source[start:end]
+    assert r'-ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json")' in call_site
+    assert 'Add-Finding "chain/settled_day_barrier" $stageABarrier.severity $stageABarrier.detail' in call_site
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", sorted(STAGE_A_CASES))
+def test_stage_a_chain_completion_uses_manifest_not_report_mtime(case, tmp_path):
+    status, manifest_age, report, report_age, severity, source = STAGE_A_CASES[case]
+    now = datetime(2026, 9, 24, 8, 10)
+    manifest_path = tmp_path / "stage_a.json"
+    report_path = tmp_path / "daily_refresh_report.md"
+    if status == "malformed":
+        manifest_path.write_text("{truncated", encoding="utf-8")
+    elif status is not None:
+        manifest_path.write_text(json.dumps(dict(
+            status=status, started_at_utc="2026-09-23T13:30:00+00:00",
+            completed_at_utc="2026-09-23T15:40:00+00:00" if status == "COMPLETED" else None,
+        )), encoding="utf-8")
+    if status is not None:
+        stamp = (now - timedelta(hours=manifest_age)).timestamp()
+        os.utime(manifest_path, (stamp, stamp))
+    if report is not None:
+        report_path.write_text(f"# Daily Refresh\n\n{report}\n", encoding="utf-8")
+        stamp = (now - timedelta(hours=report_age)).timestamp()
+        os.utime(report_path, (stamp, stamp))
+    result = ps("staleness_sweep.ps1", ["Get-WeatherStageAChainFinding"],
+                "Get-WeatherStageAChainFinding -ManifestPath (Join-Path $root 'stage_a.json') "
+                "-ReportPath (Join-Path $root 'daily_refresh_report.md') "
+                f"-Now ([datetime]'{now.isoformat()}') | ConvertTo-Json -Compress", tmp_path)
+    assert result.returncode == 0, result.stderr
+    finding = json.loads(result.stdout)
+    assert (finding["severity"], finding["source"]) == (severity, source), finding
+    source_text = (ROOT / "scripts/ops/staleness_sweep.ps1").read_text(encoding="utf-8-sig")
+    assert 'Test-FileAge "chain/daily_refresh_report"' not in source_text
+    assert "daily_refresh_settlement_truth_manifest.json" in source_text
+
+
 def test_watchdog_rotates_without_rewriting_and_reads_archive_tail(tmp_path):
     log = tmp_path / "host_health_alerts.jsonl"
     old = b'x' * 2048 + b'\n{"ts":"2026-09-24T13:00:00Z","top_severity":"CRITICAL"}\n'
@@ -188,3 +356,253 @@ def test_maker_evidence_age_is_utc_not_local(tmp_path):
         capture_output=True, text=True, check=True,
     ).stdout
     assert abs(int(out)) < 60
+
+
+def _capture_family_block(tmp_path, tasks, payload, exit_code=0):
+    source = (ROOT / "scripts" / "ops" / "status.ps1").read_text(encoding="utf-8-sig")
+    start = source.index("$captureFamilies = @()")
+    end = source.index('catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }')
+    block = source[start:end] + 'catch { $flags.Add("CAPTURE_FAMILY status check failed to run") }'
+    (tmp_path / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+    task_rows = "".join(f"[pscustomobject]@{{TaskName='{name}';State='{state}'}};" for name, state in tasks)
+    runner = tmp_path / "families.ps1"
+    runner.write_text(
+        "$ErrorActionPreference='Stop'\n"
+        "$flags=New-Object System.Collections.Generic.List[string]; $warns=New-Object System.Collections.Generic.List[string]\n"
+        f"function Get-ScheduledTask {{ param($TaskName,$ErrorAction) @({task_rows}) | Where-Object {{ $_.TaskName -like $TaskName }} }}\n"
+        f"function fakepy {{ $global:seen=$args; Get-Content -Raw '{tmp_path / 'payload.json'}'; $global:LASTEXITCODE={exit_code} }}\n"
+        "$py='fakepy'\n" + block + "\n"
+        "[Console]::Out.Write((@{flags=@($flags);warns=@($warns);seen=@($global:seen);rows=@($captureFamilies).Count} | ConvertTo-Json -Compress))\n",
+        encoding="utf-8-sig",
+    )
+    out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(runner)],
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+@pytest.mark.spawns
+def test_status_capture_family_block_forwards_task_states_and_alarm_levels(tmp_path):
+    payload = {"families": [{"family": "lowest_temperature", "line": "x"}],
+               "flags": ["CAPTURE_FAMILY a: state DEGRADED"],
+               "warns": ["CAPTURE_FAMILY b: stopped at its own 70 GiB free-space floor"]}
+    result = _capture_family_block(
+        tmp_path, [("WeatherMakerEvidenceCapture", "Ready"), ("WeatherMakerEvidenceLowestTemperature", "Disabled"),
+                   ("WeatherOther", "Ready"), ("Unrelated", "Ready")], payload)
+
+    assert result["seen"] == ["-m", "weather.reporting.market.capture_family_status",
+                              "--task-state", "WeatherMakerEvidenceCapture=Ready",
+                              "--task-state", "WeatherMakerEvidenceLowestTemperature=Disabled",
+                              "--task-state", "WeatherOther=Ready"]
+    # A disk-floor stop arrives as a WARN and stays a note; it never becomes a FLAG.
+    assert result["flags"] == payload["flags"] and result["warns"] == payload["warns"] and result["rows"] == 1
+
+
+@pytest.mark.spawns
+def test_status_capture_family_block_flags_when_the_reader_fails(tmp_path):
+    result = _capture_family_block(tmp_path, [], {"families": []}, exit_code=1)
+
+    assert result["flags"] == ["CAPTURE_FAMILY status check failed to run"] and result["warns"] == []
+
+
+# ---- R18: dated known-criticals table in staleness_sweep.ps1 ----
+SWEEP = ROOT / "scripts" / "ops" / "staleness_sweep.ps1"
+LOAD_KNOWN_TABLE = (
+    "$ast.FindAll({param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and "
+    "$n.Left.Extent.Text -in @('$knownCriticals','$knownCriticalMaxDays')},$false) | ForEach-Object {Invoke-Expression $_.Extent.Text}\n"
+)
+HELD = {"WeatherEveningEvidenceRefresh": "Disabled", "WeatherTrainingWindow": "Disabled"}
+GOOD_ROW = dict(check="learning/daily_learning", producers=list(HELD), recorded="2026-11-04",
+                expires="2026-12-31", decision="DL R18")
+# id: (row overrides, finding severity or None, producer states, now, disposition)
+DISPOSITION_CASES = {
+    "held": ({}, "CRITICAL", HELD, "2026-11-20T08:10:00", "KNOWN"),
+    "expiry_day": ({}, "CRITICAL", HELD, "2026-12-31T23:59:00", "KNOWN"),
+    "expired": ({}, "CRITICAL", HELD, "2027-01-01T08:10:00", "LAPSED"),
+    "producer_ready": ({}, "CRITICAL", {**HELD, "WeatherTrainingWindow": "Ready"}, "2026-11-20T08:10:00", "LAPSED"),
+    "producer_running": ({}, "CRITICAL", {**HELD, "WeatherEveningEvidenceRefresh": "Running"}, "2026-11-20T08:10:00", "LAPSED"),
+    "producer_missing": ({}, "CRITICAL", {"WeatherEveningEvidenceRefresh": "Disabled"}, "2026-11-20T08:10:00", "LAPSED"),
+    "state_not_exact": ({}, "CRITICAL", {**HELD, "WeatherTrainingWindow": "disabled"}, "2026-11-20T08:10:00", "LAPSED"),
+    "finding_warn": ({}, "WARN", HELD, "2026-11-20T08:10:00", "NONE"),
+    "finding_ok": ({}, "OK", HELD, "2026-11-20T08:10:00", "NONE"),
+    "no_finding": ({}, None, HELD, "2026-11-20T08:10:00", "NONE"),
+    "over_cap": ({"recorded": "2026-10-31"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "cap_exact": ({"recorded": "2026-11-01"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "KNOWN"),
+    "bad_date": ({"expires": "31/12/2026"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "inverted": ({"expires": "2026-11-01"}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "no_producers": ({"producers": []}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "no_decision": ({"decision": ""}, "CRITICAL", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+    "malformed_even_if_ok": ({"recorded": "2026-01-01"}, "OK", HELD, "2026-11-20T08:10:00", "MALFORMED"),
+}
+
+
+@pytest.mark.spawns
+def test_known_critical_disposition_matrix(tmp_path):
+    cases = []
+    for case_id, (overrides, severity, states, now, _expected) in DISPOSITION_CASES.items():
+        cases.append(dict(id=case_id, row={**GOOD_ROW, **overrides}, severity=severity, states=states, now=now))
+    (tmp_path / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
+    result = ps("staleness_sweep.ps1", ["Get-WeatherKnownCriticalDisposition"], LOAD_KNOWN_TABLE + """
+$out=@{}
+foreach($c in (Get-Content (Join-Path $root 'cases.json') -Raw | ConvertFrom-Json)){
+  $states=@{}; foreach($p in $c.states.PSObject.Properties){$states[$p.Name]=[string]$p.Value}
+  $finding=if($c.severity){[pscustomobject]@{check=$c.row.check;severity=[string]$c.severity}}else{$null}
+  $out[$c.id]=(Get-WeatherKnownCriticalDisposition -Row $c.row -Finding $finding -ProducerStates $states -Now ([datetime]$c.now) -MaxDays $knownCriticalMaxDays).disposition
+}
+$shipped=@($knownCriticals | ForEach-Object {
+  $f=[pscustomobject]@{check=$_.check;severity='CRITICAL'}
+  $s=@{}; foreach($p in $_.producers){$s[$p]='Disabled'}
+  [pscustomobject]@{check=$_.check;producers=@($_.producers);decision=$_.decision;expires=$_.expires
+    disposition=(Get-WeatherKnownCriticalDisposition -Row $_ -Finding $f -ProducerStates $s -Now ([datetime]$_.recorded) -MaxDays $knownCriticalMaxDays).disposition}
+})
+@{cases=$out;shipped=$shipped;cap=$knownCriticalMaxDays} | ConvertTo-Json -Depth 5 -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["cap"] == 60
+    for case_id, spec in DISPOSITION_CASES.items():
+        assert payload["cases"][case_id] == spec[4], case_id
+    shipped = {row["check"]: row for row in payload["shipped"]}
+    assert set(shipped) == {"learning/daily_learning", "learning/market_beating_scoreboard"}
+    assert shipped["learning/daily_learning"]["producers"] == ["WeatherEveningEvidenceRefresh", "WeatherTrainingWindow"]
+    assert shipped["learning/market_beating_scoreboard"]["producers"] == ["WeatherEveningEvidenceRefresh"]
+    for row in shipped.values():
+        assert (row["disposition"], row["expires"], row["decision"]) == ("KNOWN", "2026-12-31", "DL R18")
+
+
+TASK_STUBS = """
+function Get-ScheduledTask {
+  [CmdletBinding()] param()
+  if($env:R18_LIST_FAILS){ throw [System.UnauthorizedAccessException]'access denied' }
+  [pscustomobject]@{TaskName='TaskReady';State='Ready'}
+  [pscustomobject]@{TaskName='TaskNever';State='Disabled'}
+  [pscustomobject]@{TaskName='TaskDenied';State='Ready'}
+  [pscustomobject]@{TaskName='Unrelated';State='Ready'}
+}
+function Get-ScheduledTaskInfo {
+  [CmdletBinding()] param([Parameter(ValueFromPipeline=$true)]$InputObject)
+  process {
+    if($InputObject.TaskName -eq 'TaskDenied'){ throw [System.UnauthorizedAccessException]'access denied' }
+    if($InputObject.TaskName -eq 'TaskNever'){ [pscustomobject]@{LastRunTime=[datetime]'1999-11-30';LastTaskResult=267011} }
+    else { [pscustomobject]@{LastRunTime=[datetime]::SpecifyKind([datetime]'2026-08-13T01:00:00',[DateTimeKind]::Utc);LastTaskResult=-2147024891} }
+  }
+}
+"""
+
+
+@pytest.mark.spawns
+@pytest.mark.parametrize("case", ["tasks", "unreadable", "list_fails"])
+def test_task_results_snapshot_never_aborts(case, tmp_path):
+    config = {"tasks": [{"name": n} for n in ["TaskReady", "TaskNever", "TaskAbsent", "TaskDenied"]]}
+    (tmp_path / "tasks.json").write_text(json.dumps(config) if case != "unreadable" else "{truncated", encoding="utf-8")
+    result = ps("staleness_sweep.ps1", ["Get-WeatherTaskResults"], TASK_STUBS + f"""
+$env:R18_LIST_FAILS='{'1' if case == 'list_fails' else ''}'
+Get-WeatherTaskResults -ConfigPath (Join-Path $root 'tasks.json') -ExtraNames @('TaskReady','TaskExtra') | ConvertTo-Json -Depth 4 -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    rows = {row["name"]: row for row in payload["rows"]}
+    if case == "unreadable":
+        assert len(payload["failures"]) == 1 and "scheduled_tasks.json unreadable" in payload["failures"][0]
+        assert list(rows) == ["TaskReady", "TaskExtra"]
+        return
+    assert list(rows) == ["TaskReady", "TaskNever", "TaskAbsent", "TaskDenied", "TaskExtra"]
+    if case == "list_fails":
+        assert payload["failures"] == ["task list unreadable: access denied"]
+        assert all(row["state"] is None and row["last_run_utc"] is None for row in rows.values())
+        return
+    assert rows["TaskReady"] == {"name": "TaskReady", "last_run_utc": "2026-08-13T01:00:00.0000000Z",
+                                 "result_hex": "0x80070005", "state": "Ready"}
+    assert rows["TaskNever"]["last_run_utc"] is None and rows["TaskNever"]["result_hex"] == "0x41303"
+    assert rows["TaskAbsent"]["state"] == "NotRegistered" and rows["TaskExtra"]["state"] == "NotRegistered"
+    assert rows["TaskDenied"]["state"] == "Ready" and rows["TaskDenied"]["result_hex"] is None
+    assert len(payload["failures"]) == 1 and payload["failures"][0].startswith("TaskDenied:")
+    text = SWEEP.read_text(encoding="utf-8-sig")
+    assert "Get-WinEvent" not in text and "Get-EventLog" not in text
+
+
+def _sweep_report(tmp_path, states, failures=(), extra_finding=""):
+    """Run the shipped post-pass and report block on synthetic findings; parse it with status.ps1."""
+    text = SWEEP.read_text(encoding="utf-8-sig")
+    (tmp_path / "block.ps1").write_text(text[text.index("# ---- 12. task last-run snapshot"):], encoding="utf-8")
+    rows = "".join(
+        f"[pscustomobject]@{{name='{n}';last_run_utc='2026-08-13T05:00:00.0000000Z';result_hex='0x0';state='{s}'}};"
+        for n, s in states.items())
+    fails = ",".join(f"'{f}'" for f in failures)
+    body = LOAD_KNOWN_TABLE + f"""
+function Get-WeatherTaskResults {{ param($ConfigPath,$ExtraNames) [pscustomobject]@{{rows=@({rows});failures=@({fails})}} }}
+$findings=@()
+Add-Finding 'learning/daily_learning' 'CRITICAL' 'data\\backtest\\daily_learning.json is 80.0d old' 'rollup why' 80.0 2
+Add-Finding 'learning/market_beating_scoreboard' 'CRITICAL' 'data\\backtest\\market_beating_objective_scoreboard.json is 80.0d old' 'scoreboard why' 80.0 2
+Add-Finding 'docs/unreachable' 'WARN' '1 of 9 unreachable' 'why' $null $null
+Add-Finding 'settlement/latest' 'OK' 'fresh' 'why' 1 2
+{extra_finding}
+$repo=$root; $now=[datetime]'2026-11-10T08:10:00'
+$JsonOut=Join-Path $root 'sweep.jsonl'; $MarkdownOut=Join-Path $root 'sweep.md'
+$ErrorActionPreference='Continue'
+. ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $root 'block.ps1'))))
+"""
+    result = ps("staleness_sweep.ps1", ["Add-Finding", "Get-WeatherKnownCriticalDisposition"], body, tmp_path)
+    md = (tmp_path / "sweep.md").read_text(encoding="utf-8-sig")
+    record = json.loads((tmp_path / "sweep.jsonl").read_text(encoding="utf-8-sig").splitlines()[-1])
+    flags = ps("status.ps1", ["Get-WeatherSweepFlags"], """
+@(Get-WeatherSweepFlags -Path (Join-Path $root 'sweep.md') -Now ([datetime]'2026-11-10T09:00:00')) | ConvertTo-Json -Compress
+""", tmp_path)
+    assert flags.returncode == 0, flags.stderr
+    parsed = json.loads(flags.stdout) if flags.stdout.strip() else []
+    return result, md, record, parsed if isinstance(parsed, list) else [parsed]
+
+
+@pytest.mark.spawns
+def test_held_known_criticals_leave_the_critical_table_and_status_flags(tmp_path):
+    result, md, record, flags = _sweep_report(tmp_path, HELD)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "**Verdict: WARN** - 0 critical, 1 warn, 2 known, 4 checks." in md
+    known = md[md.index("## Known"):md.index("## All checks")]
+    assert ("| `learning/daily_learning` | 80.0d | WeatherEveningEvidenceRefresh Disabled, last run "
+            "2026-08-13T05:00:00.0000000Z; WeatherTrainingWindow Disabled") in known
+    assert "| 2026-12-31 | DL R18 |" in known
+    assert "| **CRITICAL** |" not in md and "| **KNOWN** |" not in md
+    assert flags == []
+    assert (record["verdict"], record["critical_count"], record["warn_count"], record["known_count"]) == ("WARN", 0, 1, 2)
+    assert {f["check"]: f["severity"] for f in record["findings"]} == {
+        "learning/daily_learning": "KNOWN", "learning/market_beating_scoreboard": "KNOWN", "docs/unreachable": "WARN"}
+    assert {t["name"] for t in record["task_results"]} == set(HELD)
+    # The console lists only CRITICAL and WARN rows.
+    assert [line.strip() for line in result.stdout.splitlines() if line.startswith("  [")] == [
+        "[WARN] docs/unreachable: 1 of 9 unreachable"]
+
+
+@pytest.mark.spawns
+def test_an_unheld_known_critical_stays_critical_and_adds_a_lapsed_row(tmp_path):
+    states = {**HELD, "WeatherTrainingWindow": "Ready"}
+    result, md, record, flags = _sweep_report(tmp_path, states, failures=["TaskDenied: access denied"])
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "**Verdict: CRITICAL** - 2 critical, 2 warn, 1 known, 6 checks." in md
+    assert sorted(f.split("]")[0] for f in flags) == [
+        "STALENESS_SWEEP CRITICAL [known/lapsed", "STALENESS_SWEEP CRITICAL [learning/daily_learning"]
+    assert any("learning/daily_learning: producer WeatherTrainingWindow is Ready, not Disabled" in f for f in flags)
+    assert (record["critical_count"], record["warn_count"], record["known_count"]) == (2, 2, 1)
+    assert {f["check"]: f["severity"] for f in record["findings"]}["tasks/task_results"] == "WARN"
+
+
+@pytest.mark.spawns
+def test_held_learning_alarms_do_not_hide_stage_a_failure(tmp_path):
+    result, md, record, flags = _sweep_report(
+        tmp_path, HELD,
+        extra_finding="Add-Finding 'chain/settled_day_barrier' 'CRITICAL' 'barrier=BLOCK' 'barrier why' $null $null",
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert record["known_count"] == 2
+    assert record["critical_count"] == 1
+    assert "| **CRITICAL** | `chain/settled_day_barrier` |" in md
+    assert len(flags) == 1 and "chain/settled_day_barrier" in flags[0]
+
+
+def test_learning_why_texts_name_stage_b_and_carry_no_dates():
+    text = SWEEP.read_text(encoding="utf-8-sig")
+    whys = text[text.index('Test-FileAge "learning/daily_learning"'):text.index("$stageA = Get-WeatherStageAChainFinding")]
+    assert whys.count("Stage-B output (after promotion_refresh)") == 2
+    assert "nightly_retrain under WeatherTrainingWindow" in whys
+    assert whys.count("settlement-gated") == 2
+    assert "27 days" not in whys and "21 steps" not in whys
+    assert not re.search(r"20\d\d-\d\d-\d\d|\d+ days", whys)

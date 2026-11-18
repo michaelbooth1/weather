@@ -72,13 +72,15 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $scriptPath = (Resolve-Path -LiteralPath $PSCommandPath -ErrorAction Stop).Path
 $contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
 $workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
-foreach ($requiredScript in @($contractScript, $workloadLeaseScript)) {
+$jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+foreach ($requiredScript in @($contractScript, $workloadLeaseScript, $jobScript)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "training window helper not found at $requiredScript"
     }
 }
 . $contractScript
 . $workloadLeaseScript
+. $jobScript
 $baseBindings = $null
 $boundRunAt = $null
 if (-not $RestoreOnly) {
@@ -166,7 +168,8 @@ function Restore-Capture {
         try {
             Enable-ScheduledTask -TaskName $task -ErrorAction Stop | Out-Null
             $readback = Get-ScheduledTask -TaskName $task -ErrorAction Stop
-            if ([string]$readback.State -eq "Disabled") {
+            # State can read 'Running' for a task that is still disabled.
+            if ($readback.Settings.Enabled -ne $true) {
                 throw "task remains disabled after enable"
             }
             Write-WindowLog "RESTORE" "enabled $task (readback $($readback.State))"
@@ -257,8 +260,10 @@ function Wait-CaptureStopped([double]$TimeoutSeconds) {
 function Assert-CaptureStoppedForTraining {
     foreach ($task in $supervisorTasks) {
         $taskState = Get-ScheduledTask -TaskName $task -ErrorAction Stop
-        if ([string]$taskState.State -ne "Disabled") {
-            throw "capture supervisor is not disabled before retrain: $task=$($taskState.State)"
+        # Settings.Enabled, not State: a disabled task with a running instance
+        # reads State 'Running'. The no-live-capture gate below proves the loops.
+        if ($taskState.Settings.Enabled -ne $false) {
+            throw "capture supervisor is not disabled before retrain: $task=$($taskState.State) enabled=$($taskState.Settings.Enabled)"
         }
     }
     & $python -m weather.operations.capture_resource_gate `
@@ -271,6 +276,71 @@ function Assert-CaptureStoppedForTraining {
     if ($LASTEXITCODE -ne 0) {
         throw "canonical no-live-capture gate blocked immediately before retrain"
     }
+}
+
+# Each supervisor's registered ExecutionTimeLimit plus 30 s: 5 min in
+# register_snapshot_supervisor.ps1, 2 min in the clob and observation-trigger registrars.
+$supervisorEnsureRunBoundSeconds = @{
+    "WeatherSnapshotLoopSupervisor" = 330
+    "WeatherClobBookLoopSupervisor" = 150
+    "WeatherObservationTriggerSupervisor" = 150
+}
+
+function Assert-SupervisorEnsureRunLimits {
+    # Read-only, before any disable: the table above must cover each live task's
+    # limit. PT0S means no limit, so a missing, zero or larger limit fails closed.
+    foreach ($task in $supervisorTasks) {
+        $boundSeconds = [int]$supervisorEnsureRunBoundSeconds[$task]
+        $limitText = [string](Get-ScheduledTask -TaskName $task -ErrorAction Stop).Settings.ExecutionTimeLimit
+        $limitSeconds = 0.0
+        try { $limitSeconds = [Xml.XmlConvert]::ToTimeSpan($limitText).TotalSeconds } catch { }
+        if ($limitSeconds -le 0 -or $limitSeconds -gt ($boundSeconds - 30)) {
+            throw "capture supervisor ExecutionTimeLimit '$limitText' is not covered by its ensure-run bound ${boundSeconds}s: $task"
+        }
+    }
+}
+
+function Get-WindowUtcNow {
+    # One clock for the stop deadline and the ensure-run wait.
+    return [datetime]::UtcNow
+}
+
+function Get-StopSecondsRemaining([datetime]$Deadline) {
+    return [math]::Max(0.0, ($Deadline - (Get-WindowUtcNow)).TotalSeconds)
+}
+
+function Assert-StopTimeRemaining([datetime]$Deadline, [string]$Step) {
+    if ((Get-StopSecondsRemaining $Deadline) -le 0) {
+        $script:childExit = 9001
+        throw "capture stop deadline (${CaptureStopTimeoutSeconds}s) exhausted before $Step"
+    }
+}
+
+function Wait-SupervisorEnsureRunsEnded([datetime]$StopDeadline) {
+    # Disable-ScheduledTask does not end an in-flight IgnoreNew ensure run, which
+    # could relaunch a loop after the stop verbs. The runs end in parallel, so each
+    # task's wall-clock bound counts from the start of this wait, capped by the
+    # shared stop deadline.
+    $waitStart = Get-WindowUtcNow
+    foreach ($task in $supervisorTasks) {
+        $boundSeconds = [int]$supervisorEnsureRunBoundSeconds[$task]
+        $taskDeadline = $waitStart.AddSeconds($boundSeconds)
+        $deadline = if ($StopDeadline -lt $taskDeadline) { $StopDeadline } else { $taskDeadline }
+        while ([string](Get-ScheduledTask -TaskName $task -ErrorAction Stop).State -eq "Running") {
+            $now = Get-WindowUtcNow
+            if ($now -ge $deadline) {
+                $waitedSeconds = [int][math]::Floor(($now - $waitStart).TotalSeconds)
+                if ($StopDeadline -lt $taskDeadline) {
+                    $script:childExit = 9001
+                    throw "capture stop deadline (${CaptureStopTimeoutSeconds}s) exhausted waiting ${waitedSeconds}s for the ensure run of $task"
+                }
+                throw "capture supervisor ensure run still Running ${waitedSeconds}s after disable (bound ${boundSeconds}s): $task"
+            }
+            Start-Sleep -Milliseconds ([int][math]::Ceiling([math]::Min(5000.0, ($deadline - $now).TotalMilliseconds)))
+        }
+    }
+    $waitedSeconds = [int][math]::Floor(((Get-WindowUtcNow) - $waitStart).TotalSeconds)
+    Write-WindowLog "STOP" "no supervisor ensure run is in flight (waited ${waitedSeconds}s)"
 }
 
 Set-Location $RepoRoot
@@ -393,22 +463,33 @@ if ($dirtyPaths.Count -gt 0) {
         throw "BaseRetrainCandidateDir appeared before capture stop: $($baseBindings.BaseRetrainCandidateDir)"
     }
     # ---- Stop capture cleanly: supervisors first so nothing revives mid-window ----
+    Assert-SupervisorEnsureRunLimits
+    # One deadline (the stop cap) covers the ensure-run wait, the stop verbs and
+    # the stop confirmation; each step gets only the time that remains.
+    $stopDeadline = (Get-WindowUtcNow).AddSeconds($CaptureStopTimeoutSeconds)
     foreach ($task in $supervisorTasks) {
         Disable-ScheduledTask -TaskName $task -ErrorAction Stop | Out-Null
         $disabledTask = Get-ScheduledTask -TaskName $task -ErrorAction Stop
-        if ([string]$disabledTask.State -ne "Disabled") {
-            throw "capture supervisor did not disable: $task=$($disabledTask.State)"
+        # Prove the disable with Settings.Enabled: a running instance keeps
+        # State 'Running' after Disable-ScheduledTask (pyup C2 NO-GO 2026-10-22).
+        if ($disabledTask.Settings.Enabled -ne $false) {
+            throw "capture supervisor did not disable: $task=$($disabledTask.State) enabled=$($disabledTask.Settings.Enabled)"
         }
         Write-WindowLog "STOP" "disabled $task (exact readback)"
     }
+    Wait-SupervisorEnsureRunsEnded -StopDeadline $stopDeadline
+    Assert-StopTimeRemaining $stopDeadline "snapshot stop"
     & $python -m weather.collection.snapshot_tracker --stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "snapshot stop exited $LASTEXITCODE" }
+    Assert-StopTimeRemaining $stopDeadline "CLOB stop"
     & $python -m weather.market.market_microstructure stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "CLOB stop exited $LASTEXITCODE" }
+    Assert-StopTimeRemaining $stopDeadline "observation-trigger stop"
     & $python -m weather.operations.observation_trigger stop | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "observation-trigger stop exited $LASTEXITCODE" }
     Write-WindowLog "STOP" "stop verbs issued for all three loops"
-    if (-not (Wait-CaptureStopped $CaptureStopTimeoutSeconds)) {
+    Assert-StopTimeRemaining $stopDeadline "stop confirmation"
+    if (-not (Wait-CaptureStopped (Get-StopSecondsRemaining $stopDeadline))) {
         $childExit = 9001
         $stillActive = Get-ActiveCaptureLoops
         Write-WindowLog "ERROR" "capture did not become fully inactive within ${CaptureStopTimeoutSeconds}s (still active: $stillActive); retrain not started"
@@ -501,17 +582,25 @@ if ($dirtyPaths.Count -gt 0) {
     }
     Assert-CaptureStoppedForTraining
     $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
-    $child = Start-Process -FilePath $python `
-        -ArgumentList $childArgumentString `
-        -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
-    $completed = $child.WaitForExit([int]($ChildTimeoutMinutes * 60 * 1000))
-    if (-not $completed) {
-        Write-WindowLog "RETRAIN" "cap reached; killing child tree pid $($child.Id)"
-        taskkill /PID $child.Id /T /F | Out-Null
-        $childExit = 9999
-    } else {
-        $childExit = $child.ExitCode
-        Write-WindowLog "RETRAIN" "nightly_retrain exited $childExit"
+    # The child tree lives in a kill-on-close Job: the cap terminates exactly the
+    # Job's members (never a PID-reuse orphan, as a parent-PID tree walk could),
+    # and the tree also dies if this wrapper is killed.
+    $childJob = New-WeatherKillOnCloseJob
+    try {
+        $child = Start-WeatherProcessInJob -Job $childJob -FilePath $python `
+            -ArgumentString $childArgumentString -WorkingDirectory $RepoRoot
+        $completed = $child.WaitForExit([int]($ChildTimeoutMinutes * 60 * 1000))
+        if (-not $completed) {
+            Write-WindowLog "RETRAIN" "cap reached; terminating child Job (pid $($child.Id) and its descendants)"
+            try { $childJob.TerminateAndWait(30000) }
+            catch { Write-WindowLog "ERROR" "child Job teardown unproved: $($_.Exception.Message)" }
+            $childExit = 9999
+        } else {
+            $childExit = $child.ExitCode
+            Write-WindowLog "RETRAIN" "nightly_retrain exited $childExit"
+        }
+    } finally {
+        $childJob.Dispose()
     }
     $nightlyStatusPath = Join-Path $RepoRoot "data\backtest\nightly_retrain_status.json"
     if (Test-Path $nightlyStatusPath) {
@@ -530,6 +619,11 @@ if ($dirtyPaths.Count -gt 0) {
         $childExit = 2
         Write-WindowLog "RETRAIN" "promoting non-success nightly status to window exit $childExit"
     }
+} catch {
+    # A thrown failure still exits 1. The exit in the finally discards the error, so print it.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
+    $windowThrew = $true
+    throw
 } finally {
     # ---- Restore capture no matter what happened above ----
     try {
@@ -544,5 +638,9 @@ if ($dirtyPaths.Count -gt 0) {
         Write-WindowStatus "restore_failed" "capture_recovery_unproved_exit_$childExit"
     }
     finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
+    # Default-fail exit ($childExit starts at -1): a stopped (Ctrl+C) Windows
+    # PowerShell 5.1 advanced script would otherwise exit 0.
+    if ($windowThrew -eq $true) { $childExit = 1 }
+    $Host.SetShouldExit($childExit)
+    exit $childExit
 }
-exit $childExit

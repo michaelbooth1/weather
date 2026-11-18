@@ -1,0 +1,272 @@
+# Model-improvement method
+
+Status: canonical method for model research. The 2026-10-23 forecast-first product ordering was
+superseded by the owner's 2026-11-05 ~21:50 edge-definition row in [DECISION_LOG.md](DECISION_LOG.md).
+This file governs component research; [EF §0c](ESTABLISHED_FINDINGS.md#section-index) owns the profit criterion.
+
+- **Owns:** the order of work for a model-improvement lane: locate the loss, start from the simple
+  baseline, add one ingredient per rung, climb the measurement ladder, and the pre-registration
+  discipline that makes each rung citable.
+- **Read when:** opening a model, source or blend lane; choosing what to build next; about to score a
+  candidate against served, MG-1 or the market; reviewing a lane's result.
+- **Do not use for:** the results themselves ([findings digest](FINDINGS_DIGEST.md), then
+  [established findings](ESTABLISHED_FINDINGS.md)); the sections a rule file must contain, which
+  `prereg_check` enforces ([pre-registration checklist](PREREGISTRATION_CHECKLIST.md)); which candidates
+  have already read the development dates ([dev-window reuse ledger](DEV_WINDOW_LEDGER.md)); which dates
+  are held out ([reserved confirmation window](reserved-confirmation-window.md)); today's evidence
+  cutoff and embargoes ([state of play](STATE_OF_PLAY.md)).
+- **Update when:** a lane shows a rung of this method wrong or missing, a measurement ruling changes the
+  ladder, or a new class of look-ahead or unfair comparator costs a lane a result.
+
+Every figure below is quoted from the cited record. Re-verify it there before using it in a decision.
+
+## 1. Locate the loss before building anything
+
+The worked example is P3d_N, the afternoon (13:00+) half of the MG-2 composite. It was found in this
+order.
+
+1. **Where the loss is (lane L5, then lane L7's loss atlas).** At 07-12 the served-minus-market Brier
+   excess is mostly the centre: the Shapley centre share is 76.5% [63.1, 88.7], served is cold by
+   −1.44 F [−2.20, −0.69], and the zero-parameter NBM read MG-1 cuts the 07-12 excess from 0.0258 to
+   0.0117 ([morning loss diagnosis](../research/morning-loss-diagnosis-2026-10-24.md); dev-window ledger
+   rows 15 and 18). The loss atlas (`python -m weather.reporting.scorecards.loss_atlas`) reproduces the
+   served control and these figures before it reads any candidate (ledger row 18). In delta mode it
+   shows that MG-1 closes 53.7% of served's 07-12 excess (row 19).
+2. **Rung 1, the observed floor (`high_so_far`).** L3's three-feature OLS on the forecast high, the
+   observed running high and the current temperature, hard-floored at the observed high, beats served on
+   the dev window: 07-12 dR −0.179 [−0.232, −0.127]. A forecast plus the floor alone gives −0.078 at
+   07-12 but +0.210 at 12-16, so the gain is the running-high regression, not the floor (EF §10ab). The
+   serve-equivalent running max (L8's `running_max_since_midnight`) equals L3's reading on all 9,224
+   replay hours (EF §10ab).
+3. **Rung 2, the NBM centre (`v2_mean`).** On blocked leave-one-year-out 2021-25, a PIT NBM mean beside
+   the forecast is KEEP: −0.096 [−0.114, −0.078] nats at 07-12 (L9, EF §10ac). The forecast input of P3d
+   (Open-Meteo Previous Runs, lead 1) is not in the capture, so it failed serve parity, with a served
+   forecast MAE of 2.26 °F at 13-16 (EF §10aa). The MG-2 pick rule's option N therefore swapped in the
+   captured NBM 07Z mean (A_N). The A_N control is −0.3915 [−0.5567, −0.2488] against MG-1 at 13-16
+   (ledger row 29; EF §10ae).
+4. **Rung 3, the pooled residual.** Pooled over the 11 US markets, L2's residual model beats L3's
+   OLS + floor by −0.147 nats at 07-12. Pooling is the lever: the per-market twin only ties OLS + floor
+   (EF §10aa). On the captured NBM mean and L8's running max this is P3d_N. In the single MG-2 pick it
+   beats A_N at 13-16 by −0.155 [−0.218, −0.098] (ledger row 31; EF §10ae).
+5. **Then the market.** P3d_N alone is still worse than the market: R 1.28 at 13-16 and 1.19 at 07-12.
+   Its blend weight is about 0 (EF §10ad). Every rung is model against model, and none of them is edge.
+
+Each rung changed one ingredient and was measured against the rung below it, on identical rows. A rung
+that does not beat its predecessor is killed and recorded, not carried along. Examples are L9's
+overnight low, dewpoint and hour-pooled slopes (EF §10ac).
+
+## 2. Simple baseline first
+
+Every new lane starts with the pooled OLS / NBM baseline: OLS plus a hard floor on the observed running
+max, with the NBM mean as a regressor where it is captured. **A complex model is built further only after
+it beats that baseline on the dev scorecard, on identical rows.** The evidence:
+
+- **Lane B, new cities:** OLS + floor beats the forecast baseline in every block. HGB + floor is worse
+  than OLS + floor in every block except one tie, and far worse late in the day (17-20 Brier +0.14 to
+  +0.41), because per-cutoff trees cannot reproduce the late-day near-identity on the observed high.
+  A residual HGB on top of OLS is indistinguishable from OLS
+  ([new-city model lane](NEW_CITY_MODEL_LANE.md)).
+- **R0 HGB against a floored baseline:** OLS + floor beats lane D's floored R0 by −1.820
+  [−2.098, −1.563] nats at 07-12, in 5 of 5 markets (EF §10ab). Full-year R0 + floor is still +1.02
+  [+0.86, +1.18] worse than OLS + floor (EF §10z).
+- **L3 OLS + floor** beats served on the dev window (rung 1 above) with three features, no trees and no
+  calibration stage. The residual-HGB variant is indistinguishable from it (EF §10ab).
+
+The baseline must be fair. It gets the same floor, the same calibration and the same rows as the
+candidate. Raw R0 is not a baseline ([checklist, the unfair raw-R0 lesson](PREREGISTRATION_CHECKLIST.md)).
+
+## 3. The measurement ladder
+
+For a forecast-improvement lane, climb in this order. Failure closes that candidate under its named
+score rule, population and effect size. These research allocation gates neither authorize nor veto
+an economic trial of an executable, capital-bounded policy; independent forecasts remain controls.
+
+1. **Dev R against the served model** on the dev scorecard (`weather.reporting.scorecards.dev_scorecard`).
+   Use the paired `model_minus_control` on identical rows. Report the served positive control first.
+   A pass here is necessary and cheap: served under-uses its own captured guidance (RF "Capture NBH").
+2. **Against MG-1**, the zero-parameter NBM read. Both of L3's arms beat served but fail this gate at
+   07-12: +0.080 [+0.020, +0.142] (EF §10ab). Beating served while losing to MG-1 means the candidate
+   adds nothing that captured guidance does not already carry.
+3. **Capture-time, no-look-ahead, against the market.** Every input to a read against the market comes
+   from the latest snapshot captured at or before the row's own capture time, and from no METAR row
+   received after it. **Master ruling (2026-10-25): the capture-time arm is PRIMARY for every market
+   comparison.** `last_in_hour` features (the last snapshot in the hour, applied to every row of that
+   hour) are allowed only for the MG-2 vs MG-1 gate, where both arms are models. Report R = candidate
+   Brier / market Brier per hour.
+4. **The blend weight w.** Fit a walk-forward log pool of market and candidate. **A w of about 0 means
+   no demonstrated increment from that fitted log-pool family on that population**, not absence of
+   every conditional or economic use (T013 #10; EF §10ba). Run the w = 0 identity, a
+   placebo (vectors deranged across dates) and a floor-only control (market plus the hard floor) beside
+   it. In L11 the 13-16 "gain" over the market was the floor zeroing already-dead buckets, not model
+   information: MG-1's blend R 0.9858 against floor-only 0.9845 (EF §10ad).
+
+**The look-ahead lesson (L11 audit, EF §10ad, RF "Dead-bucket stage A").** Stage A of the dead-bucket
+read dated the floor by the METAR's observation time plus an assumed 10 minutes. It showed $0.37/day.
+Re-dated by when the capture actually held that METAR (rule r4), it is $0.03/day [0.00, 0.09] on 21
+trades. The 57 obs-dated trades were exactly the book rows read before the system had the killing
+report. The same audit found P3d_N's dev emitter applying each hour's last snapshot to every row in
+the hour, which exposes about 6% of rows. The earlier claim that this can only flatter the candidate
+is superseded: a misspecified model can worsen with later inputs (T013 #11; EF §10ba; RF §1).
+Keep the recorded results and bound rules; date a deployability claim by receipt, not observation.
+
+## 4. Pre-registration checklist
+
+The rule file's required sections are owned by the [pre-registration checklist](PREREGISTRATION_CHECKLIST.md)
+and checked by `python -m weather.reporting.scorecards.prereg_check <rule.md>`. On top of those sections, every
+lane does all of the following.
+
+- [ ] **Rule file and sha256 recorded before any result exists.** Commit it, or at least pin its sha256
+      in a pushed record, before the first scored row. Examples: L11 r4 `fac8cd72…` recorded before any
+      row; L9's ladder rule (EF §10ac).
+- [ ] **Blocked leave-one-year-out validation** for historical fits (2021-25 corpora). Whole years are
+      held out, never random rows (EF §10ab, §10ac).
+- [ ] **Date-clustered bootstrap, 2,000 draws, fixed seed,** with the crossed date x market interval
+      beside it where markets are pooled (EF §5). Report the MDE80.
+- [ ] **Per-hour reporting, with 07-12 called out.** It is the window where the loss sits (§1). Pooled
+      blocks hide sign changes: guidance helps in the morning and harms the afternoon (EF §10p).
+- [ ] **Identical rows against the right baseline.** Same floor, same calibration, same rows. State the
+      coverage and the fallback rows.
+- [ ] **Evidence cutoff and embargo windows.** Never read an outcome, price or label dated after the
+      cutoff that [STATE_OF_PLAY](STATE_OF_PLAY.md) names (2026-09-29 when this method was written).
+      Never read the reserved MG-1 window that [the reserved confirmation window](reserved-confirmation-window.md)
+      defines. Name both in the rule. *Stale-rule note 2026-11-05 (master reading, A20): the MG-1 window
+      rule binds NBM-guidance-reading candidates only; a no-model maker or taker trial frozen under the
+      [edge trial charter](EDGE_TRIAL_CHARTER.md) is outside it.*
+- [ ] **No oracle.** No input built from the outcome, from the settled band, or from data received after
+      the row's capture time (§3, rung 3).
+- [ ] **Dated Clarifications, never edits to a frozen rule.** A Clarification is a new dated section with
+      its own sha256, written before the rows it governs are read. Example: L11's Toronto rule
+      `12902246…` keeps its original sha beside the Clarification 1 document `46c48626…`.
+- [ ] **Superseded runs are recorded, never deleted.** Keep the old run's pins and say what superseded it.
+      Examples: Toronto run 1, and stage A's suspended reading, which stays in its results file with the
+      audit appended.
+- [ ] **A sanity control that makes the result NOT INTERPRETABLE if it fails.** Declare it in the rule
+      with its threshold. Examples: the loss atlas refuses (exit 7) unless the served control reproduces;
+      r4 required at least 0.95 of doubly dead buckets to have a receipt at or after the killing report,
+      and got 0.972; the Toronto Celsius check matched the IEM high on 60 of 60 days.
+- [ ] **A dev-ledger row before scoring** (`pending`), filled after it ([ledger](DEV_WINDOW_LEDGER.md)).
+- [ ] **Cite the published dev reuse count.** Name the ledger's "Dev reuse count" (one number, ledger section of
+      that name) as the multiplicity denominator the rule inherits, plus one for the new row.
+
+A dev-window win is selection evidence only. It earns a pre-registration on new dates and a forward
+shadow, never a promotion (EF §5).
+
+## 5. Fast-iteration pipeline (owner 2026-10-30)
+
+The owner approved nine decisions on 2026-10-30, all as master-agent recommended ([DECISION_LOG](DECISION_LOG.md)).
+The rationale is the dated [iterate-faster plan](../research/iterate-faster-2026-10-30/plan.md). They add these rules.
+
+1. **Two currencies.** History and dev reads are cheap and can only kill. Forward dates are spent only on frozen,
+   sha-pinned candidates or batches.
+2. **Kill at the cheapest tier that can.** Intake must say why the market might lack the information; an exhausted family
+   ([exhaustion register](EXHAUSTION_REGISTER.md) §6) is refused without a new mechanism. Then outcome-free checks (coverage,
+   per-version, receipt-dated availability), history (LOYO), dev, and only then a forward look.
+3. **Market-facing ideas go to the market-residual P0 first.** Does the signal predict the market's error at the same hour?
+   One rule, a ledger row first, BH at q = 0.10 across arms, a calibration-matched placebo (the residual deranged across
+   dates, 20 seeds), and per-date rows written beside the result.
+4. **w first.** A candidate earns a market test only if its walk-forward w beats the placebo and the floor-only control
+   (§3 rung 4) and it then passes a dev tradability replay. A dev win against served or MG-1 is not edge progress.
+5. **Batch small levers.** A lever smaller than about half the dev MDE80 goes into a batch, never a solo forward test.
+6. **Size each test from its own numbers:** N from the pair's measured sigma at half the dev effect, at least 20 dates before
+   any PASS, no screen launched below power 0.5, and training coverage that reaches the last forward date.
+7. **Futility looks in new pre-registrations only** (Rule B, [power and futility read](../research/iterate-faster-2026-10-30/prereg-power-futility.md)):
+   a harm stop at 7 dates, then stop at 14, 21 and 31 dates on the registered boundaries; inflate the MDE 4-7% and report
+   a block-3 interval beside the date-clustered one. A look reads a date only when rule 9 allows it. Bound tests (B,
+   MG-1, L6_G) never change; B gets no futility look.
+8. **Standing blind accrual.** A frozen arm accrues outcome-blind from its freeze with no per-candidate owner exemption.
+   It looks only after every test that claims its dates has looked. Arms on B's dates are screens, never edge claims.
+9. **One date rule.** No outcome, label or price on a date is read until every test that claims that date has taken its
+   look. After the last claiming look the date joins dev, prices included. **Look order on shared dates** (master
+   ruling 2026-11-01, state review item 13; not an owner decision): claims on a date rank by freeze time, and a
+   later-frozen test never reads a date before every earlier-frozen claimant of it has looked. A claim binds only over
+   its own scope (markets, dates, inputs): MG-1's covers NBM-derived reads only. A claim whose scope cannot be shown
+   not to intersect is treated as intersecting. A test's pre-registration lists its claimants by name before it freezes.
+10. **2026-09-30..10-14 is opened once** for kill-only and atlas reads, after a written check that no running test claims
+    those dates. Nothing read there supports an edge claim.
+11. **The workstation records pre-registered kills itself** (ledger row and register row); master audits them daily.
+12. **Record first.** Free forward-only sources start recording before any dev win; a standing defect lane runs alongside.
+
+Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 and 15 are master's rulings of
+2026-10-31, from the dated [research review](../research/research-review-2026-10-31/review.md); they are not owner decisions. Rules 16 and 17 are master's rulings of 2026-10-31 and 2026-11-02.
+
+13. **Archive what is ruled out.** Every ruled-out candidate, retro-filled for older rows, keeps its pre-registration or
+    draft, script commit sha, raw outputs, receipts and logs under `C:\archive\ruled-out\<folder>` (workstation; copies,
+    never moves), indexed by `INDEX.md` and `index.json` there with per-file sha256, built by its `build_index.py`.
+    A register or ledger kill cites its archive folder. Nothing under the archive root is deleted; scratch work
+    lives outside it.
+14. **Intake prior: already priced.** No new single free-source T+0 screen on the US11 opens unless its S0 names a
+    mechanism by which the *market* lacks the information at that hour. "It beats served" is not a mechanism: on the dev
+    scorecard served is 1.53x (00-16) to 1.77x (all hours) the market's Brier (EF §10aa; 1.77x on the 111h table too,
+    EF §10q), so almost any public input beats it. Without the mechanism the default reading is that the crowd already
+    prices the source, and the screen is refused at intake.
+15. **A family kill cites a measurement on the member it closes.** A member closed only by extension from a sibling's
+    result is labelled **CLOSED-BY-RULE (reopenable)**, never KILL or COVERED, and its register row names the sibling
+    and the rule that extended it. A new mechanism or a measurement on the member itself reopens it.
+16. **A power projection applies the statistic's full population rule** (master, 2026-10-31, after ledger row 103):
+    "A pre-look power projection must apply the statistic's FULL population rule (for mr_sweep: covered AND every
+    placebo donor covered under all seeds), computed outcome-free on the real layout. Covered counts alone are not a
+    projection. A rehearsal must report the realised population per arm, not only the covered count." Instances:
+    S31 v1 (ledger row 99) and X13 (row 103, realised population 0). Template: the per-arm realised-population
+    count in `rodc_released_p0 --rehearse-to-table` at `d4ebc9576a991f3fd8b4446250030b98494b1359`
+    (`claude/rodc-released-p0-run-20261031`).
+    Instance, projection vs realised: row 28 (ledger rows 114-117, 2026-11-03): the pre-look projection gave X−S
+    power 0.99999 (σ_eff 0.01872, MDE80 0.00261); realised SE_wide 0.00415 / 0.00420 / 0.00398 / 0.01021 (arms
+    A-D) against 0.001707, power 0.130 / 0.127 / 0.143 / 0.026, all < 0.50 (EF §10aw).
+17. **Compute an integrity cap's inputs before freezing it** (master, 2026-11-02, after ledger row 113, verbatim):
+    "Before freezing an integrity cap, compute its input counts outcome-blind (e.g. partial/missing label days per
+    period and market) and record them in the prereg, so a cap is set knowing the base rate." Instance: row 113 (3a,
+    register X93) closed UNTESTABLE at a 2% label-integrity cap (2.82%); 26 of its 40 partial days fall in the five
+    late-March markets (austin, denver, houston, los-angeles, san-francisco), label metadata available before any read.
+18. **Guard and run-hygiene lessons from the row-28 control stage** (master, 2026-11-03; lever-inventory row 28,
+    ledger rows 114-118; these are process lessons and say nothing about row 28's results):
+    - (a) The output guard hit 276 `r0_scope` `DECISION_*` owner-date constants embedded in records plans; the
+      reviewer's "docstrings only" claim was wrong.
+    - (b) `gzip.open` stamps MTIME, so raw records shas differ run to run; identity is the decompressed sha (or the
+      raw sha with bytes 4-8 masked).
+    - (c) The diag category list lacked `DECISION_CONST` and would have mis-routed hits (caught before d2 ran).
+    - (d) Launcher v5's G2 self-hit passed all reviews, hence the smoke-run requirement.
+    - (e) Master (2026-11-03, wording): "a wrapper run with -RepoRoot inside a guarded worktree creates data\logs
+      and breaks the exactly-4-junctions check; seen a1 and a5". Rule: the junction count is re-checked inside the
+      same command block immediately before every launch; the wrapper's -RepoRoot is outside the worktree.
+    - (f) "build 1 guard HALT: 11 market (+ pool) NBM valid_time_utc values fell on 2026-01-01 UTC as UTC rollovers
+      of 2025-12-31 local rows; a date-prefix guard must scope by local date and market tz, not raw UTC string, or it
+      halts on legitimate pre-cutoff rows (fixed by a narrowly scoped, byte-span-cut allowance)."
+    - (g) "runner v11 review B-1: the ruling text embedded in the runner contained a literal dated instant that the
+      runner's own rulings report would withhold under the guard, so the run would HALT on its own ruling; fixed in
+      v12 by rewording plus a sentinel over the rulings dict. Lesson: guard-scanned outputs must not quote
+      guard-matching literals, including in rulings/docstrings."
+      Instance (E1, ledger row 119, 2026-11-04): the labels stage HALTed (rc 10) because the stage config's
+      second-GO string carried ISO date literals, and the v12 report guard (`row28_run_v12.py`:3474-3483) withheld
+      it. Config strings that a guarded report echoes must not carry guard-matching literals either. The halted
+      attempt's outputs were kept as evidence.
+19. **A projection's SD input matches the tested contrast** (master, 2026-11-03, after ledger rows 114-117, verbatim):
+    "A power projection's SD input must come from a contrast of the same kind and distance as the one tested, never a
+    near-twin, or from a stated conservative bound. After the look, report the realised/projected SD ratio."
+    Instances: row 28 (lever-inventory row 28, ledger rows 114-117; EF §10aw): the projection took per-date SD
+    0.016304 from the row-109 Aug-Sep near-twin receipt; realised X−S SD 0.0799 / 0.0803 / 0.0787 / 0.1300 (arms
+    A-D), a realised/projected SD ratio of 4.90 / 4.93 / 4.83 / 7.97 (POST-HOC D2, `2a9cfcdf6`).
+    Instance (F2 going-in ledger, 2026-11-13; A091 §7 F7, §11): EF §10r's σ_d is the SD across dates of the date-mean
+    per-band-day profit. Treated as an independent per-band SD, it turns about 11,963 required dates at the 3% hurdle
+    into band-days and understates the requirement about 12-fold at 12 bands a day.
+20. **Name every dependence factor's unit** (master, 2026-11-04, after ledger row 119). A prereg names each factor
+    with its unit:
+    - κ_* is a variance ratio (it multiplies SE²);
+    - r_* is an SE ratio (it multiplies SE).
+
+    Write VIF only in variance units, VIF = max(1, κ_AR, κ_block3), or square only a named SE ratio. The
+    runner's output keys and the prereg's symbols must match.
+
+    Instance (E1, EF §10ax):
+    - E3 condition 2 wrote VIF = max(1, (1+ρ)/(1−ρ), κ_block3²).
+    - v12 `contrast_stats` computes κ_block3 as a variance ratio (`row28_run_v12.py`:2066-2068) and uses it
+      unsquared (:2069-2071).
+    - The row-28b prereg draft uses both units: κ_block3 1.419, and "block3 ratio" 1.191, its square root.
+    - Neither rule 16 nor `extension_0712_feasibility.md` defined the unit.
+
+    Master kept E3 as written; the frozen form is conservative toward DON'T ADD. The row-28b forward prereg fixes
+    the unit (VIF in variance units) at its freeze.
+
+## Update this file when
+
+A lane shows a rung of this method wrong or missing, a ruling changes the measurement ladder, or a new
+look-ahead or comparator trap costs a result. Results go to the digest and established findings, not here.

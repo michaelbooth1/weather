@@ -48,7 +48,7 @@
    (measured METAR minutes; NBM 01/07/13/19Z); T3, the probability a band is already decided. Evaluate against a clock-only
    baseline, then as a pre-registered withdraw-policy counterfactual (markout avoided versus reward minutes lost).
 7. **Statistics canon repair:** date-clustered inference with markets fixed for decisions (the crossed design as a
-   sensitivity); retire the 98.88/1.12 citations and the ~504-date requirement (neither 504 nor 39 is citable); fee (EF §10o)
+   sensitivity); retire the 98.88/1.12 citations (superseded by `-09-56a`, EF §1c: tested calibration at most about 16.5%) and the ~504-date requirement (neither 504 nor 39 is citable); fee (EF §10o)
    amendment; two-tier ship rule (owner decision).
 8. **Forecast candidates in forward shadow:** a zero-parameter baseline board (raw NBM with the observed floor, all day, plus
    a rolling per-market centre correction), then a pooled guidance-anchored residual model with state-dependent spread.

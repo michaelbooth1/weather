@@ -95,7 +95,9 @@ http://localhost:8501/?roadmap
 The **Owner Cockpit** is the default page. Its Money, Work, Health and Exam
 columns read the watchdog record (`data/alerts/host_health_latest.json`), the
 tail of `data/alerts/disk_free_trail.jsonl` (24 h slope, days to 50 and 40
-GiB), 88a maker-evidence status and closed UTC dates, the `docs/roadmap/work/`
+GiB), 88a maker-evidence status and closed UTC dates, each
+`config/capture_families.json` family's `status.json` (a disk-floor stop is a
+warning, not a failure), the `docs/roadmap/work/`
 registry (owner waits over three days are flagged), and the wallet reader's
 `summary` and `rewards` routes through its GET-only LAN client. Every source is
 optional and states why it is unavailable; campaign P&L is shown only when the
@@ -140,7 +142,7 @@ larger runs wait their turn in the FIFO queue of the heavy wrapper (timeout exit
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests\test_artifacts.py -q --basetemp C:\wt\bt-focused
-.\scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ops\workstation_heavy.ps1 -Kind pytest -PythonPath "$PWD\venv\Scripts\python.exe" -ArgumentsBase64 <base64-json-argv> -RepoRoot $PWD.Path -Queue -QueueTimeoutSeconds 14400
 ```
 
 `pytest.ini` sets `pythonpath = src` and limits collection to `tests/`.
@@ -310,6 +312,11 @@ Retryable failures remain pending, and terminal results are published to
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
+# Venue-rule labels for dates from 2026-10-23 (docs/operations/venue-rule-labels.md):
+.\venv\Scripts\python.exe -m weather.backtesting.venue_rule_labels build --market nyc
+# Public read-only expansion diagnostics (docs/operations/weather-universe.md):
+.\venv\Scripts\python.exe -m weather.market.metar_settlement now --family highest --cities toronto london
+.\venv\Scripts\python.exe -m weather.market.market_day_labels finalize --label-rule venue
 .\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.daily.daily_learning
@@ -450,23 +457,181 @@ health proof are completed.
 .\venv\Scripts\python.exe -m weather.artifacts size-audit
 ```
 
-Late-day lock-in anchor replay (read-only, closed dates up to 2026-09-29 only).
-Run it on the capture host only inside the admitted heavy window under the
-shared lease. It replays captured inputs through `estimate_distribution` with
-the pre-v0.5.11 WU-only anchor and with the restored anchor. It writes one JSONL
-row per snapshot, holding both final vectors, to a new `--out` file outside
-`data/`, and prints a per-hour-block summary. Its floor check exits 3 when any
-row's new vector holds more mass below the anchor bucket than the old one. It
-refuses later dates, an existing `--out`, and any `--out` inside `data/`:
+Late-day lock-in anchor replay (read-only, outcome-blind; closed dates up to
+2026-09-29, or from 2026-10-16 for the evening-fix scoring window; 2026-09-30..
+2026-10-15 is always refused). Run it on the capture host only inside the
+admitted heavy window under the shared lease. It replays captured inputs through
+`estimate_distribution` with the pre-v0.5.11 WU-only anchor and with the
+restored anchor (`--with-v3-arm` adds v3 without the v4 pre-lock-in floor). It
+writes one JSONL row per snapshot, holding both final vectors and, when the
+folder has `snapshots_long.csv`, both arms' band probabilities and the captured
+market price, to a new `--out` file outside `data/`, and prints a
+per-hour-block summary. It never reads settlement. Its floor check exits 3 when
+any row's new vector holds more mass below the anchor bucket than the old one.
+It refuses embargo dates, open days, any target after 2026-10-28 (with or
+without `--through-date`), an existing `--out`, and any `--out` inside `data/`:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\through-2026-09-29.jsonl --from-date 2026-09-14
+.\venv\Scripts\python.exe -m weather.backtesting.lockin_anchor_replay --out scratch\lockin_anchor_replay\evening-fix.jsonl --from-date 2026-10-16 --through-date 2026-10-28 --with-v3-arm --no-market
 ```
+
+Evening lock-in fix scorer (one look, read-gated). It scores the replay rows
+above against the settlement ledger exactly as the evening-fix scoring
+pre-registration specifies (17-23 local, US11, fixed-market date-clustered,
+PASS / NOT_CONFIRMED / HARM / VOID). It refuses an unsigned pre-registration
+(its SHA-256 must be in `DECISION_LOG.md`), refuses before 2026-10-29 unless
+`--read-token` names a JSON token whose `decision_log_row` is recorded in the
+decision log, refuses any 2026-09-30..10-15 row, and writes nothing on refusal
+(exit 2). Every mode requires `--no-market`, and labels open only after the
+per-date reproduction check passes (exit 4 with the match table otherwise):
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --no-market --replay scratch\lockin_anchor_replay\evening-fix.jsonl --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\result.json
+```
+
+The no-market read on host-transferred outputs (Clarification 1, Stage 1) takes
+the `lockin_anchor_replay --no-market` file per replay commit and the whole
+transferred ledger rows. It refuses any row on 2026-10-29 or later, and stops
+with exit 4 before any label is opened when no single commit reproduces at least
+99% of rows (the output is the per-date match table) or when the window would
+need 10-29:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.backtesting.evening_fix_scorer --no-market --replay <commit>=scratch\transfer\replay.jsonl --ledger-rows scratch\transfer\ledger_rows.jsonl --served-commits scratch\transfer\served.json --prereg docs\research\<signed prereg>.md --out scratch\evening_fix\stage1.json
+```
+
+On the workstation the scorer is an admitted offline module (item 343a): run it
+through `scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`, not directly.
+The wrapper still refuses the live/execute/place/cancel/promote arguments and any
+command that names b_scorer with a look-like token.
 
 `weather.calibration.feature_model` trains one market/unit-family at a time.
 Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
 F-family artifacts. For the local multi-market helper, use
 `.\tools\train_all_markets.ps1`.
+
+`--column-allowlist` trains the cutoff-hour HGB/LR on exactly one ordered
+column list instead of the policy-filtered schema, so a retrain changes the fit
+dates and not the feature set. Its value can be one of four things:
+
+- `r0:<market>`: **the R0 mode** (`weather.calibration.r0_scope`; owner
+  decisions 2026-10-21 and M7/M8 2026-10-23). The served bundles'
+  `feature_names` minus the training-policy exclusions (`pressure`,
+  `pressure_trend_3h` in F markets) and minus the forecast-consensus columns a
+  single-provider PIT corpus cannot express (`forecast_source_count`,
+  `forecast_disagreement`; only Miami serves them among the US 11), in served
+  order. Refused for any market outside the US 11 (Toronto), and only with
+  `--output-root` and a `--pit-forecast-corpus-manifest`.
+- `served-policy:<market>`: the served list minus the training-policy
+  exclusions only. In F markets it drops exactly `pressure` and
+  `pressure_trend_3h`; Toronto loses nothing.
+- `served:<market>`: the served list as is. Any column the policy would
+  exclude is kept and recorded as an override.
+- A JSON list file.
+
+A served mode must name the market being trained, and it fails closed unless
+the HGB pickle and the LR coefs agree. Any listed column that the training
+frame or serving cannot build also fails closed. Both artifacts record the
+mode, the served list, `policy_exclusions_applied`,
+`single_provider_exclusions_applied`, `column_differences_from_served` (one row
+per removed column with its reason and decision) and `differs_from_served`
+under `training_column_allowlist`. With `--output-root` they also carry a
+`served_model_differences` record (removed columns, base models only, late-day
+not refit, forecast source and corpora, centre and training years), which the
+R0 candidate manifest and the research release provenance bind per market.
+
+`--output-root <dir>` runs the base models only, as R0 does:
+
+- The cutoff-hour HGB/LR and the report are written to a new directory under
+  that root, plus `feature_model_blocked_validation_rows_<market>.jsonl`: one
+  row per scored blocked-validation (cutoff hour, date) with the baseline, LR
+  and HGB log loss, so research comparisons can cluster by date. Each row also
+  carries `observed_floor_bucket` (round-half-up of the trainer's printed high
+  so far at the cutoff) and the same arms scored after the serving hard floor
+  (buckets below it times 1e-6, renormalised): `baseline_floored_log_loss`,
+  `lr_floored_log_loss`, `hgb_floored_log_loss`, `hgb_floored_brier`. The
+  served distribution path is not changed.
+- Late-day continuation is not trained, so the served late-day models stay as
+  they are.
+- Nothing is written to `artifacts/models/`.
+- It refuses `artifacts/` (except a child of `artifacts/candidates/`), the
+  releases, `src/`, the repository root and existing output.
+- It cannot be combined with `--late-day-only` or `--item27-report-only`.
+
+These research-only options need `--output-root`, so the served
+path is unchanged without it:
+
+- `--target-date YYYY-MM-DD` pins the centre date of the prior-year +/-7-day
+  training window instead of the run date.
+- `--pit-forecast-corpus-manifest <manifest.json>` (repeatable) reads
+  `forecast_high` and the forecast profile per (date, cutoff) from verified PIT
+  corpora ([runbook](docs/operations/PIT_FORECAST_TRAINING_CORPUS.md#retraining-input)).
+  Several corpora are unioned; they must agree on fields, lead, model and cutoffs
+  and may not share a year. Training is restricted to their years and the
+  ambient `data/forecast_history` archive is never read.
+- `--training-years 2021,2022` or `2021-2025` trains on exactly those prior
+  years. With corpora every year must be covered by one; a year with no
+  labelled day in the window fails closed.
+- `--min-samples-leaf <1..1000>` sets the cutoff-hour HGB leaf floor for this
+  run (owner-approved R0 leaf sweep, 2026-10-24). The default stays the served
+  20. Both artifacts record `hgb_hyperparameters`, a non-default value appears
+  in `served_model_differences.hyperparameters`, and the R0 candidate manifest
+  binds it (`hgb_min_samples_leaf`, one value per candidate).
+- `--validation-row-distributions` adds each row's blended HGB distribution
+  (`hgb_distribution`), the raw `observed_high` and the `actual_bucket` to the
+  per-row file so others can post-process. The trained bundles are unchanged.
+
+Both artifacts then carry a `training_inputs` record (centre date, years, days
+per year, forecast source, corpus ids and manifest hashes). An R0 fit is
+`--market <id> --target-date <centre> --column-allowlist r0:<id>
+--pit-forecast-corpus-manifest <m1> --pit-forecast-corpus-manifest <m2>
+--output-root <dir>`, run through `scripts\ops\workstation_heavy.ps1 -Kind
+weather_heavy` (the trainer is on its offline-module allowlist).
+
+`python -m weather.calibration.pooled_residual_model extract|evaluate|report`
+(research only, lane L2 2026-10-24; on the offline-module allowlist) pools the
+US 11 into one residual-space model per cutoff hour and scores it against R0
+recomputed with the trainer's own functions on R0's blocked leave-one-year-out
+rows. `extract --centres <dates> --manifest <m> ... --out <dir>` pickles the
+trainer's per-cutoff records; `evaluate --records <dir> --arms R0,P0,P1,P2,P3
+[--lane-d-root <R0 output root>] --out <dir>` writes per-row losses (and an R0
+parity check against existing `feature_model_blocked_validation_rows_*`);
+`report --rows <dir> --rule <rule.md> --out <file>` applies the pre-declared
+rule. It refuses to import on the capture host and refuses output inside the
+repository.
+
+`python -m weather.calibration.r0_candidate_manifest --candidate-root <dir>
+--candidate-id <id> --centre <date> --build-commit <sha> --market <id> ...
+[--exclude-market <id>=<reason>]` binds one centre's R0 fits into a
+self-hashed, write-once `r0_candidate_manifest.json` (record version 2): per
+market the sha256 of the base-only coefs, HGB and report, the allowlist,
+`training_inputs` and `served_model_differences` records, and the sha256 of the
+five served components a research release copies unchanged (late-day
+coefficients, calibrated weights, probability calibration, forecast-error and
+settlement-lag models), plus the window, corpora, training years, build commit,
+scope and exclusions. Every trained market must be one of the US 11 in `r0`
+mode; every US 11 market must be trained or excluded with a reason; Toronto is
+always recorded as excluded with the code-owned reason. It fails closed on a
+missing file, an LFS pointer, an unpinned or wrong centre, a differences record
+that does not re-derive from the allowlist and inputs records, or markets
+trained on different corpora.
+
+`python -m weather.backtesting.r0_paired_replay --schedule <arms.json>
+--max-target-date <date> --out <new.jsonl> <market-day folder> ...` replays each
+captured snapshot (`replay_inputs.jsonl` only) twice. The served arm is the
+research (no active release) model. The R0 arm is the same model with
+`feature_hgb` and `feature_lr_coefficients` from a verified research-only R0
+release (built with `--r0-candidate-manifest`, see the nightly retrain
+runbook). Its other five components must equal the served files, or it fails
+closed. The schedule is
+`{"arms": [{"name", "release_dir", "manifest_sha256", "first_target_date",
+"last_target_date"}]}`, non-overlapping, and picks the arm by target date. A folder
+after `--max-target-date` is skipped without being opened, and markets outside
+the release (Toronto) are skipped. The output is a write-once JSONL: a header
+(schedule sha256, arms, skips), then one row per snapshot with both
+distributions, their L1 and both identity hashes. It does not score against
+settlement.
 
 METAR keying replay (read-only, target dates up to 2026-09-29 only). It
 re-parses the raw AWC payloads retained in each market-day folder's
@@ -482,6 +647,31 @@ shared lease:
 ```powershell
 .\venv\Scripts\python.exe -m weather.backtesting.metar_keying_replay --date 2026-08-29 --date 2026-09-19 --date 2026-09-28 --market miami --market nyc --market chicago --out scratch\metar_keying_replay\m0-v3-vs-v4.jsonl
 ```
+
+R0 full-year versus windowed (research only; workstation, through
+`scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`).
+`weather.calibration.r0_full_year run --market <us11> --centre-date <date>
+--pit-forecast-corpus-manifest <m> ... --output-root <dir outside data and
+artifacts> [--leaves 20,10,5] [--arms windowed,full_year]` scores the R0 HGB by
+blocked leave-one-year-out on the held-out years' window days, trained either
+on the window (the trainer's rows) or on every covered 2021-2025 day plus
+`doy_sin`/`doy_cos`; season corpora that share years are read by date
+([PIT corpus guide](docs/operations/PIT_FORECAST_TRAINING_CORPUS.md)). `score
+--rows-root <dir> --markets <list> [--reference-root <trainer output>] --out
+<json>` applies the pre-declared comparison (date-clustered bootstrap, 2,000
+draws, seed 20261024) and checks the windowed rows against the trainer's
+`feature_model_blocked_validation_rows_<market>.jsonl`. It writes no model
+artifact; its seasonal columns are not served features.
+
+Year-round refit, row 28 candidate B (research only; workstation, through
+`scripts\ops\workstation_heavy.ps1 -Kind weather_heavy`).
+`weather.calibration.yearround_refit fit --arm B --config <cfg> --config-sha <sha>
+--records-root <dir>`
+fits B's forward state once, write-once under `data\yearround_refit\`, and
+copies it to the archive; `emit ...` writes one weekly after-the-fact shadow batch
+on captured inputs; `equivalence ...` checks the module against the frozen v12
+runner. The [year-round refit runbook](docs/operations/YEARROUND_REFIT.md) owns
+the flags, windows and archive step. It serves nothing.
 
 ### Trading Simulations
 
@@ -542,8 +732,12 @@ That command replaces both daily tasks. It intentionally omits the FULL
 production-evidence contract and does not assert production readiness.
 
 Scheduled settlement/evidence refresh, event-config refresh, exchange-economics
-refresh, analysis, host guards, and
-candidate training are separate registrations. Their script parameter blocks
+refresh, analysis, host guards, the MG-2 input export
+(`register_mg2_input_export.ps1`, owner approval first; see the
+[operations topology](docs/operations/OPERATIONS_DESIGN.md)), and
+candidate training are separate registrations. The row-28b input trim
+(`scripts/ops/r28b_input_trim.ps1`) has no registration: master runs it on the
+capture host as a weekly one-shot (same topology document). Their script parameter blocks
 are the source of truth for names, cadence, and required inputs. On a dedicated
 single host, use the bounded training-window topology; do not also enable the
 direct nightly-retrain task for the same workload.

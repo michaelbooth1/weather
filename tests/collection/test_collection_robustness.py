@@ -516,6 +516,8 @@ class TestLoopHealth(unittest.TestCase):
                 return {"ok": True}
 
         class FakeStore:
+            shared_forecast_payload_cas = None
+
             def __init__(self, event_slug=None, **_kwargs):
                 self.event_slug = event_slug
                 calls["store_event_slug"] = event_slug
@@ -566,6 +568,8 @@ class TestLoopHealth(unittest.TestCase):
                 return {"ok": True}
 
         class FakeStore:
+            shared_forecast_payload_cas = None
+
             def __init__(self, root=None, event_slug=None, **_kwargs):
                 calls["store_root"] = Path(root)
                 self.event_slug = event_slug
@@ -699,6 +703,8 @@ class TestLoopHealth(unittest.TestCase):
                 return {"ok": True}
 
         class FakeStore:
+            shared_forecast_payload_cas = None
+
             def __init__(self, event_slug=None, **_kwargs):
                 self.event_slug = event_slug
 

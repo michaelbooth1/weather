@@ -1,0 +1,48 @@
+﻿{
+    "schema":  "t008_intake_evidence/1",
+    "recorded_at":  "2026-11-06T14:13:39.2451573-05:00",
+    "archive":  "C:\\t\\codex\\T008\\out\\intake-v1",
+    "script_sha256":  "be5c904bfcae08e05f05dbd46873286c0619410dfd6b6788cac5205be69cdcc9",
+    "archive_index_sha256":  "d8dbf29d1773ebb3393a766cad5a8bc963cc1fa6f8ca1277c0e47f53a2178ffe",
+    "results":  [
+                    {
+                        "candidate":  "h2",
+                        "tier":  "document_only_intake",
+                        "disposition":  "HOLD_PRE_READ_REGISTRATION",
+                        "new_measurement":  false,
+                        "scored_rows":  0,
+                        "data_files_opened":  0,
+                        "heavy_invocations":  0,
+                        "prior_quote":  "H2 NOT TESTED; Stage-1 17-23 primary is a different estimand",
+                        "blocker":  "Dev H2 market identity, S0 mechanism, pending ledger row and standalone rule required",
+                        "killed":  false,
+                        "survived":  false
+                    },
+                    {
+                        "candidate":  "nbm_tilt",
+                        "tier":  "document_only_intake",
+                        "disposition":  "HOLD_PRE_READ_REGISTRATION",
+                        "new_measurement":  false,
+                        "scored_rows":  0,
+                        "data_files_opened":  0,
+                        "heavy_invocations":  0,
+                        "prior_quote":  "Type-C NBM centre excluded by extension from X22; not a measured member kill",
+                        "blocker":  "S0 mechanism, inherited-closure ruling, mid input identity, pending row and rule required",
+                        "killed":  false,
+                        "survived":  false
+                    },
+                    {
+                        "candidate":  "rp2",
+                        "tier":  "document_only_intake",
+                        "disposition":  "HOLD_PRE_READ_REGISTRATION",
+                        "new_measurement":  false,
+                        "scored_rows":  0,
+                        "data_files_opened":  0,
+                        "heavy_invocations":  0,
+                        "prior_quote":  "History model-relative PASS -0.00390 [-0.00545,-0.00225] block-3; X95 PARKED",
+                        "blocker":  "Existing-state and season feasibility, S0 mechanism, pending dev row and new rule required",
+                        "killed":  false,
+                        "survived":  false
+                    }
+                ]
+}

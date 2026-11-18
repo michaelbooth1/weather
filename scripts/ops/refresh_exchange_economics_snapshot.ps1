@@ -78,6 +78,9 @@ function Write-RefreshStatus {
 }
 
 trap {
+    # During a Ctrl+C stop a trap cannot start commands and would exit 0; set
+    # the host exit code before anything else.
+    $Host.SetShouldExit(1)
     $message = [string]$_.Exception.Message
     Write-RefreshStatus -Status "ERROR" -ExitCode 1 -Reason ("unhandled: {0}" -f $message)
     Write-Error $message -ErrorAction Continue

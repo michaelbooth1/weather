@@ -19,20 +19,44 @@ generated reports for dynamic state.
   Toronto is the canonical Celsius market; the built-in U.S. markets use
   Fahrenheit. Legacy identifiers ending in `_c` may predate this contract and
   must be interpreted through their schema/producer, not their name alone.
-- The modeled settlement source is the highest whole-degree value printed by
-  the configured Weather Underground history source for the market's local
-  target date. Rounding and band parsing use the canonical unit helpers.
+- The label of a built-in market-date is the venue's own: the highest
+  whole-degree WU history value before 2026-10-23 (the venue paid the WU band on
+  626/626 measured 08-01..09-29 market-days) and the venue-rule value from it.
+  Read it with `weather.backtesting.venue_label_reader` (on the cutover branch
+  until it lands). Rounding and band parsing use the canonical unit helpers.
+- **Training and evaluation labels for built-in markets follow the venue rule
+  for target dates on or after 2026-10-23:** the highest routine METAR
+  temperature on the local date (SPECI excluded, remark T-group tenths with a
+  body fallback, half-up in the native unit), from the dated per-market label
+  station, with WU only as the fallback. Earlier dates keep the WU label. That
+  label amendment did not repair serving floors; the support constraint below
+  still binds. Contract:
+  [venue-rule labels](venue-rule-labels.md).
 - The venue's own source is declared per location in `config/locations.json`
   `settlement`. Hong Kong settles on a 0.1 °C HKO value that the venue
   truncates (`band_mapping: floor_to_whole_degree`), so the release
   settlement-rules contract declares rounding per location
   (`settlement_band_degree` in `weather.operations.release_candidate_contract`);
   never apply half-up rounding to an HKO value.
-- WU history is the settlement proxy and may establish a hard observed floor.
+- Label-source amendment (owner 2026-10-23, [DECISION_LOG](DECISION_LOG.md)):
+  new cities whose venue source is a METAR report (the more-markets phase-2
+  tranches) are labelled from free IEM METAR, not WU. The amendment covers
+  only those new cities. Owner 2026-10-25 ("Switching to the venue's own labels"):
+  the built-ins label as the venue resolves each date; history is not relabelled
+  with the routine-only rule (8 band flips 08-11..09-29, all paid on the WU band).
+- **Hard-floor support constraint:** hard-zero only outcomes impossible under the event's dated resolution rule and admissible observations.
+  The old "never weaken the floor" rule is superseded in this sense: it was
+  never a licence to zero a possible outcome. Report class, station, rounding,
+  accepted corrections and actual receipt/cutoff determine admissibility;
+  supporting observations alone do not prove impossibility under another rule.
+  [EF §10bb](ESTABLISHED_FINDINGS.md#section-index) records T032's trace and
+  separates the required serving repair from implemented behavior.
+- The following describes the existing serving path, not blanket permission
+  for its hard zeros. WU history is the serving floor source.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a
   target-date, cutoff-aligned current station observation or its captured
-  max-since-07:00 summary. This is the hard floor for every stage. This
+  max-since-07:00 summary. This is the implemented hard floor for every stage. This
   exception never admits forecast, climatology, post-cutoff, unit-implausible,
   or missing evidence.
 - The late-day lock-in stages (heuristic, learned, high-has-stood, expanded,
@@ -50,9 +74,10 @@ generated reports for dynamic state.
     floor reads only the current reading and the max since 07:00. SWOB rows
     keep their warm-bias hedge until lock-in; implausible readings never
     anchor. The calibration floor is `max(hard floor, observed floor bucket)`.
-  - The owner accepted both trades: an exact zero below a METAR-derived anchor
+  - Historically the owner accepted both trades: an exact zero below a METAR-derived anchor
     (a non-resolution source), and the pre-07:00 widening of the observed
-    floor for these stages.
+    floor for these stages. This acceptance does not override the dated-rule
+    support constraint; an inadmissible anchor cannot justify a hard zero.
   - With WU history present, the stages keep the WU high, unchanged.
 - A supporting observation can lead or disagree with the WU print. Model that
   uncertainty; outside the explicit empty-WU rescue contract, do not silently
@@ -70,9 +95,10 @@ generated reports for dynamic state.
   are kept as before. Rows captured under `metar-parser-v3` are not rewritten;
   their raw payloads retain `obsTime` for an explicit v4 re-derivation.
 
-Paid weather-provider access is unsupported. Do not add credentials, required
-environment variables, operator commands, or roadmap dependencies for paid
-weather data. WU labels come from retained local artifacts, the public
+Paid weather data is allowed only per source with explicit owner approval
+recorded in DECISION_LOG (owner 2026-10-23). Never commit credentials, and add
+no environment variables, operator commands, or roadmap dependencies for an
+unapproved paid source. WU labels come from retained local artifacts, the public
 page-backed collector, or an explicit reviewed manual-override policy.
 Free WU history access that sends the apiKey token scraped from WU's public web
 page is acceptable under this rule: no account, purchase or issued credential
@@ -81,6 +107,14 @@ commits; WU history fetching stays off on production until the token-redaction
 change lands (owner, 2026-10-07, OD24).
 
 ## Evidence and model claims
+
+NBP guidance must satisfy the [target-period and parser-provenance
+contract](nbm-target-period-contract.md). Future guidance admission requires
+recorded maximum-period provenance; unversioned history remains legacy replay
+only. An artifact consumes NBM values only from the parser version it was
+trained on; undeclared NBM-selecting artifacts are version 1 and see v2 rows'
+NBM inputs as missing. No fitting, retirement, re-scoring or pooling crosses
+that boundary.
 
 The north-star claim is not “the forecast looks reasonable.” Evidence should
 compare model probabilities with captured market yes-prices and realized
@@ -202,6 +236,9 @@ Terms are shorthand for the linked owner's contract, not additional authority.
 | Roll-sensitive / roll-free | Whether adopting changed source can restart a capture worker through its loaded import closure; obtain the script's verdict. | [Delegation contract §3](DELEGATION_CONTRACT.md#3-roll-sensitivity--how-to-decide-it) |
 | `promotion_countable` | The evidence-admission flag required for promotion counting; a complete quality grade alone is insufficient. | [Evidence and model claims](#evidence-and-model-claims) |
 | pUSD | The International venue's dollar-denominated collateral unit; balances and caps retain their explicit unit. | [Live pilot](INTERNATIONAL_MM_LIVE_PILOT.md) |
+| Position precision | The venue's positions endpoint reports size at 4 decimals while trades carry 6; reconcile holdings within 0.0001 share, never by exact equality. | [Item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| Reward pool horizon | Reward pools are configured per event and horizon; the T+1 pool that F2 quotes is not the same-day (T+0) pool, so never size a T+1 claim from the T+0 figure. | [Findings digest](FINDINGS_DIGEST.md) |
+| Strict / estimated rewards | Two recorded reward views: strict attributable (unproven income counts zero and never refills capital) and campaign estimate (venue condition-day earnings on quoted conditions, never in capital or headroom). | [Item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md) |
 | T+1 / T+2 | Target market-local settlement dates one / two days after the reference market-local date. | [Reward pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md) |
 | `P_many` / `P_single` | Reward predictions integrated over observed two-sided minutes under the many-maker / single-maker share assumptions. | [Reward pre-registration](../research/liquidity-reward-epoch-preregistration-2026-09-20.md) |
 | `k_accrued` | Venue-reported reward accrual divided by `P_many`; accrual is not proof of payment. | [Reward addendum](../research/liquidity-reward-epoch-addendum-2026-09-23.md) |

@@ -2,7 +2,8 @@
 
 | | |
 | --- | --- |
-| **Current authority** | **NO live trading is authorized: the owner paused all live trading, including RE-1, on 2026-09-25 while the informed maker is built (see STATE_OF_PLAY).** Read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) before anything else; nothing in this file grants authority, and absence of an explicit dated authorization means HOLD. |
+| **LFC maker pilot (2026-11-06/07, DECISION_LOG)** | **This file does not govern the live fill-calibration (LFC) pilot.** That pilot is session 1, owner-started on 2026-11-09, and the unattended F2 self-start campaign registered and armed by the owner. Read: STATE_OF_PLAY critical path 0; the [session-1 freeze](../research/session1-freeze-2026-11-07/README.md) and its successor lock; the [LFC pre-registration](../research/live-fill-calibration-preregistration-2026-10-09.md) with clarifications C–F; the DECISION_LOG rows of 2026-11-06..2026-11-13; and item 67 for every session. For the LFC pilot, those owner rows supersede the pause statement below. Agents still never place, cancel or sign orders. |
+| **Current authority** | **Outside the LFC/F2 campaign in the row above, NO live trading is authorized: the owner paused all other live trading, including RE-1, on 2026-09-25 (see STATE_OF_PLAY).** Read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) before anything else; nothing in this file grants authority, and absence of an explicit dated authorization means HOLD. |
 | **Owns** | The staged protocol for a bounded International Polymarket live test: envelope and caps, prerequisites, Stage 0–3 procedure, SDK decision, stop conditions. |
 | **Read when** | You are changing live-path code or its tests, preparing or reviewing an attended session, or checking what a live claim must prove. Load one section (table below), not the file. |
 | **Do not use for** | Whether trading is allowed today (`STATE_OF_PLAY.md`); attempt history (item 67); the maker economics plan and gates ([item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md)); provisioning or moving the second PC ([`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md)); the economics claim rule ([preregistration](../research/INTERNATIONAL_MM_PILOT_PREREGISTRATION.md)). |
@@ -18,7 +19,7 @@ does not make a blocked gate pass and it never authorizes Polymarket US.
 | Purpose and claim boundary | You need what a lifecycle probe can and cannot claim. |
 | Current production disposition | Always, first: who owns authority and history, what ran on 2026-09-06, why it is spent, the geography record. |
 | Immutable pilot envelope | Any change touching caps, order type, TTL, wallet or session shape. These ceilings may be lowered, never raised, without a new dated owner decision. |
-| Prerequisites (1–9) | Preparing or reviewing a session. Item 9 is geographic eligibility and the tunnel-down preflight line. |
+| Prerequisites (1–10) | Preparing or reviewing a session. Item 9 is geographic eligibility and the tunnel-down preflight line; item 10 is the Git for Windows layout check. |
 | Staged protocol → Stage 0: no-order account proof | Working on bootstrap, account reads, heartbeat or cancel-all evidence. |
 | Staged protocol → Stage 1: dead-man and cancel proof | Working on the lifecycle probe, the no-fill proof, the bundle builder or the one-submit capability. |
 | Staged protocol → Execution-host preparation | Only when executing or editing the attended command sequence. It is about two thirds of the file. Landmarks, in order: review-only candidate plan ("informed acceptance"); wallet topology ("declares the first topology"); credential import ("Choose the provisioning branch"); discovery and manifest build ("Only now start the expiring discovery"); three manifests and outer launchers ("Prepare all three manifests"); fresh candidate before Stage 0 ("The discovery plan is not the candidate"); Stage 1 helper ("Run this exact helper once for each Stage 1 mode"); offline bundle ("Only after both Stage 1 calls pass"). Search for the quoted phrase. |
@@ -37,6 +38,9 @@ state. Profitability requires repeated maker fills and subsequent paid-rebate,
 markout, position, and settlement reconciliation.
 The claim boundary and frozen economics decision rule are preregistered in
 [`INTERNATIONAL_MM_PILOT_PREREGISTRATION.md`](../research/INTERNATIONAL_MM_PILOT_PREREGISTRATION.md).
+A 2026-10 plan and readiness checklist against this runbook is the
+[maker pilot plan](MAKER_PILOT_PLAN_2026-10.md): DRAFT, HOLD status, owner
+questions open; it adds no gate and grants no authority.
 
 ## Current production disposition
 
@@ -332,6 +336,13 @@ All must be current for the target date and selected market:
    self-hash and freshness immediately before the order-submit boundary. A
    missing attestor, malformed receipt, or receipt that expires while those
    calls run blocks before `place_order`.
+
+10. **Git for Windows layout (added 2026-11-02, master; BEFORE ANY LIVE ATTEMPT).** `canonical_git_executable()`
+    (`src/weather/operations/live_path_security.py:566/572`) builds `<GitForWindows InstallPath>\mingw64\bin\git.exe`
+    from the registry and fails closed when that file is absent. Hosted Windows runners with Git 2.56 have no
+    `mingw64` there, so the live-session tests fail with `live-session artifact is absent`. Before any live
+    attempt, the execution host must resolve this path. Before any fix: a read-only check of the Git for Windows 2.5x
+    layout. See the known-failing Windows Qualification groups in [development](../development.md).
 
 ## Staged protocol
 

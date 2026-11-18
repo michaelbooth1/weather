@@ -57,6 +57,9 @@ $launchJournal = $null
 $launchStatus = "FAIL"
 $launchFailure = $null
 trap {
+    # During a Ctrl+C stop a trap cannot start commands and would exit 0; set
+    # the host exit code before anything else.
+    $Host.SetShouldExit(1)
     Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status "FAIL" -Failure $_
     throw
 }
@@ -302,10 +305,18 @@ function Invoke-SuiteCheckedLocalGit {
         $env:GIT_CONFIG_COUNT = "0"
         $env:LC_ALL = "C"
         $env:LANG = "C"
+        # The hermetic config hides the global filter.lfs.* driver. Without it a
+        # racily clean, smudged LFS file is re-hashed as raw bytes and `status`
+        # reports it modified against its pointer blob. Name the standard driver
+        # explicitly; a pointer-only worktree cleans to the same pointer.
         $gitArguments = @(
             "-C", $resolvedRoot,
             "-c", "core.fsmonitor=false",
-            "-c", "core.hooksPath=NUL"
+            "-c", "core.hooksPath=NUL",
+            "-c", "filter.lfs.clean=git-lfs clean -- %f",
+            "-c", "filter.lfs.smudge=git-lfs smudge -- %f",
+            "-c", "filter.lfs.process=git-lfs filter-process",
+            "-c", "filter.lfs.required=true"
         ) + @($Arguments)
         $rows = @(& $gitExecutable @gitArguments 2>&1)
         $exitCode = [int]$LASTEXITCODE
@@ -467,7 +478,19 @@ function Get-HealthyCaptureWorkerCount {
     # Ages are differences of UTC instants (ConvertTo-StatusUtcInstant), never of
     # local wall-clock times: on the 2026-11-01 fall-back night the repeated
     # 01:00-02:00 hour falls inside the 00:30-09:00 suite window.
-    param([datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    # A worker rewrites its status and lock files in place, so a read can land
+    # mid-write and fail to parse. Such a read is retried (up to $ReadAttempts
+    # reads, $RetryDelaySeconds apart) before the worker counts as unhealthy;
+    # a missing file or a parsed-but-failing status is judged at once.
+    # -Detail returns one row per worker (Name, Healthy, Dead, Reason) instead of
+    # the count, so admission can log why a worker failed and tell a dead pid
+    # (refused at once) from a transient read or age miss (confirmed first).
+    param(
+        [datetimeoffset]$Now = [datetimeoffset]::UtcNow,
+        [ValidateRange(1, 10)][int]$ReadAttempts = 3,
+        [ValidateRange(0, 10)][int]$RetryDelaySeconds = 1,
+        [switch]$Detail
+    )
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
         # Snapshot normally sleeps for almost its 10-minute cadence. Keep this
@@ -477,15 +500,30 @@ function Get-HealthyCaptureWorkerCount {
         @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180 }
     )
     $healthy = 0
+    $rows = New-Object System.Collections.Generic.List[object]
     foreach ($spec in $specs) {
+        $row = [pscustomobject]@{ Name = [string]$spec.Status; Healthy = $false; Dead = $false; Reason = "" }
+        $rows.Add($row)
         try {
-            $status = Get-Content -LiteralPath (Join-Path $snapshotRoot $spec.Status) -Raw |
-                ConvertFrom-Json
-            $lock = Get-Content -LiteralPath (Join-Path $snapshotRoot $spec.Lock) -Raw |
-                ConvertFrom-Json
+            $statusPath = Join-Path $snapshotRoot $spec.Status
+            $lockPath = Join-Path $snapshotRoot $spec.Lock
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
+                    $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+                    if ($null -eq $status -or $null -eq $lock) { throw "empty status or lock read" }
+                    break
+                }
+                catch {
+                    $present = (Test-Path -LiteralPath $statusPath) -and (Test-Path -LiteralPath $lockPath)
+                    if (-not $present) { $row.Reason = "missing status or lock file" }
+                    if (-not $present -or $attempt -ge $ReadAttempts) { throw }
+                    Start-Sleep -Seconds $RetryDelaySeconds
+                }
+            }
             $pidValue = [int]$status.pid
             $heartbeat = ConvertTo-StatusUtcInstant $status.last_heartbeat
-            if ($null -eq $heartbeat) { continue }
+            if ($null -eq $heartbeat) { $row.Reason = "no parseable last_heartbeat"; continue }
             $ageSeconds = ($Now - $heartbeat).TotalSeconds
             $alive = $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
             if (
@@ -496,11 +534,55 @@ function Get-HealthyCaptureWorkerCount {
                 $ageSeconds -le [double]$spec.MaxAge
             ) {
                 $healthy++
+                $row.Healthy = $true
+            }
+            elseif ($pidValue -le 0) { $row.Reason = "status pid $pidValue is not positive" }
+            elseif ([int]$lock.pid -ne $pidValue) { $row.Reason = "pid mismatch: status $pidValue, lock $([int]$lock.pid)" }
+            elseif (-not $alive) { $row.Dead = $true; $row.Reason = "pid $pidValue is not running" }
+            else {
+                $row.Reason = "heartbeat age $([math]::Round($ageSeconds, 1)) s outside 0..$($spec.MaxAge) s"
             }
         }
-        catch { }
+        catch {
+            if (-not $row.Reason) { $row.Reason = "read failed: $($_.Exception.Message)" }
+        }
     }
+    if ($Detail) { return $rows.ToArray() }
     return $healthy
+}
+
+function Get-ConfirmedHealthyCaptureWorkerCount {
+    # One admission poll can land on a worker mid-write under pytest load (host
+    # 2026-10-18 01:20-01:49: three refusals, no worker restarted, every status
+    # healthy right after). A worker that is unhealthy on one poll is re-read
+    # after $ConfirmDelaySeconds; only a worker unhealthy on two consecutive
+    # polls is counted unhealthy. A dead pid is never retried. Every unhealthy
+    # row is logged with its reason. MaxAge thresholds are unchanged.
+    param(
+        [Parameter(Mandatory = $true)][string]$Phase,
+        [ValidateRange(0, 60)][int]$ConfirmDelaySeconds = 8,
+        [ValidateRange(2, 5)][int]$MaxPolls = 3
+    )
+    $previous = @{}
+    for ($poll = 1; $poll -le $MaxPolls; $poll++) {
+        $rows = @(Get-HealthyCaptureWorkerCount -Detail -ReadAttempts 5 -RetryDelaySeconds 2)
+        $bad = @($rows | Where-Object { -not $_.Healthy })
+        foreach ($row in $bad) {
+            # Write-SuiteLog also emits its line to the pipeline; discard it so
+            # this function returns only the count.
+            $null = Write-SuiteLog "$Phase capture worker unhealthy (poll $poll): $($row.Name): $($row.Reason)"
+        }
+        $healthy = @($rows | Where-Object { $_.Healthy }).Count
+        if ($bad.Count -eq 0) { return $healthy }
+        if (@($bad | Where-Object { $_.Dead }).Count -gt 0) { return $healthy }
+        if (@($bad | Where-Object { $previous.ContainsKey($_.Name) }).Count -gt 0) {
+            return $healthy
+        }
+        if ($poll -eq $MaxPolls) { return $healthy }
+        $previous = @{}
+        foreach ($row in $bad) { $previous[$row.Name] = $true }
+        Start-Sleep -Seconds $ConfirmDelaySeconds
+    }
 }
 
 function Assert-HostAdmission {
@@ -509,7 +591,7 @@ function Assert-HostAdmission {
         [Parameter(Mandatory = $true)][string]$Phase
     )
 
-    $workers = Get-HealthyCaptureWorkerCount
+    $workers = Get-ConfirmedHealthyCaptureWorkerCount -Phase $Phase
     $commit = Get-CommitPercent
     Write-SuiteLog "$Phase admission: capture_workers=$workers commit=$commit% ceiling=$CommitCeiling%"
     if ($workers -ne 3) {
@@ -977,7 +1059,7 @@ $dirty = @((Invoke-SuiteCheckedLocalGit `
     -Root $WorktreeRoot -Arguments @("status", "--porcelain") `
     -Label "initial exact worktree status").Rows)
 if ($dirty.Count -ne 0) {
-    throw "suite worktree is dirty; exact-tip evidence would be ambiguous"
+    throw ("suite worktree is dirty; exact-tip evidence would be ambiguous: " + (($dirty | Select-Object -First 5) -join "; "))
 }
 
 if ([string]::IsNullOrEmpty($InterpreterPath)) {
@@ -1020,6 +1102,8 @@ $suiteLogStream = $null
 $suiteLogWriter = $null
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
 if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+# Default-fail: only a PASS verdict sets 0; every exit below records its code first.
+$suiteExitCode = 1
 try {
     $suiteLogStream = [IO.File]::Open(
         $LogPath,
@@ -1132,7 +1216,8 @@ try {
     if ($PreflightOnly) {
         Write-SuiteLog "VERDICT: PREFLIGHT PASSED; no tests run"
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
 
     if ($IntegrationPreflight) {
@@ -1376,7 +1461,8 @@ try {
 
     if ($failedChunks -ne 0) {
         Write-SuiteLog "VERDICT: $failedChunks CHUNK(S) FAILED; do not merge"
-        exit 1
+        $suiteExitCode = 1
+        exit $suiteExitCode
     }
 
     # The worktree, movable branch ref, and tracked test inventory can change
@@ -1431,12 +1517,14 @@ try {
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
     if ($IntegrationPreflight) {
         Write-SuiteLog "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
     if ($null -ne $interpreterOverride) {
         # A staged interpreter qualifies itself, never the production venv, so
@@ -1448,17 +1536,24 @@ try {
             "python=$($interpreterOverride.python_version_triple); NOT merge evidence"
         )
         $launchStatus = "PASS"
-        exit 0
+        $suiteExitCode = 0
+        exit $suiteExitCode
     }
     Write-SuiteLog "VERDICT: ALL CHUNKS PASSED ($($chunks.Count)/$($chunks.Count)); exact tip eligible for separate reviewed merge"
     $launchStatus = "PASS"
-    exit 0
+    $suiteExitCode = 0
+    exit $suiteExitCode
 }
 catch {
     $launchFailure = $_
+    # The exit issued from the finally below discards an uncaught error, so print it here.
+    $Host.UI.WriteErrorLine(($_ | Out-String).TrimEnd())
     throw
 }
 finally {
+    # Set the host exit code before any cleanup: a cleanup statement that is
+    # aborted by Ctrl+C would otherwise leave this advanced script exiting 0.
+    $Host.SetShouldExit($suiteExitCode)
     try {
         if ($null -ne $suiteLogWriter) {
             $suiteLogWriter.Flush()
@@ -1496,4 +1591,6 @@ finally {
         Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
         Close-WeatherLaunchDiagnostics -Journal $launchJournal -Status $launchStatus -Failure $launchFailure
     }
+    $Host.SetShouldExit($suiteExitCode)
+    exit $suiteExitCode
 }

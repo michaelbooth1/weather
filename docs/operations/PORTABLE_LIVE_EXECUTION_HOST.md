@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Current authority** | **NO live trading is authorized.** This file grants none; read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md). |
+| **Current authority** | **This file grants no live authority.** The only live trading in force is the owner-registered F2 campaign (read the "Current authority" lines of [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md)); a portable Stage 0/1 session needs a new dated owner authorization. |
 | **Owns** | Provisioning, host assignment, relocation and the Git source-authority rule for the `portable_execution_v1` profile on the separate Windows PC. |
 | **Read when** | Provisioning or moving the second PC, changing `config/international_live_execution_host.json` or `src/weather/execution_host.py`, or checking which branch may supply live code. |
 | **Do not use for** | The staged live protocol and stop conditions ([`INTERNATIONAL_MM_LIVE_PILOT.md`](INTERNATIONAL_MM_LIVE_PILOT.md)); attempt history ([item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md)); ordinary workstation heavy-work rules ([`HOST_LOAD_POLICY.md`](HOST_LOAD_POLICY.md)). |
@@ -51,7 +51,9 @@ use of the physical machine. The separate 32 GB PC may also perform ordinary
 workstation implementation, tests, training, replay, and measurement outside
 a launched live attempt. Recognized heavy commands use the repository
 workstation wrapper. Its admission-only profile shares the live launcher's
-host-global mutex without producing live-readiness evidence; both profiles are
+host-global mutex without producing live-readiness evidence (a live stage also
+takes every extra workstation heavy slot, so neither overlaps the other; see
+[the host load policy](HOST_LOAD_POLICY.md)); both profiles are
 bound to the assignment's exact Windows installation and attending principal,
 and both launch paths own their full child tree in a kill-on-close Windows Job.
 Finish heavy work before sealing as an operational attempt-preservation rule;

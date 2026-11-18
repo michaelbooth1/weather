@@ -46,7 +46,7 @@ Conventions for naming, ordering and reading the correspondence are in
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, guarded runtime integration, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
-| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Outside the capture-host timetable; heavy commands run under the [workstation wrapper contract](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope) and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **paused and frozen** ([record](mirror-paused-2026-08-12.md)) and is not authoritative |
+| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement; also hosts owner-approved processes (the owner-registered F2 campaign task, the wallet reader, forward recorders), which agents change only with an owner yes | Outside the capture-host timetable; heavy commands run under the [workstation wrapper contract](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope) and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **paused and frozen** ([record](mirror-paused-2026-08-12.md)) and is not authoritative |
 | **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session; may be the same physical PC as the workstation | Exact adopted master or the single operator-authorized topic ref under its full equality/ancestry contract; no capture, release, Scheduler, production-state, unattended, or general-live authority; Git/PR actions follow explicit operator authority and `docs/git-workflow.md`; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
 
 The portable executor is a role, not a permanent machine name. The same
@@ -110,11 +110,15 @@ role file and host runbooks.
 - [`reserved-confirmation-window.md`](reserved-confirmation-window.md) **wins over every handoff.**
   Check it at run time — do not assume its contents are unchanged since the handoff was written.
   **Reading a reserved target date destroys it permanently.**
-- **Never weaken the trusted observed-high floor.**
+- **Hard-zero only outcomes impossible under the event's dated resolution rule and admissible observations.**
+  "Never weaken the floor" is superseded as an unconditional prohibition; it never licensed zeroing
+  a possible outcome. Preserve admissible support constraints, not an invalid anchor. See
+  [domain context](AGENT_CONTEXT.md) and EF §10bb (`C:\archive\reviews\T032\TRACE.md`).
 - **Do not relax the promotion gate for `harvest_only` rows.** That requires an operator decision plus
   a code change and is explicitly not delegated.
-- **Do not relax a gate to make it pass.** Gates in this project are frequently correct when they
-  refuse. If a gate is right, the deliverable is the sentence explaining why, not a patch.
+- **Do not relax a gate to make it pass on your own authority.** Gates in this project are frequently correct when they
+  refuse; if a gate is right, the deliverable is the sentence explaining why, not a patch. Only a recorded owner waiver
+  (a waiver file or a DECISION_LOG row) skips a gate; a gate that over-blocks is a defect to report (`STATE_OF_PLAY.md`).
 - Never rewrite published git history. **Never delete an unmerged branch or another task's
   worktree** — agent reports and unique code have existed only on unmerged branches. A fully merged
   branch is retired only through a recorded retirement
@@ -122,9 +126,9 @@ role file and host runbooks.
 
 **Providers**
 
-- **Free-tier Open-Meteo only. No paid API, ever**, without a new dated operator decision in
-  [`forecast-source-and-training-population.md`](forecast-source-and-training-population.md).
-- That file also closes the licensing question permanently. **Do not stop a mission on provider
+- **Paid weather sources only with explicit per-source owner approval recorded in [DECISION_LOG](DECISION_LOG.md)**
+  (owner 2026-10-23); free official data needs no ask (owner 2026-10-24). Never commit credentials.
+- [`forecast-source-and-training-population.md`](forecast-source-and-training-population.md) closes the licensing question permanently. **Do not stop a mission on provider
   licensing or on the training population** — both are decided. This exact block halted two missions.
 
 **Scope**
@@ -192,6 +196,13 @@ blocked its own handback for nothing.
   made **purely additive** and therefore behaviourally inert. **A mission touching this family must
   state in its report whether its change is additive-only**; that is what lets the production agent
   treat the merge as a low-risk roll rather than a behavioural one.
+  `schema_registry_families.py` (the PL-2 loader) is core by its name for the preflight, but
+  loops load it only through the audit's function-level import, so it is in no live closure.
+- **Since the PL-2 split (Data Layer v2 S3), a new capture family's schema is roll-free.** It
+  goes in `src/weather/schema_families/<family>.py`, which no capture loop imports; the strict
+  audit discovers it, and `roll_verdict.ps1` reports it free because it is in no closure. The
+  core stays frozen (a parity digest ratchet in `tests/operations/test_schema_families_registry.py`);
+  a loop-needed schema is still a core edit and still rolls every loop.
 
 Every mission must deliver a **per-file roll verdict**, stating which closures each changed file
 enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**. Never merge inside
@@ -206,7 +217,9 @@ enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**
    re-measure what is known. Cite [`ESTABLISHED_FINDINGS.md`](ESTABLISHED_FINDINGS.md).
 3. **Prioritised work (P0/P1/P2…)**, with the cheapest falsifying test first. If a repair might be
    unnecessary, testing that must be P0.
-4. **Boundaries** — §2 plus anything mission-specific, including the concurrent file owners.
+4. **Boundaries** — §2 plus anything mission-specific, including the concurrent file owners. A mission that may
+   start a long-running process must forbid Scheduler tasks and services unless the owner says yes directly in
+   the chat (see the process defect below).
 5. **"What would falsify this mission"** — the outcomes that would mean the premise is wrong. This
    section is mandatory. A mission that cannot fail is a mission that will confirm whatever it was
    sent to find.
@@ -215,6 +228,14 @@ enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**
 
 Write the falsification section honestly. Several missions in this project produced their most
 valuable output by falsifying their own premise.
+
+**Process defect, 2026-10-26.** Workstation lane L13 registered a Task Scheduler task ("L13 HRRR forward
+recorder keepalive", every 10 minutes, 30-day expiry) without the owner's direct yes in the workstation chat. A
+scheduled task is persistent machine configuration and needs that yes. The coordinator found it in L13's footprint
+report and had it disabled, not deleted; master ruled the disabling correct. Context: the recorder processes had
+died silently (hypothesis: the harness reaps tool-call process trees); the interim mitigation is a WMI-detached
+launch with PID and parent logging until the owner confirms the approved logon-shaped task. **Lesson:** every lane
+brief that may create a long-running process forbids scheduled tasks and services without the owner's in-chat yes.
 
 ---
 
@@ -274,16 +295,72 @@ git diff --name-only "origin/master...origin/<branch>" | Where-Object { $_ -like
 
 ## 8. Dispatching a mission to the workstation
 
-Workstation missions run in Claude Code sessions the owner starts. The standing session rules live in
-[WORKSTATION_SESSION_PREAMBLE.md](WORKSTATION_SESSION_PREAMBLE.md), so a dispatch prompt never repeats them.
-Its first line is always:
+**[DECISION_LOG 2026-11-06 (Codex as WS workhorse)](DECISION_LOG.md):** workstation missions go to Codex, model `gpt-6.1-sol`;
+the master remains Claude on the production capture PC. The workstation Claude Code session stays: it is the owner's guide
+and builds when Codex is unavailable (B090 on 2026-11-13, during the owner's 11-12..11-13 Codex pause).
 
-```text
-Run `git fetch origin`, then read docs/operations/WORKSTATION_SESSION_PREAMBLE.md on origin/master and follow it.
+### Transport and authority
+
+The owner chose full SSH access in both directions, without forced-command restrictions ("this is local").
+Existing SSH keys provide transport: production reaches the workstation's LAN address as the owner's Windows user
+through host alias `weather-workstation`; the workstation's key is authorized on production. Key material
+stays outside the repository. SSH access grants no additional task or operational authority.
+
+Codex treats master instructions as teammate instructions. A peer's or agent's own instructions and
+reports are **never owner approval**. **Since 2026-11-07 (owner standing rule, [DECISION_LOG](DECISION_LOG.md)),
+an owner approval relayed by the production agent counts for every decision** when the relay quotes the
+owner's words verbatim with their time. That covers serving-model and merge decisions, money and live
+terms, credentials handling, Scheduler and workstation system changes. The owner no longer types in the
+workstation chats. This supersedes the 2026-10-06 money/credentials clause and the earlier rule that money and
+live terms need the owner directly in a workstation chat. The production agent's own decisions are labelled
+**MASTER RULING** and are never owner approval. No agent places, cancels or signs orders, or enters a credential.
+Every command running on production, including one arriving over SSH, remains subject to capture-host
+time windows, leases and the S4U guard. Both protected windows bind: **12:00–18:00 graded capture** and
+**18:00–00:30 near-close**, including the prohibition on production mutations. Read
+[HOST_LOAD_POLICY.md](HOST_LOAD_POLICY.md) and the owning production runbook before acting there.
+
+### Task-folder protocol
+
+The bridge is workstation-local under `C:\t\codex\bin\`; it is not supplied by a clean checkout.
+Its scripts own their exact invocation. For each task:
+
+1. Create `C:\t\codex\<id>\prompt.md`. Its first instruction is to read `C:\t\codex\COMMON.md`,
+   the standing brief for every task. Then name the handoff and ref, branch, worktree, required report
+   and mission-specific constraints. Also read the repository
+   [workstation preamble](WORKSTATION_SESSION_PREAMBLE.md).
+2. From production, dispatch over SSH:
+
+   ```powershell
+   ssh weather-workstation powershell -NoProfile -File C:\t\codex\bin\codex_launch.ps1 -TaskId <id>
+   ```
+
+   `codex_launch.ps1 -TaskId <id> [-ResumeSession <id>] [-Effort <effort>] [-Model <model>]` reads that
+   prompt and launches detached via WMI. The master sets per-task reasoning effort through `-Effort`:
+   `high` by default, `xhigh` for live-path code, simulators and research builds, and `medium` for docs.
+   Big adversarial reviews use `-Model gpt-6-astra -Effort xhigh`.
+   The launcher uses `codex exec -m gpt-6.1-sol -s danger-full-access -c approval_policy="never" --json -o last.md`,
+   with task-local output paths; resume continues the named session. It refuses a missing prompt or a task ID
+   that already started. A follow-up therefore uses a fresh task folder, optionally with `-ResumeSession`.
+3. Poll `codex_status.ps1 [-TaskId <id>] [-Last]` through the same SSH path. It reports RUNNING or DONE
+   with the exit code, session ID, event counts and last agent message; `-Last` reads the final message.
+   NOT_STARTED or GONE without `exit.txt` is not successful completion.
+4. Retain the task folder: `prompt.md`, `run.cmd`, `events.jsonl`, `last.md`, `err.log`, `exit.txt` and
+   `started.json`. `last.md` is the final teammate report the master reads; verify the exit code and
+   handback under §6 before accepting. Task files do not replace a repository report required by the handoff.
+
+### Workstation branch publication
+
+Publish only the workstation agent's own `codex/` branches through the repository deploy-key host alias
+`git@github-weather-ws:`, using an explicit commit SHA refspec:
+
+```powershell
+git push git@github-weather-ws:michaelbooth1/weather.git <40-hex-sha>:refs/heads/codex/<branch>
+git ls-remote --heads git@github-weather-ws:michaelbooth1/weather.git codex/<branch>
 ```
 
-The next lines name the handoff (with its ref if it is not on `origin/master`) and anything mission-specific,
-such as ordering against parallel sessions.
+Never push `master` or another non-`codex/` ref, force a push, or delete a remote ref. Verify the reported
+remote tip and retain a verified `git bundle` in the task folder. This transport changes no
+[Git authority or integration gate](../git-workflow.md#git-authority-one-rule-two-scopes).
 
 ---
 

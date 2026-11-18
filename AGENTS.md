@@ -20,11 +20,11 @@ only, links to owners for detail, and never carries status, counts, or dates.
 | --- | --- |
 | Acting on the 16 GB production capture host (ops, scheduler, merges, recovery) | [Operations agent role](docs/operations/OPERATIONS_AGENT_ROLE.md) |
 | Any heavy command: tests, compileall, training, replay, bulk scans | [Host load policy](docs/operations/HOST_LOAD_POLICY.md) |
-| Model, measurement, or research | [Findings digest](docs/operations/FINDINGS_DIGEST.md) first; then only the sections it cites in [established findings](docs/operations/ESTABLISHED_FINDINGS.md) and [retracted claims and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md). Skipping the digest makes agents re-derive known results or rebuild retracted ones. |
+| Model, measurement, or research | [Findings digest](docs/operations/FINDINGS_DIGEST.md) first; then only the sections it cites in [established findings](docs/operations/ESTABLISHED_FINDINGS.md) and [retracted claims and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md); before building or measuring a candidate, [the model-improvement method](docs/operations/MODEL_IMPROVEMENT_METHOD.md). Skipping the digest makes agents re-derive known results or rebuild retracted ones. |
 | Domain semantics: settlement, units, source roles, floors | [Durable domain context](docs/operations/AGENT_CONTEXT.md) |
 | A cross-host mission: writing a handoff, executing one, verifying a handback | [Delegation contract](docs/operations/DELEGATION_CONTRACT.md) (its standing boundaries bind every mission) and [the roadmap agent guide](docs/roadmap/AGENTS.md) |
 | Reading dated evidence or settled market-days for evaluation | [Reserved confirmation window](docs/operations/reserved-confirmation-window.md) — read its status line; the rest applies only if it says a window is reserved. When one is reserved, that contract overrides handoffs and role text. |
-| Live trading, the maker pilot, maker economics | [International MM live pilot](docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md) and [item 330](docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md) |
+| Live trading, the maker pilot, maker economics | Live F2 campaign: [state of play](docs/operations/STATE_OF_PLAY.md) critical path 0 and [item 67](docs/roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md); attended Stage 0/1: [International MM live pilot](docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md); economics: [item 330](docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md) |
 | Branches, worktrees, commits, pushes, pull requests | [Git workflow SOP](docs/git-workflow.md) |
 | Anything else | [Documentation map](docs/README.md) — routes every canonical document by task |
 
@@ -43,14 +43,16 @@ memory as project guidance; durable knowledge lives in this repository.
   safeguards described by the path policy; do not grow domain logic in them.
 - Built-in markets operate end-to-end in their native settlement unit.
   Legacy names ending in `_c` do not prove that a value is Celsius.
-- Configured Weather Underground history is the settlement proxy. METAR, ECCC,
-  NWS, Open-Meteo, marine, and related sources are supporting evidence unless a
-  specific contract explicitly says otherwise.
+- Labels are the venue's own per built-in market-date: configured Weather Underground
+  history before 2026-10-23, the venue rule (highest routine METAR, WU fallback) from it
+  ([contract](docs/operations/venue-rule-labels.md)). WU stays the serving floor source; METAR,
+  ECCC, NWS, Open-Meteo, marine and related sources are supporting evidence unless a contract says otherwise.
 - The trading product is **International Polymarket only**. Polymarket US code,
   fixtures, and historical evidence are compatibility surfaces, not an allowed
   platform for new probes, credentials, live-readiness, or order mutation.
-- Paid weather-provider access is unsupported. Do not add credentials, required
-  environment variables, or plans that depend on a paid weather source.
+- Paid weather sources only with explicit per-source owner approval recorded in
+  DECISION_LOG; credentials never in the repo. Do not add required environment
+  variables, or plans that depend on an unapproved paid weather source.
 - Model changes must preserve train/serve feature parity, effective WU print
   cutoff semantics, probability mass, captured-input replay, and release
   binding. A plausible forecast is not proof of edge over market prices.
@@ -59,7 +61,7 @@ memory as project guidance; durable knowledge lives in this repository.
   Never delete or rewrite tapes, ledgers, or trading evidence casually.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
-  readiness/release gates.
+  readiness/release gates; only a recorded owner waiver may skip one.
 - **Heavy work on the dedicated 16 GB capture host is time-gated, leased, and
   serial** — independently of whether a diff is roll-free.
   [The host load policy](docs/operations/HOST_LOAD_POLICY.md) owns the detail.
@@ -74,10 +76,10 @@ memory as project guidance; durable knowledge lives in this repository.
     parallel agents or parallel tool calls. **A direct full pytest run is
     forbidden at every hour**; use the full suite in chunks of at most 25 files,
     `scripts/ops/bounded_worktree_test_suite.ps1`, in the admitted window.
-  - The one-minute S4U guard enforces this policy for codex-, chatgpt- and
-    claude-rooted process trees; only Codex sessions also have a user-layer
-    hook (Claude Code has none). Do not bypass either, and always retain and
-    poll or terminate any yielded executor session ID.
+  - The S4U guard enforces this policy for codex-, chatgpt- and claude-rooted
+    trees (including Claude Code's Bash and PowerShell tools); leases admit only
+    in their window and budget and commit rules still apply. Only Codex has a
+    pre-launch hook. Never bypass either; retain and poll or end yielded sessions.
 - That timetable binds only the capture host. A separate non-capture workstation
   (the 32 GB PC, even while it holds the portable live-executor assignment) may
   run implementation, tests, training, and replay without the window,
@@ -85,8 +87,8 @@ memory as project guidance; durable knowledge lives in this repository.
   `scripts/ops/workstation_heavy.ps1` and should finish before a live attempt is
   sealed (the host load policy owns the wrapper, mutex, and child-tree contract).
   This grants no capture, production-state, Scheduler, credential, exchange,
-  unattended-trading, or live-order authority; live work still requires the
-  host-bound `portable_execution_v1` lane in
+  unattended-trading, or live-order authority; live work runs only on the assigned
+  execution host, through the owner-registered F2 campaign task or the attended lane in
   [the portable execution-host runbook](docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md).
 - **Merging code on the production host can restart live capture.** Supervisors
   fingerprint the source files they have imported, so landing a change to a

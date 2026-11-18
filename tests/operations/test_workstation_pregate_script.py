@@ -12,14 +12,24 @@ every head bound for a host landing night in exactly the host suite's mode:
 * a head with a failing test yields FAIL; the receipt's log SHA-256 matches the
   log; the detached worktree and per-chunk basetemps are removed;
 * nested ("inherited" lease) mode still proves this is the assigned non-capture
-  workstation, because the capture host's heavy lease uses the same mutex name;
+  workstation, because the capture host's heavy lease uses the same mutex name as
+  the workstation's (here the fixture's private name stands in for it);
+* a nested pre-gate under an outer exclusive pre-gate (its own ancestor) is
+  admitted at once as ``inherited_from_exclusive_holder`` and passes, instead of
+  queueing behind its ancestor until timeout (PG-NEST-1);
 * an interrupted run (Ctrl+C) exits non-zero, matching its FAIL receipt;
 * a content-only change to any replaced host statement is refused (pinned hashes).
 
 The end-to-end tests run the real pre-gate and the real host suite against a
 small fixture repository whose ``venv`` reuses this interpreter's packages, in
-"inherited" lease mode (inside ``workstation_heavy.ps1``, or with this process
-holding the host-global workstation mutex in CI).
+"inherited" lease mode on the fixture's own isolated lease: every copied
+``workload_admission.ps1`` uses a private mutex family and a temp state root, so
+the queue, slot state and exclusive-holder record live under tmp_path, also
+when this module runs nested inside ``workstation_heavy.ps1`` or an outer
+pre-gate (item 345). No host-global state is read or written. The only contact
+with the live state root is the negative test listing names under it (metadata,
+no file opened) as supporting evidence; the proof is that setup fails closed
+before any write and before any process starts.
 """
 
 from __future__ import annotations
@@ -28,14 +38,18 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import shutil
 import site
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import pytest
+
+from tests.process_job import KillOnCloseJob, terminate_job_and_wait
 
 pytestmark = [
     pytest.mark.spawns,
@@ -153,7 +167,19 @@ def _git(repo: Path, *args: str) -> str:
 
 
 class _HeldWorkstationMutex:
-    """Hold the host-global workstation mutex unless workstation_heavy already does."""
+    """Hold a fixture repository's PRIVATE slot-1 mutex, standing in for workstation_heavy.
+
+    Every fixture copy of workload_admission.ps1 is isolated (_copy_isolated_scripts):
+    a private mutex family and a temp state root, so its queue, slot state files
+    and exclusive-holder record live under tmp_path. A nested pre-gate proves this
+    hold (WEATHER_WORKSTATION_WRAPPER_SLOT unset, so slot 1) and never sees the
+    real workstation slots, queue or exclusive barrier, also when this module runs
+    nested inside workstation_heavy.ps1 or an outer pre-gate (item 345).
+    """
+
+    def __init__(self, name: str):
+        assert name.startswith("Local\\WeatherPgFixture-"), name
+        self.name = name
 
     def __enter__(self):
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -162,15 +188,145 @@ class _HeldWorkstationMutex:
         kernel32.ReleaseMutex.argtypes = [ctypes.c_void_p]
         kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
         self.kernel32 = kernel32
-        self.handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+        self.handle = kernel32.CreateMutexW(None, False, self.name)
         assert self.handle, ctypes.get_last_error()
         self.owned = kernel32.WaitForSingleObject(self.handle, 0) in (0, 0x80)
+        if not self.owned:
+            kernel32.CloseHandle(self.handle)
+            raise AssertionError("a private fixture mutex is already held")
         return self
 
     def __exit__(self, *exc):
-        if self.owned:
-            self.kernel32.ReleaseMutex(self.handle)
+        self.kernel32.ReleaseMutex(self.handle)
         self.kernel32.CloseHandle(self.handle)
+
+
+# Every fixture copy of workload_admission.ps1 is rewritten: a private mutex
+# family (slots and the exclusive barrier derive from the slot-1 name) and a
+# fixture-local state root (so the queue and the exclusive holder record live
+# under tmp_path), plus no residual-process or memory veto. The production
+# script honours no redirect of any kind; only these copies are rewritten.
+# Intentional coverage trade: the residual-process and memory stubs, and the
+# bypassed ACL-checked state-root resolver, are not exercised by these tests.
+ISOLATED_ADMISSION_OVERRIDES = r"""
+# TEST-ONLY: FIXTURE-LOCAL STATE, NO RESIDUAL-PROCESS OR MEMORY VETO
+function Get-WeatherHeavyWorkloadPoisonPath {
+    param([switch]$CreateIfMissing)
+    $root = '{state_root}'
+    if ($CreateIfMissing) { [void][IO.Directory]::CreateDirectory($root) }
+    Join-Path $root 'heavy_workload_v1.poison'
+}
+function Get-WeatherActiveWorkstationHeavyProcess { param($ProcessSnapshot, $TaskObservation, $DecisionLog) }
+function Get-WeatherWorkstationMemoryReading {
+    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = 16GB; CommitPercent = 40.0 }
+}
+"""
+
+
+OVERRIDDEN_FUNCTIONS = (
+    "Get-WeatherHeavyWorkloadPoisonPath",
+    "Get-WeatherActiveWorkstationHeavyProcess",
+    "Get-WeatherWorkstationMemoryReading",
+)
+# Ways a script could reach the host's common data root other than the one
+# overridden function; matched case-insensitively.
+HOST_STATE_ROOT_TOKENS = ("CommonApplicationData", "ProgramData", "ALLUSERSPROFILE", "GetFolderPath", "SpecialFolder")
+
+
+def _function_span(text: str, name: str) -> tuple[int, int]:
+    start = text.index(f"function {name} {{")
+    following = text.find("\nfunction ", start + 1)
+    return start, (len(text) if following < 0 else following)
+
+
+def _production_scripts() -> dict[str, bytes]:
+    return {name: (OPS / name).read_bytes() for name in COPIED_SCRIPTS}
+
+
+def _script_text(raw: bytes) -> str:
+    return raw.decode("utf-8-sig")
+
+
+def _assert_overrides_bind(scripts: dict[str, bytes]) -> None:
+    """Refuse BEFORE any fixture write if the appended overrides could be dead code.
+
+    The overrides are appended function definitions, so a renamed production
+    function, or a second state path not derived from the poison path, would
+    silently send fixture tickets, holder records and slot files to the real
+    host-global state (Opus review of 3e91dbb8d, MAJOR 1).
+    """
+    text = _script_text(scripts["workload_admission.ps1"])
+    for name in OVERRIDDEN_FUNCTIONS:
+        assert text.count(f"function {name} {{") == 1, f"{name} is not defined exactly once in production"
+    start, end = _function_span(text, "Get-WeatherHeavyWorkloadPoisonPath")
+    lowered = text.lower()
+    for token in HOST_STATE_ROOT_TOKENS:
+        total = lowered.count(token.lower())
+        inside = lowered[start:end].count(token.lower())
+        assert total == inside, f"{token} is used outside Get-WeatherHeavyWorkloadPoisonPath"
+    assert lowered[start:end].count("commonapplicationdata") == 1
+    for name, raw in scripts.items():
+        if name == "workload_admission.ps1":
+            continue
+        other = _script_text(raw).lower()
+        found = [token for token in HOST_STATE_ROOT_TOKENS if token.lower() in other]
+        assert not found, f"{name} names the host state root ({found})"
+
+
+def _isolated_admission_text(state_root: Path, mutex_name: str, scripts: dict[str, bytes] | None = None) -> str:
+    """Pure string work: it fails closed before anything is written or any admission code runs."""
+    scripts = _production_scripts() if scripts is None else scripts
+    _assert_overrides_bind(scripts)
+    # LF only, so a CRLF checkout cannot yield \r\r\n in the written copy.
+    text = _script_text(scripts["workload_admission.ps1"]).replace("\r\n", "\n")
+    assert MUTEX_NAME in text
+    isolated = text.replace(MUTEX_NAME, mutex_name)
+    assert MUTEX_NAME not in isolated
+    quoted = str(state_root).replace("'", "''")  # pasted into a single-quoted PowerShell string
+    isolated += ISOLATED_ADMISSION_OVERRIDES.replace("{state_root}", quoted)
+    assert "global\\" not in isolated.lower(), "the rewritten admission text still names a Global\\ object"
+    return isolated
+
+
+# Read-only: no -CreateIfMissing, so even a dead override creates nothing.
+RESOLUTION_PROBE = r"""
+$ErrorActionPreference = 'Stop'
+. $env:PG_ADMISSION
+ConvertTo-Json -Compress -InputObject ([ordered]@{
+    queue_root = (Get-WeatherHeavyWorkloadQueueRoot)
+    holder = (Get-WeatherHeavyWorkloadExclusiveHolderPath)
+    slot_state = @(1..8 | ForEach-Object { Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $_ })
+    exclusive_mutex = (Get-WeatherHeavyWorkloadExclusiveMutexName)
+})
+"""
+
+
+def _copy_isolated_scripts(repo: Path, state_root: Path, scripts: dict[str, bytes] | None = None) -> str:
+    """Copy the scripts with an isolated admission copy; every check runs before the first write."""
+    scripts = _production_scripts() if scripts is None else scripts
+    mutex_name = "Local\\WeatherPgFixture-" + uuid.uuid4().hex
+    admission = _isolated_admission_text(state_root, mutex_name, scripts)
+    (repo / "scripts" / "ops").mkdir(parents=True)
+    for name, raw in scripts.items():
+        if name != "workload_admission.ps1":
+            (repo / "scripts" / "ops" / name).write_bytes(raw)
+    (repo / "scripts" / "ops" / "workload_admission.ps1").write_text(admission, encoding="utf-8", newline="")
+    env = {**os.environ, "PG_ADMISSION": str(repo / "scripts" / "ops" / "workload_admission.ps1")}
+    result = _run([*POWERSHELL, "-Command", RESOLUTION_PROBE], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+    resolved = json.loads(result.stdout)
+    root = state_root.resolve()
+    for value in [resolved["queue_root"], resolved["holder"], *resolved["slot_state"]]:
+        assert Path(value).resolve().is_relative_to(root), value
+    assert resolved["exclusive_mutex"].startswith(mutex_name)
+    return mutex_name
+
+
+def _nested_env() -> dict[str, str]:
+    """Nested ("inherited") mode on the fixture's private slot 1, never the caller's real slot."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WEATHER_WORKSTATION_WRAPPER")}
+    env["WEATHER_WORKSTATION_WRAPPER_ACTIVE"] = "1"
+    return env
 
 
 ASSIGNMENT_SCRIPT = r"""
@@ -210,9 +366,8 @@ def _write_assignment(repo: Path, identity: str) -> None:
 
 def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
     repo = root / "repo"
-    (repo / "scripts" / "ops").mkdir(parents=True)
-    for name in COPIED_SCRIPTS:
-        shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    state_root = root / "host-state"
+    mutex_name = _copy_isolated_scripts(repo, state_root)
     (repo / "src" / "weather").mkdir(parents=True)
     (repo / "src" / "weather" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "tests").mkdir()
@@ -253,7 +408,10 @@ def _fixture_repo(root: Path, probe_out: Path) -> dict[str, str]:
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "slow")
     slow = _git(repo, "rev-parse", "HEAD")
-    return {"repo": str(repo), "good": good, "bad": bad, "slow": slow, "slow_started": str(started)}
+    return {
+        "repo": str(repo), "good": good, "bad": bad, "slow": slow, "slow_started": str(started),
+        "state_root": str(state_root), "mutex": mutex_name,
+    }
 
 
 @pytest.fixture(scope="module")
@@ -271,8 +429,7 @@ def fixture_repo(tmp_path_factory):
 def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subprocess.CompletedProcess, dict]:
     root = Path(info["root"])
     receipt = root / f"receipt-{label}.json"
-    env = os.environ.copy()
-    env["WEATHER_WORKSTATION_WRAPPER_ACTIVE"] = "1"
+    env = _nested_env()
     command = [
         *POWERSHELL, "-File", str(Path(info["repo"]) / "scripts" / "ops" / "workstation_pregate.ps1"),
         "-Head", head, "-RepoRoot", info["repo"],
@@ -282,10 +439,21 @@ def _pregate(info: dict, head: str, label: str, base: str = "") -> tuple[subproc
     ]
     if base:
         command += ["-Base", base]
-    with _HeldWorkstationMutex():
+    with _HeldWorkstationMutex(info["mutex"]):
         result = _run(command, cwd=root, env=env, timeout=900)
     assert receipt.is_file(), result.stdout + result.stderr
     return result, json.loads(receipt.read_text(encoding="utf-8"))
+
+
+def _assert_isolated_lease(info: dict, receipt: dict) -> None:
+    """The pre-gate inherited the fixture's private slot 1 and queued in the temp root (item 345)."""
+    assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+    assert receipt["workstation_slot_id"] == 1
+    assert receipt["workstation_exclusive"] is True
+    assert receipt["exclusive_holder"] is None
+    queue = Path(info["state_root"]) / "heavy_workload_queue_v1"
+    assert queue.is_dir()
+    assert not (queue / "exclusive_holder_v1.json").exists()
 
 
 def _assert_clean(info: dict, receipt: dict) -> None:
@@ -295,6 +463,140 @@ def _assert_clean(info: dict, receipt: dict) -> None:
     assert receipt["basetemp_removed"] is True
     log = Path(receipt["log_path"])
     assert hashlib.sha256(log.read_bytes()).hexdigest() == receipt["log_sha256"]
+
+
+# ------------------------------------------------------------------ isolation (item 345)
+ISOLATION_PROBE = r"""
+$ErrorActionPreference = 'Stop'
+. $env:PG_ADMISSION
+$common = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+$queue = Get-WeatherHeavyWorkloadQueueRoot -CreateIfMissing
+ConvertTo-Json -Compress -InputObject ([ordered]@{
+    common_data = $common
+    queue_root = $queue
+    holder = (Get-WeatherHeavyWorkloadExclusiveHolderPath)
+    slot_state = @(1..8 | ForEach-Object { Get-WeatherHeavyWorkloadSlotPoisonPath -SlotId $_ })
+    mutexes = @(@(1..8 | ForEach-Object { Get-WeatherHeavyWorkloadSlotMutexName -SlotId $_ }) +
+        @(Get-WeatherHeavyWorkloadExclusiveMutexName))
+})
+"""
+
+
+def test_fixture_admission_uses_a_temp_queue_root_and_private_mutexes(tmp_path):
+    # Item 345: nested inside a suite (workstation_heavy.ps1 or an outer pre-gate)
+    # the end-to-end tests used to queue on the real workstation queue. Every
+    # fixture copy resolves its queue, holder record, slot state and mutexes to
+    # tmp_path and a private name; nothing under the host's common data root.
+    repo = tmp_path / "repo"
+    state_root = tmp_path / "host-state"
+    mutex_name = _copy_isolated_scripts(repo, state_root)
+    env = {**os.environ, "PG_ADMISSION": str(repo / "scripts" / "ops" / "workload_admission.ps1")}
+    result = _run([*POWERSHELL, "-Command", ISOLATION_PROBE], env=env, timeout=120)
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout)
+    queue = Path(observed["queue_root"]).resolve()
+    assert queue == (state_root / "heavy_workload_queue_v1").resolve()
+    assert queue.is_dir()
+    assert Path(observed["holder"]).resolve() == queue / "exclusive_holder_v1.json"
+    state = [Path(p).resolve() for p in observed["slot_state"]]
+    assert len(state) == 8 and all(p.parent == state_root.resolve() for p in state)
+    common = Path(observed["common_data"]).resolve()
+    assert not any(p.is_relative_to(common) for p in [queue, *state])
+    assert observed["mutexes"][0] == mutex_name
+    assert all(m.startswith(mutex_name) for m in observed["mutexes"])
+    assert MUTEX_NAME not in observed["mutexes"]
+    assert not any(m.startswith("Global\\") for m in observed["mutexes"])
+
+
+# Concurrent outer wrappers rewrite queue tickets, the slot state files (with their
+# .tmp/.bak siblings) and every mtime on each admission and release, so only the
+# stable part is compared: every other name, and whether the holder record exists.
+CHURNING_HOST_STATE = re.compile(
+    r"^(?:heavy_workload_queue_v1[\\/]ticket-\d{12}\.json|heavy_workload_v1(?:\.slot\d+)?\.poison|.*\.(?:tmp|bak))$",
+    re.IGNORECASE,
+)
+
+
+def _host_state_snapshot() -> dict:
+    """Stable view of the real host-global state root: names (recursive) and holder presence. Metadata only."""
+    root = Path(os.environ["ProgramData"]) / "WeatherProject"
+    names = []
+    if root.exists():
+        for directory, dirs, files in os.walk(root):
+            for name in [*dirs, *files]:
+                relative = str((Path(directory) / name).relative_to(root))
+                if not CHURNING_HOST_STATE.match(relative):
+                    names.append(relative)
+    holder = root / "heavy_workload_queue_v1" / "exclusive_holder_v1.json"
+    return {"names": sorted(names), "exclusive_holder_present": holder.exists()}
+
+
+def _rename_definition(name: str):
+    return lambda scripts: {
+        **scripts,
+        "workload_admission.ps1": scripts["workload_admission.ps1"].replace(
+            f"function {name} {{".encode(), f"function {name}Renamed {{".encode()
+        ),
+    }
+
+
+NOT_BINDING_MUTATIONS = {
+    "renamed_poison_path": (
+        _rename_definition("Get-WeatherHeavyWorkloadPoisonPath"),
+        "Get-WeatherHeavyWorkloadPoisonPath is not defined exactly once",
+    ),
+    "renamed_residual_process_probe": (
+        _rename_definition("Get-WeatherActiveWorkstationHeavyProcess"),
+        "Get-WeatherActiveWorkstationHeavyProcess is not defined exactly once",
+    ),
+    "renamed_memory_reading": (
+        _rename_definition("Get-WeatherWorkstationMemoryReading"),
+        "Get-WeatherWorkstationMemoryReading is not defined exactly once",
+    ),
+    "second_common_data_use": (
+        lambda scripts: {
+            **scripts,
+            "workload_admission.ps1": scripts["workload_admission.ps1"]
+            + b"\nfunction Get-WeatherHeavyWorkloadSecondStateRoot {\n"
+            b"    [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)\n}\n",
+        },
+        "CommonApplicationData is used outside Get-WeatherHeavyWorkloadPoisonPath",
+    ),
+    "program_data_in_another_copied_script": (
+        lambda scripts: {
+            **scripts,
+            "workstation_pregate.ps1": scripts["workstation_pregate.ps1"]
+            + b"\n$stateRoot = Join-Path $env:ProgramData 'WeatherProject'\n",
+        },
+        "workstation_pregate.ps1 names the host state root",
+    ),
+}
+
+
+@pytest.mark.parametrize("mutation", sorted(NOT_BINDING_MUTATIONS))
+def test_isolation_fails_closed_at_setup_when_an_override_would_not_bind(tmp_path, monkeypatch, mutation):
+    # Opus review of 3e91dbb8d, MAJOR 1: the overrides are appended function
+    # definitions, so a renamed production target or another host-state path
+    # would leave them dead and send fixture state to the real host-global root.
+    # The real setup path must abort first: before any file is written, before
+    # any PowerShell (so no admission code) starts, and with the real host-global
+    # state root's stable view unchanged (names and holder presence; metadata only).
+    mutate, message = NOT_BINDING_MUTATIONS[mutation]
+    production = _production_scripts()
+    mutated = mutate(production)
+    assert mutated != production
+
+    def process_started(*args, **kwargs):
+        raise RuntimeError("a process was started during isolation setup")
+
+    before = _host_state_snapshot()
+    monkeypatch.setattr(subprocess, "run", process_started)
+    monkeypatch.setattr(subprocess, "Popen", process_started)
+    with pytest.raises(AssertionError, match=message):
+        _copy_isolated_scripts(tmp_path / "repo", tmp_path / "host-state", mutated)
+    monkeypatch.undo()
+    assert list(tmp_path.iterdir()) == []
+    assert _host_state_snapshot() == before
 
 
 # ------------------------------------------------------------------ chunk plan
@@ -435,7 +737,7 @@ def test_pregate_passes_a_good_head_in_host_console_mode_and_cleans_up(fixture_r
     assert result.returncode == 0
     assert receipt["schema"] == "weather.workstation_pregate_receipt.v1"
     assert receipt["head"] == fixture_repo["good"]
-    assert receipt["lease_mode"] == "inherited_from_workstation_heavy"
+    _assert_isolated_lease(fixture_repo, receipt)
     assert receipt["launch_mode"]["scheduled_task_registered"] is False
     assert receipt["chunk_plan"] == [["tests/test_fixture_console.py", "tests/test_fixture_ok.py"]]
     assert [(c["ordinal"], c["files"], c["logged_files"], c["exit_code"]) for c in receipt["chunks"]] == [
@@ -518,19 +820,17 @@ def test_driver_refuses_a_drifted_host_suite(tmp_path):
     ],
 )
 def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstation(tmp_path, identity, reason):
-    # The capture host's heavy lease uses the same mutex name, so a held mutex
-    # plus WEATHER_WORKSTATION_WRAPPER_ACTIVE=1 must not stand in for the host proof.
+    # The capture host's heavy lease uses the same mutex name as the workstation's
+    # (the fixture's private name stands in for it here), so a held mutex plus
+    # WEATHER_WORKSTATION_WRAPPER_ACTIVE=1 must not stand in for the host proof.
     repo = tmp_path / "repo"
-    (repo / "scripts" / "ops").mkdir(parents=True)
-    for name in COPIED_SCRIPTS:
-        shutil.copyfile(OPS / name, repo / "scripts" / "ops" / name)
+    mutex_name = _copy_isolated_scripts(repo, tmp_path / "host-state")
     (repo / "venv" / "Scripts").mkdir(parents=True)
     (repo / "venv" / "Scripts" / "python.exe").write_bytes(b"")
     _write_assignment(repo, identity)
     receipt_path = tmp_path / "receipt.json"
-    env = os.environ.copy()
-    env["WEATHER_WORKSTATION_WRAPPER_ACTIVE"] = "1"
-    with _HeldWorkstationMutex():
+    env = _nested_env()
+    with _HeldWorkstationMutex(mutex_name):
         result = _run([
             *POWERSHELL, "-File", str(repo / "scripts" / "ops" / "workstation_pregate.ps1"),
             "-Head", "a" * 40, "-RepoRoot", str(repo), "-OutputDirectory", str(tmp_path / "out"),
@@ -545,6 +845,73 @@ def test_nested_pregate_still_refuses_a_host_that_is_not_the_assigned_workstatio
     assert receipt["git_executable"] is None
     assert receipt["worktree_removed"] is None
     assert not (tmp_path / "wt").exists()
+
+
+# ------------------------------------------------------------------ nested under an exclusive pre-gate
+# The fixture's isolated admission copy (_copy_isolated_scripts) holds the queue and
+# the exclusive holder record under tmp_path.
+OUTER_EXCLUSIVE_PREGATE = r"""
+$ErrorActionPreference = 'Stop'
+. '{admission}'
+$lease = Enter-WeatherWorkstationHeavyExclusiveLease -RepoRoot '{repo}' -Workload 'WorkstationOffline-pytest-pregate-outer' `
+    -TimeoutSeconds 60 -PollMilliseconds 100 -ReportSeconds 1
+if ($null -eq $lease) {{ exit 3 }}
+$env:WEATHER_WORKSTATION_WRAPPER_ACTIVE = '1'
+Remove-Item Env:WEATHER_WORKSTATION_WRAPPER_SLOT -ErrorAction SilentlyContinue
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$ErrorActionPreference = 'Continue'
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '{pregate}' -Head '{head}' -RepoRoot '{repo}' `
+    -OutputDirectory '{out}' -ReceiptPath '{receipt}' -WorktreeParent '{worktrees}' -QueueTimeoutSeconds 60 *> '{log}'
+$nestedExit = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+$outerStart = [Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToString('o')
+[IO.File]::WriteAllText('{outer}', ([ordered]@{{ pid = $PID; start = $outerStart; nested_exit = $nestedExit; seconds = $clock.Elapsed.TotalSeconds }} |
+    ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease | Out-Null
+Exit-WeatherHeavyWorkloadLease -Lease $lease
+"""
+
+
+def test_a_nested_pregate_under_an_outer_exclusive_pregate_is_admitted_and_passes(tmp_path):
+    # PG-NEST-1: the 2026-10-27 workstation pre-gate hung at chunk 12 because this
+    # module's nested pre-gate queued behind the outer pre-gate that was its own
+    # ancestor. With an outer exclusive holder in place, the nested run must be
+    # admitted at once as its descendant and pass, not wait out its queue timeout.
+    if shutil.disk_usage(tmp_path).free < 55 * 1024**3:
+        pytest.skip("the host suite's 50 GiB disk floor cannot be met on this volume")
+    info = _fixture_repo(tmp_path, tmp_path / "probe.json")
+    state_root = Path(info["state_root"])
+    repo = Path(info["repo"])
+    receipt_path, outer_path = tmp_path / "receipt.json", tmp_path / "outer.json"
+    script = OUTER_EXCLUSIVE_PREGATE.format(
+        admission=repo / "scripts" / "ops" / "workload_admission.ps1", repo=repo,
+        pregate=repo / "scripts" / "ops" / "workstation_pregate.ps1", head=info["good"],
+        out=tmp_path / "out", receipt=receipt_path, worktrees=tmp_path / "wt",
+        log=tmp_path / "nested.log", outer=outer_path,
+    )
+    env = {key: value for key, value in os.environ.items() if not key.startswith("WEATHER_WORKSTATION_WRAPPER")}
+    result = _run([*POWERSHELL, "-Command", script], cwd=tmp_path, env=env, timeout=600)
+    nested_log = (tmp_path / "nested.log").read_text(encoding="utf-8", errors="replace") if (tmp_path / "nested.log").exists() else ""
+    assert result.returncode == 0, result.stdout + result.stderr + nested_log
+    outer = json.loads(outer_path.read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "PASS", (receipt["failure_reasons"], nested_log)
+    assert outer["nested_exit"] == 0
+    assert receipt["lease_mode"] == "inherited_from_exclusive_holder"
+    assert receipt["workstation_exclusive"] is True
+    assert receipt["exclusive_holder"]["pid"] == outer["pid"]
+    assert receipt["exclusive_holder"]["owner_process_start_utc"] == outer["start"]
+    assert receipt["exclusive_holder"]["workload"] == "WorkstationOffline-pytest-pregate-outer"
+    events = [
+        json.loads(line)
+        for line in (repo / "data" / "logs" / "heavy_workload_queue.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    nested = [event for event in events if event["pid"] != outer["pid"]]
+    assert [event["event"] for event in nested] == ["start"]
+    assert nested[0]["lease_mode"] == "inherited_from_exclusive_holder"
+    _assert_clean(info, receipt)
+    assert not (state_root / "heavy_workload_queue_v1" / "exclusive_holder_v1.json").exists()
 
 
 # ------------------------------------------------------------------ interrupted exit code
@@ -580,51 +947,61 @@ def _hidden_console() -> subprocess.STARTUPINFO:
 
 def _ctrl_c_reaches_a_new_console(tmp_path: Path) -> bool:
     """Some runners (e.g. a kill-on-close Job queue) never deliver console Ctrl+C."""
-    started = tmp_path / "ctrlc-probe-started"
-    script = tmp_path / "ctrlc_probe.ps1"
+    return _ctrl_c_exit_code(tmp_path, "probe", "", "exit 7") == 7
+
+
+def _ctrl_c_exit_code(tmp_path: Path, label: str, prefix: str, final: str) -> int | None:
+    """Exit code of a -File script stopped by Ctrl+C whose finally runs ``final``."""
+    started = tmp_path / f"ctrlc-{label}-started"
+    script = tmp_path / f"ctrlc_{label}.ps1"
     script.write_text(
-        f"Set-Content -LiteralPath '{started}' -Value x\n"
-        "try { while ($true) { Start-Sleep -Milliseconds 200 } } finally { exit 7 }\n",
+        prefix
+        + f"Set-Content -LiteralPath '{started}' -Value x\n"
+        + "try { while ($true) { Start-Sleep -Milliseconds 200 } }\nfinally {\n    "
+        + final
+        + "\n}\n",
         encoding="utf-8",
     )
     command = [*POWERSHELL, "-File", str(script)]
-    process = subprocess.Popen(
-        [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
-        creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
-    )
-    try:
-        deadline = time.monotonic() + 60
-        while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
-            time.sleep(0.2)
-        _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
-        return process.wait(timeout=20) == 7
-    except subprocess.TimeoutExpired:
-        return False
-    finally:
-        if process.poll() is None:
-            _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
-            process.wait(timeout=60)
+    with KillOnCloseJob() as job:
+        process = job.popen(
+            [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
+            creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
+        )
+        try:
+            deadline = time.monotonic() + 60
+            while not started.is_file() and time.monotonic() < deadline and process.poll() is None:
+                time.sleep(0.2)
+            _run([sys.executable, "-c", CTRL_C_SENDER, str(process.pid)], timeout=60)
+            return process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            return None
+        finally:
+            # Job containment, never a parent-PID tree kill (L33, 2026-11-01).
+            terminate_job_and_wait(job, process, timeout=60)
 
 
 def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_repo, tmp_path):
     # test_pregate_exit_is_issued_from_the_final_finally guards the same contract
     # statically wherever console Ctrl+C cannot be delivered.
     if not _ctrl_c_reaches_a_new_console(tmp_path):
+        # Skips only where console Ctrl+C is not delivered; the KillOnCloseJob
+        # launch and terminate_job_and_wait cleanup below are then unexercised.
+        # (A 2026-11-02 workstation_heavy.ps1 -Queue run did deliver it.)
         pytest.skip("console Ctrl+C is not delivered in this runner")
     root = Path(fixture_repo["root"])
     receipt_path = root / "receipt-interrupt.json"
     started = Path(fixture_repo["slow_started"])
-    env = os.environ.copy()
-    env["WEATHER_WORKSTATION_WRAPPER_ACTIVE"] = "1"
+    env = _nested_env()
     command = [
         *POWERSHELL, "-File", str(Path(fixture_repo["repo"]) / "scripts" / "ops" / "workstation_pregate.ps1"),
         "-Head", fixture_repo["slow"], "-RepoRoot", fixture_repo["repo"],
         "-OutputDirectory", str(root / "out-interrupt"), "-ReceiptPath", str(receipt_path),
         "-WorktreeParent", str(root / "wt"),
     ]
-    with _HeldWorkstationMutex():
+    with _HeldWorkstationMutex(fixture_repo["mutex"]), KillOnCloseJob() as job:
         # A private console so the Ctrl+C reaches only the pre-gate process.
-        process = subprocess.Popen(
+        process = job.popen(
             [sys.executable, "-c", CTRL_C_LAUNCHER, json.dumps(command)],
             cwd=root, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=_hidden_console(),
         )
@@ -639,8 +1016,8 @@ def test_interrupted_pregate_exits_nonzero_to_match_its_fail_receipt(fixture_rep
             returncode = process.wait(timeout=180)
         finally:
             if process.poll() is None:
-                _run(["taskkill", "/T", "/F", "/PID", str(process.pid)], timeout=60)
-                process.wait(timeout=60)
+                # Job containment, never a parent-PID tree kill (L33, 2026-11-01).
+                terminate_job_and_wait(job, process, timeout=60)
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["verdict"] == "FAIL"
     assert "host suite driver did not complete" in receipt["failure_reasons"]
@@ -657,17 +1034,94 @@ $last = $ast.EndBlock.Statements[-1]
 $finally = if ($last -is [Management.Automation.Language.TryStatementAst]) { $last.Finally } else { $null }
 $inner = if ($finally) { $finally.Statements[-1] } else { $null }
 $exit = if ($inner -is [Management.Automation.Language.TryStatementAst] -and $inner.Finally) { $inner.Finally.Statements[-1].Extent.Text } else { $null }
+$guard = if ($exit -and $inner.Finally.Statements.Count -ge 2) { $inner.Finally.Statements[-2].Extent.Text } else { $null }
+$top = $ast.EndBlock.Statements
+$flags = @($top | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$pregateIsHostFileScript' })
+$flagBeforeTry = ($flags.Count -ge 1) -and ($top.IndexOf($flags[0]) -lt ($top.Count - 1))
 $writes = if ($finally) { @($finally.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Write-Output', 'Write-Host') }, $true)).Count } else { -1 }
-ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; writes = $writes }
+ConvertTo-Json -Compress -InputObject @{ last_is_try = [bool]$finally; exit = $exit; guard = $guard; flag_before_try = $flagBeforeTry; writes = $writes }
 """
 
 
 def test_pregate_exit_is_issued_from_the_final_finally():
     # A stopped (Ctrl+C) PS 5.1 -File script skips statements after its finally
-    # and exits 0, and Write-Output during a stop aborts the finally.
+    # and exits 0, and Write-Output during a stop aborts the finally. Because the
+    # pre-gate is a [CmdletBinding()] script, a bare exit there still yields 0
+    # (test_an_advanced_script_stopped_by_ctrl_c_keeps_its_exit_code_only_via_the_host),
+    # so the host's own -File script sets the host exit code first; the flag is
+    # computed at the top, never during the stop.
     result = _run([*POWERSHELL, "-Command", EXIT_SHAPE], env={**os.environ, "PG_PREGATE": str(PREGATE)}, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"last_is_try": True, "exit": "exit $exitCode", "writes": 0}
+    assert json.loads(result.stdout) == {
+        "last_is_try": True,
+        "exit": "exit $exitCode",
+        "guard": "if ($pregateIsHostFileScript) { $host.SetShouldExit($exitCode) }",
+        "flag_before_try": True,
+        "writes": 0,
+    }
+
+
+@pytest.mark.parametrize("caller", ["open_session", "file_harness"])
+def test_an_in_process_caller_survives_the_pregate_and_reads_its_exit_code(tmp_path, caller):
+    # Every in-repo caller starts the pre-gate as its own powershell.exe -File
+    # child, but the runbooks name the bare script, which an operator may run
+    # with & in an open session. SetShouldExit there ends that whole session
+    # after the command (measured: the next line never ran, the host exited 1),
+    # so the pre-gate calls it only when it is the host's -File script.
+    # "open_session" feeds commands one by one to `powershell -Command -`, the
+    # scripted stand-in for a typed session, and is the case that catches an
+    # unguarded SetShouldExit.
+    repo = tmp_path / "repo"
+    _copy_isolated_scripts(repo, tmp_path / "host-state")
+    (repo / "venv" / "Scripts").mkdir(parents=True)
+    (repo / "venv" / "Scripts" / "python.exe").write_bytes(b"")
+    _write_assignment(repo, "unassigned")
+    receipt_path = tmp_path / "receipt.json"
+    pregate = repo / "scripts" / "ops" / "workstation_pregate.ps1"
+    call = (
+        f"& '{pregate}' -Head ('a' * 40) -RepoRoot '{repo}' -OutputDirectory '{tmp_path / 'out'}' "
+        f"-ReceiptPath '{receipt_path}' -WorktreeParent '{tmp_path / 'wt'}'\n"
+        "[Console]::Out.WriteLine(('SURVIVED code={0}' -f $LASTEXITCODE))\n"
+        "exit 0\n"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("WEATHER_WORKSTATION_WRAPPER")}
+    if caller == "file_harness":
+        harness = tmp_path / "harness.ps1"
+        harness.write_text(call, encoding="utf-8")
+        result = _run([*POWERSHELL, "-File", str(harness)], cwd=tmp_path, env=env, timeout=180)
+    else:
+        result = subprocess.run(
+            [*POWERSHELL, "-Command", "-"], input=call, cwd=tmp_path, env=env,
+            check=False, capture_output=True, text=True, timeout=180,
+        )
+    assert "SURVIVED code=1" in result.stdout, result.stdout + result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["verdict"] == "FAIL"
+    assert any("not the assigned non-capture workstation" in item for item in receipt["failure_reasons"])
+
+
+@pytest.mark.parametrize(
+    ("prefix", "final", "expected"),
+    [
+        pytest.param("", "exit 7", 7, id="plain_script_bare_exit"),
+        pytest.param(
+            "[CmdletBinding()]\nparam()\n$isHostFileScript = $true\n",
+            "if ($isHostFileScript) { $host.SetShouldExit(7) }\n    exit 7",
+            7,
+            id="cmdletbinding_script_pregate_exit_form",
+        ),
+    ],
+)
+def test_an_advanced_script_stopped_by_ctrl_c_keeps_its_exit_code_only_via_the_host(tmp_path, prefix, final, expected):
+    # The minimal-script probe, extended to the pre-gate's own shape. Under PS 5.1
+    # a [CmdletBinding()] -File script stopped by Ctrl+C exits 0 even when its
+    # finally runs `exit 7` (measured 2026-10-27); the plain probe used to gate
+    # the interrupt test returns 7 and so hid that. The pre-gate's exit form
+    # (host exit code first, then exit) must keep the code for an advanced script.
+    if not _ctrl_c_reaches_a_new_console(tmp_path):
+        pytest.skip("console Ctrl+C is not delivered in this runner")
+    assert _ctrl_c_exit_code(tmp_path, "advanced", prefix, final) == expected
 
 
 # ------------------------------------------------------------------ content pins

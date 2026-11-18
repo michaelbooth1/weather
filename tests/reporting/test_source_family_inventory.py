@@ -310,6 +310,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             spec = spec_for_id("nyc")
             payload = {
+                "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
                 "hourly": {
                     "time": ["2026-06-18T14:00"],
                     "pm2_5": [36.0],
@@ -392,6 +393,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
             write_csv(folder / "features_long.csv", [feature_row])
 
             payload = {
+                "utc_offset_seconds": -14400,  # EDT: the response offset the readers now require
                 "hourly": {
                     "time": ["2026-06-18T12:00"],
                     "temperature_2m_ecmwf_ifs025": [84.0],

@@ -1,0 +1,5 @@
+UNDECIDABLE: no live closure evidence
+  missing closure evidence: data\snapshots\loop_supervisor_status.json
+  missing closure evidence: data\snapshots\clob_loop_supervisor_status.json
+  missing closure evidence: data\snapshots\observation_trigger_supervisor_status.json
+  missing closure evidence: data\snapshots\clob_enrichment_status.json

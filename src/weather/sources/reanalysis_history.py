@@ -3,7 +3,7 @@ import argparse
 import csv
 import json
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 from weather.paths import data_path
@@ -20,6 +20,7 @@ from weather.sources.historical_schema import (
     write_manifest,
 )
 from weather.market.market_registry import spec_for_id
+from weather.sources.open_meteo_label_times import payload_local_times, payload_refused_row_count
 from weather.sources.wu_history import get_code_version, parse_date
 
 
@@ -79,25 +80,82 @@ def chunk_date_range(start_date, end_date, chunk_days=31):
         current = chunk_end + timedelta(days=1)
 
 
-def parse_local_datetime(value, tzinfo):
-    if not value:
+def payload_local_datetimes(payload, tzinfo):
+    """Local times aligned with ``payload["hourly"]["time"]``, read with the response's own
+    ``utc_offset_seconds`` (EF §10w); a naive label without a usable offset is None (the row is refused)."""
+    times, _refusal = payload_local_times(payload, tzinfo)
+    return times
+
+
+def _at(local_times, index):
+    return local_times[index] if index < len(local_times) else None
+
+
+def raw_range_from_stem(stem):
+    """``(start, end)`` dates named by a raw payload file stem ``<start>_<end>``, or None."""
+    try:
+        start_text, end_text = stem.split("_", 1)
+        return date.fromisoformat(start_text), date.fromisoformat(end_text)
+    except ValueError:
         return None
-    dt = datetime.fromisoformat(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=tzinfo)
-    return dt.astimezone(tzinfo)
 
 
-def normalize_payload(payload, spec):
+def inside_archive(local_date, bounds):
+    """False for a local day outside the archive's ``(first range start, last range end)`` (item 340, R26).
+
+    Reading summer-offset payloads by their response offset moves the first winter label back across midnight,
+    so the archive's first label can land on the day before its first requested date as a one-row partial day
+    (and a winter-offset payload's last label past its last date). Only such archive-edge days are dropped; a
+    day inside the archive is never dropped, so DST days keep their 23/25 rows. No named range keeps every day.
+    """
+    return bounds is None or bounds[0] <= local_date <= bounds[1]
+
+
+_PER_RESPONSE_FIELDS = frozenset({"source_report_type"})  # generation time: differs per response, never merged
+
+
+def dedupe_hourly_records(records):
+    """One record per ``valid_time_utc``, null-aware (item 340, duplicate chunks; master ruling R26 (i)/(ii)).
+
+    Overlapping raw chunks hold the same hour twice; read twice, a day carries ~48 rows and its counts and sums
+    double. The first copy in raw-file order is kept. A field that is null in the kept copy takes the first later
+    non-null value for the same hour; a non-null value is never overwritten. Two non-null values that differ are
+    a disagreement: the first stays and the local date is recorded.
+    -> (kept records, dropped duplicate count, sorted disagreement dates, {field: filled count}).
+    """
+    kept = {}
+    dropped = 0
+    disagreeing_dates = set()
+    filled = {}
+    for record in records:
+        first = kept.setdefault(record["valid_time_utc"], record)
+        if first is record:
+            continue
+        dropped += 1
+        for key, value in record.items():
+            if key in _PER_RESPONSE_FIELDS or value is None:
+                continue
+            if first.get(key) is None:
+                first[key] = value
+                filled[key] = filled.get(key, 0) + 1
+            elif first[key] != value:
+                disagreeing_dates.add(first["local_date"])
+    return list(kept.values()), dropped, sorted(disagreeing_dates), dict(sorted(filled.items()))
+
+
+def normalize_payload(payload, spec, *, keep_null_temperature=False):
+    """Hourly records for one payload. A null-temperature hour is skipped unless ``keep_null_temperature`` (the
+    rebuild keeps it so a later overlapping copy can supply the value before such hours are dropped)."""
     hourly = payload.get("hourly") or {}
     times = hourly.get("time") or []
+    local_times = payload_local_datetimes(payload, spec.tz)
     records = []
     for index, value in enumerate(times):
-        local_dt = parse_local_datetime(value, spec.tz)
+        local_dt = _at(local_times, index) if value else None
         if not local_dt:
             continue
         temp = value_at(hourly, "temperature_2m", index)
-        if temp is None:
+        if temp is None and not keep_null_temperature:
             continue
         records.append(hourly_record(
             source=SOURCE,
@@ -169,39 +227,56 @@ class ReanalysisStore:
     def raw_covered_dates(self):
         dates = set()
         for path in self.raw_root.glob("year=*/*.json"):
-            try:
-                start_text, end_text = path.stem.split("_", 1)
-                start = date.fromisoformat(start_text)
-                end = date.fromisoformat(end_text)
-            except ValueError:
-                continue
-            dates.update(iter_dates(start, end))
+            named = raw_range_from_stem(path.stem)
+            if named is not None:
+                dates.update(iter_dates(*named))
         return dates
 
+    def archive_bounds(self):
+        """``(first payload range start, last payload range end)`` from the raw file names, or None."""
+        ranges = [
+            named for named in (raw_range_from_stem(path.stem) for path in self.raw_root.glob("year=*/*.json"))
+            if named is not None
+        ]
+        if not ranges:
+            return None
+        return min(start for start, _end in ranges), max(end for _start, end in ranges)
+
     def raw_normalizable_dates(self):
+        bounds = self.archive_bounds()
         dates = set()
         for payload in self.iter_raw_payloads():
             hourly = payload.get("hourly") or {}
             times = hourly.get("time") or []
+            local_times = payload_local_datetimes(payload, self.spec.tz)
             for index, value in enumerate(times):
                 if value_at(hourly, "temperature_2m", index) is None:
                     continue
-                local_dt = parse_local_datetime(value, self.spec.tz)
-                if local_dt:
+                local_dt = _at(local_times, index) if value else None
+                if local_dt and inside_archive(local_dt.date(), bounds):
                     dates.add(local_dt.date())
         return dates
+
+    def offset_refused_row_count(self):
+        """Hourly rows in the raw payloads that the readers refuse (EF §10w, item 340): a naive label with no
+        usable ``utc_offset_seconds``, or with one but in a series that repeats, gaps or holds an unparseable
+        label mid-series. One full raw-payload pass, so it stays out of ``coverage()`` (the data-layer audit
+        calls that too); the Stage-A reanalysis step calls it once per market so the refusal is never silent."""
+        return sum(payload_refused_row_count(payload) for payload in self.iter_raw_payloads())
 
     def raw_variable_covered_dates(self, required_variables):
         required = tuple(variable for variable in required_variables or () if variable)
         if not required:
             return self.raw_covered_dates()
+        bounds = self.archive_bounds()
         present_by_date = {}
         for payload in self.iter_raw_payloads():
             hourly = payload.get("hourly") or {}
             times = hourly.get("time") or []
+            local_times = payload_local_datetimes(payload, self.spec.tz)
             for index, value in enumerate(times):
-                local_dt = parse_local_datetime(value, self.spec.tz)
-                if not local_dt:
+                local_dt = _at(local_times, index) if value else None
+                if not local_dt or not inside_archive(local_dt.date(), bounds):
                     continue
                 local_date = local_dt.date()
                 present = present_by_date.setdefault(local_date, set())
@@ -265,9 +340,23 @@ class ReanalysisStore:
             yield json.loads(path.read_text(encoding="utf-8"))
 
     def rebuild(self):
-        records = []
+        bounds = self.archive_bounds()
+        candidates = []
         for payload in self.iter_raw_payloads():
-            records.extend(normalize_payload(payload, self.spec))
+            candidates.extend(normalize_payload(payload, self.spec, keep_null_temperature=True))
+        # Item 340: merge overlapping chunks first, so a later copy can fill a null (temperature included).
+        merged, duplicate_hours, disagreeing_dates, filled_null_fields = dedupe_hourly_records(candidates)
+        records = []
+        edge_dropped = set()
+        for record in merged:
+            if record["temp_native"] is None:
+                continue  # no copy has a temperature for this hour: skipped, as a single copy always was
+            if inside_archive(date.fromisoformat(record["local_date"]), bounds):
+                records.append(record)
+            else:
+                edge_dropped.add(record["local_date"])
+        # Item 340 / R26: partial days outside the archive's named range are dropped and counted, never silent.
+        self.archive_edge_dropped_dates = sorted(edge_dropped)
         records.sort(key=lambda row: row["valid_time_utc"])
         write_jsonl_partitions(self.hourly_root, records)
         daily = summarize_daily(records)
@@ -285,6 +374,12 @@ class ReanalysisStore:
                 "hourly_variables": HOURLY_VARIABLES,
                 "model": "era5",
                 "quality_counts": quality_counts(records),
+                "archive_edge_days_dropped": len(self.archive_edge_dropped_dates),
+                "archive_edge_dropped_dates": self.archive_edge_dropped_dates,
+                "duplicate_hours_dropped": duplicate_hours,
+                "duplicate_disagreement_days": len(disagreeing_dates),
+                "duplicate_disagreement_dates": disagreeing_dates,
+                "filled_null_fields": filled_null_fields,
             },
         )
         return records, daily
@@ -362,13 +457,22 @@ def cmd_backfill(args):
         if args.sleep:
             time.sleep(args.sleep)
     records, daily = store.rebuild()
-    print(f"Rebuilt {len(records)} hourly rows and {len(daily)} daily rows")
+    print(_rebuilt_line(store, records, daily))
+
+
+def _rebuilt_line(store, records, daily):
+    dropped = len(store.archive_edge_dropped_dates)
+    return (
+        f"Rebuilt {len(records)} hourly rows and {len(daily)} daily rows "
+        f"({dropped} archive-edge partial day(s) dropped)"
+    )
 
 
 def cmd_rebuild(args):
     spec = spec_for_id(args.market)
-    records, daily = ReanalysisStore(spec, args.data_root).rebuild()
-    print(f"Rebuilt {len(records)} hourly rows and {len(daily)} daily rows")
+    store = ReanalysisStore(spec, args.data_root)
+    records, daily = store.rebuild()
+    print(_rebuilt_line(store, records, daily))
 
 
 def cmd_coverage(args):
