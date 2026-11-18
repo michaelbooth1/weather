@@ -145,18 +145,12 @@ def safe_float(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def is_present(value: Any) -> bool:
-    if value is None:
-        return False
-    text = str(value).strip()
-    if text.lower() in BLANK_VALUES:
-        return False
-    if text.lower() in {"true", "false"}:
-        return True
-    numeric = safe_float(text)
-    if numeric is not None:
-        return True
-    return bool(text)
+def is_present(value: Any, *, column: str = "") -> bool:
+    """All audited sidecar features, including zero-valued flags, are numeric."""
+    number = safe_float(value)
+    if column.endswith("_flag"):
+        return number in (0.0, 1.0)
+    return number is not None
 
 
 def read_csv_rows(path: str | Path) -> list[dict[str, Any]]:
@@ -191,26 +185,28 @@ def filter_rows_by_date(
     return out
 
 
+def availability_matches(row: dict[str, Any], group: FeatureGroup) -> bool:
+    if group.availability_column is None:
+        return True
+    value = safe_float(row.get(group.availability_column))
+    return value is not None and (group.availability_value is None or value == group.availability_value)
+
+
 def row_has_group(row: dict[str, Any], group: FeatureGroup) -> bool:
-    if group.availability_column:
-        availability = safe_float(row.get(group.availability_column))
-        if group.availability_value is not None and availability != group.availability_value:
-            return False
-        if group.availability_value is None and not is_present(row.get(group.availability_column)):
-            return False
-    return all(is_present(row.get(column)) for column in group.columns)
+    if not availability_matches(row, group):
+        return False
+    return all(is_present(row.get(column), column=column) for column in group.columns)
 
 
 def group_coverage(rows: list[dict[str, Any]], group: FeatureGroup) -> dict[str, Any]:
     row_count = len(rows)
     present_by_column = {
-        column: sum(1 for row in rows if is_present(row.get(column)))
+        column: sum(1 for row in rows if is_present(row.get(column), column=column))
         for column in group.columns
     }
-    if group.availability_column and group.availability_column not in present_by_column:
+    if group.availability_column:
         present_by_column[group.availability_column] = sum(
-            1 for row in rows
-            if safe_float(row.get(group.availability_column)) == group.availability_value
+            1 for row in rows if availability_matches(row, group)
         )
     complete_dates = [
         local_date(row)
@@ -292,9 +288,17 @@ def audit_sidecar(
         for group in FEATURE_GROUPS
     }
     blockers = []
+    target_dates = {local_date(row) for row in target_rows} - {None}
+    expected_days = None
+    if target_start is not None and target_end is not None:
+        if target_end < target_start:
+            raise ValueError("target_end precedes target_start")
+        expected_days = (target_end - target_start).days + 1
     if target_start is not None or target_end is not None:
         if not target_rows:
             blockers.append("target_window_missing_rows")
+        elif expected_days is not None and len(target_dates) < expected_days:
+            blockers.append("target_window_missing_dates")
         for group_name in required_groups:
             group_status = (groups_target.get(group_name) or {}).get("status")
             if group_status != "PASS":
@@ -305,6 +309,8 @@ def audit_sidecar(
         "path": str(path),
         "rows": len(rows),
         "target_rows": len(target_rows),
+        "target_distinct_dates": len(target_dates),
+        "target_expected_dates": expected_days,
         "first_date": first_date,
         "last_date": last_date,
         "target_start": target_start.isoformat() if target_start else None,
@@ -340,6 +346,12 @@ def build_payload(
 ) -> dict[str, Any]:
     start = parse_date(target_start)
     end = parse_date(target_end)
+    if target_start not in (None, "") and start is None:
+        raise ValueError("invalid target_start")
+    if target_end not in (None, "") and end is None:
+        raise ValueError("invalid target_end")
+    if start is not None and end is not None and end < start:
+        raise ValueError("target_end precedes target_start")
     required = normalize_required_groups(required_groups)
     sidecars = [
         audit_sidecar(
@@ -362,6 +374,7 @@ def build_payload(
             if group_status in required_group_counts[group_name]:
                 required_group_counts[group_name][group_status] += 1
     blocking = [row for row in sidecars if row.get("status") == "BLOCK"]
+    no_target_sidecars = not sidecars and (start is not None or end is not None)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
@@ -369,7 +382,8 @@ def build_payload(
         "target_start": start.isoformat() if start else None,
         "target_end": end.isoformat() if end else None,
         "required_groups": list(required),
-        "status": "BLOCK" if blocking else "PASS",
+        "status": "BLOCK" if blocking or no_target_sidecars else "PASS",
+        "blockers": ["target_window_no_sidecars"] if no_target_sidecars else [],
         "summary": {
             "markets": len(sidecars),
             "blocking_markets": len(blocking),
@@ -411,6 +425,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             ["Required target groups", ", ".join(payload.get("required_groups") or []) or "-"],
             ["Markets", summary.get("markets")],
             ["Blocking markets", summary.get("blocking_markets")],
+            ["Root blockers", ", ".join(payload.get("blockers") or []) or "-"],
         ],
     )
     lines += ["", "## Target Window Coverage", ""]
@@ -419,6 +434,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             "Market",
             "Rows",
             "Target rows",
+            "Distinct / expected dates",
             "Core",
             "Rich surface",
             "Pressure level",
@@ -432,6 +448,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 row.get("market_id"),
                 row.get("rows"),
                 row.get("target_rows"),
+                f"{row.get('target_distinct_dates', '-')} / {row.get('target_expected_dates') or '-'}",
                 fmt_coverage((row.get("target_window_groups") or {}).get("core_antecedent")),
                 fmt_coverage((row.get("target_window_groups") or {}).get("rich_surface")),
                 fmt_coverage((row.get("target_window_groups") or {}).get("pressure_level")),

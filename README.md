@@ -257,6 +257,9 @@ Run commands from the repository root with the venv interpreter.
 # Open-Meteo ERA5-style reanalysis history.
 .\venv\Scripts\python.exe -m weather.sources.reanalysis_history --market toronto backfill --start 2026-06-01 --end 2026-06-22
 
+# Audit required numeric features and distinct dates on each discovered daily sidecar.
+.\venv\Scripts\python.exe -m weather.reporting.data_quality.reanalysis_sidecar_coverage_audit --target-start 2026-06-01 --target-end 2026-06-22
+
 # Toronto-only ECCC SWOB observation layer.
 .\venv\Scripts\python.exe -m weather.sources.eccc_swob_history run
 

@@ -61,6 +61,88 @@ def write_sidecar(path, rows):
 
 
 class ReanalysisSidecarCoverageAuditTests(unittest.TestCase):
+    def test_numeric_group_counts_only_finite_features(self):
+        group = next(item for item in FEATURE_GROUPS if item.name == "pressure_level")
+        field = "reanalysis_prev_day_temperature_850hpa_c"
+        invalid = ["sensor error", "false", "TRUE", False, True, "nan", "inf", "-inf", "1e999"]
+        values = [0, "-2.5e1", *invalid]
+        rows = []
+        for index, value in enumerate(values, 1):
+            row = row_for(f"2026-06-{index:02d}")
+            row[field] = value
+            rows.append(row)
+
+        result = group_coverage(rows, group)
+
+        self.assertEqual(result["row_count"], len(values))
+        self.assertEqual(result["complete_rows"], 2)
+        self.assertEqual(result["coverage"], 2 / len(values))
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["present_by_column"][field], 2)
+        self.assertEqual(result["last_complete_date"], "2026-06-02")
+        self.assertEqual(result["partial_columns"], [field])
+
+    def test_availability_count_matches_group_gate(self):
+        for name in ("base_sidecar", "pressure_level", "teleconnection"):
+            group = next(item for item in FEATURE_GROUPS if item.name == name)
+            rows = [row_for("2026-06-01", **{group.availability_column: flag})
+                    for flag in ("0.0", "1", "broken", "true")]
+            with self.subTest(group=name):
+                result = group_coverage(rows, group)
+                self.assertEqual(result["complete_rows"], 1)
+                self.assertEqual(result["present_by_column"][group.availability_column], 1)
+                self.assertIn(group.availability_column, result["partial_columns"])
+
+    def test_documented_binary_feature_requires_zero_or_one(self):
+        group = next(item for item in FEATURE_GROUPS if item.name == "static_context")
+        field = "reanalysis_coastal_flag"
+        rows = [row_for("2026-06-01", **{field: value}) for value in ("0", "1.0", "-1", ".5", "2", "false")]
+        result = group_coverage(rows, group)
+        self.assertEqual(result["complete_rows"], 2)
+        self.assertEqual(result["present_by_column"][field], 2)
+
+    def test_garbage_in_required_csv_field_blocks_bounded_replay_window(self):
+        field = "reanalysis_prev_day_soil_temperature_0_to_7cm_mean"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "reanalysis"
+            sidecar = root / "klga" / "features" / "reanalysis_synoptic_features.csv"
+            write_sidecar(sidecar, [row_for("2026-06-07", **{field: "sensor error"})])
+            payload = build_payload(reanalysis_root=root, target_start="2026-06-07", target_end="2026-06-07")
+
+        self.assertEqual(payload["status"], "BLOCK")
+        market = payload["markets"][0]
+        self.assertEqual(market["blockers"], ["rich_surface:MISSING"])
+        self.assertEqual(market["target_window_groups"]["rich_surface"]["missing_columns"], [field])
+        self.assertEqual(market["target_window_groups"]["pressure_level"]["status"], "PASS")
+
+    def test_duplicate_observed_dates_cannot_hide_a_missing_calendar_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "reanalysis"
+            write_sidecar(root / "klga" / "features" / "reanalysis_synoptic_features.csv",
+                          [row_for("2026-06-07"), row_for("2026-06-07")])
+            payload = build_payload(reanalysis_root=root, target_start="2026-06-07", target_end="2026-06-08")
+
+        market = payload["markets"][0]
+        self.assertEqual(market["target_rows"], 2)
+        self.assertEqual(market["target_distinct_dates"], 1)
+        self.assertEqual(market["target_expected_dates"], 2)
+        self.assertEqual(market["target_window_groups"]["rich_surface"]["complete_rows"], 2)
+        self.assertEqual(market["blockers"], ["target_window_missing_dates"])
+        self.assertEqual(payload["status"], "BLOCK")
+
+    def test_requested_window_without_sidecars_has_a_visible_root_blocker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = build_payload(reanalysis_root=tmp, target_start="2026-06-07")
+        self.assertEqual(payload["summary"]["markets"], 0)
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertIn("target_window_no_sidecars", render_markdown(payload))
+
+    def test_invalid_requested_dates_cannot_disable_the_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for start, end in (("bad", None), (None, "bad"), ("2026-06-08", "2026-06-07")):
+                with self.subTest(start=start, end=end), self.assertRaises(ValueError):
+                    build_payload(reanalysis_root=tmp, target_start=start, target_end=end)
+
     def test_group_coverage_treats_zero_flags_as_present(self):
         group = next(item for item in FEATURE_GROUPS if item.name == "static_context")
         rows = [
