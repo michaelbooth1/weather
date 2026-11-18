@@ -33,6 +33,13 @@ on the market's local date. Rule tag: `VENUE_RULE_VERSION`.
 | Before the cutover | The WU row passes through unchanged (`wu_history`). |
 | Markets | Built-ins only (`BUILTIN_SPECS`). Hong Kong and the pilot cities are not built-ins. |
 
+The built-in label builder also reads a routine report's raw temperature when
+the derived IEM `tmpc` column is missing. The raw header must corroborate the
+requested station and CSV observation instant. The same legacy temperature
+parser and per-revision correction cutoff govern these rows. General historical
+weather features retain their numeric `tmpc` requirement. The raw-header and
+source-normalization modules enter the venue-mode incremental fingerprint.
+
 ### Celsius markets
 
 Toronto (CYYZ) is the only built-in Celsius market. Its label is the highest

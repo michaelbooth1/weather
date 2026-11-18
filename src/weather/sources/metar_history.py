@@ -241,12 +241,14 @@ def cloud_text(row):
     return "|".join(layer for layer in layers if layer not in (None, "", "M", "null"))
 
 
-def normalized_csv_rows(text, spec):
+def normalized_csv_rows(text, spec, *, missing_temperature=None):
     """Yield each accepted source row with its normalized weather record."""
     reader = csv.DictReader(io.StringIO(text))
     for row in reader:
         utc_dt = parse_valid_utc(row.get("valid"))
         temp_c = to_float(row.get("tmpc"))
+        if utc_dt is not None and temp_c is None and missing_temperature is not None:
+            temp_c = missing_temperature(row, utc_dt)
         if utc_dt is None or temp_c is None:
             continue
         local_dt = utc_dt.astimezone(spec.tz)

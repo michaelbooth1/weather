@@ -39,10 +39,12 @@ import sys
 from collections import defaultdict
 from dataclasses import replace
 from datetime import date, datetime, timezone
+from functools import partial
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from weather.market.market_registry import BUILTIN_SPECS, spec_for_id
+from weather.market.metar_reports import parse_metar
 from weather.market.venue_settlement_rules import select_reports, settlement_bucket
 from weather.paths import config_path, data_path
 from weather.sources.daily_summary import native_bucket, native_high
@@ -215,7 +217,19 @@ def _receipt_time(row):
     return parsed.astimezone(timezone.utc)
 
 
-def reports_from_csv(text, spec, station, declared_report_type=None):
+def _raw_routine_temperature(row, valid, *, station, declared):
+    raw = row.get("metar") or row.get("raw") or ""
+    if classify_report_type(raw, declared) != REPORT_TYPE_ROUTINE:
+        return None
+    header = parse_metar(raw, valid, valid, station_ids=(station,))
+    if (header.station != station or header.observation_time != valid or
+            {"malformed_report_type", "malformed_correction_marker"}.intersection(header.flags)):
+        return None
+    temperature, _ = report_temperature_c(raw)
+    return float(temperature) if temperature is not None else None
+
+
+def reports_from_csv(text, spec, station, declared_report_type=None, *, allow_raw_temperature=False):
     """Parse one IEM-shaped CSV (``valid``, ``tmpc``, ``metar``) into report dicts.
 
     Every report is kept with its type; the caller filters. ``spec`` supplies
@@ -224,7 +238,9 @@ def reports_from_csv(text, spec, station, declared_report_type=None):
 
     station_spec = replace(spec, icao=station)
     reports = []
-    for row, record in normalized_csv_rows(text, station_spec):
+    missing_temperature = (partial(_raw_routine_temperature, station=station, declared=declared_report_type)
+                           if allow_raw_temperature else None)
+    for row, record in normalized_csv_rows(text, station_spec, missing_temperature=missing_temperature):
         raw = record.get("source_quality") or ""
         temperature_c, basis = report_temperature_c(raw)
         valid_utc = datetime.fromisoformat(record["valid_time_utc"])
@@ -476,6 +492,7 @@ def build_market_labels(
         for path in routine_csv_files(metar_root, icao):
             reports.extend(reports_from_csv(
                 path.read_text(encoding="utf-8"), spec, icao, declared_report_type=IEM_REPORT_TYPE_ROUTINE,
+                allow_raw_temperature=True,
             ))
             inputs.append({"path": str(path), "sha256": _sha256(path), "station": icao})
         if reports:

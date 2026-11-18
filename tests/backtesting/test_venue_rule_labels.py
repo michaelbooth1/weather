@@ -231,6 +231,58 @@ def test_last_date_of_the_stream_is_not_labelled():
     assert vrl.venue_daily_labels(reports, NYC) == {}
 
 
+@pytest.mark.parametrize(("raw", "expected_bucket", "expected_count"), [
+    ("METAR KLGA 241551Z 26/10 RMK T02610100", 79, 2),
+    ("KLGA 241551Z 26/10", 79, 2),
+    ("SPECI KLGA 241551Z 26/10", 77, 1),
+    ("METAR KXYZ 241551Z 26/10", 77, 1),
+    ("METAR KLGA 241651Z 26/10", 77, 1),
+    ("METAR KLGA 241551Z /////", 77, 1),
+])
+def test_build_labels_can_use_raw_temperature_without_derived_tmpc(tmp_path, raw, expected_bucket, expected_count):
+    routine = tmp_path / "klga" / "routine"
+    routine.mkdir(parents=True)
+    text = "\n".join([
+        "station,valid,tmpc,metar",
+        "LGA,2026-08-24 14:51,25,METAR KLGA 241451Z 25/10",
+        "LGA,2026-08-24 15:51,M," + raw,
+        "LGA,2026-08-25 04:51,15,METAR KLGA 250451Z 15/10",
+    ])
+    (routine / "routine.csv").write_text(text, encoding="utf-8")
+    out = tmp_path / "labels.csv"
+    vrl.build_market_labels(NYC, wu_daily_summary=tmp_path / "absent.csv", metar_root=tmp_path,
+                            station_config_path=tmp_path / "absent.json", out=out,
+                            manifest=tmp_path / "manifest.json", cutover=date(2026, 8, 24))
+    with out.open(encoding="utf-8", newline="") as labels:
+        row, = csv.DictReader(labels)
+    assert (int(row["max_temp_bucket"]), int(row["row_count"])) == (expected_bucket, expected_count)
+    assert row["label_station"] == "KLGA"
+    assert row["label_source"] == "metar_routine"
+    assert len(metar_history.normalize_csv(text, NYC)) == 2
+    assert len(vrl.reports_from_csv(text, NYC, "KLGA", declared_report_type=3)) == 2
+
+
+@pytest.mark.parametrize(("received", "expected"), [("2026-08-24T16:00:00Z", 79), ("2026-08-25T04:51:00Z", 77)])
+def test_raw_only_correction_obeys_its_own_receipt_deadline(received, expected):
+    text = "\n".join([
+        "station,valid,tmpc,metar,receipt_time",
+        f"LGA,2026-08-24T14:51:00Z,M,METAR KLGA 241451Z COR 26/10 RMK T02610100,{received}",
+        "LGA,2026-08-24T14:51:00Z,25,METAR KLGA 241451Z 25/10,2026-08-24T14:52:00Z",
+        "LGA,2026-08-25 04:51,15,METAR KLGA 250451Z 15/10,",
+    ])
+    reports = vrl.reports_from_csv(text, NYC, "KLGA", declared_report_type=3, allow_raw_temperature=True)
+    assert vrl.venue_daily_labels(reports, NYC)["2026-08-24"]["max_temp_bucket"] == expected
+
+
+def test_raw_only_unknown_type_does_not_close_prior_local_date():
+    text = ("station,valid,tmpc,metar\n"
+            "LGA,2026-08-24 14:51,25,METAR KLGA 241451Z 25/10\n"
+            "LGA,2026-08-25 04:51,M,KLGA 250451Z 15/10\n")
+    reports = vrl.reports_from_csv(text, NYC, "KLGA", allow_raw_temperature=True)
+    assert len(reports) == 1
+    assert vrl.venue_daily_labels(reports, NYC) == {}
+
+
 def test_correction_replaces_original_at_its_observation_time():
     reports = _reports([
         ("2026-10-24 14:51", _metar("KLGA", "241451", "26", "T02610100", cor=True)),
