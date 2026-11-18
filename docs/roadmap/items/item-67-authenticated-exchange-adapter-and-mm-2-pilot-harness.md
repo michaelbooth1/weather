@@ -980,3 +980,39 @@ was released when the tick exited.
   - cap diagnostics;
   - the 2 h start-window cap;
   - bot memory growth.
+
+## 2026-11-17 F2 Pin B Tuesday: the B rule's first fill halted B090-L2; fixes B090-L3 and B090-L4
+
+- **Card** (owner 08:16-08:25): disable and clean control, replay IDENTICAL, checkout `d15e8f02`, campaign revision 6
+  `87ef3ebc…` (`complete_pairs`, entry 09:00-11:00, end 18:45), Upgrade/Verify/Enable: TUESDAY READY, release
+  `autostart-release-b090l2.json` `821cb39f…`. A chat paste broke one long line inside a Python string, so block C was
+  re-sent with short lines; later cards are also exported as `-File` scripts under `C:\t\codex\owner\`.
+- **Session** `F2-83d038f9…` from 09:04: 6 bands (4 paired, 2 cheap), 11 orders, all acknowledged; all 820 heartbeat
+  requests acknowledged, so Monday's transport fixes held. 09:31 the first fill: the Chicago cheap leg, BUY No at 0.40,
+  9.516667 of 20 shares; the remainder was cancelled within 7 s.
+- **Halt.** About 09:32 `f2_exception` (`ValueError('completion_projection_binding')`, `lfc_pair_inventory.py`): the
+  venue's maker execution price times the exact quantity ceiled to one native unit above the signed limit's cost, a
+  binary64 tail at an exact native boundary, and the guard read it as an attribution mismatch. The same check ran again
+  while writing the terminal packet, so Chicago's packet never finalized; account proof refused
+  `private_evidence_unbound` and latched incident `5486e62b` at 09:33. No complement was submitted; the account-wide
+  open-order read at 09:32:53 was empty. The traceback was lost: F2 kept only the exception class and the windowless
+  launcher discarded stderr.
+- **B090-L3 `b961dc2d`** (Codex T119r4/r5): snap the execution product to the native boundary only within one binary64
+  ULP times the shares, then ceil; larger mismatches still refuse; `f2_exception` keeps safe stack frames. 204 focused
+  tests and two retained-data reproductions (the old code raises, the new code finalizes the packet) passed under a
+  master ruling of a 3 GiB memory floor (the owner's other work leaves about 4 GB free). Owner card 18:03: owner-close of
+  `5486e62b` after a fresh account proof, replay IDENTICAL, checkout, Upgrade/Verify/Enable.
+- **Second occurrence** `9a0f7353` at 18:06, same source attempt: `lfc_f2_economics.publish_supplements` called
+  `state.retained_result` for the owner-closed attempt and bypassed the owner-close binding. **B090-L4 `869b7763`**
+  (T119r6/r7): skip the supplement for a validated owner-closed attempt; a changed or lost artifact still latches. 179
+  passed (176 focused, 3 copied-state simulations: Wednesday 09:00 admits; lost artifacts refuse). Owner card 18:49:
+  owner-close of occurrence 2, replay IDENTICAL, checkout, Upgrade (`autostart-release-b090l4.json` `f41739c9…`).
+  Enable first deferred `admission_busy`: the master had created `C:\t\codex\HOLD_HEAVY`, which the campaign guard
+  honours. After it was removed, an Enable-only block succeeded; the first tick at 18:56 was IDLE and clean.
+- **Result:** about 29 quoting minutes and one partial fill, held to settlement; 11-17 is consumed; the complete-pairs
+  complement has not yet run live.
+- **Lessons:** an active wrapped heavy job writes a workload marker that owner cards read as poison, so no heavy work
+  while a card is pending; never create `HOLD_HEAVY` on an enable or trading day; export cards as scripts.
+- **Still open:** the T122 operations branch `codex/b090l4-ops-20261117` `5725dc1c` (not installed); the A095 maker
+  fixes (`codex/a095-maker-depth`, `codex/a095-maker-fresh-distance`) for review after Wednesday; the 2 h start-window
+  cap; bot memory growth.
