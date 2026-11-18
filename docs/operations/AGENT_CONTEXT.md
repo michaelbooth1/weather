@@ -27,6 +27,9 @@ generated reports for dynamic state.
   Captured-input replay uses inclusive native endpoints. Legacy tapes recover
   the upper endpoint from the signed band label, including ranges through zero.
   Contradictory band fields leave the projected model probability unavailable.
+  Source-family ablation uses the same band to resolve outcomes and distance.
+  A winning range or tail is exact, one native degree outside is adjacent,
+  and greater distances are far. Unresolvable rows are excluded from scoring.
 - **Training and evaluation labels for built-in markets follow the venue rule
   for target dates on or after 2026-10-23:** the highest routine METAR
   temperature on the local date (SPECI excluded, remark T-group tenths with a

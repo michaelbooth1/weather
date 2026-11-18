@@ -42,6 +42,7 @@ from weather.backtesting.settlement_io import (
     load_daily_summary,
     band_value_hi,
     resolve_outcome,
+    settlement_distance,
     settlement_for_tape,
 )
 from weather.backtesting.tape_scoring import (
@@ -259,24 +260,6 @@ def _pinned_settlement(entry):
         f"promotion_corpus:{entry.get('settlement_source') or 'unknown'}",
         entry.get("quality_reason") or "",
     )
-
-
-def settlement_distance(kind, value, value_hi, settlement_bucket):
-    if settlement_bucket is None or value is None:
-        return None
-    try:
-        settlement = int(float(settlement_bucket))
-        lo = int(float(value))
-        hi = int(float(value_hi)) if value_hi is not None else lo
-    except (TypeError, ValueError):
-        return None
-    if kind == "lte":
-        return max(0, settlement - lo)
-    if kind == "gte":
-        return max(0, lo - settlement)
-    if lo <= settlement <= hi:
-        return 0
-    return min(abs(settlement - lo), abs(settlement - hi))
 
 
 def settlement_distance_bucket(value):

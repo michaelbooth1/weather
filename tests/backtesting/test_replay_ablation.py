@@ -6,12 +6,18 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
+
+from weather.backtesting import replay_ablation
 from weather.market.market_registry import REGISTRY
 from weather.backtesting.replay import band_model_probability
 from weather.backtesting.replay_ablation import (
     ablate_sources,
     build_payload,
     run_ablation,
+    settlement_distance_bucket,
     summarize,
     summarize_slice_effects,
     variant_names_for_spec,
@@ -20,6 +26,47 @@ from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
 SLUG = "highest-temperature-in-toronto-on-june-3-2026"
+
+
+@pytest.mark.parametrize(("band", "settled", "expected"), [
+    ({"bin_kind": "eq", "bin_value_c": 90, "range_label": "90–91°F"}, 91, "exact"),
+    ({"bin_kind": "eq", "bin_value": -2, "bin_value_hi": 0}, 0, "exact"),
+    ({"bin_kind": "eq", "bin_value_c": -5, "bin_value_hi_c": "nan", "range_label": "-5--4 C"}, -3, "adjacent"),
+    ({"bin_kind": "eq", "bin_value_c": 0}, 2, "far"),
+    ({"bin_kind": "lte", "bin_value": 0}, -10, "exact"),
+    ({"bin_kind": "lte", "bin_value": 0}, 1, "adjacent"),
+    ({"range_label": "0°C or higher"}, 5, "exact"),
+    ({"range_label": "0°C or higher"}, -2, "far"),
+    ({"bin_kind": "eq", "bin_value": 90, "bin_value_hi": 89}, 90, "unknown"),
+    ({"range_label": "5°C"}, None, "unknown"),
+    ({"range_label": "5°C"}, 5.5, "unknown"),
+])
+def test_native_ablation_distance(band, settled, expected):
+    assert settlement_distance_bucket(band, settled) == expected
+
+
+def test_ablation_labels_and_distance_use_the_same_native_band(tmp_path, monkeypatch):
+    # All evidence is synthetic. Model I/O, replay inputs and settlement files are isolated.
+    folder = tmp_path / "highest-temperature-in-nyc-on-june-3-2026"
+    folder.mkdir()
+    (folder / "snapshots_long.csv").write_text(
+        "snapshot_id,bin_kind,bin_value,bin_value_hi,range_label\n"
+        "s1,eq,90,91,90 F\n"       # old single-end display label and explicit high
+        "s1,eq,92,,92-93F\n"      # legacy upper endpoint from label
+        "s1,lte,88,,88F or below\n"
+        "s1,eq,92,90,92 F\n",     # contradictory range is unscored
+        encoding="utf-8",
+    )
+    record = {"snapshot_id": "s1", "sources": {"open_meteo": {"ok": True, "data": {}}}}
+    monkeypatch.setattr(replay_ablation, "load_replay_records", lambda _: [record])
+    monkeypatch.setattr(replay_ablation, "load_daily_summary", lambda _: {})
+    monkeypatch.setattr(replay_ablation, "settlement_for_tape", lambda *args: (91, "synthetic", ""))
+    model = Mock()
+    model.bin_probability.return_value = 0.25
+    monkeypatch.setattr(replay_ablation, "TorontoHighTempModel", lambda **_: model)
+    monkeypatch.setattr(replay_ablation, "replay_distribution", lambda *args: {91: 1.0})
+    data, _ = run_ablation([folder], ["open_meteo"])
+    assert list(zip(data["settlement_distance"], data["y"])) == [("exact", 1), ("adjacent", 0), ("far", 0)]
 
 
 def make_sources():

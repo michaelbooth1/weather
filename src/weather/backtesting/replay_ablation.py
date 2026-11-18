@@ -36,15 +36,15 @@ import pandas as pd
 
 from weather.backtesting.settlement_io import (
     DEFAULT_SNAPSHOTS_ROOT,
-    band_value_hi,
     load_daily_summary,
-    resolve_outcome,
+    settlement_distance,
     settlement_for_tape,
 )
 from weather.scoring.metrics import safe_float
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY
 from weather.backtesting.replay import (
+    band_bin_data,
     band_model_probability,
     index_records_by_snapshot,
     is_reconstructed,
@@ -124,27 +124,15 @@ def clean_band_row(row):
 
 def settlement_distance_bucket(band, settlement_bucket):
     bucket = safe_float(settlement_bucket)
-    if bucket is None:
+    if bucket is None or not bucket.is_integer():
         return "unknown"
-    value = safe_float(band.get("bin_value_c") or band.get("bin_value"))
-    value_hi = band_value_hi(band.get("range_label"), band.get("bin_value_c") or band.get("bin_value"))
-    kind = str(band.get("bin_kind") or "").lower()
-    if kind == "eq" and value is not None:
-        distance = abs(value - bucket)
-    elif kind == "lte" and value is not None:
-        distance = max(0.0, bucket - value)
-    elif kind == "gte" and value is not None:
-        distance = max(0.0, value - bucket)
-    elif value is not None and value_hi is not None:
-        if value <= bucket <= value_hi:
-            distance = 0.0
-        else:
-            distance = min(abs(value - bucket), abs(value_hi - bucket))
-    else:
+    bounds = band_bin_data(band)
+    distance = settlement_distance(bounds["kind"], bounds["value"], bounds["value_hi"], bucket)
+    if distance is None:
         return "unknown"
-    if distance < 0.5:
+    if distance == 0:
         return "exact"
-    if distance <= 1.5:
+    if distance == 1:
         return "adjacent"
     return "far"
 
@@ -217,13 +205,10 @@ def run_ablation(folders, requested_sources, include_reconstructed=False):
             bands = []
             for _, band_series in group.iterrows():
                 band = clean_band_row(band_series.to_dict())
-                outcome = resolve_outcome(
-                    band.get("bin_kind"), band.get("bin_value_c"), bucket,
-                    value_hi=band_value_hi(band.get("range_label"), band.get("bin_value_c")),
-                )
-                if outcome is None:
+                distance = settlement_distance_bucket(band, bucket)
+                if distance == "unknown":
                     continue
-                bands.append((band, int(outcome)))
+                bands.append((band, distance))
             if not bands:
                 continue
 
@@ -249,7 +234,7 @@ def run_ablation(folders, requested_sources, include_reconstructed=False):
                 variant_dist = replay_distribution(model, variant_record)
                 if not variant_dist:
                     continue
-                for (band, outcome), base_p in zip(bands, base_probs):
+                for (band, distance), base_p in zip(bands, base_probs):
                     variant_p = band_model_probability(model, variant_dist, band)
                     if variant_p is None or base_p is None:
                         continue
@@ -259,8 +244,8 @@ def run_ablation(folders, requested_sources, include_reconstructed=False):
                         "variant": variant,
                         "hour": hour,
                         "cutoff_regime": cutoff_regime(hour),
-                        "settlement_distance": settlement_distance_bucket(band, bucket),
-                        "y": outcome,
+                        "settlement_distance": distance,
+                        "y": int(distance == "exact"),
                         "base_p": base_p,
                         "variant_p": variant_p,
                         "market_yes": safe_float(band.get("market_yes")),

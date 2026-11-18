@@ -86,6 +86,25 @@ def resolve_outcome(kind, value, settlement_bucket, value_hi=None):
     return 1 if value <= settlement_bucket <= value_hi else 0
 
 
+def settlement_distance(kind, value, value_hi, settlement_bucket):
+    """Whole native degrees from settlement to the nearest inclusive band endpoint."""
+    if settlement_bucket is None or value is None:
+        return None
+    try:
+        settlement = int(float(settlement_bucket))
+        lo = int(float(value))
+        hi = int(float(value_hi)) if value_hi is not None else lo
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if kind == "lte":
+        return max(0, settlement - lo)
+    if kind == "gte":
+        return max(0, lo - settlement)
+    if lo <= settlement <= hi:
+        return 0
+    return min(abs(settlement - lo), abs(settlement - hi))
+
+
 def load_daily_summary(path):
     """date -> (native settlement bucket, row_count) from WU daily summary."""
     index = {}
