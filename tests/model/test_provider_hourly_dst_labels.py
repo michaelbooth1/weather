@@ -8,10 +8,14 @@ responses for 2025-11-02 and 2026-03-08 are fixed-offset, -14400 throughout).
 """
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from weather.market.market_registry import spec_for_id
+from weather.model import model_sources
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.sources.eccc_gridded import normalize_open_meteo_gem_payload
 from weather.time import provider_hourly_local_times
@@ -271,3 +275,52 @@ class OpenMeteoGemDstTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.fixture
+def fold_fetch_model(monkeypatch):
+    # Keep all provider methods local: each test supplies the complete response in memory.
+    at = datetime.fromisoformat("2026-11-01T05:30:00+00:00")
+
+    class FrozenClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return at.astimezone(tz) if tz is not None else at.replace(tzinfo=None)
+
+    monkeypatch.setattr(model_sources, "datetime", FrozenClock)
+    model = object.__new__(TorontoHighTempModel)
+    model.market_id = "nyc"
+    model.spec = replace(spec_for_id("nyc"), lat=0, lon=0)
+    model.target_date = at.astimezone(NEW_YORK).date()
+    return model
+
+
+@pytest.mark.parametrize("fetcher", [
+    "fetch_open_meteo", "fetch_open_meteo_air_quality", "fetch_open_meteo_global_models",
+    "fetch_open_meteo_multimodel", "fetch_global_ensemble",
+])
+def test_forecast_rows_keep_second_fold_future_hour(fold_fetch_model, fetcher):
+    model = fold_fetch_model
+    times = ["2026-11-01T01:00:00-04:00", "2026-11-01T01:00:00-05:00", "2026-11-01T02:00:00-05:00"]
+    model.get_json = lambda *a, **kw: {"hourly": {"time": times, "temperature_2m": [40, 55, 43],
+        "temperature_2m_member01": [40, 55, 43], "temperature_2m_gfs_seamless": [40, 55, 43]}}
+    data = getattr(model, fetcher)()
+    assert [r["valid_time"] for r in data["day_rows"]] == times
+    assert [r["valid_time"] for r in data["rows"]] == times[1:]
+
+
+def test_nws_remaining_periods_use_instants_and_grid_sorts_both_folds(fold_fetch_model):
+    model = fold_fetch_model
+    times = ["2026-11-01T01:30:00-04:00", "2026-11-01T01:50:00-04:00",
+             "2026-11-01T01:10:00-05:00", "2026-11-01T02:00:00-05:00"]
+    model.cached_nws_points = lambda *a: {"properties": {"forecastHourly": "synthetic-hourly"}}
+    model.cached_nws_grid_metadata = lambda *a: {"forecastGridData": "synthetic-grid"}
+    hourly = {"properties": {"periods": [
+        {"startTime": t, "temperature": 50+i, "temperatureUnit": "F"} for i,t in enumerate(times)]}}
+    grid = {"properties": {"temperature": {"uom": "wmoUnit:degF", "values": [
+        {"validTime": t+"/PT1H", "value": 50+i} for i,t in reversed(list(enumerate(times)))]}}}
+    model.get_json = lambda url, *a, **kw: hourly if url == "synthetic-hourly" else grid
+    assert [r["valid_time"] for r in model.fetch_nws_hourly_forecast()["rows"]] == times
+    parsed = model.fetch_nws_grid_forecast()
+    assert [r["valid_time"] for r in parsed["day_rows"]] == times
+    assert [r["valid_time"] for r in parsed["rows"]] == times

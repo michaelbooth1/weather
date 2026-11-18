@@ -1743,7 +1743,7 @@ class SourceFetchMixin:
         rows = []
         day_rows = []
         day_temps = []  # all of today's forecast hours, for the daily-max feature
-        now = datetime.now(self.spec.tz)
+        now_utc = datetime.now(timezone.utc)
         # Aware market-local valid times: Open-Meteo labels carry one fixed
         # response offset, so they are read as UTC instants (DST-safe).
         local_times = provider_hourly_local_times(
@@ -1795,7 +1795,7 @@ class SourceFetchMixin:
                 ),
             }
             day_rows.append(row)
-            if dt < now:
+            if dt.astimezone(timezone.utc) < now_utc:
                 continue
             rows.append(row)
         # Forecasted daily max over ALL of today's hours (the canonical forecast
@@ -1822,7 +1822,7 @@ class SourceFetchMixin:
         hourly = payload.get("hourly", {}) or {}
         rows = []
         day_rows = []
-        now = datetime.now(self.spec.tz)
+        now_utc = datetime.now(timezone.utc)
         # Aware market-local valid times: Open-Meteo labels carry one fixed
         # response offset, so they are read as UTC instants (DST-safe).
         local_times = provider_hourly_local_times(
@@ -1841,7 +1841,7 @@ class SourceFetchMixin:
             for field in OPEN_METEO_AIR_QUALITY_HOURLY_FIELDS:
                 row[field] = self.to_number(self.array_get(hourly, field, index))
             day_rows.append(row)
-            if dt < now:
+            if dt.astimezone(timezone.utc) < now_utc:
                 continue
             rows.append(row)
         return {
@@ -1873,7 +1873,7 @@ class SourceFetchMixin:
         model_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS}
         capture_only_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_CAPTURE_ONLY}
         capture_only_day_rows = []
-        now = datetime.now(self.spec.tz)
+        now_utc = datetime.now(timezone.utc)
         # Aware market-local valid times: Open-Meteo labels carry one fixed
         # response offset, so they are read as UTC instants (DST-safe).
         local_times = provider_hourly_local_times(
@@ -1907,7 +1907,7 @@ class SourceFetchMixin:
                 "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
             }
             day_rows.append(row)
-            if dt < now:
+            if dt.astimezone(timezone.utc) < now_utc:
                 continue
             rows.append(row)
         day_model_highs = {
@@ -1979,7 +1979,7 @@ class SourceFetchMixin:
         props = payload.get("properties") or {}
         rows = []
         day_temps = []
-        now = datetime.now(self.spec.tz)
+        now_utc = datetime.now(timezone.utc)
         for period in (props.get("periods") or []):
             dt = self.parse_weather_com_time(period.get("startTime"))
             if not dt or dt.date() != self.target_date:
@@ -1987,7 +1987,7 @@ class SourceFetchMixin:
             temp = self.forecast_temp_to_native(period.get("temperature"), period.get("temperatureUnit"))
             if temp is not None:
                 day_temps.append(temp)
-            if dt < now:
+            if dt.astimezone(timezone.utc) < now_utc:
                 continue
             rows.append({
                 "time": dt.strftime("%H:%M"),
@@ -2211,10 +2211,10 @@ class SourceFetchMixin:
         rows_by_time = {}
 
         def row_for(dt):
-            key = dt.isoformat()
+            key = dt.astimezone(timezone.utc)
             row = rows_by_time.setdefault(key, {
                 "time": dt.strftime("%H:%M"),
-                "valid_time": key,
+                "valid_time": dt.isoformat(),
             })
             return row
 
@@ -2255,13 +2255,11 @@ class SourceFetchMixin:
                 row[source_key] = value
                 row[f"{source_key}_count"] = self.nws_grid_value_count(value)
 
-        day_rows = sorted(rows_by_time.values(), key=lambda row: row.get("valid_time") or "")
-        now = datetime.now(self.spec.tz)
-        rows = [
-            row for row in day_rows
-            if self.parse_weather_com_time(row.get("valid_time")) is not None
-            and self.parse_weather_com_time(row.get("valid_time")) >= now
-        ]
+        # During the repeated local hour, a later instant can have an earlier wall minute.
+        by_instant = sorted(rows_by_time.items())
+        day_rows = [row for _, row in by_instant]
+        now_utc = datetime.now(timezone.utc)
+        rows = [row for instant, row in by_instant if instant >= now_utc]
         max_values = [
             row.get("max_temp_native") for row in day_rows
             if row.get("max_temp_native") is not None
@@ -2389,7 +2387,7 @@ class SourceFetchMixin:
         rows = []
         day_rows = []
         model_day_temps = {model: [] for model in models}
-        now = datetime.now(self.spec.tz)
+        now_utc = datetime.now(timezone.utc)
         # Aware market-local valid times: Open-Meteo labels carry one fixed
         # response offset, so they are read as UTC instants (DST-safe).
         local_times = provider_hourly_local_times(
@@ -2420,7 +2418,7 @@ class SourceFetchMixin:
                 "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
             }
             day_rows.append(row)
-            if dt < now:
+            if dt.astimezone(timezone.utc) < now_utc:
                 continue
             rows.append(row)
         day_model_highs = {
@@ -2489,7 +2487,7 @@ class SourceFetchMixin:
         day_temps = []
         day_spreads = []
         member_day_temps = {key: [] for key in member_keys}
-        now = datetime.now(self.spec.tz)
+        now_utc = datetime.now(timezone.utc)
         # Aware market-local valid times: Open-Meteo labels carry one fixed
         # response offset, so they are read as UTC instants (DST-safe).
         local_times = provider_hourly_local_times(
@@ -2527,7 +2525,7 @@ class SourceFetchMixin:
                 "condition": "GFS ensemble mean",
             }
             day_rows.append(row)
-            if dt < now:
+            if dt.astimezone(timezone.utc) < now_utc:
                 continue
             rows.append(row)
         member_highs = [

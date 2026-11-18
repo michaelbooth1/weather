@@ -95,6 +95,10 @@ generated reports for dynamic state.
   are kept as before. Rows captured under `metar-parser-v3` are not rewritten;
   their raw payloads retain `obsTime` for an explicit v4 re-derivation.
 
+Open-Meteo and NWS remaining-forecast rows compare absolute valid times with the
+capture clock, including both occurrences of the repeated fall-back hour. A
+forecast day and its high still use the market-local calendar date.
+
 Paid weather data is allowed only per source with explicit owner approval
 recorded in DECISION_LOG (owner 2026-10-23). Never commit credentials, and add
 no environment variables, operator commands, or roadmap dependencies for an
