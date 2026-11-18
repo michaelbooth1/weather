@@ -37,6 +37,13 @@ The code-backed registry lives in
 `weather.reporting.data_quality.data_retention_inventory` uses the registry to summarize
 bytes and recent growth by storage class.
 
+The NBP complete-cycle discovery index at
+`forecast_payload_cas/nbp_cycle_index/**/*.json` is an `analysis_projection`.
+Its rebuild sources are the original fan-out receipt and verified shared blob,
+with the same completeness policy and configured station set. Deletion requires
+a reviewed exact-path cleanup manifest naming those sources; no TTL applies.
+This classification grants no deletion authority for the shared blobs.
+
 Execution-tape `trades-*.jsonl`, `dedupe-*.jsonl`, `gaps-*.jsonl`,
 `seeds-*.jsonl`, and unrouted rejection parts are canonical evidence. Their
 atomic global and per-market-day status files are operator caches: they can be
@@ -45,13 +52,21 @@ files and append receipts it last counted. Counters and heartbeat timestamps
 publish at most once per ten seconds; connection, seed-error, retirement and
 stop transitions publish immediately. All existing status fields remain.
 
-Execution-tape rows keep the same canonical JSONL bytes and flush to the OS
-on append. One background flusher groups `fsync` per dirty file at one-second
-monotonic deadlines, including idle files. The durability trade-off is
-**≤ 1 s of rows at risk on a crash** under normal scheduling and successful
-storage sync. Rotation and clean close force outstanding syncs and are the
-exceptions to the cadence. A sync failure fails the next capture operation;
-it is never reported as durable success. Restart rebuilds tape counters from
+Execution-tape rows keep the same canonical JSONL bytes and are written to the
+OS on append through unbuffered handles. An append lands whole or not at all:
+a short write is completed, and a failed write is truncated back to the row
+boundary so a later restart never meets a self-inflicted torn tail; if that
+rollback fails, the handle takes no further rows. One background flusher groups
+`fsync` per dirty file at one-second monotonic deadlines, including idle files.
+The durability trade-off is **≤ 1 s of rows at risk on a crash** under normal
+scheduling and successful storage sync. Rotation and clean close force
+outstanding syncs and are the exceptions to the cadence. A failed background
+sync is retried at the next deadline (logged to stderr) and does not stop
+capture or status publication; only three consecutive failures on a file —
+about 3 s of rows at risk — fail the next capture operation and status write,
+and that error is never reported as durable success. Before 2026-10-01 one
+transient failure was retained until the file closed and froze the status
+heartbeat until the supervisor's stale restart. Restart rebuilds tape counters from
 the rows actually present, including rows newer than cached status; missing
 rows cannot be reconstructed from the public stream. Torn or invalid final
 rows continue to fail closed rather than being silently discarded. Status
@@ -124,10 +139,28 @@ orders and compact run, P&L, strategy, and settlement summaries are excluded.
 Shared forecast blobs under `data/forecast_payload_cas/` are reachable from
 many event folders. Reachability must be computed across every per-market
 forecast manifest; one event-day manifest cannot classify a shared blob as an
-orphan. Garbage collection is disabled in every current cleanup and inventory
+orphan. The store itself is `weather.shared_forecast_payload_cas` (re-exported
+by `weather.collection.forecast_payload_cas`), so model code can read it.
+
+The per-station model cache `data/wunderground/<icao>/last_good_sources.json`
+is a further reader. Once the shared CAS holds a market-invariant body (the
+national NBM bulletin) whose freshly computed SHA-256 and size match, the cache
+keeps only a `raw_payload.text_ref` to it. The fallback path re-reads the blob,
+checks its SHA-256 and the payload's SHA-1 `payload_hash`, and reports any
+unprovable reference as `cache_status: fallback_unprovable`, a cache miss
+(`weather.model.model_sources`). A `text_ref` names no CAS root: it assumes the
+single fleet root `data/forecast_payload_cas/`, which the snapshot writer, the
+isolated capture fan-out, and every other model reader use by default. A second
+root would make those references unresolvable.
+
+Garbage collection is disabled in every current cleanup and inventory
 workflow; generic operator review cannot override that block. A future,
 separately reviewed deletion contract would have to prove global reachability,
 restore hashes, and market-specific replay before enabling any mutation.
+Reachability today is computed from forecast manifests only, and a last-good
+`text_ref` can point at a blob that no manifest row names. Any such contract
+must therefore also enumerate the `text_ref` entries in
+`data/wunderground/*/last_good_sources.json` as GC roots.
 
 ## Update this file when
 

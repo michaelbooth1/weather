@@ -2,8 +2,9 @@
 
 Guards: HOST_LOAD_POLICY "Workstation focused runs, FIFO queue and xdist" (owner decision 2026-10-04,
 P3) — -Queue admits waiters strictly in ticket order, reaps dead tickets, exits 75 on timeout and
-logs every wait; without -Queue a busy lease is still refused at once; on the dedicated capture-host
-identity nothing changes (no queue state, no exemption, same windows).
+logs every wait (with -SlotCount 1, the serial single-slot queue; concurrent slots are covered
+by test_workstation_heavy_slots.py); without -Queue a busy lease is still refused at once; on the
+dedicated capture-host identity nothing changes (no queue state, no exemption, same windows).
 """
 
 from __future__ import annotations
@@ -59,6 +60,10 @@ def _install(repo_root: Path) -> Path:
         "    Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) '.test-heavy-workload.poison'\n"
         "}\n"
         "function Get-WeatherActiveWorkstationHeavyProcess { @() }\n"
+        # Slot admission also needs memory headroom; inject a reading that always passes.
+        "function Get-WeatherWorkstationMemoryReading {\n"
+        "    [PSCustomObject]@{ TotalPhysicalBytes = 32GB; AvailablePhysicalBytes = 16GB; CommitPercent = 40.0 }\n"
+        "}\n"
     )
     admission.write_text(text, encoding="utf-8")
     return ops
@@ -208,7 +213,7 @@ def test_three_waiters_are_admitted_strictly_in_ticket_order(workstation: Path) 
         # The earliest waiter polls slowest: only strict ticket order makes A win the free lease.
         for name, poll in (("A", "1500"), ("B", "700"), ("C", "100")):
             waiters[name] = subprocess.Popen(
-                _wrapper_argv(repo, _child_test(repo, name, order), "-Queue", "-QueuePollMilliseconds", poll),
+                _wrapper_argv(repo, _child_test(repo, name, order), "-Queue", "-SlotCount", "1", "-QueuePollMilliseconds", poll),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -335,6 +340,8 @@ def test_queue_timeout_exits_75_without_starting_the_child(workstation: Path) ->
                 repo,
                 _child_test(repo, "timeout", sentinel),
                 "-Queue",
+                "-SlotCount",
+                "1",
                 "-QueueTimeoutSeconds",
                 "2",
                 "-QueuePollMilliseconds",
@@ -410,7 +417,7 @@ def test_without_queue_a_busy_lease_is_still_refused_at_once(workstation: Path) 
     holder = _start_holder(repo, release)
     try:
         result = subprocess.run(
-            _wrapper_argv(repo, _child_test(repo, "direct", sentinel)),
+            _wrapper_argv(repo, _child_test(repo, "direct", sentinel), "-SlotCount", "1"),
             capture_output=True,
             text=True,
             check=False,

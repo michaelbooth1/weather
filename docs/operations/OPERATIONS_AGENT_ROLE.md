@@ -48,8 +48,9 @@ trace doc did not happen.
    after the fact, and a captured day that never settles is not countable.
 2. **Reliable unattended execution.** The scheduled spine — capture, the daily chain, settlement,
    recovery after power loss — must run and report truthfully with nobody logged on.
-3. **The non-live maker-economics refocus** in
-   [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md). International
+3. **The live maker campaign (F2) and its economics:** critical path 0 in `STATE_OF_PLAY.md`,
+   attempt history in [item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md),
+   plan and gates in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md). International
    Polymarket only; **never use Polymarket US.** No market edge or profitable maker opportunity is
    proved, so do not budget model alpha or disguise the benchmark as our information.
 
@@ -71,9 +72,9 @@ execution evidence, and power-before-interpretation are not negotiable.
 
 **Never, without a new dated operator decision:**
 
-- **Paid weather-provider access.** Free-tier Open-Meteo only. Do not add credentials, required
-  environment variables, or plans that depend on a paid source. Provider licensing is closed and is
-  **not to be re-raised** — this exact question has halted two missions.
+- **Unapproved paid weather-provider access.** Paid sources only with explicit per-source owner
+  approval recorded in DECISION_LOG (owner 2026-10-23, superseding the earlier closed-licensing rule);
+  otherwise free sources only. Never commit credentials; no plan may depend on an unapproved paid source.
 - **Read or expose the WU sync credential file** in the user profile (`.weathersync.cred`). Never
   print, log, or commit the scraped WU token.
 - **Write to the workstation mirror or `D:\weather-mirror`.**
@@ -100,7 +101,7 @@ Durability findings are acted on when evidence changes; do not repeatedly re-der
 standing condition. A frozen or unverified copy, an unencrypted system disk, or changed power risk
 is still operational state and must not be hidden from the operator.
 
-**Other hosts.** The research workstation may not call exchange or weather-provider endpoints. The
+**Other hosts.** The workstation calls the exchange only through owner-approved processes: the owner-registered F2 campaign task, the read-only wallet reader and public read-only recorders; free weather-provider fetches run there directly (master ruling 2026-10-23, [host load policy](HOST_LOAD_POLICY.md)). The
 attended International Stage 0/1 executor may be a separately provisioned Windows PC under the exact
 `portable_execution_v1` contract (operator decision 2026-08-27); this 16 GB PC remains the capture,
 release, guarded runtime-integration and scheduling authority and cannot claim that profile. Follow
@@ -121,8 +122,12 @@ You have full authority over scheduled tasks, adoption and merge timing on this 
 research agenda. **Git authority is one rule with two scopes, owned by
 [`git-workflow.md`](../git-workflow.md#git-authority-one-rule-two-scopes).** In your scope: take the
 roll verdict from `roll_verdict.ps1`, merge to `master` only through `quiet_window_merge.ps1` or
-`suite_gated_quiet_merge.ps1`, publish `master` only through `WeatherOneShotPush`, and never
-rewrite published history. Source-control actions are not reserved to this PC (operator correction
+`suite_gated_quiet_merge.ps1` (or, for a ROLL-FREE `docs/**/*.md`-only branch, the light path
+`docs_light_path.ps1`, which starts only 00:30-12:00 local and never 12:00-00:30; §6 rule 2), publish
+`master` only through `WeatherOneShotPush`, and never rewrite published history. The
+`ops: preserve fleet-generated drift (pre-merge, automated)` commits on `master` are
+`quiet_window_merge.ps1` committing the allowlisted fleet-generated config drift before a merge;
+they are expected, not hand commits. Source-control actions are not reserved to this PC (operator correction
 2026-08-28): task agents on any host push their own branches freely and never merge to `master`
 themselves.
 
@@ -237,9 +242,10 @@ seven hours). These rules bind every production and workstation agent:
    evidence, when every listed condition holds. Anything not listed still stops and goes to the owner (rule 4).
 2. **Docs-only landings take the light path.** A branch whose `roll_verdict.ps1` result is ROLL-FREE and whose diff is only
    Markdown under `docs/` may land by a plain local merge plus `WeatherOneShotPush`, with a receipt, without the heavy lease
-   or quiet window. The receipt records the expected branch tip, proves `HEAD == origin/master` before the merge and that the
-   diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch <b> -ExpectedTip
-   <sha>` does exactly this (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and
+   or quiet window, starting 00:30-12:00 local only (refused 12:00-00:30). The receipt records the expected branch tip, proves `HEAD == origin/master` before the merge and that the
+   diff is only `docs/**/*.md`, and names the published commit. `scripts\ops\docs_light_path.ps1 -Branch origin/<b>
+   -ExpectedTip <sha>` does exactly this (pass the `origin/` remote ref: the host's local branch of that name may be stale
+   or absent) (`-CheckOnly` first); [the guarded-merge runbook](../ops/streak-soak.md) owns its exit codes and
    receipt. Never run the merge tool's `-DryRun` for such a branch (that
    dry run left the 09-24 marker). The morning closeout's correspondence-index regeneration is such a branch:
    `scripts\ops\correspondence_index_closeout.ps1 -Land` prepares and lands it in one idempotent command.
@@ -273,7 +279,7 @@ deliberate pause via **the switch itself** (task state), never a marker file, an
 carrying the **age** of the frozen thing.
 
 **Gates in this project are frequently correct when they refuse.** If a gate is right, the
-deliverable is the sentence explaining why — not a patch. **Never relax a gate to make it pass.**
+deliverable is the sentence explaining why — not a patch. **Never relax a gate to make it pass on your own authority.** The sanctioned bypass is an owner waiver, recorded as a waiver file or a DECISION_LOG row; under the owner's quick-work mode (`STATE_OF_PLAY.md`) a gate that over-blocks is itself a defect to fix and report.
 
 **Never declare a date unrecoverable from a failure count alone.** A count measures how often you
 retried, not whether the source has the data, and retirement stops the retries that would have
@@ -300,14 +306,15 @@ repeatedly been wrong, several in the opposite direction from the defect.
 
 The 32 GB workstation runs a separate implementation and research agent. Its work is outside this
 capture host's timetable ([`HOST_LOAD_POLICY.md`](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope)).
-It communicates **only** through origin topic branches and operator-relayed prompts. You never talk
-to it directly.
+You dispatch Codex there directly, through task folders over SSH
+([`DELEGATION_CONTRACT.md` §8](DELEGATION_CONTRACT.md#8-dispatching-a-mission-to-the-workstation)); the WS
+Claude session is the owner's guide and a fallback builder. Work returns as pushed `codex/` or `claude/`
+branches plus the task folder's `last.md`.
 
-1. Write `docs/roadmap/workstation-handoff-<date><letter>-<slug>.md`
-   ([naming](../roadmap/AGENTS.md)).
-2. Commit it (docs are roll-free) and publish via `WeatherOneShotPush`.
-3. Give the operator exactly: `Read docs/roadmap/<file> on origin/master and execute it.`
-4. **Fetch the branch and verify the load-bearing claims yourself** before accepting. Then decide
+1. For a mission that needs a durable record, write `docs/roadmap/workstation-handoff-<date><letter>-<slug>.md`
+   ([naming](../roadmap/AGENTS.md)), commit it (docs are roll-free) and publish via `WeatherOneShotPush`.
+2. Name that handoff and its ref in the task's `prompt.md`.
+3. **Fetch the branch and verify the load-bearing claims yourself** before accepting. Then decide
    merge timing.
 
 A good mission states what is already known (with `file:line`), asks the question you genuinely
@@ -333,7 +340,7 @@ Questions, not findings. Cite numbers from `ESTABLISHED_FINDINGS.md`, never from
    approach be tail-first?
 4. **We serve bytes that were never committed.** Until commit discipline is fixed, no historical
    claim about what we served is reconstructable. Is that acceptable, or is it the top defect?
-5. **Countable date VOLUME is the critical path.** Is the research agenda even the bottleneck?
+5. **Countable date VOLUME was once the critical path.** Is the research agenda even the bottleneck?
 
 ## History
 

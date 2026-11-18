@@ -1,8 +1,37 @@
-"""Repair settled snapshot folders missing replay-input status artifacts."""
+"""Repair settled snapshot folders missing replay-input status artifacts.
+
+Incremental evidence (daily refresh Stage A)
+--------------------------------------------
+Every pass builds one row per snapshot folder, and each row embeds
+``folder_evidence`` (a full JSON parse of ``snapshots.jsonl``, replay inputs and
+the reconstructed corpus) and, for folders that already carry a replay status,
+``existing_status_summary``. On a mature snapshot tree that parse dominates the
+step, although settled folders almost never change.
+
+``EvidenceCache`` memoizes those two per-folder results in a sidecar beside the
+step output (``EVIDENCE_CACHE_FILENAME``). An entry is reused only when the key
+of every file the computation reads is unchanged: name, size and
+``st_mtime_ns`` of each file, ``None`` for an absent file, and for an absent file
+that has a cold-archive marker, the marker's and the resolved copy's identity.
+Anything else (new folder, changed or missing key, unreadable stat, unresolvable
+archived input) recomputes exactly as the uncached path does. The cached values
+are the uncached function results, so the payload is identical either way; the
+decision logic in ``repair_folder`` always runs live.
+
+A cache whose ``format``, integer ``version`` or ``logic_key`` (a hash of the
+cached functions' source) differs, or that cannot be parsed, is discarded: the
+pass becomes a full recompute and re-seeds it. Folders that are not visited in a
+pass are dropped from the rewritten cache. Bump ``EVIDENCE_CACHE_VERSION`` when
+the meaning of a cached value changes in a way the source hash cannot see.
+"""
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import inspect
+import json
+import os
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -15,6 +44,8 @@ from weather.backtesting.replay import (
     reconstruct_corpus_for_folder,
     write_replay_input_status,
 )
+from weather import io as weather_io
+from weather.cold_archive_locations import marker_path, resolve_local_path
 from weather.io import read_json, read_jsonl, write_json_atomic
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.model.model_constants import TORONTO_TZ
@@ -28,6 +59,28 @@ DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "replay_status_backfill.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "replay_status_backfill_report.md"
+EVIDENCE_CACHE_FORMAT = "replay_status_backfill_evidence_cache"
+EVIDENCE_CACHE_VERSION = 1
+EVIDENCE_CACHE_FILENAME = "replay_status_backfill_evidence_cache.json"
+SNAPSHOTS_FILENAME = "snapshots.jsonl"
+SOURCE_STATUS_FILENAME = "source_status_long.csv"
+EVIDENCE_INPUT_FILENAMES = (
+    REPLAY_INPUTS_FILENAME,
+    RECONSTRUCTED_FILENAME,
+    SNAPSHOTS_FILENAME,
+    SOURCE_STATUS_FILENAME,
+)
+STATUS_INPUT_FILENAMES = (REPLAY_STATUS_FILENAME, REPLAY_STATUS_LONG_FILENAME)
+# The only summary fields repair_folder consumes (_status_fields and
+# training_ready_from_status); the cache stores this projection, not the file.
+STATUS_SUMMARY_KEYS = (
+    "folder_status",
+    "snapshot_count",
+    "captured_count",
+    "reconstructed_count",
+    "evaluation_only_count",
+    "counts",
+)
 
 
 def parse_as_of(value=None):
@@ -81,8 +134,8 @@ def folder_evidence(folder):
     folder = Path(folder)
     replay_path = folder / REPLAY_INPUTS_FILENAME
     reconstructed_path = folder / RECONSTRUCTED_FILENAME
-    snapshots_path = folder / "snapshots.jsonl"
-    source_status_path = folder / "source_status_long.csv"
+    snapshots_path = folder / SNAPSHOTS_FILENAME
+    source_status_path = folder / SOURCE_STATUS_FILENAME
     replay_records = read_jsonl(replay_path)
     reconstructed_records = read_jsonl(reconstructed_path)
     snapshot_records = read_jsonl(snapshots_path)
@@ -102,6 +155,217 @@ def folder_evidence(folder):
     }
 
 
+# Captured at import so a test double patched over a module global cannot
+# change the key; the key describes the code that computes cached values.
+_EVIDENCE_LOGIC_FUNCTIONS = (
+    folder_evidence,
+    existing_status_summary,
+    _csv_row_count,
+    _file_nonempty,
+    weather_io.read_jsonl,
+    weather_io.read_json,
+)
+
+
+def _evidence_logic_key():
+    parts = [
+        EVIDENCE_CACHE_FORMAT,
+        str(EVIDENCE_CACHE_VERSION),
+        *EVIDENCE_INPUT_FILENAMES,
+        *STATUS_INPUT_FILENAMES,
+        *STATUS_SUMMARY_KEYS,
+    ]
+    try:
+        for function in _EVIDENCE_LOGIC_FUNCTIONS:
+            parts.append(inspect.getsource(function))
+    except (OSError, TypeError):
+        return None
+    return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
+
+
+class _Uncacheable(Exception):
+    """A file identity could not be established; compute without the cache."""
+
+
+def _file_key(path):
+    path = Path(path)
+    try:
+        stat = os.stat(path)
+    except FileNotFoundError:
+        stat = None
+    except OSError as exc:
+        raise _Uncacheable(str(exc)) from exc
+    if stat is not None:
+        return [path.name, stat.st_size, stat.st_mtime_ns]
+    marker = marker_path(path)
+    try:
+        marker_stat = os.stat(marker)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise _Uncacheable(str(exc)) from exc
+    # A cold-archived input is read through its verified cache copy; key on
+    # the marker and on the copy that the readers would actually open.
+    try:
+        resolved = Path(resolve_local_path(path))
+        resolved_stat = os.stat(resolved)
+    except FileNotFoundError:
+        resolved, resolved_stat = None, None
+    except Exception as exc:  # noqa: BLE001 - the uncached path must surface it
+        raise _Uncacheable(str(exc)) from exc
+    return [
+        path.name,
+        "archived",
+        marker_stat.st_size,
+        marker_stat.st_mtime_ns,
+        str(resolved) if resolved is not None else None,
+        resolved_stat.st_size if resolved_stat is not None else None,
+        resolved_stat.st_mtime_ns if resolved_stat is not None else None,
+    ]
+
+
+def _files_key(folder, names):
+    return [_file_key(Path(folder) / name) for name in names]
+
+
+def _status_projection(summary):
+    summary = summary or {}
+    return {key: summary[key] for key in STATUS_SUMMARY_KEYS if key in summary}
+
+
+EVIDENCE_CACHE_COUNTERS = (
+    "evidence_reused",
+    "evidence_computed",
+    "evidence_uncacheable",
+    "status_reused",
+    "status_computed",
+    "status_uncacheable",
+)
+
+
+class EvidenceCache:
+    """Per-folder memo of ``folder_evidence`` and ``existing_status_summary``.
+
+    See the module docstring for the reuse contract. ``load`` never raises on
+    a bad cache: it returns an empty cache whose ``load_status`` names why.
+    """
+
+    def __init__(self, entries=None, *, load_status="empty"):
+        self.logic_key = _evidence_logic_key()
+        self.enabled = self.logic_key is not None
+        self._previous = dict(entries or {}) if self.enabled else {}
+        self._current = {}
+        self.load_status = load_status if self.enabled else "disabled_no_logic_key"
+        self.counts = Counter()
+
+    @classmethod
+    def empty(cls, load_status="empty"):
+        return cls(load_status=load_status)
+
+    @classmethod
+    def load(cls, path):
+        path = Path(path)
+        if not path.exists():
+            return cls(load_status="missing")
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            return cls(load_status="corrupt")
+        if not isinstance(document, dict) or document.get("format") != EVIDENCE_CACHE_FORMAT:
+            return cls(load_status="corrupt")
+        version = document.get("version")
+        if type(version) is not int or version != EVIDENCE_CACHE_VERSION:
+            return cls(load_status="version_mismatch")
+        entries = document.get("entries")
+        if not isinstance(entries, dict) or not all(isinstance(value, dict) for value in entries.values()):
+            return cls(load_status="corrupt")
+        cache = cls(entries, load_status="loaded")
+        if cache.enabled and document.get("logic_key") != cache.logic_key:
+            cache._previous = {}
+            cache.load_status = "logic_mismatch"
+        return cache
+
+    def _lookup(self, folder, kind, names, compute, *, transform=None, force=False):
+        if not self.enabled:
+            return compute(folder)
+        try:
+            key = _files_key(folder, names)
+        except _Uncacheable:
+            self.counts[f"{kind}_uncacheable"] += 1
+            return compute(folder)
+        folder_key = str(Path(folder))
+        previous = self._previous.get(folder_key) or {}
+        if not force and kind in previous and previous.get(f"{kind}_key") == key:
+            self.counts[f"{kind}_reused"] += 1
+            value = previous[kind]
+        else:
+            value = compute(folder)
+            if transform is not None:
+                value = transform(value)
+            self.counts[f"{kind}_computed"] += 1
+        entry = self._current.setdefault(folder_key, {})
+        entry[f"{kind}_key"] = key
+        entry[kind] = value
+        return value
+
+    def evidence(self, folder, *, force=False):
+        return self._lookup(folder, "evidence", EVIDENCE_INPUT_FILENAMES, folder_evidence, force=force)
+
+    def status_summary(self, folder):
+        return self._lookup(
+            folder,
+            "status",
+            STATUS_INPUT_FILENAMES,
+            existing_status_summary,
+            transform=_status_projection,
+        )
+
+    def document(self):
+        return {
+            "format": EVIDENCE_CACHE_FORMAT,
+            "version": EVIDENCE_CACHE_VERSION,
+            "logic_key": self.logic_key,
+            "entries": {key: self._current[key] for key in sorted(self._current)},
+        }
+
+    def save(self, path):
+        """Atomically replace the cache file (temp file + ``os.replace``)."""
+        if not self.enabled:
+            return None
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            with tmp.open("w", encoding="utf-8") as handle:
+                # No sort_keys: cached summaries keep their source key order.
+                json.dump(self.document(), handle, separators=(",", ":"))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, path)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+        return path
+
+    def stats(self):
+        return {
+            "load_status": self.load_status,
+            "previous_entry_count": len(self._previous),
+            "entry_count": len(self._current),
+            "dropped_entry_count": len(set(self._previous) - set(self._current)),
+            **{key: self.counts.get(key, 0) for key in EVIDENCE_CACHE_COUNTERS},
+        }
+
+
+def _evidence(folder, cache, *, force=False):
+    return folder_evidence(folder) if cache is None else cache.evidence(folder, force=force)
+
+
+def _existing_summary(folder, cache):
+    return existing_status_summary(folder) if cache is None else cache.status_summary(folder)
+
+
 def training_ready_from_status(base_training_ready, status_summary, evidence):
     if not base_training_ready:
         return False, "not_training_ready_date"
@@ -115,7 +379,15 @@ def training_ready_from_status(base_training_ready, status_summary, evidence):
     return True, "training_ready"
 
 
-def repair_folder(folder, *, as_of_date, overwrite=False, reconstruct_missing=False, include_active=False):
+def repair_folder(
+    folder,
+    *,
+    as_of_date,
+    overwrite=False,
+    reconstruct_missing=False,
+    include_active=False,
+    evidence_cache=None,
+):
     folder = Path(folder)
     target_date = folder_target_date(folder)
     market_id = market_id_from_slug(folder.name)
@@ -130,13 +402,13 @@ def repair_folder(folder, *, as_of_date, overwrite=False, reconstruct_missing=Fa
             "training_ready": False,
             "action": "skipped",
             "reason": "not_training_ready_date",
-            **folder_evidence(folder),
+            **_evidence(folder, evidence_cache),
         }
 
     status_path = folder / REPLAY_STATUS_LONG_FILENAME
-    evidence = folder_evidence(folder)
+    evidence = _evidence(folder, evidence_cache)
     if status_path.exists() and not overwrite:
-        summary = existing_status_summary(folder)
+        summary = _existing_summary(folder, evidence_cache)
         training_ready, reason = training_ready_from_status(base_training_ready, summary, evidence)
         return {
             "folder": str(folder),
@@ -155,7 +427,7 @@ def repair_folder(folder, *, as_of_date, overwrite=False, reconstruct_missing=Fa
 
     if reconstruct_missing and evidence.get("has_snapshot_metadata"):
         added, skipped = reconstruct_corpus_for_folder(folder)
-        evidence = folder_evidence(folder)
+        evidence = _evidence(folder, evidence_cache, force=True)
     else:
         added, skipped = 0, 0
 
@@ -215,7 +487,13 @@ def build_backfill_payload(
     overwrite=False,
     reconstruct_missing=False,
     include_active=False,
+    evidence_cache=None,
 ):
+    """Build the backfill payload.
+
+    ``evidence_cache`` (an ``EvidenceCache``) only memoizes per-folder file
+    reads; the payload is identical with or without it. The caller saves it.
+    """
     as_of_date = parse_as_of(as_of)
     selected = [Path(folder) for folder in folders] if folders else discover_folders(snapshots_root)
     rows = [
@@ -225,6 +503,7 @@ def build_backfill_payload(
             overwrite=overwrite,
             reconstruct_missing=reconstruct_missing,
             include_active=include_active,
+            evidence_cache=evidence_cache,
         )
         for folder in selected
     ]

@@ -1,0 +1,15 @@
+{
+  "schema_version": "venue-rule-stations-v1",
+  "owner": "weather.backtesting.venue_rule_labels",
+  "status": "hand_authored_registry",
+  "description": "Dated per-market station overrides for venue-rule (routine METAR) labels. For a market-date the latest entry whose effective_from is on or before the date wins over the event resolutionSource ICAO and the registry ICAO. Add a dated entry to change a station; never rewrite an earlier one. Spec: docs/operations/venue-rule-labels.md.",
+  "markets": {
+    "denver": [
+      {
+        "effective_from": "2026-10-23",
+        "station_icao": "KDEN",
+        "reason": "The venue names KDEN from the 2026-10-23 event onward (the latest KBKF event is 2026-10-22). Lane F (claude/research-denver-station-20261023 @ 31b59d72e): venue-rule KDEN and KBKF daily maxima differ in the 2 F band on 38/61 days of 07-31..09-29, so no fixed correction substitutes. Labels only; model and serving stay on KBKF pending an owner decision."
+      }
+    ]
+  }
+}

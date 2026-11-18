@@ -1,0 +1,60 @@
+{
+  "mission": "2026-09-83d",
+  "expected_status": "BLOCK",
+  "expected_exit_code": 2,
+  "required_known_defects": 4,
+  "allowed_unexpected_blockers": 0,
+  "allowed_coverage_blockers": 0,
+  "layers": [
+    {
+      "layer": 2,
+      "tested_tip": "abd648c7c2de55289e88dc7d023136b981e2cb74",
+      "exit_code": 2,
+      "status": "BLOCK",
+      "summary": {
+        "all_known_defects_rediscovered": true,
+        "blocking_finding_count": 100,
+        "both_missing_cells": 2323,
+        "case_count": 29,
+        "compared_cells": 2908,
+        "compared_feature_count": 221,
+        "coverage_blocker_count": 0,
+        "covered_market_count": 12,
+        "exception_count": 1,
+        "feature_count": 221,
+        "finding_count": 101,
+        "known_defect_count": 4,
+        "known_defects_rediscovered": 4,
+        "registered_market_count": 12,
+        "unexpected_blocking_finding_count": 0
+      },
+      "report_sha256": "eb861ed0c74e99f869b6460c12f005b43efc93b0fce5ec51ac76760abcd4997c",
+      "report_file_sha256": "8864933e7a60239197aff105973c0b922c19a07c262bcef737ab0132f6ba0699"
+    },
+    {
+      "layer": 3,
+      "tested_tip": "f66dc1c5de96a603f0e508a0a55d3b24dee7cf69",
+      "exit_code": 2,
+      "status": "BLOCK",
+      "summary": {
+        "all_known_defects_rediscovered": true,
+        "blocking_finding_count": 100,
+        "both_missing_cells": 2323,
+        "case_count": 29,
+        "compared_cells": 2908,
+        "compared_feature_count": 221,
+        "coverage_blocker_count": 0,
+        "covered_market_count": 12,
+        "exception_count": 1,
+        "feature_count": 221,
+        "finding_count": 101,
+        "known_defect_count": 4,
+        "known_defects_rediscovered": 4,
+        "registered_market_count": 12,
+        "unexpected_blocking_finding_count": 0
+      },
+      "report_sha256": "32978ed5ccc304a15cf6b019e254be9e8089cd77f802e24c1a02d75121277a21",
+      "report_file_sha256": "d4831f1d5330ad5dcdd217fc488ee4ca95d236882d1bb84d11d80b0c701f1aac"
+    }
+  ]
+}

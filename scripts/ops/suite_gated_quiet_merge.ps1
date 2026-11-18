@@ -393,5 +393,13 @@ if ($ExpectedQuietMergeSha256) { $mergeArgs.ExpectedSelfSha256 = $ExpectedQuietM
 # valid retained status records to terminate the child before it could write a
 # refusal report.  The child owns its own fail-closed checks and error policy.
 Set-StrictMode -Off
+# A merge script that returns without `exit` would leave the last native exit
+# code (a passing git call) in $LASTEXITCODE. Seed a sentinel so that is a failure.
+$global:LASTEXITCODE = 9009
 & $mergeScript @mergeArgs
-exit $LASTEXITCODE
+$mergeExitCode = $LASTEXITCODE
+if ($mergeExitCode -eq 9009) {
+    Write-Output "QUIET MERGE RETURNED NO EXIT CODE: treated as failure"
+    exit 1
+}
+exit $mergeExitCode

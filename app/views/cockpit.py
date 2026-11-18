@@ -100,6 +100,17 @@ def _health(column, health):
                       delta=f"{len(maker['closed_dates'])} closed UTC dates", delta_color="off")
         if maker.get("unsealed_past_dates"):
             column.warning("Past dates not sealed: " + ", ".join(maker["unsealed_past_dates"]))
+    families = health.get("capture_families") or {}
+    if not _unavailable(column, families):
+        for row in families["families"]:
+            column.metric(f"Family {row['family']}", _text(row.get("state"), "no status"),
+                          delta=f"{_text(row.get('conditions'))}/{row['max_conditions']} conditions", delta_color="off")
+            column.caption(f"Status {_text(row.get('age_seconds'))} s old; free {_text(row.get('free_gib'))} GiB vs "
+                           f"its {row['floor_gib']} GiB floor; {_text(row.get('requests_per_minute'))} req/min.")
+            if row["severity"] == "FLAG":
+                column.error(row["reason"])
+            elif row["severity"] == "WARN":
+                column.warning(row["reason"])
 
 
 def _exam(column, exam):

@@ -31,7 +31,11 @@ Follow the allowed and transitional edges in
   and deterministic fixtures belong under `artifacts/`, `config/`, and
   `tests/fixtures/` respectively.
 - Register durable schemas through `weather.schema_registry` and update readers,
-  writers, migrations, and tests together.
+  writers, migrations, and tests together. The `schema_registry*` core is frozen
+  and loop-imported (roll-sensitive); a new capture family registers its schemas
+  in `weather/schema_families/<family>.py`, resolves them with
+  `weather.schema_families.schema_version`, and must never be imported by a
+  capture loop (Data Layer v2 PL-2).
 
 ## Verification
 

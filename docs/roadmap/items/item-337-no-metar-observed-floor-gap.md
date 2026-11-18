@@ -1,4 +1,4 @@
-# 337. No-METAR Observed-Floor Gap [OPEN 2026-10-08 - SCOPE QUESTION FOR THE OWNER]
+# 337. No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]
 
 Goal: decide whether, when a market has no METAR rows for the day, its observed same-day station high (SWOB or WU
 current, including a reading at local midnight) should act as a hard floor on the probability vector, and if so build
@@ -28,12 +28,58 @@ Findings so far (workstation code trace at 91bf07863; host read of the three row
   converted to local and filtered to the target date (`model_sources.py:2410-2427`). It is not the prior-day keying
   defect #189 fixed for METAR.
 - The replay's `below_floor_viol` does not test these rows (it checks only rows where the v4 floor is set).
+- **Host read, 2026-10-13 (master; pre-embargo reads only): WU counts the 00:00 observation.** CYYZ raw WU day files
+  hold 24 observations, 00:00-23:00 local. Settled highs: 09-06 = 22 (max at 13h), 09-21 = 15 (the 00:00 reading ties
+  the 14-17h readings), 09-26 = 23 (14-15h). All three reconcile with the Polymarket outcome, but none of them separates
+  "midnight counts" from "midnight does not count". A scan of Toronto raw days 2025-01-01..2026-09-29 found 23 days on
+  which only the 00:00 observation held the maximum; 2 have settlement rows, and on both the venue resolved the
+  with-midnight band (2026-06-14: 24 with midnight, 23 without, resolved 24; 2026-08-02: 24 with, 22 without, resolved
+  24). Our `settlement_high` is read from `daily_summary`, so it is circular; the independent check is the Polymarket
+  closed-market winner: with-midnight 2, without 0. **n = 2, no counterexample.** So a floor at an observed hour-0 high
+  is consistent with venue settlement on the evidence so far; it is not proof. EF §10qq.
 
 Acceptance:
 
-- [ ] Host read: WU settled high for Toronto on 2026-09-06, 09-21 and 09-26 against anchor buckets 19, 15 and 14, and
+- [x] Host read: WU settled high for Toronto on 2026-09-06, 09-21 and 09-26 against anchor buckets 19, 15 and 14, and
   whether WU's day-D history includes the 12:00 AM observation (decides whether the residual could ever settle).
-- [ ] Owner decision: keep the hedge on the no-METAR path, or floor at the observed SWOB/WU-current same-day high
-  (this would reverse the "SWOB keeps its warm-bias hedge" choice made for v4).
-- [ ] If flooring: a reviewed change with a model-version bump, a replay over the same window showing zero
-  below-anchor mass on no-METAR rows and no other change, and the release-binding steps.
+  Done 2026-10-13: WU includes 00:00; see the host-read finding above (n = 2 discriminating days).
+- [x] Owner decision: keep the hedge on the no-METAR path, or floor at the observed SWOB/WU-current same-day high
+  (this would reverse the "SWOB keeps its warm-bias hedge" choice made for v4). Decided 2026-10-13 ~18:30 EDT (relayed
+  verbatim by master-agent; [DECISION_LOG](../../operations/DECISION_LOG.md)): "Yes, after the replay (Recommended)" —
+  "Run the late-September replay on this PC first (10-15 or later); if it passes, flip the switch, bump the model
+  version and land it in a quiet window." Conditional: floor only if the host replay below passes.
+- [ ] Host `lockin_anchor_replay --with-no-metar-arm` over 2026-08-25..09-29 (all markets) on the draft branch
+  `claude/no-metar-floor-20261013`; earliest 2026-10-15 02:00-04:00 under the heavy lease.
+- [ ] On a PASS: flip `no_metar_observed_floor` on in a reviewed change with a model-version bump (the replay above
+  must show zero below-anchor mass on no-METAR rows and no other change), the release-binding steps, and a quiet-window
+  landing after a roll verdict.
+
+## Evening-fix read postponed (2026-10-31)
+
+The evening lock-in fix read (signed pre-registration
+`docs/research/evening-lockin-fix-scoring-preregistration-DRAFT-2026-10-13.md`, which reports this item's
+no-METAR rows separately in its safety count) did not run on 2026-10-29. Reason, as section 5 requires it to be
+recorded: "the scorer was never landed; it slipped on the night queue" (prereg line 193). The read is postponed, not
+cancelled; the window is unchanged (10-16..10-27, extension 10-28 only, never 10-29). It runs in two stages under
+[Clarification 1](../../research/evening-lockin-fix-scoring-clarification-1-2026-10-31.md), with the no-market
+scorer on `claude/evening-fix-no-market-20261031`. Nothing in this item's acceptance changes.
+
+## Evening-fix Stage 1 (2026-11-03, master ACCEPTED)
+
+Stage 1 (`--no-market`, Clarification 1): **CONDITIONS 1-2 MET, condition 3 pending.**
+
+- Primary -0.04854 [-0.05532, -0.04211], 11/11 markets, 128 market-days. Both sensitivities share its sign
+  (Denver-excluded -0.04981; Clarification 2 three-cell -0.04922). SAFETY 0 and 0.
+- Commit `7c4da79a9eb2a1591fe5e8ae0963668e96177817` (transport branch, never merged); `SHA256SUMS` sha256
+  `6dd3ad98478ac03c8e9c233c22e5a3fba5b96be8e98a915d7120ca34ae068cf2`. `prerun_receipt.json` was LF-normalised on
+  commit (disk `7cbac96f`, committed `806d51191700e3cb4b6fddfae7396ae0c3a5e8fcdcc86d127ebf9b894dd11178`), accepted
+  as disclosed.
+- "Stage 2 after MG-1 look receipt (after 11-28)": under Clarification 1 s5 the gap is read only after the MG-1
+  look receipt exists, with no market or price reads and no own gap; the embargo forbids price reads 10-16..10-27
+  outside that path.
+- H2 NOT TESTED: the `--no-market` transfer has no v3 arm. Computing it at Stage 2 needs a market-arm replay, which
+  is an owner question then.
+- Disclosures: The countability step (commit `1c52ec519`, script `ac8a5be5`, output `2b412a3a`; verify PASS 156) listed
+  2026-10-28 as the only zero-countable date. It lies outside the frozen window 10-16..10-27, so the extension was not
+  triggered and Stage 1 scored the frozen window only. Also the master one-off direct run (the wrapper refused the scorer module;
+  `stage1_score_v1.py` `ce70e3e8`). [Item 343](item-343-offline-year-round-refit-module-allowlist.md) folds the scorer module into the allowlist work.

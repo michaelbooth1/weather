@@ -406,6 +406,63 @@ Remove-Job -Job $writer
     assert status_path.exists()
 
 
+def test_memory_guard_age_is_utc_on_both_sides_across_the_fall_back_hour(tmp_path):
+    # 2026-11-01 05:50Z is 01:50 EDT and 06:10Z is 01:10 EST: a local-time age reads -40
+    # minutes (and a write before the fall-back can read fresh for up to an hour). The
+    # helper must report the true 20 minutes and fail closed on missing or future times.
+    result = ps(READER, ["Read-WeatherMemoryGuardStatus", "Get-WeatherMemoryGuardStatusAgeMinutes"], r"""
+$path = Join-Path $root 'guard.json'
+$json = '{"checked_at":"2026-11-01T01:50:00-04:00","commit_percent":41.5,"warn_percent":85,"act_percent":92}'
+[IO.File]::WriteAllText($path, $json, [Text.UTF8Encoding]::new($true))
+$inv = [Globalization.CultureInfo]::InvariantCulture
+$rt = [Globalization.DateTimeStyles]::RoundtripKind
+$writtenUtc = [DateTime]::ParseExact('2026-11-01T05:50:00.0000000Z', 'o', $inv, $rt)
+[IO.File]::SetLastWriteTimeUtc($path, $writtenUtc)
+$read = Read-WeatherMemoryGuardStatus -Path $path
+$parsed = [DateTime]::ParseExact($read.last_write_time_utc, 'o', $inv, $rt)
+$eastern = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+$ages = @()
+$naive = @()
+foreach ($nowText in @('2026-11-01T05:00:00Z', '2026-11-01T05:50:00Z', '2026-11-01T06:10:00Z', '2026-11-01T06:50:00Z', '2026-11-01T07:00:00Z')) {
+    $now = [DateTime]::ParseExact($nowText, "yyyy-MM-dd'T'HH:mm:ss'Z'", $inv,
+        [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
+    $ages += [double](Get-WeatherMemoryGuardStatusAgeMinutes -Read $read -UtcNow $now)
+    $naive += [double](([TimeZoneInfo]::ConvertTimeFromUtc($now, $eastern) -
+        [TimeZoneInfo]::ConvertTimeFromUtc($writtenUtc, $eastern)).TotalMinutes)
+}
+$legacy = [pscustomobject]@{ row = $read.row; last_write_time = $read.last_write_time; attempts = 1 }
+$garbled = [pscustomobject]@{ row = $read.row; last_write_time = $read.last_write_time
+    last_write_time_utc = '2026-11-01 01:50'; attempts = 1 }
+$at0610 = [DateTime]::ParseExact('2026-11-01T06:10:00.0000000Z', 'o', $inv, $rt)
+[ordered]@{
+    utc_text = $read.last_write_time_utc
+    utc_kind = $parsed.Kind.ToString()
+    utc_value = $parsed.ToString('o', $inv)
+    ages = $ages
+    naive = $naive
+    future = [string](Get-WeatherMemoryGuardStatusAgeMinutes -Read $read -UtcNow $writtenUtc.AddMinutes(-10))
+    legacy = [string](Get-WeatherMemoryGuardStatusAgeMinutes -Read $legacy -UtcNow $at0610)
+    garbled = [string](Get-WeatherMemoryGuardStatusAgeMinutes -Read $garbled -UtcNow $at0610)
+    local_now = [string](Get-WeatherMemoryGuardStatusAgeMinutes -Read $read -UtcNow ([DateTime]::SpecifyKind($at0610, 'Local')))
+    null_read = [string](Get-WeatherMemoryGuardStatusAgeMinutes -Read $null -UtcNow $at0610)
+    real_clock_positive = ((Get-WeatherMemoryGuardStatusAgeMinutes -Read $read) -gt 0)
+} | ConvertTo-Json -Compress
+""", tmp_path)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["utc_text"].endswith("Z")
+    assert out["utc_kind"] == "Utc"
+    assert out["utc_value"] == "2026-11-01T05:50:00.0000000Z"
+    # now 05:00Z is 50 minutes before the write, beyond the 1-minute skew allowance: stale.
+    assert out["ages"][0] == float("inf")
+    assert out["ages"][1:] == [0.0, 20.0, 60.0, 70.0]
+    # The local-clock subtraction this replaces reads negative inside the repeated hour.
+    assert out["naive"][2] == -40.0
+    for key in ("future", "legacy", "garbled", "local_now", "null_read"):
+        assert out[key] == "Infinity", (key, out[key])
+    assert out["real_clock_positive"] is True
+
+
 def test_status_memory_guard_evidence_reads_bom_json(tmp_path):
     result = ps(STATUS, ["Read-WeatherMemoryGuardStatus", "Get-StatusMemoryGuardEvidence"], r"""
 $path = Join-Path $root 'guard.json'

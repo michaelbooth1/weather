@@ -622,15 +622,17 @@ $global:mockTasks = @{
         State = 'Ready'
         Actions = @([pscustomobject]@{ Execute = $env:WEATHER_ATTEMPT_EXE; Arguments = 'frozen-suite-arguments'; WorkingDirectory = $env:WEATHER_ATTEMPT_ROOT })
         Principal = [pscustomobject]@{ UserId = 'integration-test'; LogonType = 'S4U'; RunLevel = 'Limited' }
+        Settings = [pscustomobject]@{ Enabled = $true }
     }
     'WeatherIntegrationMerge_close-test' = [pscustomobject]@{
         State = 'Ready'
         Actions = @([pscustomobject]@{ Execute = $env:WEATHER_ATTEMPT_EXE; Arguments = 'frozen-merge-arguments'; WorkingDirectory = $env:WEATHER_ATTEMPT_ROOT })
         Principal = [pscustomobject]@{ UserId = 'integration-test'; LogonType = 'S4U'; RunLevel = 'Limited' }
+        Settings = [pscustomobject]@{ Enabled = $true }
     }
 }
 function Get-ScheduledTask { param([string]$TaskName, $ErrorAction); return $global:mockTasks[$TaskName] }
-function Disable-ScheduledTask { param([string]$TaskName, $ErrorAction); $global:mockTasks[$TaskName].State = 'Disabled'; return $global:mockTasks[$TaskName] }
+function Disable-ScheduledTask { param([string]$TaskName, $ErrorAction); $global:mockTasks[$TaskName].State = 'Disabled'; $global:mockTasks[$TaskName].Settings.Enabled = $false; return $global:mockTasks[$TaskName] }
 function Get-ScheduledTaskInfo { param([string]$TaskName, $ErrorAction); return [pscustomobject]@{ LastRunTime = [datetime]'2026-08-21T00:30:00'; LastTaskResult = 1 } }
 & $env:WEATHER_ATTEMPT_CLOSE `
     -ManifestPath $env:WEATHER_ATTEMPT_MANIFEST `

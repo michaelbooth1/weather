@@ -1,0 +1,67 @@
+def select_reports(routine_reports):
+    """One report per observation time; an accepted correction replaces the original.
+
+    A correction is accepted unless its receipt time is known and falls at or
+    after the first report of the next local day.
+    """
+
+    first_by_date = {}
+    for report in routine_reports:
+        first_by_date.setdefault(report["local_date"], report["valid_time_utc"])
+    dates = sorted(first_by_date)
+
+    def deadline(local_date):
+        later = [day for day in dates if day > local_date]
+        return first_by_date[later[0]] if later else None
+
+    chosen = {}
+    rejected = 0
+    for report in routine_reports:
+        key = report["valid_time_utc"]
+        if report["corrected"]:
+            limit = deadline(report["local_date"])
+            receipt = report.get("receipt_utc")
+            if receipt is not None and (limit is None or receipt >= limit):
+                rejected += 1
+                continue
+            chosen[key] = report
+            continue
+        current = chosen.get(key)
+        if current is None or not current["corrected"]:
+            chosen[key] = report
+    return [chosen[key] for key in sorted(chosen)], rejected
+
+def venue_daily_labels(reports, spec):
+    """Return ``{local_date: daily_row}`` for the routine reports of one station.
+
+    A date is labelled only when a later report exists. Rows follow
+    ``historical_schema.summarize_daily`` with the venue value as ``temp_native``.
+    """
+
+    routine = [report for report in reports if report["report_type"] == REPORT_TYPE_ROUTINE]
+    selected, rejected = select_reports(routine)
+    latest_date = max((report["local_date"] for report in reports), default=None)
+    by_date = defaultdict(list)
+    for report in selected:
+        if report["temperature_c"] is not None:
+            by_date[report["local_date"]].append(report)
+    labels = {}
+    for local_date, day_reports in by_date.items():
+        if latest_date is None or local_date >= latest_date:
+            continue
+        records = [
+            {**report["record"], "temp_native": native_value(report["temperature_c"], spec.display_unit)}
+            for report in day_reports
+        ]
+        (row,) = summarize_daily(records)
+        bases = sorted({report["value_basis"] for report in day_reports})
+        row.update({
+            "source": "metar_routine",
+            "label_source": LABEL_SOURCE_METAR,
+            "label_value_basis": "|".join(bases),
+            "label_routine_report_count": len(day_reports),
+            "label_corrected_report_count": sum(1 for report in day_reports if report["corrected"]),
+            "label_note": f"rejected_late_corrections={rejected}" if rejected else "",
+        })
+        labels[local_date] = row
+    return labels

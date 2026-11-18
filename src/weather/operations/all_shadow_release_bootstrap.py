@@ -14,6 +14,11 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from weather.calibration.pooled_feature_assembly import build_market_records
+from weather.calibration.r0_candidate_manifest import (
+    TRAINED_COMPONENTS,
+    trained_files,
+    verify_r0_candidate_manifest,
+)
 from weather.io import write_json_atomic
 from weather.market.market_registry import REGISTRY
 from weather.model.corpus_lineage import build_pooled_corpus_lineage
@@ -504,10 +509,18 @@ def build_all_shadow_release(
     first_party_target_date: str | None = None,
     first_party_holdout_year: int = 2025,
     first_party_forecast_training_variant: str = "rich",
+    r0_candidate_manifest: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Freeze and verify one inactive release; never create an active pointer."""
+    """Freeze and verify one inactive release; never create an active pointer.
+
+    With ``r0_candidate_manifest`` (retrain R0, piece M14) each manifest
+    market's ``feature_hgb`` and ``feature_lr_coefficients`` are the R0 fits;
+    every other base component, including the late-day coefficients, is the
+    served repository artifact whose bytes the manifest bound.
+    """
 
     repo_root = Path(repo_root).resolve()
+    r0 = r0_candidate_binding(r0_candidate_manifest, candidate_id=candidate_id, repo_root=repo_root)
     root = _validate_run_root(run_root, repo_root=repo_root)
     inventory = _runtime_market_inventory()
     candidates_root = root / "release-bootstrap" / "candidates"
@@ -609,6 +622,8 @@ def build_all_shadow_release(
         source_provenance["training_evaluation_corpus"] = dict(
             research_corpus_lineage_provenance
         )
+    if r0 is not None:
+        source_provenance["r0_candidate"] = r0["provenance"]
     promotion = all_shadow_promotion()
     semantic = freeze_candidate_semantic_contract(
         candidate_dir=candidate_dir,
@@ -625,7 +640,12 @@ def build_all_shadow_release(
         research_corpus_lineage_provenance=(
             research_corpus_lineage_provenance
         ),
+        base_model_component_overrides=r0["overrides"] if r0 is not None else None,
     )
+    if r0 is not None:
+        verify_r0_frozen_components(
+            candidate_dir, r0["manifest"], manifest_dir=r0["manifest_dir"], repo_root=repo_root,
+        )
     contract_summary = _verify_all_shadow_contract(
         candidate_dir=candidate_dir,
         semantic=semantic,
@@ -708,6 +728,90 @@ def build_all_shadow_release(
     return receipt
 
 
+def r0_candidate_binding(
+    manifest_path: str | Path | None,
+    *,
+    candidate_id: str,
+    repo_root: Path,
+) -> dict[str, Any] | None:
+    """Verify an R0 candidate manifest against its bytes and today's served bytes."""
+    if manifest_path is None:
+        return None
+    manifest_path = Path(manifest_path).resolve()
+    try:
+        manifest = verify_r0_candidate_manifest(manifest_path, repo_root=repo_root)
+    except ValueError as exc:
+        raise AllShadowBootstrapError(f"R0 candidate manifest does not verify: {exc}") from exc
+    if manifest["candidate_id"] != candidate_id:
+        raise AllShadowBootstrapError(
+            f"R0 candidate manifest is for {manifest['candidate_id']!r}, not {candidate_id!r}"
+        )
+    if manifest.get("candidate_mode") != RESEARCH_ONLY_CANDIDATE_MODE:
+        raise AllShadowBootstrapError("R0 candidate manifest is not research_only")
+    overrides = {}
+    for market_id in manifest["markets"]:
+        files = trained_files(manifest_path.parent / market_id, market_id)
+        overrides[market_id] = {component: files[component] for component in TRAINED_COMPONENTS}
+    return {
+        "manifest": manifest,
+        "manifest_dir": manifest_path.parent,
+        "overrides": overrides,
+        "provenance": {
+            "kind": "r0_candidate_manifest",
+            "path": str(manifest_path),
+            "manifest_sha256": manifest["manifest_sha256"],
+            "candidate_id": manifest["candidate_id"],
+            "window": manifest["window"],
+            "build_commit": manifest["build_commit"],
+            "markets": sorted(manifest["markets"]),
+            "excluded_markets": manifest["excluded_markets"],
+            "overridden_components": list(TRAINED_COMPONENTS),
+            # Every difference from the served base models, per market, so the
+            # release (and anything reading its provenance) sees each one.
+            "served_model_differences": {
+                market_id: entry.get("served_model_differences")
+                for market_id, entry in sorted(manifest["markets"].items())
+            },
+        },
+    }
+
+
+def verify_r0_frozen_components(
+    candidate_dir: Path,
+    manifest: Mapping[str, Any],
+    *,
+    manifest_dir: Path,
+    repo_root: Path,
+) -> None:
+    """The frozen base graph holds the manifest's trained and served bytes exactly."""
+    for market_id, entry in manifest["markets"].items():
+        frozen_root = candidate_dir / "base_model" / market_id
+        expected = [
+            (row["file"], manifest_dir / market_id / row["file"], row["sha256"])
+            for name, row in entry["trained"].items()
+            if name in TRAINED_COMPONENTS
+        ]
+        expected += [
+            (Path(row["path"]).name, repo_root / row["path"], row["sha256"])
+            for row in entry["served_components"].values()
+        ]
+        for name, source, sha in sorted(expected):
+            frozen = frozen_root / name
+            if not frozen.is_file() or not source.is_file() or sha256_file(source) != sha:
+                raise AllShadowBootstrapError(f"R0 release lacks the bound bytes of {market_id}/{name}")
+            if frozen.suffix.casefold() == ".json":
+                # JSON components are frozen canonically: compare parsed payloads.
+                same = strict_json_loads(frozen.read_text(encoding="utf-8"), label=str(frozen)) == strict_json_loads(
+                    source.read_text(encoding="utf-8"), label=str(source)
+                )
+            else:
+                same = sha256_file(frozen) == sha
+            if not same:
+                raise AllShadowBootstrapError(
+                    f"R0 release component {market_id}/{name} differs from the candidate manifest"
+                )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-id", required=True)
@@ -739,6 +843,14 @@ def _parser() -> argparse.ArgumentParser:
         choices=("simple", "rich"),
     )
     parser.add_argument(
+        "--r0-candidate-manifest",
+        help=(
+            "R0 candidate manifest (weather.calibration.r0_candidate_manifest): bind its "
+            "trained feature_hgb/feature_lr_coefficients per market; every other base "
+            "component stays the served artifact the manifest hashed"
+        ),
+    )
+    parser.add_argument(
         "--expected-live-runtimes",
         default=",".join(DEFAULT_EXPECTED_RUNTIMES),
         help="comma-separated exact runtime identities",
@@ -765,6 +877,7 @@ def main(argv: list[str] | None = None) -> int:
         first_party_forecast_training_variant=(
             args.first_party_forecast_training_variant
         ),
+        r0_candidate_manifest=args.r0_candidate_manifest,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

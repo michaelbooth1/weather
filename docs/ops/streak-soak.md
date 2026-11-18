@@ -362,7 +362,7 @@ the new code (a `STALE_CODE` restart). If the code is bad, capture dies — and 
 guarded operation:
 
 ```powershell
-.\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
   -ExpectedTip <full-tested-commit-sha> `
   [-ExpectedSelfSha256 <frozen-wrapper-sha256>] [-DryRun] [-Force]
 ```
@@ -388,7 +388,14 @@ producers prove they have re-adopted the previous code. Failure to prove
 rollback adoption is recorded separately as `rollback_recovery_failed`; it is never reported
 as a completed rollback. It refuses to run outside 01:00–04:00
 without `-Force`, never inside 12:00–18:00, and never during the protected 18:00–00:30
-near-close window. `-ExpectedTip` is optional for interactive use but required operationally
+near-close window. **Effective start window is 00:30–09:00 for every branch it merges (trap,
+master 2026-11-07).** The wrapper takes the shared heavy lease as workload `quiet_window_merge`
+without the Stage-A switch, and `workload_admission.ps1` admits that only 00:30–09:00
+("heavy workload ... is outside the 00:30-09:00 window"), so after 09:00 it refuses before any
+verdict or merge. The script header's "a ROLL-FREE branch may run 00:30-12:00" is wrong: a
+ROLL-FREE branch that is not docs-only lands 00:30–09:00, and only a docs-only branch gets
+00:30–12:00, through the docs light path below. The same gap was flagged in the 2026-10-05
+landing-backlog review and not carried into this runbook. `-ExpectedTip` is optional for interactive use but required operationally
 for a scheduled or already-reviewed merge: the script aborts before any automatic commit if
 the named branch no longer resolves to that exact full SHA, and merges the immutable commit
 object rather than the movable branch ref. The outcome lands in
@@ -397,7 +404,13 @@ An immutable attempt or hash-frozen bootstrap also passes
 `-ExpectedSelfSha256`; the child verifies its own exact bytes before entering
 the operational path. Roll classification and all later mutations remain
 under the same shared workload lease, so a second guarded merge cannot change
-the baseline between verdict and mutation.
+the baseline between verdict and mutation. A branch is roll-free only when `roll_verdict.ps1`
+exits 0 **and** its `-JsonOut` names `ROLL-FREE` with `branch` equal to the exact tip; a missing,
+unreadable or mismatched JSON counts as roll-sensitive. Exit codes: 0 pushed, or a clean
+`-DryRun` whose rollback re-adoption was proved; 1 refused, aborted before the merge, or any
+uncaught error; 2 a dry run whose merge failed, or a merge rolled back with re-adoption proved;
+3 merged and recovery-proved locally but not published; 4 rollback recovery unproven. The code
+starts at 1 and is issued from the script's final `finally`, so an error or Ctrl+C never exits 0.
 
 Before fetch, generated-config commit, or merge, the wrapper also fail-closes unless
 `WeatherOneShotPush` is the one enabled root task in `Ready` state with the canonical current-user
@@ -417,7 +430,7 @@ incident-bound switch exists only for the reviewed production split
 c932b54f8747df5cdefc4cc42f8454b6797f09ae`:
 
 ```powershell
-& <isolated-source>\scripts\ops\quiet_window_merge.ps1 `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File <isolated-source>\scripts\ops\quiet_window_merge.ps1 `
   -ProductionBaselineReconciliation `
   -Branch <exact-reviewed-S-commit> `
   -ExpectedTip <exact-reviewed-S-commit> `
@@ -631,19 +644,37 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
 
 **Docs-only light path.** A branch that `roll_verdict.ps1` calls ROLL-FREE and whose diff is
 only `docs/**/*.md` lands with `scripts/ops/docs_light_path.ps1 -Branch origin/<b>
--ExpectedTip <sha>` at any hour, without the lease, quiet window or marker (Operations agent
-role §6 rule 2). It refuses unless local `master` is checked out with `HEAD == origin/master`
+-ExpectedTip <sha>` 00:30-12:00 local, without the lease, quiet window or marker (Operations agent
+role §6 rule 2). It is refused 12:00-00:30 (the graded and near-close windows), `-CheckOnly` included;
+the clock is checked at start and again immediately before the local merge, so the morning docs
+landing at about 07:30 is legal and a run that crosses 12:00 refuses with nothing changed. It refuses unless local `master` is checked out with `HEAD == origin/master`
 (and the `ls-remote` master when reachable), no `MERGE_HEAD`, no quiet-merge marker, nothing
 staged and no modified tracked `docs/` file, the branch is at the exact tip and not yet merged,
 both the branch diff and the resulting merge diff are only `docs/**/*.md`, the roll verdict
-exits 0, and `WeatherOneShotPush` is Ready. It then merges `--no-ff` locally, starts
+exits 0 with a JSON naming `ROLL-FREE` for the exact tip, and `WeatherOneShotPush` is Ready. It then merges `--no-ff` locally, starts
 `WeatherOneShotPush`, waits for a new run with result 0, and proves `origin/master` is the
 merge commit. Exit 0 is published; 1 is a refusal (nothing changed, or its own unpublished
 merge was undone with `git reset --keep`); 3 is merged locally but publication unproven:
-retry only `WeatherOneShotPush` and re-check `origin/master`. Every outcome after the merge
+retry only `WeatherOneShotPush` and re-check `origin/master`. Any uncaught error or a Ctrl+C
+exits 1 (the code is issued from the final `finally`); start it with `powershell.exe -File`,
+because that exit also ends an interactive session that ran it in-process. Every outcome after the merge
 writes an immutable `docs-light-<ts>-<tip12>.json` receipt
 (`docs_light_path_receipt_v0.1`) to `data/alerts/quiet_window_merge_reconciliations/`; status
 retirement scans ignore that name. `-CheckOnly` runs every precondition and changes nothing.
+A `LastTaskResult` of 0x41301/0x41303 read while the task is Ready is a stale transient: the
+wait keeps polling, and if it is still stale at the deadline the receipt records
+`push.stale_scheduler_result: true` and the `origin/master` check alone decides.
+The 11-01 07:27 receipt docs-light-20261101T072752-2bc2048949f7 is a false merged_unpushed: publication was verified by ls-remote at 07:28:11 and WeatherOneShotPush finished rc 0; fixed by claude/ops-docs-light-path-push-race-20261101.
+Step 3b (R14) dot-sources `scripts/ops/frozen_binding_guard.ps1` and refuses, before the roll verdict,
+any branch that `Test-FrozenBindingHead` refuses against `config/frozen_bindings.json` as it is on
+master: an edited or deleted frozen record (for B-1, `B_FORWARD_TEST_DESIGN.md` or an existing
+`b1-clarification-*.md`) or any file under a frozen prefix (`docs/research/mg2-composite-binding-2026-10-25/`).
+A new dated `b1-clarification-*.md` passes, except in the S1 head, which may add only one new
+`docs/research/**/b1-clarification-7-*.md` and is suite-checked, so never light-path. A head adding the
+release record is refused unless its fields pass (B's rule sha, a committed receipt made non-text by an exact
+`<path> -text` (or `binary`) `.gitattributes` line, whose bytes hash to `receipt_sha256`, a DECISION_LOG row; for an abandonment, a row naming an owner abandonment). A malformed registry refuses every branch; fix it on a
+suite-gated head, never by hand on production. The same function runs in the night sequencers and
+must pass before any manual quiet-window merge.
 
 For ordinary synchronized integrations only, `stage: merged_unpushed` means the
 credential-bearing `WeatherOneShotPush` task did not acknowledge

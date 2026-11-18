@@ -1,0 +1,20 @@
+{
+ "derived": {
+  "high_so_far_changed": 24805,
+  "rows": 83798,
+  "violations": {
+   "floor_high_weaker": 0,
+   "floor_weaker": 0,
+   "forecast_gap": 0,
+   "live_reading_minus_high": 0,
+   "untouched_changed": 0
+  }
+ },
+ "replay_control": {
+  "base_exact_recorded": 7673,
+  "errors": 0,
+  "fix_equals_base_where_high_so_far_and_floor_unchanged": 5333,
+  "rows": 83798,
+  "unchanged_inputs": 5333
+ }
+}

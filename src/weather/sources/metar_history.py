@@ -9,10 +9,12 @@ import argparse
 import csv
 import io
 import json
+import re
 import sys
 import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from fractions import Fraction
 from pathlib import Path
 
 from weather.paths import data_path
@@ -52,6 +54,131 @@ DATA_FIELDS = (
     "skyc3",
     "wxcodes",
 )
+
+
+# IEM ``report_type`` request codes: 3 = routine METAR, 4 = SPECI. IEM's raw
+# text carries no METAR/SPECI prefix, so a file's report type is known only from
+# the request that produced it (AviationWeather raw text does carry the prefix).
+IEM_REPORT_TYPE_ROUTINE = 3
+IEM_REPORT_TYPE_SPECIAL = 4
+REPORT_TYPE_ROUTINE = "routine"
+REPORT_TYPE_SPECIAL = "special"
+REPORT_TYPE_UNKNOWN = "unknown"
+_DECLARED_REPORT_TYPES = {
+    "3": REPORT_TYPE_ROUTINE,
+    "routine": REPORT_TYPE_ROUTINE,
+    "metar": REPORT_TYPE_ROUTINE,
+    "4": REPORT_TYPE_SPECIAL,
+    "special": REPORT_TYPE_SPECIAL,
+    "speci": REPORT_TYPE_SPECIAL,
+}
+_T_GROUP_RE = re.compile(r"^T([01])(\d{3})(?:([01])(\d{3}))?$")
+_T_GROUP_LIKE_RE = re.compile(r"^T[0-9]")
+_BODY_TEMP_RE = re.compile(r"^(M?)(\d{2})/(?:M?\d{2})?$")
+T_GROUP_BASIS = "t_group"
+BODY_BASIS = "body"
+BODY_BASIS_T_GROUP_MALFORMED = "body_t_group_malformed"
+
+
+def _metar_tokens(raw_text):
+    return str(raw_text or "").replace("=", " ").split()
+
+
+def _split_remarks(tokens):
+    if "RMK" in tokens:
+        index = tokens.index("RMK")
+        return tokens[:index], tokens[index + 1:]
+    return tokens, []
+
+
+def classify_report_type(raw_text, declared=None):
+    """Return routine/special/unknown for one report.
+
+    A raw line that begins with ``SPECI`` is special and one that begins with
+    ``METAR`` is routine, whatever was declared. Otherwise the declared type
+    (an IEM ``report_type`` code or a name) decides; with neither, unknown.
+    """
+
+    tokens = _metar_tokens(raw_text)
+    if tokens and tokens[0].upper() == "SPECI":
+        return REPORT_TYPE_SPECIAL
+    if tokens and tokens[0].upper() == "METAR":
+        return REPORT_TYPE_ROUTINE
+    if declared is None:
+        return REPORT_TYPE_UNKNOWN
+    return _DECLARED_REPORT_TYPES.get(str(declared).strip().lower(), REPORT_TYPE_UNKNOWN)
+
+
+def filter_report_type(records, allowed=(REPORT_TYPE_ROUTINE,), declared=None):
+    """Keep normalized METAR records whose report type is in ``allowed``.
+
+    The raw text is read from ``source_quality`` (where ``normalize_csv`` keeps
+    it); ``declared`` is the file-level type when the provider omits a prefix.
+    Each kept record gains a ``metar_report_type`` key; inputs are not mutated.
+    """
+
+    allowed = set(allowed)
+    kept = []
+    for row in records:
+        report_type = classify_report_type(row.get("source_quality"), declared=declared)
+        if report_type in allowed:
+            kept.append({**row, "metar_report_type": report_type})
+    return kept
+
+
+def is_corrected_report(raw_text):
+    """True when the report body carries the ``COR`` correction indicator."""
+
+    body, _ = _split_remarks(_metar_tokens(raw_text))
+    return "COR" in body[:5]
+
+
+def parse_t_group(raw_text):
+    """Return ``(temperature_c, status)`` from the remark T-group.
+
+    ``status`` is ``ok`` (exact tenths as a ``Fraction``), ``missing`` (no
+    T-group token) or ``malformed`` (a ``T<digit>`` remark token that is not a
+    valid ``TsnTTT[snTTT]`` group); the temperature is ``None`` unless ``ok``.
+    """
+
+    _, remarks = _split_remarks(_metar_tokens(raw_text))
+    malformed = False
+    for token in remarks:
+        match = _T_GROUP_RE.match(token)
+        if match:
+            sign = -1 if match.group(1) == "1" else 1
+            return Fraction(sign * int(match.group(2)), 10), "ok"
+        if _T_GROUP_LIKE_RE.match(token):
+            malformed = True
+    return None, ("malformed" if malformed else "missing")
+
+
+def parse_body_temperature(raw_text):
+    """Return the whole-degree body temperature (``TT/TdTd``, ``M`` = minus) in C."""
+
+    body, _ = _split_remarks(_metar_tokens(raw_text))
+    for token in body:
+        match = _BODY_TEMP_RE.match(token)
+        if match:
+            value = int(match.group(2))
+            return Fraction(-value if match.group(1) else value)
+    return None
+
+
+def report_temperature_c(raw_text):
+    """Return ``(temperature_c, basis)`` for one report, or ``(None, None)``.
+
+    The remark T-group (tenths) wins; a missing or malformed T-group falls back
+    to the body whole-degree value, and the basis says which was used.
+    """
+
+    value, status = parse_t_group(raw_text)
+    if value is not None:
+        return value, T_GROUP_BASIS
+    body = parse_body_temperature(raw_text)
+    if body is None:
+        return None, None
+    return body, (BODY_BASIS_T_GROUP_MALFORMED if status == "malformed" else BODY_BASIS)
 
 
 def parse_date(value):
@@ -196,7 +323,13 @@ class MetarClient:
         self.max_attempts = max(1, int(max_attempts))
         self.retry_sleep = retry_sleep
 
-    def fetch(self, station, start_date, end_date):
+    def fetch(self, station, start_date, end_date, report_types=None, include_metar_text=False):
+        """Fetch IEM ASOS CSV text.
+
+        ``report_types`` (IEM codes, e.g. ``(3,)`` for routine only) and
+        ``include_metar_text`` (adds the raw ``metar`` column) default to the
+        historical request, which is unchanged.
+        """
         start_date = parse_date(start_date)
         end_date = parse_date(end_date)
         # IEM ASOS date params are UTC-day based. Fetching one extra UTC day
@@ -217,6 +350,10 @@ class MetarClient:
             ("trace", "T"),
         ]
         params.extend(("data", field) for field in DATA_FIELDS)
+        if include_metar_text:
+            params.append(("data", "metar"))
+        for report_type in report_types or ():
+            params.append(("report_type", int(report_type)))
         for attempt in range(1, self.max_attempts + 1):
             response = requests.get(IEM_ASOS_URL, params=params, timeout=self.timeout)
             try:

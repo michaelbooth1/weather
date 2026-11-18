@@ -18,15 +18,78 @@ This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
 and replay outside this timetable and without the capture-host resource/time
-admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
+admission.
+
+**One workstation exception: self-start campaign entry dates** (master ruling 2026-11-07, see DECISION_LOG).
+- **Which dates:** every date in the enrolled F2 campaign's learning or confirmation list, from 2026-11-09 to
+  2026-12-22. If unsure whether today is one, treat it as one.
+- **The rule:** on those dates no agent starts a heavy command on the workstation after 08:30 America/Toronto
+  until that day's session and its postchecks have finished (fixed end 18:45). Light work is fine.
+- **Why:** the session takes the same workload mutex and its own work lock inside its entry window (the policy's
+  `start_window_toronto`). A heavy job holding the mutex makes it DEFER, and through the window end MISS it.
+- **Also on those dates:** no agent creates `C:\t\codex\HOLD_HEAVY`.
+
+**Workstation housekeeping traps (master, 2026-11-11):**
+- **The commit limit moves.** The workstation's page file is system-managed, so the commit limit changes during the day: 63.7 GB in the morning and 56.2 GB at midday on 2026-11-11. Commit percentages therefore move with no change in use. Before a pregate, read both the percentage and the limit.
+- **Restart chains.** `codex_restart.ps1` stops a task and continues it as `<id>r1`, and the stopped predecessor never writes `exit.txt`. A check for "is a pregate running" must follow the `rN` chain to its latest member; a lone `started.json` without `exit.txt` is not proof.
+- **Recorders run from worktrees.** The forward recorders run their scripts from `C:\wt` worktrees (`l13`, `l13g`, `l13ens`, `l13mx`, `l13gem`, `omprevrec`, `l3t1rec`, `l13nbm`, `l13gc`, `l13iem`). A storage cleanup must never delete a `C:\wt` folder that a running process names in its command line or working directory.
+- **Disk floor before every chunk.** The bounded suite (`Assert-SuiteDiskHeadroom` in `scripts/ops/bounded_worktree_test_suite.ps1`) needs at least 50 GiB free on C: at the start **and before every chunk**. The system-managed page file and owner installs change free space during a run. On 2026-11-12 it refused admission at 45.9 GiB, so 0 of 29 chunks ran; target about 56 GiB before a pregate.
+- **Reclaiming workstation disk.** Delete only regenerable agent scratch: leftover pytest basetemps, and old `C:\wt` code checkouts that meet all of these:
+  - no running process names them;
+  - they are not on the recorder list above, and not a pin, retrain, live or wallet copy;
+  - `git status` is clean, including untracked files;
+  - HEAD is on a remote-tracking ref;
+  - they are checkout-sized and not cited by any repo document.
+
+  Archive each checkout's ignored `data\` first, and log its head sha with the `git worktree add --detach` command that recreates it (2026-11-12 log: workstation `C:\t\codex\DISK-CLEANUP-20261112.log`). Research data folders (`C:\t\recopy-*`, `C:\t\r80`, `workstation-chat`) are the owner's decision.
+- **A killed agent tree can block the live start.** At 11:46 on 2026-11-12 the master stopped a Codex task with `taskkill /T` while its wrapped pytest was starting. The wrapper died abruptly and left `%ProgramData%\WeatherProject\heavy_workload_v1.poison` in the `ACTIVE` state. F2's `ExclusiveWorkload` (`lfc_campaign_guard.py`) refuses live admission and the funding proof while any heavy-workload state file exists (`workload_poison`), so the owner's setup step 6 refused that night.
+  - **Recovery** (11-13 00:15): prove the marker's owner process is gone. Then run one ordinary wrapped admission on the legacy slot, for example a one-file `-Kind compileall` (the B089-era wrapper has no `-SlotCount`). Its zero-residual scan recovers the stale record and asks for the exact retry, which then runs and tears down cleanly.
+  - **Before 08:50 on every trading day,** check `*.poison` there. A marker whose owner is alive is a running job that must finish before 09:00; one whose owner is dead needs the recovery above.
+  - **Never stop an agent tree that may hold a wrapped job;** let it finish.
+  - **A second cause (11-13 00:57):** an agent helper ran `workstation_heavy.ps1` under `$ErrorActionPreference = 'Stop'` with `*>&1`. Under Windows PowerShell 5.1 a native stderr line became a terminating error, and the stopped pipeline killed the wrapper before it released its slot, leaving the slot 2 and slot 3 markers `ACTIVE`.
+    - **Rule:** run wrapped jobs in the foreground. Never merge their stderr into a terminating stream; capture it with `Start-Process -RedirectStandardOutput/-RedirectStandardError` or with `2>` to a file. Check `*.poison` after each run.
+    - **Recovery for slots 2-8:** call `Enter-WeatherWorkstationHeavyExclusiveLease` (`workload_admission.ps1`) with a canonical offline workload name, for example `WorkstationOffline-pytest-<PID>`. Then call `Set-WeatherHeavyWorkloadLeaseTeardownPending` and `Exit-WeatherHeavyWorkloadLease`.
+
+Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).
+Its `weather_heavy` kind admits only exact module names from
+`Get-WeatherWorkstationOfflineModule` (module, not subcommand: a module that also
+fetches can never be listed; network fetchers such as `forecast_training_corpus_fetch`,
+`metar_history` or `venue_rule_labels` run directly, outside the wrapper, master ruling 2026-10-23).
+One subcommand is refused although its module is listed: `weather.calibration.b_scorer look`
+(and, fail-closed, any command text naming b_scorer together with a look-like token, except the exact
+`-m weather.calibration.b_look_wrapper` form and allowlisted inspection tooling, both void on a newline,
+`#` or escaped quote) is denied by both the wrapper
+(`Get-WeatherWorkstationOfflineArgumentRefusal`) and the Codex hook; B's one look runs only as
+`python -m weather.calibration.b_look_wrapper look` (master ruling 2026-11-01, B-1 Clarification 3).
+This is a guard on those two paths only: Claude Code sessions have no hook layer. The binding control stays the
+fixed consumed marker plus the look-day checklist naming only the wrapper command.
+Its `research_script` kind (master 2026-11-03, item b) admits one named research script outside the
+package: the arguments must be exactly `-I <script> <args>`, and the script must have one entry, an exact
+absolute path and lowercase sha256, in `Get-WeatherWorkstationResearchScriptAllowlist`
+(`scripts/ops/workload_admission.ps1`; each entry is a reviewed commit, never a wildcard or directory,
+and a script whose bytes change needs a new entry). `Get-WeatherWorkstationResearchScriptRefusal` refuses a path that is not
+`C:\t\<lane>\...\<name>.py` with one lane segment and plain segments (no `..`, wildcards, short names or
+streams), any component from `C:\t` down that is absent or a reparse point or junction, a missing or
+duplicated entry, and any sha mismatch. The wrapper opens the script deny-write before admission, hashes
+that handle, and keeps it open until the child exits, so the bytes Python runs are the pinned bytes. The
+live/execute/place/cancel/promote switch refusal and the b_scorer look refusal apply to its arguments.
+After admission it re-checks the path; a residual check-then-open window remains, open only to a local actor
+under the same user (accepted as narrowed, L16 2026-11-03). It then refuses the start when the script's or the
+checkout's volume has less than `-MinFreeDiskGB` free (default 50 GiB, at least 20). It prints and, with `-Queue`, adds to
+the `finish` event the exit code, `script_sha256` and `peak_job_memory_bytes`: the Job's
+`PeakJobMemoryUsed`, the peak committed memory of the whole tree (the venv `python.exe` is a redirector, so
+its own working set is not the job's peak). Mutexes, slots, state files and the lease are those of every
+other kind. `-I` drops the script's directory and user site from `sys.path`, so a script imports only the
+interpreter's installed packages.
 The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the
 remote wrapper's identity, mutex, and child-tree containment checks.
 Its admission-only `workstation_offline_v1` profile and the portable launcher
 are both bound to the assignment's exact non-capture Windows installation and
-attending principal. They hold the same host-global mutex and each owns its
+attending principal. They hold the same host-global mutex (a live stage also
+takes every extra workstation slot mutex, see *Slots* below) and each owns its
 entire child tree in a kill-on-close Windows Job; wrapped work and a launched
 live stage therefore cannot overlap. Finish heavy work before sealing as an
 operational rule so an inert
@@ -95,6 +158,16 @@ lease, protected windows, capture health and memory gates; neither permits
 source deletion or changes ordinary heavy-work admission. Direct module
 launches remain classified as heavy by the Codex launch guard.
 
+An agent's one-off wrapper on the capture host, such as a single export copy,
+takes the lease with `Enter-WeatherHeavyWorkloadLease` and must refuse when it
+returns `$null`. The function returns `$null` without throwing when another
+workload owns the mutex, and every repository caller checks for it. On
+2026-10-31 an unchecked wrapper copied for 45 s while the 06:00 clob tiering
+retry held the lease. Start such a job only when `Get-WeatherHeavyWorkloadLeaseState`
+reports the lease free, keep it clear of the 04:15 and 06:50 lease tasks, and
+stop it by ending its child process so that the wrapper's `finally` releases the
+lease.
+
 ## Workstation focused runs, FIFO queue and xdist (owner decision 2026-10-04)
 
 Adopted by the owner on 2026-10-04 (test-suite review K; [decision log](DECISION_LOG.md) row of 2026-10-04;
@@ -108,6 +181,17 @@ workstation.
   `serial` even without the marker (see *Exemption* below).
 - **FIFO queue.** Full suites and larger runs wait their turn first-in first-out (`workstation_heavy.ps1
   -Queue`) instead of polling a refusal, with one wait-log line per enqueue, start, finish and give-up.
+- **Concurrent heavy slots (owner decision 2026-10-13, widened by master ruling 2026-10-24 lane W2 at the
+  owner's direction to keep the workstation busy; [decision log](DECISION_LOG.md) row of 2026-10-13).** On the
+  non-capture workstation only, up to three `workstation_heavy` jobs of any size may run at once, each admitted
+  only with at least 6 GB of available physical memory and commit charge at or below 90 % (the OD33 ceiling).
+  It never applies on the capture PC and never while a live session runs: a portable live stage excludes every
+  slot in both orders. Mechanism: *Slots* below.
+- **Memory floors, light scripts and stale markers (master, 2026-10-27).** The 3 GB available-memory floor is for
+  focused runs only; pre-gates keep the 6 GB floor; below 3 GB available, nothing new is admitted. A light script
+  (under 1 minute and under 1 GB) may run directly, without the wrapper, with its sha256, inputs and command line
+  recorded. A stale `ACTIVE` heavy-workload state marker is cleared only through the queue's own recovery (the
+  dead-holder reclaim under *Slots* below), never by hand.
 - **xdist.** `pytest -n` (`--dist loadfile`, `-m "not serial"`, then the `serial` set in one process) runs only
   on the workstation, only through the wrapper, and only after an identical pass set (same test ids, same
   outcomes) has been shown against a serial run.
@@ -132,20 +216,94 @@ below applies: no exemption, no queue state, the same windows and the same bound
 - *Queue.* `workstation_heavy.ps1 -Queue [-QueueTimeoutSeconds N]` (default 14400 s, 4 h) takes a ticket in
   `%ProgramData%\WeatherProject\heavy_workload_queue_v1\` (file `ticket-<12 digits>.json` holding ticket, PID,
   process start time, workload and checkout; numbers are allocated by exclusive create, so one queue serves
-  every checkout and worktree). Only the head ticket tries the lease; each poll first reaps tickets whose PID
+  every checkout and worktree). A slot-aware ticket (field `slot_aware`) tries a slot only when no slot-aware
+  or unreadable ticket is ahead of it; it may pass an older wrapper's ticket, but only through an extra slot,
+  never the legacy slot that waiter needs. Each poll first reaps tickets whose PID
   has exited or names a different process, and unreadable tickets older than 60 s. Events go to stdout and to
   `data\logs\heavy_workload_queue.jsonl` in the admitting checkout: `enqueue`, `wait` (on every position
   change and every `-QueueReportSeconds`, default 60), `reaped`, `start`, `finish` (with the exit code),
-  `give_up` and `error`, each with ticket, position, waited seconds and the holder when known. A timeout exits
-  **75** without starting the child. Without `-Queue` a busy lease is still refused at once. The queue orders
-  only its own waiters: a portable live stage or a wrapper run without `-Queue` can still take a free lease
-  first. Kill-on-close Job and child-tree teardown are unchanged.
+  `give_up` and `error`, each with ticket, position, waited seconds and the holder when known; `start` and
+  `finish` add `slot_id` and `slot_count`, `start` also the busy slots and the memory reading at admission,
+  and `wait`/`give_up` add `slot_refusal` and `slot_holders`. A timeout exits
+  **75** without starting the child. Without `-Queue` a full or guarded admission is refused at once, naming
+  the refusal. The queue orders only its own waiters: a portable live stage or a wrapper run without `-Queue`
+  can still take a free slot first. Kill-on-close Job and child-tree teardown are unchanged.
+- *Slots.* `workstation_heavy.ps1 -SlotCount N` (default 3, at most 8), `-MinAvailableMemoryGB` (default 6)
+  and `-MaxCommitPercent` (default 90) feed `Enter-WeatherWorkstationHeavySlotLease`. Slot 1 **is** the
+  legacy lease: mutex `Global\WeatherProjectHeavyWorkloadV1`, state file `heavy_workload_v1.poison` and
+  `data\logs\heavy_workload.lock`, exactly as older wrapper copies take it, so an older wrapper's holder
+  occupies one slot and older and newer wrappers together never exceed the limit. Slots 2..8 add mutex
+  `Global\WeatherProjectHeavyWorkloadV1.Slot<k>`, state file `heavy_workload_v1.slot<k>.poison` beside the
+  legacy one, and `data\logs\heavy_workload.slot<k>.lock`; only `workstation_offline_v1` may take them.
+  Admission holds every slot mutex 1..8 that is free while it decides, counts the busy ones (so a holder
+  admitted with a larger `-SlotCount` also counts), refuses when they reach `-SlotCount`, then checks
+  available physical memory and commit charge from one `GlobalMemoryStatusEx` snapshot. It prefers a fresh
+  extra slot, then the legacy slot (so an older wrapper keeps its chance), then a slot whose holder died. A
+  dead holder's `ACTIVE` state file is reclaimed with the legacy rules (exact owner identity gone, zero
+  residual heavy processes on the whole host, unchanged re-read; decisions logged with `workstation_slot_id`),
+  so while other slots run a dead slot stays unusable and the other slots carry on. A `TEARDOWN_PENDING` file
+  whose owner is gone, in any slot, blocks every workstation and portable admission; recover it with
+  `Clear-WeatherHeavyWorkloadPoison -SlotId <k>`. A legacy-slot holder naming `portable_execution_v1` refuses
+  every slot, and a portable live stage takes slots 2..8 too, so live work and slot work exclude each other
+  in either order. The wrapper exports `WEATHER_WORKSTATION_WRAPPER_SLOT` and prints the admitted slot.
+  Capture-colocated admission never names a slot and keeps the one serial lease. An older wrapper copy in a
+  worktree keeps working unchanged; a lane gets slots by merging this change into its worktree and running
+  that worktree's wrapper.
+- *Exclusive lease.* `Enter-WeatherWorkstationHeavyExclusiveLease` first takes the barrier mutex
+  `Global\WeatherProjectHeavyWorkloadV1.Exclusive` (one exclusive caller at a time), then keeps each slot
+  mutex as it frees until it holds all eight, and only then starts. From the moment it holds the barrier, slot
+  admission refuses new jobs (`exclusive_pending`) and queued ones wait behind its ticket, so a stream of new
+  jobs cannot starve it; slots it already holds are closed to older wrappers and live stages too. Slot 1 is then
+  taken as the ordinary legacy lease (state file and lock, so status and older wrappers see it busy) and dead
+  slot holders follow the stale rules above. Its queue events carry `exclusive`, `busy_slots` while it drains
+  and `slot_id` `all` at start. An older wrapper that takes slot 1 before the barrier holds it is waited for,
+  not displaced. The bounded suite runs on the workstation only inside the pre-gate (its lease statement is
+  replaced by the driver), so it is covered by this lease; run directly it is the unchanged capture-host lease.
+  The barrier owner writes `exclusive_holder_v1.json` in the queue directory (pid, process start time, boot
+  session, workload, phase `draining` or `held`) and removes it just before releasing the barrier; exclusive
+  waiters log that holder. A caller whose process ancestry contains the live recorded holder in phase `held`
+  (matched by pid plus start time, barrier proved held) is already inside that hold: it is admitted at once
+  with an empty hold and no ticket (pre-gate receipt `lease_mode` `inherited_from_exclusive_holder`,
+  `exclusive_holder` pid and start; PG-NEST-1). A dead or reused holder pid grants nothing; everyone else
+  queues as before.
+- *Never force-kill a wrapper (WS lesson 2026-11-04).* Force-killing a `workstation_heavy.ps1` wrapper process
+  left a stale slot-3 poison marker that blocked that slot. To stop wrapped work, kill its python child and let the
+  wrapper tear down. The only designed recovery for a stale slot marker is an un-nested
+  `scripts\ops\workstation_pregate.ps1` run, whose exclusive lease reclaims dead slot holders under the stale rules
+  above; that recovered slot 3 on 2026-11-04. Do not delete poison or lock files by hand.
+- *Thread cap.* Every `workstation_heavy.ps1` job sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and
+  `OPENBLAS_NUM_THREADS` to floor(logical processors / `-SlotCount`), at least 1. A caller's own lower positive
+  value is kept; a higher, absent or malformed one is replaced. The wrapper prints the cap and the `finish`
+  queue event records `thread_cap` (cap, logical processors, the values set). The exclusive pre-gate is not capped.
+- *Lock record.* A lease written by the admission wrapper carries the schema tag
+  `weather_heavy_workload_lease_v3`, but a slot's lock file does not always hold one (corrected 2026-11-02,
+  master; this line said "every slot's lock file keeps the v3 tag"): the integration control mutex
+  (`scripts/ops/integration_attempt_contract.ps1:84`) writes `weather_integration_control_mutex_v1` into
+  `data\logs\heavy_workload.lock` and leaves it there after release (`:109`), and
+  `scripts/ops/workload_admission.ps1:2229` truncates the file before it proves identity. A
+  `workstation_offline_v1` record, slot 1 included, adds `workstation_slot_id` under that unchanged tag, and
+  `host_global_mutex` names the slot's own mutex; readers ignore unknown fields. Capture-colocated and
+  portable records carry no new field.
+- *Status.* `Get-WeatherHeavyWorkloadLeaseState` (used by `status.ps1`, `merge_queue_driver.ps1` and
+  `chain_recovery_run.ps1`) returns the unchanged `{Active, Path, Owner}` for this checkout's slot-1 lock
+  unless a slot file exists and the host proves to be the assigned workstation. Only then is it busy when any
+  slot is busy, either through this checkout's slot lock or through a host-global slot state file with a
+  live owner (read-only: it never probes a mutex), and it adds `Slots` and `BusySlotCount`; `status.ps1`
+  then lists the busy slot ids. The capture host never writes slot files, so its output is byte-identical.
+- *Accepted risk (master ruling 2026-10-24, lane W2 review).* Only a live launcher whose
+  `workload_admission.ps1` includes the W2 slots merge takes slots 2..8; an older launcher takes only the
+  legacy mutex and could overlap jobs in slots 2..8. That risk is accepted on one condition: **the live
+  launcher's checkout must include the W2 merge before any live stage is launched.**
 - *Pre-gate.* `scripts/ops/workstation_pregate.ps1` runs the full suite for one exact head in the host
-  bounded suite's launch mode on the workstation. It takes the same queue lease itself (workload
-  `WorkstationOffline-pytest-pregate-<sha12>-<pid>`). In every mode it first proves that this is the
+  bounded suite's launch mode on the workstation. It is **exclusive** (master ruling 2026-10-24, lane W3: a
+  pre-gate failed its timing-sensitive hang tests at 99 % CPU beside two HGB fits): it takes every slot through
+  `Enter-WeatherWorkstationHeavyExclusiveLease` (workload `WorkstationOffline-pytest-pregate-<sha12>-<pid>`)
+  and runs its chunks serially; the receipt records `workstation_slot_id` and `workstation_exclusive`. In every mode it first proves that this is the
   assigned non-capture workstation (`Assert-WeatherWorkstationOfflineHost`), because the capture host's heavy
   lease uses the same mutex name. When it is nested inside `workstation_heavy.ps1` it then reuses that
-  wrapper's lease, but only after proving that another process holds the host-global mutex. It
+  wrapper's slot, but only after proving that another process holds that slot's mutex
+  (`Test-WeatherWorkstationWrapperSlotHeld`; slot 1 when an older wrapper exported no slot), and then still
+  takes every other slot (`-InheritedSlotId`). It
   skips only the capture-host checks: window, hard stop, host lease, capture workers and host commit
   ceiling. It keeps the suite's 50 GiB disk floor and `MaxRuntimeSeconds`. Contract:
   [development.md](../development.md#workstation-pre-gate-before-a-host-landing-slot).
@@ -414,12 +572,23 @@ Stage-A, workstation or live authority is added.
    `status.ps1` carries a test-enforced identical inline copy): the guard writes it
    with a UTF-8 BOM and replaces it by rename every minute, so a reader must open it
    with `FileShare` ReadWrite|Delete, `TrimStart([char]0xFEFF)` before
-   `ConvertFrom-Json`, and retry briefly. A plain `Get-Content`/`ReadAllText` gate
+   `ConvertFrom-Json`, and retry briefly. It returns `row`, `last_write_time` (local,
+   kept for compatibility only), `last_write_time_utc` (ISO-8601 ending in `Z`) and
+   `attempts`; freshness gates use `Get-WeatherMemoryGuardStatusAgeMinutes` (UTC on
+   both sides; a missing, unparseable or future-dated `last_write_time_utc` reads as
+   stale). Trap: freshness ages use UTC on both sides (`GetLastWriteTimeUtc` vs
+   `[DateTime]::UtcNow`); local times fail open in the fall-back hour. A plain `Get-Content`/`ReadAllText` gate
    broke admission in four places (Swarm P audit 2026-10-07). The lease itself rejects acquisition outside that
    window but does **not** check disk; the disk floor is enforced per lane.
    Only the settlement Stage-A wrapper can request the explicit
    09:30–11:55 exception. Bounded test suites additionally kill their complete
    Job-owned child tree at 09:00 rather than merely checking the start time.
+   Their capture-worker admission refuses at once on a dead worker pid; any
+   other unhealthy worker (unreadable status, pid mismatch, stale heartbeat)
+   is re-read after 8 s and refuses only when the same worker fails two
+   consecutive polls, with at most three polls. Each poll reads every status
+   and lock file with up to 5 attempts 2 s apart. Each unhealthy worker's
+   reason is written to the suite log.
    **Disk thresholds are binary units (GiB), whatever a log line prints.** The
    bounded suite requires 53,687,091,200 bytes = 50 GiB
    (`scripts/ops/bounded_worktree_test_suite.ps1`, `Assert-SuiteDiskHeadroom`);
@@ -433,7 +602,7 @@ Stage-A, workstation or live authority is added.
    `WeatherMemoryCommitGuard` task runs every minute. It warns when available
    physical RAM is below 1.5 GiB and records the top working-set processes. It
    warns at 85% commit and, at 92%, terminates the largest eligible ungoverned
-   Python or aggregate Codex/ChatGPT process tree above 8 GB. Physical-RAM
+   Python or aggregate Codex/ChatGPT/Claude process tree above 8 GB. Physical-RAM
    pressure is warning-only: every emergency memory kill remains commit-based.
    Production `-m weather.*` workers are excluded by process ancestry and
    command identity. Agents running unbounded materializations must chunk or
@@ -451,11 +620,224 @@ Stage-A, workstation or live authority is added.
    down evidence at 09:00 and settlement at 11:55. Stage B therefore releases
    the host before the 09:30 Stage-A exception, and Stage A cannot cross into
    the graded window.
-6. **Agent verification is serial and time-gated.** The OS guard terminates
-   recognized agent-owned (codex.exe, chatgpt.exe or claude.exe root) pytest, compileall, inline/bare Python, and recursive
-   data-scan tool trees outside 00:30–09:00, and retains at most one such tree
-   inside the window. An agent-owned tool tree is independently terminated when
-   its aggregate private bytes reach the 8 GB per-job ceiling; this does not
+6. **Agent verification is serial and time-gated.** The OS guard
+   (`scripts/ops/memory_commit_guard.ps1`) terminates recognized agent-owned
+   (codex.exe, chatgpt.exe or claude.exe root) heavy tool trees outside
+   00:30–09:00, and retains at most one such tree inside the window. A tool tree
+   is the agent root's direct child (a PowerShell, cmd, Bash or sh shell, or a
+   bare tool such as `rg.exe`); the 15-second grace runs on the tool root's age,
+   so a short-lived heavy child of an older shell is counted at once. A tree is
+   heavy when any member is, judged first by that member's **own** command line,
+   because Claude Code's PowerShell tool passes its script text through an
+   environment variable and the shell line shows nothing:
+   pytest/compileall/coverage/tox/nox; inline, stdin or script Python (interpreter
+   options such as `-I` or `-X utf8` before the script included, and an unquoted
+   interpreter path with spaces such as `C:\Program Files\Python312\python.exe`;
+   a bare interpreter, such as a REPL or a stdio server, is not); a `-m` module
+   on the explicit heavy list unless its first argument is `status`, `--help`,
+   `-h` or `--version`. The list is `Get-WeatherWorkstationOfflineModule` (read
+   from `workload_admission.ps1`) plus the guard's own entries:
+   `weather.operations.daily_refresh`, `weather.operations.daily_refresh_bounded`,
+   `weather.backtesting.r0_paired_replay`, `weather.backtesting.metar_keying_replay`,
+   `weather.backtesting.lockin_anchor_replay`, `weather.calibration.pooled_training`,
+   `weather.calibration.pooled_band_training` and
+   `weather.calibration.pooled_density_training`. Also heavy: an `rg`, recursive
+   `grep` or GNU `find` process (never Windows `find.exe`, never
+   `find -maxdepth 0|1`) whose own path arguments, not its pattern or option
+   values, name a repository `data` directory (relative `data\...`, or an
+   absolute path whose parent of `data` holds `.git`; a UNC path is never
+   probed); and `robocopy` with `/S`, `/E` or `/MIR`.
+   **Shell lines are a secondary signal** (master's rule, kept): a powershell,
+   pwsh or cmd line is heavy when it runs `-m pytest|compileall|coverage|tox|nox`,
+   a listed module or a `weather.*` module matching
+   `retrain|training|replay|backtest|daily_refresh|score_all` (readers exempt as
+   above), `Get-ChildItem -Recurse`, or `rg` over a `data` path. That catches a
+   `foreach { python -m pytest $f }` loop whose children each finish inside the
+   grace. Bash and sh lines are never classified, since they may only quote a
+   command; their children are judged instead. Other weather CLIs (recovery
+   checks, supervisors, `*_status`/`*_report` readers, replay_cache_retention) are
+   outside the rule and caught only by the budget below. Not visible: an
+   in-process recursive scan inside a hidden PowerShell script, until its tree's
+   private bytes trip the budget below.
+   **Lease-admitted work is not a window or concurrency target.** A heavy member
+   is admitted when it, a verified ancestor below the agent root, or (unless the
+   member is a `powershell`/`pwsh`/`cmd` line that is heavy by its own text) any
+   process in its own subtree is the live owner of a heavy-workload lease from
+   `workload_admission.ps1` (repository lock
+   `data\logs\heavy_workload[.slotN].lock` of the guard's checkout, or an `ACTIVE`
+   or `TEARDOWN_PENDING` host-global
+   `%ProgramData%\WeatherProject\heavy_workload_v1[.slotN].poison` record),
+   matched by PID and process creation instant so a stale record admits nothing,
+   **and only while the record's `policy_window` is open**: `agent_heavy`
+   00:30–09:00, the guard's own window with no grace; `stage_a` 09:30 to its
+   11:55 teardown deadline; `workstation_offline` and `portable_execution` (also
+   read from a state record's `execution_host_profile`) at any hour **on the
+   assigned non-capture host only**: the guard's own execution-host identity must
+   be `active_portable_execution_host_id` in
+   `config/international_live_execution_host.json`, must not be
+   `dedicated_capture_execution_host_id`, the guard must not be registered with
+   `-ExpectedExecutionHostId`, and a repository lock must name that identity as
+   its `execution_host_id` (a state record has no such field and lives in the
+   host's own `%ProgramData%`). Anywhere else, or on any doubt, such a record
+   gets the `agent_heavy` window with a WARNING. Any other record (the
+   integration mutex, an older schema, an expired owner exception) gets the
+   `agent_heavy` window too. Past its window an owner's heavy descendants are
+   stopped like unadmitted members, a heavy owner ancestor is stopped alone (the
+   owner is orphaned, not stopped), and only the owner is spared, with a
+   CRITICAL log. A heavy shell line above an in-window owner is stopped alone the
+   same way.
+   That covers `workstation_heavy.ps1`, the bounded
+   suite, `training_window.ps1`, `daily_refresh.ps1` (which takes its own lease)
+   and one-off lease wrappers, including when a script, `py` or a git hook
+   launched the wrapper. Each tree holding a live lease owner takes exactly one
+   in-window slot first for its admitted work; its unadmitted heavy members, if
+   any, compete with the other trees for the remaining slots, oldest first, and a
+   losing leased tree loses only those members.
+   **Orphaned lease trees.** The guard remembers, in
+   `data\logs\memory_commit_guard_state.json`, each live lease owner it saw
+   inside an agent tree (PID and creation instant), with the tool root it sat
+   under at sighting (PID and creation instant). When a remembered owner is
+   still a live lease owner but has lost its agent root (its parent was stopped
+   alone), the top of its verified ancestry becomes a tool root of its own, so
+   window, concurrency, budget and commit-emergency rules keep applying to the
+   orphaned tree. The climb stops at the recorded root and is refused (WARNING,
+   no agent rule applies to that tree) when it would leave the root's subtree
+   (it meets a process created before the root) or reach a service-host or
+   session image (`services.exe`, `wininit.exe`, `svchost.exe`, `explorer.exe`,
+   `taskhostw.exe`, `winlogon.exe`, `csrss.exe`, `smss.exe`, `lsass.exe`),
+   matched exactly and case-insensitively on the image file name Windows reports
+   (`Win32_Process.Name`), not the command line. A record written before the
+   root was stored names no root and adopts nothing: on rollout, an orphan the
+   guard governs from such a record loses its agent rules for good (it is not
+   remembered again once unadopted), which only spares. A released lease ends
+   the attribution.
+   **Guard state failures only ever spare.** The same file carries the
+   unreadable-lock count below. A state file that exists but cannot be read
+   (sharing violation, access denied) or does not parse as a v1 record is logged
+   as ERROR and the run proceeds with no memory: the unreadable-lock count
+   restarts and no orphaned tree is attributed, so the guard can only spare more,
+   never stop more. An unreadable file is left in place for the next run; a
+   damaged one is replaced. A failed write is logged as ERROR and leaves the
+   previous record in place. A record more than 300 seconds old or more than 60
+   seconds in the future is stale and ignored; otherwise its remembered owners
+   stay usable (they match by PID and creation instant). Each record also stores
+   the writing guard's own process start (`run_started_at_utc`, from
+   `Get-Process -Id $PID`) and `run_seconds`, its time from that start to the
+   write; `k = max(1, ceil(run_seconds / 60))` is the trigger minutes it occupied
+   (the task ignores triggers while a run is still going). With `a` the reader's
+   process start minus the writer's, the unreadable-lock count carries over in
+   full when `0 <= a <= 60k + 30` (and 300), otherwise at most 1, and none when
+   `a < 0` or the record is dated in the future. At most 1 also carries when
+   either process start is unknown (a record written before this field, so the
+   first run after rollout caps, or `Get-Process` could not say) or
+   `run_seconds` is not a number from 0 to 300 (absent reads as 0, `k = 1`).
+   Why: measuring both runs from their process starts cancels PowerShell
+   start-up time, which is slowest under commit pressure, and leaves only Task
+   Scheduler's launch latency. With no run in between, the reader is the first
+   trigger after the writer ended, `a = 60k` plus the launch-latency
+   difference; with a run in between that did not write, `a >= 60(k+1)` plus
+   that difference, past the window. This is not unconditional. It assumes one
+   shared budget, (launch-latency difference) + (clock step in either direction
+   between the two process starts) < 30 seconds, and no out-of-band (manual)
+   guard run starting in between. Launch latency is the time from a trigger
+   instant to the guard's process start: late trigger firing, the S4U token
+   build, and `StartWhenAvailable` catch-up starts
+   (`register_memory_commit_guard.ps1`), which can be arbitrarily late; all of
+   them grow under commit pressure. A forward clock step during the writer's
+   start-up also inflates `run_seconds` (its start-up part is wall clock) and
+   can raise `k`, widening the window. That case is **outside** the
+   assumptions: with the repeating triggers on wall-clock time and IgnoreNew,
+   the higher `k` may match a trigger the writer really did skip, but nothing
+   guarantees it, so the guard does not rely on it. Otherwise `run_seconds`
+   misses only the launch latency before the process and the status write
+   after the state write (a tail that can cross a trigger), so `k` can only be
+   too low, which caps and only spares. A stale count can therefore never push
+   a run past the two-run limit under those assumptions. The script's header
+   comment is looser and superseded: it allows a launch-latency difference and
+   a backward clock step of 30 seconds each (about 60 seconds together); this
+   paragraph is the authority. **Accepted residual:** when the budget is
+   exceeded (most plausibly at `k = 1`, when the writer's launch latency
+   exceeded the reader's by 30 seconds or more, as a catch-up start can), a
+   wrong full carry ends torn-lock sparing one run early. The kills it can then
+   reach are only those the normal window, concurrency and budget rules
+   already permit: agent-rooted or adopted-orphan trees, heavy-list
+   `-m weather.*` modules in them included; a governed branch is eligible only
+   when it alone reaches the budget. Scheduler-launched capture workers are
+   never agent-rooted, and the orphan climb never passes its recorded root or a
+   blocked image, so they are not among those trees. A write failure
+   that persists keeps the count from building, so the two-run cap is then in
+   effect off: torn locks keep sparing, never killing more. The status file
+   reports `guard_state_read` (`absent`, `ok`, `stale`, `unreadable`, `invalid`),
+   `guard_state_carry` (`full`, `capped`, `none`), `guard_state_written` and
+   `guard_state_degraded`; `guard_state_degraded` is a
+   status field only, nothing reads it, and no health alert is raised from it.
+   **Release.** `Exit-WeatherHeavyWorkloadLease` overwrites the repository lock
+   with a `weather_heavy_workload_lease_released_v1` marker before it disposes the
+   handle; the guard reads that marker as no lease, so a former owner that keeps
+   running after release admits nothing.
+   The guard reads only the lock files of **its own checkout** plus the
+   host-global state files: a lease taken against another checkout or worktree
+   is invisible to it unless that profile also writes the host-global record.
+   **Foreign, empty and torn lock records.** Any other JSON record with a `pid`
+   in a lock file (the integration control mutex writes
+   `weather_integration_control_mutex_v1` into `heavy_workload.lock` and never
+   clears it; older schemas) admits only a live process with that PID created no
+   later than the file's last write, so a leftover record whose PID was reused
+   admits nothing and does not disable any kill. An empty or unparseable lock
+   file written within the last 60 seconds may be an acquisition mid-write: the
+   guard logs a WARNING and skips window and concurrency kills for that minute
+   (budget kills then stop heavy members only), for at most two runs in a row
+   (counted in the state file above). From the third consecutive run every rule
+   applies as if the file were absent, so a lock rewritten as garbage every
+   minute cannot disable the guard, including while runs take over 60 seconds
+   or start slowly (`run_seconds` counts from the process start); only a run
+   that ends within Task Scheduler's launch latency of a trigger, or whose
+   status write after the state write crosses a trigger, can be undercounted,
+   which holds the count at 2 and only ever spares. An older empty or
+   unparseable file is stale and ignored. A file whose last-write time cannot be
+   read counts as mid-write only for a sharing or lock violation or a vanished
+   file; any other failure is logged as ERROR and the file is ignored.
+   **No guard rule terminates a tree that contains a live lease owner as a
+   whole, nor the owner or the agent root.** As a last line, the tree-kill
+   routine itself skips any live owner (PID and creation instant), and while any
+   owner lives, or a lease record is unreadable within the two-run limit above,
+   it leaves console hosts
+   (`conhost.exe`, `OpenConsole.exe`) running, since ending one ends every
+   process on its console, the owner included. Window and concurrency rules stop
+   only unadmitted heavy member subtrees. Over the budget, if the subtrees hanging
+   off the owner's spine (the tree root, each owner and the owner's ancestors)
+   could bring the tree under budget, the guard stops them largest first, of any
+   process type, until it is; a subtree holding a governed `-m weather.*` process
+   (such as capture children restored by `training_window`) is eligible only
+   when it alone reaches the budget. If they could not, the memory sits on the
+   spine: the guard stops the spine's single largest non-owner process alone,
+   never its subtree, and only when stopping it brings the spine under budget
+   (it holds more than the spine's bytes minus the budget); otherwise it logs a
+   WARNING and stops nothing. A typical target is a parent such as
+   `python tools\run_suite.py` that launched the lease wrapper; the owner is
+   orphaned but runs on, and its `finally` (lease release, `training_window`
+   re-enabling capture) still runs. When the largest spine process is a lease
+   owner itself, the guard logs CRITICAL and spares it, up to a **hard ceiling**:
+   at 97% commit, or when the owner process itself holds twice the per-job budget,
+   the guard stops the owner and its subtree too (CRITICAL; its `finally` blocks
+   are lost). The commit emergency below applies the same ceiling. **Job handles:** before
+   stopping any process alone while an owner lives, the guard asks whether that
+   process holds a handle to a job object containing a live owner (system handle
+   table, each job handle duplicated with query access, `IsProcessInJob` per
+   owner); if it does, or the answer cannot be determined, it refuses with
+   CRITICAL, since closing a kill-on-close job would end the owner. Job
+   membership alone is not checked: every process an agent spawns may share the
+   agent's own job, whose handle the never-stopped agent root holds.
+   The commit-92% emergency path below follows the same rules: a Python process
+   whose subtree holds a lease owner is stopped alone, never with its subtree (an
+   owner itself is spared), and an agent tree holding an owner loses its
+   off-spine subtrees largest first, owner, owner ancestors and console hosts
+   never included, until it is under budget; when the spine alone is over budget,
+   the spine's largest non-owner process is stopped alone if that brings it under
+   (or if it reaches the budget itself), otherwise a WARNING. An agent tree
+   without a lease owner is still stopped from its agent root, as before.
+   An agent-owned tool tree without a lease owner is independently terminated
+   when its aggregate private bytes reach the 8 GB per-job ceiling; this does not
    wait for global commit to reach 92%. In Codex sessions a user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
    suites use the repository-owned full-suite wrapper (at most 25 files per chunk). Never use
@@ -463,8 +845,9 @@ Stage-A, workstation or live authority is added.
    on this host. Hook trust is useful defense-in-depth, not authority to weaken
    the S4U watchdog. Install the user-layer hook with
    `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
-   exact definition on the next session. Claude Code sessions have no hook; the
-   S4U guard is their only backstop.
+   exact definition on the next session. Claude Code sessions have no
+   pre-launch hook; the S4U guard is their only backstop, and it acts only after
+   launch (15-second grace on the tool root's age, then the next one-minute tick).
 7. **Test runs are disk writers.** The bounded wrapper keeps pytest and
    `TEMP`/`TMP` in sibling directories under each chunk's cleaned root, and
    restores the parent environment even on failure. Always pass `--basetemp <dir>` to pytest,
@@ -507,6 +890,13 @@ Stage-A, workstation or live authority is added.
       fixed -04:00 offset (OD28, #249), and the integration sequencer does not
       run the night of 10-31 to 11-01 (05-F3). Task order and the read-only
       check: [OPERATIONS_DESIGN](OPERATIONS_DESIGN.md) "DST re-registration (OD28)".
+11. **Cap native threads in serial HGB loops** (both hosts). An offline replay or scoring loop that calls
+    HGB predict serially sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` to 1,
+    before numpy/sklearn import and only when unset. Uncapped, one serial loop took ~17 cores of the
+    32 GB workstation at ~27 s/folder; capped, ~3 s/folder (lever-5 twin run, 2026-10-21). The lever-5
+    driver does this at entry (`tools/research/model_edge_lever5/run.py`, `os.environ.setdefault`,
+    codecheck `f589ad9729fdce2ccee2850279aa36745303a0ee`; only when started through `run.py`). It
+    matters more on the 16 GB capture host, where an oversubscribed pool competes with capture.
 
 **Space inventory is not a heavy command.** `scripts/ops/workstation_space_report.ps1` is read-only and may
 run on either host at any hour: it lowers its own priority, runs no Python, pytest or `Get-ChildItem -Recurse`,

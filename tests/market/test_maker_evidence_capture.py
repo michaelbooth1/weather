@@ -179,6 +179,36 @@ def test_public_allowlist_refuses_authenticated_and_mutating_routes(store, url, 
         reader.close()
 
 
+def test_gamma_listing_advertises_gzip_without_changing_clob(store, monkeypatch):
+    seen = []
+
+    class Response:
+        status_code = 200
+        url = "https://gamma-api.polymarket.com/events?limit=100"
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def iter_content(self, size):
+            # requests.iter_content yields decoded bytes, including for gzip.
+            yield b"[]"
+        def raise_for_status(self):
+            pass
+
+    reader = PublicReader(store)
+    def request(method, url, **kwargs):
+        seen.append((url, kwargs))
+        return Response()
+    monkeypatch.setattr(reader.session, "request", request)
+    try:
+        assert reader.read("https://gamma-api.polymarket.com/events", params={"limit": 100}) == []
+        assert reader.read("https://clob.polymarket.com/books", body=[], kind="books") == []
+        assert seen[0][1]["headers"]["Accept-Encoding"] == "gzip"
+        assert seen[1][1]["headers"] is None
+    finally:
+        reader.close()
+
+
 def test_books_require_exact_token_coverage(store):
     class Reader:
         def read(self, *args, **kwargs):
@@ -283,6 +313,15 @@ def test_completed_capture_inspection_verifies_payload_and_detects_tamper(store)
     path.write_bytes(encoded(row) + b"\n")
     with pytest.raises(ValueError, match="hash mismatch"):
         inspect_capture(store.root, NOW.date().isoformat())
+
+
+def test_inspection_verifies_stream_tokens_subscription_references(store):
+    from weather.market import maker_evidence_stream as module
+    from weather.market.maker_evidence_inspect import inspect_capture
+    module.PublicStream(store, trades_only=True)._journal_tokens([("123",), ("456",)])
+    terminal(store)
+    # Each named subscription is re-read from its referenced offset and its hash checked.
+    assert inspect_capture(store.root, NOW.date().isoformat())["response_records_verified"] == 3
 
 
 def test_handshake_failure_is_recorded_and_retryable(store, monkeypatch):

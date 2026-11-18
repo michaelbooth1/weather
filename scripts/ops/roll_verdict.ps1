@@ -57,9 +57,14 @@ function Get-OptionalPropertyValue {
         [Parameter(Mandatory = $true)][string]$Name
     )
 
-    if ($null -ne $InputObject -and $InputObject.PSObject.Properties.Name -contains $Name) {
-        return $InputObject.$Name
-    }
+    # Look the property up through the Properties indexer, which returns $null for a missing
+    # name. The former `.PSObject.Properties.Name -contains` form member-enumerates `.Name`
+    # over the property collection, and under an inherited Set-StrictMode that throws
+    # "The property 'Name' cannot be found" when the object has NO properties -- an empty
+    # `runtime_identity: {}` crashed the whole verdict instead of yielding UNDECIDABLE.
+    if ($null -eq $InputObject) { return $null }
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($null -ne $property) { return $property.Value }
     return $null
 }
 
@@ -73,37 +78,73 @@ function Get-OptionalPropertyValue {
 # fifth closure and simultaneously missed clob_enrichment_status.json, which does not match a
 # `*_supervisor_status.json` glob. That is the exact error this explicit list prevents: the union
 # looked complete and was wrong in both directions at once.
-$statusFiles = @(
-    "data\snapshots\loop_supervisor_status.json"              # snapshot
-    "data\snapshots\clob_loop_supervisor_status.json"         # CLOB
-    "data\snapshots\observation_trigger_supervisor_status.json" # observation-trigger
-    "data\snapshots\clob_enrichment_status.json"              # CLOB-enrichment
-)
-$executionTask = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
-$executionWorkerStatus = Join-Path $repo "data\snapshots\execution_tape_status.json"
-$executionWriterLock = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
-$executionActive = $false
-if ($executionTask -and [string]$executionTask.State -ne "Disabled") {
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWriterLock) {
-    # A disabled/missing task does not prove its detached child is gone.
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWorkerStatus) {
-    try {
-        $executionWorker = Get-Content -LiteralPath $executionWorkerStatus -Raw | ConvertFrom-Json
-        $executionState = [string](Get-OptionalPropertyValue -InputObject $executionWorker -Name "state")
-        $executionActive = $executionState -ne "STOPPED"
+#
+# Since data layer v2 S1 the list lives in config\capture_families.json (platform.roll_closures),
+# shared with staleness_sweep.ps1, so adding a capture closure is one reviewed row rather than a
+# hand edit in several scripts. The registry is read fail-closed: an unreadable or malformed
+# registry makes the verdict UNDECIDABLE, never a shorter closure list.
+# tests/operations/test_capture_registry.py proves the registry reproduces the pre-S1 list.
+$registryPath = Join-Path $repo "config\capture_families.json"
+$registryRows = @()
+try {
+    $registry = Get-Content -LiteralPath $registryPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    $platform = Get-OptionalPropertyValue -InputObject $registry -Name "platform"
+    $registryRows = @(Get-OptionalPropertyValue -InputObject $platform -Name "roll_closures")
+    foreach ($row in $registryRows) {
+        $rowPath = [string](Get-OptionalPropertyValue -InputObject $row -Name "status_path")
+        $rowArming = [string](Get-OptionalPropertyValue -InputObject $row -Name "arming")
+        if ($rowPath -notmatch '^data/[A-Za-z0-9_./-]+\.json$' -or $rowPath -match '\.\.' -or
+            $rowArming -notin @("always", "while_armed_or_active")) {
+            throw "malformed roll_closures row: $rowPath"
+        }
+        # An optional producer is judged by its task's state, so a row without a task name cannot
+        # be judged. Refuse it here: a missing task once threw under inherited strict mode (bare
+        # `$row.task`), and an empty -TaskName must never read as "not armed" (that drops a closure).
+        if ($rowArming -eq "while_armed_or_active" -and
+            -not [string](Get-OptionalPropertyValue -InputObject $row -Name "task")) {
+            throw "malformed roll_closures row: $rowPath (optional producer without a task)"
+        }
     }
-    catch {
-        # No task and no writer lock means an unreadable retained bounded-pilot
-        # artifact cannot describe a currently rollable process.
-        $executionActive = $false
-    }
+    if ($registryRows.Count -eq 0) { throw "no roll_closures rows" }
 }
-if ($executionActive) {
-    $statusFiles += "data\snapshots\execution_tape_supervisor_status.json"
+catch {
+    Write-Output "UNDECIDABLE: capture closure registry unreadable: config\capture_families.json ($($_.Exception.Message))"
+    exit 1
+}
+
+function ConvertTo-RepoRelativeWindowsPath([string]$Path) { return ($Path -replace '/', '\') }
+
+$statusFiles = @()
+foreach ($row in $registryRows) {
+    $rel = ConvertTo-RepoRelativeWindowsPath ([string](Get-OptionalPropertyValue -InputObject $row -Name "status_path"))
+    if ([string](Get-OptionalPropertyValue -InputObject $row -Name "arming") -eq "always") { $statusFiles += $rel; continue }
+
+    # An optional producer (today: the execution tape) is required only while it is armed or still
+    # running. An unarmed optional producer cannot roll and must not make ordinary verdicts undecidable.
+    $optionalTask = Get-ScheduledTask -TaskName ([string](Get-OptionalPropertyValue -InputObject $row -Name "task")) -ErrorAction SilentlyContinue
+    $optionalWorkerRel = [string](Get-OptionalPropertyValue -InputObject $row -Name "worker_status")
+    $optionalLockRel = [string](Get-OptionalPropertyValue -InputObject $row -Name "writer_lock")
+    $optionalActive = $false
+    if ($optionalTask -and [string]$optionalTask.State -ne "Disabled") {
+        $optionalActive = $true
+    }
+    elseif ($optionalLockRel -and (Test-Path -LiteralPath (Join-Path $repo (ConvertTo-RepoRelativeWindowsPath $optionalLockRel)))) {
+        # A disabled/missing task does not prove its detached child is gone.
+        $optionalActive = $true
+    }
+    elseif ($optionalWorkerRel -and (Test-Path -LiteralPath ($optionalWorkerStatus = Join-Path $repo (ConvertTo-RepoRelativeWindowsPath $optionalWorkerRel)))) {
+        try {
+            $optionalWorker = Get-Content -LiteralPath $optionalWorkerStatus -Raw | ConvertFrom-Json
+            $optionalState = [string](Get-OptionalPropertyValue -InputObject $optionalWorker -Name "state")
+            $optionalActive = $optionalState -ne "STOPPED"
+        }
+        catch {
+            # No task and no writer lock means an unreadable retained bounded-pilot
+            # artifact cannot describe a currently rollable process.
+            $optionalActive = $false
+        }
+    }
+    if ($optionalActive) { $statusFiles += $rel }
 }
 
 # A closure is only load-bearing if its loop is actually running. A dormant loop cannot be
@@ -119,13 +160,22 @@ foreach ($rel in $statusFiles) {
     if (-not (Test-Path -LiteralPath $path)) { $problems += "missing closure evidence: $rel"; continue }
     try { $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
     catch { $problems += "unreadable closure evidence: $rel"; continue }
+    # An empty file or a literal `null` parses to $null; it is not closure evidence.
+    if ($null -eq $doc) { $problems += "unreadable closure evidence: $rel (empty document)"; continue }
 
+    # A missing, null, empty-string or empty-object runtime identity is NOT evidence that the loop
+    # imports nothing; it is the absence of evidence, so it is reported and the closure is dropped
+    # (with no live closure the verdict is UNDECIDABLE). It must never count toward ROLL-FREE.
     $identity = $null
     foreach ($key in @("current_runtime_identity", "runtime_identity_before", "runtime_identity")) {
-        if ($doc.PSObject.Properties.Name -contains $key -and $doc.$key) { $identity = $doc.$key; break }
+        $candidate = Get-OptionalPropertyValue -InputObject $doc -Name $key
+        if ($candidate) { $identity = $candidate; break }
+    }
+    if (-not $identity -or @($identity.PSObject.Properties).Count -eq 0) {
+        $problems += "no source_scope_files in $rel (runtime identity empty or absent)"; continue
     }
     $sourceScopeFiles = Get-OptionalPropertyValue -InputObject $identity -Name "source_scope_files"
-    if (-not $identity -or -not $sourceScopeFiles) {
+    if (-not $sourceScopeFiles) {
         $problems += "no source_scope_files in $rel"; continue
     }
 

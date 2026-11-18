@@ -22,7 +22,9 @@ These instructions apply to `docs/roadmap/`.
 
 Most files directly under `docs/roadmap/` are not item files. They are the
 append-only decision log between the production-host agent and the workstation
-research agent. They preserve direction and results for their specific missions.
+research agent. They preserve direction and results for their specific missions. The
+[delegation contract](../operations/DELEGATION_CONTRACT.md#8-dispatching-a-mission-to-the-workstation)
+owns the master-to-Codex channel and task-folder protocol; transport does not grant owner approval.
 
 | Pattern | Direction | Meaning |
 | --- | --- | --- |

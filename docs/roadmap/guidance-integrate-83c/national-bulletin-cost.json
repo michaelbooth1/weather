@@ -1,0 +1,46 @@
+{
+  "national_sha256": "4ed1513243a636a7eac49f2ad0da9df962b0a889aa0cfa502e55439cdb0c277d",
+  "national_bytes": 34724479,
+  "cycle": "nbm-nbp:20260917T07Z",
+  "stations": [
+    "KATL",
+    "KAUS",
+    "KBKF",
+    "KDAL",
+    "KHOU",
+    "KLAX",
+    "KLGA",
+    "KMIA",
+    "KORD",
+    "KSEA",
+    "KSFO"
+  ],
+  "network_requests": 0,
+  "stub_downloads": 2,
+  "measurements": [
+    {
+      "operation": "blob_read_hash",
+      "wall_seconds": 0.05477479999535717,
+      "traced_current_bytes": 34725272,
+      "traced_peak_bytes": 70237837
+    },
+    {
+      "operation": "complete_nbp",
+      "wall_seconds": 0.5238487999886274,
+      "traced_current_bytes": 2464,
+      "traced_peak_bytes": 9402
+    },
+    {
+      "operation": "whole_reuse",
+      "wall_seconds": 3.173433299991302,
+      "traced_current_bytes": 34735317,
+      "traced_peak_bytes": 70255364
+    },
+    {
+      "operation": "whole_per_scope_stubbed",
+      "wall_seconds": 2.679494500014698,
+      "traced_current_bytes": 34733152,
+      "traced_peak_bytes": 71567712
+    }
+  ]
+}

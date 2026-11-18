@@ -47,9 +47,11 @@ function Get-ModulesSha256([string]$Root) {
     try { -join ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) } finally { $sha.Dispose() }
 }
 
+. (Join-Path $PSScriptRoot 'scheduled_task_test_guard.ps1')
 if ($Unregister) {
     if ($preview) { Write-Output "What if: Unregister-ScheduledTask $taskName" }
     else {
+        Assert-WeatherScheduledTaskTestIsolation -Command @('Unregister-ScheduledTask')
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         Write-Output "unregistered $taskName"
     }
@@ -71,6 +73,7 @@ if ($preview) {
     exit 0
 }
 
+Assert-WeatherScheduledTaskTestIsolation -Command @('Register-ScheduledTask','Get-ScheduledTask','Disable-ScheduledTask')
 $action = New-ScheduledTaskAction -Execute $executable -Argument $arguments -WorkingDirectory $repo
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 5)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited

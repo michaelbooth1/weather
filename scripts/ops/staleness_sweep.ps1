@@ -28,7 +28,9 @@
 .PARAMETER MarkdownOut
     Latest human-readable snapshot. Default data\alerts\STALENESS_SWEEP.md
 .OUTPUTS
-    Exit 0 all fresh, 1 one or more WARN, 2 one or more CRITICAL.
+    Exit 0 all fresh, 1 one or more WARN, 2 one or more CRITICAL. A KNOWN row (a listed,
+    still-held $knownCriticals entry) counts toward none of them. Each JSONL row also carries
+    known_count and task_results, a last-run snapshot of every config\scheduled_tasks.json task.
 #>
 [CmdletBinding()]
 param(
@@ -41,6 +43,8 @@ $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 if (-not $JsonOut) { $JsonOut = Join-Path $repo "data\alerts\staleness_sweep.jsonl" }
 if (-not $MarkdownOut) { $MarkdownOut = Join-Path $repo "data\alerts\STALENESS_SWEEP.md" }
 $now = Get-Date
+# File ages use UTC on both sides; a local LastWriteTime is off by up to an hour across DST.
+$nowUtc = [DateTime]::UtcNow
 $findings = @()
 
 function Add-Finding($name, $severity, $detail, $why, $ageDays, $limitDays) {
@@ -56,9 +60,105 @@ function Test-FileAge($name, $relPath, $warnDays, $critDays, $why) {
     if (-not (Test-Path -LiteralPath $path)) {
         Add-Finding $name "CRITICAL" "missing: $relPath" $why $null $warnDays; return
     }
-    $age = ($now - (Get-Item -LiteralPath $path).LastWriteTime).TotalDays
+    $age = ($nowUtc - (Get-Item -LiteralPath $path).LastWriteTimeUtc).TotalDays
     $sev = if ($age -gt $critDays) { "CRITICAL" } elseif ($age -gt $warnDays) { "WARN" } else { "OK" }
     Add-Finding $name $sev ("{0} is {1:N1}d old" -f $relPath, $age) $why $age $warnDays
+}
+
+function Get-WeatherStageAChainFinding {
+    # Did the latest Stage-A run COMPLETE? The report mtime cannot answer this: the chain
+    # checkpoints daily_refresh_report.md after every step, so a chain killed at its 11:55
+    # deadline leaves a fresh report. The Stage-A manifest is published COMPLETED only by the
+    # end-of-run write (checkpoints write RUNNING), so it is the authority. The report is a
+    # fallback only when the manifest is missing or unreadable.
+    param([string]$ManifestPath, [string]$ReportPath, [datetime]$Now,
+          [double]$WarnDays = 1, [double]$CritDays = 2)
+    $manifest = $null
+    if (Test-Path -LiteralPath $ManifestPath) {
+        try { $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+        catch { $manifest = $null }
+    }
+    if ($null -ne $manifest -and $manifest.status) {
+        $status = [string]$manifest.status
+        $age = ($Now - (Get-Item -LiteralPath $ManifestPath).LastWriteTime).TotalDays
+        if ($status -eq 'COMPLETED') {
+            $sev = if ($age -gt $CritDays) { 'CRITICAL' } elseif ($age -gt $WarnDays) { 'WARN' } else { 'OK' }
+            $detail = 'latest Stage-A run COMPLETED at {0}; manifest is {1:N1}d old' -f $manifest.completed_at_utc, $age
+        } elseif ($status -eq 'RUNNING' -and $age -le (2 / 24)) {
+            $sev = 'WARN'
+            $detail = 'latest Stage-A run (started {0}) is RUNNING; last checkpoint {1:N1}h ago - in progress, or killed if this persists' -f $manifest.started_at_utc, ($age * 24)
+        } else {
+            $sev = 'CRITICAL'
+            $detail = 'latest Stage-A run (started {0}) never reached COMPLETED: manifest status {1}, last written {2:N1}d ago (a chain killed mid-run still leaves a fresh checkpointed report)' -f $manifest.started_at_utc, $status, $age
+        }
+        return [PSCustomObject]@{ severity = $sev; detail = $detail; age_days = $age; source = 'manifest' }
+    }
+    if (-not (Test-Path -LiteralPath $ReportPath)) {
+        return [PSCustomObject]@{ severity = 'CRITICAL'; detail = 'Stage-A manifest unreadable and report missing'; age_days = $null; source = 'none' }
+    }
+    $age = ($Now - (Get-Item -LiteralPath $ReportPath).LastWriteTime).TotalDays
+    $text = ''
+    try { $text = [string](Get-Content -LiteralPath $ReportPath -Raw -ErrorAction Stop) } catch { $text = '' }
+    if ($text -match 'Status: \*\*running\*\*') {
+        return [PSCustomObject]@{ severity = 'CRITICAL'; age_days = $age; source = 'report'
+            detail = ('Stage-A manifest unreadable; report ({0:N1}d old) is a mid-run checkpoint (Status: running), so the chain did not complete' -f $age) }
+    }
+    $sev = if ($age -gt $CritDays) { 'CRITICAL' } elseif ($age -gt $WarnDays) { 'WARN' } else { 'OK' }
+    return [PSCustomObject]@{ severity = $sev; age_days = $age; source = 'report'
+        detail = ('Stage-A manifest unreadable; report is {0:N1}d old and not a running checkpoint' -f $age) }
+}
+
+function Get-WeatherStageABarrierFinding {
+    # Completion and success are separate contracts: a contained barrier error
+    # publishes COMPLETED with payload_status=critical so learning can continue.
+    param([string]$ManifestPath)
+    function Get-BarrierProperty($Object, [string]$Name) {
+        if ($null -eq $Object) { return $null }
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -ne $property) { return ,$property.Value }
+        return $null
+    }
+    try {
+        $raw = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 -ErrorAction Stop
+        # Pipeline enumeration can unwrap a one-element JSON array on some
+        # PowerShell versions; require an object before deserializing it.
+        if ($raw -isnot [string] -or -not $raw.TrimStart().StartsWith('{')) { throw 'manifest root is not an object' }
+        $manifest = $raw | ConvertFrom-Json -ErrorAction Stop
+        $manifestStatus = Get-BarrierProperty $manifest 'status'
+        if ($manifestStatus -isnot [string] -or -not $manifestStatus) { throw 'manifest status missing or invalid' }
+    } catch {
+        return [pscustomobject]@{ severity = 'CRITICAL'; detail = 'Stage-A barrier unavailable: manifest missing or unreadable' }
+    }
+    if ($manifestStatus -ceq 'RUNNING') {
+        return [pscustomobject]@{ severity = 'WARN'; detail = 'Stage-A barrier pending; see the independent chain completion check' }
+    }
+    $barrier = Get-BarrierProperty $manifest 'barrier'
+    $payloadStatus = Get-BarrierProperty $manifest 'payload_status'
+    $target = Get-BarrierProperty $manifest 'target_date'
+    $barrierTarget = Get-BarrierProperty $barrier 'target_date'
+    $barrierStatus = Get-BarrierProperty $barrier 'status'
+    $barrierStepStatus = Get-BarrierProperty $barrier 'step_status'
+    $blockerCount = Get-BarrierProperty $barrier 'blocker_count'
+    $parsedTarget = [datetime]::MinValue
+    $validTarget = $target -is [string] -and [datetime]::TryParseExact($target, 'yyyy-MM-dd',
+        [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsedTarget)
+    $stringFields = $payloadStatus -is [string] -and $barrierTarget -is [string] -and
+        $barrierStatus -is [string] -and $barrierStepStatus -is [string]
+    $noBlockers = ($blockerCount -is [int] -or $blockerCount -is [long]) -and $blockerCount -eq 0
+    $severity = 'CRITICAL'
+    # Later rollup freshness may mark the parent critical while Stage B is
+    # held. This check owns only the barrier, not the aggregate pipeline.
+    if ($manifestStatus -ceq 'COMPLETED' -and $stringFields -and
+        $payloadStatus -cin @('ok', 'critical') -and
+        $barrierStatus -cin @('PASS', 'DIAGNOSTIC_ONLY') -and $barrierStepStatus -ceq 'ok' -and
+        $validTarget -and $barrierTarget -ceq $target -and $noBlockers) {
+        # Partial settled labels are non-blocking in the chain. Warn only when
+        # the receipt is otherwise valid; malformed diagnostics still fail closed.
+        $severity = if ($barrierStatus -ceq 'PASS') { 'OK' } else { 'WARN' }
+    }
+    $detail = 'Stage-A target {0}: manifest={1}, payload={2}, barrier={3}, barrier target={4}, blockers={5}; inspect data/backtest/settled_day_analysis_barrier.json and daily_refresh_status.json' -f `
+        $target, $manifestStatus, $payloadStatus, $barrierStatus, $barrierTarget, $blockerCount
+    return [pscustomobject]@{ severity = $severity; detail = $detail }
 }
 
 function Get-WeatherRewardCaptureFinding {
@@ -119,6 +219,121 @@ function Get-WeatherRewardCaptureFinding {
     return [pscustomobject]@{ severity = $severity; detail = $detail; age_minutes = $age }
 }
 
+# ---- known criticals: dated, condition-bound holds (DL R18) ----
+# A listed CRITICAL becomes KNOWN (Markdown '## Known' section and JSONL only; never the
+# CRITICAL table that status.ps1 reads) only while EVERY producer task is exactly Disabled and
+# the row has not expired. Anything else keeps the CRITICAL and adds a CRITICAL known/lapsed
+# row; an invalid row adds CRITICAL known/malformed. A row lives at most 60 days and each
+# renewal needs its own dated DECISION_LOG row. Until B's look closes, an expiry is never
+# answered by running Stage B (WeatherEveningEvidenceRefresh).
+$knownCriticalMaxDays = 60
+$knownCriticals = @(
+    [pscustomobject]@{
+        check = 'learning/daily_learning'
+        producers = @('WeatherEveningEvidenceRefresh', 'WeatherTrainingWindow')
+        recorded = '2026-11-04'; expires = '2026-12-31'; decision = 'DL R18'
+    }
+    [pscustomobject]@{
+        check = 'learning/market_beating_scoreboard'
+        producers = @('WeatherEveningEvidenceRefresh')
+        recorded = '2026-11-04'; expires = '2026-12-31'; decision = 'DL R18'
+    }
+)
+
+function Get-WeatherKnownCriticalDisposition {
+    # Pure: no scheduler, file or clock reads. $ProducerStates maps task name -> State string;
+    # a producer absent from the map is not held. Returns disposition KNOWN, LAPSED,
+    # MALFORMED or NONE (the finding is not CRITICAL, so there is nothing to hold).
+    param([object]$Row, [object]$Finding, [hashtable]$ProducerStates = @{}, [datetime]$Now,
+          [int]$MaxDays = 60)
+    $inv = [cultureinfo]::InvariantCulture
+    $check = [string]$(if ($null -ne $Row) { $Row.check })
+    $producers = @(if ($null -ne $Row) { @($Row.producers) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } })
+    $recorded = [datetime]::MinValue; $expires = [datetime]::MinValue
+    $bad = $null
+    if ($null -eq $Row -or [string]::IsNullOrWhiteSpace($check)) { $bad = 'row has no check name' }
+    elseif ($producers.Count -eq 0) { $bad = 'row names no producer task' }
+    elseif ([string]::IsNullOrWhiteSpace([string]$Row.decision)) { $bad = 'row cites no decision' }
+    elseif (-not [datetime]::TryParseExact([string]$Row.recorded, 'yyyy-MM-dd', $inv, 'None', [ref]$recorded)) { $bad = 'recorded is not yyyy-MM-dd' }
+    elseif (-not [datetime]::TryParseExact([string]$Row.expires, 'yyyy-MM-dd', $inv, 'None', [ref]$expires)) { $bad = 'expires is not yyyy-MM-dd' }
+    elseif ($expires -lt $recorded) { $bad = 'expires before recorded' }
+    elseif (($expires - $recorded).TotalDays -gt $MaxDays) { $bad = ('span {0:N0}d exceeds the {1}-day cap' -f ($expires - $recorded).TotalDays, $MaxDays) }
+    if ($bad) { return [pscustomobject]@{ disposition = 'MALFORMED'; reason = $bad } }
+    if ($null -eq $Finding -or [string]$Finding.severity -cne 'CRITICAL') {
+        return [pscustomobject]@{ disposition = 'NONE'; reason = 'finding is not CRITICAL' }
+    }
+    foreach ($producer in $producers) {
+        $name = [string]$producer
+        if ($null -eq $ProducerStates -or -not $ProducerStates.ContainsKey($name)) {
+            return [pscustomobject]@{ disposition = 'LAPSED'; reason = "producer $name is not registered or unreadable" }
+        }
+        $state = [string]$ProducerStates[$name]
+        if ($state -cne 'Disabled') {
+            return [pscustomobject]@{ disposition = 'LAPSED'; reason = "producer $name is $state, not Disabled" }
+        }
+    }
+    if ($Now.Date -gt $expires.Date) {
+        return [pscustomobject]@{ disposition = 'LAPSED'; reason = ('expired {0:yyyy-MM-dd}; renew with a dated DECISION_LOG row' -f $expires) }
+    }
+    return [pscustomobject]@{ disposition = 'KNOWN'; reason = ('held by {0} until {1:yyyy-MM-dd}' -f [string]$Row.decision, $expires) }
+}
+
+function Get-WeatherTaskResults {
+    # Daily snapshot of each task's last run from the Task Scheduler API only; never the event
+    # log. A task that is simply not registered is state 'NotRegistered', not a failure.
+    # Returns rows plus the list of failures (unreadable registry, or a task query error).
+    param([string]$ConfigPath, [string[]]$ExtraNames = @())
+    $rows = New-Object System.Collections.Generic.List[object]
+    $failures = New-Object System.Collections.Generic.List[string]
+    $names = New-Object System.Collections.Generic.List[string]
+    try {
+        $config = Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $configured = @($config.tasks | ForEach-Object { [string]$_.name } | Where-Object { $_ })
+        if ($configured.Count -eq 0) { throw 'no tasks[].name rows' }
+        foreach ($n in $configured) { if (-not $names.Contains($n)) { $names.Add($n) } }
+    }
+    catch { $failures.Add(('scheduled_tasks.json unreadable: {0}' -f $_.Exception.Message)) }
+    foreach ($n in @($ExtraNames)) { if ($n -and -not $names.Contains([string]$n)) { $names.Add([string]$n) } }
+    # One enumeration (under a second on a typical host) instead of one CIM query per name;
+    # a per-name query of an unregistered task costs about half a second to fail.
+    $byName = @{}
+    $listed = $true
+    try {
+        foreach ($t in @(Get-ScheduledTask -ErrorAction Stop)) {
+            $key = [string]$t.TaskName
+            if ($key -and -not $byName.ContainsKey($key)) { $byName[$key] = $t }
+        }
+    }
+    catch {
+        $listed = $false
+        $failures.Add(('task list unreadable: {0}' -f $_.Exception.Message))
+    }
+    foreach ($name in $names) {
+        $row = [ordered]@{ name = $name; last_run_utc = $null; result_hex = $null; state = $null }
+        try {
+            if (-not $listed) { $rows.Add([pscustomobject]$row); continue }
+            $task = if ($byName.ContainsKey($name)) { $byName[$name] } else { $null }
+            if ($null -eq $task) { $row.state = 'NotRegistered' }
+            else {
+                $row.state = [string]$task.State
+                $info = $task | Get-ScheduledTaskInfo -ErrorAction Stop
+                $last = $info.LastRunTime
+                if ($null -ne $last -and ([datetime]$last).Year -ge 2000) {
+                    $row.last_run_utc = ([datetime]$last).ToUniversalTime().ToString('o')
+                }
+                if ($null -ne $info.LastTaskResult) {
+                    $code = [int64]$info.LastTaskResult
+                    if ($code -lt 0) { $code += 4294967296 }
+                    $row.result_hex = '0x{0:X}' -f $code
+                }
+            }
+        }
+        catch { $failures.Add(('{0}: {1}' -f $name, $_.Exception.Message)) }
+        $rows.Add([pscustomobject]$row)
+    }
+    return [pscustomobject]@{ rows = $rows.ToArray(); failures = $failures.ToArray() }
+}
+
 # ---- reward producer: required even before registration ----
 $rewardTask = Get-ScheduledTask -TaskName 'WeatherMakerEvidenceCapture' -ErrorAction SilentlyContinue
 $rewardFinding = Get-WeatherRewardCaptureFinding -Root (Join-Path $repo 'data\maker_evidence') -Task $rewardTask -Now $now
@@ -134,31 +349,51 @@ Add-Finding 'capture/reward_records' $rewardFinding.severity $rewardFinding.deta
 # alarm fatigue is what makes the next real one get waved through. So compute the unique surface
 # rather than assert it, and when it is non-empty NAME the files -- those are exactly the ones a
 # merge would roll blind. See RETRACTED_AND_FALSE_LEADS.md section 3.
-$closureFiles = [ordered]@{
-    "snapshot"            = "data\snapshots\loop_supervisor_status.json"
-    "clob"                = "data\snapshots\clob_loop_supervisor_status.json"
-    "observation-trigger" = "data\snapshots\observation_trigger_supervisor_status.json"
-    "clob-enrichment"     = "data\snapshots\clob_enrichment_status.json"
-}
-$executionTask = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
-$executionWorkerStatus = Join-Path $repo "data\snapshots\execution_tape_status.json"
-$executionWriterLock = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
-$executionActive = $false
-if ($executionTask -and [string]$executionTask.State -ne "Disabled") {
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWriterLock) {
-    $executionActive = $true
-}
-elseif (Test-Path -LiteralPath $executionWorkerStatus) {
-    try {
-        $executionWorker = Get-Content -LiteralPath $executionWorkerStatus -Raw | ConvertFrom-Json
-        $executionActive = [string]$executionWorker.state -ne "STOPPED"
+# The closure list is shared with roll_verdict.ps1 through config\capture_families.json
+# (platform.roll_closures, data layer v2 S1). An unreadable registry is itself a CRITICAL
+# finding: with no list, no closure can be checked.
+$closureFiles = [ordered]@{}
+try {
+    $closureRegistry = Get-Content -LiteralPath (Join-Path $repo "config\capture_families.json") -Raw -ErrorAction Stop |
+        ConvertFrom-Json -ErrorAction Stop
+    $closureRows = @($closureRegistry.platform.roll_closures)
+    if ($closureRows.Count -eq 0) { throw "no platform.roll_closures rows" }
+    foreach ($row in $closureRows) {
+        if ([string]$row.id -notmatch '^[a-z][a-z0-9-]*$' -or [string]$row.status_path -notmatch '^data/[A-Za-z0-9_./-]+\.json$' -or
+            [string]$row.arming -notin @("always", "while_armed_or_active")) {
+            throw ("malformed roll_closures row: {0}" -f [string]$row.id)
+        }
+        # Same rule as roll_verdict.ps1: an optional producer is judged by its task's state, so a
+        # row without one is malformed rather than silently "not armed".
+        if ([string]$row.arming -eq "while_armed_or_active" -and
+            -not [string]($row.PSObject.Properties["task"] | ForEach-Object { $_.Value })) {
+            throw ("malformed roll_closures row: {0} (optional producer without a task)" -f [string]$row.id)
+        }
+        $rel = [string]$row.status_path -replace '/', '\'
+        if ([string]$row.arming -eq "always") { $closureFiles[[string]$row.id] = $rel; continue }
+        # Optional producer: required only while armed or still running.
+        $optionalTask = Get-ScheduledTask -TaskName ([string]$row.task) -ErrorAction SilentlyContinue
+        $optionalActive = $false
+        if ($optionalTask -and [string]$optionalTask.State -ne "Disabled") {
+            $optionalActive = $true
+        }
+        elseif ($row.writer_lock -and (Test-Path -LiteralPath (Join-Path $repo ([string]$row.writer_lock -replace '/', '\')))) {
+            $optionalActive = $true
+        }
+        elseif ($row.worker_status -and (Test-Path -LiteralPath (Join-Path $repo ([string]$row.worker_status -replace '/', '\')))) {
+            try {
+                $optionalWorker = Get-Content -LiteralPath (Join-Path $repo ([string]$row.worker_status -replace '/', '\')) -Raw | ConvertFrom-Json
+                $optionalActive = [string]$optionalWorker.state -ne "STOPPED"
+            }
+            catch { $optionalActive = $false }
+        }
+        if ($optionalActive) { $closureFiles[[string]$row.id] = $rel }
     }
-    catch { $executionActive = $false }
 }
-if ($executionActive) {
-    $closureFiles["execution-tape"] = "data\snapshots\execution_tape_supervisor_status.json"
+catch {
+    $closureFiles = [ordered]@{}
+    Add-Finding "closure/registry" "CRITICAL" ("config\capture_families.json platform.roll_closures unreadable: {0}" -f $_.Exception.Message) `
+        "without the registry no capture closure is checked, and roll_verdict.ps1 refuses to judge" $null 1
 }
 function Get-ClosureStatus($path) {
     try { $j = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return $null }
@@ -182,7 +417,7 @@ foreach ($name in $closureFiles.Keys) {
     $parsed = Get-ClosureStatus $p
     if (-not $parsed) { $closureState[$name] = $null; continue }
     $closureState[$name] = [PSCustomObject]@{
-        Age          = ($now - (Get-Item -LiteralPath $p).LastWriteTime).TotalDays
+        Age          = ($nowUtc - (Get-Item -LiteralPath $p).LastWriteTimeUtc).TotalDays
         Scope        = $parsed.Scope
         State        = $parsed.State
         EnsureStatus = $parsed.EnsureStatus
@@ -234,18 +469,29 @@ foreach ($name in $closureFiles.Keys) {
     }
 }
 # ---- 2. the learning loop's own outputs ----
+# Both are Stage-B outputs (steps after promotion_refresh), so Stage A completing says nothing
+# about them. While their producers are deliberately Disabled the rows are held by
+# $knownCriticals below, never by editing the age limits here.
 Test-FileAge "learning/daily_learning" "data\backtest\daily_learning.json" 2 5 `
-    "the learning rollup; it sat 27 days stale while the chain reported all steps ok, because it is 21 steps past the settled-day barrier"
+    "the learning rollup; a Stage-B output (after promotion_refresh), also written by nightly_retrain under WeatherTrainingWindow, and settlement-gated, so it refreshes only when one of those producers runs on settled days"
 Test-FileAge "learning/market_beating_scoreboard" "data\backtest\market_beating_objective_scoreboard.json" 2 5 `
-    "the scorecard for objective #2 -- while this is stale we cannot see the model-vs-market gap at all"
-Test-FileAge "chain/daily_refresh_report" "data\backtest\daily_refresh_report.md" 1 2 `
-    "the chain's own output; if this stops moving the chain is not completing"
+    "the objective scoreboard; a Stage-B output (after promotion_refresh) and settlement-gated, so it refreshes only when Stage B runs on settled days - while it is stale the model-vs-market gap is not measured"
+$stageA = Get-WeatherStageAChainFinding `
+    -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json") `
+    -ReportPath (Join-Path $repo "data\backtest\daily_refresh_report.md") -Now $now
+Add-Finding "chain/daily_refresh_report" $stageA.severity $stageA.detail `
+    "the chain's own completion record; per-step checkpoints keep the report fresh even when the chain is killed, so only a COMPLETED Stage-A manifest proves the chain completed" `
+    $stageA.age_days 1
+$stageABarrier = Get-WeatherStageABarrierFinding `
+    -ManifestPath (Join-Path $repo "data\backtest\daily_refresh_settlement_truth_manifest.json")
+Add-Finding "chain/settled_day_barrier" $stageABarrier.severity $stageABarrier.detail `
+    "COMPLETED proves termination; the settlement barrier must be visible independently of held Stage-B learning alarms. A passing barrier does not certify the aggregate pipeline or promotion readiness" $null $null
 
 # ---- 3. serving artifacts ----
 # Not a bug on its own -- but an artifact serving a season it never trained on is (see 4b/2).
 $hgb = Join-Path $repo "artifacts\models\hgb\feature_model_hgb.pkl"
 if (Test-Path -LiteralPath $hgb) {
-    $age = ($now - (Get-Item -LiteralPath $hgb).LastWriteTime).TotalDays
+    $age = ($nowUtc - (Get-Item -LiteralPath $hgb).LastWriteTimeUtc).TotalDays
     $sev = if ($age -gt 60) { "WARN" } else { "OK" }
     Add-Finding "model/serving_artifact_age" $sev ("feature_model_hgb.pkl fitted {0:N0}d ago" -f $age) `
         "measured -1.0193 C-eq cool out-of-season vs -0.1848 in-season; age is the proxy for seasonal distance from its training window" $age 60
@@ -453,7 +699,7 @@ if ($opsDocs.Count -gt 0) {
 # because it will be believed; and it stops being readable the moment it starts accreting.
 $sop = Join-Path $repo "docs\operations\STATE_OF_PLAY.md"
 if (Test-Path -LiteralPath $sop) {
-    $age = ($now - (Get-Item -LiteralPath $sop).LastWriteTime).TotalDays
+    $age = ($nowUtc - (Get-Item -LiteralPath $sop).LastWriteTimeUtc).TotalDays
     $lines = @(Get-Content -LiteralPath $sop).Count
     $sev = if ($age -gt 14) { "CRITICAL" } elseif ($age -gt 5) { "WARN" } else { "OK" }
     Add-Finding "docs/state_of_play_age" $sev ("STATE_OF_PLAY.md is {0:N1}d old" -f $age) `
@@ -511,15 +757,72 @@ catch {
         "without this check a duplicate worker is invisible until capture starts failing memory admission" $null $null
 }
 
+# ---- 12. task last-run snapshot (Task Scheduler API only, never the event log) ----
+$knownProducerNames = @($knownCriticals | ForEach-Object { @($_.producers) } | Where-Object { $_ } | Select-Object -Unique)
+$taskResults = @()
+$taskSnapshotFailures = @()
+try {
+    $taskSnapshot = Get-WeatherTaskResults -ConfigPath (Join-Path $repo "config\scheduled_tasks.json") -ExtraNames $knownProducerNames
+    $taskResults = @($taskSnapshot.rows)
+    $taskSnapshotFailures = @($taskSnapshot.failures)
+}
+catch { $taskSnapshotFailures = @("task snapshot failed: $($_.Exception.Message)") }
+if ($taskSnapshotFailures.Count -gt 0) {
+    Add-Finding "tasks/task_results" "WARN" `
+        ("{0} task snapshot failure(s): {1}" -f $taskSnapshotFailures.Count, (($taskSnapshotFailures | Select-Object -First 3) -join '; ')) `
+        "the daily task_results snapshot is the only record of each task's last run outside the event log; a gap here is not a task failure" $null $null
+}
+
+# ---- known-criticals post-pass (after every finding exists) ----
+$producerStates = @{}
+$producerRows = @{}
+foreach ($t in $taskResults) {
+    if ($t.state -and [string]$t.state -ne 'NotRegistered') { $producerStates[[string]$t.name] = [string]$t.state }
+    $producerRows[[string]$t.name] = $t
+}
+$knownRows = New-Object System.Collections.Generic.List[object]
+foreach ($kc in $knownCriticals) {
+    $matched = @($findings | Where-Object { $_.check -eq [string]$kc.check })
+    $targets = if ($matched.Count -gt 0) { $matched } else { @($null) }
+    foreach ($finding in $targets) {
+        $disp = Get-WeatherKnownCriticalDisposition -Row $kc -Finding $finding -ProducerStates $producerStates -Now $now -MaxDays $knownCriticalMaxDays
+        switch ($disp.disposition) {
+            'KNOWN' {
+                $finding.severity = 'KNOWN'
+                $producerText = (@($kc.producers) | ForEach-Object {
+                    $pr = $producerRows[[string]$_]
+                    $lastRun = if ($pr -and $pr.last_run_utc) { $pr.last_run_utc } else { 'never' }
+                    "{0} {1}, last run {2}" -f $_, $(if ($pr) { $pr.state } else { 'unknown' }), $lastRun
+                }) -join '; '
+                $knownRows.Add([pscustomobject]@{
+                    check = $finding.check; detail = $finding.detail; age_days = $finding.age_days
+                    producers = $producerText; expires = [string]$kc.expires; decision = [string]$kc.decision
+                })
+            }
+            'LAPSED' {
+                Add-Finding "known/lapsed" "CRITICAL" ("{0}: {1}" -f $kc.check, $disp.reason) `
+                    "a known-critical hold stopped applying; the original CRITICAL stands. Decide and record a dated DECISION_LOG row - never answer an expiry by running Stage B before B's look closes" $null $null
+            }
+            'MALFORMED' {
+                Add-Finding "known/malformed" "CRITICAL" ("{0}: {1}" -f $(if ($kc.check) { $kc.check } else { '(unnamed)' }), $disp.reason) `
+                    "an invalid known-criticals row holds nothing; fix the row in staleness_sweep.ps1 with its DECISION_LOG reference" $null $null
+            }
+        }
+        if ($disp.disposition -eq 'MALFORMED') { break }
+    }
+}
+
 # ---- report ----
 $crit = @($findings | Where-Object { $_.severity -eq "CRITICAL" })
 $warn = @($findings | Where-Object { $_.severity -eq "WARN" })
+$known = @($findings | Where-Object { $_.severity -eq "KNOWN" })
 $verdict = if ($crit.Count -gt 0) { "CRITICAL" } elseif ($warn.Count -gt 0) { "WARN" } else { "OK" }
 
 $record = [ordered]@{
     ts = $now.ToString("o"); verdict = $verdict
-    critical_count = $crit.Count; warn_count = $warn.Count; check_count = $findings.Count
+    critical_count = $crit.Count; warn_count = $warn.Count; known_count = $known.Count; check_count = $findings.Count
     findings = @($findings | Where-Object { $_.severity -ne "OK" })
+    task_results = @($taskResults)
 }
 try {
     $dir = Split-Path $JsonOut -Parent
@@ -533,7 +836,7 @@ $md.Add("# Staleness sweep")
 $md.Add("")
 $md.Add(("Generated {0:yyyy-MM-dd HH:mm}. Regenerated every run; do not edit." -f $now))
 $md.Add("")
-$md.Add("**Verdict: $verdict** - $($crit.Count) critical, $($warn.Count) warn, $($findings.Count) checks.")
+$md.Add("**Verdict: $verdict** - $($crit.Count) critical, $($warn.Count) warn, $($known.Count) known, $($findings.Count) checks.")
 $md.Add("")
 $md.Add("Answers *should this have refreshed by now?* - the question the other monitors do not ask.")
 $md.Add("")
@@ -546,12 +849,26 @@ if ($crit.Count -or $warn.Count) {
 }
 else { $md.Add("Everything watched is within its declared freshness.") }
 $md.Add("")
+if ($knownRows.Count -gt 0) {
+    # Never in the CRITICAL table above: status.ps1 counts only '| **CRITICAL** |' rows.
+    $md.Add("## Known")
+    $md.Add("")
+    $md.Add("Listed CRITICALs held while every producer is Disabled and the row has not expired.")
+    $md.Add("")
+    $md.Add("| Check | Age | Producers (State, last run UTC) | Expires | Decision |")
+    $md.Add("| --- | --- | --- | --- | --- |")
+    foreach ($k in $knownRows) {
+        $ageText = if ($null -ne $k.age_days) { "{0:N1}d" -f $k.age_days } else { $k.detail }
+        $md.Add(("| ``{0}`` | {1} | {2} | {3} | {4} |" -f $k.check, $ageText, $k.producers, $k.expires, $k.decision))
+    }
+    $md.Add("")
+}
 $md.Add("## All checks")
 $md.Add("")
 foreach ($f in $findings) { $md.Add(("- ``{0}`` {1} - {2}" -f $f.check, $f.severity, $f.detail)) }
 try { Set-Content -Path $MarkdownOut -Value ($md -join "`n") -Encoding utf8 } catch {}
 
-Write-Output "staleness sweep: $verdict ($($crit.Count) critical, $($warn.Count) warn, $($findings.Count) checks)"
+Write-Output "staleness sweep: $verdict ($($crit.Count) critical, $($warn.Count) warn, $($known.Count) known, $($findings.Count) checks)"
 foreach ($f in @($crit + $warn)) { Write-Output ("  [{0}] {1}: {2}" -f $f.severity, $f.check, $f.detail) }
 Write-Output "wrote $MarkdownOut"
 

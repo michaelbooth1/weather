@@ -1,7 +1,8 @@
 """Read-only old-vs-new late-day lock-in replay (weather.backtesting.lockin_anchor_replay).
 
-Guards: the replay's read-only contract (closed dates <= 2026-09-29, no writes under data/,
-no overwrite) and its floor check (exit 3) that caught the v2 floor failure on PR #191.
+Guards: the replay's read-only contract (closed dates <= 2026-09-29 or >= 2026-10-16, with
+2026-09-30..2026-10-15 always refused; no writes under data/, no overwrite) and its floor check
+(exit 3) that caught the v2 floor failure on PR #191.
 """
 import json
 from datetime import datetime, timezone
@@ -166,3 +167,129 @@ def test_main_exits_3_when_the_floor_check_fails(tmp_path, monkeypatch, capsys):
     code = replay_cmd.main(["--snapshots-root", str(tmp_path), "--out", str(tmp_path / "y.jsonl")])
     assert code == replay_cmd.FLOOR_CHECK_FAILED_EXIT
     assert "floor check FAILED" in capsys.readouterr().err
+
+
+# --- 2026-10-13: the evening-fix scoring window (dates >= 2026-10-16) ----------------
+# 2026-09-30..2026-10-15 stays refused; fixtures below are synthetic, never real data.
+
+TODAY = replay_cmd.date(2026, 10, 30)
+
+
+def _slug(month_name, day):
+    return f"highest-temperature-in-atlanta-on-{month_name}-{day}-2026"
+
+
+@pytest.mark.parametrize("month_name,day,iso", [
+    ("september", 30, "2026-09-30"),
+    ("october", 1, "2026-10-01"),
+    ("october", 15, "2026-10-15"),
+])
+def test_embargo_dates_stay_refused_explicitly_by_bound_and_by_record(tmp_path, month_name, day, iso):
+    root = tmp_path / "snapshots"
+    folder = _write_folder(root, _slug(month_name, day), [_record("e", 23, target=iso)])
+    with pytest.raises(replay_cmd.ReplayRefused, match="embargo"):
+        replay_cmd.select_folders([str(folder)], root, today=TODAY)
+    bound = replay_cmd.date.fromisoformat(iso)
+    with pytest.raises(replay_cmd.ReplayRefused, match="embargo"):
+        replay_cmd.select_folders([], root, through_date=bound, today=TODAY)
+    with pytest.raises(replay_cmd.ReplayRefused, match="embargo"):
+        replay_cmd.select_folders([], root, from_date=bound, today=TODAY)
+    with pytest.raises(replay_cmd.ReplayRefused, match="embargo"):
+        replay_cmd.compare_record(_model_factory("atlanta"), _record("e", 23, target=iso),
+                                  "atlanta", today=TODAY)
+
+
+def test_scan_skips_embargo_without_opening_and_admits_window_dates(tmp_path):
+    root = tmp_path / "snapshots"
+    _write_folder(root, SLUG, [_record("dev", 23)])
+    embargo = root / _slug("october", 10)
+    embargo.mkdir(parents=True)
+    # Unreadable on purpose: a scan that opened it would fail.
+    (embargo / REPLAY_INPUTS_FILENAME).write_text("{not json", encoding="utf-8")
+    _write_folder(root, _slug("october", 16), [_record("w", 23, target="2026-10-16")])
+    selected = replay_cmd.select_folders([], root, today=TODAY)
+    assert sorted(target.isoformat() for _, _, target in selected) == ["2026-09-20", "2026-10-16"]
+    out = tmp_path / "rows.jsonl"
+    replay_cmd.run(selected, out, model_factory=_model_factory, today=TODAY)
+    targets = [json.loads(line)["target_date"] for line in out.read_text().splitlines()]
+    assert sorted(targets) == ["2026-09-20", "2026-10-16"]
+
+
+def test_open_day_is_refused(tmp_path):
+    root = tmp_path / "snapshots"
+    folder = _write_folder(root, _slug("october", 30), [_record("o", 23, target="2026-10-30")])
+    with pytest.raises(replay_cmd.ReplayRefused, match="not a closed day"):
+        replay_cmd.select_folders([str(folder)], root, today=TODAY)
+    assert replay_cmd.select_folders([], root, today=TODAY) == []
+
+
+def test_rows_carry_band_probabilities_and_v3_arm_when_bands_are_captured(tmp_path):
+    root = tmp_path / "snapshots"
+    folder = _write_folder(root, SLUG, [_record("s-evening", 23)])
+    (folder / "snapshots_long.csv").write_text(
+        "snapshot_id,range_label,bin_kind,bin_value_c,bin_value_hi_c,market_yes\n"
+        "s-evening,87F or below,lte,87,,0.01\n"
+        "s-evening,88-89F,eq,88,89,0.97\n"
+        "s-evening,90F or higher,gte,90,,0.02\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "bands.jsonl"
+    replay_cmd.run(replay_cmd.select_folders([], root), out, model_factory=_model_factory,
+                   v3_arm=True)
+    row = json.loads(out.read_text().splitlines()[0])
+    assert row["event_slug"] == SLUG
+    assert [band["kind"] for band in row["bands"]] == ["lte", "eq", "gte"]
+    assert row["bands"][1]["value_hi"] == 89
+    assert row["bands"][1]["market_yes"] == pytest.approx(0.97)
+    for arm in ("old_band_p", "new_band_p", "v3_band_p"):
+        assert len(row[arm]) == 3
+        assert all(0.0 <= p <= 1.0 for p in row[arm])
+    assert row["new_band_p"][1] > row["old_band_p"][1]
+
+
+# --- 2026-10-31 (master F1): nothing after the extension date 2026-10-28 is replayable ---------
+
+LATE_TODAY = replay_cmd.date(2026, 11, 5)
+
+
+def test_last_evening_fix_date_is_the_scorer_extension_date():
+    from weather.backtesting import evening_fix_transfer as transfer
+    assert replay_cmd.EVENING_FIX_LAST_DATE == replay_cmd.date(2026, 10, 28) == transfer.EXTENSION_DATES[-1]
+
+
+@pytest.mark.parametrize("day,iso", [(29, "2026-10-29"), (30, "2026-10-30")])
+def test_dates_after_10_28_refused_with_and_without_through_date(tmp_path, day, iso):
+    root = tmp_path / "snapshots"
+    folder = root / _slug("october", day)
+    folder.mkdir(parents=True)
+    # Unreadable on purpose: a scan that opened it would fail.
+    (folder / REPLAY_INPUTS_FILENAME).write_text("{not json", encoding="utf-8")
+    _write_folder(root, _slug("october", 28), [_record("x", 23, target="2026-10-28")])
+    bound = replay_cmd.date.fromisoformat(iso)
+    assert "after the last evening-fix date" in replay_cmd.replay_refusal(bound, LATE_TODAY)
+    # no --through-date: a scan from 10-16 skips 10-29/10-30 by name and keeps 10-28
+    selected = replay_cmd.select_folders([], root, from_date=replay_cmd.date(2026, 10, 16), today=LATE_TODAY)
+    assert [target.isoformat() for _, _, target in selected] == ["2026-10-28"]
+    with pytest.raises(replay_cmd.ReplayRefused, match="after the last evening-fix date"):
+        replay_cmd.select_folders([str(folder)], root, today=LATE_TODAY)
+    with pytest.raises(replay_cmd.ReplayRefused, match="after the last evening-fix date"):
+        replay_cmd.select_folders([], root, through_date=bound, today=LATE_TODAY)
+    with pytest.raises(replay_cmd.ReplayRefused, match="after the last evening-fix date"):
+        replay_cmd.select_folders([], root, from_date=bound, today=LATE_TODAY)
+    with pytest.raises(replay_cmd.ReplayRefused, match="after the last evening-fix date"):
+        replay_cmd.check_date_bounds(from_date=bound)
+    with pytest.raises(replay_cmd.ReplayRefused, match="after the last evening-fix date"):
+        replay_cmd.check_date_bounds(through_date=bound)
+    with pytest.raises(replay_cmd.ReplayRefused, match="after the last evening-fix date"):
+        replay_cmd.compare_record(_model_factory("atlanta"), _record("l", 23, target=iso), "atlanta",
+                                  today=LATE_TODAY)
+
+
+def test_10_28_is_allowed_as_the_extension_date(tmp_path):
+    root = tmp_path / "snapshots"
+    _write_folder(root, _slug("october", 28), [_record("x", 23, target="2026-10-28")])
+    ext = replay_cmd.date(2026, 10, 28)
+    assert replay_cmd.replay_refusal(ext, LATE_TODAY) is None
+    assert replay_cmd.check_date_bounds(ext, ext) == (ext, ext)
+    selected = replay_cmd.select_folders([], root, through_date=ext, today=LATE_TODAY)
+    assert [target.isoformat() for _, _, target in selected] == ["2026-10-28"]

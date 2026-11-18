@@ -21,6 +21,10 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
   spawns one git commit instead of three. Wait for a condition by polling with
   the old wait as the ceiling; keep a fixed sleep only where it proves that
   something did *not* happen.
+- Import a research module whose import guard refuses the capture host only
+  through `tests/host_guard.py`'s `import_or_skip_on_capture_host`;
+  `test_capture_host_collection.py` collects the suite under capture-host
+  emulation ([development.md](../docs/development.md#capture-host-collection-emulation)).
 - If changing native-unit or model features, cover Celsius and Fahrenheit paths
   and verify training/serving parity where applicable.
 
@@ -33,9 +37,19 @@ Tests mirror owner packages under `tests/app`, `backtesting`, `calibration`,
   one shared host per pytest process, a fresh runspace per call. Exit codes,
   kill-on-close jobs, timeouts, mutexes, the workload lease, `-File` startup
   and scheduled-task behaviour keep a real `powershell.exe` child.
+- A test that runs a real scheduled-task registrar against stubbed Scheduler
+  cmdlets starts its harness with `tests/scheduler_stubs.py`'s `prologue` and
+  ends with `assert_only_stubs_invoked`. The real commands are CDXML functions
+  that autoload, so a missing stub reaches the host scheduler. The prologue sets
+  `WEATHER_TASK_TEST`, under which registrars that dot-source
+  `scripts/ops/scheduled_task_test_guard.ps1` refuse any non-stub. A refusal case
+  swaps a stub for `module_lookalike`; never just delete a stub.
 - Tests that write large temporary layouts must stay under `tmp_path`. On a
   shared host pass an explicit `--basetemp` and delete it afterwards; pytest's
   default temp root is not cleaned promptly and has filled the capture disk.
+  On Windows, `tests/conftest.py` swaps any base temp longer than 64 characters
+  for a fresh `C:\pt\t-*` directory removed at exit, so nested `tmp_path`
+  layouts never hit the 260-character path limit wherever the caller points it.
 
 Run the narrow directory or file first, then the full suite:
 
@@ -61,6 +75,11 @@ From test-suite review K ([decision log](../docs/operations/DECISION_LOG.md) row
 - no `.ps1` text assert in a module that never executes PowerShell: add an execution test instead;
 - no `_private` imports from `src/` or `app`;
 - tests that start git or PowerShell carry `@pytest.mark.spawns`.
+
+`tests/operations/test_source_control_bytes.py` (no baseline; justified `ALLOWLIST`) refuses every control
+character other than LF and tab, lone CR included, in tracked `.ps1`/`.psm1`/`.md`/`.json`/`.py` index
+blobs (CRLF normalised): write `r"\b"`, `"\t"`, `"\r"`, never the character (a regex once held a literal
+backspace and checked nothing).
 
 Guidelines (not mechanically checked): `pytest.raises(match=...)` only when the refusal reason is the
 contract; mutation-informed assertions as in

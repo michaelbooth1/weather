@@ -20,7 +20,9 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.process_job import KillOnCloseJob, terminate_job_and_wait
+
+ROOT =Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
 REGISTRAR = OPS / "register_exchange_economics_refresh.ps1"
 HELPER = OPS / "refresh_exchange_economics_snapshot.ps1"
@@ -158,21 +160,24 @@ def test_a_killed_run_leaves_a_running_marker_not_the_previous_result(tmp_path):
     status_path = logs / "exchange_economics_refresh_status.json"
     status_path.write_text(json.dumps({"status": "PASS", "started_at_utc": "2026-10-06T10:50:00Z"}), encoding="utf-8")
 
-    process = subprocess.Popen(_helper_command(root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               env=_fake_collector_env(tmp_path, sleep=60, exit_code=0), cwd=root)
-    try:
-        deadline = time.monotonic() + 60
-        while not (tmp_path / "collector.started").exists():
-            assert process.poll() is None, "helper exited before the collector started"
-            assert time.monotonic() < deadline, "collector never started"
-            time.sleep(0.2)
-        running = json.loads(status_path.read_text(encoding="utf-8"))
-        assert running["status"] == "RUNNING" and running["exit_code"] == -1
-        assert running["pid"] == process.pid
-    finally:
-        # Same effect as the Scheduler's execution-limit kill: the whole tree, no cleanup.
-        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
-        process.wait(timeout=60)
+    with KillOnCloseJob() as job:
+        process = job.popen(_helper_command(root), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            env=_fake_collector_env(tmp_path, sleep=60, exit_code=0), cwd=root)
+        try:
+            deadline = time.monotonic() + 60
+            while not (tmp_path / "collector.started").exists():
+                assert process.poll() is None, "helper exited before the collector started"
+                assert time.monotonic() < deadline, "collector never started"
+                time.sleep(0.2)
+            running = json.loads(status_path.read_text(encoding="utf-8"))
+            assert running["status"] == "RUNNING" and running["exit_code"] == -1
+            assert running["pid"] == process.pid
+        finally:
+            # The Scheduler's execution-limit kill terminates the task's Job: every
+            # member at once, no cleanup. Terminating this Job models exactly that,
+            # and never reaches a process outside it (no parent-PID walk).
+            terminate_job_and_wait(job, process, timeout=60)
+        assert job.active_process_count() == 0
 
     after = json.loads(status_path.read_text(encoding="utf-8"))
     assert after["status"] == "RUNNING"  # stale RUNNING is the kill signal

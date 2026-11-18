@@ -11,6 +11,21 @@ from pathlib import Path
 
 VALID_STATUSES = {"supported", "fixture-only", "retired"}
 SCRIPT_INVENTORY = {
+    "ols_floor_ladder_nbm_fetch.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L9 point-in-time NBM NBP station-block fetcher (free NOAA open data); network-free compilation smoke.",
+    },
+    "nbm_target_fix.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Versioned NBM parser diagnostics; network-free compilation smoke.",
+    },
+    "mosmix_forward_recorder.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L13 DWD MOSMIX forward-capture recorder (free DWD open data); network-free compilation smoke.",
+    },
     "analyze_boundaries.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
@@ -66,6 +81,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile",
         "notes": "Local historical backfill queue summary.",
     },
+    "t1_forward_emitter.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Lane L3 T+1 forward-test daily emitter (research/shadow; forecast recorders only); network-free compilation smoke.",
+    },
     "ten_minute_performance_audit.py": {
         "status": "retired",
         "smoke": "compile_main_guard",
@@ -78,6 +98,16 @@ SCRIPT_INVENTORY = {
     # These went missing from the inventory because the 05:15 roll-free merge driver lands
     # branches without running the suite: on 2026-08-11 it merged six of these in forty minutes
     # and left master red from 05:55 until this was noticed. See the Codex audit 8.2.
+    "b_price_coverage.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R19 B-1 coverage counts (integers only) via the unchanged MG-2 exporter's bounded reader; host via b_price_coverage.ps1.",
+    },
+    "capture_price_export.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Look-morning capture-time prices for a look's --market file (counts-only receipts); capture host only, under master's lease.",
+    },
     "b_only_screen_09_63a.py": {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
@@ -162,6 +192,16 @@ SCRIPT_INVENTORY = {
         "status": "fixture-only",
         "smoke": "compile_main_guard",
         "notes": "Maker replay v2 H1 oracle-handout cut/rebind (gate spec v3.4); workstation only.",
+    },
+    "mg1_input_backfill.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R11 MG-1 input backfill 10-15..10-27 via the unchanged MG-2 exporter; host via mg1_input_backfill.ps1.",
+    },
+    "wu_vs_venue_measure.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "R24 WU history vs venue routine-METAR rule per US market; read-only measurement, dates <= 2026-09-29.",
     },
 }
 

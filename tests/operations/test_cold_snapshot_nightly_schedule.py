@@ -25,6 +25,8 @@ import pytest
 from weather.operations import cold_snapshot_nightly as nightly
 from weather.paths import repo_path
 
+from tests.scheduler_stubs import GUARD_SCRIPT, assert_only_stubs_invoked, module_lookalike, prologue
+
 TORONTO = ZoneInfo("America/Toronto")
 POWERSHELL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), r"System32\WindowsPowerShell\v1.0\powershell.exe")
 windows_only = pytest.mark.skipif(os.name != "nt", reason="real Windows PowerShell 5.1 orchestration")
@@ -289,6 +291,7 @@ def registration(tmp_path):
     scripts.mkdir(parents=True)
     shutil.copy2(repo_path("scripts/ops/training_window_contract.ps1"), scripts / "training_window_contract.ps1")
     shutil.copy2(repo_path("scripts/ops/scheduled_task_local_trigger.ps1"), scripts / "scheduled_task_local_trigger.ps1")
+    shutil.copy2(repo_path("scripts/ops", GUARD_SCRIPT), scripts / GUARD_SCRIPT)
     (scripts / "workload_admission.ps1").write_text(
         "function Get-WeatherExecutionHostAssignment { param($RepoRoot) "
         "[pscustomobject]@{ dedicated_capture_execution_host_id = 'fixture-host' } }\n"
@@ -302,12 +305,12 @@ def registration(tmp_path):
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
     request = tmp_path / "request.json"
     request.write_text("{}", encoding="utf-8")
-    (tmp_path / "stubs.ps1").write_text(SCHEDULER_STUBS, encoding="utf-8")
     return root, head, request, tmp_path
 
 
-def run_registration(registration, readback_boundary=None):
+def run_registration(registration, readback_boundary=None, stubs=SCHEDULER_STUBS):
     root, head, request, tmp = registration
+    (tmp / "stubs.ps1").write_text(prologue(tmp / "scheduler-ledger.jsonl") + stubs, encoding="utf-8")
     out = tmp / "registered.json"
     env = {**os.environ, "REG_FIXTURE_OUT": str(out)}
     env.pop("REG_FIXTURE_READBACK_BOUNDARY", None)
@@ -328,6 +331,8 @@ def test_registration_registers_and_reads_back_a_0650_trigger(registration):
     code, text, registered = run_registration(registration)
     assert code == 0, text
     assert registered == {"task": "WeatherColdSnapshotNightly", "at": "06:50", "limit": "PT2H20M"}
+    assert_only_stubs_invoked(registration[3] / "scheduler-ledger.jsonl",
+                              {"Register-ScheduledTask", "Get-ScheduledTask"})
 
 
 @pytest.mark.spawns
@@ -336,6 +341,18 @@ def test_registration_readback_rejects_the_old_0030_trigger(registration):
     """Mutant: a Scheduler readback still at 00:30 must fail the registration check."""
     code, text, _registered = run_registration(registration, readback_boundary="2026-10-07T00:30:00")
     assert code != 0 and "readback mismatch" in text
+    assert_only_stubs_invoked(registration[3] / "scheduler-ledger.jsonl",
+                              {"Register-ScheduledTask", "Get-ScheduledTask"})
+
+
+@pytest.mark.spawns
+@windows_only
+def test_registration_refuses_a_non_stub_scheduler_command_under_weather_task_test(registration):
+    """The Get-ScheduledTask stub is replaced by a module-owned lookalike of the real CDXML command."""
+    stubs = SCHEDULER_STUBS.replace("function Get-ScheduledTask {", "function Unused-WeatherFixtureStub {")
+    code, text, registered = run_registration(registration, stubs=stubs + module_lookalike("Get-ScheduledTask"))
+    assert code != 0 and "Get-ScheduledTask is not a test stub" in text and registered is None
+    assert_only_stubs_invoked(registration[3] / "scheduler-ledger.jsonl", set())
 
 
 @pytest.mark.spawns

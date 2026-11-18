@@ -40,11 +40,12 @@ p.add_argument('--apply', action='store_true')
 a = p.parse_args()
 out = Path(a.output_root)
 mode = json.loads(Path(a.request).read_text())['mode']
-if mode in ('hang', 'residual_success'):
+if mode == 'slow_hang': time.sleep(5)  # a launch slower than the 4 s hang deadline
+if mode in ('hang', 'slow_hang', 'residual_success'):
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'],
                              creationflags=subprocess.CREATE_NO_WINDOW)
     (out / 'descendant.json').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
-if mode == 'hang': time.sleep(300)
+if mode in ('hang', 'slow_hang'): time.sleep(300)
 if mode == 'failure': raise SystemExit(7)
 if mode == 'request_drift': Path(a.request).write_text('{}')
 if mode == 'source_drift': Path('tracked.txt').write_text('changed')
@@ -83,9 +84,21 @@ def wrapper_fixture(tmp_path, tmp_path_factory):
     wrapper = replace_once(wrapper,
         "$localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)",
         "$localNow = [DateTime]::SpecifyKind([DateTime]::UtcNow.Date.AddDays(1).AddHours(1), [DateTimeKind]::Unspecified)")
+    # The fixture's own deadlines replace the production 600 s one in this test-owned copy:
+    # a launch ceiling from the top of the try (after identity, time and lease), and the hang
+    # deadline, armed only once the child's owned tree exists (descendant.json). So a hang
+    # deadline times the hang itself, never job creation or interpreter start-up, and a slow
+    # runner cannot turn a launch into a hard stop before the tree it is meant to tear down.
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
-        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_DEADLINE_SECONDS)\n"
+        "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_LAUNCH_SECONDS)\n"
+        "    $fixtureHangArmed = $false\n"
         "    # Identity, time and live lease")
+    wrapper = replace_once(wrapper, "    while (-not $process.HasExited) {\n",
+        "    while (-not $process.HasExited) {\n"
+        "        if (-not $fixtureHangArmed -and (Test-Path -LiteralPath (Join-Path $OutputRoot 'descendant.json'))) {\n"
+        "            $deadline = [DateTime]::UtcNow.AddSeconds([int]$env:WEATHER_TEST_WRAPPER_DEADLINE_SECONDS)\n"
+        "            $fixtureHangArmed = $true\n"
+        "        }\n")
     wrapper_path = scripts / "replay_cache_compression_run.ps1"
     wrapper_path.write_text(wrapper, encoding="utf-8")
     assignment = json.loads(repo_path("config/international_live_execution_host.json").read_text())
@@ -120,9 +133,13 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
-    # Hang modes prove the hard stop at the fixture's 4 s deadline; every other mode only needs a
-    # ceiling, so a slow runner cannot turn a success path into a spurious hard stop.
-    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if mode == "hang" else "30"}
+    # Hang modes prove the hard stop at the fixture's 4 s deadline, counted from the moment the
+    # child's tree exists; every other mode only needs a ceiling, so a slow runner cannot turn a
+    # success path into a spurious hard stop. The launch ceiling bounds a child that never
+    # builds its tree.
+    hang = mode in ("hang", "slow_hang")
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if hang else "30",
+                   "WEATHER_TEST_WRAPPER_LAUNCH_SECONDS": "30"}
     process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
     return process, output
@@ -139,7 +156,8 @@ def finish(process):
 
 
 @pytest.mark.parametrize("mode,success", [("success", True), ("residual_success", True),
-    ("failure", False), ("wrong_binding", False), ("source_drift", False), ("request_drift", False), ("hang", False)])
+    ("failure", False), ("wrong_binding", False), ("source_drift", False), ("request_drift", False), ("hang", False),
+    ("slow_hang", False)])
 def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper_fixture, mode, success):
     process, output = launch(wrapper_fixture, mode)
     code, log = finish(process)
@@ -151,9 +169,9 @@ def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper
     assert receipt["teardown_proved"] is True
     if success:
         assert receipt["child_result_sha256"] == hashlib.sha256((output / "result.json").read_bytes()).hexdigest()
-    if mode == "hang": assert receipt["hard_stop"] is True
+    if mode in ("hang", "slow_hang"): assert receipt["hard_stop"] is True
     descendant = output / "descendant.json"
-    if mode in ("hang", "residual_success"):
+    if mode in ("hang", "slow_hang", "residual_success"):
         assert descendant.exists(), log
         for pid in json.loads(descendant.read_text()).values():
             assert observe_process_identity(pid)["state"] == "not_found"
@@ -219,8 +237,11 @@ def test_wrapper_does_not_reuse_or_rewrite_a_spent_attempt(wrapper_fixture):
     assert {path.name: path.read_bytes() for path in output.iterdir()} == original
 
 
-def test_abrupt_wrapper_exit_kills_entire_owned_tree(wrapper_fixture):
-    process, output = launch(wrapper_fixture, "hang")
+# slow_hang: the child takes longer than the 4 s hang deadline to build its tree, as a slow
+# runner can; the deadline is armed only once the tree exists, so the launch is never cut short.
+@pytest.mark.parametrize("mode", ["hang", "slow_hang"])
+def test_abrupt_wrapper_exit_kills_entire_owned_tree(wrapper_fixture, mode):
+    process, output = launch(wrapper_fixture, mode)
     try:
         deadline = time.monotonic() + 20
         while not (output / "descendant.json").exists():

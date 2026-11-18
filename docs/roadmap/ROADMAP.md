@@ -43,7 +43,7 @@ infrastructure work remains.
 
 | Item | File |
 | ---: | --- |
-| 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
+| 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-11-14 - F2 PIN B LIVE (LEARNING) SINCE 2026-11-13; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
 | 1 | [Snapshot Analytics [COMPLETE]](items/item-01-snapshot-analytics.md) |
 | 2 | [Intraday Model Calibration [COMPLETE]](items/item-02-intraday-model-calibration.md) |
 | 3 | [Forecast Archive [COMPLETE]](items/item-03-forecast-archive.md) |
@@ -58,7 +58,14 @@ infrastructure work remains.
 | 7 | [Bucket Boundary Logic [COMPLETE - TRANSITION PRIOR LIVE]](items/item-07-bucket-boundary-logic.md) |
 | 8 | [Late-Day Tail Model [COMPLETE - CONTINUATION BLEND LIVE]](items/item-08-late-day-tail-model.md) |
 | 9 | [Analog Search [COMPLETE]](items/item-09-analog-search.md) |
-| 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - SCOPE QUESTION FOR THE OWNER]](items/item-337-no-metar-observed-floor-gap.md) |
+| 337 | [No-METAR Observed-Floor Gap [OPEN 2026-10-08 - OWNER YES 2026-10-13, CONDITIONAL ON THE HOST REPLAY]](items/item-337-no-metar-observed-floor-gap.md) |
+| 339 | [EDGE-1 Model-Edge Pre-Registration Family [DORMANT 2026-10-23 - POSTPONED BY THE OWNER (DECISION_LOG 2026-10-23), FORWARD TEST B REPLACED IT; WAS OPEN 2026-10-21 - OWNER APPROVED, NEVER SIGNED]](items/item-339-edge1-model-edge-preregistration.md) |
+| 340 | [Open-Meteo DST Fix For Training And Backfill Readers [OPEN 2026-11-05 - LANDED bad845b50; ACTIVATION CHECKS PENDING]](items/item-340-open-meteo-dst-training-readers.md) |
+| 342 | [Feb-29 Crash In The Bound P3d_N Centre Lookup And Serve Math [OPEN 2026-11-03 - MASTER ACCEPTED; FIX AFTER THE B LOOK, BEFORE 2028-02-29]](items/item-342-feb29-bound-centre-lookup-crash.md) |
+| 343 | [Offline Year-Round Refit Module And Workstation Allowlist Line [OPEN 2026-11-03 - 343a SCORER ALLOWLIST LINE; 343b MODULE BUILT, EQUIVALENCE RUN PENDING]](items/item-343-offline-year-round-refit-module-allowlist.md) |
+| 344 | [Trainer Keeps A Null Last Pre-Cutoff Temperature That Serve And Replay Skip [OPEN 2026-11-05 - MASTER RULING; FIX AT THE NEXT RETRAIN OR MODEL CHANGE, PIN NOW]](items/item-344-trainer-null-last-pre-cutoff-temperature.md) |
+| 345 | [Isolated Queue Root For The Workstation Pre-Gate Script Test [OPEN 2026-11-05 - TEST-ONLY FIX BUILT, AWAITING REVIEW]](items/item-345-pregate-script-test-isolated-queue-root.md) |
+| 346 | [Scripted Daytime Sweep Of Old Workstation Worktrees [OPEN 2026-11-05 - WS BACKLOG; DRY-RUN LIST TO MASTER FIRST]](items/item-346-ws-worktree-sweep.md) |
 
 ### Dashboard Improvements
 
@@ -82,7 +89,7 @@ infrastructure work remains.
 | 333 | [Signed Native Temperature Band Parser [PARTIAL]](items/item-333-signed-native-temperature-band-parser.md) |
 | 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
 | 331 | [Overnight Reliability Program [PARTIAL 2026-09-12 - LAUNCH SOURCE IMPLEMENTED; HOST QUALIFICATION AND ADOPTION OPEN]](items/item-331-overnight-reliability-program.md) |
-| 336 | [Landing Preflight [PARTIAL 2026-10-06 - WORKSTATION TOOL IN REVIEW; LANDING AND ADOPTION OPEN]](items/item-336-landing-preflight.md) |
+| 336 | [Landing Preflight [PARTIAL 2026-10-08 - LANDED ON MASTER (1becbaf75); PRODUCTION ADOPTION DECISION OPEN]](items/item-336-landing-preflight.md) |
 
 ### Market Expansion
 
@@ -191,7 +198,7 @@ infrastructure work remains.
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
 | 66 | [CLOB Book Recon And Reward-Competition Analytics [COMPLETE 2026-06-16 - BOOK RECON LIVE]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
-| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-11-14 - LFC F2 PIN B TRADING LIVE (LEARNING) SINCE 2026-11-13; PAID-VS-PREDICTED EVIDENCE OPEN]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 68 | [Information-Event Calendar And Quote-Pull Gates [COMPLETE 2026-06-16 - EVENT GATE LIVE]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
 | 69 | [Multi-Variant Shadow Harness And Experiment Governance [COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE]](items/item-69-multi-variant-shadow-harness-and-experiment-governance.md) |
 | 70 | [Exact-Winner Catch-Up Candidate [COMPLETE 2026-06-16 - WHITELIST ALPHA GUARDRAIL PASSED]](items/item-70-exact-winner-catch-up-candidate.md) |
