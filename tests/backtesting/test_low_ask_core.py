@@ -313,7 +313,8 @@ def test_separate_account_global_cash_locks_and_no_reset():
             rows = synthetic_rows(synthetic_event(city, FIRST + timedelta(days=delta)), price="0.98", size="100")
             for key in combined:
                 combined[key].extend(rows[key])
-    result = run(combined, datetime(2026, 11, 22, tzinfo=UTC))
+    last_cut = local_cut(FIRST + timedelta(days=3), "America/Los_Angeles", 18)
+    result = run(combined, last_cut + timedelta(minutes=2))
     fills = [d for d in result["decisions"] if d["status"] == "filled"]
     assert len(fills) == 60
     assert Decimal(result["locked"]) <= 300 and Decimal(result["cash"]) >= 0
