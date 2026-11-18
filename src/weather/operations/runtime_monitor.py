@@ -3,6 +3,10 @@
 The monitor intentionally avoids importing collection/model/bot modules.  Those
 imports are expensive on the dedicated capture host and the durable status JSON
 files are the operational contract needed here.
+
+Snapshot, CLOB and observation-trigger samples accept a writer clock leading
+the sample time by at most the component's liveness budget. A greater lead
+projects an unknown age and uses the component's existing missing-age policy.
 """
 
 from __future__ import annotations
@@ -109,11 +113,16 @@ def _parse_time(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _age_seconds(value: Any, now: datetime) -> float | None:
+def _age_seconds(value: Any, now: datetime, *, max_future_seconds: float | None = None) -> float | None:
     parsed = _parse_time(value)
     if parsed is None:
         return None
-    return round(max(0.0, (now - parsed).total_seconds()), 3)
+    age = (now - parsed).total_seconds()
+    # A writer may advance while the sampler reads. A lead beyond the capture
+    # component's own liveness budget supplies no usable evidence of freshness.
+    if max_future_seconds is not None and age < -max_future_seconds:
+        return None
+    return round(max(0.0, age), 3)
 
 
 def _elapsed_hour_index(started_at: datetime, now: datetime) -> int:
@@ -516,8 +525,8 @@ def project_component(name: str, path: Path, payload: dict[str, Any] | None, err
     if name == "snapshot":
         interval = max(60.0, 60.0 * (_safe_float(payload.get("interval_minutes")) or 10.0))
         dead_after = 2.0 * interval + 120.0
-        heartbeat_age = _age_seconds(payload.get("last_heartbeat"), now)
-        capture_age = _age_seconds(payload.get("last_snapshot_written_at"), now)
+        heartbeat_age = _age_seconds(payload.get("last_heartbeat"), now, max_future_seconds=dead_after)
+        capture_age = _age_seconds(payload.get("last_snapshot_written_at"), now, max_future_seconds=dead_after)
         errors = result["consecutive_errors"]
         result.update(
             heartbeat_age_seconds=heartbeat_age,
@@ -545,8 +554,8 @@ def project_component(name: str, path: Path, payload: dict[str, Any] | None, err
         elapsed = _safe_float(payload.get("last_iteration_elapsed_seconds")) or 0.0
         sleep_seconds = _safe_float(payload.get("last_sleep_seconds")) or interval
         dead_after = max(90.0, 2.0 * interval + 30.0, elapsed + sleep_seconds + 30.0)
-        heartbeat_age = _age_seconds(payload.get("last_heartbeat"), now)
-        capture_age = _age_seconds(payload.get("last_books_captured_at"), now)
+        heartbeat_age = _age_seconds(payload.get("last_heartbeat"), now, max_future_seconds=dead_after)
+        capture_age = _age_seconds(payload.get("last_books_captured_at"), now, max_future_seconds=dead_after)
         errors = result["consecutive_errors"]
         result.update(
             heartbeat_age_seconds=heartbeat_age,
@@ -574,8 +583,8 @@ def project_component(name: str, path: Path, payload: dict[str, Any] | None, err
     if name == "observation_trigger":
         interval = max(1.0, _safe_float(payload.get("interval_seconds")) or 60.0)
         dead_after = max(90.0, 2.0 * interval + 30.0)
-        heartbeat_age = _age_seconds(payload.get("last_heartbeat"), now)
-        capture_age = _age_seconds(payload.get("last_poll_at_utc"), now)
+        heartbeat_age = _age_seconds(payload.get("last_heartbeat"), now, max_future_seconds=dead_after)
+        capture_age = _age_seconds(payload.get("last_poll_at_utc"), now, max_future_seconds=dead_after)
         result.update(
             heartbeat_age_seconds=heartbeat_age,
             capture_age_seconds=capture_age,

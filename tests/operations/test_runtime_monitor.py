@@ -13,6 +13,53 @@ from weather.forecast_payload_contracts import (
 from weather.operations import runtime_monitor
 
 
+@pytest.mark.parametrize(("name", "capture_key", "settings", "dead_after", "capture_state", "capture_reason"), [
+    ("snapshot", "last_snapshot_written_at", {"interval_minutes": 10}, 1320, "DEGRADED", "capture_stale"),
+    ("clob", "last_books_captured_at", {"interval_seconds": 20, "last_iteration_elapsed_seconds": 300,
+                                       "last_sleep_seconds": 60}, 390, "DEGRADED", "books_stale"),
+    ("observation_trigger", "last_poll_at_utc", {"interval_seconds": 30}, 90, "HEALTHY", "fresh"),
+])
+def test_capture_clock_lead_uses_component_budget(
+    tmp_path, name, capture_key, settings, dead_after, capture_state, capture_reason,
+):
+    now = datetime(2025, 11, 2, 6, 15, tzinfo=timezone.utc)
+    path = tmp_path / "synthetic-status.json"
+
+    def stamp(offset):
+        instant = now + timedelta(seconds=offset)
+        return instant.astimezone(timezone(timedelta(hours=-5))).isoformat()
+
+    def project(heartbeat_offset, capture_offset, **extra):
+        payload = {**settings, "last_heartbeat": stamp(heartbeat_offset), capture_key: stamp(capture_offset), **extra}
+        return runtime_monitor.project_component(name, path, payload, None, now)
+
+    for offset in (0.1, dead_after):
+        near = project(offset, offset)
+        assert near["dead_after_seconds"] == dead_after
+        assert near["state"] == "HEALTHY"
+        assert near["heartbeat_age_seconds"] == near["capture_age_seconds"] == 0.0
+
+    # Validate before display rounding, including a lead of just one microsecond over the bound.
+    far_heartbeat = project(dead_after + 0.000001, -2)
+    assert (far_heartbeat["state"], far_heartbeat["reason"]) == ("UNHEALTHY", "heartbeat_stale")
+    assert far_heartbeat["heartbeat_age_seconds"] is None
+    assert far_heartbeat["capture_age_seconds"] == 2.0
+
+    far_capture = project(0, 4 * 3600)
+    assert (far_capture["state"], far_capture["reason"]) == (capture_state, capture_reason)
+    assert far_capture["heartbeat_age_seconds"] == 0.0
+    assert far_capture["capture_age_seconds"] is None
+    assert project(-dead_after - 1, 0)["reason"] == "heartbeat_stale"
+    assert project(4 * 3600, 4 * 3600, paused=True)["state"] == "PAUSED"
+
+
+def test_native_promotion_result_keeps_its_own_status_and_display_clock(tmp_path):
+    now = datetime(2025, 11, 2, tzinfo=timezone.utc)
+    payload = {"status": "PASS", "finished_at_utc": (now + timedelta(hours=4)).isoformat()}
+    result = runtime_monitor.project_component("daily_refresh", tmp_path / "synthetic.json", payload, None, now)
+    assert (result["state"], result["reason"], result["useful_write_age_seconds"]) == ("HEALTHY", "native_success", 0.0)
+
+
 def _coordinator_attribution(*, receipt_sha256="a" * 64):
     fields = {
         "source": "nbm_probabilistic_tmax",
