@@ -507,6 +507,34 @@ comparison abstains. The output retains its one-sided stage meaning even
 after publication of a final value. Scoring the full distribution requires
 replaying later stages against the same captured inputs and event ladder.
 
+`weather.backtesting.venue_floor_band_shadow.evaluate_floor_band_shadow`
+extends the exact-stage comparison to public highest-temperature bands. Its
+third argument is a price-free projection of the same decision with market,
+station, family, native unit, target date, `as_of` and `recorded_at`;
+`prior_capture_sha256`, `calibration_capture_sha256`, `model_sha256` and the
+bound calibration `artifact_sha256`; the captured `exact_distribution` and
+`market_bin` settings; `distribution_kind="native_integer"`,
+`boundary_active=False`, the final native `final_degree_mass`, and the
+presentation `context` with observed floor bucket, cutoff hour and lock-in
+strength. Each `bands` entry carries the original label, kind, native value,
+upper value (`value_hi`) and unrounded `model_probability`. The two tails
+and all intervening bands must cover every native integer exactly once.
+The prior carries the independently verified `presentation_sha256` (SHA-256
+of sorted-key compact JSON, computed by the helper of that name). Its
+`calibration.artifact_sha256` binds the resolved artifact. The caller must
+obtain both attestations from the captured evidence.
+
+The replay requires both the final native distribution and every original
+public probability to close. It reports the independent and joint changes to
+the degree-stage floor and presentation floor. Each arm retains its exact
+projected vector, total, positive mass added and removed by presentation,
+and `scoreable_pmf` flag. The public hard-bin check can suppress a recovered
+band before the coherence check. A stale presentation floor can leave missing
+mass or force the upper tail to one. Use a coherent arm for PMF scores. A
+missing rule observation, continuous payload, enabled noncoherent market-bin
+route, unbound artifact, or active/unknown final boundary guard cannot certify
+this replay. Retrospective rule substitutions remain counterfactuals.
+
 ## Update this file when
 
 Update when the rule, cutover, station precedence, output columns, or a label

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from weather.backtesting.venue_floor_shadow import evaluate_floor_shadow
+from weather.backtesting.venue_floor_band_shadow import evaluate_floor_band_shadow, presentation_sha256
 
 
 def fixture(family="highest", unit="F", as_of="2026-08-10T20:00:00Z"):
@@ -20,6 +21,152 @@ def fixture(family="highest", unit="F", as_of="2026-08-10T20:00:00Z"):
 
 def row(raw, receipt="2026-08-10T16:01:00Z"):
     return {"raw": raw, "receipt_time": receipt}
+
+
+def band_fixture():
+    spec, packet = fixture()
+    prior = packet["prior"]
+    prior.update(stage="pre_calibration_model", calibration=dict(
+        capture_sha256="5" * 64, artifact_sha256="6" * 64, resolution_weight=0, cutoff_hour=20,
+        exact_distribution={"temperature": 1},
+    ))
+    packet["evidence"]["reports"] = [row("METAR KZZZ 101550Z 33/20 RMK T03330200")]
+    p = {k: packet[k] for k in ("market", "station", "family", "unit", "as_of", "target_date")}
+    p.update(
+        recorded_at=packet["as_of"], prior_capture_sha256=prior["capture_sha256"], model_sha256=prior["model_sha256"],
+        artifact_sha256=prior["calibration"]["artifact_sha256"], calibration_capture_sha256=prior["calibration"]["capture_sha256"],
+        context={"observed_floor_bucket": 94, "cutoff_hour": 20, "lockin_strength": 0},
+        distribution_kind="native_integer", boundary_active=False, market_bin={"preserve_distribution_coherence": True},
+        exact_distribution={"temperature": 1}, final_degree_mass={"90": 0, "92": 0, "94": .6, "96": .4},
+        bands=[
+            dict(label=label, kind=kind, value=lo, value_hi=hi, model_probability=prob)
+            for label, kind, lo, hi, prob in (
+                ("91°F or below", "lte", 91, 91, 0), ("92-93°F", "eq", 92, 93, 0),
+                ("94-95°F", "eq", 94, 95, .6), ("96°F or higher", "gte", 96, 96, .4),
+            )
+        ],
+    )
+    return spec, packet, p
+
+
+def project_bands(spec, packet, p):
+    packet["prior"]["presentation_sha256"] = presentation_sha256(p)
+    return evaluate_floor_band_shadow(packet, spec, p)
+
+
+def test_public_band_shadow_resuppresses_degree_only_and_reports_unredistributed_mass():
+    spec, packet, p = band_fixture()
+    result = project_bands(spec, packet, p)
+    assert result["status"] == "closed_incumbent"
+    assert result["incumbent_bound"] == 94 and result["candidate_bound"] == 92
+    assert result["incumbent"]["public"] == result["presentation_only"]["public"] == [0, 0, .6, .4]
+    assert result["native"]["candidate"][1] == pytest.approx(4 / 9)
+    assert result["degree_only"]["public"] == pytest.approx([0, 0, 3 / 9, 2 / 9])
+    assert result["degree_only"]["removed"] == pytest.approx(4 / 9)
+    assert result["degree_only"]["added"] == 0
+    assert result["degree_only"]["total"] == pytest.approx(5 / 9)
+    assert not result["degree_only"]["scoreable_pmf"]
+    assert result["joint"]["public"] == pytest.approx([0, 4 / 9, 3 / 9, 2 / 9])
+    assert result["joint"]["scoreable_pmf"]
+
+
+def test_public_band_shadow_upper_endpoint_remains_eligible():
+    spec, packet, p = band_fixture()
+    packet["incumbent_bound"] = p["context"]["observed_floor_bucket"] = 93
+    packet["prior"]["mass"] = {"92": .4, "93": .1, "94": .3, "96": .2}
+    p["final_degree_mass"] = {"92": 0, "93": 1 / 6, "94": .5, "96": 1 / 3}
+    for band, observed in zip(p["bands"], [0, 1 / 6, .5, 1 / 3]):
+        band["model_probability"] = observed
+    result = project_bands(spec, packet, p)
+    assert result["incumbent"]["public"][1] == pytest.approx(1 / 6)
+    assert result["degree_only"]["public"][1] == pytest.approx(.5)
+    assert result["degree_only"]["scoreable_pmf"]
+
+
+def test_public_band_shadow_forced_upper_tail_adds_and_removes_mass():
+    spec, packet, p = band_fixture()
+    p["bands"] = p["bands"][:2] + [dict(label="94°F or higher", kind="gte", value=94, value_hi=94, model_probability=1)]
+    result = project_bands(spec, packet, p)
+    held = result["degree_only"]
+    assert held["public"] == [0, 0, 1] and held["scoreable_pmf"]
+    assert held["added"] == pytest.approx(4 / 9)
+    assert held["removed"] == pytest.approx(4 / 9)
+    assert result["joint"]["public"] == pytest.approx([0, 4 / 9, 5 / 9])
+
+
+def test_public_band_shadow_zero_celsius_with_signed_native_ladder():
+    spec, packet, p = band_fixture()
+    spec.market_unit = "C"
+    for section in (packet, packet["rule"], packet["prior"], p):
+        section["unit"] = "C"
+    packet["incumbent_bound"] = p["context"]["observed_floor_bucket"] = 2
+    packet["prior"]["mass"] = {"-1": .2, "0": .3, "2": .5}
+    packet["evidence"]["reports"] = [row("METAR KZZZ 101550Z 00/M02")]
+    p["final_degree_mass"] = {"-1": 0, "0": 0, "2": 1}
+    p["bands"] = [
+        dict(label="-1°C or below", kind="lte", value=-1, value_hi=-1, model_probability=0),
+        dict(label="0-1°C", kind="eq", value=0, value_hi=1, model_probability=0),
+        dict(label="2°C or higher", kind="gte", value=2, value_hi=2, model_probability=1),
+    ]
+    out = project_bands(spec, packet, p)
+    assert out["candidate_bound"] == 0
+    assert out["degree_only"]["public"] == [0, 0, 1]
+    assert out["joint"]["public"] == pytest.approx([0, .375, .625])
+
+
+def test_public_band_shadow_missing_routine_evidence_abstains():
+    spec, packet, p = band_fixture()
+    packet["evidence"]["reports"] = []
+    assert project_bands(spec, packet, p)["reason"] == "missing"
+
+
+@pytest.mark.parametrize("config", [{}, {"enabled": False}])
+def test_public_band_shadow_disabled_overlay_allows_degree_only_rescue(config):
+    spec, packet, p = band_fixture()
+    p["market_bin"] = config
+    result = project_bands(spec, packet, p)
+    assert result["degree_only"]["public"] == result["joint"]["public"]
+    assert result["degree_only"]["public"][1] == pytest.approx(4 / 9)
+
+
+@pytest.mark.parametrize(("field", "value", "reason"), [
+    ("market_bin", {"enabled": True, "preserve_distribution_coherence": False, "method": "market_shrink"}, "unsupported_noncoherent_market_bin_route"),
+    ("distribution_kind", "continuous_density", "unsupported_distribution_or_intervening_guard"),
+    ("boundary_active", True, "unsupported_distribution_or_intervening_guard"),
+    ("recorded_at", "2026-08-10T20:00:01Z", "presentation_after_decision"),
+    ("context", {"observed_floor_bucket": 93, "lockin_strength": 0, "cutoff_hour": 20}, "unmatched_presentation_context"),
+    ("exact_distribution", {"temperature": 2}, "unbound_presentation"),
+    ("final_degree_mass", {"90": 0, "92": 0, "94": .55, "96": .45}, "incumbent_final_degree_mismatch"),
+])
+def test_public_band_shadow_abstains_before_exposing_candidate(field, value, reason):
+    spec, packet, p = band_fixture()
+    p[field] = value
+    assert project_bands(spec, packet, p) == {"status": "abstained", "reason": reason}
+
+
+def test_public_band_shadow_requires_exact_capture_binding_and_zero_support_closure():
+    spec, packet, p = band_fixture()
+    packet["prior"]["presentation_sha256"] = "f" * 64
+    assert evaluate_floor_band_shadow(packet, spec, p)["reason"] == "unbound_presentation"
+    p["bands"][1]["model_probability"] = 1e-18
+    assert project_bands(spec, packet, p)["reason"] == "incumbent_public_band_mismatch"
+
+
+@pytest.mark.parametrize("case", ["missing_bin", "overlap", "wrong_unit", "wrong_endpoint", "lowest"])
+def test_public_band_shadow_rejects_incompatible_ladders_and_families(case):
+    spec, packet, p = band_fixture()
+    if case == "lowest":
+        packet["family"] = "lowest"
+    elif case == "missing_bin":
+        p["bands"].pop(1)
+    elif case == "overlap":
+        p["bands"].append(dict(p["bands"][1]))
+    elif case == "wrong_unit":
+        p["bands"][1]["label"] = "92-93°C"
+    else:
+        p["bands"][1]["value_hi"] = 92
+    expected = "unsupported_family_or_stage" if case == "lowest" else "incomplete_or_invalid_native_ladder"
+    assert project_bands(spec, packet, p)["reason"] == expected
 
 
 def test_first_stage_matches_one_sided_operator_and_restores_routine_winner_mass():
