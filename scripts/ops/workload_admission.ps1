@@ -705,6 +705,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\codex\A095\r1-winter\winter_panel.py'
             sha256 = 'df9d0cf51c7fc29551f39915e77c1ba9d4b90a52519460debb809c1748b64ba7'
         }
+        # A095r1 offline measurement, exact workstation script.
+        @{
+            path = 'C:\t\codex\A095\r1-winter\winter_summarize.py'
+            sha256 = '172c2a171377aa80380520c1ebe854f9329f2a1919f401c13524fdf53cb16f94'
+        }
         # L59 E1 (row 28's 07-12 descriptive slot), runner v13; master 2026-11-03 E1 STAGED GO.
         @{
             path = 'C:\t\L59\b0712\scripts\row28_run_v13.py'
