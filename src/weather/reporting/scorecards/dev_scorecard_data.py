@@ -29,8 +29,10 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import numpy as np
@@ -357,23 +359,73 @@ def _open_text(path):
     return open(path, encoding="utf-8")
 
 
+_REPEATED_JSON_FIELD = object()
+
+
+def _scorecard_distribution_object(pairs):
+    """Keep repeated fields detectable without rejecting unrelated off-roster payloads."""
+    result = {}
+    for key, value in pairs:
+        result[key] = _REPEATED_JSON_FIELD if key in result else value
+    return result
+
+
+def _scorecard_degree_pmf(raw, line_number):
+    if not isinstance(raw, dict) or not raw:
+        raise Refused(f"refused: candidate distribution on line {line_number} must be a nonempty degree map")
+    pmf = {}
+    for text, value in raw.items():
+        try:
+            number = Decimal(text)
+            # Preserve integral decimal/exponent spellings without rounding through a float.
+            # The former reader accepted only degrees representable as finite floats.
+            if not number.is_finite() or number != number.to_integral_value() or not math.isfinite(float(number)):
+                raise ValueError
+            degree = int(number)
+        except (InvalidOperation, ValueError, OverflowError):
+            raise Refused(f"refused: nonintegral or invalid native degree on line {line_number}") from None
+        if degree in pmf or value is _REPEATED_JSON_FIELD:
+            raise Refused(f"refused: duplicate native degree on line {line_number}")
+        try:
+            if isinstance(value, bool):
+                raise ValueError
+            probability = float(value)
+            if not math.isfinite(probability) or not 0 <= probability <= 1 + 1e-12:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            raise Refused(f"refused: invalid native probability on line {line_number}") from None
+        pmf[degree] = probability
+    if abs(math.fsum(pmf.values()) - 1.0) > 1e-6:
+        raise Refused(f"refused: candidate probability mass on line {line_number} does not sum to one")
+    return pmf
+
+
 def distribution_predictions(spec, layout, folds):
-    """JSONL rows ``{market, snapshot_id, distribution: {native integer degree: p}}`` mapped onto bands."""
+    """Map unique JSONL forecasts of unit total mass on distinct native integer degrees onto bands."""
     meta = _check_trained_through(spec, folds)
     snaps = layout.snaps.set_index("row_key")
     dists, unknown = {}, 0
     with _open_text(spec.path) as stream:
-        for line in stream:
+        for line_number, line in enumerate(stream, start=1):
             if not line.strip():
                 continue
-            row = json.loads(line)
+            try:
+                row = json.loads(line, object_pairs_hook=_scorecard_distribution_object)
+            except json.JSONDecodeError:
+                raise Refused(f"refused: invalid candidate JSON on line {line_number}") from None
+            if not isinstance(row, dict) or not all(isinstance(row.get(k), str) and row[k] for k in ("market", "snapshot_id")):
+                raise Refused(f"refused: missing or ambiguous candidate snapshot identity on line {line_number}")
+            if row.get("target_date") is _REPEATED_JSON_FIELD:
+                raise Refused(f"refused: duplicate candidate target date on line {line_number}")
             if "target_date" in row and parse_date(row["target_date"]) > DEV_LAST:
                 raise Refused(f"refused: candidate distributions hold rows after {DEV_LAST}")
             key = f"{row['market']}|{row['snapshot_id']}"
             if key not in snaps.index:
                 unknown += 1
                 continue
-            dists[key] = {int(float(k)): float(v) for k, v in (row.get("distribution") or {}).items()}
+            if key in dists:
+                raise Refused(f"refused: duplicate candidate snapshot on line {line_number}")
+            dists[key] = _scorecard_degree_pmf(row.get("distribution"), line_number)
     b = layout.bands[layout.bands.row_key.isin(set(dists))]
     probs = []
     for rk, kind, low, high in zip(b.row_key, b.kind, b.low, b.high):
