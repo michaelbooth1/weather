@@ -608,7 +608,7 @@ def density_forecast_relative_contexts(row):
     market_id = row.get("market_id") or "unknown"
     kind = row.get("band_kind") or "unknown"
     width = band_training._band_width_label(row)
-    hour_bucket = band_training.calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    hour_bucket = band_training.calibration_hour_bucket(band_training.variant_cutoff_hour(row))
     pressure = density_forecast_pressure_bucket(row.get("band_mid_minus_forecast"))
     disagreement = density_forecast_disagreement_bucket(row.get("forecast_disagreement"))
     source_count = density_forecast_source_count_bucket(row.get("forecast_source_count"))

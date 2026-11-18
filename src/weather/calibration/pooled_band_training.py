@@ -396,7 +396,7 @@ def _band_validation_partition_key(row):
     return (
         row.get("market_id") or "unknown",
         row.get("target_date") or "unknown",
-        row.get("cutoff_hour") or row.get("candidate_cutoff_hour") or "unknown",
+        variant_cutoff_hour(row, default="unknown"),
     )
 
 
@@ -691,6 +691,7 @@ from weather.model.variant_prediction_runtime import (  # noqa: E402
     predict_band_probabilities,
     predict_band_rows_for_bundle,
     source_trust_bucket,
+    variant_cutoff_hour,
 )
 
 # Re-export imported dependency names as well because later slices intentionally

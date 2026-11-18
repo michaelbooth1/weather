@@ -862,7 +862,11 @@ def trace_pooled_band_binary_probabilities(
     records = _band_prediction_records(feature_vector, band_rows)
     if not records:
         return {"probabilities": {}, "stages": {}, "stage_order": []}
-    hour = str(records[0].get("cutoff_hour") or (context.get("captured_at").hour if context.get("captured_at") else ""))
+    recorded_hour = records[0].get("cutoff_hour")
+    if recorded_hour is None or recorded_hour == "":
+        captured_at = context.get("captured_at")
+        recorded_hour = captured_at.hour if captured_at is not None else ""
+    hour = str(recorded_hour)
     bundle = (artifact.get("models") or {}).get(hour)
     if not bundle:
         raise ValueError(f"artifact has no live model for cutoff hour {hour!r}")

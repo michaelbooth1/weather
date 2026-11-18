@@ -500,10 +500,19 @@ def forecast_anchor_probability(row, sigma=1.25):
     return clip_probability(probability)
 
 
+def variant_cutoff_hour(row, default=None):
+    """Prefer the recorded feature cutoff, including numeric midnight."""
+    for key in ("cutoff_hour", "candidate_cutoff_hour"):
+        value = (row or {}).get(key)
+        if value is not None and value != "":
+            return value
+    return default
+
+
 def forecast_centering_alpha(row, config=None):
     config = config or {}
     try:
-        hour = int(float((row or {}).get("cutoff_hour") or (row or {}).get("candidate_cutoff_hour")))
+        hour = int(float(variant_cutoff_hour(row)))
     except (TypeError, ValueError):
         hour = None
     alpha_by_hour = config.get("forecast_centering_alpha_by_hour") or {}
@@ -582,7 +591,7 @@ def adjacent_calibration_contexts(row):
     except (TypeError, ValueError):
         return []
     market_id = row.get("market_id") or "unknown"
-    hour_bucket = calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    hour_bucket = calibration_hour_bucket(variant_cutoff_hour(row))
     floor_gap = calibration_gap_bucket(row.get("band_mid_minus_high_so_far"))
     width = _band_width_label(row)
     return [
@@ -620,7 +629,7 @@ def apply_adjacent_calibration(probability, row, config=None):
 def market_bias_calibration_contexts(row):
     market_id = row.get("market_id") or "unknown"
     kind = row.get("band_kind") or "unknown"
-    hour_bucket = calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    hour_bucket = calibration_hour_bucket(variant_cutoff_hour(row))
     return [
         f"market={market_id}|hour={hour_bucket}|kind={kind}",
         f"market={market_id}|kind={kind}",
@@ -683,7 +692,7 @@ def exact_winner_catchup_contexts(row):
     except (TypeError, ValueError):
         return []
     market_id = row.get("market_id") or "unknown"
-    hour_bucket = calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    hour_bucket = calibration_hour_bucket(variant_cutoff_hour(row))
     floor_gap = calibration_gap_bucket(row.get("band_mid_minus_high_so_far"))
     forecast_gap = calibration_gap_bucket(row.get("band_mid_minus_forecast"))
     width = _band_width_label(row)
@@ -777,7 +786,7 @@ def density_forecast_relative_contexts(row):
     market_id = row.get("market_id") or "unknown"
     kind = row.get("band_kind") or "unknown"
     width = _band_width_label(row)
-    hour_bucket = calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    hour_bucket = calibration_hour_bucket(variant_cutoff_hour(row))
     pressure = density_forecast_pressure_bucket(row.get("band_mid_minus_forecast"))
     disagreement = density_forecast_disagreement_bucket(row.get("forecast_disagreement"))
     source_count = density_forecast_source_count_bucket(row.get("forecast_source_count"))

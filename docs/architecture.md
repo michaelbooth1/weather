@@ -124,6 +124,9 @@ bounded counterfactual detail is governed by the
   source, model, label, replay, and reporting owners.
 - Intraday features align to the effective WU printed cutoff, not blindly to
   wall-clock time.
+- An explicit midnight cutoff in a pooled research row selects hour zero in
+  both training and prediction. A missing cutoff permits the candidate-hour
+  fallback for calibration or the capture-hour fallback for model selection.
 - Station observation rows are keyed on the observation instant
   (`metar-parser-v4` keys AWC rows on `obsTime`, never the nominal
   `reportTime`; [durable domain context](operations/AGENT_CONTEXT.md)). Captured
