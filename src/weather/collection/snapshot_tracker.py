@@ -1397,6 +1397,9 @@ def market_cadence_attribution(market_id, result, due_state, *, started_at, comp
         "written": bool(result.get("written")),
         "snapshot_id": result.get("snapshot_id"),
         "error": result.get("error"),
+        "blocked": bool(result.get("blocked")),
+        "status": result.get("status"),
+        "reason": result.get("reason"),
         "skipped_reason": skipped_reason,
         "skipped_not_due": skipped_not_due,
         "due_at_loop_start": bool(due_state.get("due")),
@@ -1460,11 +1463,14 @@ def finalize_iteration_error_state(
     """
 
     expected = [str(market_id) for market_id in expected_market_ids]
-    errors = {
-        str(market_id): result.get("error")
-        for market_id, result in market_results.items()
-        if result.get("error")
-    }
+    errors = {}
+    for market_id, result in market_results.items():
+        if result.get("error"):
+            errors[str(market_id)] = result["error"]
+        elif result.get("blocked") or str(result.get("status") or "").upper() in {"BLOCK", "ERROR"}:
+            errors[str(market_id)] = result.get("reason") or "capture blocked: no snapshot written"
+        elif not result.get("written") and not result.get("skipped_reason"):
+            errors[str(market_id)] = result.get("reason") or "capture_not_written: no snapshot or skip reason"
     for market_id in expected:
         if market_id not in market_results:
             errors[market_id] = "capture_result_missing: no market result"
@@ -2048,6 +2054,11 @@ def run_loop(
                                 "written": bool(result.get("written")),
                                 "snapshot_id": result.get("snapshot_id"),
                                 "error": result.get("error"),
+                                "blocked": bool(result.get("blocked")),
+                                "status": result.get("status"),
+                                "reason": result.get("reason"),
+                                "event_slug": result.get("event_slug"),
+                                "target_date": result.get("target_date"),
                                 "skipped_reason": result.get("skipped_reason"),
                                 "next_due_at": result.get("next_due_at"),
                                 "execution": market_execution.get(mid),
@@ -2069,6 +2080,11 @@ def run_loop(
                         "written": bool(result.get("written")),
                         "snapshot_id": result.get("snapshot_id"),
                         "error": result.get("error"),
+                        "blocked": bool(result.get("blocked")),
+                        "status": result.get("status"),
+                        "reason": result.get("reason"),
+                        "event_slug": result.get("event_slug"),
+                        "target_date": result.get("target_date"),
                         "skipped_reason": result.get("skipped_reason"),
                         "next_due_at": result.get("next_due_at"),
                         "execution": market_execution.get(mid),
@@ -2121,7 +2137,9 @@ def run_loop(
                 append_diagnostic({
                     "time": now.isoformat(),
                     "markets": {
-                        mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id"), "error": r.get("error")}
+                        mid: {key: r.get(key) for key in (
+                            "written", "snapshot_id", "blocked", "status", "reason", "error", "skipped_reason"
+                        )}
                         for mid, r in market_results.items()
                     },
                     "cadence_attribution": cadence_attribution,
@@ -2129,7 +2147,9 @@ def run_loop(
                 })
                 print(json.dumps({
                     "time": now.isoformat(),
-                    "markets": {mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id")} for mid, r in market_results.items()},
+                    "markets": {mid: {key: r.get(key) for key in (
+                        "written", "snapshot_id", "blocked", "status", "reason", "error", "skipped_reason"
+                    )} for mid, r in market_results.items()},
                 }, sort_keys=True), flush=True)
             sleep_now = now_fn()
             elapsed_seconds = (sleep_now - iteration_started).total_seconds()

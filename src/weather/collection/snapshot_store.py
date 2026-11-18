@@ -652,6 +652,7 @@ class SnapshotStore:
             return {
                 "written": False,
                 "locked": True,
+                "skipped_reason": "store_locked",
                 "path": str(self.long_path),
                 "next_due_at": self.next_due_at(),
             }
@@ -659,6 +660,7 @@ class SnapshotStore:
             if not force and not self.is_due(now, cadence=cadence):
                 return {
                     "written": False,
+                    "skipped_reason": "not_due_store",
                     "path": str(self.long_path),
                     "next_due_at": self.next_due_at(cadence=cadence),
                 }
