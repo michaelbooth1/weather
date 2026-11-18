@@ -36,10 +36,11 @@ import csv
 import hashlib
 import io
 import json
+import re
 import sys
 from collections import defaultdict
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -339,6 +340,7 @@ def build_label_rows(
     event_sources=None,
     cutover=VENUE_RULE_CUTOVER_DATE,
     target_dates=None,
+    fallback_spans_by_station=None,
 ):
     """Composite daily label rows for one market, sorted by date.
 
@@ -347,6 +349,8 @@ def build_label_rows(
     from the resolved station; a spanned date without a routine temperature
     falls back to WU only when the WU station is the venue station. A date the
     station's stream does not span, or the stream's last date, has no row.
+    File-backed builds supply independently covered half-open local-date
+    spans. A caller supplying a continuous in-memory stream may omit them.
     """
 
     event_sources = event_sources or {}
@@ -393,6 +397,12 @@ def build_label_rows(
             continue
         if local_date not in wu_rows:
             skipped[local_date] = "no_routine_metar_and_no_wu_row"
+            continue
+        if fallback_spans_by_station is not None and not any(
+            first_day <= day < stop_day
+            for first_day, stop_day in fallback_spans_by_station.get(station["icao"], ())
+        ):
+            skipped[local_date] = f"routine_file_coverage_unproven_{station['icao']}"
             continue
         row = _wu_output_row(spec, wu_rows[local_date], LABEL_SOURCE_WU_FALLBACK)
         row.update(common)
@@ -455,6 +465,52 @@ def routine_csv_files(metar_root, icao):
     return sorted((Path(metar_root) / icao.lower() / "routine").glob("*.csv"))
 
 
+def _routine_file_window(path, reports):
+    """Named IEM request and observed local bounds that can support a fallback."""
+    match = re.fullmatch(r"asos_routine_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.csv", path.name)
+    if not match:
+        return None
+    try:
+        start_day, last_day = map(date.fromisoformat, match.groups())
+        # MetarClient sends UTC date2 = named end + 1. Do not presume any
+        # coverage beyond that midnight merely from the filename.
+        start = datetime.combine(start_day, time.min, timezone.utc)
+        stop = datetime.combine(last_day + timedelta(days=1), time.min, timezone.utc)
+        padded_end = stop + timedelta(days=1)
+    except (ValueError, OverflowError):
+        return None
+    relevant = [r for r in reports if start <= r["valid_time_utc"] < padded_end]
+    if start >= stop or not relevant:
+        return None
+    # If the returned rows actually extend into date2, they document the
+    # spillover through their latest instant, not the rest of that UTC day.
+    stop = max(stop, max(r["valid_time_utc"] for r in relevant))
+    observed_days = [date.fromisoformat(r["local_date"]) for r in relevant]
+    return start, stop, min(observed_days), max(observed_days)
+
+
+def _covered_fallback_spans(windows, zone):
+    """Require a complete local day and a later observation in its connected requests."""
+    connected = []
+    for start, stop, first, last in sorted(windows):
+        if connected and start <= connected[-1][1]:
+            old_start, old_stop, old_first, old_last = connected[-1]
+            connected[-1] = old_start, max(stop, old_stop), min(first, old_first), max(last, old_last)
+        else:
+            connected.append((start, stop, first, last))
+    spans = []
+    for start, stop, first, last in connected:
+        local_start = start.astimezone(zone)
+        first_full_day = local_start.date()
+        if local_start.time() != time.min:
+            first_full_day += timedelta(days=1)
+        first = max(first, first_full_day)
+        last = min(last, stop.astimezone(zone).date())
+        if first < last:
+            spans.append((first, last))
+    return spans
+
+
 def build_market_labels(
     spec,
     wu_daily_summary=None,
@@ -478,13 +534,20 @@ def build_market_labels(
     }
     inputs = []
     reports_by_station = {}
+    fallback_spans = {}
     for icao in sorted(stations):
         reports = []
+        windows = []
         for path in routine_csv_files(metar_root, icao):
-            reports.extend(reports_from_csv(
+            file_reports = reports_from_csv(
                 path.read_text(encoding="utf-8"), spec, icao, declared_report_type=IEM_REPORT_TYPE_ROUTINE,
-            ))
+            )
+            reports.extend(file_reports)
+            window = _routine_file_window(path, file_reports)
+            if window is not None:
+                windows.append(window)
             inputs.append({"path": str(path), "sha256": _sha256(path), "station": icao})
+        fallback_spans[icao] = _covered_fallback_spans(windows, spec.tz)
         if reports:
             reports.sort(key=lambda item: item["valid_time_utc"])
             reports_by_station[icao] = reports
@@ -495,6 +558,7 @@ def build_market_labels(
         station_config=station_config,
         event_sources=event_sources,
         cutover=cutover,
+        fallback_spans_by_station=fallback_spans,
     )
     label_dates, counts = label_keys(rows, skipped)  # before the CSV or the manifest is written
     out = Path(out or default_label_path(spec))

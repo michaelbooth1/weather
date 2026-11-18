@@ -29,7 +29,7 @@ on the market's local date. Rule tag: `VENUE_RULE_VERSION`.
 | Local day | Observation instant (IEM `valid`) in the market's zone, DST included; a 25-hour fall-back day keeps both 01:xx reports. |
 | Corrections | A `COR` report replaces the original at its observation time while it is received before the next local day's first report. IEM rows carry no receipt time, so an IEM correction is accepted; a `receipt_time` column, when present, enforces the deadline. |
 | Finality | A date is labelled only once the station's stream holds a later report. |
-| Fallback | If the stream spans the date but holds no routine temperature, the WU Daily Observations row is used (`wu_fallback_no_routine_metar`), but only when the WU history station is the label station. Otherwise, and for dates the stream does not span, there is no row. |
+| Fallback | A same-station WU Daily Observations row can supply a date with no routine temperature. File-backed builds require the entire local day inside connected dated routine requests with retained observations and a later local-date report in the same component. Disjoint files cannot establish coverage of their gap. |
 | Before the cutover | The WU row passes through unchanged (`wu_history`). |
 | Markets | Built-ins only (`BUILTIN_SPECS`). Hong Kong and the pilot cities are not built-ins. |
 
@@ -360,6 +360,17 @@ two parameters. The command that calls the client with them is this module's
   The venue resolves a date at the next day's first report, so a date with no
   later report stays unlabelled. The client already requests one extra UTC day.
 - Each run writes one file under `data/venue_rule_labels/metar/<icao>/routine/`.
+  The builder reads the UTC date bounds from `asos_routine_<start>_<end>.csv`,
+  joins adjacent or overlapping request ranges, and admits fallback only for
+  complete station-local days bracketed by retained dates in the same range.
+  The conservative end is UTC midnight on named end + 1, as sent to IEM.
+  Retained observations on that padded UTC date can extend evidence through
+  their latest observed instant.
+  A filename alone, an empty/unparseable response, or an undated legacy CSV
+  cannot establish absence. Valid routine values from legacy files still count.
+  The manifest records otherwise eligible fallback dates with unproven
+  coverage as `routine_file_coverage_unproven_<ICAO>`. The in-memory
+  `build_label_rows` interface may still accept an explicitly continuous stream.
   Do not copy in files from the ordinary `MetarStore` backfill: they mix routine
   reports with SPECIs and have no raw text.
 
