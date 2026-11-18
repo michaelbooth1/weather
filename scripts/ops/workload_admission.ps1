@@ -680,6 +680,16 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
     param()
 
     @(
+        # A095r2 follow-up, restricted historical input only.
+        @{
+            path = 'C:\t\codex\A095\r2_labels_history.py'
+            sha256 = 'f3454aa43490e8034e4495dfe06c837baa030a19a5d689d794e3e036cbb8e1e0'
+        }
+        # A095r2 follow-up, restricted historical input only.
+        @{
+            path = 'C:\t\codex\A095\r2-winter\wu_winter_repair.py'
+            sha256 = '27250c6955afcdc3dcffaa25819949424d076ba680af0ca476dd7dacdeb00ae4'
+        }
         # A095r1 offline measurement, exact workstation script.
         @{
             path = 'C:\t\codex\A095\r1_label_floor.py'
