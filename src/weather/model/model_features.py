@@ -349,10 +349,8 @@ class FeatureModelMixin:
                 "day_max_native",
                 "day_max_c",
             )
-            representative = (
-                feature_values.get("nbm_prob_tmax_p90")
-                or feature_values.get("nbm_prob_tmax_mean")
-                or feature_values.get("nbm_prob_tmax_p50")
+            representative = row_value(
+                feature_values, "nbm_prob_tmax_p90", "nbm_prob_tmax_mean", "nbm_prob_tmax_p50"
             )
             states["nbm_probabilistic_tmax"] = self.guidance_physical_state(
                 "nbm_probabilistic_tmax",
@@ -566,10 +564,8 @@ class FeatureModelMixin:
             "day_max_native",
             "day_max_c",
         )
-        nbm_representative = (
-            nbm_feature_values.get("nbm_prob_tmax_p90")
-            or nbm_feature_values.get("nbm_prob_tmax_mean")
-            or nbm_feature_values.get("nbm_prob_tmax_p50")
+        nbm_representative = row_value(
+            nbm_feature_values, "nbm_prob_tmax_p90", "nbm_prob_tmax_mean", "nbm_prob_tmax_p50"
         )
         nbm_state = self.guidance_physical_state(
             "nbm_probabilistic_tmax",

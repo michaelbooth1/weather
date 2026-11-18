@@ -42,6 +42,9 @@ to a reason or null. The filtered percentile/mean/spread fields keep their
 existing names, Fahrenheit units and numeric types. The observation-floor
 filter remains a subsequent, unchanged feature step; its existing
 `guidance_impossible_features` records which values it removed.
+The representative for the physical check is the first available native
+temperature among p90, mean and p50. Zero is a measured temperature in both
+the source-status projection and the model's floor-gap feature.
 
 The stored numeric diagnostics are `nbm_prob_tmax_parser_version`,
 `nbm_prob_tmax_valid_hour_utc`, `nbm_prob_tmax_cycle_age_hours`, and
