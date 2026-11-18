@@ -59,6 +59,21 @@ TRANSFERRED = "2026-12-15T00:00:00Z"
 FIXTURE_GIT_CONFIG = ("user.name=Fixture", "user.email=fixture@example.invalid", "commit.gpgSign=false")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_verified_scorers():
+    # The wrapper registers each verified S1 under a name derived from its hash.
+    # Later tests scan loaded modules and hash their source files.
+    prefix = "weather.calibration._b_scorer_s1_"
+    previous = {name: module for name, module in sys.modules.copy().items() if name.startswith(prefix)}
+    try:
+        yield
+    finally:
+        for name in tuple(sys.modules):
+            if name.startswith(prefix):
+                sys.modules.pop(name, None)
+        sys.modules.update(previous)
+
+
 def _sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
