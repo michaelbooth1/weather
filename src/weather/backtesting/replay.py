@@ -48,6 +48,7 @@ REPLAY_STATUS_COLUMNS = [
 # --- Corpus loading ---------------------------------------------------------
 
 def _read_jsonl(path):
+    """Read object records, using the same row contract as the snapshot store."""
     records = []
     if not Path(path).exists():
         return records
@@ -57,9 +58,11 @@ def _read_jsonl(path):
             if not line:
                 continue
             try:
-                records.append(json.loads(line))
+                record = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if isinstance(record, dict):
+                records.append(record)
     return records
 
 
