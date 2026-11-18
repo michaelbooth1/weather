@@ -46,7 +46,7 @@ Conventions for naming, ordering and reading the correspondence are in
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, guarded runtime integration, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
-| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Outside the capture-host timetable; heavy commands run under the [workstation wrapper contract](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope) and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **paused and frozen** ([record](mirror-paused-2026-08-12.md)) and is not authoritative |
+| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement; also hosts owner-approved processes (the owner-registered F2 campaign task, the wallet reader, forward recorders), which agents change only with an owner yes | Outside the capture-host timetable; heavy commands run under the [workstation wrapper contract](HOST_LOAD_POLICY.md#workstation-and-portable-executor-scope) and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **paused and frozen** ([record](mirror-paused-2026-08-12.md)) and is not authoritative |
 | **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session; may be the same physical PC as the workstation | Exact adopted master or the single operator-authorized topic ref under its full equality/ancestry contract; no capture, release, Scheduler, production-state, unattended, or general-live authority; Git/PR actions follow explicit operator authority and `docs/git-workflow.md`; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
 
 The portable executor is a role, not a permanent machine name. The same
@@ -116,8 +116,9 @@ role file and host runbooks.
   [domain context](AGENT_CONTEXT.md) and EF §10bb (`C:\archive\reviews\T032\TRACE.md`).
 - **Do not relax the promotion gate for `harvest_only` rows.** That requires an operator decision plus
   a code change and is explicitly not delegated.
-- **Do not relax a gate to make it pass.** Gates in this project are frequently correct when they
-  refuse. If a gate is right, the deliverable is the sentence explaining why, not a patch.
+- **Do not relax a gate to make it pass on your own authority.** Gates in this project are frequently correct when they
+  refuse; if a gate is right, the deliverable is the sentence explaining why, not a patch. Only a recorded owner waiver
+  (a waiver file or a DECISION_LOG row) skips a gate; a gate that over-blocks is a defect to report (`STATE_OF_PLAY.md`).
 - Never rewrite published git history. **Never delete an unmerged branch or another task's
   worktree** — agent reports and unique code have existed only on unmerged branches. A fully merged
   branch is retired only through a recorded retirement
@@ -125,9 +126,9 @@ role file and host runbooks.
 
 **Providers**
 
-- **Free-tier Open-Meteo only. No paid API, ever**, without a new dated operator decision in
-  [`forecast-source-and-training-population.md`](forecast-source-and-training-population.md).
-- That file also closes the licensing question permanently. **Do not stop a mission on provider
+- **Paid weather sources only with explicit per-source owner approval recorded in [DECISION_LOG](DECISION_LOG.md)**
+  (owner 2026-10-23); free official data needs no ask (owner 2026-10-24). Never commit credentials.
+- [`forecast-source-and-training-population.md`](forecast-source-and-training-population.md) closes the licensing question permanently. **Do not stop a mission on provider
   licensing or on the training population** — both are decided. This exact block halted two missions.
 
 **Scope**
@@ -294,14 +295,14 @@ git diff --name-only "origin/master...origin/<branch>" | Where-Object { $_ -like
 
 ## 8. Dispatching a mission to the workstation
 
-**[DECISION_LOG 2026-11-06 (Codex as WS workhorse)](DECISION_LOG.md):** workstation missions move to Codex, model `gpt-6.1-sol`;
-the master remains Claude on the production capture PC. This replaces the workstation Claude Code
-session reached through Claude-to-Claude messaging (`SendMessage` / Remote Control).
+**[DECISION_LOG 2026-11-06 (Codex as WS workhorse)](DECISION_LOG.md):** workstation missions go to Codex, model `gpt-6.1-sol`;
+the master remains Claude on the production capture PC. The workstation Claude Code session stays: it is the owner's guide
+and builds when Codex is unavailable (B090 on 2026-11-13, during the owner's 11-12..11-13 Codex pause).
 
 ### Transport and authority
 
 The owner chose full SSH access in both directions, without forced-command restrictions ("this is local").
-Existing SSH keys provide transport: production reaches the workstation's LAN address as user `Michael`
+Existing SSH keys provide transport: production reaches the workstation's LAN address as the owner's Windows user
 through host alias `weather-workstation`; the workstation's key is authorized on production. Key material
 stays outside the repository. SSH access grants no additional task or operational authority.
 

@@ -21,12 +21,12 @@ and replay outside this timetable and without the capture-host resource/time
 admission.
 
 **One workstation exception: self-start campaign entry dates** (master ruling 2026-11-07, see DECISION_LOG).
-- **Which dates:** every date in the enrolled F2 campaign's learning or confirmation list, from 2026-11-10 to
+- **Which dates:** every date in the enrolled F2 campaign's learning or confirmation list, from 2026-11-09 to
   2026-12-22. If unsure whether today is one, treat it as one.
 - **The rule:** on those dates no agent starts a heavy command on the workstation after 08:30 America/Toronto
-  until that day's session has finished (about 15:30). Light work is fine.
-- **Why:** the session takes the same workload mutex and its own work lock in its only start window,
-  09:00–09:15. A heavy job holding the mutex then makes it DEFER and then MISS the day.
+  until that day's session and its postchecks have finished (fixed end 18:45). Light work is fine.
+- **Why:** the session takes the same workload mutex and its own work lock inside its entry window (the policy's
+  `start_window_toronto`). A heavy job holding the mutex makes it DEFER, and through the window end MISS it.
 - **Also on those dates:** no agent creates `C:\t\codex\HOLD_HEAVY`.
 
 **Workstation housekeeping traps (master, 2026-11-11):**
@@ -42,6 +42,13 @@ admission.
   - they are checkout-sized and not cited by any repo document.
 
   Archive each checkout's ignored `data\` first, and log its head sha with the `git worktree add --detach` command that recreates it (2026-11-12 log: workstation `C:\t\codex\DISK-CLEANUP-20261112.log`). Research data folders (`C:\t\recopy-*`, `C:\t\r80`, `workstation-chat`) are the owner's decision.
+- **A killed agent tree can block the live start.** At 11:46 on 2026-11-12 the master stopped a Codex task with `taskkill /T` while its wrapped pytest was starting. The wrapper died abruptly and left `%ProgramData%\WeatherProject\heavy_workload_v1.poison` in the `ACTIVE` state. F2's `ExclusiveWorkload` (`lfc_campaign_guard.py`) refuses live admission and the funding proof while any heavy-workload state file exists (`workload_poison`), so the owner's setup step 6 refused that night.
+  - **Recovery** (11-13 00:15): prove the marker's owner process is gone. Then run one ordinary wrapped admission on the legacy slot, for example a one-file `-Kind compileall` (the B089-era wrapper has no `-SlotCount`). Its zero-residual scan recovers the stale record and asks for the exact retry, which then runs and tears down cleanly.
+  - **Before 08:50 on every trading day,** check `*.poison` there. A marker whose owner is alive is a running job that must finish before 09:00; one whose owner is dead needs the recovery above.
+  - **Never stop an agent tree that may hold a wrapped job;** let it finish.
+  - **A second cause (11-13 00:57):** an agent helper ran `workstation_heavy.ps1` under `$ErrorActionPreference = 'Stop'` with `*>&1`. Under Windows PowerShell 5.1 a native stderr line became a terminating error, and the stopped pipeline killed the wrapper before it released its slot, leaving the slot 2 and slot 3 markers `ACTIVE`.
+    - **Rule:** run wrapped jobs in the foreground. Never merge their stderr into a terminating stream; capture it with `Start-Process -RedirectStandardOutput/-RedirectStandardError` or with `2>` to a file. Check `*.poison` after each run.
+    - **Recovery for slots 2-8:** call `Enter-WeatherWorkstationHeavyExclusiveLease` (`workload_admission.ps1`) with a canonical offline workload name, for example `WorkstationOffline-pytest-<PID>`. Then call `Set-WeatherHeavyWorkloadLeaseTeardownPending` and `Exit-WeatherHeavyWorkloadLease`.
 
 Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`, except
 the focused runs exempted below (owner decision 2026-10-04).

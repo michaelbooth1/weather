@@ -6,12 +6,12 @@ import argparse
 import json
 import re
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import config_path
 from weather.schema_registry import schema_version
+from weather.market.gamma_http import GammaRequestError, gamma_json
 
 
 LOCATION_REGISTRY_SCHEMA_VERSION = schema_version("location_registry")
@@ -97,9 +97,7 @@ def fetch_gamma_events(
             limit=limit,
             offset=offset,
         )
-        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            page_events = json.loads(response.read().decode("utf-8"))
+        page_events = gamma_json(url, user_agent=USER_AGENT, timeout=timeout_seconds)
         if not isinstance(page_events, list):
             raise ValueError("Gamma events response must be a list")
         offsets.append(offset)
@@ -380,11 +378,14 @@ def main(argv=None):
     if args.events_json:
         payload = load_json(args.events_json)
         events = payload.get("events") if isinstance(payload, dict) else payload
-    locations_payload, event_payload = refresh_configs(
-        locations_path=args.locations,
-        event_metadata_path=args.event_metadata,
-        events=events,
-    )
+    try:
+        locations_payload, event_payload = refresh_configs(
+            locations_path=args.locations,
+            event_metadata_path=args.event_metadata,
+            events=events,
+        )
+    except GammaRequestError as exc:
+        parser.exit(1, f"Location config refresh failed: {exc}\n")
     if not args.metadata_only:
         write_json(args.locations, locations_payload)
     write_json(args.event_metadata, event_payload)

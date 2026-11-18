@@ -28,7 +28,7 @@ commit.
   settings do not enforce protection; routine task work and direct pushes do
   not happen there.
 - Each independent change uses one topic branch and one linked worktree. Agent-
-  created branches use `codex/<short-topic>` and a sibling directory such as
+  created branches use `codex/<short-topic>` (Codex) or `claude/<short-topic>` (Claude Code) and a sibling directory such as
   `weather-<short-topic>`.
 - Branch from a fetched, explicitly recorded `origin/master` commit. If work
   depends on an unmerged branch, declare a stacked dependency instead of
@@ -53,7 +53,7 @@ checkout (owner decision 2026-08-28).
 
 | Scope | May | Must not |
 | --- | --- | --- |
-| **Task / coding agent** — any delegated, workstation, sub-agent or implementation session, on any host | Work on a `codex/<topic>` branch in its own worktree; commit there; **push that branch to `origin` freely, at any hour**; open or update a draft PR. | Commit on, merge into, or push `master`. Adopt code at runtime. Merge a PR without an explicit repository-owner instruction. |
+| **Task / coding agent** — any delegated, workstation, sub-agent or implementation session, on any host | Work on a `codex/<topic>` or `claude/<topic>` branch in its own worktree; commit there; **push that branch to `origin` freely, at any hour**; open or update a draft PR. | Commit on, merge into, or push `master`. Adopt code at runtime. Merge a PR without an explicit repository-owner instruction. |
 | **Production operations agent** — the role in `OPERATIONS_AGENT_ROLE.md`, on the 16 GB capture host | Owns **adoption**: takes the roll verdict from `scripts\ops\roll_verdict.ps1 -Branch <ref>`; merges to `master` **only** through `scripts\ops\quiet_window_merge.ps1` or `scripts\ops\suite_gated_quiet_merge.ps1` (procedure: [Immutable Integration Attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md)), or, for a ROLL-FREE `docs/**/*.md`-only branch, `scripts\ops\docs_light_path.ps1` (00:30-12:00 local only); publishes `master` **only** through the `WeatherOneShotPush` scheduled task, then verifies `git rev-parse origin/master`. | Hand-merge code into `master`, push `master` interactively, merge inside 12:00–18:00 or 18:00–00:30, or schedule a roll-sensitive merge outside 01:00–04:00. |
 
 Why a branch push is always safe: capture supervisors fingerprint the source

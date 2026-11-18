@@ -245,6 +245,9 @@ Rule 13 is the owner's (2026-10-30, [decision log](DECISION_LOG.md)). Rules 14 a
     Instances: row 28 (lever-inventory row 28, ledger rows 114-117; EF §10aw): the projection took per-date SD
     0.016304 from the row-109 Aug-Sep near-twin receipt; realised X−S SD 0.0799 / 0.0803 / 0.0787 / 0.1300 (arms
     A-D), a realised/projected SD ratio of 4.90 / 4.93 / 4.83 / 7.97 (POST-HOC D2, `2a9cfcdf6`).
+    Instance (F2 going-in ledger, 2026-11-13; A091 §7 F7, §11): EF §10r's σ_d is the SD across dates of the date-mean
+    per-band-day profit. Treated as an independent per-band SD, it turns about 11,963 required dates at the 3% hurdle
+    into band-days and understates the requirement about 12-fold at 12 bands a day.
 20. **Name every dependence factor's unit** (master, 2026-11-04, after ledger row 119). A prereg names each factor
     with its unit:
     - κ_* is a variance ratio (it multiplies SE²);

@@ -24,7 +24,7 @@ only, links to owners for detail, and never carries status, counts, or dates.
 | Domain semantics: settlement, units, source roles, floors | [Durable domain context](docs/operations/AGENT_CONTEXT.md) |
 | A cross-host mission: writing a handoff, executing one, verifying a handback | [Delegation contract](docs/operations/DELEGATION_CONTRACT.md) (its standing boundaries bind every mission) and [the roadmap agent guide](docs/roadmap/AGENTS.md) |
 | Reading dated evidence or settled market-days for evaluation | [Reserved confirmation window](docs/operations/reserved-confirmation-window.md) — read its status line; the rest applies only if it says a window is reserved. When one is reserved, that contract overrides handoffs and role text. |
-| Live trading, the maker pilot, maker economics | [International MM live pilot](docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md) and [item 330](docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md) |
+| Live trading, the maker pilot, maker economics | Live F2 campaign: [state of play](docs/operations/STATE_OF_PLAY.md) critical path 0 and [item 67](docs/roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md); attended Stage 0/1: [International MM live pilot](docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md); economics: [item 330](docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md) |
 | Branches, worktrees, commits, pushes, pull requests | [Git workflow SOP](docs/git-workflow.md) |
 | Anything else | [Documentation map](docs/README.md) — routes every canonical document by task |
 
@@ -61,7 +61,7 @@ memory as project guidance; durable knowledge lives in this repository.
   Never delete or rewrite tapes, ledgers, or trading evidence casually.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
-  readiness/release gates.
+  readiness/release gates; only a recorded owner waiver may skip one.
 - **Heavy work on the dedicated 16 GB capture host is time-gated, leased, and
   serial** — independently of whether a diff is roll-free.
   [The host load policy](docs/operations/HOST_LOAD_POLICY.md) owns the detail.
@@ -87,8 +87,8 @@ memory as project guidance; durable knowledge lives in this repository.
   `scripts/ops/workstation_heavy.ps1` and should finish before a live attempt is
   sealed (the host load policy owns the wrapper, mutex, and child-tree contract).
   This grants no capture, production-state, Scheduler, credential, exchange,
-  unattended-trading, or live-order authority; live work still requires the
-  host-bound `portable_execution_v1` lane in
+  unattended-trading, or live-order authority; live work runs only on the assigned
+  execution host, through the owner-registered F2 campaign task or the attended lane in
   [the portable execution-host runbook](docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md).
 - **Merging code on the production host can restart live capture.** Supervisors
   fingerprint the source files they have imported, so landing a change to a

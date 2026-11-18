@@ -78,8 +78,8 @@ From test-suite review K ([decision log](../docs/operations/DECISION_LOG.md) row
 
 `tests/operations/test_source_control_bytes.py` (no baseline; justified `ALLOWLIST`) refuses every control
 character other than LF and tab, lone CR included, in tracked `.ps1`/`.psm1`/`.md`/`.json`/`.py` index
-blobs (CRLF normalised): write `r"\b"`, `"\t"`, `"\r"`, never the character (a 2026-10-25 regex held a
-backspace and checked nothing; 2026-10-30 paths and a launcher comment held TAB/FF/CR).
+blobs (CRLF normalised): write `r"\b"`, `"\t"`, `"\r"`, never the character (a regex once held a literal
+backspace and checked nothing).
 
 Guidelines (not mechanically checked): `pytest.raises(match=...)` only when the refusal reason is the
 contract; mutation-informed assertions as in

@@ -1,6 +1,8 @@
 # Forecast source and training population — canonical decision record
 
-- **Owns:** two decisions — forecast provider/licensing (free-tier Open-Meteo, **no paid API**)
+- **Owns:** two decisions — forecast provider/licensing (free-tier Open-Meteo; the 2026-08-05 "no paid API"
+  rule is superseded: since 2026-10-23 paid weather sources are allowed only per source with explicit owner
+  approval recorded in [DECISION_LOG](DECISION_LOG.md), and free official data needs no ask, owner 2026-10-24)
   and the first-retrain training years (2021–2025).
 - **Read when:** you are about to stop on "may we collect from Open-Meteo?" or "which years?",
   or someone proposes a paid source or widening `covered_years`.

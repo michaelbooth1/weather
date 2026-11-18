@@ -332,6 +332,16 @@ same way.
 support figure that was not deduplicated is not a support figure. This is the same family as the
 mismatched-denominator error that produced the retracted 78% absorption "leak".
 
+### "EF §10r's σ_d of 4.713 is a per-band SD, so more bands a day shrink the error" — FALSE
+
+- **What it looked like:** σ_d is quoted "per band-day".
+- **What is true:** it is the sample SD across 4 dates of the date-mean per-band-day profit. Its 30-date SE
+  (about 0.86 per band-day) is correct; converting it into a count of independent band-days is not. At the
+  owner's 3% weekly hurdle (about 0.107 per band-day at 12 a day) it implies about 11,963 dates, not
+  band-days. A091's separate current-position proxy still leaves a 30-date confirmation about 11% one-sided
+  power for 0% against 3%. `ESTABLISHED_FINDINGS.md` §10r, §10bg; A091 §7 F7, §11.
+- **Why it fooled us:** the unit in the label was read as the sampling unit.
+
 ---
 
 ## 3. Operational false alarms
@@ -572,6 +582,25 @@ the collision as designed.
 - **Why it fooled us:** two alarms that co-occur invite a causal arrow. Only 2 of the 10 dates have a
   provable cause at all, because the chain's status file is overwritten daily.
 
+### "`scoring_seen = false` means a cheap-arm band did not score" — FALSE
+
+- **What it looked like:** the legacy session summary `scoring_seen` read false on cheap (one-leg) bands on
+  2026-11-13.
+- **What is true:** the summary requires exactly two active order ids (`re1_attended.py:383`), so a one-leg
+  band reads false while its order scores. 2,912 of 2,916 per-order minute `scoring` observations were true.
+  Use per-order scoring; a strategy-aware flag is the pending fix. `ESTABLISHED_FINDINGS.md` §10bg; A091 §3, §10.
+- **Why it fooled us:** a two-leg summary field outlived the arm design.
+
+### "Austin's `per_band_daily_filled_cap` retirement below $30 of fills is a cap bug" — FALSE
+
+- **What it looked like:** on 2026-11-13 the Austin band retired on the $30 cap with gross fills well under 30.
+- **What is true:** the cap is prospective: gross filled basis + same-city live reserves − the replaced own
+  reserve + the full proposed 20-share treatment must be ≤ 30 (`lfc_f2_breadth.py:133-165`). The refreshed
+  pair's reserve did not fit the remaining headroom, so the reload was correctly refused. There was no
+  overspend or arithmetic defect, and it is not a 30-share cap. The fix is reason text that prints filled,
+  resting, proposed, cap and headroom. `ESTABLISHED_FINDINGS.md` §10bg; A091 §9.
+- **Why it fooled us:** a short label hid the prospective term.
+
 ---
 
 ## 4. Backlog and branch traps
@@ -698,10 +727,75 @@ not repair scheduling or qualify a strategy. T028's MRMS path emits no weather r
 - **What this does NOT say:** that the July verdict was wrong — its input is stale, and its first leg
   (a reward-qualifying two-sided quote does not fit the 10 pUSD band cap) is unchanged. Nor that the
   pool is income: it is shared by Q-score, **our share is unmeasured**, no paid reward has ever been
-  observed, and the unit is unconfirmed by any paid epoch.
+  observed, and the unit is unconfirmed by any paid epoch. *Update 2026-11-14: a paid reward has since been observed
+  (UTC 09-24, k ≈ 1.05 against the model, EF §10m), which confirms the unit; our live share is measured per session
+  (EF §10m, §10bg).*
 - **Why it fooled us:** a dated measurement hardened into a constant. Every later document cited the
   conclusion, nobody re-opened the input, and nobody summed a column we collected daily. Pattern 4 in
   `HOW_WE_GET_THINGS_WRONG.md`.
+
+### "A paired-arm fill locks the quoted spread" — TRUE ONLY WITHIN ONE QUOTE CYCLE (2026-11-14)
+
+- **What it looked like:** the paired arm posts YES and NO 1.5 or 2.5 c from the mid, so a both-leg fill
+  seemed to lock about 2 × offset per pair (the F2 going-in ledger's C8 arithmetic).
+- **What is true:** the lock holds only if both legs fill at the same quoted pair. On 2026-11-13 Austin's YES
+  filled at 0.24 and, about 101 minutes and several requotes later, its NO at 0.76: ten complete pairs at
+  total cost 1.00 per pair, zero locked trading profit, and ten unpaired YES carried to settlement. Requotes
+  move each leg with the mid, so the original discount does not survive separate cycles.
+  `ESTABLISHED_FINDINGS.md` §10bg; A091 §5, §7 C8.
+- **Why it fooled us:** arithmetic on a static quote was read as a property of a requoting policy.
+
+### "A positive short markout means our fills were not picked off" — FALSE ON 2026-11-13
+
+- **What it looked like:** on F2's first trading day the share-weighted net markouts (later mid minus fill
+  price) were positive at 1, 5, 15, 30 and 60 minutes on the covered fills.
+- **What is true:** the same cohorts' mids drifted down from their pre-fill level (−0.92 c/share at 5 min);
+  the spread cushioned an adverse move. Selling into the displayed bids after the taker-fee kernel gave
+  −1.86 c/share at 5 min, and fresh post-session marks were about 5.5% below cost. Cohorts differ by horizon
+  and missingness follows operational events. RE-1's −8.5 c Miami mark that later reversed (§10m) is the
+  opposite failure: short marks mislead in both directions. `ESTABLISHED_FINDINGS.md` §10bg, §10m; A091 §2, §11.
+- **Why it fooled us:** a mark against our own price measures spread captured, not information.
+
+### "Retirement (last in-band) marks value our held inventory" — FALSE
+
+- **What it looked like:** each band's last in-band mid looks like the latest price for its lot.
+- **What is true:** on 2026-11-13 the last in-band marks spanned 15:03 to 18:44 and valued the lots about
+  5.5% above cost; fresh public books at about 19:04 valued them about 5.5% below cost. Recording stops when
+  a band retires, so stale marks are carried. Value inventory only from a fresh book within a stated age, and
+  record market-only books after retirement and fills (owner 2026-11-13, DECISION_LOG).
+  `ESTABLISHED_FINDINGS.md` §10bg; A091 §5.
+- **Why it fooled us:** a non-contemporaneous set of marks looked like a close.
+
+### "F2's reward pool is about 2,800 a day" — WRONG HORIZON (2026-11-14)
+
+- **What it looked like:** the digest's configured pool, "about 2,800 per day", was carried into the F2 brief.
+- **What is true:** 2,800 is the same-day (T+0) pool. F2 quotes T+1 only; the configured T+1 pool was about
+  1,200 per day (08-15..09-19). F2's selected conditions carried 12-32 per day on 2026-11-13, changing
+  intraday. Neither figure is our income; our share is measured per condition.
+  `ESTABLISHED_FINDINGS.md` §10a, §10bg.
+- **Why it fooled us:** a headline number lost its horizon label.
+
+### "A 20-share quote wins about 0.39 of a band's reward pool" — RETRACTED AS A LIVE EXPECTATION (2026-11-14)
+
+- **What it looked like:** item 330's 09-16/17 desk read gave a median per-band mean modelled share of 0.39
+  (0.11-0.60) for a 20-share same-day quote, and the digest said displayed qualifying competition is thin.
+- **What is true:** live share falls within minutes of posting. In RE-1 the selected share halved within
+  2-4 minutes in every session (§10m). On F2's first trading day (T+1, 17 band runs) the median live
+  `P_many` share was 0.08-3.1% and selection-time shares 0.08-6.0%; trajectories differed by band and some
+  rose later, so no fixed decay factor holds either. The venue's accrual agreed with the live model (§10bg).
+  Item 330 itself called the 0.39 "too good to take at face value". `ESTABLISHED_FINDINGS.md` §10m, §10bg.
+- **Why it fooled us:** displayed depth before our quote is not the competition after it.
+
+### "Unproven attribution means the campaign earned no incentives" — FALSE
+
+- **What it looked like:** the shared-account code books every unattributed reward or rebate credit as
+  `reward_attribution_unproven`, contributing 0 to capital refill.
+- **What is true:** that is a conservative recognized-cash rail. On 2026-11-13 the venue accrued rewards on
+  the campaign's own conditions while strict attributed cash was 0, and one unallocated TAKER_REBATE-typed
+  credit appeared. The owner's rule (2026-11-13, DECISION_LOG) is to report both: the strict rail and a
+  campaign estimate. A payment that cannot be allocated leaves the business net incomplete; the zero-refill
+  default alone does not select stop. `ESTABLISHED_FINDINGS.md` §10bg; A091 §3, §11.
+- **Why it fooled us:** an accounting default looked like a measurement.
 
 ---
 
