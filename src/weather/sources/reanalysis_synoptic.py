@@ -18,18 +18,18 @@ import math
 import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from numbers import Real
 from pathlib import Path
 
 from weather.market.market_registry import spec_for_id
 from weather.schema_registry import schema_version
-from weather.sources.historical_schema import to_float
 from weather.sources.marine_context import registry_for_market
 from weather.sources.reanalysis_history import (
     DEFAULT_ROOT as REANALYSIS_DEFAULT_ROOT,
     ReanalysisStore,
     inside_archive,
     payload_local_datetimes,
-    value_at,
 )
 
 
@@ -206,20 +206,24 @@ def parse_date(value):
 
 
 def mean(values):
-    values = [to_float(value) for value in values]
+    values = [finite_number(value) for value in values]
     values = [value for value in values if value is not None]
     return sum(values) / len(values) if values else None
 
 
-def field_value(row, key):
-    """Parse the numeric sidecar representation at both read and summary time."""
+def finite_number(value):
+    """Read finite numeric inputs without coercing a boolean to a measurement."""
+    if isinstance(value, bool) or not isinstance(value, (str, Real, Decimal)):
+        return None
     try:
-        # CSV serializes booleans as True/False, not as the numeric 0/1 flags.
-        value = float(str((row or {}).get(key)))
+        number = float(value)
     except (TypeError, ValueError, OverflowError):
         return None
-    if not math.isfinite(value):
-        return None
+    return number if math.isfinite(number) else None
+
+
+def field_value(row, key):
+    value = finite_number((row or {}).get(key))
     if key.endswith(("_flag", "_available")) and value not in (0.0, 1.0):
         return None
     return value
@@ -309,7 +313,7 @@ def _heat_anomaly(days, daily_by_date, grouped_by_doy):
 def _raw_metric_by_doy(raw_daily_metrics, raw_key):
     grouped = defaultdict(list)
     for local_date, row in (raw_daily_metrics or {}).items():
-        value = to_float((row or {}).get(raw_key))
+        value = finite_number((row or {}).get(raw_key))
         if value is None:
             continue
         grouped[local_date.timetuple().tm_yday].append((local_date.year, value))
@@ -328,8 +332,8 @@ def _seasonal_raw_values(day, grouped_by_doy, raw_key, radius=15):
 
 
 def _percentile_rank(values, value):
-    value = to_float(value)
-    values = [to_float(item) for item in values]
+    value = finite_number(value)
+    values = [finite_number(item) for item in values]
     values = [item for item in values if item is not None]
     if value is None or not values:
         return None
@@ -339,7 +343,7 @@ def _percentile_rank(values, value):
 
 
 def soil_dryness_features(antecedent_date, raw_metrics, raw_metric_normals):
-    soil_moisture = to_float((raw_metrics or {}).get("soil_moisture_0_to_7cm"))
+    soil_moisture = finite_number((raw_metrics or {}).get("soil_moisture_0_to_7cm"))
     if soil_moisture is None:
         return {}
     reference_values = _seasonal_raw_values(
@@ -351,7 +355,7 @@ def soil_dryness_features(antecedent_date, raw_metrics, raw_metric_normals):
     if percentile is None:
         return {}
     dryness_percentile = 1.0 - percentile
-    vpd = to_float((raw_metrics or {}).get("vapour_pressure_deficit"))
+    vpd = finite_number((raw_metrics or {}).get("vapour_pressure_deficit"))
     return {
         "reanalysis_soil_dryness_available": 1.0,
         "reanalysis_prev_day_soil_moisture_0_to_7cm_percentile": percentile,
@@ -406,7 +410,8 @@ def load_raw_daily_metrics(store):
                 continue
             local_date = local_dt.date()
             for source_key in RAW_DAILY_FIELD_SPECS:
-                raw_value = value_at(hourly, source_key, index)
+                series = hourly.get(source_key) or ()
+                raw_value = finite_number(series[index]) if index < len(series) else None
                 if raw_value is not None and (local_dt, source_key) not in taken:
                     taken.add((local_dt, source_key))
                     grouped[local_date][source_key].append(raw_value)
@@ -423,7 +428,7 @@ def load_raw_daily_metrics(store):
 def raw_window_sum(raw_daily_metrics, raw_key, dates):
     values = []
     for item_date in dates:
-        value = to_float((raw_daily_metrics.get(item_date) or {}).get(raw_key))
+        value = finite_number((raw_daily_metrics.get(item_date) or {}).get(raw_key))
         if value is None:
             return None
         values.append(value)
@@ -927,7 +932,7 @@ def render_pressure_level_cache_status_markdown(payload):
 def reanalysis_static_features(spec):
     marine_stations = registry_for_market(spec.id)
     distances = [
-        to_float(station.get("distance_km"))
+        finite_number(station.get("distance_km"))
         for station in marine_stations
     ]
     distances = [value for value in distances if value is not None]
@@ -958,7 +963,7 @@ def parse_cpc_oni_ascii(text):
             year = int(parts[1])
         except (TypeError, ValueError):
             continue
-        value = to_float(parts[3])
+        value = finite_number(parts[3])
         if value is None or value <= -90.0:
             continue
         center_month = ONI_SEASON_CENTER_MONTH[season]
@@ -989,7 +994,7 @@ def parse_cpc_pna_ascii(text):
             continue
         if not 1 <= month <= 12:
             continue
-        value = to_float(parts[2])
+        value = finite_number(parts[2])
         if value is None or value <= -90.0:
             continue
         rows.append({
@@ -1026,6 +1031,7 @@ def _latest_available_teleconnection(records, local_date):
     candidates = [
         row for row in records or []
         if row.get("available_month_end") and row["available_month_end"] < cutoff
+        and field_value(row, "value") is not None
     ]
     if not candidates:
         return None
@@ -1049,14 +1055,14 @@ def teleconnection_features_for_date(local_date, teleconnection_index=None):
     oni = _latest_available_teleconnection(teleconnection_index.get("oni"), local_date)
     pna = _latest_available_teleconnection(teleconnection_index.get("pna"), local_date)
     if oni:
-        value = oni["value"]
+        value = field_value(oni, "value")
         features["reanalysis_teleconnection_available"] = 1.0
         features["reanalysis_enso_oni_lagged"] = value
         features["reanalysis_enso_oni_lag_months"] = float(month_delta(target_month, oni["center_month"]))
         features["reanalysis_enso_el_nino_flag"] = 1.0 if value >= 0.5 else 0.0
         features["reanalysis_enso_la_nina_flag"] = 1.0 if value <= -0.5 else 0.0
     if pna:
-        value = pna["value"]
+        value = field_value(pna, "value")
         features["reanalysis_teleconnection_available"] = 1.0
         features["reanalysis_pna_lagged"] = value
         features["reanalysis_pna_lag_months"] = float(month_delta(target_month, pna["center_month"]))
@@ -1115,10 +1121,8 @@ def build_reanalysis_synoptic_rows(
                 "reanalysis_prev_day_max_wind_kmh": field_value(prev, "max_wind_kmh"),
                 "reanalysis_prev_day_max_gust_kmh": field_value(prev, "max_gust_kmh"),
             })
-            pressure = (hourly_daily_metrics.get(antecedent_date) or {}).get("pressure_mean_hpa")
-            prev_pressure = (
-                hourly_daily_metrics.get(antecedent_date - timedelta(days=1)) or {}
-            ).get("pressure_mean_hpa")
+            pressure = field_value(hourly_daily_metrics.get(antecedent_date), "pressure_mean_hpa")
+            prev_pressure = field_value(hourly_daily_metrics.get(antecedent_date - timedelta(days=1)), "pressure_mean_hpa")
             features["reanalysis_prev_day_pressure_mean_hpa"] = pressure
             features["reanalysis_pressure_change_24h_hpa"] = (
                 pressure - prev_pressure
@@ -1142,7 +1146,7 @@ def build_reanalysis_synoptic_rows(
             )
             raw_metrics = raw_daily_metrics.get(antecedent_date) or {}
             for raw_key, (feature_key, _reducer) in RAW_DAILY_FIELD_SPECS.items():
-                value = raw_metrics.get(raw_key)
+                value = field_value(raw_metrics, raw_key)
                 if value is not None:
                     features[feature_key] = value
             features.update(antecedent_water_features(local_date, raw_daily_metrics))

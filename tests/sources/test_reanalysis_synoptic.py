@@ -17,9 +17,12 @@ from weather.sources.reanalysis_synoptic import (
     load_pressure_level_daily_metrics,
     load_teleconnection_index,
     load_reanalysis_synoptic_features,
+    parse_cpc_oni_ascii,
+    parse_cpc_pna_ascii,
     pressure_level_raw_path,
     render_pressure_level_cache_status_markdown,
     summarize_feature_rows,
+    teleconnection_features_for_date,
     write_feature_csv,
 )
 from weather.sources.reanalysis_history import DEFAULT_ROOT as REANALYSIS_DEFAULT_ROOT
@@ -253,6 +256,32 @@ class TestReanalysisSynoptic(unittest.TestCase):
         self.assertEqual(rows[2]["reanalysis_pressure_level_available"], 1.0)
         self.assertEqual(rows[2][temp], -8.5)
         self.assertIsNone(rows[2][height])
+
+    def test_invalid_indices_cannot_create_finite_enso_or_pna_flags(self):
+        oni = parse_cpc_oni_ascii("DJF 2025 0.4 inf")
+        pna = parse_cpc_pna_ascii("2025 1 1e999")
+        features = teleconnection_features_for_date(date(2025, 4, 1), {"oni": oni, "pna": pna})
+        self.assertEqual(features["reanalysis_teleconnection_available"], 0.0)
+        self.assertIsNone(features["reanalysis_enso_el_nino_flag"])
+        self.assertIsNone(features["reanalysis_pna_positive_flag"])
+
+        # A malformed later cache entry cannot eclipse an earlier calendar-eligible observation.
+        valid = parse_cpc_oni_ascii("DJF 2024 0.2 -0.75")
+        invalid = dict(valid[0], available_month_end=date(2025, 2, 28), value=True)
+        features = teleconnection_features_for_date(date(2025, 4, 1), {"oni": [*valid, invalid]})
+        self.assertEqual(features["reanalysis_enso_oni_lagged"], -0.75)
+        self.assertEqual(features["reanalysis_enso_la_nina_flag"], 1.0)
+
+    def test_soil_rank_cannot_turn_nonfinite_or_boolean_inputs_into_real_percentiles(self):
+        daily = [{"local_date": f"2025-06-{i:02d}", "max_temp": 72, "min_temp": 65} for i in (1, 2)]
+        key = "soil_moisture_0_to_7cm"
+        for observed, reference in ((float("inf"), 0.2), (np.bool_(True), 0.2), (0.2, float("inf"))):
+            with self.subTest(observed=observed, reference=reference):
+                rows = build_reanalysis_synoptic_rows(TORONTO, daily, raw_daily_metrics={
+                    date(2023, 6, 1): {key: reference}, date(2025, 6, 1): {key: observed},
+                })
+                self.assertIsNone(rows[1]["reanalysis_soil_dryness_available"])
+                self.assertIsNone(rows[1]["reanalysis_prev_day_soil_dryness_percentile"])
 
     def test_lagged_teleconnections_do_not_use_target_month(self):
         daily = [
