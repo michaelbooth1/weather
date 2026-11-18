@@ -845,6 +845,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\codex\A095\r3_natural_calibration_v3.py'
             sha256 = '4b847a2ea15286b46a7df7e6ae565a3be4d64a2db0e1ea753c50bdec33d26ff1'
         }
+        # A095r2 bounded, field-restricted research.
+        @{
+            path = 'C:\t\codex\A095\r3_payout_sensitivity_v2.py'
+            sha256 = '27463cd0dd4e59c5e7a7a6b299204c1ff2e33f28d9ca6eb3ac0b7b148d795feb'
+        }
         # A095r2 follow-up, restricted historical input only.
         @{
             path = 'C:\t\codex\A095\r2_labels_history.py'
