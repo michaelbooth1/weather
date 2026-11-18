@@ -11,6 +11,7 @@ from weather.model.model_distribution import DistributionMixin
 
 @pytest.mark.parametrize("primary,alternate,bucket,alpha", [
     (0, None, "07-08", 0.8),
+    (0.0, 17, "07-08", 0.8),
     ("0", None, "07-08", 0.8),
     (0, 17, "07-08", 0.8),
     (None, 0, "07-08", 0.8),
@@ -50,9 +51,11 @@ def test_custom_cli_hour_reaches_calibration_but_live_midnight_uses_seven():
     assert pooled_band_training._band_validation_partition_key({})[-1] == "unknown"
 
 
-@pytest.mark.parametrize("feature_hour,model_hour", [(0, "0"), ("0", "0"), (None, "17"), ("", "17")])
+@pytest.mark.parametrize("feature_hour,model_hour", [
+    (0, "0"), (0.0, "0"), ("0", "0"), (7.0, "7.0"), (None, "17"), ("", "17"),
+])
 def test_explicit_midnight_selects_its_own_artifact(monkeypatch, feature_hour, model_hour):
-    artifact = {"models": {"0": {"prob": 0.2}, "17": {"prob": 0.8}},
+    artifact = {"models": {"0": {"prob": 0.2}, "17": {"prob": 0.8}, "7.0": {"prob": 0.4}},
                 "postprocess": {"partition_normalization_enabled": False}}
     monkeypatch.setattr(runtime, "predict_band_rows_for_bundle",
                         lambda bundle, rows, postprocess: [bundle["prob"]] * len(rows))
