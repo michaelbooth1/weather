@@ -720,6 +720,11 @@ function Get-WeatherWorkstationResearchScriptAllowlist {
             path = 'C:\t\codex\A095\r2_winter_high_ladder.py'
             sha256 = '338b81b8ea02856310141e61fe95521cbed74ede6204fdeb33dee6b200269b0b'
         }
+        # A095r2 bounded, field-restricted research.
+        @{
+            path = 'C:\t\codex\A095\r2_f2_intervals.py'
+            sha256 = 'f7feca390365cb826d3461d15a9bab4bf3ea5e12186b60872b96bd88bc3efa67'
+        }
         # A095r2 follow-up, restricted historical input only.
         @{
             path = 'C:\t\codex\A095\r2_labels_history.py'
