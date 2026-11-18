@@ -341,10 +341,18 @@ class DistributionMixin(DistributionSignalMixin):
             )
             return self._set_distribution_result_compatibility(result, pipeline)
 
+        lower_anchor = next(
+            (bucket for bucket in (hard_floor_bucket, observed_bucket, max_signal) if bucket is not None),
+            round(self.spec.c_to_native(16)),
+        )
+        upper_anchor = next(
+            (bucket for bucket in (max_signal, observed_bucket) if bucket is not None),
+            round(self.spec.c_to_native(30)),
+        )
         low = min(min(scores), round(self.spec.c_to_native(8)),
-                  (hard_floor_bucket or observed_bucket or max_signal or round(self.spec.c_to_native(16))) - round(self.spec.scale_delta(5)))
+                  lower_anchor - round(self.spec.scale_delta(5)))
         high = max(max(scores), round(self.spec.c_to_native(34)),
-                   (max_signal or observed_bucket or round(self.spec.c_to_native(30))) + round(self.spec.scale_delta(4)))
+                   upper_anchor + round(self.spec.scale_delta(4)))
         for temp in range(low, high + 1):
             scores.setdefault(temp, 0.0005)
         scores = self.normalize_scores(scores)
