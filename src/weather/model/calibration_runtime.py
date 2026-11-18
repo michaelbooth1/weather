@@ -306,17 +306,18 @@ def hard_bin_probability(bin_kind, bin_value, floor_bucket, bin_value_hi=None):
     return None
 
 
-def observed_support_blocks_floor_lift(bin_kind, bin_value, floor_bucket, context):
+def observed_support_blocks_floor_lift(bin_kind, bin_value, floor_bucket, context, bin_value_hi=None):
+    """Block upward calibration once observed support exceeds the entire band."""
     if bin_kind != "eq":
         return False
-    value_bucket = round_half_up(bin_value)
+    upper_bucket = round_half_up(bin_value_hi if bin_value_hi is not None else bin_value)
     support_bucket = round_half_up((context or {}).get("observed_support_bucket"))
-    if value_bucket is None or support_bucket is None:
+    if upper_bucket is None or support_bucket is None:
         return False
     floor_bucket = round_half_up(floor_bucket)
-    if floor_bucket is not None and value_bucket < floor_bucket:
+    if floor_bucket is not None and upper_bucket < floor_bucket:
         return True
-    return value_bucket < support_bucket
+    return upper_bucket < support_bucket
 
 
 def probability_context_keys(bin_kind, cutoff_hour, distance_bucket):
@@ -550,7 +551,7 @@ def calibrate_market_probability(probability, bin_data, artifact, context=None, 
         effective_weight = weight * (context_n / (context_n + shrink_k)) if context_n else weight
         calibrated = (1.0 - effective_weight) * raw + effective_weight * base_rate
 
-    if observed_support_blocks_floor_lift(bin_kind, bin_value, floor_bucket, context):
+    if observed_support_blocks_floor_lift(bin_kind, bin_value, floor_bucket, context, bin_value_hi):
         calibrated = min(calibrated, raw)
     if bin_kind == "eq" and not cfg.get("allow_exact_lift", False):
         calibrated = min(calibrated, raw)

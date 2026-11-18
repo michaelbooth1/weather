@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import re
 import stat
 from pathlib import Path
@@ -59,7 +60,7 @@ def canonical_winning_band(value):
 def band_value_hi(range_label, value, explicit=None):
     """Upper value of a band from its label ('76-77F' -> 77); single bands -> value."""
     explicit_value = safe_float(explicit)
-    if explicit_value is not None:
+    if explicit_value is not None and not math.isnan(explicit_value):
         return int(explicit_value) if abs(explicit_value - round(explicit_value)) < 1e-9 else explicit_value
     band = parse_temperature_band(range_label)
     return band.value_hi if band is not None else value
@@ -69,7 +70,10 @@ def row_band_value_hi(row):
     explicit = row.get("bin_value_hi_c")
     if missing(explicit) or explicit == "":
         explicit = row.get("bin_value_hi")
-    return band_value_hi(row.get("range_label"), row.get("bin_value_c"), explicit=explicit)
+    label = row.get("range_label")
+    if missing(label) or label == "":
+        label = row.get("band")  # backtest_tape's scored-row label
+    return band_value_hi(label, row.get("bin_value_c"), explicit=explicit)
 
 
 def resolve_outcome(kind, value, settlement_bucket, value_hi=None):

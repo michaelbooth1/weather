@@ -28,6 +28,7 @@ from weather.backtesting.settlement_io import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
     load_market_day_label,
+    row_band_value_hi,
     settlement_for_tape,
 )
 from weather.backtesting.tape_scoring import (
@@ -42,6 +43,7 @@ from weather.scoring.metrics import (
 from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_id
+from weather.model.calibration_runtime import observed_support_blocks_floor_lift
 from weather.model.continuous_density import (
     continuous_density_payload,
     density_f_from_payload,
@@ -126,20 +128,6 @@ def hard_bin_probability(bin_kind, bin_value, floor_bucket, bin_value_hi=None):
             return 0.0
         return None
     return None
-
-
-def observed_support_blocks_floor_lift(bin_kind, bin_value, floor_bucket, context):
-    """True when live observed support has already moved above an exact bin."""
-    if bin_kind != "eq":
-        return False
-    value_bucket = round_half_up(bin_value)
-    support_bucket = round_half_up((context or {}).get("observed_support_bucket"))
-    if value_bucket is None or support_bucket is None:
-        return False
-    floor_bucket = round_half_up(floor_bucket)
-    if floor_bucket is not None and value_bucket < floor_bucket:
-        return True
-    return value_bucket < support_bucket
 
 
 def context_keys(bin_kind, cutoff_hour, distance_bucket):
@@ -390,7 +378,7 @@ def calibrate_market_probability(
         effective_weight = weight * (context_n / (context_n + shrink_k)) if context_n else weight
         calibrated = (1.0 - effective_weight) * raw + effective_weight * base_rate
 
-    if observed_support_blocks_floor_lift(bin_kind, bin_value, floor_bucket, context):
+    if observed_support_blocks_floor_lift(bin_kind, bin_value, floor_bucket, context, bin_value_hi):
         calibrated = min(calibrated, raw)
     if bin_kind == "eq" and not cfg.get("allow_exact_lift", False):
         calibrated = min(calibrated, raw)
@@ -447,6 +435,7 @@ def prepare_training_row(row):
         "cutoff_hour": row.get("cutoff_hour"),
         "bin_kind": row.get("bin_kind") or "eq",
         "bin_value_c": row.get("bin_value_c"),
+        "bin_value_hi": row_band_value_hi(row),
         "observed_floor_bucket": floor_bucket,
         "observed_support_bucket": row_observed_support_bucket(row),
         "distance_bucket": floor_distance_bucket(row.get("bin_value_c"), floor_bucket),
@@ -718,7 +707,11 @@ def artifact_market_predictions(rows, artifact):
     for row in rows:
         predictions.append(calibrate_market_probability(
             row["model_probability"],
-            {"kind": row["bin_kind"], "value": row["bin_value_c"]},
+            {
+                "kind": row["bin_kind"],
+                "value": row["bin_value_c"],
+                "value_hi": row_band_value_hi(row),
+            },
             artifact,
             context={
                 "cutoff_hour": row["cutoff_hour"],

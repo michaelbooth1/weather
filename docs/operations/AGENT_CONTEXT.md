@@ -49,6 +49,10 @@ generated reports for dynamic state.
   never a licence to zero a possible outcome. Report class, station, rounding,
   accepted corrections and actual receipt/cutoff determine admissibility;
   supporting observations alone do not prove impossibility under another rule.
+  Calibration replay and serving use both inclusive endpoints of a finite
+  band. A floor at the upper endpoint leaves that band possible. A supporting
+  observation can block an otherwise permitted upward calibration only when
+  it exceeds that endpoint.
   [EF §10bb](ESTABLISHED_FINDINGS.md#section-index) records T032's trace and
   separates the required serving repair from implemented behavior.
 - The following describes the existing serving path, not blanket permission
