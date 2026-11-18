@@ -15,6 +15,10 @@ Date guard (fail closed, before any outcome file is opened):
   file is opened; every file is sha256-checked against the manifest and filtered to the range at
   read time, and the filtered rows are re-checked.
 
+Each snapshot's bands occupy consecutive rows. Within those rows the native band index identifies
+the ordinal independently of file order. Widths, settled winners and candidate indices must be
+exact integers, and each complete ladder must contain each index once.
+
 Walk-forward (fold scheme): target dates are cut into consecutive calendar folds of ``fold_days``
 starting at the range start. A fold's training pool is every layout date ``<= fold_start -
 (gap_days + 1)`` (with the default ``gap_days=1`` a fold starting on D trains on dates up to D-2,
@@ -31,6 +35,7 @@ import io
 import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import numpy as np
@@ -161,6 +166,48 @@ def _in_range(frame, start, end, name):
     return frame.loc[keep.to_numpy()].reset_index(drop=True)
 
 
+def read_ordinals(series, maximum, name, error=LayoutError):
+    """Validate indices before converting them to array positions."""
+    values = series.to_numpy()
+    message = f"{name} must contain integer values between 0 and {maximum}"
+    if values.dtype.kind in "iuf":
+        if (not np.isfinite(values).all() or (values < 0).any() or (values > maximum).any()
+                or (values.dtype.kind == "f" and (values != np.floor(values)).any())):
+            raise error(message)
+        return values.astype(np.intp, copy=False)
+    result = []
+    for value in values:
+        try:
+            number = Decimal(str(value))
+        except InvalidOperation:
+            raise error(message) from None
+        if not number.is_finite() or not 0 <= number <= maximum or number != number.to_integral_value():
+            raise error(message)
+        result.append(int(number))
+    return np.array(result, dtype=np.intp)
+
+
+def _align_bands(snaps, bands):
+    widths = read_ordinals(snaps.n_bands, len(bands), "n_bands")
+    if (widths == 0).any() or widths.sum() != len(bands):
+        raise LayoutError("band widths do not match the layout")
+    if not np.array_equal(bands.row_key.to_numpy(), np.repeat(snaps.row_key.to_numpy(), widths)):
+        raise LayoutError("inputs_bands is not contiguous per snapshot in snapshot order")
+    indices = read_ordinals(bands.band_index, len(bands), "band_index")
+    if (indices >= np.repeat(widths, widths)).any():
+        raise LayoutError("band_index outside snapshot ladder")
+    offsets = np.cumsum(widths) - widths
+    positions = np.repeat(offsets, widths) + indices
+    normal = np.arange(len(bands))
+    bands = bands.assign(band_index=indices)
+    if not np.array_equal(positions, normal):
+        order = np.argsort(positions)
+        if not np.array_equal(positions[order], normal):
+            raise LayoutError("duplicate or missing band_index in snapshot ladder")
+        bands = bands.iloc[order].reset_index(drop=True)
+    return widths, bands
+
+
 def load_layout(root, start, end):
     """Read a v3 layout restricted to [start, end] (dates already passed ``check_range``)."""
     manifest, manifest_sha = _read_manifest(root)
@@ -175,12 +222,23 @@ def load_layout(root, start, end):
         raise LeakageError(f"layout inputs carry label/market columns {sorted(leaked)}")
     if snaps.row_key.duplicated().any():
         raise LayoutError("duplicate row_key in inputs_snapshots")
-    n = snaps.n_bands.to_numpy(int)
-    offsets = np.concatenate([[0], np.cumsum(n)[:-1]]).astype(int)
-    if len(bands) != int(n.sum()) or (len(snaps) and not (
-            bands.row_key.to_numpy()[offsets] == snaps.row_key.to_numpy()).all()):
-        raise LayoutError("inputs_bands is not contiguous per snapshot in snapshot order")
+    n, bands = _align_bands(snaps, bands)
+    snaps = snaps.assign(n_bands=n)
     labels = frames[LABELS_FILE]
+    if labels.row_key.duplicated().any():
+        raise LayoutError("duplicate settlement row_key")
+    relevant = labels.row_key.isin(snaps.row_key) & labels.winner.notna()
+    observed = labels.loc[relevant]
+    widths = snaps.set_index("row_key").n_bands.reindex(observed.row_key)
+    winners = read_ordinals(observed.winner, len(bands), "settled winner")
+    if (winners >= widths.to_numpy()).any():
+        raise LayoutError("settled winner outside its snapshot ladder")
+    if relevant.all():
+        labels = labels.assign(winner=winners)
+    else:
+        values = labels.winner.to_numpy(dtype=object, copy=True)
+        values[relevant.to_numpy()] = winners
+        labels = labels.assign(winner=values)
     label_source = DEFAULT_LABEL_SOURCE
     if "label_source" in labels.columns:
         sources = sorted(labels.label_source.astype(str).unique())

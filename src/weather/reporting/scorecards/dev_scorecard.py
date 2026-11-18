@@ -164,10 +164,10 @@ class Table:
     def candidate_vector(self, frame):
         """Rule-4 floor mask, renormalise, served fallback (HARNESS v2/v3 semantics)."""
         frame = frame[frame.row_key.isin(self.snap_pos.index)]
-        if frame.duplicated(["row_key", "band_index"]).any():
+        bi = data.read_ordinals(frame.band_index, len(self.bands), "candidate band_index", data.Refused)
+        if frame.assign(band_index=bi).duplicated(["row_key", "band_index"]).any():
             raise data.Refused("refused: duplicate (row_key, band_index) in candidate")
         pos = self.snap_pos.reindex(frame.row_key.to_numpy()).to_numpy().astype(int)
-        bi = frame.band_index.to_numpy(int)
         if len(bi) and ((bi < 0) | (bi >= self.n[pos])).any():
             raise data.Refused("refused: candidate band_index out of range")
         pc = np.full(len(self.bands), np.nan)

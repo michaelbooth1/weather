@@ -119,6 +119,69 @@ def test_tampered_file_fails_its_manifest_sha(tmp_path):
         data.load_layout(root, data.DEV_FIRST, data.DEV_LAST)
 
 
+def _rewrite_fixture_table(root, name, modify):
+    frame = modify(pd.read_parquet(root / name))
+    manifest = json.loads((root / data.MANIFEST).read_text())
+    manifest["files"][name]["sha256"] = _parquet(frame, root / name)
+    (root / data.MANIFEST).write_text(json.dumps(manifest))
+
+
+def test_scorecard_band_identity_reorders_a_permuted_ladder(tmp_path):
+    root = write_layout(tmp_path / "lay", n_dates=1, markets=("m1",))
+    labels = pd.read_parquet(root / data.LABELS_FILE)
+    frame = pd.read_parquet(root / data.BANDS_FILE).merge(labels[["row_key", "winner"]])
+    frame["p"] = (frame.band_index == frame.winner).astype(float)
+    def permute(bands):
+        return bands.iloc[[1, 2, 0, 5, 3, 4]].reset_index(drop=True)
+    _rewrite_fixture_table(root, data.BANDS_FILE, permute)
+    layout = data.load_layout(root, data.DEV_FIRST, data.DEV_LAST)
+    table = sc.Table(layout, layout.dates)
+    candidate, reasons = table.candidate_vector(frame[["row_key", "band_index", "p"]])
+    assert reasons == {"candidate": 2}
+    np.testing.assert_array_equal(table.brier(candidate), [0.0, 0.0])
+
+
+@pytest.mark.parametrize("winner", ["0.5", "3", "-1", "1.000000000000000000001", "True"])
+def test_scorecard_band_identity_rejects_wrong_winner(tmp_path, winner):
+    root = write_layout(tmp_path / "lay", n_dates=1)
+    _rewrite_fixture_table(root, data.LABELS_FILE, lambda labels: labels.assign(winner=winner))
+    with pytest.raises(data.LayoutError, match="settled winner"):
+        data.load_layout(root, data.DEV_FIRST, data.DEV_LAST)
+
+
+def test_scorecard_band_identity_rejects_interior_foreign_key(tmp_path):
+    root = write_layout(tmp_path / "lay", n_dates=1, markets=("m1",))
+    def interleave(bands):
+        bands.loc[[1, 4], "row_key"] = bands.loc[[4, 1], "row_key"].to_numpy()
+        return bands
+    _rewrite_fixture_table(root, data.BANDS_FILE, interleave)
+    with pytest.raises(data.LayoutError, match="not contiguous"):
+        data.load_layout(root, data.DEV_FIRST, data.DEV_LAST)
+
+
+@pytest.mark.parametrize("field,values", [
+    ("n_bands", [3.5, 3.0]), ("n_bands", [0, 6]),
+    ("band_index", [0, 0, 2, 0, 1, 2]), ("band_index", [0, 1, 3, 0, 1, 2]),
+])
+def test_scorecard_band_identity_rejects_invalid_ladder(tmp_path, field, values):
+    root = write_layout(tmp_path / "lay", n_dates=1, markets=("m1",))
+    name = data.SNAPSHOTS_FILE if field == "n_bands" else data.BANDS_FILE
+    _rewrite_fixture_table(root, name, lambda frame: frame.assign(**{field: values}))
+    with pytest.raises(data.LayoutError):
+        data.load_layout(root, data.DEV_FIRST, data.DEV_LAST)
+
+
+@pytest.mark.parametrize("indices", [[.5, 1, 2], [0, "0.0", 2], [True, 1, 2]])
+def test_scorecard_band_identity_validates_candidate_before_placement(tmp_path, indices):
+    root = write_layout(tmp_path / "lay", n_dates=1)
+    layout = data.load_layout(root, data.DEV_FIRST, data.DEV_LAST)
+    table = sc.Table(layout, layout.dates)
+    candidate = pd.DataFrame({"row_key": [layout.snaps.row_key[0]] * 3,
+                              "band_index": indices, "p": [0.2, 0.3, 0.5]})
+    with pytest.raises(data.Refused):
+        table.candidate_vector(candidate)
+
+
 # ----------------------------------------------------------------------------- folds
 
 def test_fold_scheme_trains_strictly_before_each_fold_with_a_gap():
