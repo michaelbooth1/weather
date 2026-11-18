@@ -1056,12 +1056,19 @@ def _percentile(values: list[float], percentile: float) -> float | None:
 
 
 def summarize_host_samples(samples: list[dict[str, Any]], *, bucket: str) -> dict[str, Any]:
+    """Summarize each metric over its observed samples, retaining measured zeros."""
+    def scaled_bytes(value: Any, divisor: int) -> float | None:
+        number = _safe_float(value)
+        if isinstance(value, bool) or number is None or number < 0:
+            return None
+        return number / divisor
+
     paths = {
         "system_cpu_percent": lambda row: row.get("system_cpu_percent"),
         "commit_percent": lambda row: (row.get("memory") or {}).get("commit_percent"),
-        "physical_available_mb": lambda row: ((_safe_float((row.get("memory") or {}).get("physical_available_bytes")) or 0.0) / 1024**2),
-        "disk_free_gb": lambda row: ((_safe_float((row.get("disk") or {}).get("free_bytes")) or 0.0) / 1024**3),
-        "monitor_private_mb": lambda row: ((_safe_float((row.get("monitor_process") or {}).get("private_bytes")) or 0.0) / 1024**2),
+        "physical_available_mb": lambda row: scaled_bytes((row.get("memory") or {}).get("physical_available_bytes"), 1024**2),
+        "disk_free_gb": lambda row: scaled_bytes((row.get("disk") or {}).get("free_bytes"), 1024**3),
+        "monitor_private_mb": lambda row: scaled_bytes((row.get("monitor_process") or {}).get("private_bytes"), 1024**2),
         "sampler_elapsed_seconds": lambda row: row.get("sampler_elapsed_seconds"),
     }
     metrics: dict[str, Any] = {}

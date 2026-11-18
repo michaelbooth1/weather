@@ -270,6 +270,31 @@ def test_resume_preserves_original_deadline_and_offsets(tmp_path, monkeypatch):
     assert state_after["log_cursors"]["snapshot_console"]["offset"] == 999
 
 
+def test_host_summary_counts_only_observed_bytes_and_keeps_real_zeros():
+    data = [
+        {"memory": {"physical_available_bytes": 8 * 1024**3}, "disk": {"free_bytes": 40 * 1024**3},
+         "monitor_process": {"private_bytes": 120 * 1024**2}},
+        {"memory": {"available": False}, "disk": {"free_bytes": "unreadable"}, "monitor_process": {}},
+        {"memory": {"physical_available_bytes": 0}, "disk": {"free_bytes": 0}, "monitor_process": {"private_bytes": 0}},
+    ]
+    summary = runtime_monitor.summarize_host_samples(data, bucket="example")
+    assert summary["sample_count"] == 3
+    for name, first in [("physical_available_mb", 8192.0), ("disk_free_gb", 40.0), ("monitor_private_mb", 120.0)]:
+        metric = summary["metrics"][name]
+        assert (metric["count"], metric["median"], metric["first"], metric["last"]) == (2, first / 2, first, 0.0)
+
+
+def test_host_summary_all_missing_bytes_stays_unknown():
+    data = [
+        {"memory": {"available": False, "error": "GlobalMemoryStatusEx_failed"}, "monitor_process": {}},
+        {"memory": {"physical_available_bytes": -1}, "disk": {"free_bytes": "nan"}, "monitor_process": {"private_bytes": False}},
+    ]
+    summary = runtime_monitor.summarize_host_samples(data, bucket="example")
+    assert summary["sample_count"] == 2
+    for name in ("physical_available_mb", "disk_free_gb", "monitor_private_mb"):
+        assert summary["metrics"][name] == dict(count=0, median=None, p95=None, max=None, first=None, last=None)
+
+
 def test_host_summary_reports_percentiles():
     rows = [
         {
