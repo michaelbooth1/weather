@@ -20,6 +20,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.calibration.probability_calibration_report import write_report
 from weather.paths import data_path
 
 import pandas as pd
@@ -774,86 +775,6 @@ def build_artifact(rows, folders):
     return artifact
 
 
-def write_report(path, artifact):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    training = artifact["training"]
-    selected = artifact["selected_deployable_candidate"]
-    market_baseline = artifact["market_bin"].get("best_market_informed_baseline")
-    lines = [
-        "# Probability Calibration Report",
-        "",
-        f"Generated: {artifact['generated_at_utc']}",
-        "",
-        "## Scope",
-        "",
-        f"- Training rows: {training['rows']}",
-        f"- Target dates: {', '.join(training['target_dates'])}",
-        f"- Baseline Brier: {training['baseline_brier']:.4f}",
-        f"- Baseline log loss: {training['baseline_logloss']:.4f}",
-        f"- Market Brier: {training['market_brier']:.4f}",
-        f"- Market log loss: {training['market_logloss']:.4f}",
-        f"- Baseline Brier skill vs market: {training['baseline_brier_skill_vs_market']:.3f}",
-        f"- Selected Brier skill vs market: {training['selected_brier_skill_vs_market']:.3f}",
-        f"- Artifact replay Brier: {training['artifact_replay_brier']:.4f}",
-        f"- Artifact replay log loss: {training['artifact_replay_logloss']:.4f}",
-        f"- Artifact replay Brier skill vs market: {training['artifact_replay_brier_skill_vs_market']:.3f}",
-        "",
-        "## Selected Deployable Calibrator",
-        "",
-        f"- Method: `{selected['method']}`",
-        f"- Parameter: `{selected['param']}`",
-        f"- LOO Brier: {selected['brier']:.4f}",
-        f"- LOO log loss: {selected['logloss']:.4f}",
-        "",
-    ]
-    if market_baseline:
-        lines += [
-            "## Market-Informed Baseline",
-            "",
-            f"- Method: `{market_baseline['method']}`",
-            f"- Parameter: `{market_baseline['param']}`",
-            f"- LOO Brier: {market_baseline['brier']:.4f}",
-            f"- LOO log loss: {market_baseline['logloss']:.4f}",
-            "",
-        ]
-
-    lines += [
-        "## Candidate Comparison",
-        "",
-        "| Method | Param | LOO Brier | LOO Log Loss |",
-        "| :--- | :--- | :--- | :--- |",
-    ]
-    for row in artifact["candidate_scores"]:
-        lines.append(
-            f"| {row['method']} | {row['param'] if row['param'] is not None else '-'} "
-            f"| {row['brier']:.4f} | {row['logloss']:.4f} |"
-        )
-    lines += [
-        "",
-        "## Exact Distribution Calibration",
-        "",
-        f"- Method: `{artifact['exact_distribution']['method']}`",
-        f"- Temperature (global fallback): `{artifact['exact_distribution']['temperature']}`",
-        f"- Temperature by cutoff hour: `{artifact['exact_distribution'].get('temperature_by_hour', {})}`",
-        f"- Max deployment temperature: `{artifact['exact_distribution']['max_deployment_temperature']}`",
-        f"- Unconstrained best temperature: `{artifact['exact_distribution']['unconstrained_best_temperature']}`",
-        f"- Exact-row count: {artifact['exact_distribution']['exact_row_count']}",
-        "",
-        "## Context Summaries",
-        "",
-        "The live calibrator falls back through context keys in this order: "
-        "`kind+hour+distance`, `kind+distance`, `kind+hour`, `kind`, `global`.",
-        "",
-        "| Context | N | Smoothed Base Rate |",
-        "| :--- | :--- | :--- |",
-    ]
-    for key, row in artifact["market_bin"]["contexts"].items():
-        if key == "global" or row["n"] >= artifact["market_bin"]["min_context_n"]:
-            lines.append(f"| {key} | {row['n']} | {row['base_rate'] * 100:.1f}% |")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
 def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT, market_id=None):
     return discover_settled_folders(
         root, required_file="snapshots_long.csv", market_id=market_id
@@ -913,7 +834,7 @@ def cmd_train(args):
     selected = artifact["selected_deployable_candidate"]
     baseline = artifact["training"]
     print(
-        f"Selected {selected['method']} ({selected['param']}); "
+        f"Highest-ranked weather-only binary candidate {selected['method']} ({selected['param']}). LOO "
         f"Brier {baseline['baseline_brier']:.4f} -> {selected['brier']:.4f}, "
         f"logloss {baseline['baseline_logloss']:.4f} -> {selected['logloss']:.4f}"
     )

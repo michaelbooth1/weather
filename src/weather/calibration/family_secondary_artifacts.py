@@ -1499,9 +1499,9 @@ def write_report(path, manifest):
             artifact.get("status"),
             artifact.get("artifact"),
             artifact.get("row_count") or artifact.get("lead_rows") or "-",
-            _fmt(artifact.get("artifact_replay_brier")
-                 or artifact.get("learned_brier")
-                 or artifact.get("global_catchup_rate")),
+            _fmt(next((artifact[key] for key in
+                       ("artifact_replay_brier", "learned_brier", "global_catchup_rate")
+                       if artifact.get(key) is not None), None)),
         ])
     rows = []
     for market_id, market in sorted((manifest.get("markets") or {}).items()):
@@ -1537,6 +1537,10 @@ def write_report(path, manifest):
         "",
         "## Family Artifacts",
         "",
+        "For probability calibration, the headline metric is in-sample market-bin "
+        "Brier on captured probabilities. The selected method in the manifest "
+        "identifies the highest-ranked weather-only binary candidate.",
+        "",
     ]
     lines += markdown_table(
         ["Kind", "Status", "Artifact", "Rows/Lead Rows", "Headline Metric"],
@@ -1550,7 +1554,7 @@ def write_report(path, manifest):
     lines += markdown_table(
         [
             "Market", "City", "Trust", "Days", "Mode", "Reason",
-            "Probability Cal", "Cal Brier", "Forecast Error", "Forecast Brier",
+            "Probability Cal", "Market-bin replay Brier (training)", "Forecast Error", "Forecast Brier",
             "Lag", "Lead Rows",
         ],
         rows,

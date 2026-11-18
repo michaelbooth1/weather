@@ -169,6 +169,12 @@ from this lane.
 
 Each market emits a parent-feature-order HGB, compatible LR coefficients,
 candidate-specific exact-distribution calibration, fit receipt, and report.
+This candidate lane scores blocked out-of-fold degree distributions. The
+separate legacy tape calibration command reports leave-one-date-out scalar
+band candidates and an in-sample market-bin replay. Its coherent market-bin
+configuration honors hard support and passes through feasible band probabilities.
+The legacy command estimates exact-distribution temperatures from binary band
+scores; its report does not measure the complete served degree transformation.
 The HGB parameters come from the verified parent estimator. The legacy LR
 artifact does not serialize its constructor parameters, so this lane freezes
 and receipts the serving-compatible `C=0.5`, `max_iter=1000`,
