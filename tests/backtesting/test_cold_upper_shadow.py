@@ -29,7 +29,7 @@ def fixture(hour=18):
     stage = dict(**identity, **provenance, event_id=floor["event_id"], stage="input_to_apply_late_day_lockin",
                  mass={"23": .5, "24": .25, "25": .25, "26": 0}, wu_history_state="empty_at_effective_cutoff",
                  incumbent_anchor=None, incumbent_lockin_strength=0, official_current_stale=False,
-                 selected_current_source="metar", current_native=17.6, current_observation_time=captured_current)
+                 selected_current_source="metar", temperature_quality="accepted_as_of_capture", current_native=17.6, current_observation_time=captured_current)
     return floor, stage, spec, serving
 
 
@@ -46,7 +46,7 @@ def test_evening_shaper_changes_probabilities_with_same_positive_support():
 @pytest.mark.parametrize("field,value", [
     ("wu_history_state", "unknown"), ("wu_history_state", "present"), ("incumbent_anchor", 23),
     ("incumbent_lockin_strength", .3), ("selected_current_source", "wu"), ("official_current_stale", True),
-    ("current_native", 10), ("current_observation_time", "2025-01-05T17:51:00Z"),
+    ("temperature_quality", None), ("temperature_quality", "suspect"), ("current_native", 10), ("current_observation_time", "2025-01-05T17:51:00Z"),
 ])
 def test_missing_or_competing_context_preserves_incumbent(field, value):
     floor, stage, spec, serving = fixture()
@@ -87,3 +87,20 @@ def test_mismatched_stage_cannot_substitute_for_captured_upper_prior(key, value)
     stage[key] = value
     with pytest.raises(ValueError, match="both stages"):
         evaluate_cold_upper_shadow(floor, stage, spec, serving)
+
+
+def test_celsius_and_outside_winter_have_no_tail_intervention():
+    floor, stage, spec, serving = fixture()
+    for record in (floor, floor["prior"], floor["rule"], stage):
+        record["unit"] = "C"
+    spec.market_unit = serving.display_unit = "C"
+    result = evaluate_cold_upper_shadow(floor, stage, spec, serving)
+    assert result["reason"] == "unsupported_family_unit_or_station" and result["candidate"] == result["incumbent"]
+
+    floor, stage, spec, serving = fixture()
+    for record in (floor, floor["prior"], floor["rule"], stage, floor["evidence"], *floor["evidence"]["reports"]):
+        for key, value in record.items():
+            if isinstance(value, str) and value.startswith("2025-01-05"):
+                record[key] = value.replace("2025-01-05", "2025-10-05")
+    result = evaluate_cold_upper_shadow(floor, stage, spec, serving)
+    assert result["reason"] == "outside_evaluated_winter_months" and result["candidate"] == result["incumbent"]

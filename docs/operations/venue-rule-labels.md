@@ -524,8 +524,10 @@ input to the upper operator supplies its own degree vector, effective WU state,
 incumbent anchor and strength, selected fresh current source, observation instant
 and native reading. The companion hard-floor vector supplies no upper-tail weights.
 
-Only a provisional same-day Fahrenheit high at the serving/venue station is
-eligible. Its typed running maximum must round to the incumbent hard bound. The
+Only a provisional same-day Fahrenheit high at the serving/venue station in
+January, February or December is eligible. Record contemporaneous acceptance
+of temperature quality in the stage context. Unknown or disputed integrity
+preserves the incumbent, even when the raw report parses. Its typed running maximum must round to the incumbent hard bound. The
 latest visible routine reading must match the captured model current. Earlier
 and later observations, revisions and receipts retain their separate clocks.
 A missing source, WU print, existing strength, temperature outside the cold

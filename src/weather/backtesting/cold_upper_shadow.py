@@ -54,6 +54,10 @@ def evaluate_cold_upper_shadow(floor_packet, stage, venue_spec, serving_spec):
     local = now.astimezone(zone)
     if local.date().isoformat() != stage["target_date"]:
         return unchanged("outside_target_day")
+    if local.month not in (1, 2, 12):
+        return unchanged("outside_evaluated_winter_months")
+    if stage.get("temperature_quality") != "accepted_as_of_capture":
+        return unchanged("temperature_quality_unverified")
     if (stage["wu_history_state"] != "empty_at_effective_cutoff" or stage["incumbent_anchor"] is not None
             or stage["selected_current_source"] != "metar" or stage["official_current_stale"] is not False
             or stage["incumbent_lockin_strength"] != 0):
