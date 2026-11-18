@@ -471,6 +471,38 @@ finalize code in process rather than running the `market_day_labels` CLI.
   revisions; the venue revisions stay in history and nothing is deleted.
 - Keep the venue CSVs, manifests and fetched METAR files as evidence.
 
+## Comparing a captured forecast floor
+
+Offline research callers can opt into
+`weather.backtesting.venue_floor_shadow.evaluate_floor_shadow(packet, spec)`.
+Supply the independently reviewed event rule and station specification, the
+captured native-degree operator input vector, and the recorded incumbent
+bound for that exact market, station, family, decision instant and local date.
+The evidence packet carries the captured raw AWC reports with individual
+receipt times, plus an uninterrupted same-station coverage attestation from
+local midnight through the decision. The caller verifies the three source
+hashes against its immutable input manifest. A retrospective present-rule
+experiment must use `rule.basis = "retrospective_current_rule"`. A dated-event
+rule needs its own effective range and an admissible recorded time. The
+focused synthetic fixtures document the input fields and output.
+
+The output compares the incumbent and routine-only bounds on the same prior.
+`post_live_signals` multiplies probability on the excluded side by one
+millionth and normalizes, matching the first explicit highest-floor stage.
+`input_to_apply_lockin_observed_floor` requires the actual function argument
+captured inside an isolated replay. It moves all excluded probability to the
+anchor, including when the anchor was absent from the original grid. The
+incumbent bound is the argument at that same stage. For the optional lowest mirror
+the excluded side is strictly hotter than the running minimum. Both report
+original and surviving mass on that side. Running bounds can change after a
+correction. A complete capture with no routine report yet yields no candidate
+bound. Unknown receipts, incomplete capture, parse conflicts and unverified
+fallbacks abstain. A fresh same-station WU fallback uses native daily values.
+The double-empty fallback selects a contract band, so this degree-stage
+comparison abstains. The output retains its one-sided stage meaning even
+after publication of a final value. Scoring the full distribution requires
+replaying later stages against the same captured inputs and event ladder.
+
 ## Update this file when
 
 Update when the rule, cutover, station precedence, output columns, or a label
