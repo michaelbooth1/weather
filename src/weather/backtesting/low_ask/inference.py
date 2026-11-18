@@ -19,6 +19,9 @@ SEED = 20261110
 RESAMPLES = 20_000
 BLOCK = 3
 PLANNING_DATE_SD = 1.4346
+# Outward slack on the bounded dollar panel, confined to incomplete-payout proofs.
+PAYOUT_SLACK = 1e-10
+BOOTSTRAPS = ("date", "block3", "crossed_city_block3")
 
 
 def panel_from_ledger(ledger: dict, *, optimistic_unknowns=False) -> list[list[float]]:
@@ -65,7 +68,7 @@ def robust_scale(matrix: list[list[float]]) -> float:
 
 
 def interval(matrix: list[list[float]], *, critical: float | None, resamples=RESAMPLES,
-             population_days=DATE_COUNT) -> dict:
+             population_days=DATE_COUNT, payout_min_mean: float | None = None) -> dict:
     """Resample a declared population; evaluate always uses the restart dates.
 
     Historical N75 calibration witnesses explicitly supply population_days=75.
@@ -115,7 +118,7 @@ def interval(matrix: list[list[float]], *, critical: float | None, resamples=RES
         pvalues["calibrated_envelope"] = ALPHA if mean > critical*scale else 1.0
     else:
         pvalues["calibrated_envelope"] = 1.0
-    return {"mean": mean, "portfolio_dollars_per_date": mean*m,
+    result = {"mean": mean, "portfolio_dollars_per_date": mean*m,
             "lower": min(v[0] for v in intervals.values()),
             "upper": max(v[1] for v in intervals.values()),
             "pvalue": max(pvalues.values()), "pvalues": pvalues, "intervals": intervals, "robust_scale": scale,
@@ -123,6 +126,64 @@ def interval(matrix: list[list[float]], *, critical: float | None, resamples=RES
             "date_sd_diagnostic": math.sqrt(daily_variance),
             "realized_to_planning_sd_ratio": math.sqrt(daily_variance)/PLANNING_DATE_SD,
             "dates": n, "city_days": n*m}
+    if payout_min_mean is not None:
+        # This pass uses the all-upper panel. Each resampled mean is at
+        # least its counterpart for any possible completion of these fills.
+        cutoff = 2*payout_min_mean - mean - PAYOUT_SLACK
+        result["bootstrap_pvalue_upper"] = max(
+            (1+sum(d >= cutoff for d in draws))/(resamples+1)
+            for draws in distributions.values()
+        )
+    return result
+
+
+def payout_bounds(low, high, low_stats, high_stats, critical):
+    """Outer bounds for all simultaneous payouts to the held shares.
+
+    The cell box includes fractional/void payouts and every feasible assignment
+    to a shared event/token. Relaxing the venue's cross-token constraints can
+    cost decisiveness. Certifying a result on this larger box is sufficient.
+    """
+    n, m = len(low), len(low[0])
+    middle = [[(a+b)/2 for a, b in zip(lrow, hrow)] for lrow, hrow in zip(low, high)]
+    radius = [[(b-a)/2 for a, b in zip(lrow, hrow)] for lrow, hrow in zip(low, high)]
+    date_radius = [sum(row)/m for row in radius]
+    city_radius = [sum(row[j] for row in radius)/n for j in range(m)]
+    # Each scale is a seminorm. For a perturbation within the radius, the
+    # iid, circular-block and lag-3 Bartlett date scales are bounded by
+    # 2*||date_radius||/n (Bartlett absolute kernel weights sum to four).
+    movement = max(2*math.sqrt(sum(v*v for v in date_radius))/n,
+                   math.sqrt(sum(v*v for v in city_radius)/(m*(m-1))))
+    center_scale = robust_scale(middle)
+    scale_min, scale_max = max(0., center_scale-movement), center_scale+movement
+    lo, hi = low_stats["mean"], high_stats["mean"]
+    shift = 2*(hi-lo)
+    # Every draw has nonnegative sampling weights. Its basic bound
+    # 2*mean - sampled_mean lies between B(high)-shift and B(low)+shift.
+    # Interval quantiles preserve these pointwise inequalities.
+    li, ui = low_stats["intervals"], high_stats["intervals"]
+    lower_min = min(lo-critical*scale_max, *(ui[k][0]-shift for k in BOOTSTRAPS))
+    lower_max = min(hi-critical*scale_min, *(li[k][0]+shift for k in BOOTSTRAPS))
+    upper_min = max(lo+critical*scale_min, *(ui[k][1]-shift for k in BOOTSTRAPS))
+    upper_max = max(hi+critical*scale_max, *(li[k][1]+shift for k in BOOTSTRAPS))
+    p_upper = (max(ALPHA, high_stats["bootstrap_pvalue_upper"])
+               if lo > critical*scale_max + PAYOUT_SLACK else 1.0)
+    return {"lower_min": lower_min-PAYOUT_SLACK, "lower_max": lower_max+PAYOUT_SLACK,
+            "upper_min": upper_min-PAYOUT_SLACK, "upper_max": upper_max+PAYOUT_SLACK,
+            "pvalue_upper": p_upper}
+
+
+def payout_robust_verdict(bounds, low_mean, high_mean, family_ok):
+    """Issue an economic classification only when it holds throughout the box."""
+    if low_mean > FLOOR+PAYOUT_SLACK and bounds["lower_min"] > 0 and bounds["pvalue_upper"] <= ALPHA and family_ok:
+        return "SUCCESS"
+    if bounds["upper_max"] <= 0:
+        return "KILL_POSITIVE_PROFIT"
+    if bounds["upper_min"] > 0 and bounds["upper_max"] < FLOOR:
+        return "KILL_ECONOMIC_MINIMUM"
+    if bounds["upper_min"] >= FLOOR and (high_mean+PAYOUT_SLACK <= FLOOR or bounds["lower_max"] <= 0):
+        return "NOT_KILLED"
+    return "DESCRIBE"
 
 
 def holm_pass(pvalues: dict[str, float], expected: list[str]) -> bool:
@@ -166,7 +227,8 @@ def evaluate(ledger: dict, *, calibration: dict, family_pvalues: dict,
              claimants: list[str], resamples=RESAMPLES) -> dict:
     calibrated = calibration["status"] == "CALIBRATED"
     critical = float(calibration["critical_value"]) if calibrated else None
-    result = interval(panel_from_ledger(ledger), critical=critical, resamples=resamples)
+    low_panel = panel_from_ledger(ledger)
+    result = interval(low_panel, critical=critical, resamples=resamples)
     coverage = completeness(ledger)
     gates = (calibrated and coverage["adequate_dates"] >= 68 and coverage["both_executable_city_days"] >= 810
              and ledger["doubtful_fills"] == 0)
@@ -191,10 +253,17 @@ def evaluate(ledger: dict, *, calibration: dict, family_pvalues: dict,
 
     decision = verdict(result, family_pass)
     if ledger["unresolved"]:
-        upper = interval(panel_from_ledger(ledger, optimistic_unknowns=True), critical=critical, resamples=resamples)
+        high_panel = panel_from_ledger(ledger, optimistic_unknowns=True)
+        upper = interval(high_panel, critical=critical, resamples=resamples, payout_min_mean=result["mean"])
         result["unknown_payout_upper_panel"] = upper
-        if verdict(upper, family_check(upper)) != decision:
-            decision = "DESCRIBE"
+        if gates:
+            bounds = payout_bounds(low_panel, high_panel, result, upper, critical)
+            result["unknown_payout_bounds"] = bounds
+            result["all_zero_payout_pvalue"] = result["pvalue"]
+            family_pass = family_check({"pvalue": bounds["pvalue_upper"]})
+            decision = payout_robust_verdict(bounds, result["mean"], upper["mean"], family_pass)
+            if decision != "DESCRIBE":
+                result["pvalue"] = bounds["pvalue_upper"]
     if decision == "DESCRIBE":
         # An ineligible/unreconciled trial must not lend a small, invalid
         # diagnostic p-value to another claimant through the family Holm gate.

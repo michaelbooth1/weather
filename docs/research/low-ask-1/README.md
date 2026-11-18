@@ -70,5 +70,13 @@ p-values. LOW-ASK-1's p-value is computed internally. A successful look writes
 `final_report.json` alongside the seal; never run `--look` as a rehearsal on
 real data. Synthetic tests inject clocks without moving the system clock.
 
+For unresolved fills the look reports the two all-zero/all-one endpoint
+panels and bounds the confidence limits and family p-value across their
+cell-wise payout box. This includes fractional refunds and shared event/token
+payouts. A classification requires a common verdict under those bounds.
+An uncertified result exports DESCRIBE and family p=1. The family receives
+the certified upper p-value when an incomplete result is classifiable.
+The fully resolved procedure uses its original p-value and intervals.
+
 Update this package, the input contract, prereg and code pins together before
 binding. After freeze, no rule tuning, automatic date slide or second look.
