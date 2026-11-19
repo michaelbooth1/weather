@@ -141,6 +141,7 @@ function Get-FlagClass($text) {
     # Swarm P audit 2026-10-07 G1/G3: these used to fall through to MEDIUM scheduled_job.
     if ($text -match "^UNEXPECTED SHUTDOWN") { return "host_stability" }
     if ($text -match "system clock (is not synchronized|has no successful|last received)") { return "capture_integrity" }
+    if ($text -match "^CAPTURE INTEGRITY:") { return "capture_integrity" }
     if ($text -match "^STALENESS_SWEEP") { return "staleness_sweep" }
     if ($text -match "capture loop DOWN|capture loop ERRORING|TODAY capture AT_RISK|capture alert raised") { return "capture" }
     if ($text -match "LOW RAM|HIGH COMMIT") { return "memory" }
@@ -151,7 +152,10 @@ function Get-FlagClass($text) {
     if ($text -match "streak checker failed|BLIND|MEMORY GUARD UNKNOWN|deployment PIN MISMATCH") { return "observability" }
     return "scheduled_job"
 }
-function Get-FlagAction($class) {
+function Get-FlagAction($class, [string]$text = "") {
+    if ($class -eq "capture_integrity" -and $text -match "^CAPTURE INTEGRITY:") {
+        return "NOW - inspect the named capture failure and restore snapshot writes; for event metadata, repair WeatherLocationConfigRefresh and verify fresh metadata plus advancing snapshots; record the lost interval"
+    }
     $actionWindow = @{
         reconciliation_publication = "preserve the exact marker and evidence; do not manually invoke or retry WeatherOneShotPush; obtain reviewed recovery authority"
         capture       = "NOW - the graded window is 12:00-18:00"
@@ -205,10 +209,18 @@ foreach ($f in @($status.flags)) {
         default { if ($inChain) { "HIGH" } else { "MEDIUM" } }
     }
     $entries += [PSCustomObject]@{
-        severity = $sev; class = $class; flag = $f; act = (Get-FlagAction $class)
+        severity = $sev; class = $class; flag = $f; act = (Get-FlagAction $class $f)
     }
 }
-$rank = @{ CRITICAL = 0; HIGH = 1; MEDIUM = 2 }
+foreach ($warning in @($status.warns)) {
+    if ([string]$warning -match "^EVENT METADATA WARN:") {
+        $entries += [PSCustomObject]@{
+            severity = "WARN"; class = "event_metadata"; flag = [string]$warning
+            act = "repair WeatherLocationConfigRefresh before metadata reaches the capture validation age limit; verify fresh generated_at_utc and successful task result"
+        }
+    }
+}
+$rank = @{ CRITICAL = 0; HIGH = 1; MEDIUM = 2; WARN = 3 }
 
 # ---- second pass: graded-window overlap, reviewed demotions, escalation, dedupe keys ----
 # Swarm P audit 2026-10-07 G1/G3/G4. Dedupe keys drop volatile numbers (ages, counts, byte
@@ -375,6 +387,7 @@ $record = [ordered]@{
     watchdog_deployment = $status.watchdog_deployment
     reconciliation_publication = $status.reconciliation_publication
     memory_guard = $status.memory_guard
+    capture_health = $status.capture_health
     status_script_path = $statusScript
     expected_status_script_sha256 = $ExpectedStatusScriptSha256
 }

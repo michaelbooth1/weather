@@ -77,10 +77,11 @@ def write_config(tmp_path, **changes):
     return path
 
 
-def test_repository_family_is_eleven_cities_without_chicago_in_its_own_root(family):
+def test_repository_family_is_all_twelve_cities_in_its_own_root(family):
+    # Chicago joined on 2026-11-19 (owner override of the 2026-10-02 desk-study exclusion, DECISION_LOG 2026-11-18).
     cities = {spec.id for spec, _ in family.markets}
-    assert len(cities) == 11 and "chicago" not in cities
-    assert cities == {spec.id for spec in all_specs()} - {"chicago"}
+    assert len(cities) == 12 and "chicago" in cities
+    assert cities == {spec.id for spec in all_specs()}
     assert all(prefix == spec.slug_prefix.replace("highest-", "lowest-", 1) for spec, prefix in family.markets)
     assert family.root == data_path("maker_evidence_families", "lowest_temperature")
     assert family.floor_bytes == 70 * 1024**3 and family.day_ahead == (0, 1, 2)
@@ -108,10 +109,10 @@ def test_unknown_family_refused(family):
 def test_expected_events_use_each_city_local_date(family):
     late = datetime(2026, 10, 16, 3, 30, tzinfo=timezone.utc)  # 23:30 New York, 20:30 Los Angeles on 10-15.
     expected = expected_events(family, late)
-    assert len(expected) == 33
+    assert len(expected) == 36
     assert expected["lowest-temperature-in-nyc-on-october-15-2026"] == ("nyc", 0)
     assert expected["lowest-temperature-in-los-angeles-on-october-17-2026"] == ("los-angeles", 2)
-    assert not any("chicago" in slug for slug in expected)
+    assert expected["lowest-temperature-in-chicago-on-october-15-2026"] == ("chicago", 0)
 
 
 def test_universe_keeps_every_active_condition_with_terms_and_partitions(family, store):
@@ -120,17 +121,17 @@ def test_universe_keeps_every_active_condition_with_terms_and_partitions(family,
     state = {}
     universe, shortages, missing = family_universe(reader, family, now=NOW, reward_state=state,
                                                    discover=capture.discover_events)
-    assert len(universe) == 33 * 11 - 1 and shortages == [] and missing == []
+    assert len(universe) == 36 * 11 - 1 and shortages == [] and missing == []
     assert {row["family"] for row in universe} == {"lowest_temperature"}
     rewarded = [row for row in universe if row["reward_terms"]["daily_rate"]]
     assert [row["condition_id"] for row in rewarded] == [cid(slug, 5)]
     assert rewarded[0]["reward_terms"] == {"daily_rate": 12.5, "min_size": 20, "max_spread_cents": 4.5}
-    # First cycle reads at most the cap; Gamma is 3 batched event reads for 33 slugs.
+    # First cycle reads at most the cap; Gamma is 3 batched event reads for 36 slugs.
     assert sum(call[0] == "rewards" for call in reader.calls) == family.max_reward_reads_per_cycle
     assert sum(call[0] == "events" for call in reader.calls) == 3
     files = {path.name for path in store.folder.glob("*.jsonl")}
     assert "rewards-lowest_temperature.jsonl" in files and not any(name.startswith("reward-") for name in files)
-    assert "universe-lowest_temperature-nyc.jsonl" in files and "universe-lowest_temperature-chicago.jsonl" not in files
+    assert "universe-lowest_temperature-nyc.jsonl" in files and "universe-lowest_temperature-chicago.jsonl" in files
 
 
 def test_universe_body_is_change_only(family, store):
@@ -161,8 +162,8 @@ def test_steady_state_reward_reads_follow_the_sweep(family, store):
                         discover=capture.discover_events)
         reads.append(sum(call[0] == "rewards" for call in reader.calls[before:]))
     assert max(reads) <= family.max_reward_reads_per_cycle
-    # Every condition is re-read once per sweep after warm-up: 363 conditions over 15 minutes.
-    assert sum(reads[16:31]) == 33 * 11
+    # Every condition is re-read once per sweep after warm-up: 396 conditions over 15 minutes.
+    assert sum(reads[16:31]) == 36 * 11
 
 
 def run_family_capture(tmp_path, monkeypatch, *, free_gib):
@@ -185,7 +186,7 @@ def run_family_capture(tmp_path, monkeypatch, *, free_gib):
 def test_family_capture_cycle_records_books_and_terms_without_websocket(tmp_path, monkeypatch):
     code, status, readers = run_family_capture(tmp_path, monkeypatch, free_gib=100)
     assert code == 0 and status["state"] == "COMPLETED" and status["cycles"] == 1
-    assert status["family"] == "lowest_temperature" and status["universe_size"] == 363
+    assert status["family"] == "lowest_temperature" and status["universe_size"] == 396
     assert status["websocket"] == "none" and status["family_config_sha256"] == digest(FAMILY_CONFIG.read_bytes())
     kinds = [call[1] for call in readers[0].calls]
     assert kinds.count("books") == 8 and "ranking_books" not in kinds

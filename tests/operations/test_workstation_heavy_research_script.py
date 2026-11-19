@@ -224,7 +224,7 @@ def test_a_pinned_script_runs_isolated_locked_and_reports_rc_and_tree_peak(lane)
     sha = _sha(script)
     _pin(repo, root, [(str(script), sha)])
     record = repo / "record.json"
-    result = _run(repo, ["-I", str(script), str(record), "3"])
+    result = _run(repo, ["-I", str(script), str(record), "3"], "-MinFreeDiskGB", "20")
     assert result.returncode == 3, result.stderr
     ran = json.loads(record.read_text(encoding="utf-8"))
     assert ran == {"isolated": 1, "argv": [str(record), "3"], "self_writable": False}
