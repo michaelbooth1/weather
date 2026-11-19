@@ -657,15 +657,18 @@ close requires the same bound facts and fresh account and receipt reads.
 Coordinator recovery may publish a missing receipt for an already committed
 decision using the retained binding. That bookkeeping step makes no account
 or chain reads. Before appending an unanchored partial receipt, owner-close
-validates the saved facts, occurrence, observations and allocation.
+validates the saved facts, occurrence, observations and allocation. The same
+file and digest must survive until commit. Its Windows read handle denies
+writes and deletion through the ledger append.
 
 A personal purchase uses verified owner cash for principal and fee together.
 Uncovered cash becomes a recorded owner overdraw. Net personal sale proceeds
 first repay outstanding owner overdraw, and the remainder stays segregated as
 verified owner cash. Quarantine, campaign principal and retained gains stay
 separate from this allocation. The receipt records the amounts applied and
-ledger replay checks them at the close. The close retains any research gaps
-and leaves the task disabled.
+ledger replay requires and checks the allocation in versioned close proofs.
+Older proofs retain their replay rules. The close retains any research gaps and
+leaves the task disabled.
 
 The task action launches PowerShell with its documented `-WindowStyle Hidden`;
 Interactive/Limited owner-session binding remains

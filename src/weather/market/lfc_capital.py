@@ -126,7 +126,7 @@ class CapitalBook:
         event = row['event']
         if event == 'autostart_owner_close':
             from weather.market.lfc_campaign_state import StateRefused
-            from weather.market.lfc_owner_external_close import DECODE_ERRORS, reconcile
+            from weather.market.lfc_owner_external_close import DECODE_ERRORS, PROOF_SCHEMA, reconcile
             proof = row['proof']
             packet = proof['owner_external_close']
             facts = packet['facts']
@@ -134,6 +134,11 @@ class CapitalBook:
                     facts.get('attempt_id') != row['source_attempt_id'] or
                     proof.get('read_sha256') != packet['read_sha256']):
                 raise CapitalRefused('owner_external_facts_binding')
+            if 'schema_version' in packet:
+                if packet['schema_version'] != PROOF_SCHEMA:
+                    raise CapitalRefused('owner_external_close_proof_schema')
+                if 'owner_cash_allocation' not in packet:
+                    raise CapitalRefused('owner_external_cash_allocation_missing')
             try:
                 allocation = reconcile(self, packet, sequence=row['sequence'])
             except (StateRefused, *DECODE_ERRORS) as exc:

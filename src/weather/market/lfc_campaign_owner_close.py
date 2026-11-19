@@ -4,6 +4,8 @@ Missing private evidence is acknowledged, never reconstructed as a PASS. An
 unacknowledged intent cannot use this route. Every receipt names one occurrence;
 a later loss or changed artifact needs another owner decision (N1).
 """
+from contextlib import contextmanager, ExitStack
+import hashlib
 from pathlib import Path
 import os
 import re
@@ -13,7 +15,7 @@ from weather.market.lfc_campaign_recovery import attempt_intents, attempt_sessio
 from weather.market.lfc_recording_io import file_sha, write_new
 from weather.market.mm_stage2_hold import digest
 from weather.market.lfc_ledger_queries import event_rows
-from weather.operations.live_path_security import validate_contained_regular_file
+from weather.operations.live_path_security import LivePathSecurityError, validate_contained_regular_file
 
 
 def legs_binding(ledger, attempt):
@@ -111,6 +113,50 @@ def validate_external_partial(state, partial, occurrence, incident, sha, source,
         validate_retained_read(state.ledger, packet, read, closed_at)
     except (RuntimeError, *DECODE_ERRORS) as exc:
         raise StateRefused('owner_close_partial_binding') from exc
+
+
+def hold_partial_on_windows(path, stack):
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    open_file = kernel.CreateFileW
+    open_file.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                          wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+    open_file.restype = wintypes.HANDLE
+    close_file = kernel.CloseHandle
+    close_file.argtypes = (wintypes.HANDLE,)
+    close_file.restype = wintypes.BOOL
+    # GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT.
+    handle = open_file(str(path), 0x80000000, 1, None, 3, 0x00200000, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    stack.callback(close_file, handle)
+
+
+@contextmanager
+def guarded_partial(root, path):
+    """Bind file identity and bytes, denying writes and deletion on Windows."""
+    from weather.market.lfc_campaign_state import StateRefused
+
+    with ExitStack() as stack:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            yield None
+            return
+        except OSError as exc:
+            raise StateRefused('owner_close_partial_binding') from exc
+        try:
+            safe = validate_contained_regular_file(root, path)
+            if os.name == 'nt':
+                hold_partial_on_windows(safe, stack)
+            stream = stack.enter_context(validate_contained_regular_file(root, path).open('rb'))
+            info = os.fstat(stream.fileno())
+            binding = (info.st_dev, info.st_ino, hashlib.file_digest(stream, 'sha256').hexdigest())
+        except (OSError, LivePathSecurityError) as exc:
+            raise StateRefused('owner_close_partial_binding') from exc
+        yield binding
 
 
 def binding(state, attempt, *, incident=None):
@@ -250,19 +296,21 @@ def owner_close(runtime, incident, *, external_facts=None):
                 raise StateRefused('owner_external_requires_disabled_terminal_account')
             relative = 'owner-closures/' + incident + '.json'
             target = state.root / relative
-            validated_partial_sha = None
-            if target.exists() and not ledger.event_rows('autostart_owner_close', field='incident_id', value=incident):
-                partial_sha = file_sha(target)
-                partial = state.read(target)
+            partial_binding, partial = None, None
+            if not ledger.event_rows('autostart_owner_close', field='incident_id', value=incident):
+                with guarded_partial(state.root, target) as partial_binding:
+                    if partial_binding is not None:
+                        try:
+                            partial = state.read_uncached(target, expected_sha256=partial_binding[2])
+                        except (OSError, RuntimeError, ValueError) as exc:
+                            raise StateRefused('owner_close_partial_binding') from exc
+            if partial is not None:
                 retained = partial.get('proof')
                 if not isinstance(retained, dict):
                     raise StateRefused('owner_close_partial_binding')
                 if external_facts is not None or 'owner_external_close' in retained:
                     if external_facts is None:
                         raise StateRefused('owner_external_facts_required')
-                    if file_sha(target) != partial_sha:
-                        raise StateRefused('owner_close_partial_binding')
-                    validated_partial_sha = partial_sha
                     validate_external_partial(state, partial, occurrence, incident, sha, source,
                                               external_facts, runtime.clock.now())
             read = runtime.read_account()
@@ -302,34 +350,35 @@ def owner_close(runtime, incident, *, external_facts=None):
                 'terminal_legs_sha256': digest(legs_binding(ledger, source)), 'artifact_manifest': manifest(state, source),
                 'research_evidence_complete': False, 'closed_at_utc': runtime.clock.now().isoformat()}
             fields['source_attempt_id'] = source
-            recovery = {}
-            if target.exists():
-                # A retry is still owner-confirmed and freshly proves money.
-                # Complete precisely the retained decision; never replace it
-                # or let it accept a later artifact loss/incident occurrence.
-                partial = state.read(target)
-                previous = partial.get('ledger_head_sha256')
-                retained = partial.get('proof', {})
-                keys = ('authority', 'incident_id', 'incident_sha256', 'source_attempt_id',
-                        'artifact', 'detection_sequence', 'terminal_legs_sha256', 'artifact_manifest',
-                        'research_evidence_complete')
-                closure_sha = file_sha(target)
-                if ((external_facts is not None and closure_sha != validated_partial_sha) or
-                        any(partial.get(key) != fields.get(key) for key in keys) or
-                        previous not in {ledger.row_sha256(i) for i in range(len(ledger.rows))} or
-                        retained.get('money_accounting_complete') is not True or
-                        retained.get('cleanup_proven') is not True or retained.get('unknown_submit') is not False or
-                        retained.get('read_sha256') != digest(partial.get('account_read')) or
-                        any(retained.get('owner_external_close', {}).get(key) !=
-                            proof.get('owner_external_close', {}).get(key)
-                            for key in ('facts_sha256', 'owner_cash_allocation'))):
+            with guarded_partial(state.root, target) as current_binding:
+                if current_binding != partial_binding:
                     raise StateRefused('owner_close_partial_binding')
-                recovery = {'receipt_ledger_sha256': previous, 'recovered_partial': True}
-            else:
-                closure_sha = state.save(relative, fields)
-            ledger.record('autostart_owner_close', attempt_id=incident, incident_id=incident,
-                source_attempt_id=source, file=relative, file_sha256=closure_sha, proof=proof, proof_sha256=digest(proof),
-                **recovery)
+                recovery = {}
+                if current_binding is None:
+                    try:
+                        closure_sha = state.save(relative, fields)
+                    except FileExistsError as exc:
+                        raise StateRefused('owner_close_partial_binding') from exc
+                else:
+                    previous = partial.get('ledger_head_sha256')
+                    retained = partial['proof']
+                    keys = ('authority', 'incident_id', 'incident_sha256', 'source_attempt_id',
+                            'artifact', 'detection_sequence', 'terminal_legs_sha256', 'artifact_manifest',
+                            'research_evidence_complete')
+                    if (any(partial.get(key) != fields.get(key) for key in keys) or
+                            previous not in {ledger.row_sha256(i) for i in range(len(ledger.rows))} or
+                            retained.get('money_accounting_complete') is not True or
+                            retained.get('cleanup_proven') is not True or retained.get('unknown_submit') is not False or
+                            retained.get('read_sha256') != digest(partial.get('account_read')) or
+                            any(retained.get('owner_external_close', {}).get(key) !=
+                                proof.get('owner_external_close', {}).get(key)
+                                for key in ('facts_sha256', 'owner_cash_allocation'))):
+                        raise StateRefused('owner_close_partial_binding')
+                    closure_sha = current_binding[2]
+                    recovery = {'receipt_ledger_sha256': previous, 'recovered_partial': True}
+                ledger.record('autostart_owner_close', attempt_id=incident, incident_id=incident,
+                    source_attempt_id=source, file=relative, file_sha256=closure_sha,
+                    proof=proof, proof_sha256=digest(proof), **recovery)
             complete_committed(state, source, runtime.clock.now(), incident=incident)
         return 0
     finally:

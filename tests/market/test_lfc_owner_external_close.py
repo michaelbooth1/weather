@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from datetime import timedelta
 from decimal import Decimal
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -19,7 +20,7 @@ from weather.market.lfc_capital import ASSET, CapitalBook, CapitalRefused, recor
 from weather.market.lfc_capital_native import TRANSFER
 from weather.market.lfc_capital_reads import synchronize
 from weather.market.lfc_ledger import Ledger, LedgerUnavailable
-from weather.market.lfc_owner_external_close import EXCHANGES, ORDER_FILLED, build_facts, live_proof
+from weather.market.lfc_owner_external_close import EXCHANGES, ORDER_FILLED, PROOF_SCHEMA, build_facts, live_proof
 from weather.market.lfc_recording_io import file_sha, retained
 from weather.market.lfc_redemption_native import CTF, SINGLE
 from weather.market.mm_stage2_hold import canonical_bytes, digest
@@ -251,6 +252,28 @@ def test_booked_owner_allocation_cannot_disagree_with_replay(tmp_path, monkeypat
     assert ledger.path.read_bytes() == before and ledger.previous == head
 
 
+def test_only_unversioned_owner_close_rows_can_omit_allocation(tmp_path, monkeypatch, account_guard):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, side='BUY', deposit=20)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipt)
+    proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
+    packet = proof['owner_external_close']
+    assert packet['schema_version'] == PROOF_SCHEMA
+    allocation, = packet.pop('owner_cash_allocation').values()
+    before, head = ledger.path.read_bytes(), ledger.previous
+    fields = dict(attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT, proof=proof)
+    with pytest.raises(LedgerUnavailable, match='owner_external_cash_allocation_missing'):
+        ledger.record('autostart_owner_close', **fields, proof_sha256=digest(proof))
+    assert ledger.path.read_bytes() == before and ledger.previous == head
+
+    cash = CapitalBook(ledger).expected_cash()
+    del packet['schema_version']
+    ledger.record('autostart_owner_close', **fields, proof_sha256=digest(proof))
+    replay = CapitalBook(Ledger.open(ledger.path, clock=runtime.clock.now))
+    assert replay.expected_cash() == cash - GROSS - FEE
+    assert replay.verified_owner_cash == 20_000_000 - GROSS - FEE
+    assert next(iter(replay.owner_close_allocations.values())) == allocation
+
+
 def owner_runtime(tmp_path, monkeypatch):
     runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, side='BUY', deposit=20)
     state = AccountState(tmp_path / 'state', ledger)
@@ -279,10 +302,8 @@ def owner_runtime(tmp_path, monkeypatch):
     return runtime, {**facts, 'incident_sha256': sha}, calls
 
 
-@pytest.mark.parametrize('corruption', [None, 'nested_facts', 'occurrence', 'positions', 'allocation'])
-def test_unanchored_partial_is_validated_before_any_append(tmp_path, monkeypatch, account_guard, corruption):
+def interrupted_partial(runtime, facts, monkeypatch):
     from weather.market.lfc_campaign_owner_close import owner_close
-    runtime, facts, calls = owner_runtime(tmp_path, monkeypatch)
     ledger, root = runtime.state.ledger, runtime.state.root
     record = ledger.record
 
@@ -295,8 +316,16 @@ def test_unanchored_partial_is_validated_before_any_append(tmp_path, monkeypatch
         injection.setattr(ledger, 'record', interrupted)
         with pytest.raises(OSError, match='interrupted after partial receipt'):
             owner_close(runtime, INCIDENT, external_facts=facts)
+    return root / 'owner-closures' / (INCIDENT + '.json')
+
+
+@pytest.mark.parametrize('corruption', [None, 'nested_facts', 'occurrence', 'positions', 'allocation'])
+def test_unanchored_partial_is_validated_before_any_append(tmp_path, monkeypatch, account_guard, corruption):
+    from weather.market.lfc_campaign_owner_close import owner_close
+    runtime, facts, calls = owner_runtime(tmp_path, monkeypatch)
+    ledger, root = runtime.state.ledger, runtime.state.root
+    partial = interrupted_partial(runtime, facts, monkeypatch)
     assert calls == ['account', 'chain']
-    partial = root / 'owner-closures' / (INCIDENT + '.json')
     if corruption is not None:
         row = json.loads(partial.read_bytes())
         packet = row['proof']['owner_external_close']
@@ -315,6 +344,18 @@ def test_unanchored_partial_is_validated_before_any_append(tmp_path, monkeypatch
     assert ledger.halted and not ledger.event_rows('autostart_owner_close')
     figures = CapitalBook(ledger).figures()
     if corruption is None:
+        if os.name == 'nt':
+            record = ledger.record
+
+            def check_sharing(event, **fields):
+                if event == 'autostart_owner_close':
+                    with pytest.raises(PermissionError):
+                        partial.open('r+b').close()
+                    with pytest.raises(PermissionError):
+                        partial.rename(partial.with_suffix('.moved'))
+                return record(event, **fields)
+
+            monkeypatch.setattr(ledger, 'record', check_sharing)
         assert owner_close(runtime, INCIDENT, external_facts=facts) == 0
         assert calls == ['account', 'chain'] * 2
         decision, = ledger.event_rows('autostart_owner_close')
@@ -329,6 +370,47 @@ def test_unanchored_partial_is_validated_before_any_append(tmp_path, monkeypatch
         assert CapitalBook(ledger).figures() == figures
         assert not (root / 'closed' / (ATTEMPT + '.json')).exists()
     assert partial.read_bytes() == retained
+
+
+@pytest.mark.parametrize('mutation', ['gone', 'different_file', 'identical_replacement', 'rewrite'])
+def test_partial_change_during_fresh_proof_refuses_without_any_append(
+        tmp_path, monkeypatch, account_guard, mutation):
+    from weather.market.lfc_campaign_owner_close import owner_close
+    runtime, facts, calls = owner_runtime(tmp_path, monkeypatch)
+    ledger, root = runtime.state.ledger, runtime.state.root
+    partial = interrupted_partial(runtime, facts, monkeypatch)
+    original = partial.read_bytes()
+    before, file_hash, head = ledger.path.read_bytes(), file_sha(ledger.path), ledger.previous
+    figures = CapitalBook(ledger).figures()
+    halts = ledger.event_rows('halt')
+    account_read = runtime.read_account
+    changed = original + b'\n'
+
+    def read_after_mutation():
+        if mutation == 'gone':
+            partial.unlink()
+        elif mutation == 'rewrite':
+            partial.write_bytes(changed)
+        else:
+            replacement = partial.with_suffix('.replacement')
+            replacement.write_bytes(original if mutation == 'identical_replacement' else changed)
+            replacement.replace(partial)
+        return account_read()
+
+    monkeypatch.setattr(runtime, 'read_account', read_after_mutation)
+    with pytest.raises(StateRefused, match='owner_close_partial_binding'):
+        owner_close(runtime, INCIDENT, external_facts=facts)
+    assert calls == ['account', 'chain'] * 2
+    assert ledger.path.read_bytes() == before and file_sha(ledger.path) == file_hash
+    assert ledger.previous == head and CapitalBook(ledger).figures() == figures
+    assert ledger.halted and ledger.event_rows('halt') == halts
+    for event in ('autostart_owner_close', 'autostart_close', 'autostart_close_intent'):
+        assert ledger.event_rows(event) == ()
+    assert not (root / 'closed' / (ATTEMPT + '.json')).exists()
+    if mutation == 'gone':
+        assert not partial.exists()
+    else:
+        assert partial.read_bytes() == (original if mutation == 'identical_replacement' else changed)
 
 
 def test_coordinator_finalization_reuses_commit_but_explicit_retry_rereads(tmp_path, monkeypatch, account_guard):

@@ -18,6 +18,7 @@ from weather.operations.live_path_security import validate_regular_nonreparse_fi
 
 
 SCHEMA = 'lfc_owner_external_close_v1'
+PROOF_SCHEMA = 'lfc_owner_external_close_proof_v2'
 MAX_TRADES = 4
 EXCHANGES = {'0xe111180000d2663c0091e4f400237545b87b996b', '0xe2222d279d744050d28e00520010520000310f59'}
 ORDER_FILLED = '0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee'
@@ -360,6 +361,7 @@ def live_proof(runtime, ledger, incident, occurrence_sha, attempt, read, facts):
         receipts = {tx: rpc_read('eth_getTransactionReceipt', [tx]) for tx in sorted(sources)}
         packet = {'facts': facts, 'facts_sha256': digest(facts), 'receipts': receipts, **observed}
         if old is None:
+            packet['schema_version'] = PROOF_SCHEMA
             packet['owner_cash_allocation'] = reconcile(book, packet, sequence=len(ledger.rows))
         else:
             reconcile(book, packet, already_booked=True)
