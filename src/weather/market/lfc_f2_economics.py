@@ -9,7 +9,34 @@ from pathlib import Path
 
 from weather.market.lfc_capital import ASSET, CapitalBook, native
 from weather.market.lfc_recording_io import file_sha, write_new, STATE_JSON_LIMIT
-from weather.market.mm_stage2_hold import digest
+from weather.market.mm_stage2_hold import digest, utc
+
+
+def possible_unallocated_payouts(book, sessions, allocated_ids):
+    """Refused native burns on a selected lot's token, without claiming its proceeds."""
+    if not book.unknown:
+        return {}
+    first_intent_second = {}
+    for lot in book.lots.values():
+        if lot['session_id'] in sessions:
+            token = lot['token_id']
+            second = int(utc(lot['intent_at_utc']).timestamp())
+            first_intent_second[token] = min(first_intent_second.get(token, second), second)
+
+    candidates = {}
+    for key in book.unknown:
+        if key in allocated_ids:
+            continue
+        activity = book.activities[key]
+        if activity.get('native_redemption') is None or activity['cash_native'] is None:
+            continue
+        refused = book.redemptions[key].get('unallocated', [])
+        tokens = sorted({part['token_id'] for part in refused
+                         if part['token_id'] in first_intent_second and
+                         first_intent_second[part['token_id']] <= activity['timestamp']})
+        if tokens:
+            candidates[key] = tokens
+    return candidates
 
 
 def measured(ledger, sessions):
@@ -22,6 +49,7 @@ def measured(ledger, sessions):
              and Decimal(leg['size_matched'])]
     releases = [r for r in book.allocations if book.lots[r['intent_key']]['session_id'] in sessions]
     ids = {r['activity_id'] for r in releases}
+    possible = possible_unallocated_payouts(book, sessions, ids)
     redemptions = []
     for key in sorted(ids):
         all_allocations = [r for r in book.allocations if r['activity_id'] == key]
@@ -53,7 +81,8 @@ def measured(ledger, sessions):
             lot.get('zero_payout_evidence_sha256')],
         'settlement': {'cost_basis_releases': releases, 'redemptions': redemptions,
                        'zero_payout_losses': [r for r in book.zero_resolutions if book.lots[r['intent_key']]['session_id'] in sessions],
-                       'unknown_payouts': [key for key in book.unknown if key in ids]},
+                       'unknown_payouts': [key for key in book.unknown if key in ids or key in possible],
+                       **({'possible_unallocated_payouts_by_token': possible} if possible else {})},
         'rewards': {'accruals': [], 'actually_paid_native': None, 'rebates_actually_paid_native': None,
                     'account_cash_credits': credits, 'earned_session_link_verified': False,
                     'state': 'earned_scope_evidence_pending', 'planning_is_income': False, **reward_rails},
