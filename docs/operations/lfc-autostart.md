@@ -746,9 +746,13 @@ missing order and validate its identity, size, status and matched quantity.
 Only transport failures or pending publication get another named GET.
 Conflicting order aliases or statuses, an explicit contradictory size or
 matched quantity, or a pending status on an already-booked terminal leg
-refuse immediately. POSTCHECK validates the entire set of required observation
-intervals against the attempt's ledger-anchored result time before appending
-any terminal leg. Each GET must start at or after that result event and fit
+refuse immediately. An explicitly returned matched quantity must agree with
+the booked fill even if both status fields are absent. POSTCHECK applies the
+same fact checks to additional unresolved-order reads before their first
+terminal write. Before any such write it validates every required GET interval
+against the attempt's ledger-anchored result time, checks the ordinary account
+packet and its component freshness, and decodes and projects owned trades.
+Each GET must start at or after that result event and fit
 inside the hash-bound account read. A separately cached account component may
 predate the result. Retained closure verification uses the same result frontier
 and the original close time. Previously sealed receipts retain their original

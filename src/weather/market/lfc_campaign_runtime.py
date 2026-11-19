@@ -639,12 +639,20 @@ class Runtime:
                 not datetime.fromisoformat(read['started_at_utc']) <= datetime.fromisoformat(read['ended_at_utc'])):
             raise StateRefused('account_read_binding')
 
-    def core_proof(self, ledger, read, *, loss_basis=None):
-        self._orders_open_unproven = True
+    def account_read_preflight(self, ledger, read):
+        """Validate and project the ordinary account packet without writing the ledger."""
         self.validate_account_read(ledger, read)
         traded = traded_shares(read['trades'], ledger.our_order_ids())
         if account_read_age(read, self.clock.now()) > 120:
             raise TransientPrecheck('account_read_stale')
+        return traded
+
+    def core_proof(self, ledger, read, *, loss_basis=None):
+        self._orders_open_unproven = True
+        traded = self.account_read_preflight(ledger, read)
+        return self._prove_preflighted_account(ledger, read, traded, loss_basis=loss_basis)
+
+    def _prove_preflighted_account(self, ledger, read, traded, *, loss_basis=None):
         self._orders_open_unproven = read['open_orders'] != [] or bool(ledger.unacknowledged_intents())
         if ledger.unresolved_legs():
             return {'money_accounting_complete': False, 'cleanup_proven': False,
@@ -1074,12 +1082,16 @@ class Runtime:
             return read, writes
 
         read, writes = read_for_postcheck()
-        # Validate account scope/completeness before granting any terminal write.
         if writes:
-            self.validate_account_read(ledger, read)
-        for oid, row in writes.items():
-            ledger.terminal(oid, row, source='autostart_postcheck')
-        proof = self.core_proof(ledger, read)
+            # Reject the entire packet before committing any terminal fact.
+            # Reuse its projection at the same freshness cut after the writes.
+            self._orders_open_unproven = True
+            traded = self.account_read_preflight(ledger, read)
+            for oid, row in writes.items():
+                ledger.terminal(oid, row, source='autostart_postcheck')
+            proof = self._prove_preflighted_account(ledger, read, traded)
+        else:
+            proof = self.core_proof(ledger, read)
         for _ in range(4):
             if not proof.get('money_contradiction'):
                 break

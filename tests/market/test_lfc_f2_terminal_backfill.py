@@ -14,10 +14,12 @@ from tests.market.test_lfc_f2_controller import MAKER, setup
 from tests.market.test_lfc_f2_evidence import runtime_at_controller
 from tests.market.test_lfc_f2_repost import campaign_stream
 from weather.market.lfc_campaign_guard import account_lease
-from weather.market.lfc_campaign import CampaignCoordinator
+from weather.market.lfc_accounting import quantity
+from weather.market.lfc_campaign import CampaignCoordinator, TransientPrecheck
 from weather.market.lfc_campaign_reads import TerminalBackfillRefused, account_read_age, terminal_result_time
 from weather.market.lfc_campaign_runtime import Runtime
 from weather.market.lfc_campaign_state import AccountState, StateRefused
+from weather.market.lfc_capital import ASSET, SCALE, CapitalBook, native
 from weather.market.lfc_ledger import Ledger
 from weather.market.lfc_recording_io import file_sha
 from weather.market.mm_stage2_hold import digest
@@ -161,6 +163,8 @@ def test_owner_auto_redeem_finishes_via_account_proof_and_foreign_notice_still_r
     ({'official_order_status': 'cancelled'}, False, 'accept'),
     ({'official_order_status': 'CANCELED', 'status': None}, False, 'accept'),
     ({'size_matched': '1'}, True, 'quantity'),
+    ({'status': None, 'size_matched': '1'}, True, 'quantity'),
+    ({'status': None}, True, 'retry'),
     ({'status': 'LIVE'}, True, 'status'),
     ({'status': 'LIVE'}, False, 'retry'),
     ({'status': None, 'size_matched': None}, False, 'quantity'),
@@ -371,3 +375,125 @@ def test_named_get_admitted_before_deadline_may_finish_after_it():
     with pytest.raises(TerminalBackfillRefused, match='terminal_order_backfill_deadline'):
         Runtime.read_missing_terminal_orders(runtime, venue, ['one', 'two', 'three'])
     assert admitted == [('one', 0), ('two', 89)]
+
+
+def terminal_ledger_snapshot(ledger):
+    return (ledger.previous, file_sha(ledger.path), ledger.path.read_bytes(),
+            deepcopy(ledger.legs), ledger.L_resting(), CapitalBook(ledger).figures()['resting_reserve_native'])
+
+
+@pytest.mark.parametrize('packet_case', ['stale_component', 'missing_component', 'malformed_trade', 'valid_matched'])
+def test_postcheck_preflights_account_before_writing_pending_terminals(tmp_path, monkeypatch, packet_case):
+    with account_lease(MAKER, backend=Mutexes()):
+        fixture = two_band_backfill(tmp_path, monkeypatch, booked=False)
+        runtime, claim, result, clock, result_at, missing, _, originals = fixture
+        clock.sleep(8)
+        read = timed_postcheck_read(runtime, missing, originals, [result_at, result_at])
+        ledger = runtime.state.ledger
+        before = terminal_ledger_snapshot(ledger)
+        assert before[-2] > 0 and before[-1] > 0
+        assert {leg['order_id'] for leg in ledger.unresolved_legs()} == set(missing)
+
+        filled = missing[0]
+        leg = ledger.legs[ledger.by_order[filled]]
+        read['terminal_orders'][filled]['row'].update(status='MATCHED', size_matched='1')
+        matched_amount = 'unreadable' if packet_case == 'malformed_trade' else '1'
+        read['trades'] = [{'id': 'confirmed-own-fill', 'status': 'CONFIRMED',
+                           'maker_orders': [{'order_id': filled, 'matched_amount': matched_amount}]}]
+        read['positions'] = [{'asset': leg['token_id'], 'size': '1'}]
+        cash = CapitalBook(ledger).expected_cash() - native(quantity(leg['price']))
+        available = str(quantity(cash) / SCALE)
+        read['balances'] = {'available_collateral': available, 'assets': {ASSET: available},
+                            'collateral_evidence': {'balance': str(cash)}}
+
+        if packet_case == 'missing_component':
+            del read['component_times']['positions']
+        if packet_case in {'stale_component', 'valid_matched'}:
+            # The packet end and named GETs are still fresh in both cases.
+            age = 121 if packet_case == 'stale_component' else 120
+            oldest = (clock.now() - timedelta(seconds=age)).isoformat()
+            read['started_at_utc'] = oldest
+            read['component_times']['trades']['started_at_utc'] = oldest
+        monkeypatch.setattr(runtime, 'read_account', lambda **kw: read)
+
+        if packet_case != 'valid_matched':
+            error, reason = {
+                'stale_component': (TransientPrecheck, 'account_read_stale'),
+                'missing_component': (StateRefused, 'account_read_binding'),
+                'malformed_trade': (ValueError, 'quantity_unreadable'),
+            }[packet_case]
+            with pytest.raises(error, match=reason):
+                runtime.postcheck(claim, result)
+            assert terminal_ledger_snapshot(runtime.state.ledger) == before
+            assert not list((runtime.state.root / 'postchecks').glob('*.json'))
+            return
+
+        terminal = Ledger.terminal
+
+        def advancing_terminal(self, *args, **kwargs):
+            # The preflight's 120-second cut applies to this packet even if
+            # appending takes time. Do not re-age it after releasing reserves.
+            clock.sleep(1)
+            return terminal(self, *args, **kwargs)
+
+        monkeypatch.setattr(Ledger, 'terminal', advancing_terminal)
+        proof = runtime.postcheck(claim, result)
+        ledger = runtime.state.ledger
+        after = terminal_ledger_snapshot(ledger)
+        assert proof['cleanup_proven'] and proof['money_accounting_complete']
+        assert after[0] != before[0] and after[1] != before[1]
+        assert after[2].startswith(before[2]) and after[-2:] == (0, 0)
+        assert ledger.legs[ledger.by_order[filled]]['size_matched'] == '1'
+        assert {oid for oid in missing if after[3][ledger.by_order[oid]]['status'] == 'terminal'} == set(missing)
+
+
+@pytest.mark.parametrize(('fields', 'refusal'), [
+    ({'asset_id': 'other'}, 'identity'),
+    ({'side': 'SELL'}, 'identity'),
+    ({'price': '.49'}, 'price'),
+    ({'official_order_status': 'LIVE'}, 'status'),
+    ({'status': 'LIVE'}, None),
+    ({}, None),
+])
+def test_extra_unresolved_lookup_uses_same_facts_before_first_write(tmp_path, monkeypatch, fields, refusal):
+    from tests.market.lfc_campaign_fixtures import private_result
+    from tests.market.test_lfc_campaign import NOW, policy_row
+    from tests.market.test_lfc_campaign_runtime import account_read, runtime_at
+    from weather.market.lfc_campaign_policy import parse_policy
+
+    with account_lease(MAKER, backend=Mutexes()):
+        runtime = runtime_at(tmp_path)
+        policy = parse_policy(policy_row())
+        claim = runtime.state.claim(policy.entries[0], policy, NOW)
+        good = {'id': 'o', 'status': 'CANCELED', 'size_matched': '0', 'asset_id': 't', 'side': 'BUY', 'price': '.5'}
+        # The private journal has a terminal row while the acknowledged leg
+        # remains unresolved in the ledger, so the lookup is not named.
+        _, result = private_result(runtime, claim, faults=('terminal_order_unavailable',), terminal_read_gap=True,
+                                   extra_rows=({'event': 'terminal_order', 'order': good},))
+        assert result['local_money_proof']['complete']
+        assert 'missing_terminal_orders' not in result['local_money_proof']
+        runtime.save_result(claim, result)
+        saved = runtime.saved_result(claim)
+        runtime.lease = SimpleNamespace(check=lambda: None)
+        read = account_read(runtime)
+        stamp = runtime.clock.now().isoformat()
+        read['terminal_orders'] = {'o': {
+            'row': {**good, **fields}, 'started_at_utc': stamp, 'ended_at_utc': stamp}}
+        get = Mock(return_value=read)
+        monkeypatch.setattr(runtime, 'read_account', get)
+        ledger = runtime.state.ledger
+        before = terminal_ledger_snapshot(ledger)
+        assert before[-2] > 0 and ledger.legs[ledger.by_order['o']]['status'] == 'open'
+        if refusal:
+            with pytest.raises(TerminalBackfillRefused, match=f'terminal_order_backfill_{refusal}'):
+                runtime.postcheck(claim, saved)
+        else:
+            proof = runtime.postcheck(claim, saved)
+            terminal = fields.get('status') != 'LIVE'
+            assert proof['money_accounting_complete'] is terminal
+        get.assert_called_once_with()
+        after = terminal_ledger_snapshot(runtime.state.ledger)
+        if fields:
+            assert after == before
+        else:
+            assert after[0] != before[0] and after[2].startswith(before[2]) and after[-2:] == (0, 0)

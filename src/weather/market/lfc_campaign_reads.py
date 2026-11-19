@@ -50,15 +50,16 @@ def terminal_order_facts(ledger, order_id, row, *, legacy=False):
             size = quantity(leg['size'])
             if quantity(row.get('original_size', size)) != size:
                 raise ValueError('size_changed')
-            if ('size_matched' in row and quantity(row['size_matched']) > size or
-                    terminal and 'size_matched' not in row):
+            matched = quantity(row['size_matched']) if 'size_matched' in row else None
+            if (terminal and matched is None) or (matched is not None and matched > size):
                 raise ValueError('matched_out_of_range')
+            if matched is not None and leg['status'] == 'terminal' and matched != quantity(leg['size_matched']):
+                raise ValueError('booked_match_changed')
         except (TypeError, ValueError, ArithmeticError):
             raise TerminalBackfillRefused('terminal_order_backfill_quantity') from None
         if leg['status'] == 'terminal' and statuses & PENDING_STATUSES:
             raise TerminalBackfillRefused('terminal_order_backfill_status')
-        if not terminal:
-            return False
+        return terminal
     if leg['status'] == 'terminal' and quantity(row['size_matched']) != quantity(leg['size_matched']):
         raise TerminalBackfillRefused('terminal_order_backfill_quantity')
     return True
@@ -109,11 +110,12 @@ def stage_postcheck_terminals(ledger, order_ids, read, *, now, result_at, reconc
             if oid in pending and (now - start).total_seconds() > 120:
                 raise ValueError('terminal_read_stale')
             row = observed['row']
-            if oid in required:
-                if (not reconcile and leg['status'] != 'terminal' or
-                        not terminal_order_facts(ledger, oid, row, legacy=result_at is None)):
-                    raise ValueError('order_not_terminal')
-            if oid in pending and order_terminal(row, order_id=oid, size=leg['size']):
+            if row is None and oid not in required:
+                continue  # An optional lookup can be absent without authorizing a write.
+            terminal = terminal_order_facts(ledger, oid, row, legacy=result_at is None)
+            if oid in required and (not terminal or not reconcile and leg['status'] != 'terminal'):
+                raise ValueError('order_not_terminal')
+            if terminal and oid in pending:
                 writes[oid] = row
         return writes
     except (AttributeError, KeyError, TypeError, ValueError, ArithmeticError):
