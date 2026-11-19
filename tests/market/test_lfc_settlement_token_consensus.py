@@ -1,7 +1,7 @@
 """Invented positional references; all file activity uses pytest's private directory."""
 import json
+from copy import copy
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +12,7 @@ from weather.market.lfc_settlement_record import (
     SETTLEMENT_SCHEMA, SettlementScopeUnproven, load_settlements, record_settlement,
     resolution_result, validate_settlement_row,
 )
-from weather.market.mm_stage2_hold import digest
+from weather.market.mm_stage2_hold import canonical_bytes, digest
 
 
 CID = '0x' + '1' * 64
@@ -103,22 +103,59 @@ def test_old_ambiguous_file_is_preserved_but_cannot_authorize_new_use(tmp_path):
     assert not (directory / 'recovery').exists()
 
 
-def test_old_posting_keeps_its_basis_and_a_new_posting_is_refused(tmp_path):
-    evidence = historical_row()
-    with pytest.raises(SettlementScopeUnproven):
-        validate_settlement_row(evidence, CID)
-    fields = dict(condition_id=CID, settlement=evidence, intent_keys=['lot'], settlement_sha256=digest(evidence))
-    lot = dict(status='terminal', order_id='oid', size_matched='3', price='.4',
-               session_id='sid', token_id='202', condition_id=CID)
-    history = [dict(event='leg_intent', intent_key='lot', recorded_at_utc=NOW.isoformat()),
-               dict(event='leg_terminal', order_id='oid', sequence=1)]
-    posted = dict(event='capital_zero_resolution', sequence=2, **fields)
-    book = CapitalBook(SimpleNamespace(rows=history, legs={'lot': lot}, capital_rows=[posted]))
-    assert (book.losses, book.lots['lot']['remaining_basis'], book.lots['lot']['remaining_quantity']) == (1_200_000, 0, 3)
+def seeded_ledger(tmp_path):
+    ledger = Ledger.create(tmp_path / 'fixture.jsonl', clock=lambda: NOW, maker_address='0x' + '2' * 40)
+    ledger.record('session_start', session_id='s', counted=True, condition_id=CID)
+    for token in ('101', '202'):
+        key, order_id = 'lot-' + token, 'fixture-' + token
+        ledger.intent(session_id='s', intent_key=key, condition_id=CID, token_id=token,
+                      size='3', price='.4', fee_rate_bps='0')
+        ledger.ack(key, order_id)
+        assert ledger.terminal(order_id, dict(id=order_id, status='MATCHED', size_matched='3'), source='fixture')
+    ledger.record('session_end', session_id='s')
+    return ledger
 
-    ledger = Ledger.create(tmp_path / 'synthetic.jsonl', clock=lambda: NOW, maker_address='0x' + '2' * 40)
+
+def zero_fields(evidence):
+    return dict(condition_id=CID, settlement=evidence, intent_keys=['lot-202'], settlement_sha256=digest(evidence))
+
+
+def book_state(ledger):
+    book = CapitalBook(ledger)
+    return book.losses, [(book.lots['lot-' + t]['remaining_basis'], book.lots['lot-' + t]['remaining_quantity'])
+                         for t in ('101', '202')]
+
+
+def test_conflict_refuses_before_append_then_unique_map_posts_from_identical_state(tmp_path):
+    ledger = seeded_ledger(tmp_path)
+    ambiguous = historical_row()
+    unique = dict(ambiguous, tokens=retained(payload(ORIGINAL)))
+    with pytest.raises(SettlementScopeUnproven, match='^ambiguous_matching_token_pair$'):
+        validate_settlement_row(ambiguous, CID)
     original = ledger.path.read_bytes()
-    with pytest.raises(LedgerUnavailable, match='capital_event_invalid'):
-        ledger.record('capital_zero_resolution', **fields)
+    before = book_state(ledger)
+    assert before == (0, [(1_200_000, 3), (1_200_000, 3)])
+    with pytest.raises(LedgerUnavailable, match='^ambiguous_matching_token_pair$'):
+        ledger.record('capital_zero_resolution', **zero_fields(ambiguous))
     assert ledger.path.read_bytes() == original
-    assert not ledger.capital_rows
+    assert not ledger.capital_rows and book_state(ledger) == before
+    ledger.record('capital_zero_resolution', **zero_fields(unique))
+    assert book_state(ledger) == (1_200_000, [(1_200_000, 3), (0, 3)])
+    assert book_state(Ledger.open(ledger.path, clock=lambda: NOW)) == book_state(ledger)
+
+
+def test_historical_first_match_reopens_in_warm_and_detached_books(tmp_path):
+    ledger = seeded_ledger(tmp_path)
+    original = ledger.path.read_bytes()
+    # Construct the old writer's canonical v0.4 row only in a fresh private clone.
+    old = Ledger._row(len(ledger.rows), ledger.previous, lambda: NOW,
+                      'capital_zero_resolution', zero_fields(historical_row()))
+    old['schema_version'] = 'lfc_ledger_v0.4'
+    posted = original + canonical_bytes(old)
+    clone = tmp_path / 'legacy-copy.jsonl'
+    clone.write_bytes(posted)
+    reopened = Ledger.open(clone, clock=lambda: NOW)
+    detached = copy(reopened)
+    detached._capital_checkpoint = None
+    assert book_state(reopened) == book_state(detached) == (1_200_000, [(1_200_000, 3), (0, 3)])
+    assert ledger.path.read_bytes() == original and clone.read_bytes() == posted
