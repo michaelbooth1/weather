@@ -581,6 +581,8 @@ class Runtime:
 
     def read_missing_terminal_orders(self, venue, order_ids):
         from weather.market.lfc_campaign_reads import TerminalBackfillRefused, terminal_order_facts
+        # Shared admission budget for calls and delays. A GET already in flight
+        # can finish after this cutoff; the transport also has its own timeout.
         deadline = self.clock.monotonic() + 90
         observations = {}
         for oid in order_ids:
@@ -1061,42 +1063,31 @@ class Runtime:
             # No adoption and no closing crashed sessions. Only owner recovery
             # may address missing private identities or an interrupted cleanup.
             return {'money_accounting_complete': False, 'cleanup_proven': False, 'unknown_submit': True}
-        from weather.market.lfc_campaign_reads import TerminalBackfillRefused, validate_terminal_backfill
+        from weather.market.lfc_campaign_reads import stage_postcheck_terminals, terminal_result_time
         missing = local.get('missing_terminal_orders', ())
+        result_at = terminal_result_time(ledger, claim['attempt_id'])
+
         def read_for_postcheck():
-            try:
-                return self.read_account(terminal_order_ids=missing) if missing else self.read_account()
-            except TerminalBackfillRefused:
-                self.state.evidence_fault(claim['attempt_id'], artifact='private-terminal-backfill')
-                raise
-        read = read_for_postcheck()
-        # Known acknowledged identities may finish bounded GET accounting. This
-        # never adopts an intent, closes a crash or retries a placement.
-        self.core_proof(ledger, read)  # Validate account/scope/completeness before any ledger append.
-        for leg in list(ledger.unresolved_legs()):
-            observed = read.get('terminal_orders', {}).get(leg['order_id'])
-            if observed is None:
-                continue
-            begin, end = (datetime.fromisoformat(observed[k]) for k in ('started_at_utc', 'ended_at_utc'))
-            if (begin.utcoffset() != timedelta(0) or end.utcoffset() != timedelta(0) or
-                    not datetime.fromisoformat(read['started_at_utc']) <= begin <= end <=
-                    datetime.fromisoformat(read['ended_at_utc']) or
-                    not 0 <= (self.clock.now() - begin).total_seconds() <= 120):
-                raise StateRefused('terminal_read_binding')
-            ledger.terminal(leg['order_id'], observed['row'], source='autostart_postcheck')
+            read = self.read_account(terminal_order_ids=missing) if missing else self.read_account()
+            writes = stage_postcheck_terminals(ledger, missing, read, now=self.clock.now(),
+                                               result_at=result_at, reconcile=True)
+            return read, writes
+
+        read, writes = read_for_postcheck()
+        # Validate account scope/completeness before granting any terminal write.
+        if writes:
+            self.validate_account_read(ledger, read)
+        for oid, row in writes.items():
+            ledger.terminal(oid, row, source='autostart_postcheck')
         proof = self.core_proof(ledger, read)
         for _ in range(4):
             if not proof.get('money_contradiction'):
                 break
             self.clock.sleep(2)
-            read = read_for_postcheck()
+            read, _ = read_for_postcheck()
             proof = self.core_proof(ledger, read)
         if missing:
-            try:
-                validate_terminal_backfill(ledger, missing, read, now=self.clock.now())
-            except TerminalBackfillRefused:
-                self.state.evidence_fault(claim['attempt_id'], artifact='private-terminal-backfill')
-                raise
+            proof['terminal_backfill_result_at_utc'] = result_at.isoformat()
         proof.update(research_evidence_complete=result.get('evidence_complete') is True,
                      result_sha256=result_sha, private_evidence_sha256=digest(local),
                      raw_evidence_flags=evidence_flags(result), account_read=read,

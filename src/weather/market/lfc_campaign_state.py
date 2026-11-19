@@ -7,7 +7,7 @@ import uuid
 from weather.market.lfc_campaign_guard import account_key, require_account
 from weather.market.lfc_campaign_incidents import EvidenceArtifactError, latch_occurrence, occurrence_closed
 from weather.market.lfc_recording_io import file_sha, read_bytes, strict_json, write_new, STATE_JSON_LIMIT
-from weather.market.mm_stage2_hold import digest
+from weather.market.mm_stage2_hold import digest, utc
 from weather.market.lfc_ledger_queries import event_rows
 from weather.operations.live_path_security import validate_nonreparse_directory, validate_regular_nonreparse_file
 
@@ -346,7 +346,8 @@ class AccountState:
             has_session = any(s['start'].get('autostart_attempt_id') == claim['attempt_id']
                               for s in self.ledger.sessions.values())
             if has_session or any(e['attempt_id'] == claim['attempt_id'] for e in self.ledger.autostart_results):
-                proof = self.closed_binding(path)['proof']
+                closed = self.closed_binding(path)
+                proof = closed['proof']
                 if proof.get('authority') == 'owner_recovery':
                     self.owner_close_binding(claim, proof)
                     continue
@@ -356,20 +357,28 @@ class AccountState:
                         anchor, = event_rows(self.ledger, 'autostart_close', field='attempt_id',
                                              value=claim['attempt_id'])
                         proof = self.read_uncached(path, expected_sha256=anchor['file_sha256'])['proof']
-                    self.validate_postcheck_binding(proof, sha, local)
+                    self.validate_postcheck_binding(proof, sha, local, attempt=claim['attempt_id'],
+                                                    closed_at=utc(closed['closed_at_utc']))
                 except (OSError, ValueError, KeyError, TypeError, StateRefused):
                     self.evidence_fault(claim['attempt_id'], artifact='closed/private-proof-binding')
                     raise StateRefused('closed_private_evidence_binding') from None
 
-    def validate_postcheck_binding(self, proof, result_sha, local):
+    def validate_postcheck_binding(self, proof, result_sha, local, *, attempt, closed_at=None):
         if proof.get('result_sha256') != result_sha or proof.get('private_evidence_sha256') != digest(local):
             raise StateRefused('closeout_private_evidence_binding')
         if missing := local.get('missing_terminal_orders'):
-            from weather.market.lfc_campaign_reads import validate_terminal_backfill
+            from weather.market.lfc_campaign_reads import terminal_result_time, validate_terminal_backfill
             read = proof.get('account_read')
             if not isinstance(read, dict) or proof.get('read_sha256') != digest(read):
                 raise StateRefused('closeout_terminal_backfill_digest')
-            validate_terminal_backfill(self.ledger, missing, read, now=self.ledger.clock())
+            result_at = None
+            marker = 'terminal_backfill_result_at_utc'
+            if marker in proof or closed_at is None:
+                result_at = terminal_result_time(self.ledger, attempt)
+                if proof.get(marker) != result_at.isoformat():
+                    raise StateRefused('closeout_terminal_backfill_result_anchor')
+            validate_terminal_backfill(self.ledger, missing, read, now=closed_at or self.ledger.clock(),
+                                       result_at=result_at)
 
     def owner_result_binding(self, claim):
         """Only retained originals, never an inferred automatic clean result."""
@@ -555,7 +564,7 @@ class AccountState:
                 self.owner_close_binding(claim, proof)
             else:
                 _, sha, local = self.retained_result(claim)
-                self.validate_postcheck_binding(proof, sha, local)
+                self.validate_postcheck_binding(proof, sha, local, attempt=claim['attempt_id'])
         if proof.get('ledger_head_sha256', self.ledger.previous) != self.ledger.previous:
             raise StateRefused('closeout_proof_stale')
         proof = {**proof, 'ledger_head_sha256': self.ledger.previous}

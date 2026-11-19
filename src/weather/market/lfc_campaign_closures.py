@@ -247,7 +247,8 @@ def check(state, *, full=False, owner_fault_review=False):
             elif (any(s['start'].get('autostart_attempt_id') == attempt for s in ledger.sessions.values()) or
                   any(r['attempt_id'] == attempt for r in ledger.autostart_results)):
                 _, sha, local = state.retained_result(claim)
-                state.validate_postcheck_binding(proof, sha, local)
+                state.validate_postcheck_binding(proof, sha, local, attempt=attempt,
+                                                 closed_at=utc(item['closed_at_utc']))
         except LedgerUnavailable as exc:
             # A dedicated no-intent/owner restoration append may occur during
             # binding. Ledger write errors are not lost closure evidence.

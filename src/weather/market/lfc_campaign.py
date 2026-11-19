@@ -77,8 +77,16 @@ class CampaignCoordinator:
                 self.state.latch(attempt, 'interrupted_or_ambiguous_attempt', self.clock.now())
                 self.status('INCIDENT', attempt, incident=True, postchecks_pending=True)
                 continue
+            from weather.market.lfc_campaign_reads import BACKFILL_ARTIFACT, TerminalBackfillRefused
             try:
+                if any(row.get('source_attempt_id') == attempt and row.get('artifact') == BACKFILL_ARTIFACT
+                       for row in self.state.incidents()):
+                    raise StateRefused('terminal_order_backfill_incident')
                 proof = self.runtime.postcheck(claim, result)
+            except TerminalBackfillRefused:
+                self.state.evidence_fault(attempt, artifact=BACKFILL_ARTIFACT)
+                self.status('INCIDENT', attempt, incident=True, postchecks_pending=True)
+                continue
             except (TransientPrecheck, AdmissionBusy):
                 self.status('POSTCHECK_PENDING', attempt, postchecks_pending=True)
                 continue

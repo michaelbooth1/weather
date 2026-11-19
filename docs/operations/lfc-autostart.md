@@ -742,13 +742,32 @@ F2 retries terminal GETs with backoff inside the shared band cleanup budget.
 An earlier valid terminal row remains evidence when a repeat GET times out.
 For new results, a journaled retryable failure against an exact acknowledged
 order can leave a named terminal read pending. POSTCHECK must fetch each such
-missing order and validate its identity, size, status and matched quantity
-before closing the attempt. It retains the observations in the hash-bound
-account read. The original journals, result and research flags remain intact.
+missing order and validate its identity, size, status and matched quantity.
+Only transport failures or pending publication get another named GET.
+Conflicting order aliases or statuses, an explicit contradictory size or
+matched quantity, or a pending status on an already-booked terminal leg
+refuse immediately. POSTCHECK validates the entire set of required observation
+intervals against the attempt's ledger-anchored result time before appending
+any terminal leg. Each GET must start at or after that result event and fit
+inside the hash-bound account read. A separately cached account component may
+predate the result. Retained closure verification uses the same result frontier
+and the original close time. Previously sealed receipts retain their original
+per-band rule. The original journals, result and research flags stay intact.
 An untyped gap, an order still unreadable after the bounded retries, or a
-contradiction latches an evidence incident. A recognized account-wide
+contradiction latches an evidence incident before automatic retries can
+resume. An evidence refusal writes no terminal legs. A recognized account-wide
 auto-redeem notice stops quoting and enters ordinary account cleanup and proof.
 Only the account proof can verify the resulting cash and inventory changes.
+
+The oldest start among the five ordinary account components must be at most
+120 seconds old during live proof. A named terminal GET that releases an
+unresolved leg also has a 120-second start-age limit before append. A GET for
+an already-booked immutable terminal leg is checked for interval and fact
+binding without that individual age limit. The shared 90-second monotonic
+retry budget gates admission to the next named GET and its preceding delay.
+A GET admitted before the budget expires can finish afterwards within its
+own transport timeout. Historical reviews use the retained observation and
+close times.
 
 Private completion requires the chained session journal, matching submit intent
 and ACK files, terminal identities/quantities and prediction/end bindings. Each
