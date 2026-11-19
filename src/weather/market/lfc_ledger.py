@@ -198,21 +198,24 @@ class Ledger:
         finally:
             self._replaying = False
 
+    def _apply_capital(self, row):
+        from weather.market.lfc_capital import CapitalBook, CapitalRefused
+        try:
+            book = self._capital_checkpoint if getattr(self, '_replaying', False) else None
+            if book is None:
+                book = CapitalBook(self)
+            else:
+                book.sync_lots()
+            book.apply(row)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise LedgerUnavailable(str(exc) if isinstance(exc, CapitalRefused) else 'capital_event_invalid') from None
+        self.capital_rows.append(row)
+        self._capital_checkpoint = book
+
     def _apply(self, row):
         event = row['event']
         if event.startswith('capital_') or event == 'f2_session_anchor':
-            from weather.market.lfc_capital import CapitalBook, CapitalRefused
-            try:
-                book = self._capital_checkpoint if getattr(self, '_replaying', False) else None
-                if book is None:
-                    book = CapitalBook(self)
-                else:
-                    book.sync_lots()
-                book.apply(row)
-            except (ValueError, KeyError, TypeError) as exc:
-                raise LedgerUnavailable(str(exc) if isinstance(exc, CapitalRefused) else 'capital_event_invalid') from None
-            self.capital_rows.append(row)
-            self._capital_checkpoint = book
+            self._apply_capital(row)
         elif event == 'owner_history_recovery':
             if (row.get('session_id') not in self.sessions or self.sessions[row['session_id']]['end'] is None or
                     not all(isinstance(row.get(k), str) and row[k] for k in
@@ -245,6 +248,8 @@ class Ledger:
                     any(r['event'] == event and r.get('incident_id') == row.get('incident_id') and
                         r['sequence'] < row['sequence'] for r in self.rows)):
                 raise LedgerUnavailable('ledger_owner_close_unproved')
+            if 'owner_external_close' in proof:
+                self._apply_capital(row)
             self.halted, self.mismatches = False, []
         elif event == 'autostart_owner_artifact_restored':
             if (not isinstance(row.get('artifact'), str) or not isinstance(row.get('file_sha256'), str) or

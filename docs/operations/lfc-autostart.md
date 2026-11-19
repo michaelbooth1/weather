@@ -646,6 +646,17 @@ removes only that workload marker and its hash-bound HOLD; monetary incidents
 and date claims remain for separate owner-led recovery. Automatic admission and
 reconciliation never invoke it.
 
+For an incident involving a personal execution, an interactive owner-close may
+use `--external-facts` and `--external-facts-sha256` together. This route requires
+a disabled task, terminal campaign orders, and a fresh empty open-order list.
+The SHA binds the copied incident, attempt, inventory anchor and historical
+observation cut. Fresh REST trades and Polygon V2 receipts must match the exact
+execution set. The account's full inventory and native collateral must reconcile
+at that cut, with no extra movement. A retry of a committed external close
+requires the same bound facts and fresh account and receipt reads again.
+The close records owner cash separately from campaign principal and retained
+gains, including fees. It retains any research gaps and leaves the task disabled.
+
 The task action launches PowerShell with its documented `-WindowStyle Hidden`;
 Interactive/Limited owner-session binding remains
 in place for desktop toasts. The task is finite, `IgnoreNew`, no wake, no catch-up, no restart-on-failure,

@@ -87,6 +87,7 @@ class CapitalBook:
         self.pending_native_outgoing = set()
         self.wallet_quarantines = []
         self.personal_trades = {}
+        self.owner_external_close_cash = 0
         self.owner_inventory_adjustments = []
         self.owner_inventory_allowances = {}
         self.wallet_debit_quarantines = []
@@ -121,7 +122,21 @@ class CapitalBook:
 
     def apply(self, row):
         event = row['event']
-        if event == 'capital_native_group':
+        if event == 'autostart_owner_close':
+            from weather.market.lfc_campaign_state import StateRefused
+            from weather.market.lfc_owner_external_close import DECODE_ERRORS, reconcile
+            proof = row['proof']
+            packet = proof['owner_external_close']
+            facts = packet['facts']
+            if (facts.get('incident_id') != row['incident_id'] or
+                    facts.get('attempt_id') != row['source_attempt_id'] or
+                    proof.get('read_sha256') != packet['read_sha256']):
+                raise CapitalRefused('owner_external_facts_binding')
+            try:
+                reconcile(self, packet, sequence=row['sequence'])
+            except (StateRefused, *DECODE_ERRORS) as exc:
+                raise CapitalRefused('owner_external_close_replay') from exc
+        elif event == 'capital_native_group':
             from weather.market.lfc_capital_native import cash_native
             proof, sha = row['proof'], row['proof_sha256']
             if sha in self.native_groups or digest(proof) != sha:
@@ -721,7 +736,8 @@ class CapitalBook:
                 'unrecovered_inventory_cost_native': inventory, 'resting_reserve_native': resting,
                 'paid_or_reserved_campaign_costs_native': self.costs,
                 'segregated_profit_native': self.profit, 'segregated_incentives_native': self.incentives,
-                'segregated_external_cash_native': self.external, 'charged_native': charged,
+                'segregated_external_cash_native': self.external + max(0, self.owner_external_close_cash),
+                'charged_native': charged,
                 'owner_overdraw_outstanding_native': self.owner_overdraw_outstanding,
                 'owner_overdraw_repaid_native': self.owner_overdraw_repaid,
                 'headroom_native': max(0, funding - charged), 'returned_principal_native': self.returned_principal,
@@ -761,7 +777,8 @@ class CapitalBook:
             cash = min(cash, expected + self.quarantined_after_bridge())
             # Only the proved gain actually offsetting losses/costs becomes
             # spendable. Excess gains never increase the principal-risk cap.
-            segregated = self.profit + self.incentives + self.external - figures['retained_gains_offset_native']
+            segregated = (self.profit + self.incentives + figures['segregated_external_cash_native']
+                          - figures['retained_gains_offset_native'])
             # A reserve includes own still-resting legs exactly once.
             if cash - segregated < figures['resting_reserve_native'] - own + reserve:
                 raise CapitalRefused('capital_spendable_cash')

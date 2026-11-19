@@ -89,6 +89,12 @@ def binding(state, attempt, *, incident=None):
             any(leg['status'] != 'terminal' or leg['order_id'] is None for leg in legs.values()) or
             row.get('research_evidence_complete') is not False):
         raise StateRefused('owner_operational_close_binding')
+    external = proof.get('owner_external_close', {})
+    committed_external = anchor['proof'].get('owner_external_close', {})
+    if (external.get('facts_sha256') != committed_external.get('facts_sha256') or
+            external and (digest(external['facts']) != external.get('facts_sha256') or
+                          external['facts']['incident_sha256'] != row.get('incident_sha256'))):
+        raise StateRefused('owner_external_facts_binding')
     for name, previous in row.get('artifact_manifest', {}).items():
         current = artifact_path(state, name)
         current_sha = file_sha(current) if current is not None else None
@@ -153,7 +159,7 @@ def complete_committed(state, attempt, now, *, incident=None):
     return True
 
 
-def owner_close(runtime, incident):
+def owner_close(runtime, incident, *, external_facts=None):
     from weather.market.lfc_campaign_state import StateRefused
     if not sys.stdin.isatty():
         raise StateRefused('owner_terminal_required')
@@ -162,7 +168,10 @@ def owner_close(runtime, incident):
     state = runtime.state
     path = state.root / 'incidents' / (incident + '.json')
     occurrence, sha = state.read(path), file_sha(path)
-    if any(row['event'] == 'autostart_owner_close' and row.get('incident_id') == incident for row in state.ledger.rows):
+    previous_close = state.ledger.event_rows('autostart_owner_close', field='incident_id', value=incident)
+    if previous_close and external_facts is None:
+        if 'owner_external_close' in previous_close[0]['proof']:
+            raise StateRefused('owner_external_facts_required')
         source = occurrence.get('source_attempt_id', occurrence['attempt_id'])
         complete_committed(state, source, runtime.clock.now(), incident=incident)
         return 0
@@ -190,6 +199,8 @@ def owner_close(runtime, incident):
             if file_sha(path) != sha or ledger.unacknowledged_intents():
                 raise StateRefused('owner_close_ambiguous_placement')
             source = occurrence.get('source_attempt_id', occurrence['attempt_id'])
+            if external_facts is not None and (runtime.task_enabled() or ledger.open_sessions() or ledger.unresolved_legs()):
+                raise StateRefused('owner_external_requires_disabled_terminal_account')
             read = runtime.read_account()
             # Validate the full read before using any acknowledged order row.
             runtime.validate_account_read(ledger, read)
@@ -210,7 +221,14 @@ def owner_close(runtime, incident):
                 if session['end'] is None and session['start'].get('autostart_attempt_id'):
                     ledger.record('session_end', session_id=sid, reason='owner_operational_close', cleanup_ok=False,
                         evidence_complete=False, inventory_proven=False, unknown_submit=False)
-            proof = runtime.core_proof(ledger, read)
+            if external_facts is None:
+                proof = runtime.core_proof(ledger, read)
+            else:
+                from weather.market.lfc_owner_external_close import live_proof
+                proof = live_proof(runtime, ledger, incident, sha, source, read, external_facts)
+                if ledger.event_rows('autostart_owner_close', field='incident_id', value=incident):
+                    complete_committed(state, source, runtime.clock.now(), incident=incident)
+                    return 0
             if (proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
                     proof.get('unknown_submit') is not False or proof.get('money_contradiction') is True):
                 raise StateRefused('owner_money_repair_required')
@@ -237,7 +255,9 @@ def owner_close(runtime, incident):
                         previous not in {ledger.row_sha256(i) for i in range(len(ledger.rows))} or
                         retained.get('money_accounting_complete') is not True or
                         retained.get('cleanup_proven') is not True or retained.get('unknown_submit') is not False or
-                        retained.get('read_sha256') != digest(partial.get('account_read'))):
+                        retained.get('read_sha256') != digest(partial.get('account_read')) or
+                        retained.get('owner_external_close', {}).get('facts_sha256') !=
+                        proof.get('owner_external_close', {}).get('facts_sha256')):
                     raise StateRefused('owner_close_partial_binding')
                 closure_sha = file_sha(target)
                 recovery = {'receipt_ledger_sha256': previous, 'recovered_partial': True}

@@ -51,6 +51,9 @@ def parser():
             item.add_argument('--require-enabled', action='store_true')
         if command in ('owner-recover', 'owner-close'):
             item.add_argument('--incident', required=True)
+        if command == 'owner-close':
+            item.add_argument('--external-facts', type=Path)
+            item.add_argument('--external-facts-sha256')
     return result
 
 
@@ -273,6 +276,12 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                 return owner_recover(runtime, args.incident)
             if args.command == 'owner-close':
                 from weather.market.lfc_campaign_owner_close import owner_close
+                if (args.external_facts is None) != (args.external_facts_sha256 is None):
+                    raise StateRefused('owner_external_facts_binding')
+                if args.external_facts is not None:
+                    from weather.market.lfc_owner_external_close import load_facts
+                    facts = load_facts(args.external_facts, args.external_facts_sha256)
+                    return owner_close(runtime, args.incident, external_facts=facts)
                 return owner_close(runtime, args.incident)
             if args.command == 'owner-clear-workload':
                 from weather.market.lfc_campaign_guard import ExclusiveWorkload
