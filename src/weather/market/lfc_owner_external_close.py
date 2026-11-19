@@ -15,10 +15,11 @@ from weather.market.lfc_recording_io import read_bytes, response_bytes, strict_j
 from weather.market.lfc_redemption_native import BATCH, CTF, PM, SINGLE, address, unpack
 from weather.market.mm_stage2_hold import digest, utc
 from weather.operations.live_path_security import validate_regular_nonreparse_file
+from weather.schema_registry import schema_version
 
 
-SCHEMA = 'lfc_owner_external_close_v1'
-PROOF_SCHEMA = 'lfc_owner_external_close_proof_v2'
+SCHEMA = schema_version('lfc_owner_external_close_facts')
+PROOF_SCHEMA = schema_version('lfc_owner_external_close_proof')
 MAX_TRADES = 4
 EXCHANGES = {'0xe111180000d2663c0091e4f400237545b87b996b', '0xe2222d279d744050d28e00520010520000310f59'}
 ORDER_FILLED = '0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee'
