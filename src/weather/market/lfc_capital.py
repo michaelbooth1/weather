@@ -88,6 +88,8 @@ class CapitalBook:
         self.wallet_quarantines = []
         self.personal_trades = {}
         self.owner_external_close_cash = 0
+        self.owner_close_allocations = {}
+        self.verified_owner_cash = 0
         self.owner_inventory_adjustments = []
         self.owner_inventory_allowances = {}
         self.wallet_debit_quarantines = []
@@ -133,9 +135,11 @@ class CapitalBook:
                     proof.get('read_sha256') != packet['read_sha256']):
                 raise CapitalRefused('owner_external_facts_binding')
             try:
-                reconcile(self, packet, sequence=row['sequence'])
+                allocation = reconcile(self, packet, sequence=row['sequence'])
             except (StateRefused, *DECODE_ERRORS) as exc:
                 raise CapitalRefused('owner_external_close_replay') from exc
+            if 'owner_cash_allocation' in packet and packet['owner_cash_allocation'] != allocation:
+                raise CapitalRefused('owner_external_cash_allocation_changed')
         elif event == 'capital_native_group':
             from weather.market.lfc_capital_native import cash_native
             proof, sha = row['proof'], row['proof_sha256']
@@ -272,14 +276,14 @@ class CapitalBook:
                 else:
                     # Every later contribution is segregated, never new principal.
                     if self.deposit_is_external(activity):
-                        self.credit('external', cash, activity)
+                        self.credit('external', cash, activity, native_proven=evidence is not None)
                     if not included:
                         self.cash_in += cash
             elif kind == 'TIP' and activity['direction'] == 'IN':
                 if cash is None:
                     self.unknown.append(key)
                 else:
-                    self.credit('external', cash, activity)
+                    self.credit('external', cash, activity, native_proven=evidence is not None)
                     if not included:
                         self.cash_in += cash
             elif kind in {'WITHDRAWAL', 'TIP'}:
@@ -343,9 +347,9 @@ class CapitalBook:
                 self.credit('incentives', cash, item, native_proven=evidence is not None)
             elif kind == 'DEPOSIT':
                 if self.deposit_is_external(item):
-                    self.credit('external', cash, item)
+                    self.credit('external', cash, item, native_proven=evidence is not None)
             elif kind == 'TIP' and item['direction'] == 'IN':
-                self.credit('external', cash, item)
+                self.credit('external', cash, item, native_proven=evidence is not None)
             elif kind in {'WITHDRAWAL', 'TIP'}:
                 self.withdraw(cash, item, counted=not before_bridge)
             if kind != 'REDEEM' and not before_bridge and self.incoming(item):
@@ -471,6 +475,8 @@ class CapitalBook:
             if pool != 'external' or integer(owner_cash_native) > cash:
                 raise CapitalRefused('capital_owner_cash_allocation')
             movement['owner_cash_native'] = owner_cash_native
+        if native_proven and pool == 'external' and activity.get('type') in {'DEPOSIT', 'TIP'}:
+            movement['native_owner_transfer'] = True
         self.pool_movements.append(movement)
         self.pools_dirty = True
         return movement
@@ -494,15 +500,29 @@ class CapitalBook:
         if not self.pools_dirty:
             return
         pools, costs = dict.fromkeys(('external', 'profit', 'incentives'), 0), 0
-        overdraw = repaid = 0
+        overdraw = repaid = verified = 0
+        allocations = {}
         # Resolving an old debit cannot spend a later deposit. Conversely, a
         # late-known older profit can explain an already-recorded withdrawal.
         # Recompute from retained facts; no ledger event or date is reset.
         # Whole-second activity timestamps do not prove which transaction came
         # first within a second. Charge the debit before an ambiguous credit.
         for move in sorted(self.pool_movements, key=lambda m: (m['timestamp'], m['kind'] == 'credit', m['sequence'])):
+            close_trade = move.get('owner_close_trade')
+            if move['kind'] == 'owner_close_debit':
+                amount = move['amount']
+                used = min(amount, verified)
+                allocations[close_trade] = {'verified_owner_cash_before_native': verified,
+                    'verified_owner_cash_used_native': used, 'owner_overdraw_created_native': amount - used,
+                    'owner_overdraw_repaid_native': 0, 'owner_cash_credited_native': 0}
+                verified -= used
+                pools['external'] -= used
+                overdraw += amount - used
+                continue
             if move['kind'] == 'credit':
                 amount = move['amount']
+                owner_credit = self.verified_owner_credit(move)
+                take = 0
                 if overdraw and self.repays_owner_overdraw(move):
                     # The owner's later contribution first returns the sleeve
                     # cash the owner took; only the rest stays segregated.
@@ -510,11 +530,20 @@ class CapitalBook:
                     overdraw -= take
                     repaid += take
                     amount -= take
+                if close_trade is not None:
+                    allocations[close_trade] = {'verified_owner_cash_before_native': verified,
+                        'verified_owner_cash_used_native': 0, 'owner_overdraw_created_native': 0,
+                        'owner_overdraw_repaid_native': take, 'owner_cash_credited_native': amount}
+                verified += max(0, owner_credit - take)
                 pools[move['pool']] += amount
                 continue
             remaining = move['amount']
             for pool in pools:
                 taken = min(remaining, pools[pool])
+                if pool == 'external':
+                    # Historic pool debits do not identify a particular grant.
+                    # Count them against verified cash first, conservatively.
+                    verified -= min(verified, taken)
                 pools[pool] -= taken
                 remaining -= taken
             if move.get('charge_excess', True):
@@ -525,10 +554,28 @@ class CapitalBook:
                 # shortfall is tracked until a later owner credit repays it.
                 overdraw += remaining
         self.owner_overdraw_outstanding, self.owner_overdraw_repaid = overdraw, repaid
+        self.verified_owner_cash, self.owner_close_allocations = verified, allocations
         self.costs += costs - self.withdrawal_costs
         self.withdrawal_costs = costs
         self.external, self.profit, self.incentives = (pools[k] for k in ('external', 'profit', 'incentives'))
         self.pools_dirty = False
+
+    def verified_owner_credit(self, move):
+        """Independently identified owner cash, excluding every quarantine."""
+        if (move['pool'] != 'external' or move is self.bridge_quarantine or
+                any(grant is move for grant in self.wallet_quarantines) or
+                any(q['grant'] is move for q in self.incoming_quarantines.values()) or
+                self.cash_capture_bindings.get(move.get('activity_id'), {}).get('surplus_only')):
+            return 0
+        if move.get('native_owner_transfer'):
+            return move['amount']
+        if move.get('owner_cash_native'):
+            return move['owner_cash_native']
+        key = str(move.get('activity_id', ''))
+        personal = self.personal_trades.get(key[len('personal-'):]) if key.startswith('personal-') else None
+        if personal is not None and personal['side'] == 'SELL':
+            return min(move['amount'], max(0, personal['cash_native'] - personal['fee_native']))
+        return 0
 
     def repays_owner_overdraw(self, move):
         """Owner decision 2026-11-16: confirmed owner cash repays the sleeve first."""
@@ -736,7 +783,7 @@ class CapitalBook:
                 'unrecovered_inventory_cost_native': inventory, 'resting_reserve_native': resting,
                 'paid_or_reserved_campaign_costs_native': self.costs,
                 'segregated_profit_native': self.profit, 'segregated_incentives_native': self.incentives,
-                'segregated_external_cash_native': self.external + max(0, self.owner_external_close_cash),
+                'segregated_external_cash_native': self.external,
                 'charged_native': charged,
                 'owner_overdraw_outstanding_native': self.owner_overdraw_outstanding,
                 'owner_overdraw_repaid_native': self.owner_overdraw_repaid,

@@ -1,5 +1,6 @@
 """Guards: incident-specific external facts, native fees and segregated owner cash."""
 from copy import deepcopy
+from contextlib import nullcontext
 from datetime import timedelta
 from decimal import Decimal
 import json
@@ -8,19 +9,20 @@ from types import SimpleNamespace
 import pytest
 
 from tests.market.test_lfc_f2_capital import MAKER, filled
+from tests.market.test_lfc_f2_cash_mirror_b082 import cash_activity
 from tests.market.test_lfc_f2_inventory_b080 import fixture, observation
 from tests.market.test_lfc_f2_personal_cash_b081 import account_guard, owner_trade
 from tests.market.test_lfc_redemption_native import paired
 from weather.market.lfc_campaign_runtime import Runtime
-from weather.market.lfc_campaign_state import StateRefused
-from weather.market.lfc_capital import ASSET, CapitalBook, record_activity
+from weather.market.lfc_campaign_state import AccountState, StateRefused
+from weather.market.lfc_capital import ASSET, CapitalBook, CapitalRefused, record_activity
 from weather.market.lfc_capital_native import TRANSFER
 from weather.market.lfc_capital_reads import synchronize
-from weather.market.lfc_ledger import Ledger
+from weather.market.lfc_ledger import Ledger, LedgerUnavailable
 from weather.market.lfc_owner_external_close import EXCHANGES, ORDER_FILLED, build_facts, live_proof
-from weather.market.lfc_recording_io import retained
+from weather.market.lfc_recording_io import file_sha, retained
 from weather.market.lfc_redemption_native import CTF, SINGLE
-from weather.market.mm_stage2_hold import digest
+from weather.market.mm_stage2_hold import canonical_bytes, digest
 
 
 ATTEMPT = 'a' * 32
@@ -33,7 +35,7 @@ TX = '0x' + '1' * 64
 GROSS, FEE, SIZE = 10_400_000, 800_000, 20_000_000
 
 
-def sale_receipt(cash_in, cash_out):
+def trade_receipt(cash_in, cash_out, *, side='SELL', gross=GROSS):
     wallet, other = f'0x{int(MAKER, 16):064x}', f'0x{9:064x}'
     fields = {'transactionHash': TX, 'blockNumber': '0x100', 'blockHash': '0x' + 'b' * 64}
 
@@ -41,44 +43,72 @@ def sale_receipt(cash_in, cash_out):
         return {**fields, 'address': ASSET, 'logIndex': hex(index), 'topics': [TRANSFER, send, receive],
                 'data': f'0x{amount:064x}'}
 
-    logs = [move(0, other, wallet, cash_in)]
+    logs = [move(0, other, wallet, cash_in)] if cash_in else []
     if cash_out:
         logs.append(move(1, wallet, other, cash_out))
+    direction, making, taking = (0, gross, SIZE) if side == 'BUY' else (1, SIZE, gross)
+    sender, receiver = (other, wallet) if side == 'BUY' else (wallet, other)
     logs.extend([
-        {**fields, 'address': CTF, 'logIndex': '0x2', 'topics': [SINGLE, other, wallet, other],
+        {**fields, 'address': CTF, 'logIndex': '0x2', 'topics': [SINGLE, other, sender, receiver],
          'data': f'0x{90:064x}{SIZE:064x}'},
         {**fields, 'address': min(EXCHANGES), 'logIndex': '0x3', 'topics': [ORDER_FILLED, ORDER, wallet, other],
-         'data': '0x' + ''.join(f'{n:064x}' for n in (1, 90, SIZE, GROSS, FEE, 0, 0))},
+         'data': '0x' + ''.join(f'{n:064x}' for n in (direction, 90, making, taking, FEE, 0, 0))},
     ])
     return retained(json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {**fields, 'status': '0x1', 'logs': logs}}).encode())
 
 
-def fixture_sale(tmp_path, *, separate_fee=False):
+def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withdraw=0, quarantine=0,
+                  example=False):
     ledger, baseline, clock, _ = fixture(tmp_path, personal=False, bridge=False)
-    source, proof, tokens = paired(auto=True)
-    for idx, token in enumerate(tokens):
-        filled(ledger, f'pair-{idx}', token=token, condition=source['condition_id'], price='.48')
-    holdings = {'denver': '20', '90': '30', **{token: '20' for token in tokens}}
-    before = observation(ledger, clock, positions=holdings, cash='270.8')
-    synchronize(ledger, baseline, before, anchor_mode='enrollment')
+    holdings = {'denver': '20', '90': '30'}
+    if not example:
+        source, proof, tokens = paired(auto=True)
+        for idx, token in enumerate(tokens):
+            filled(ledger, f'pair-{idx}', token=token, condition=source['condition_id'], price='.48')
+        holdings.update({token: '20' for token in tokens})
+    before = observation(ledger, clock, positions=holdings, cash='100' if example else '270.8')
+    synchronize(ledger, baseline, before, anchor_mode='enrollment', funding='110' if example else '300')
+    if withdraw:
+        clock.value += timedelta(minutes=1)
+        debit, native_debit = cash_activity(clock, 'WITHDRAWAL', withdraw)
+        record_activity(ledger, debit, native_evidence=native_debit)
+    if not example:
+        clock.value += timedelta(minutes=1)
+        source['timestamp'] = int(clock.now().timestamp())
+        proof.update(rows=[source], rows_sha256=digest([source]))
+        record_activity(ledger, source, native_evidence=proof)
+    if deposit:
+        clock.value += timedelta(minutes=1)
+        credit, native_credit = cash_activity(clock, 'DEPOSIT', deposit)
+        record_activity(ledger, credit, native_evidence=native_credit)
+    if quarantine:
+        clock.value += timedelta(minutes=1)
+        book = CapitalBook(ledger)
+        extra_cash = str(Decimal(book.expected_cash()) / 1_000_000 + quarantine)
+        read = observation(ledger, clock, positions={'denver': '20', '90': '30'}, cash=extra_cash)
+        synchronize(ledger, book.anchor, read, anchor_mode='session')
     clock.value += timedelta(minutes=1)
-    source['timestamp'] = int(clock.now().timestamp())
-    proof.update(rows=[source], rows_sha256=digest([source]))
-    record_activity(ledger, source, native_evidence=proof)
-    clock.value += timedelta(minutes=1)
-    ledger.record('autostart_enroll', state_id='state', identity_sha256='identity', state_root='state')
+    from weather.market.lfc_campaign_closures import PROTOCOL
+    ledger.record('autostart_enroll', state_id='state', identity_sha256='identity', state_root='state',
+                  closure_anchor_protocol=PROTOCOL)
     ledger.record('autostart_claim', attempt_id=ATTEMPT, file_sha256='claim')
     ledger.record('session_start', session_id='end-band', protocol='lfc_autostart_v2',
                   condition_id=MARKET, autostart_attempt_id=ATTEMPT)
     clock.value += timedelta(seconds=6)
     ledger.record('session_end', session_id='end-band')
     book = CapitalBook(ledger)
-    assert book.figures()['retained_gains_available_native'] > 0
-    cash = str(Decimal(book.expected_cash() + GROSS - FEE) / 1_000_000)
-    read = observation(ledger, clock, positions={'denver': '20', '90': '10'}, cash=cash)
-    read['trades'].append(dict(owner_trade(clock, 'SELL', seconds=3), market=FOREIGN, condition_id=FOREIGN,
-                               taker_order_id=ORDER))
-    receipt = sale_receipt(GROSS, FEE) if separate_fee else sale_receipt(GROSS - FEE, 0)
+    assert example or book.figures()['retained_gains_available_native'] > 0
+    gross = 5_200_000 if example else GROSS
+    cash_in, cash_out = ((0, gross + FEE) if side == 'BUY' else
+                         (gross, FEE) if separate_fee else (gross - FEE, 0))
+    cash = str(Decimal(book.expected_cash() + cash_in - cash_out) / 1_000_000)
+    read = observation(ledger, clock, positions={'denver': '20', '90': '50' if side == 'BUY' else '10'}, cash=cash)
+    trade = owner_trade(clock, side, seconds=3)
+    trade.update(market=FOREIGN, condition_id=FOREIGN, taker_order_id=ORDER)
+    if example:
+        trade['price'] = '.26'
+    read['trades'].append(trade)
+    receipt = trade_receipt(cash_in, cash_out, side=side, gross=gross)
     facts = build_facts(ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, {TX: receipt})
     runtime = object.__new__(Runtime)
     runtime.state = SimpleNamespace(maker=MAKER)
@@ -86,24 +116,87 @@ def fixture_sale(tmp_path, *, separate_fee=False):
     return runtime, ledger, read, facts, receipt
 
 
-@pytest.mark.parametrize('separate_fee', [False, True])
-def test_external_sale_protects_existing_campaign_gains_even_when_fee_has_its_own_transfer(
-        tmp_path, monkeypatch, account_guard, separate_fee):
-    runtime, ledger, read, facts, receipt = fixture_sale(tmp_path, separate_fee=separate_fee)
-    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipt)
-    book = CapitalBook(ledger)
-    before = book.figures()
+def book_trade(runtime, ledger, read, facts):
     proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
     ledger.record('autostart_owner_close', attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT,
                   proof=proof, proof_sha256=digest(proof))
-    replay = CapitalBook(Ledger.open(ledger.path, clock=runtime.clock.now))
+    return CapitalBook(Ledger.open(ledger.path, clock=runtime.clock.now)), proof['owner_external_close']
+
+
+@pytest.mark.parametrize('separate_fee', [False, True])
+@pytest.mark.parametrize('withdraw', [0, 4, 12])
+def test_external_sale_protects_existing_campaign_gains_even_when_fee_has_its_own_transfer(
+        tmp_path, monkeypatch, account_guard, separate_fee, withdraw):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, separate_fee=separate_fee, withdraw=withdraw)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipt)
+    book = CapitalBook(ledger)
+    before = book.figures()
+    replay, packet = book_trade(runtime, ledger, read, facts)
+    allocation, = packet['owner_cash_allocation'].values()
+    repaid = min(withdraw * 1_000_000, GROSS - FEE)
     assert replay.owner_external_close_cash == GROSS - FEE
     assert replay.expected_cash() == book.expected_cash() + GROSS - FEE
+    assert replay.owner_overdraw_outstanding == withdraw * 1_000_000 - repaid
+    assert replay.owner_overdraw_repaid == allocation['owner_overdraw_repaid_native'] == repaid
+    assert allocation['owner_cash_credited_native'] == GROSS - FEE - repaid
     for key in ('retained_gains_available_native', 'returned_principal_native', 'funding_native',
-                'owner_overdraw_outstanding_native', 'paid_or_reserved_campaign_costs_native',
-                'segregated_profit_native', 'segregated_incentives_native'):
+                'paid_or_reserved_campaign_costs_native', 'segregated_profit_native', 'segregated_incentives_native'):
         assert replay.figures()[key] == before[key]
-    assert replay.figures()['segregated_external_cash_native'] == before['segregated_external_cash_native'] + GROSS - FEE
+    assert replay.external == before['segregated_external_cash_native'] + GROSS - FEE - repaid
+
+
+@pytest.mark.parametrize('deposit', [0, 4, 20])
+def test_external_buy_consumes_existing_verified_cash_then_records_overdraw(
+        tmp_path, monkeypatch, account_guard, deposit):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, side='BUY', deposit=deposit, quarantine=25)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipt)
+    before = CapitalBook(ledger)
+    assert before.verified_owner_cash == deposit * 1_000_000
+    assert before.external - before.verified_owner_cash == 25_000_000
+    after, packet = book_trade(runtime, ledger, read, facts)
+    debit = GROSS + FEE
+    used = min(debit, before.verified_owner_cash)
+    created = debit - used
+    allocation, = packet['owner_cash_allocation'].values()
+    assert allocation['verified_owner_cash_used_native'] == used
+    assert allocation['owner_overdraw_created_native'] == after.owner_overdraw_outstanding == created
+    assert after.external - after.verified_owner_cash == 25_000_000
+    assert after.expected_cash() == before.expected_cash() - debit
+    assert after.verified_owner_cash == before.verified_owner_cash - used
+    for key in ('funding_native', 'headroom_native', 'retained_gains_available_native',
+                'segregated_profit_native', 'paid_or_reserved_campaign_costs_native'):
+        assert after.figures()[key] == before.figures()[key]
+    assert after.figures() == CapitalBook(ledger).figures()
+
+
+def test_audit_example_keeps_100_campaign_spendable(tmp_path, monkeypatch, account_guard):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, side='BUY', deposit=20, example=True)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipt)
+    assert CapitalBook(ledger).expected_cash() == 120_000_000
+    after, _ = book_trade(runtime, ledger, read, facts)
+    assert after.expected_cash() == 114_000_000
+    assert after.external == after.verified_owner_cash == 14_000_000
+    after.gate(reserve='100', available_cash='114')
+    with pytest.raises(CapitalRefused, match='capital_total_ceiling|capital_spendable_cash'):
+        after.gate(reserve='100.000001', available_cash='114')
+
+
+def test_later_native_owner_deposit_repays_buy_overdraw_then_stays_segregated(
+        tmp_path, monkeypatch, account_guard):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, side='BUY')
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipt)
+    after, packet = book_trade(runtime, ledger, read, facts)
+    debit = GROSS + FEE
+    assert after.owner_overdraw_outstanding == debit
+    runtime.clock.value += timedelta(minutes=1)
+    credit, proof = cash_activity(runtime.clock, 'DEPOSIT', 20)
+    record_activity(ledger, credit, native_evidence=proof)
+    replay = CapitalBook(Ledger.open(ledger.path, clock=runtime.clock.now))
+    assert replay.owner_overdraw_outstanding == 0
+    assert replay.owner_overdraw_repaid == debit
+    assert replay.external == replay.verified_owner_cash == 20_000_000 - debit
+    assert replay.owner_close_allocations == packet['owner_cash_allocation']
+    assert replay.figures()['retained_gains_available_native'] == after.figures()['retained_gains_available_native']
 
 
 @pytest.mark.parametrize(('case', 'reason'), [
@@ -116,7 +209,7 @@ def test_external_sale_protects_existing_campaign_gains_even_when_fee_has_its_ow
     ('enabled_task', 'owner_external_requires_disabled_terminal_account'),
 ])
 def test_external_close_refusal_preserves_ledger_bytes(tmp_path, monkeypatch, account_guard, case, reason):
-    runtime, ledger, read, facts, receipt = fixture_sale(tmp_path)
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path)
     if case == 'unexplained_movement':
         read['positions'].append({'asset': '91', 'size': '0.000001'})
     elif case in ('extra_execution', 'late_execution'):
@@ -129,7 +222,7 @@ def test_external_close_refusal_preserves_ledger_bytes(tmp_path, monkeypatch, ac
         row = read['trades'][-1]
         row.update(market=MARKET, condition_id=MARKET)
     elif case == 'receipt_omits_fee':
-        receipt = sale_receipt(GROSS, 0)
+        receipt = trade_receipt(GROSS, 0)
     elif case == 'changed_receipt_identity':
         original = json.loads(receipt['raw_response'])
         original['result']['blockNumber'] = '0x101'
@@ -143,3 +236,126 @@ def test_external_close_refusal_preserves_ledger_bytes(tmp_path, monkeypatch, ac
     with pytest.raises(StateRefused, match=reason):
         live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
     assert ledger.path.read_bytes() == before
+
+
+def test_booked_owner_allocation_cannot_disagree_with_replay(tmp_path, monkeypatch, account_guard):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, side='BUY', deposit=20)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipt)
+    proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
+    allocation, = proof['owner_external_close']['owner_cash_allocation'].values()
+    allocation['verified_owner_cash_used_native'] -= 1
+    before, head = ledger.path.read_bytes(), ledger.previous
+    with pytest.raises(LedgerUnavailable, match='owner_external_cash_allocation_changed'):
+        ledger.record('autostart_owner_close', attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT,
+                      proof=proof, proof_sha256=digest(proof))
+    assert ledger.path.read_bytes() == before and ledger.previous == head
+
+
+def owner_runtime(tmp_path, monkeypatch):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, side='BUY', deposit=20)
+    state = AccountState(tmp_path / 'state', ledger)
+    state.root.mkdir(parents=True)
+    ledger.record('halt', reason='synthetic_incident')
+    sha = state.save('incidents/' + INCIDENT + '.json', {'attempt_id': INCIDENT, 'source_attempt_id': ATTEMPT,
+                      'artifact': 'private-proof', 'detection_sequence': 1})
+    runtime.state, runtime.admission = state, nullcontext
+    runtime.reload_ledger = lambda: ledger
+    runtime.workload_path, runtime.hold_path = tmp_path / 'unused-marker', tmp_path / 'unused-hold'
+    calls = []
+
+    def read_account():
+        calls.append('account')
+        return read
+
+    def read_chain(method, params):
+        assert (method, params) == ('eth_getTransactionReceipt', [TX])
+        calls.append('chain')
+        return receipt
+
+    runtime.read_account = read_account
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', read_chain)
+    monkeypatch.setattr('sys.stdin.isatty', lambda: True)
+    monkeypatch.setattr('builtins.input', lambda: 'close ' + sha[:12])
+    return runtime, {**facts, 'incident_sha256': sha}, calls
+
+
+@pytest.mark.parametrize('corruption', [None, 'nested_facts', 'occurrence', 'positions', 'allocation'])
+def test_unanchored_partial_is_validated_before_any_append(tmp_path, monkeypatch, account_guard, corruption):
+    from weather.market.lfc_campaign_owner_close import owner_close
+    runtime, facts, calls = owner_runtime(tmp_path, monkeypatch)
+    ledger, root = runtime.state.ledger, runtime.state.root
+    record = ledger.record
+
+    def interrupted(event, **fields):
+        if event == 'autostart_owner_close':
+            raise OSError('interrupted after partial receipt')
+        return record(event, **fields)
+
+    with monkeypatch.context() as injection:
+        injection.setattr(ledger, 'record', interrupted)
+        with pytest.raises(OSError, match='interrupted after partial receipt'):
+            owner_close(runtime, INCIDENT, external_facts=facts)
+    assert calls == ['account', 'chain']
+    partial = root / 'owner-closures' / (INCIDENT + '.json')
+    if corruption is not None:
+        row = json.loads(partial.read_bytes())
+        packet = row['proof']['owner_external_close']
+        if corruption == 'nested_facts':
+            packet['facts']['trades'][0]['source']['price'] = '0.01'
+        elif corruption == 'occurrence':
+            row['detection_sequence'] += 1
+        elif corruption == 'positions':
+            packet['positions']['90'] = '51'
+        else:
+            allocation, = packet['owner_cash_allocation'].values()
+            allocation['owner_overdraw_created_native'] += 1
+        partial.write_bytes(canonical_bytes(row))
+    retained = partial.read_bytes()
+    before, file_hash, head = ledger.path.read_bytes(), file_sha(ledger.path), ledger.previous
+    assert ledger.halted and not ledger.event_rows('autostart_owner_close')
+    figures = CapitalBook(ledger).figures()
+    if corruption is None:
+        assert owner_close(runtime, INCIDENT, external_facts=facts) == 0
+        assert calls == ['account', 'chain'] * 2
+        decision, = ledger.event_rows('autostart_owner_close')
+        assert decision['recovered_partial'] and not ledger.halted
+        assert (root / 'closed' / (ATTEMPT + '.json')).is_file()
+    else:
+        with pytest.raises(StateRefused, match='owner_close_partial_binding|owner_external_facts_binding'):
+            owner_close(runtime, INCIDENT, external_facts=facts)
+        assert calls == ['account', 'chain']
+        assert ledger.path.read_bytes() == before and file_sha(ledger.path) == file_hash
+        assert ledger.previous == head and ledger.halted and not ledger.event_rows('autostart_owner_close')
+        assert CapitalBook(ledger).figures() == figures
+        assert not (root / 'closed' / (ATTEMPT + '.json')).exists()
+    assert partial.read_bytes() == retained
+
+
+def test_coordinator_finalization_reuses_commit_but_explicit_retry_rereads(tmp_path, monkeypatch, account_guard):
+    from weather.market import lfc_campaign_owner_close as close
+    runtime, facts, calls = owner_runtime(tmp_path, monkeypatch)
+    ledger, root = runtime.state.ledger, runtime.state.root
+
+    def interrupted(*args, **kwargs):
+        raise OSError('interrupted after close commit')
+
+    with monkeypatch.context() as injection:
+        injection.setattr(close, 'complete_committed', interrupted)
+        with pytest.raises(OSError, match='interrupted after close commit'):
+            close.owner_close(runtime, INCIDENT, external_facts=facts)
+    assert calls == ['account', 'chain']
+    decision, = ledger.event_rows('autostart_owner_close')
+    assert not (root / 'closed' / (ATTEMPT + '.json')).exists()
+    # The coordinator's receipt-only helper accepts a state, with no runtime or
+    # venue adapter. Removing live read capability must not block finalization.
+    with monkeypatch.context() as no_reads:
+        no_reads.setattr(runtime, 'read_account', lambda: pytest.fail('account read during finalization'))
+        no_reads.setattr('weather.market.lfc_owner_external_close.rpc_read',
+                         lambda *args: pytest.fail('chain read during finalization'))
+        assert close.complete_committed(runtime.state, ATTEMPT, runtime.clock.now())
+    assert ledger.event_rows('autostart_owner_close') == [decision]
+    with pytest.raises(StateRefused, match='owner_external_facts_required'):
+        close.owner_close(runtime, INCIDENT)
+    assert close.owner_close(runtime, INCIDENT, external_facts=facts) == 0
+    assert calls == ['account', 'chain'] * 2
+    assert ledger.event_rows('autostart_owner_close') == [decision]

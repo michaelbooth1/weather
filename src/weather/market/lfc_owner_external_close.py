@@ -274,15 +274,65 @@ def reconcile(book, packet, *, already_booked=False, sequence=None):
     if sequence is None:
         return
     for key, source, observed, delta in personal:
+        timestamp = utc(source['matched_at']).timestamp()
         book.personal_trades[key] = {'id': key, 'order_id': source['order_id'],
-            'timestamp': utc(source['matched_at']).timestamp(), 'side': source['side'],
+            'timestamp': timestamp, 'side': source['side'],
             'cash_native': observed['gross_native'], 'fee_native': observed['fee_native'],
             'source_sha256': digest(source)}
         book.owner_inventory_adjustments.append({'activity_id': 'personal-' + key, 'sequence': sequence,
             'token_id': source['token_id'], 'delta': str(delta), 'read_sha256': packet['read_sha256']})
+        signed = observed['cash_in_native'] - observed['cash_out_native']
+        if source['side'] == 'BUY':
+            book.pool_movements.append({'kind': 'owner_close_debit', 'owner_close_trade': key,
+                                        'amount': -signed, 'timestamp': timestamp, 'sequence': sequence})
+            book.pools_dirty = True
+        else:
+            # The receipt proves a single net owner credit even when the fee
+            # has its own cash leg. It cannot debit any pre-existing gains.
+            move = book.credit('external', signed, {'id': 'personal-' + key, 'timestamp': timestamp},
+                               sequence=sequence, owner_cash_native=signed)
+            move['owner_close_trade'] = key
         book.cash_in += observed['cash_in_native']
         book.cash_out += observed['cash_out_native']
     book.owner_external_close_cash += cash
+    book.refresh_pools()
+    return {key: book.owner_close_allocations[key] for key, _, _, _ in personal}
+
+
+def observed_inputs(book, read, facts):
+    cut = utc(facts['coverage_utc'])
+    if coverage(read) < cut or activity_digest(book.ledger, read) != facts['activity_sha256']:
+        raise StateRefused('owner_external_activity_cut')
+    sources = normalized_sources(book, read, facts['attempt_id'], cut)
+    expected = {item['receipt']['transaction_hash']: item['source'] for item in facts['trades']}
+    if sources != expected:
+        raise StateRefused('owner_external_trade_set_changed')
+    cash = native(read['balances']['available_collateral'])
+    collateral = [native(value) for asset, value in read['balances']['assets'].items() if asset.lower() == ASSET]
+    if collateral != [cash] or str(read['balances']['collateral_evidence']['balance']) != str(cash):
+        raise StateRefused('owner_external_collateral_identity')
+    return sources, {'read_sha256': digest(read), 'positions': normalize_positions(read['positions']),
+                     'cash_native': cash}
+
+
+def validate_retained_read(ledger, packet, read, closed_at):
+    """Reprove an orphan's saved observations and allocation without fetching anything."""
+    from weather.market.lfc_campaign_reads import account_read_age
+    from weather.market.lfc_ledger import traded_shares
+    if (read.get('schema_version') != 'lfc_campaign_account_read_v0.1' or read.get('complete') is not True or
+            read.get('maker_address', '').lower() != ledger.rows[0]['maker_address'].lower() or
+            read.get('since') != str(int(utc(ledger.rows[0]['recorded_at_utc']).timestamp())) or
+            read.get('scope') != 'account_wide_sdk_trades_and_f0_v2_positions' or read.get('errors') != [] or
+            read.get('open_orders') != [] or account_read_age(read, closed_at) > 120 or
+            ledger.trade_mismatches(traded_shares(read['trades'], ledger.our_order_ids()))):
+        raise StateRefused('owner_close_partial_account_read')
+    book = CapitalBook(ledger)
+    _, observed = observed_inputs(book, read, packet['facts'])
+    if any(packet.get(key) != value for key, value in observed.items()):
+        raise StateRefused('owner_close_partial_account_read')
+    allocation = reconcile(book, packet, sequence=len(ledger.rows))
+    if packet.get('owner_cash_allocation') != allocation:
+        raise StateRefused('owner_external_cash_allocation_changed')
 
 
 def live_proof(runtime, ledger, incident, occurrence_sha, attempt, read, facts):
@@ -306,22 +356,14 @@ def live_proof(runtime, ledger, incident, occurrence_sha, attempt, read, facts):
     if book.inventory_anchor is None or facts.get('anchor_sha256') != digest(book.inventory_anchor):
         raise StateRefused('owner_external_anchor_changed')
     try:
-        cut = utc(facts['coverage_utc'])
-        if coverage(read) < cut or activity_digest(ledger, read) != facts['activity_sha256']:
-            raise StateRefused('owner_external_activity_cut')
-        sources = normalized_sources(book, read, attempt, cut)
-        expected = {item['receipt']['transaction_hash']: item['source'] for item in facts['trades']}
-        if sources != expected:
-            raise StateRefused('owner_external_trade_set_changed')
-        cash = native(read['balances']['available_collateral'])
-        collateral = [native(value) for asset, value in read['balances']['assets'].items() if asset.lower() == ASSET]
-        if (collateral != [cash] or
-                str(read['balances']['collateral_evidence']['balance']) != str(cash)):
-            raise StateRefused('owner_external_collateral_identity')
+        sources, observed = observed_inputs(book, read, facts)
         receipts = {tx: rpc_read('eth_getTransactionReceipt', [tx]) for tx in sorted(sources)}
-        packet = {'facts': facts, 'facts_sha256': digest(facts), 'read_sha256': digest(read),
-                  'positions': normalize_positions(read['positions']), 'cash_native': cash, 'receipts': receipts}
-        reconcile(book, packet, already_booked=old is not None)
+        packet = {'facts': facts, 'facts_sha256': digest(facts), 'receipts': receipts, **observed}
+        if old is None:
+            packet['owner_cash_allocation'] = reconcile(book, packet, sequence=len(ledger.rows))
+        else:
+            reconcile(book, packet, already_booked=True)
+            packet['owner_cash_allocation'] = old['proof']['owner_external_close'].get('owner_cash_allocation')
     except OSError:
         raise StateRefused('owner_external_receipt_unavailable') from None
     except DECODE_ERRORS as exc:

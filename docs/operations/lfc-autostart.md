@@ -652,10 +652,20 @@ a disabled task, terminal campaign orders, and a fresh empty open-order list.
 The SHA binds the copied incident, attempt, inventory anchor and historical
 observation cut. Fresh REST trades and Polygon V2 receipts must match the exact
 execution set. The account's full inventory and native collateral must reconcile
-at that cut, with no extra movement. A retry of a committed external close
-requires the same bound facts and fresh account and receipt reads again.
-The close records owner cash separately from campaign principal and retained
-gains, including fees. It retains any research gaps and leaves the task disabled.
+at that cut, with no extra movement. An explicit retry of a committed external
+close requires the same bound facts and fresh account and receipt reads.
+Coordinator recovery may publish a missing receipt for an already committed
+decision using the retained binding. That bookkeeping step makes no account
+or chain reads. Before appending an unanchored partial receipt, owner-close
+validates the saved facts, occurrence, observations and allocation.
+
+A personal purchase uses verified owner cash for principal and fee together.
+Uncovered cash becomes a recorded owner overdraw. Net personal sale proceeds
+first repay outstanding owner overdraw, and the remainder stays segregated as
+verified owner cash. Quarantine, campaign principal and retained gains stay
+separate from this allocation. The receipt records the amounts applied and
+ledger replay checks them at the close. The close retains any research gaps
+and leaves the task disabled.
 
 The task action launches PowerShell with its documented `-WindowStyle Hidden`;
 Interactive/Limited owner-session binding remains

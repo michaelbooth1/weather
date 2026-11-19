@@ -65,6 +65,54 @@ def manifest(state, attempt):
     return {name: file_sha(path) if (path := artifact_path(state, name)) is not None else None for name in sorted(names)}
 
 
+def external_binding(row, proof):
+    from weather.market.lfc_campaign_state import StateRefused
+    if 'owner_external_close' not in proof:
+        return {}
+    packet = proof['owner_external_close']
+    facts = packet.get('facts') if isinstance(packet, dict) else None
+    if (not isinstance(facts, dict) or digest(facts) != packet.get('facts_sha256') or
+            packet.get('read_sha256') != proof.get('read_sha256') or
+            (facts.get('incident_id'), facts.get('incident_sha256'), facts.get('attempt_id')) !=
+            (row.get('incident_id'), row.get('incident_sha256'), row.get('source_attempt_id'))):
+        raise StateRefused('owner_external_facts_binding')
+    return packet
+
+
+def validate_external_partial(state, partial, occurrence, incident, sha, source, facts, now):
+    """Refuse a damaged unanchored receipt before any ledger transition."""
+    from weather.market.lfc_campaign_state import StateRefused
+    from weather.market.lfc_owner_external_close import DECODE_ERRORS, validate_retained_read
+    from weather.market.mm_stage2_hold import utc
+
+    proof = partial.get('proof')
+    read = partial.get('account_read')
+    if (not isinstance(proof, dict) or not isinstance(read, dict) or
+            partial.get('authority') != 'owner_operational_close' or
+            (partial.get('incident_id'), partial.get('incident_sha256'), partial.get('source_attempt_id')) !=
+            (incident, sha, source) or partial.get('research_evidence_complete') is not False or
+            any(partial.get(k) != occurrence.get(k) for k in ('artifact', 'detection_sequence')) or
+            partial.get('ledger_head_sha256') != state.ledger.previous or
+            proof.get('ledger_head_sha256') != state.ledger.previous or
+            proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
+            proof.get('unknown_submit') is not False or proof.get('money_contradiction') is not False or
+            type(proof.get('open_orders')) is not int or proof['open_orders'] != 0 or
+            proof.get('read_sha256') != digest(read) or
+            partial.get('terminal_legs_sha256') != digest(legs_binding(state.ledger, source)) or
+            partial.get('artifact_manifest') != manifest(state, source)):
+        raise StateRefused('owner_close_partial_binding')
+    packet = external_binding(partial, proof)
+    if not packet or packet['facts_sha256'] != digest(facts):
+        raise StateRefused('owner_close_partial_binding')
+    try:
+        closed_at = utc(partial['closed_at_utc'])
+        if closed_at > utc(now):
+            raise ValueError('close_timestamp')
+        validate_retained_read(state.ledger, packet, read, closed_at)
+    except (RuntimeError, *DECODE_ERRORS) as exc:
+        raise StateRefused('owner_close_partial_binding') from exc
+
+
 def binding(state, attempt, *, incident=None):
     from weather.market.lfc_campaign_state import StateRefused
     anchors = [row for row in event_rows(state.ledger, 'autostart_owner_close', field='source_attempt_id', value=attempt) if
@@ -89,11 +137,9 @@ def binding(state, attempt, *, incident=None):
             any(leg['status'] != 'terminal' or leg['order_id'] is None for leg in legs.values()) or
             row.get('research_evidence_complete') is not False):
         raise StateRefused('owner_operational_close_binding')
-    external = proof.get('owner_external_close', {})
+    external = external_binding(row, proof)
     committed_external = anchor['proof'].get('owner_external_close', {})
-    if (external.get('facts_sha256') != committed_external.get('facts_sha256') or
-            external and (digest(external['facts']) != external.get('facts_sha256') or
-                          external['facts']['incident_sha256'] != row.get('incident_sha256'))):
+    if any(external.get(key) != committed_external.get(key) for key in ('facts_sha256', 'owner_cash_allocation')):
         raise StateRefused('owner_external_facts_binding')
     for name, previous in row.get('artifact_manifest', {}).items():
         current = artifact_path(state, name)
@@ -116,8 +162,9 @@ def complete_committed(state, attempt, now, *, incident=None):
     """Finish only a retained, ledger-committed decision; never decide again.
 
     Current artifacts and terminal legs still pass binding(), including N1.
-    The missing receipt points to the original anchor, not a fresh money read.
-    Existing receipts and the consumed claim/date are never replaced.
+    A coordinator can finish the receipt from the existing ledger anchor,
+    without account or chain reads. An explicit external owner-close retry
+    must take the fresh-proof path in owner_close before calling here.
     """
     from weather.market.lfc_campaign_guard import require_account
     from weather.market.lfc_campaign_state import StateRefused
@@ -201,6 +248,23 @@ def owner_close(runtime, incident, *, external_facts=None):
             source = occurrence.get('source_attempt_id', occurrence['attempt_id'])
             if external_facts is not None and (runtime.task_enabled() or ledger.open_sessions() or ledger.unresolved_legs()):
                 raise StateRefused('owner_external_requires_disabled_terminal_account')
+            relative = 'owner-closures/' + incident + '.json'
+            target = state.root / relative
+            validated_partial_sha = None
+            if target.exists() and not ledger.event_rows('autostart_owner_close', field='incident_id', value=incident):
+                partial_sha = file_sha(target)
+                partial = state.read(target)
+                retained = partial.get('proof')
+                if not isinstance(retained, dict):
+                    raise StateRefused('owner_close_partial_binding')
+                if external_facts is not None or 'owner_external_close' in retained:
+                    if external_facts is None:
+                        raise StateRefused('owner_external_facts_required')
+                    if file_sha(target) != partial_sha:
+                        raise StateRefused('owner_close_partial_binding')
+                    validated_partial_sha = partial_sha
+                    validate_external_partial(state, partial, occurrence, incident, sha, source,
+                                              external_facts, runtime.clock.now())
             read = runtime.read_account()
             # Validate the full read before using any acknowledged order row.
             runtime.validate_account_read(ledger, read)
@@ -232,14 +296,12 @@ def owner_close(runtime, incident, *, external_facts=None):
             if (proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
                     proof.get('unknown_submit') is not False or proof.get('money_contradiction') is True):
                 raise StateRefused('owner_money_repair_required')
-            relative = 'owner-closures/' + incident + '.json'
             fields = {'authority': 'owner_operational_close', 'incident_id': incident, 'incident_sha256': sha,
                 **{key: occurrence.get(key) for key in ('source_attempt_id', 'artifact', 'detection_sequence')},
                 'ledger_head_sha256': ledger.previous, 'proof': proof, 'account_read': read,
                 'terminal_legs_sha256': digest(legs_binding(ledger, source)), 'artifact_manifest': manifest(state, source),
                 'research_evidence_complete': False, 'closed_at_utc': runtime.clock.now().isoformat()}
             fields['source_attempt_id'] = source
-            target = state.root / relative
             recovery = {}
             if target.exists():
                 # A retry is still owner-confirmed and freshly proves money.
@@ -251,15 +313,17 @@ def owner_close(runtime, incident, *, external_facts=None):
                 keys = ('authority', 'incident_id', 'incident_sha256', 'source_attempt_id',
                         'artifact', 'detection_sequence', 'terminal_legs_sha256', 'artifact_manifest',
                         'research_evidence_complete')
-                if (any(partial.get(key) != fields.get(key) for key in keys) or
+                closure_sha = file_sha(target)
+                if ((external_facts is not None and closure_sha != validated_partial_sha) or
+                        any(partial.get(key) != fields.get(key) for key in keys) or
                         previous not in {ledger.row_sha256(i) for i in range(len(ledger.rows))} or
                         retained.get('money_accounting_complete') is not True or
                         retained.get('cleanup_proven') is not True or retained.get('unknown_submit') is not False or
                         retained.get('read_sha256') != digest(partial.get('account_read')) or
-                        retained.get('owner_external_close', {}).get('facts_sha256') !=
-                        proof.get('owner_external_close', {}).get('facts_sha256')):
+                        any(retained.get('owner_external_close', {}).get(key) !=
+                            proof.get('owner_external_close', {}).get(key)
+                            for key in ('facts_sha256', 'owner_cash_allocation'))):
                     raise StateRefused('owner_close_partial_binding')
-                closure_sha = file_sha(target)
                 recovery = {'receipt_ledger_sha256': previous, 'recovered_partial': True}
             else:
                 closure_sha = state.save(relative, fields)
