@@ -1016,3 +1016,40 @@ was released when the tick exited.
 - **Still open:** the T122 operations branch `codex/b090l4-ops-20261117` `5725dc1c` (not installed); the A095 maker
   fixes (`codex/a095-maker-depth`, `codex/a095-maker-fresh-distance`) for review after Wednesday; the 2 h start-window
   cap; bot memory growth.
+
+## 2026-11-18 F2 Pin B Wednesday: incident 3 on B090-L4; B090-L5 installed; B090-L6 candidate
+
+- **Incident 3** (`4b7715b6…`), during Wednesday's B session on B090-L4. Root cause (Codex T119r8,
+  master-accepted): an own-account redemption notice for a non-campaign position (non-campaign activity on the
+  shared account) arrived on the user stream mid-session. L4 treated it as an invalid stream event, so the strict
+  `*_failed` guard latched `private_evidence_unbound`. Separately, the 10 final repeat terminal GETs had failed:
+  HTTP 200 with null bodies. The owner closed the incident about 14:58 with the L4 owner-close card.
+- **B090-L5 `321fbace`** (`codex/b090l5-terminal-read-retry-20261118`):
+  - retryable terminal-read gaps are recorded per order and re-read at postcheck, before the private proof binds;
+  - an own-account redemption notice becomes `account_redemption_notice` and ends the whole session cleanly; a
+    same-day restart is possible only inside 09:00-11:00.
+  - T119r9 (master-accepted): keep L5. The modelled cost of ending the session on such a notice is tiny. A
+    keep-quoting design was specified but not built.
+- **Install** (owner card, about 20:27). The first Enable at 20:20 refused, because non-campaign resting orders
+  were open on the shared account and the funding proof requires zero open orders. The retry at 20:27 passed
+  after they cleared. Release `autostart-release-b090l5.json` sha256 `765eacfe…`; campaign revision 6
+  `87ef3ebc…` is unchanged (`complete_pairs`). Thursday 11-19 09:00 runs on L5.
+- **Operating rule (master):** before every Enable or owner card, the shared account has no non-campaign resting
+  orders. The L6 card prints that count before Enable.
+- **B090-L6 candidate `e9f58310`** (`codex/b090l6-postcheck-hardening-20261118`, stacked on L5):
+  - A095's three L5-review findings: a contradiction refuses instead of being retried away; every named
+    observation interval is staged against the attempt's anchored result time before any terminal write; GET-age
+    semantics are documented and tested;
+  - A095's two R6 residuals: a full ordinary account preflight before any terminal append; a sparse GET cannot
+    hide a changed booked quantity;
+  - one scope gap: the same strict checks for every first terminal write;
+  - A095's two quote fixes (bundle `0d1ada320`, commit `e7fd7275`): owned depth and the fresh-book distance, the
+    work of `codex/a095-maker-depth` and `codex/a095-maker-fresh-distance`.
+
+  654 focused checks passed, and a ledger-copy replay L5→L6 printed IDENTICAL on 985 copied rows. A095's
+  independent review R6-L6B-REVIEW: INSTALLABLE, with one inherited recovery corner that L5 also has. Owner
+  installation is recommended for Thursday 11-19 evening, after the session.
+- **Card fix (T119r12):** the owner card's block 1 now refuses before it disables the task when a heavy-workload
+  marker or hold exists. The L5 card had the old ordering.
+- **Still open:** the inherited recovery corner; the T122 operations branch `codex/b090l4-ops-20261117`
+  `5725dc1c` (in neither L5 nor L6, not installed); the 2 h start-window cap; bot memory growth.
