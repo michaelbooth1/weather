@@ -38,6 +38,37 @@ if (-not (Test-Path $py)) { $py = "python" }
 $flags = New-Object System.Collections.Generic.List[string]
 $warns = New-Object System.Collections.Generic.List[string]
 
+function Get-WeatherCaptureHealthSignals {
+    param($LoopStatus, $EventMetadata, $RefreshLastResult,
+          [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
+    $integrityFlags = @()
+    $metadataWarnings = @()
+    $liveness = $LoopStatus.fleet_collection.summary.capture_liveness
+    if ($null -ne $liveness -and [string]$liveness.status -ne "OK") {
+        $integrityFlags += "CAPTURE INTEGRITY: liveness $($liveness.status): $($liveness.reason)"
+    }
+    $metadataAgeHours = $null
+    try {
+        if (-not $EventMetadata.generated_at_utc) { throw "missing generated_at_utc" }
+        $generated = [datetimeoffset]::Parse([string]$EventMetadata.generated_at_utc,
+            [cultureinfo]::InvariantCulture)
+        $metadataAgeHours = ($Now - $generated).TotalHours
+        if ($metadataAgeHours -gt 24) {
+            $metadataWarnings += "EVENT METADATA WARN: generated location_market_events metadata is $([math]::Round($metadataAgeHours, 1)) hours old (warning after 24h; capture blocks at its validation age limit)"
+        }
+    }
+    catch { $metadataWarnings += "EVENT METADATA WARN: generated location_market_events timestamp is missing or unreadable" }
+    if ($null -ne $RefreshLastResult -and [long]$RefreshLastResult -ne 0) {
+        $metadataWarnings += "EVENT METADATA WARN: WeatherLocationConfigRefresh last result is $RefreshLastResult"
+    }
+    return [PSCustomObject]@{
+        flags = @($integrityFlags); warns = @($metadataWarnings)
+        capture_liveness = $liveness
+        metadata_age_hours = $metadataAgeHours
+        refresh_last_result = $RefreshLastResult
+    }
+}
+
 function Get-WeatherSweepFlags {
     param([string]$Path, [datetime]$Now = (Get-Date))
     try {
@@ -1624,6 +1655,21 @@ foreach ($label in $portableCaps.Keys) {
     }
     $captureRuntimeState[$label] = [PSCustomObject]$runtimeState
 }
+# Inspect data flow independently of the process/heartbeat checks above.
+$snapshotLoopStatus = $null
+$generatedEventMetadata = $null
+$locationRefreshResult = $null
+try { $snapshotLoopStatus = Get-Content -LiteralPath (Join-Path $captureRoot "loop_status.json") -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+try { $generatedEventMetadata = Get-Content -LiteralPath (Join-Path $repo "config\location_market_events.json") -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+try {
+    $refreshInfo = Get-ScheduledTaskInfo -TaskName "WeatherLocationConfigRefresh" -ErrorAction Stop
+    $locationRefreshResult = $refreshInfo.LastTaskResult
+} catch { }
+$captureHealthSignals = Get-WeatherCaptureHealthSignals -LoopStatus $snapshotLoopStatus `
+    -EventMetadata $generatedEventMetadata -RefreshLastResult $locationRefreshResult
+foreach ($integrityFlag in $captureHealthSignals.flags) { $flags.Add($integrityFlag) }
+foreach ($metadataWarning in $captureHealthSignals.warns) { $warns.Add($metadataWarning) }
+
 foreach ($c in $caps.Keys) {
     if ($capState[$c].Count -eq 0) {
         $flags.Add("capture loop DOWN: $c")   # a dead capture loop is streak-critical
@@ -5238,6 +5284,7 @@ if ($Json) {
             settled = $streak.most_recent_settled
         }
         capture  = $capState; capture_runtime = $captureRuntimeState
+        capture_health = $captureHealthSignals
         execution_tape = $executionTapeState
         maker_evidence = $makerEvidence
         maker_evidence_code = $makerEvidenceCode

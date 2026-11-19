@@ -1546,25 +1546,36 @@ def fleet_capture_liveness(markets, interval_minutes=10.0):
     # Mirror loop_health's dead_after = 2*interval + 2: a market is dark only
     # once it has missed ~two full capture cycles, not on normal sleep jitter.
     stale_after = 2.0 * float(interval_minutes) + 2.0
-    pending, healthy, stale = [], [], []
+    pending, healthy, stale, blocked = [], [], [], []
     # Window-open states from live_coverage_summary: COLLECTING (in-window, on
     # cadence) and AT_RISK (window started, something off). PENDING is pre-window
     # and CLEAN/PARTIAL are post-window -- neither is a live "going dark" alarm.
     open_window_states = {"COLLECTING", "AT_RISK"}
     for row in markets:
-        state = str(row.get("state") or "").upper()
+        state = str(row.get("capture_window_state") or row.get("state") or "").upper()
         age = row.get("latest_age_minutes")
         market_id = row.get("market_id")
+        capture = row.get("last_capture") or {}
+        is_blocked = bool(capture.get("blocked")) or str(capture.get("status") or "").upper() == "BLOCK"
         if state == "PENDING":
             pending.append(market_id)
             continue
         if state in open_window_states:
             is_dark = age is None or age > stale_after
-            if is_dark:
+            if is_dark or is_blocked:
+                if is_blocked:
+                    blocked.append(market_id)
                 stale.append({
                     "market_id": market_id,
                     "state": state,
                     "latest_age_minutes": age,
+                    "blocked": is_blocked,
+                    "status": capture.get("status"),
+                    "reason": (capture.get("reason") or capture.get("error")
+                               or capture.get("skipped_reason") or row.get("reason")
+                               or "no recent snapshot written"),
+                    "error": capture.get("error"),
+                    "skipped_reason": capture.get("skipped_reason"),
                 })
             else:
                 healthy.append(market_id)
@@ -1581,13 +1592,15 @@ def fleet_capture_liveness(markets, interval_minutes=10.0):
         "healthy_market_count": len(healthy),
         "pending_market_count": len(pending),
         "stale_market_count": len(stale),
+        "blocked_market_count": len(blocked),
         "stale_markets": stale,
         "pending_markets": pending,
         "reason": (
             "all in-window markets are capturing on cadence"
             if not stale
-            else f"{len(stale)} market(s) dark (>{round(stale_after)}min) inside an open "
-            "capture window: " + ", ".join(str(row["market_id"]) for row in stale)
+            else f"{len(stale)} market(s) stale or blocked inside an open capture window "
+            f"(stale after {round(stale_after)}min; blocked {len(blocked)}): "
+            + "; ".join(f"{row['market_id']}: {row['reason']}" for row in stale)
         ),
         "status_command": SNAPSHOT_STATUS_COMMAND,
         "repair_command": SNAPSHOT_RESTART_COMMAND,
@@ -1605,11 +1618,32 @@ def fleet_collection_health(
 ):
     freshness_sla = float(interval_minutes) * float(tolerance)
     target_date = ensure_date(target_date) if target_date is not None else None
+    # A prior day's closed window cannot prove today's capture is alive.
+    # Loop results supply failure reasons only; successful writes come from tape.
+    try:
+        loop_status = json.loads((Path(snapshots_root) / "loop_status.json").read_text(encoding="utf-8"))
+        last_results = (loop_status.get("last_market_results") or {}) if isinstance(loop_status, dict) else {}
+    except (OSError, ValueError, TypeError):
+        last_results = {}
+    if not isinstance(last_results, dict):
+        last_results = {}
     markets = []
     for spec in all_specs():
-        folder = latest_market_folder(spec, snapshots_root=snapshots_root, target_date=target_date)
+        market_now = as_of or datetime.now(timezone.utc)
+        market_now = (market_now.astimezone(spec.tz) if market_now.tzinfo
+                      else market_now.replace(tzinfo=spec.tz))
+        market_date = target_date or (market_now.date() if live else None)
+        folder = latest_market_folder(spec, snapshots_root=snapshots_root, target_date=market_date)
+        expected_config = config_for_date(market_date, spec.id) if market_date is not None else None
+        last_capture = last_results.get(spec.id) or {}
+        if not isinstance(last_capture, dict):
+            last_capture = {}
+        if expected_config and last_capture.get("event_slug") != expected_config.event_slug:
+            last_capture = {}
         if folder is None:
-            expected_config = config_for_date(target_date, spec.id) if target_date is not None else None
+            missing_window = live_coverage_summary(
+                [], interval_minutes, tolerance, as_of=market_now, target_date=market_date,
+            ) if live else {}
             missing_summary = {
                 "state": "MISSING",
                 "action_required": True,
@@ -1625,8 +1659,8 @@ def fleet_collection_health(
                 [],
                 interval_minutes,
                 tolerance,
-                target_date=target_date,
-                as_of=as_of,
+                target_date=market_date,
+                as_of=market_now,
                 native_tz=spec.tz,
             )
             markets.append({
@@ -1636,11 +1670,13 @@ def fleet_collection_health(
                 "event_slug": expected_config.event_slug if expected_config else None,
                 "target_date": expected_config.target_date.isoformat() if expected_config else None,
                 "state": "MISSING",
+                "capture_window_state": missing_window.get("state"),
                 "action_required": True,
                 "snapshot_action_required": True,
                 "freshness_sla_minutes": freshness_sla,
                 "reason": "no snapshot tape found",
                 "snapshots": 0,
+                "last_capture": last_capture,
                 "snapshot_cadence_proof": cadence_proof,
                 "early_hour_coverage": early_hour_coverage,
             })
@@ -1661,6 +1697,7 @@ def fleet_collection_health(
             "city": spec.city_label,
             "unit": spec.display_unit,
             "state": summary.get("state") or ("CLEAN" if summary.get("clean") else "CHECK"),
+            "last_capture": last_capture,
             "action_required": action_required,
             "snapshot_action_required": snapshot_action_required,
             "freshness_sla_minutes": freshness_sla,
