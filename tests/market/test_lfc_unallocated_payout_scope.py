@@ -43,12 +43,12 @@ def test_normal_report_keeps_possible_burn_and_credit_separate(monkeypatch):
     monkeypatch.setattr(lfc_f2_reward_estimate, 'summary', lambda *_: {})
     result = economics.measured(ledger, ['S'])
     assert result['settlement']['unknown_payouts'] == ['R']
-    assert result['settlement']['possible_unallocated_payouts_by_token'] == {'R': ['71']}
+    assert result['settlement']['possible_unallocated_tokens_by_activity'] == {'R': ['71']}
     assert result['settlement']['redemptions'] == result['settlement']['cost_basis_releases'] == []
     assert result['campaign_capital']['blockers'] == ['R']
     unrelated = economics.measured(ledger, ['unrelated'])['settlement']
     assert unrelated['unknown_payouts'] == []
-    assert 'possible_unallocated_payouts_by_token' not in unrelated
+    assert 'possible_unallocated_tokens_by_activity' not in unrelated
 
 
 @pytest.mark.parametrize(('token', 'when', 'sessions', 'expected'), [

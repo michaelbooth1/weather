@@ -82,7 +82,7 @@ def measured(ledger, sessions):
         'settlement': {'cost_basis_releases': releases, 'redemptions': redemptions,
                        'zero_payout_losses': [r for r in book.zero_resolutions if book.lots[r['intent_key']]['session_id'] in sessions],
                        'unknown_payouts': [key for key in book.unknown if key in ids or key in possible],
-                       **({'possible_unallocated_payouts_by_token': possible} if possible else {})},
+                       **({'possible_unallocated_tokens_by_activity': possible} if possible else {})},
         'rewards': {'accruals': [], 'actually_paid_native': None, 'rebates_actually_paid_native': None,
                     'account_cash_credits': credits, 'earned_session_link_verified': False,
                     'state': 'earned_scope_evidence_pending', 'planning_is_income': False, **reward_rails},
