@@ -122,7 +122,7 @@ def wrapper_fixture(tmp_path, tmp_path_factory):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
+def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None, hang_seconds=4):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -135,12 +135,12 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
-    # Hang modes prove the hard stop at the fixture's 4 s deadline, counted from the moment the
+    # Hang modes normally prove a 4 s hard stop, counted from the moment the
     # child's tree exists; every other mode only needs a ceiling, so a slow runner cannot turn a
     # success path into a spurious hard stop. The launch ceiling bounds a child that never
     # builds its tree.
     hang = mode in ("hang", "slow_hang")
-    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": "4" if hang else "30",
+    environment = {**os.environ, "WEATHER_TEST_WRAPPER_DEADLINE_SECONDS": str(hang_seconds) if hang else "30",
                    "WEATHER_TEST_WRAPPER_LAUNCH_SECONDS": "30"}
     process = subprocess.Popen(arguments, cwd=source, env=environment, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
@@ -239,19 +239,21 @@ def test_wrapper_does_not_reuse_or_rewrite_a_spent_attempt(wrapper_fixture):
     assert {path.name: path.read_bytes() for path in output.iterdir()} == original
 
 
-# slow_hang: the child takes longer than the 4 s hang deadline to build its tree, as a slow
-# runner can; the deadline is armed only once the tree exists, so the launch is never cut short.
 @pytest.mark.parametrize("mode", ["hang", "slow_hang"])
 def test_abrupt_wrapper_exit_kills_entire_owned_tree(wrapper_fixture, mode):
-    process, output = launch(wrapper_fixture, mode)
+    # Allow slow launches and keep the wrapper's hang deadline beyond the test's readiness wait.
+    process, output = launch(wrapper_fixture, mode, hang_seconds=300)
     try:
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + 60
         while not (output / "descendant.json").exists():
-            if process.poll() is not None or time.monotonic() >= deadline:
+            if process.poll() is not None:
                 code, log = finish(process)
                 pytest.fail(f"fixture did not launch owned descendants: {code} {log}")
+            if time.monotonic() >= deadline:
+                pytest.fail("fixture did not launch owned descendants within 60 s")
             time.sleep(0.05)
         pids = json.loads((output / "descendant.json").read_text())
+        assert process.poll() is None, "wrapper exited before the abrupt kill"
         process.kill()  # Only the test-owned launcher; its Job must own the rest.
         finish(process)
         deadline = time.monotonic() + 5
