@@ -44,7 +44,7 @@ permits the late look; one that wrote its receipt is consumed.** Aligned with dr
   both exporter suites and the repo-wide audits (schema registry, import architecture, release import boundary,
   agent docs, path policy, module size). CI on PR #144 is the check of record.
 - **Roll verdict.** Unchanged: the change is expected to be roll-free, because no capture loop imports
-  `maker_core.replay`. Production derives it with `scripts\opsoll_verdict.ps1`.
+  `maker_core.replay`. Production derives it with `scripts\ops\roll_verdict.ps1`.
 - No signed `docs/research/maker-replay-*` file and no production state was touched.
 
 ## Changes in this revision
