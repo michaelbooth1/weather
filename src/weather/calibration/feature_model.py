@@ -154,8 +154,11 @@ def get_minute_of_day(time_str):
     except:
         return None
 
-def smoothed_dist(buckets, support, alpha=0.10):
+def smoothed_dist(buckets, support=None, alpha=0.10):
+    """Use the observed training degrees unless a separate support was specified."""
     counts = Counter(int(b) for b in buckets)
+    if support is None:
+        support = sorted(counts)
     denominator = len(buckets) + alpha * len(support)
     return {
         s: (counts.get(s, 0) + alpha) / denominator
@@ -184,7 +187,7 @@ def log_loss(prob_dict, actual_bucket):
     return -math.log(p)
 
 def brier_score(prob_dict, actual_bucket):
-    score = 0.0
+    score = 0.0 if actual_bucket in prob_dict else 1.0
     for k, v in prob_dict.items():
         y = 1.0 if k == actual_bucket else 0.0
         score += (v - y) ** 2
@@ -1011,7 +1014,6 @@ def main_item27_feature_value_report(market_id="toronto", n_splits=5):
     cache = model.historical_target_cache()
     daily = cache["daily"]
     by_date = cache["by_date"]
-    bucket_space = cache["bucket_space"]
     forecast_index = load_forecast_daily(daily_path_for(spec))
     forecast_profiles = load_forecast_profiles(long_path_for(spec))
     marine_water_contrast_index = load_marine_water_contrast_features(spec=spec)
@@ -1029,7 +1031,7 @@ def main_item27_feature_value_report(market_id="toronto", n_splits=5):
         raw_data,
         WIND_GROUPS,
         CLOUD_GROUPS,
-        bucket_space,
+        bucket_space=None,
         market_spec=spec,
         n_splits=n_splits,
     )
@@ -1485,7 +1487,6 @@ def _train_main(
 
     daily = cache["daily"]
     by_date = cache["by_date"]
-    bucket_space = cache["bucket_space"]
 
     print(f"Loaded {len(daily)} target-season days with observations.")
     training_inputs = None
@@ -1712,7 +1713,9 @@ def _train_main(
             train_days = [records[int(index)] for index in train_indices]
             
             # --- 1. Compute Baseline predictions ---
-            p_clim = smoothed_dist([d["final_bucket"] for d in train_days], bucket_space, alpha=0.10)
+            p_clim = smoothed_dist([d["final_bucket"] for d in train_days], alpha=0.10)
+            # The three conditional priors share the full training fold's degree support.
+            fold_support = tuple(p_clim)
             
             # Intraday lookup
             p_intraday = None
@@ -1722,7 +1725,7 @@ def _train_main(
                 matching_days = [d for d in train_days if round_half_up(d["high_so_far"]) == val_observed_bucket]
                 n_intraday = len(matching_days)
                 if n_intraday >= 8:
-                    p_intraday = smoothed_dist([d["final_bucket"] for d in matching_days], bucket_space, alpha=0.05)
+                    p_intraday = smoothed_dist([d["final_bucket"] for d in matching_days], fold_support, alpha=0.05)
                     
             # Wind regime
             p_wind = None
@@ -1730,7 +1733,7 @@ def _train_main(
             if val_wind:
                 matching_days = [d for d in train_days if d["wind_group"] == val_wind]
                 if len(matching_days) >= 20:
-                    p_wind = smoothed_dist([d["final_bucket"] for d in matching_days], bucket_space, alpha=0.10)
+                    p_wind = smoothed_dist([d["final_bucket"] for d in matching_days], fold_support, alpha=0.10)
                     
             # Cloud regime
             p_cloud = None
@@ -1738,7 +1741,7 @@ def _train_main(
             if val_cloud:
                 matching_days = [d for d in train_days if d["cloud_group"] == val_cloud]
                 if len(matching_days) >= 20:
-                    p_cloud = smoothed_dist([d["final_bucket"] for d in matching_days], bucket_space, alpha=0.10)
+                    p_cloud = smoothed_dist([d["final_bucket"] for d in matching_days], fold_support, alpha=0.10)
                     
             # Blend baseline
             scores_base = p_clim.copy()
@@ -1929,7 +1932,7 @@ def _train_main(
                 x_frame=X,
                 y=y,
                 records=records,
-                bucket_space=bucket_space,
+                bucket_space=None,
                 feature_cols=feature_cols,
                 numeric_feature_count=n_numeric,
                 blend_weights=WEIGHT_GRID,
