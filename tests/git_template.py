@@ -35,7 +35,11 @@ from typing import Sequence
 
 
 def _git(*arguments: str, timeout: float) -> str:
-    result = subprocess.run(["git", *arguments], capture_output=True, text=True, timeout=timeout)
+    # Background maintenance can remove lock files while the template is being copied.
+    result = subprocess.run(
+        ["git", "-c", "maintenance.auto=false", "-c", "gc.auto=0", *arguments],
+        capture_output=True, text=True, timeout=timeout,
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     return result.stdout.strip()
 
