@@ -4,7 +4,7 @@ Guards: B040 10-12, zero payout loss, cutoff cash and proved enrollment funding.
 """
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from types import SimpleNamespace
 
@@ -33,12 +33,12 @@ def guarded_account():
         yield
 
 
-def settled_ledger(tmp_path):
+def settled_ledger(tmp_path, *, settlement_time=NOW):
     ledger = ledger_at(tmp_path)
     for key, token in [('loser', '111'), ('winner', '222')]:
         filled(ledger, key, token=token, condition=CONDITION)
     install(ledger, cash='280')
-    record_settlement(tmp_path, CONDITION, clock=lambda: NOW,
+    record_settlement(tmp_path, CONDITION, clock=lambda: settlement_time,
         get=lambda path, params: resolution() if path.endswith('resolutions') else tokens())
     return ledger
 
@@ -106,6 +106,30 @@ def test_cutoff_winner_is_not_cash_even_if_redeemed_after_cutoff(tmp_path):
     assert sum(row['proved_redemption_cash_native'].values()) == 0 and row['late_cash_activity_ids']
     assert row['assessment']['state'] == 'INCONCLUSIVE' and row['planning_booked_as_income'] is False
     assert row['unswept_zero_payout_positions'][0]['token_id'] == '111'
+
+
+@pytest.mark.parametrize('offset_us', [-1, 0, 1])
+def test_final_inventory_uses_only_settlement_observed_by_cutoff(tmp_path, offset_us):
+    policy = parse_policy(example_policy())
+    cutoff = datetime.fromisoformat(policy.raw['evidence_cutoff_toronto']).astimezone(timezone.utc)
+    observed = cutoff + timedelta(microseconds=offset_us)
+    ledger = settled_ledger(tmp_path, settlement_time=observed)
+    row = snapshot(ledger, policy, root=tmp_path, now=cutoff + timedelta(hours=6))
+
+    assert sum(row['proved_redemption_cash_native'].values()) == 0
+    assert row['assessment']['state'] == 'INCONCLUSIVE'
+    receipt_key = str((tmp_path / 'settlement' / (CONDITION + '.json')).relative_to(tmp_path))
+    assert receipt_key in row['evidence_sha256']
+    if offset_us > 0:
+        assert row['unredeemed_winners_at_cutoff'] == []
+        assert row['unswept_zero_payout_positions'] == []
+        assert {lot['token_id'] for lot in row['unresolved_at_cutoff']} == {'111', '222'}
+        assert all(lot['settlement_observed_after_cutoff_utc'] == observed.isoformat()
+                   for lot in row['unresolved_at_cutoff'])
+    else:
+        assert [lot['token_id'] for lot in row['unredeemed_winners_at_cutoff']] == ['222']
+        assert [lot['token_id'] for lot in row['unswept_zero_payout_positions']] == ['111']
+        assert row['unresolved_at_cutoff'] == []
 
 
 def test_after_cutoff_before_final_look_is_an_honest_snapshot(tmp_path):
