@@ -87,8 +87,8 @@ def validate_asset(proof):
     return proof
 
 
-def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep):
-    """Retain raw receipts, reusing ledger-anchored historical observations."""
+def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep, persist=True):
+    """Reuse anchored history and return new proofs inline for an unpublished read."""
     from weather.market.lfc_capital import ASSET
     cache, cached_views = {}, {}
     for event in ledger.capital_rows:
@@ -144,6 +144,9 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep):
             except Exception as exc:
                 proof['redemption_failure_type'] = type(exc).__name__
         sha = digest(proof)
+        if not persist and sha not in known_groups:
+            proofs[tx] = proof
+            continue
         if sha not in known_groups:
             ledger.record('capital_native_group', proof=proof, proof_sha256=sha)
             known_groups.add(sha)

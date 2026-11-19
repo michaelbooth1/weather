@@ -39,14 +39,11 @@ def solve(variables, target):
 
 
 def personal_net(book, rows, snapshot_at):
-    """Unbound, confirmed SDK executions and documented fees are fixed terms."""
+    """Only new executions contribute cash; validate previously receipt-bound trades."""
     if not rows:
         return 0
-    from weather.market.lfc_f2_personal_cash import movements
-    first = book.inventory_anchors[0]
-    found = movements(book.ledger, rows,
-        start=utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp(),
-        end=utc(snapshot_at).timestamp(), bound=book.personal_trades)
+    from weather.market.lfc_f2_personal_cash import observed_movements
+    found = observed_movements(book, rows, snapshot_at)
     return sum((item['cash_native'] if item['side'] == 'SELL' else -item['cash_native']) - item['fee_native']
                for key, item in found.items() if key not in book.personal_trades)
 

@@ -478,10 +478,15 @@ class Runtime:
                 finally:
                     self.lease = None
 
-    def read_account(self, *, terminal_order_ids=()):
+    def read_account(self, *, terminal_order_ids=(), persist=True):
+        """Read the account, with no observation or native ledger writes when unpublished."""
+        options = {'terminal_order_ids': terminal_order_ids} if terminal_order_ids else {}
+        if not persist:
+            options['persist'] = False
         try:
-            read = (self.account_read_once(terminal_order_ids=terminal_order_ids)
-                    if terminal_order_ids else self.account_read_once())
+            read = self.account_read_once(**options)
+            if not persist:
+                return read
             # Retain every observation, including an early quantity mismatch
             # that a later bounded read explains as propagation delay.
             self.state.save('account-reads/' + uuid.uuid4().hex + '.json',
@@ -491,14 +496,15 @@ class Runtime:
             return read
         except Exception as exc:
             retryable = transient_read_error(exc)
-            self.state.save('read-failures/' + uuid.uuid4().hex + '.json', {
-                'at_utc': self.clock.now().isoformat(), 'exception_type': type(exc).__name__,
-                'retryable_read_gap': retryable, 'monetary_placement_retried': False})
+            if persist:
+                self.state.save('read-failures/' + uuid.uuid4().hex + '.json', {
+                    'at_utc': self.clock.now().isoformat(), 'exception_type': type(exc).__name__,
+                    'retryable_read_gap': retryable, 'monetary_placement_retried': False})
             if retryable:
                 raise TransientPrecheck('account_read_unavailable') from None
             raise
 
-    def account_read_once(self, *, terminal_order_ids=()):
+    def account_read_once(self, *, terminal_order_ids=(), persist=True):
         """Read-only SDK route, retaining bounded source responses in the runtime.
 
         The independent LAN reader remains useful owner evidence, not an extra
@@ -567,7 +573,8 @@ class Runtime:
                 if policy.f2:
                     from weather.market.lfc_f2_wallet_reads import collect_window
                     collect = collect_window
-                values['capital_activity'] = collect(values['capital_activity'], ledger=self.state.ledger)
+                kwargs = {} if persist else {'persist': False}
+                values['capital_activity'] = collect(values['capital_activity'], ledger=self.state.ledger, **kwargs)
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': self.state.maker,
                     **self.state.policy_binding,
                     'since': venue.trades_after, 'started_at_utc': start.isoformat(),

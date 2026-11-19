@@ -9,13 +9,34 @@ def terms(item):
     return {key: value for key, value in item.items() if key != 'source_sha256'}
 
 
+def receipt_bound_trade(item, row, part, order_id, size_key, when, maker):
+    from weather.market.lfc_campaign_state import StateRefused
+    from weather.market.lfc_capital import CapitalRefused
+    from weather.market.lfc_owner_external_close import hash32, sdk_trade_source
+
+    try:
+        if (str(part.get('maker_address', '')).lower() != maker or
+                item['receipt_transaction_hash'] != hash32(row['transaction_hash']) or
+                item['sdk_source'] != sdk_trade_source(row, part, order_id, size_key, when)):
+            raise ValueError('changed receipt source')
+    except (StateRefused, KeyError, ValueError, TypeError, DecimalException) as exc:
+        raise CapitalRefused('f2_personal_trade_changed') from exc
+    return item
+
+
 def movements(ledger, rows, *, start, end, bound=None):
     from weather.market.lfc_capital import CapitalRefused, SCALE, native
     maker, ours = ledger.rows[0]['maker_address'].lower(), ledger.our_order_ids()
     bound = {} if bound is None else bound
+    receipt_trades = {item['sdk_source']['trade_id']: key for key, item in bound.items() if 'sdk_source' in item}
+    receipt_txs = {item['receipt_transaction_hash']: key for key, item in bound.items() if 'sdk_source' in item}
     result = {}
     for row in rows:
+        retained_keys = {receipt_trades.get(str(row.get('id'))),
+                         receipt_txs.get(str(row.get('transaction_hash', '')).lower())} - {None}
         if str(row.get('status', '')).upper() == 'FAILED':
+            if retained_keys:
+                raise CapitalRefused('f2_personal_trade_changed')
             continue
         parts = []
         if str(row.get('trader_side', '')).upper() == 'TAKER' and row.get('taker_order_id') not in ours:
@@ -26,18 +47,30 @@ def movements(ledger, rows, *, start, end, bound=None):
                     continue
                 parts.append((part.get('order_id'), part, 'matched_amount'))
         if not parts:
+            if retained_keys:
+                raise CapitalRefused('f2_personal_trade_changed')
             continue
         try:
-            timestamp = utc(row['matched_at']).timestamp()
+            when = utc(row['matched_at'])
+            timestamp = when.timestamp()
             if timestamp < start:
+                if retained_keys:
+                    raise CapitalRefused('f2_personal_trade_changed')
                 continue
             if timestamp > end or str(row.get('status', '')).upper() != 'CONFIRMED':
+                if retained_keys:
+                    raise CapitalRefused('f2_personal_trade_changed')
                 raise ValueError('not confirmed in snapshot')
             trade_id = row['id']
             if not isinstance(trade_id, str) or not trade_id:
                 raise ValueError('trade id')
             for order_id, part, size_key in parts:
                 key = trade_id + '/' + str(order_id)
+                if retained_keys and retained_keys != {key}:
+                    raise CapitalRefused('f2_personal_trade_changed')
+                if key in bound and 'sdk_source' in bound[key]:
+                    result[key] = receipt_bound_trade(bound[key], row, part, order_id, size_key, when, maker)
+                    continue
                 side = str(part['side']).upper()
                 price, size = quantity(part['price']), quantity(part[size_key])
                 if not isinstance(order_id, str) or not order_id or side not in {'BUY', 'SELL'} or not 0 < price <= 1 or not size:
@@ -70,13 +103,16 @@ def movements(ledger, rows, *, start, end, bound=None):
     return result
 
 
+def observed_movements(book, rows, snapshot_at):
+    first = book.inventory_anchors[0]
+    start = utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp()
+    return movements(book.ledger, rows, start=start, end=utc(snapshot_at).timestamp(), bound=book.personal_trades)
+
+
 def sources(book, read, snapshot_at):
     if book.inventory_anchor is None:
         return []
-    first = book.inventory_anchors[0]
-    start = utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp()
-    found = movements(book.ledger, read['trades'], start=start, end=utc(snapshot_at).timestamp(),
-                      bound=book.personal_trades)
+    found = observed_movements(book, read['trades'], snapshot_at)
     for key, old in book.personal_trades.items():
         if key not in found or terms(found[key]) != terms(old):
             from weather.market.lfc_capital import CapitalRefused
@@ -95,10 +131,7 @@ def capture(book, anchor, sequence):
             from weather.market.lfc_capital import CapitalRefused
             raise CapitalRefused('f2_personal_trade_binding')
         return 0
-    first = book.inventory_anchors[0]
-    found = movements(book.ledger, anchor['personal_trade_sources'],
-        start=utc(first.get('snapshot_at_utc', first['at_utc'])).timestamp(),
-        end=utc(anchor['snapshot_at_utc']).timestamp(), bound=book.personal_trades)
+    found = observed_movements(book, anchor['personal_trade_sources'], anchor['snapshot_at_utc'])
     net = 0
     for key, item in sorted(found.items(), key=lambda pair: (pair[1]['timestamp'], pair[0])):
         if key in book.personal_trades:

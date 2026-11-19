@@ -11,6 +11,7 @@ import pytest
 
 from tests.market.test_lfc_f2_capital import MAKER, filled
 from tests.market.test_lfc_f2_cash_mirror_b082 import cash_activity
+from tests.market.test_lfc_f2_capital_reads import rpc_packet
 from tests.market.test_lfc_f2_inventory_b080 import fixture, observation
 from tests.market.test_lfc_f2_personal_cash_b081 import account_guard, owner_trade
 from tests.market.test_lfc_redemption_native import paired
@@ -74,9 +75,9 @@ def empty_protocol_feed(monkeypatch):
 
 
 def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withdraw=0, quarantine=0,
-                  example=False):
+                  example=False, owner_position='30'):
     ledger, baseline, clock, _ = fixture(tmp_path, personal=False, bridge=False)
-    holdings = {'denver': '20', '90': '30'}
+    holdings = {'denver': '20', '90': owner_position}
     if not example:
         source, proof, tokens = paired(auto=True)
         for idx, token in enumerate(tokens):
@@ -118,7 +119,8 @@ def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withd
     cash_in, cash_out = ((0, gross + FEE) if side == 'BUY' else
                          (gross, FEE) if separate_fee else (gross - FEE, 0))
     cash = str(Decimal(book.expected_cash() + cash_in - cash_out) / 1_000_000)
-    read = observation(ledger, clock, positions={'denver': '20', '90': '50' if side == 'BUY' else '10'}, cash=cash)
+    after = Decimal(owner_position) + (20 if side == 'BUY' else -20)
+    read = observation(ledger, clock, positions={'denver': '20', **({'90': str(after)} if after > 0 else {})}, cash=cash)
     trade = owner_trade(clock, side, seconds=3)
     trade.update(market=FOREIGN, condition_id=FOREIGN, taker_order_id=ORDER)
     if example:
@@ -327,6 +329,33 @@ def test_owner_close_cli_failure_keeps_exit_nonzero(monkeypatch, capsys, failure
     assert capsys.readouterr().out.splitlines().count(expected) == (1 if failure == 'geoblock' else 0)
 
 
+@pytest.mark.parametrize('owner_position', ['20', '19.99995'])
+def test_touched_omitted_zero_or_slightly_negative_projection_uses_native_balance(
+        tmp_path, monkeypatch, account_guard, owner_position):
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path, owner_position=owner_position)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda *_: receipt)
+    calls = []
+
+    def block(number, timestamp):
+        return rpc_packet({'number': hex(number), 'timestamp': hex(timestamp),
+                           'hash': f'0x{number:064x}', 'parentHash': f'0x{number-1:064x}'})
+
+    def checkpoints(wallet, anchor, cut, omitted, first_trade_block):
+        assert wallet == MAKER and first_trade_block == 256
+        assert omitted == {'90': (Decimal(owner_position), Decimal('-20'))}
+        a, b = int(anchor.timestamp()), int(cut.timestamp())
+        calls.append(1)
+        return {'brackets': [[block(250, a), block(251, a+1)], [block(260, b), block(261, b+1)]],
+                'balances': {'90': [rpc_packet(f'0x{20_000_008:064x}'), rpc_packet(f'0x{8:064x}')]}}
+
+    monkeypatch.setattr('weather.market.lfc_owner_external_inventory.collect_checkpoints', checkpoints)
+    after, packet = book_trade(runtime, ledger, read, facts)
+    from weather.market.lfc_f2_inventory import expected_inventory
+    inventory = expected_inventory(after.ledger, after.inventory_anchor, after)
+    assert set(packet['native_inventory']['balances']) == {'90'} and calls == [1]
+    assert Decimal(inventory['90']) == Decimal('0.000008')
+
+
 @pytest.mark.parametrize(('case', 'reason'), [
     ('unexplained_movement', 'owner_external_inventory_changed'),
     ('extra_execution', 'owner_external_proof_invalid'),
@@ -413,7 +442,8 @@ def owner_runtime(tmp_path, monkeypatch):
     runtime.workload_path, runtime.hold_path = tmp_path / 'unused-marker', tmp_path / 'unused-hold'
     calls = []
 
-    def read_account():
+    def read_account(*, persist):
+        assert persist is False
         calls.append('account')
         return read
 
@@ -513,7 +543,7 @@ def test_partial_change_during_fresh_proof_refuses_without_any_append(
     account_read = runtime.read_account
     changed = original + b'\n'
 
-    def read_after_mutation():
+    def read_after_mutation(*, persist):
         if mutation == 'gone':
             partial.unlink()
         elif mutation == 'rewrite':
@@ -522,7 +552,7 @@ def test_partial_change_during_fresh_proof_refuses_without_any_append(
             replacement = partial.with_suffix('.replacement')
             replacement.write_bytes(original if mutation == 'identical_replacement' else changed)
             replacement.replace(partial)
-        return account_read()
+        return account_read(persist=persist)
 
     monkeypatch.setattr(runtime, 'read_account', read_after_mutation)
     with pytest.raises(StateRefused, match='owner_close_partial_binding'):
@@ -558,7 +588,7 @@ def test_coordinator_finalization_reuses_commit_but_explicit_retry_rereads(tmp_p
     # The coordinator's receipt-only helper accepts a state, with no runtime or
     # venue adapter. Removing live read capability must not block finalization.
     with monkeypatch.context() as no_reads:
-        no_reads.setattr(runtime, 'read_account', lambda: pytest.fail('account read during finalization'))
+        no_reads.setattr(runtime, 'read_account', lambda **_: pytest.fail('account read during finalization'))
         no_reads.setattr('weather.market.lfc_owner_external_close.rpc_read',
                          lambda *args: pytest.fail('chain read during finalization'))
         assert close.complete_committed(runtime.state, ATTEMPT, runtime.clock.now())

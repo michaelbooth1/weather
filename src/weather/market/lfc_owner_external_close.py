@@ -1,11 +1,12 @@
 """Exact historical external trades, admitted only by owner-operational close."""
 from collections import Counter
 from datetime import timedelta
+from decimal import Decimal
 import re
 
 from eth_abi.exceptions import DecodingError
 
-from weather.market.lfc_accounting import quantity, same_position
+from weather.market.lfc_accounting import POSITION_DUST, quantity, same_position
 from weather.market.lfc_campaign_state import StateRefused
 from weather.market.lfc_capital import ASSET, CapitalBook, SCALE, native
 from weather.market.lfc_capital_native import hex_number, result, rpc_read, validate_asset, wallet_transfer_totals
@@ -55,6 +56,18 @@ def campaign_conditions(ledger, sequence=None):
             if row['event'] in ('session_start', 'leg_intent')}
 
 
+def sdk_trade_source(row, part, order, size_key, when):
+    condition, trade_id = hash32(row['market']), row['id']
+    if row.get('condition_id', condition) != condition:
+        raise StateRefused('owner_external_identity')
+    if not isinstance(trade_id, str) or not trade_id.strip() or len(trade_id) > 256:
+        raise StateRefused('owner_external_identity')
+    return {'trade_id': trade_id, 'order_id': hash32(order), 'condition_id': condition,
+            'token_id': str(part.get('token_id', part.get('asset_id'))), 'side': part['side'],
+            'price': str(quantity(part['price']).normalize()),
+            'quantity': str(quantity(part[size_key]).normalize()), 'matched_at': when.isoformat()}
+
+
 def normalized_sources(book, read, attempt, cut, *, fresh=False):
     """Bind confirmed wallet executions to the requested historical or fresh cut."""
     wallet = book.ledger.rows[0]['maker_address'].lower()
@@ -89,23 +102,16 @@ def normalized_sources(book, read, attempt, cut, *, fresh=False):
         if len(parts) != 1 or row.get('status') != 'CONFIRMED':
             raise StateRefused('owner_external_trade_unconfirmed')
         (oid, part, size_key), = parts
-        condition = hash32(row['market'])
-        token = str(part.get('token_id', part.get('asset_id')))
-        trade_id = row['id']
+        source = sdk_trade_source(row, part, oid, size_key, when)
+        trade_id = source['trade_id']
         order_ids = {row.get('taker_order_id'), *(m.get('order_id') for m in row.get('maker_orders') or ())}
-        if condition in markets or token in campaign_tokens or ids & order_ids or trade_id in ids:
+        if source['condition_id'] in markets or source['token_id'] in campaign_tokens or ids & order_ids or trade_id in ids:
             raise StateRefused('owner_external_campaign_overlap')
-        if row.get('condition_id', condition) != condition:
-            raise StateRefused('owner_external_identity')
-        if not isinstance(trade_id, str) or not trade_id.strip() or len(trade_id) > 256:
-            raise StateRefused('owner_external_identity')
         tx = hash32(tx)
         if tx in sources or trade_id in trade_ids:
             raise StateRefused('owner_external_trade_set_changed')
         trade_ids.add(trade_id)
-        sources[tx] = {'trade_id': trade_id, 'order_id': hash32(oid), 'condition_id': condition,
-                       'token_id': token, 'side': part['side'], 'price': str(quantity(part['price']).normalize()),
-                       'quantity': str(quantity(part[size_key]).normalize()), 'matched_at': when.isoformat()}
+        sources[tx] = source
         if fresh and len(sources) > MAX_TRADES:
             raise StateRefused('owner_external_trade_cap')
     if (not fresh and len(sources) > MAX_PINNED_TRADES) or any(counts[tx] != 1 for tx in sources):
@@ -317,23 +323,22 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         personal.append((key, source, observed, delta))
     if not already_booked:
         for token, delta in deltas.items():
-            expected = quantity(projected.get(token, 0)) + delta
-            if expected < 0:
-                raise StateRefused('owner_external_inventory_changed')
-            projected[token] = str(expected)
+            projected[token] = str(quantity(projected.get(token, 0)) + delta)
     positions = packet['positions']
     from weather.market.lfc_owner_external_inventory import INDEX_OMISSION_LIMIT, collect_checkpoints, native_corrections
     omitted = {}
-    for token in set(projected) | set(positions):
+    for token in set(projected) | set(positions) | set(deltas):
         before, after = projected.get(token, 0), positions.get(token, 0)
-        equal = same_position(before, after) if token in owned else quantity(before) == quantity(after)
-        if equal:
+        expected = Decimal(before)
+        if (fresh and token in deltas and token not in owned and token not in positions and
+                -POSITION_DUST < expected < INDEX_OMISSION_LIMIT):
+            omitted[token] = (expected - deltas[token], deltas[token])
             continue
-        expected = quantity(before)
-        if (not fresh or token in owned or token not in deltas or quantity(after) or
-                not 0 < expected < INDEX_OMISSION_LIMIT):
+        if expected < 0:
             raise StateRefused('owner_external_inventory_changed')
-        omitted[token] = (expected - deltas[token], deltas[token])
+        equal = same_position(before, after) if token in owned else expected == quantity(after)
+        if not equal:
+            raise StateRefused('owner_external_inventory_changed')
     if packet['cash_native'] != book.expected_cash() + (0 if already_booked else cash):
         raise StateRefused('owner_external_cash_changed')
     corrections = {}
@@ -355,7 +360,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         book.personal_trades[key] = {'id': key, 'order_id': source['order_id'],
             'timestamp': timestamp, 'side': source['side'],
             'cash_native': observed['gross_native'], 'fee_native': observed['fee_native'],
-            'source_sha256': digest(source)}
+            'source_sha256': digest(source), **({'sdk_source': source,
+                 'receipt_transaction_hash': observed['transaction_hash']} if fresh else {})}
         book.owner_inventory_adjustments.append({'activity_id': 'personal-' + key, 'sequence': sequence,
             'token_id': source['token_id'], 'delta': str(delta), 'read_sha256': packet['read_sha256']})
         signed = observed['cash_in_native'] - observed['cash_out_native']
@@ -388,6 +394,9 @@ def observed_inputs(book, read, facts, *, fresh=False):
         refuse_movements(rows, utc(book.inventory_anchor['snapshot_at_utc']), set())
     if observed_cut < cut or not activity_matches:
         raise StateRefused('owner_external_activity_cut')
+    if any(set(item) != {'native_group_sha256'} for item in
+           read['capital_activity'].get('pending_native', {}).get('native_receipts', {}).values()):
+        raise StateRefused('owner_external_pending_native_changed')
     sources = normalized_sources(book, read, facts['attempt_id'], observed_cut if fresh else cut, fresh=fresh)
     expected = {item['receipt']['transaction_hash']: item['source'] for item in facts['trades']}
     if (any(sources.get(tx) != source for tx, source in expected.items()) if fresh else sources != expected):

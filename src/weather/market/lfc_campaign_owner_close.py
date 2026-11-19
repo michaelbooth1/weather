@@ -253,6 +253,31 @@ def complete_committed(state, attempt, now, *, incident=None):
     return True
 
 
+def ordinary_owner_proof(runtime, ledger):
+    from datetime import datetime, timedelta
+    from weather.market.lfc_campaign_state import StateRefused
+
+    read = runtime.read_account()
+    runtime.validate_account_read(ledger, read)
+    for leg in list(ledger.unresolved_legs()):
+        observed = read.get('terminal_orders', {}).get(leg['order_id'])
+        if observed is None:
+            raise StateRefused('owner_close_terminal_pending')
+        begin, end = (datetime.fromisoformat(observed[key]) for key in ('started_at_utc', 'ended_at_utc'))
+        if (begin.utcoffset() != timedelta(0) or end.utcoffset() != timedelta(0) or
+                not datetime.fromisoformat(read['started_at_utc']) <= begin <= end <= datetime.fromisoformat(read['ended_at_utc']) or
+                not 0 <= (runtime.clock.now() - begin).total_seconds() <= 120):
+            raise StateRefused('owner_close_terminal_binding')
+        ledger.terminal(leg['order_id'], observed['row'], source='owner_operational_close')
+    if ledger.unresolved_legs() or read.get('open_orders') != []:
+        raise StateRefused('owner_close_terminal_pending')
+    for sid, session in list(ledger.sessions.items()):
+        if session['end'] is None and session['start'].get('autostart_attempt_id'):
+            ledger.record('session_end', session_id=sid, reason='owner_operational_close', cleanup_ok=False,
+                evidence_complete=False, inventory_proven=False, unknown_submit=False)
+    return read, runtime.core_proof(ledger, read)
+
+
 def owner_close(runtime, incident, *, external_facts=None):
     from weather.market.lfc_campaign_state import StateRefused
     if not sys.stdin.isatty():
@@ -314,34 +339,15 @@ def owner_close(runtime, incident, *, external_facts=None):
                         raise StateRefused('owner_external_facts_required')
                     validate_external_partial(state, partial, occurrence, incident, sha, source,
                                               external_facts, runtime.clock.now())
-            read = runtime.read_account()
-            # Validate the full read before using any acknowledged order row.
-            runtime.validate_account_read(ledger, read)
-            from datetime import datetime, timedelta
-            for leg in list(ledger.unresolved_legs()):
-                observed = read.get('terminal_orders', {}).get(leg['order_id'])
-                if observed is None:
-                    raise StateRefused('owner_close_terminal_pending')
-                begin, end = (datetime.fromisoformat(observed[key]) for key in ('started_at_utc', 'ended_at_utc'))
-                if (begin.utcoffset() != timedelta(0) or end.utcoffset() != timedelta(0) or
-                        not datetime.fromisoformat(read['started_at_utc']) <= begin <= end <= datetime.fromisoformat(read['ended_at_utc']) or
-                        not 0 <= (runtime.clock.now() - begin).total_seconds() <= 120):
-                    raise StateRefused('owner_close_terminal_binding')
-                ledger.terminal(leg['order_id'], observed['row'], source='owner_operational_close')
-            if ledger.unresolved_legs() or read.get('open_orders') != []:
-                raise StateRefused('owner_close_terminal_pending')
-            for sid, session in list(ledger.sessions.items()):
-                if session['end'] is None and session['start'].get('autostart_attempt_id'):
-                    ledger.record('session_end', session_id=sid, reason='owner_operational_close', cleanup_ok=False,
-                        evidence_complete=False, inventory_proven=False, unknown_submit=False)
-            if external_facts is None:
-                proof = runtime.core_proof(ledger, read)
-            else:
+            if external_facts is not None:
+                read = runtime.read_account(persist=False)
                 from weather.market.lfc_owner_external_close import live_proof
                 proof = live_proof(runtime, ledger, incident, sha, source, read, external_facts)
                 if ledger.event_rows('autostart_owner_close', field='incident_id', value=incident):
                     complete_committed(state, source, runtime.clock.now(), incident=incident)
                     return 0
+            else:
+                read, proof = ordinary_owner_proof(runtime, ledger)
             if (proof.get('money_accounting_complete') is not True or proof.get('cleanup_proven') is not True or
                     proof.get('unknown_submit') is not False or proof.get('money_contradiction') is True):
                 raise StateRefused('owner_money_repair_required')

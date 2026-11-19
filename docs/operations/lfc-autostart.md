@@ -657,11 +657,16 @@ pinned executions must still agree with the original SHA. Each additional trade
 is bound to its own V2 receipt, including the exact chain gross and fee. A price
 difference must improve the owner's REST price and the native movements must
 still reconcile exactly. The full inventory and native collateral reconcile at
-the fresh cut. A missing sub-cent personal position requires exact historical
-native token balances at both cuts. The protocol movement check refuses
+the fresh cut. An omitted, touched personal position below 0.01 share requires
+exact historical native token balances at both cuts. This includes zero and
+small negative projections within the anchor's reporting precision. The
+protocol movement check refuses
 unreconciled redemptions, merges and transfers with their own codes. An explicit
 retry of a committed external close requires the same bound facts and fresh
 account and receipt reads. A location refusal leaves the ordinary guard in place.
+The external-close reader keeps new native groups in memory. It publishes no
+account observation or native ledger row on refusal. A new version of a pending
+native proof requires separate reconciliation before owner close.
 Coordinator recovery may publish a missing receipt for an already committed
 decision using the retained binding. That bookkeeping step makes no account
 or chain reads. Before appending an unanchored partial receipt, owner-close
@@ -675,6 +680,9 @@ first repay outstanding owner overdraw, and the remainder stays segregated as
 verified owner cash. Quarantine, campaign principal and retained gains stay
 separate from this allocation. The receipt records the amounts applied and
 ledger replay requires and checks the allocation in versioned close proofs.
+Subsequent session anchors and cash snapshots match receipt-proved trades to the
+booked SDK identity and terms. The original native gross and fee remain the cash
+values, and a matching observation contributes no second booking.
 Older proofs retain their replay rules. The close retains any research gaps and
 leaves the task disabled.
 
