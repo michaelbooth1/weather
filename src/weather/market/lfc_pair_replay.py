@@ -110,7 +110,7 @@ def candidate(state, book, *, policy, offset):
         prices = list(normal)
         prices[proposed.leg] = proposed.price
         observation = observe(snap, prices, 20, (Decimal(20),), trade_legs=(proposed.leg,),
-                              min_reward_rate=policy.raw['min_reward_rate'])
+                              min_reward_rate=policy.raw['min_reward_rate'], resting_by_leg={})
         check_book(values, mid=observation['adjusted_mid'], size=20,
                    share=observation['share_many'], policy=policy)
         asks = values['yes_asks' if proposed.leg == 0 else 'no_asks']

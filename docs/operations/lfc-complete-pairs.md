@@ -98,6 +98,9 @@ are never overwritten. Source paths in the manifest are provenance only;
 the replay never opens them.
 
 The actual A inventory and the B-filtered observed-fill trace are distinct.
+Hypothetical B quotes have no acknowledged B order in the recorded book.
+Their reward-share screen uses the displayed competition at the proposed price,
+including any historical A depth the recording contains.
 The latter suppresses observed same-side additions and prices above B's cap,
 and assumes no replacement executions. For each proposed completion, a later
 positive displayed ask at or below its price is **touch evidence**, never a

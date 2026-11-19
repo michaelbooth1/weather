@@ -68,6 +68,13 @@ is an already supported policy value. The 15.80 order, 19.60 resting band and
 300 sleeve caps, spendable-cash check and native accounting rail are unchanged.
 Money proof still precedes every fill continuation. Rewards/rebates contribute
 zero to refill without the already required campaign-only attribution proof.
+
+At the public-book read immediately before order authorization, each new
+ordinary Pin B quote must still satisfy the selected distance window and lie
+strictly inside the venue reward width. An out-of-window pending price ends
+the band through ordinary cleanup before that submission is counted. This
+check evaluates only the pending token. A nonflat complete-pairs quote uses
+the existing capped-complement checks.
 The December success look and actual-cash verdict are unchanged.
 
 ## Operational observations and temporary depth pauses
@@ -116,6 +123,14 @@ replaced-own, proposed, cap and available headroom in collateral native units;
 the prospective gross admission calculation is unchanged.
 
 ## Two recorded reward views
+
+The fresh F2 share estimate takes own depth from acknowledged active order IDs.
+It subtracts the known outstanding quantity once, at its resting price on the
+YES book or the mirrored price of a NO bid. Before the first acknowledgement,
+all displayed depth counts as competition. A smaller public level cannot
+establish that it includes the full outstanding quantity and stays in the
+estimate. Even an acknowledged order and matching aggregate level are sampled
+on different clocks, so the resulting share remains a planning scenario.
 
 Daily economics, immutable economics supplements and final decision-page inputs
 carry both `strict_attributable` and `campaign_estimate`. Strict recognition and
