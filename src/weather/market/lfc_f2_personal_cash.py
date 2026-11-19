@@ -9,11 +9,20 @@ def terms(item):
     return {key: value for key, value in item.items() if key != 'source_sha256'}
 
 
-def receipt_bound_trade(item, row, part, order_id, size_key, when, maker):
+def require_disjoint_orders(row, campaign_order_ids):
+    from weather.market.lfc_capital import CapitalRefused
+
+    order_ids = (row.get('taker_order_id'), *(part.get('order_id') for part in row.get('maker_orders') or ()))
+    if any(isinstance(order_id, str) and order_id.lower() in campaign_order_ids for order_id in order_ids):
+        raise CapitalRefused('f2_personal_trade_changed')
+
+
+def receipt_bound_trade(item, row, part, order_id, size_key, when, maker, *, campaign_order_ids):
     from weather.market.lfc_campaign_state import StateRefused
     from weather.market.lfc_capital import CapitalRefused
     from weather.market.lfc_owner_external_close import hash32, sdk_trade_source
 
+    require_disjoint_orders(row, campaign_order_ids)
     try:
         if (str(part.get('maker_address', '')).lower() != maker or
                 item['receipt_transaction_hash'] != hash32(row['transaction_hash']) or
@@ -30,10 +39,13 @@ def movements(ledger, rows, *, start, end, bound=None):
     bound = {} if bound is None else bound
     receipt_trades = {item['sdk_source']['trade_id']: key for key, item in bound.items() if 'sdk_source' in item}
     receipt_txs = {item['receipt_transaction_hash']: key for key, item in bound.items() if 'sdk_source' in item}
+    campaign_order_ids = {order_id.lower() for order_id in ours} if receipt_trades else set()
     result = {}
     for row in rows:
         retained_keys = {receipt_trades.get(str(row.get('id'))),
                          receipt_txs.get(str(row.get('transaction_hash', '')).lower())} - {None}
+        if retained_keys:
+            require_disjoint_orders(row, campaign_order_ids)
         if str(row.get('status', '')).upper() == 'FAILED':
             if retained_keys:
                 raise CapitalRefused('f2_personal_trade_changed')
@@ -69,7 +81,8 @@ def movements(ledger, rows, *, start, end, bound=None):
                 if retained_keys and retained_keys != {key}:
                     raise CapitalRefused('f2_personal_trade_changed')
                 if key in bound and 'sdk_source' in bound[key]:
-                    result[key] = receipt_bound_trade(bound[key], row, part, order_id, size_key, when, maker)
+                    result[key] = receipt_bound_trade(bound[key], row, part, order_id, size_key, when, maker,
+                                                      campaign_order_ids=campaign_order_ids)
                     continue
                 side = str(part['side']).upper()
                 price, size = quantity(part['price']), quantity(part[size_key])

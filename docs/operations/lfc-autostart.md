@@ -681,8 +681,10 @@ verified owner cash. Quarantine, campaign principal and retained gains stay
 separate from this allocation. The receipt records the amounts applied and
 ledger replay requires and checks the allocation in versioned close proofs.
 Subsequent session anchors and cash snapshots match receipt-proved trades to the
-booked SDK identity and terms. The original native gross and fee remain the cash
-values, and a matching observation contributes no second booking.
+booked SDK identity and terms. The taker order ID and every maker order ID on
+the row must remain disjoint from campaign orders. The original native gross
+and fee remain the cash values, and a matching observation contributes no
+second booking.
 Older proofs retain their replay rules. The close retains any research gaps and
 leaves the task disabled.
 

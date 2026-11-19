@@ -141,6 +141,57 @@ def book_trade(runtime, ledger, read, facts):
     return CapitalBook(Ledger.open(ledger.path, clock=runtime.clock.now)), proof['owner_external_close']
 
 
+@pytest.mark.parametrize('role', ['MAKER', 'TAKER'])
+def test_receipt_bound_trade_rejects_campaign_counterparty_on_later_read(
+        tmp_path, monkeypatch, account_guard, role):
+    from weather.market.lfc_f2_cash_snapshot import context, personal_net
+    from weather.market.lfc_f2_inventory import make_anchor
+    from weather.market.lfc_f2_personal_cash import receipt_bound_trade
+
+    runtime, ledger, read, facts, receipt = fixture_trade(tmp_path)
+    if role == 'MAKER':
+        trade = owner_trade(runtime.clock, 'SELL', role=role, seconds=3)
+        trade.update(market=FOREIGN, condition_id=FOREIGN, taker_order_id='0x'+'5'*64)
+        trade['maker_orders'][0]['order_id'] = ORDER
+        read['trades'][-1] = trade
+        facts = build_facts(ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, {TX: receipt})
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda *_: receipt)
+    book, _ = book_trade(runtime, ledger, read, facts)
+    clean = make_anchor(book, read, kind='f2_session_anchor')
+    cut = clean['snapshot_at_utc']
+    assert clean['personal_trade_sources'] == []
+    campaign_row = read['trades'][0]
+    assert personal_net(book, [campaign_row], cut) == personal_net(book, read['trades'], cut) == 0
+
+    second = int(utc(book.cash_reference['snapshot_at_utc']).timestamp())
+    source, proof = cash_activity(runtime.clock, 'DEPOSIT', 1, timestamp=second)
+    sha = digest(proof)
+    book.native_groups[sha] = proof
+    assert context(book, read, [(source, sha)])['personal_trade_sources'] == []
+
+    mixed = deepcopy(read)
+    row = mixed['trades'][-1]
+    campaign_ids = book.ledger.our_order_ids()
+    campaign_order = min(campaign_ids)
+    if role == 'MAKER':
+        row['taker_order_id'] = campaign_order
+        part, size_key = row['maker_orders'][0], 'matched_amount'
+    else:
+        row['maker_orders'].append({'order_id': campaign_order, 'maker_address': '0x'+'9'*40})
+        part, size_key = row, 'size'
+    item, = book.personal_trades.values()
+    before = ledger.path.read_bytes(), ledger.previous, book.figures(), book.expected_cash(), deepcopy(book.personal_trades)
+    for readback in (
+            lambda: make_anchor(book, mixed, kind='f2_session_anchor'),
+            lambda: personal_net(book, mixed['trades'], cut),
+            lambda: context(book, mixed, [(source, sha)]),
+            lambda: receipt_bound_trade(item, row, part, ORDER, size_key, utc(row['matched_at']), MAKER,
+                                        campaign_order_ids={order.lower() for order in campaign_ids})):
+        with pytest.raises(CapitalRefused, match='^f2_personal_trade_changed$'):
+            readback()
+        assert (ledger.path.read_bytes(), ledger.previous, book.figures(), book.expected_cash(), book.personal_trades) == before
+
+
 @pytest.mark.parametrize('separate_fee', [False, True])
 @pytest.mark.parametrize('withdraw', [0, 4, 12])
 def test_external_sale_protects_existing_campaign_gains_even_when_fee_has_its_own_transfer(
