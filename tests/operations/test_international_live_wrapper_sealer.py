@@ -27,6 +27,24 @@ COMMIT = "a" * 40
 TREE = "b" * 40
 
 
+@pytest.fixture(autouse=True)
+def fixture_git_executable(request, monkeypatch, tmp_path):
+    # These two integration tests intentionally execute Git against the real
+    # repository. Other unit tests bind only a reviewed executable identity
+    # and must not depend on a machine-wide Git for Windows install layout.
+    if request.node.name in {
+        "test_real_repository_inventory_and_git_preflight_use_sha1_object_ids",
+        "test_real_repository_inventory_object_ids_flow_through_a_dry_seal",
+    }:
+        git_path = shutil.which("git")
+        assert git_path, "the test runner must provide Git on PATH"
+        git_executable = Path(git_path)
+    else:
+        git_executable = tmp_path / "git.exe"
+        git_executable.write_bytes(b"fixture Git executable")
+    monkeypatch.setattr(sealer, "canonical_git_executable", lambda: git_executable)
+
+
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 

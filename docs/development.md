@@ -106,17 +106,16 @@ mutex until the test creates a release file.
 ### Known-failing Windows Qualification groups
 
 These groups fail on hosted Windows Qualification for a known, environment-bound cause; they are not flakes and not
-regressions of the head under test (master, 2026-11-02). A backlog lane fixes both (low priority). Remove a group when
+regressions of the head under test (master, 2026-11-02). A backlog lane fixes it (low priority). Remove a group when
 its fix lands.
 
 - `tests/market/test_maker_counterfactual_tape.py`: the fixture's `compress_closed_segments` returns False off the
   capture host.
-- `tests/operations/test_international_live_session_runner.py` and
-  `tests/operations/test_international_live_session_launcher_sealer.py`: they fail with `live-session artifact is absent`
-  (raised in `weather.operations.live_path_security`). Root cause (master, 2026-11-02): `canonical_git_executable()`
-  (`src/weather/operations/live_path_security.py:566/572`) builds `<GitForWindows InstallPath>\mingw64\bin\git.exe` from
-  the registry, and the runner's Git 2.56 has no `mingw64` there, so it fails closed. This is also a
-  before-any-live-attempt prerequisite: [live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) prerequisite 10.
+
+The live-session runner and launcher-sealer groups were removed when their fixtures stubbed
+`canonical_git_executable()` (PR #286, rebased as #293). Production still fails closed without
+`<GitForWindows InstallPath>\mingw64\bin\git.exe`; that remains [live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md)
+prerequisite 10. Tests that launch PowerShell child processes can still re-resolve the real path on a bare runner.
 
 ### Proposal: shrink the host suite once the Windows lane is green (not in force)
 
