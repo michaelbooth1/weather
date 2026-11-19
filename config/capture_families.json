@@ -15,10 +15,12 @@
         "los-angeles": "lowest-temperature-in-los-angeles-on",
         "miami": "lowest-temperature-in-miami-on",
         "san-francisco": "lowest-temperature-in-san-francisco-on",
-        "seattle": "lowest-temperature-in-seattle-on"
+        "seattle": "lowest-temperature-in-seattle-on",
+        "chicago": "lowest-temperature-in-chicago-on"
       },
-      "excluded_markets": {
-        "chicago": "F1 FALSIFIED on its own: undercut after 09:00 on 32.2% of days [30.9, 33.8] (desk study 2026-10-02); owner may override."
+      "excluded_markets": {},
+      "owner_overrides": {
+        "chicago": "Owner 2026-11-18 overrode the 2026-10-02 desk-study exclusion (F1 FALSIFIED on its own: undercut after 09:00 on 32.2% of days [30.9, 33.8]); captured from 2026-11-19. DECISION_LOG 2026-11-18."
       },
       "day_ahead": [0, 1, 2],
       "max_conditions": 600,

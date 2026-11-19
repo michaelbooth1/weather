@@ -187,9 +187,11 @@ core 55-second cycle.
 
 A family names, per registry city, an event-slug prefix (dates are formed as for
 the core family, in the city's own time zone), its excluded cities with the reason,
-its day-aheads and its bounds. The first family, `lowest_temperature`, covers the 11
-cities the lowest-temperature desk study (2026-10-02) admitted for passive capture;
-Chicago is excluded because its own F1 was falsified.
+its day-aheads and its bounds. The first family, `lowest_temperature`, covers all 12
+cities. The lowest-temperature desk study (2026-10-02) admitted 11 for passive capture
+and excluded Chicago because its own F1 was falsified. The owner overrode that
+exclusion on 2026-11-18 (DECISION_LOG), and Chicago is captured from 2026-11-19. Its
+note stays in the family's `owner_overrides`.
 
 Each minute a family discovers its events in batches of 12 slugs, keeps **every**
 active condition (no ranking, no reward filter; bound `max_conditions`), and reads
