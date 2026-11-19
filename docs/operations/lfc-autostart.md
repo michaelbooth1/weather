@@ -649,11 +649,19 @@ reconciliation never invoke it.
 For an incident involving a personal execution, an interactive owner-close may
 use `--external-facts` and `--external-facts-sha256` together. This route requires
 a disabled task, terminal campaign orders, and a fresh empty open-order list.
-The SHA binds the copied incident, attempt, inventory anchor and historical
-observation cut. Fresh REST trades and Polygon V2 receipts must match the exact
-execution set. The account's full inventory and native collateral must reconcile
-at that cut, with no extra movement. An explicit retry of a committed external
-close requires the same bound facts and fresh account and receipt reads.
+The SHA binds the incident, attempt, inventory anchor and historical facts.
+Fresh owner-close proves up to 32 confirmed non-campaign executions after the
+inventory anchor and at least one second before the fresh observation cut.
+Personal trades before, during and after the session use the same proof. The
+pinned executions must still agree with the original SHA. Each additional trade
+is bound to its own V2 receipt, including the exact chain gross and fee. A price
+difference must improve the owner's REST price and the native movements must
+still reconcile exactly. The full inventory and native collateral reconcile at
+the fresh cut. A missing sub-cent personal position requires exact historical
+native token balances at both cuts. The protocol movement check refuses
+unreconciled redemptions, merges and transfers with their own codes. An explicit
+retry of a committed external close requires the same bound facts and fresh
+account and receipt reads. A location refusal leaves the ordinary guard in place.
 Coordinator recovery may publish a missing receipt for an already committed
 decision using the retained binding. That bookkeeping step makes no account
 or chain reads. Before appending an unanchored partial receipt, owner-close

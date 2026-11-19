@@ -23,7 +23,7 @@ MAX_NEW_RECEIPTS = 200
 MAX_NEW_VIEWS = 100
 
 
-def rpc_read(method, params, *, opener=None):
+def rpc_read(method, params, *, opener=None, owner_inventory=False):
     from weather.market.re1_transport import RPC
     from weather.market.lfc_capital import ASSET
     from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
@@ -35,6 +35,9 @@ def rpc_read(method, params, *, opener=None):
                method == 'eth_call' and permitted_call(params) or
                method == 'eth_getTransactionReceipt' and len(params) == 1 and
                isinstance(params[0], str) and re.fullmatch('0x[0-9a-fA-F]{64}', params[0]))
+    if owner_inventory and not allowed:
+        from weather.market.lfc_owner_external_inventory import permitted_inventory_read
+        allowed = permitted_inventory_read(method, params)
     if not allowed:
         raise ValueError('capital_rpc_method_refused')
     assert_no_ambient_proxy_configuration()

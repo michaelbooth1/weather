@@ -307,13 +307,13 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
             emit('DEFERRED', reason=str(exc), account_not_read=True, orders_open_unproven=None, incident=None)
         else:
             emit('DEFERRED', reason=str(exc))
-        return 1 if args.command == 'check' else 0
+        return 1 if args.command in ('check', 'owner-close') else 0
     except AdmissionBusy as exc:
         if diagnostic is not None: diagnostic['traceback'] = safe_traceback(sys.exc_info()[2])
         emit('DEFERRED', reason='hold_retained' if str(exc) in {'hold_already_owned', 'hold_retained'} else 'admission_busy')
         if args.command == 'check':
             print(json.dumps({'state': 'DEFERRED', 'code': 'admission_busy', 'validated': False}))
-        return 1 if args.command == 'check' else 0
+        return 1 if args.command in ('check', 'owner-close') else 0
     except TransientPrecheck as exc:
         if str(exc) == 'campaign_task_readback_unavailable' or (args.command == 'check' and
                 str(exc) in {'f2_anchor_snapshot_pending', 'capital_cash_snapshot_pending'}):
@@ -327,6 +327,8 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
         code = str(sys.exc_info()[1])
         code = code if re.fullmatch(r'[a-z0-9_]{1,96}', code) else 'policy_refused'
         print(json.dumps({'state': 'REFUSED', 'code': code}))
+        if args.command == 'owner-close' and code == 'geoblock':
+            print('Location check failed. Retry once the connection is normal.')
         incident = code == 'anchored_closure_evidence_fault' or bool(active_incidents(state))
         emit('INCIDENT' if incident else 'REFUSED', incident=incident,
              reason='account_incident' if incident else 'disk_free_below_floor' if code == 'disk_free_below_floor' else 'policy_refused')

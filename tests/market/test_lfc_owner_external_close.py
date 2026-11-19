@@ -18,12 +18,14 @@ from weather.market.lfc_campaign_runtime import Runtime
 from weather.market.lfc_campaign_state import AccountState, StateRefused
 from weather.market.lfc_capital import ASSET, CapitalBook, CapitalRefused, record_activity
 from weather.market.lfc_capital_native import TRANSFER
-from weather.market.lfc_capital_reads import synchronize
+from weather.market.lfc_capital_reads import read_activity, synchronize
 from weather.market.lfc_ledger import Ledger, LedgerUnavailable
-from weather.market.lfc_owner_external_close import EXCHANGES, ORDER_FILLED, PROOF_SCHEMA, build_facts, live_proof
+from weather.market.lfc_owner_external_close import (
+    EXCHANGES, MAX_TRADES, ORDER_FILLED, PROOF_SCHEMA, PROTOCOL_MOVEMENTS, build_facts, live_proof,
+)
 from weather.market.lfc_recording_io import file_sha, retained
 from weather.market.lfc_redemption_native import CTF, SINGLE
-from weather.market.mm_stage2_hold import canonical_bytes, digest
+from weather.market.mm_stage2_hold import canonical_bytes, digest, utc
 
 
 ATTEMPT = 'a' * 32
@@ -33,12 +35,13 @@ MARKET = '0x' + 'c' * 64
 FOREIGN = '0x' + 'e' * 64
 ORDER = '0x' + 'd' * 64
 TX = '0x' + '1' * 64
+LATER_TX = '0x' + 'a1' * 32
 GROSS, FEE, SIZE = 10_400_000, 800_000, 20_000_000
 
 
-def trade_receipt(cash_in, cash_out, *, side='SELL', gross=GROSS):
+def trade_receipt(cash_in, cash_out, *, side='SELL', gross=GROSS, tx=TX, order=ORDER):
     wallet, other = f'0x{int(MAKER, 16):064x}', f'0x{9:064x}'
-    fields = {'transactionHash': TX, 'blockNumber': '0x100', 'blockHash': '0x' + 'b' * 64}
+    fields = {'transactionHash': tx, 'blockNumber': '0x100', 'blockHash': '0x' + 'b' * 64}
 
     def move(index, send, receive, amount):
         return {**fields, 'address': ASSET, 'logIndex': hex(index), 'topics': [TRANSFER, send, receive],
@@ -52,10 +55,22 @@ def trade_receipt(cash_in, cash_out, *, side='SELL', gross=GROSS):
     logs.extend([
         {**fields, 'address': CTF, 'logIndex': '0x2', 'topics': [SINGLE, other, sender, receiver],
          'data': f'0x{90:064x}{SIZE:064x}'},
-        {**fields, 'address': min(EXCHANGES), 'logIndex': '0x3', 'topics': [ORDER_FILLED, ORDER, wallet, other],
+        {**fields, 'address': min(EXCHANGES), 'logIndex': '0x3', 'topics': [ORDER_FILLED, order, wallet, other],
          'data': '0x' + ''.join(f'{n:064x}' for n in (direction, 90, making, taking, FEE, 0, 0))},
     ])
     return retained(json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {**fields, 'status': '0x1', 'logs': logs}}).encode())
+
+
+def activity_page(rows):
+    return json.dumps({'data': rows, 'pagination': {'next_cursor': None, 'has_more': False}}).encode()
+
+
+@pytest.fixture(autouse=True)
+def empty_protocol_feed(monkeypatch):
+    def empty(wallet, anchor, cut):
+        return read_activity(wallet, anchor.timestamp(), cut.timestamp(),
+                             get=lambda *_: activity_page([]), types=PROTOCOL_MOVEMENTS)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.read_protocol_movements', empty)
 
 
 def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withdraw=0, quarantine=0,
@@ -200,10 +215,122 @@ def test_later_native_owner_deposit_repays_buy_overdraw_then_stays_segregated(
     assert replay.figures()['retained_gains_available_native'] == after.figures()['retained_gains_available_native']
 
 
+def include_trade(runtime, ledger, read, side, *, before_session=False):
+    source = read['trades'][-1]
+    runtime.clock.value += timedelta(seconds=8)
+    trade = owner_trade(runtime.clock, side, seconds=2)
+    tx, order = LATER_TX, '0x'+'b2'*32
+    trade.update(id='other-'+side, market=FOREIGN, condition_id=FOREIGN, taker_order_id=order, transaction_hash=tx)
+    if before_session:
+        trade['matched_at'] = (utc(ledger.sessions['end-band']['start']['recorded_at_utc']) - timedelta(seconds=2)).isoformat()
+    # The exact native fill improves the SDK price. Collateral and fee still match the chain byte for byte.
+    trade['price'] = '.53' if side == 'BUY' else '.51'
+    cash_in, cash_out = (0, GROSS + FEE) if side == 'BUY' else (GROSS - FEE, 0)
+    cash = Decimal(read['balances']['available_collateral']) + Decimal(cash_in - cash_out) / 1_000_000
+    read = observation(ledger, runtime.clock, positions={'denver': '20', '90': '70' if side == 'BUY' else '30'},
+                       cash=str(cash))
+    read['trades'].extend([source, trade])
+    return read, trade_receipt(cash_in, cash_out, side=side, tx=tx, order=order)
+
+
+@pytest.mark.parametrize(('side', 'deposit', 'before_session'), [
+    ('BUY', 40, False), ('BUY', 0, False), ('SELL', 0, False), ('BUY', 40, True),
+])
+def test_external_trade_window_and_owner_allocation(tmp_path, monkeypatch, account_guard, side, deposit, before_session):
+    runtime, ledger, read, facts, pinned = fixture_trade(tmp_path, side='BUY', deposit=deposit)
+    read, later = include_trade(runtime, ledger, read, side, before_session=before_session)
+    receipts = {TX: pinned, LATER_TX: later}
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipts[params[0]])
+    before = CapitalBook(ledger)
+    after, packet = book_trade(runtime, ledger, read, facts)
+    added, = packet['additional_trades']
+    assert added['receipt']['gross_native'] == GROSS
+    assert packet['facts_sha256'] == digest(facts)
+    allocation = packet['owner_cash_allocation'][added['source']['trade_id']+'/'+added['source']['order_id']]
+    if side == 'SELL':
+        assert allocation['owner_overdraw_repaid_native'] == GROSS - FEE
+        assert after.owner_overdraw_outstanding == 2*FEE
+    elif deposit:
+        assert allocation['verified_owner_cash_used_native'] == GROSS + FEE
+        assert after.verified_owner_cash == before.verified_owner_cash - 2*(GROSS+FEE)
+    else:
+        assert allocation['owner_overdraw_created_native'] == GROSS + FEE
+        assert after.owner_overdraw_outstanding == 2*(GROSS+FEE)
+    assert after.figures()['retained_gains_available_native'] == before.figures()['retained_gains_available_native']
+
+
+@pytest.mark.parametrize(('mutation', 'code'), [
+    ('condition', 'owner_external_campaign_overlap'), ('token', 'owner_external_campaign_overlap'),
+    ('unconfirmed', 'owner_external_trade_unconfirmed'), ('cap', 'owner_external_trade_cap'),
+    ('worse_price', 'owner_external_proof_invalid'),
+])
+def test_extended_trade_refusals(tmp_path, monkeypatch, account_guard, mutation, code):
+    runtime, ledger, read, facts, pinned = fixture_trade(tmp_path, side='BUY')
+    read, later = include_trade(runtime, ledger, read, 'BUY')
+    trade = read['trades'][-1]
+    if mutation == 'condition':
+        trade.update(market=MARKET, condition_id=MARKET)
+    elif mutation == 'token':
+        trade.update(token_id=next(iter(ledger.tokens())))
+    elif mutation == 'unconfirmed':
+        trade['status'] = 'MATCHED'
+    elif mutation == 'cap':
+        read['trades'].extend({**trade, 'id': f'leg-{i}', 'transaction_hash': f'0x{i+100:064x}'}
+                              for i in range(MAX_TRADES-1))
+    else:
+        trade['price'] = '.51'
+    receipts = {TX: pinned, LATER_TX: later}
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda method, params: receipts[params[0]])
+    before = ledger.path.read_bytes()
+    with pytest.raises(StateRefused, match=code):
+        live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
+    assert ledger.path.read_bytes() == before
+
+
+@pytest.mark.parametrize(('kind', 'code'), [('REDEEM', 'redemption'), ('DEPOSIT', 'transfer'), ('MERGE', 'merge')])
+def test_owner_close_types_unsupported_movements(tmp_path, monkeypatch, account_guard, kind, code):
+    runtime, ledger, read, facts, _ = fixture_trade(tmp_path, side='BUY')
+    packet = read['capital_activity']
+    end = packet['scope']['end']
+    source = dict(proxy_wallet=MAKER, timestamp=end-2, condition_id=FOREIGN, type=kind,
+                  size='1', usdc_size='1', token_id='90', transaction_hash='0x'+'fe'*32)
+    get = lambda *_: activity_page([source])
+    if kind == 'MERGE':
+        monkeypatch.setattr('weather.market.lfc_owner_external_close.read_protocol_movements',
+            lambda wallet, anchor, cut: read_activity(wallet, anchor.timestamp(), cut.timestamp(),
+                                                      get=get, types=PROTOCOL_MOVEMENTS))
+    else:
+        observed = read_activity(MAKER, packet['scope']['start'], end, get=get)
+        packet.update(observed)
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda *_: pytest.fail('unexpected RPC'))
+    before = ledger.path.read_bytes()
+    with pytest.raises(StateRefused, match=f'owner_external_{code}_unhandled'):
+        live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
+    assert ledger.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('failure', ['geoblock', 'busy', 'launch_deferred'])
+def test_owner_close_cli_failure_keeps_exit_nonzero(monkeypatch, capsys, failure):
+    from weather.market import lfc_campaign_cli as cli
+
+    error = {'geoblock': StateRefused('geoblock'), 'busy': cli.AdmissionBusy('busy'),
+             'launch_deferred': cli.LaunchDeferred('launch_deferred')}[failure]
+
+    def refuse(*args):
+        raise error
+
+    monkeypatch.setattr(cli, 'load_release', refuse)
+    monkeypatch.setattr(cli, 'control_record', lambda *args, **kwargs: None)
+    status = cli.main(['owner-close', '--release', 'fixture.json', '--release-sha256', 'x', '--incident', INCIDENT])
+    assert status == 1
+    expected = 'Location check failed. Retry once the connection is normal.'
+    assert capsys.readouterr().out.splitlines().count(expected) == (1 if failure == 'geoblock' else 0)
+
+
 @pytest.mark.parametrize(('case', 'reason'), [
     ('unexplained_movement', 'owner_external_inventory_changed'),
-    ('extra_execution', 'owner_external_trade_set_changed'),
-    ('late_execution', 'owner_external_trade_outside_cut'),
+    ('extra_execution', 'owner_external_proof_invalid'),
+    ('late_execution', 'owner_external_trade_cut_retry'),
     ('campaign_condition', 'owner_external_campaign_overlap'),
     ('receipt_omits_fee', 'owner_external_cash_legs_changed'),
     ('changed_receipt_identity', 'owner_external_receipt_changed'),

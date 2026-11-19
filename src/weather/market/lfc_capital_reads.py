@@ -21,9 +21,9 @@ MAX_ROWS = 10000
 MAX_BYTES = 20_000_000
 
 
-def read_activity(maker, start, end, *, get=public_get, sleep=time.sleep):
+def read_activity(maker, start, end, *, get=public_get, sleep=time.sleep, types=TYPES):
     scope = {'user': maker.lower(), 'start': int(start), 'end': int(end), 'limit': 500,
-             'type': ','.join(TYPES), 'sort_by': 'TIMESTAMP', 'sort_direction': 'ASC',
+             'type': ','.join(types), 'sort_by': 'TIMESTAMP', 'sort_direction': 'ASC',
              'exclude_deposits_withdrawals': 'false'}
     if not 0 < scope['start'] <= scope['end']:
         raise CapitalRefused('capital_activity_window')
@@ -40,7 +40,7 @@ def read_activity(maker, start, end, *, get=public_get, sleep=time.sleep):
             raise CapitalRefused('capital_activity_envelope')
         for source in page['data']:
             item = normalize_activity(source)
-            if (item['wallet'] != scope['user'] or item['type'] not in TYPES or
+            if (item['wallet'] != scope['user'] or item['type'] not in types or
                     not scope['start'] <= item['timestamp'] <= scope['end']):
                 raise CapitalRefused('capital_activity_scope')
             rows.append(source)
@@ -57,7 +57,7 @@ def read_activity(maker, start, end, *, get=public_get, sleep=time.sleep):
             raise CapitalRefused('capital_activity_pagination')
         if cursor is None:
             packet = {'scope': scope, 'pages': pages, 'rows': rows, 'complete': True}
-            validate_packet(packet, maker=maker, start=start, end=end)
+            validate_packet(packet, maker=maker, start=start, end=end, types=types)
             return packet
         if cursor in seen:
             raise CapitalRefused('capital_activity_cursor')
@@ -66,7 +66,7 @@ def read_activity(maker, start, end, *, get=public_get, sleep=time.sleep):
     raise CapitalRefused('capital_activity_page_budget')
 
 
-def validate_packet(packet, *, maker, start, end):
+def validate_packet(packet, *, maker, start, end, types=TYPES):
     if packet.get('complete') is not True:
         raise CapitalRefused('capital_activity_incomplete')
     rows, cursors = [], set()
@@ -87,7 +87,7 @@ def validate_packet(packet, *, maker, start, end):
             cursors.add(cursor)
         rows.extend(page['data'])
     expected_scope = {'user': maker.lower(), 'start': int(start), 'end': int(end), 'limit': 500,
-                      'type': ','.join(TYPES), 'sort_by': 'TIMESTAMP', 'sort_direction': 'ASC',
+                      'type': ','.join(types), 'sort_by': 'TIMESTAMP', 'sort_direction': 'ASC',
                       'exclude_deposits_withdrawals': 'false'}
     if (not packet['pages'] or len(packet['pages']) > MAX_PAGES or len(rows) > MAX_ROWS or
             sum(len(response_bytes(p)) for p in packet['pages']) > MAX_BYTES or
@@ -96,7 +96,7 @@ def validate_packet(packet, *, maker, start, end):
     seen = set()
     for source in rows:
         item = normalize_activity(source)
-        if (item['id'] in seen or item['wallet'] != maker.lower() or item['type'] not in TYPES or
+        if (item['id'] in seen or item['wallet'] != maker.lower() or item['type'] not in types or
                 not int(start) <= item['timestamp'] <= int(end)):
             raise CapitalRefused('capital_activity_scope')
         seen.add(item['id'])
