@@ -31,6 +31,11 @@ def stream_factory(registry, *, retain_trade_identity=False):
                 # Wrong wallet/shape takes the existing invalid-stream path.
             market = str(item.get('market', '')).lower() if isinstance(item, dict) else ''
             peer = registry.get(market)
+            if peer is None and isinstance(item, dict):
+                from weather.market.lfc_f2_external_trades import notice_for
+                notice = notice_for(item, self.maker_address)
+                if notice is not None:
+                    return [notice]
             if peer is not None and peer is not self:
                 # Validate another selected band's exact pair before ignoring
                 # it here. That band's own account stream supplies its events.
@@ -137,9 +142,14 @@ def run_live(runtime, authority, status):
         def repost_proof(band):
             from weather.market.lfc_f2_reconcile import prove
             return prove(runtime, band, runtime.read_account())
+        def verify_external(notice):
+            from weather.market.lfc_f2_external_trades import prove_live
+            return prove_live(runtime, ledger, claim['attempt_id'], notice)
+
         coordinator = F2Coordinator(ledger=ledger, clock=runtime.clock, directory=directory, session_id=root_id,
                       attempt_id=claim['attempt_id'], policy=policy, entry=entry, table=table,
-                      status=status, verify=verify, guard=guard, repost_proof=repost_proof)
+                      status=status, verify=verify, guard=guard, repost_proof=repost_proof,
+                      verify_external=verify_external)
         status.bind(root_id, directory=directory, selection={}, ledger=ledger)
         status.session = coordinator
         public = LfcPublicBooks(clock=runtime.clock.now)

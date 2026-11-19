@@ -20,7 +20,7 @@ ASSET = '0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb'
 MODE = 'fixed_sleeve_redeemed_principal_only'
 CEILING = 300 * SCALE
 EVENTS = {'capital_anchor', 'capital_bridge', 'capital_native_group', 'capital_activity', 'capital_resolution',
-          'capital_cost', 'capital_zero_resolution', 'capital_owner_inventory', 'f2_session_anchor'}
+          'capital_cost', 'capital_zero_resolution', 'capital_owner_inventory', 'capital_external_trades', 'f2_session_anchor'}
 
 
 class CapitalRefused(ValueError):
@@ -87,6 +87,8 @@ class CapitalBook:
         self.pending_native_outgoing = set()
         self.wallet_quarantines = []
         self.personal_trades = {}
+        self.external_trade_transactions = {}
+        self.external_trade_attempts = {}
         self.owner_inventory_adjustments = []
         self.owner_inventory_allowances = {}
         self.wallet_debit_quarantines = []
@@ -210,6 +212,13 @@ class CapitalBook:
             capture(self, anchor, row['sequence'])
             self.inventory_anchor = anchor
             self.inventory_anchors.append(anchor)
+        elif event == 'capital_external_trades':
+            from eth_abi.exceptions import DecodingError
+            from weather.market.lfc_f2_external_trades import apply_external_trades
+            try:
+                apply_external_trades(self, row)
+            except (KeyError, TypeError, ValueError, ArithmeticError, AttributeError, DecodingError) as exc:
+                raise CapitalRefused('capital_external_trade_binding') from exc
         elif event == 'capital_owner_inventory':
             from weather.market.lfc_f2_owner_inventory import apply_catchup
             apply_catchup(self, row)

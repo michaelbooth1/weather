@@ -57,6 +57,7 @@ class ScopedVenue:
         return [row for row in rows if self.coordinator.order_session(row) == self.session_id]
 
     def account_events(self):
+        from weather.market.lfc_f2_external_trades import NOTICE
         rows = self.raw.events()
         for row in rows or ():
             if row.get('event_type') == 'account_redemption_notice':
@@ -64,7 +65,9 @@ class ScopedVenue:
                 self.coordinator.account_fault_reason = reason
                 self.coordinator.retain(reason, raw_event_sha256=row['raw_event_sha256'])
                 raise HoldEnd(reason)
-        return rows
+            if row.get('event_type') == NOTICE:
+                self.coordinator.external_trade(row)
+        return [row for row in rows if row.get('event_type') != NOTICE] if rows is not None else None
 
     def events(self):
         rows = self.account_events()
@@ -506,11 +509,13 @@ class F2Band(PilotSession):
 
 class F2Coordinator:
     def __init__(self, *, ledger, clock, directory, session_id, attempt_id, policy, entry, table,
-                 status, verify, guard=None, repost_proof=None):
+                 status, verify, guard=None, repost_proof=None, verify_external=None):
         self.ledger, self.clock, self.directory = ledger, clock, Path(directory)
         self.session_id, self.attempt_id, self.policy, self.entry = session_id, attempt_id, policy, entry
         self.table, self.status, self.verify = table, status, verify
         self.repost_proof = repost_proof
+        self.verify_external = verify_external
+        self.external_trades = {}
         self.guard = guard or SecretGuard()
         self.bands, self.results, self.closed_bands = [], {}, set()
         self.cleanup_ok = self.cancellation_ok = self.inventory_proven = False
@@ -529,6 +534,31 @@ class F2Coordinator:
                                      scope=self.scope, mode='live', guard=self.guard)
         from weather.market.lfc_f2_geoblock import SharedGeoblock
         self.geoblock = SharedGeoblock(clock, self.journal)
+
+    def external_trade(self, notice):
+        from weather.market.lfc_campaign import TransientPrecheck
+        from weather.market.lfc_f2_external_trades import NOTICE, STOP
+        facts = {key: notice[key] for key in ('trade_id', 'condition_id', 'transaction_hash')}
+        previously = self.external_trades.get(facts['trade_id'])
+        if (previously is not None and previously['condition_id'] == facts['condition_id'] and
+                facts['transaction_hash'] in (None, previously['transaction_hash'])):
+            return
+        self.retain(NOTICE, **facts, raw_event_sha256=notice['raw_event_sha256'])
+        try:
+            self.status.progress()
+            confirmed = previously is None and self.verify_external is not None and self.verify_external(notice)
+        except HoldEnd:
+            raise
+        except (TransientPrecheck, ValueError, TimeoutError, ConnectionError, OSError):
+            confirmed = False
+        if confirmed:
+            facts['transaction_hash'] = confirmed
+            self.external_trades[facts['trade_id']] = facts
+            self.retain('account_external_trade_proven', **facts)
+            return
+        self.account_fault_reason = STOP
+        self.retain(STOP, **facts)
+        raise HoldEnd(STOP)
 
     def retain(self, event, **fields):
         try:

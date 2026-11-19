@@ -10,8 +10,8 @@ from weather.market.lfc_accounting import POSITION_DUST, quantity, same_position
 from weather.market.mm_stage2_hold import digest, utc
 
 
-PERSONAL_TRADES_RULE = ('Personal trades: only when status is idle, outside run hours; '
-                       'none while a session is open; no open orders at 09:00.')
+PERSONAL_TRADES_RULE = ('Personal trades outside campaign conditions require exact account proof during F2. '
+                       'No foreign resting orders during F2 or at admission.')
 ACTIVITY_OVERLAP_SECONDS = 1800  # Twice the 15-minute mismatch grace.
 
 

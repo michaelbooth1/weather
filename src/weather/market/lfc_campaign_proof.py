@@ -1,6 +1,7 @@
 """Retained private request/ACK/terminal proof, revalidated at every finalization."""
 import hashlib
 from pathlib import Path
+import re
 
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_completion import evidence_flags
@@ -99,6 +100,13 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                 if not isinstance(row.get('exception_type'), str) or not row['exception_type'].isidentifier():
                     raise ValueError('private_ancillary_gap_shape')
                 gaps.add(event)
+            elif event in {'account_external_trade_notice', 'account_external_trade_proven',
+                           'account_external_trade_unproved'}:
+                from weather.market.lfc_f2_external_trades import validate_notice
+                validate_notice(row, pending=event != 'account_external_trade_proven')
+                if (event == 'account_external_trade_notice' and
+                        not re.fullmatch('[0-9a-f]{64}', str(row.get('raw_event_sha256')))):
+                    raise ValueError('private_external_trade_notice_binding')
             elif event in MONEY_READ_GAPS:
                 money_gaps.add(event)
                 if event == 'terminal_order_unavailable' and terminal_read_gaps is not None:

@@ -199,6 +199,10 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     reconcile_owner_inventory(ledger, read)
     from weather.market.lfc_ledger import normalize_positions
     book = CapitalBook(ledger)
+    if anchor_mode is None and book.inventory_anchor is not None:
+        from weather.market.lfc_f2_external_trades import reconcile as reconcile_external_trades
+        if reconcile_external_trades(book, read):
+            book = CapitalBook(ledger)
     current = normalize_positions(read['positions'])
     enrollment_anchor = None
     if anchor_mode == 'enrollment' and book.bridge is None:

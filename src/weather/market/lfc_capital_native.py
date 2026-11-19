@@ -183,31 +183,14 @@ def evidence_for(packet, source, *, ledger=None):
     return proof
 
 
-def cash_native(source, proof):
-    """Allocate only chain-proved native units, never a USD conversion.
-
-    A lone incoming row must match the native transfer exactly. Multiple
-    incoming rows for the maker are UNKNOWN: a total ERC-20 transfer cannot
-    prove which condition earned it, even when the Data API labels sum exactly.
-    A USD label is never converted to collateral. An unallocated payout stays
-    unknown and its full basis stays charged. A lone outgoing row conservatively
-    charges the transaction's entire native debit.
-    """
-    from weather.market.lfc_capital import ASSET, label_native
-    if (proof.get('rows_sha256') != digest(proof['rows']) or source not in proof['rows'] or
-            str(source['transaction_hash']).lower() != proof['transaction_hash']):
-        raise ValueError('capital_native_row_scope')
-    if proof.get('receipt') is None:
-        return None
-    receipt = result(proof['receipt'])
-    if receipt is None:
-        return None
-    if (not isinstance(receipt, dict) or str(receipt.get('transactionHash', '')).lower() != proof['transaction_hash'] or
+def wallet_transfer_totals(receipt, tx, maker):
+    """Signed wallet movements in the pinned native collateral asset."""
+    from weather.market.lfc_capital import ASSET
+    if (not isinstance(receipt, dict) or str(receipt.get('transactionHash', '')).lower() != tx or
             hex_number(receipt.get('status')) != 1 or not isinstance(receipt.get('logs'), list) or
             re.fullmatch('0x[0-9a-fA-F]{64}', str(receipt.get('blockHash'))) is None):
         raise ValueError('capital_native_receipt_scope')
     block = hex_number(receipt.get('blockNumber'))
-    maker = str(source['proxy_wallet']).lower()
     total, indices = {'IN': 0, 'OUT': 0}, set()
     for ordinal, log in enumerate(receipt['logs']):
         if not isinstance(log, dict):
@@ -223,7 +206,7 @@ def cash_native(source, proof):
                 any(t[2:26] != '0' * 24 for t in topics[1:]) or
                 re.fullmatch('0x[0-9a-fA-F]{64}', str(log.get('data'))) is None or
                 'removed' in log and log['removed'] is not False or
-                str(log.get('transactionHash', '')).lower() != proof['transaction_hash'] or
+                str(log.get('transactionHash', '')).lower() != tx or
                 'blockHash' in log and str(log['blockHash']).lower() != receipt['blockHash'].lower() or
                 'blockNumber' in log and hex_number(log['blockNumber']) != block):
             raise ValueError('capital_native_transfer_shape')
@@ -237,6 +220,30 @@ def cash_native(source, proof):
             total['IN'] += value
         if sender == maker and receiver != maker:
             total['OUT'] += value
+    return total
+
+
+def cash_native(source, proof):
+    """Allocate only chain-proved native units, never a USD conversion.
+
+    A lone incoming row must match the native transfer exactly. Multiple
+    incoming rows for the maker are UNKNOWN: a total ERC-20 transfer cannot
+    prove which condition earned it, even when the Data API labels sum exactly.
+    A USD label is never converted to collateral. An unallocated payout stays
+    unknown and its full basis stays charged. A lone outgoing row conservatively
+    charges the transaction's entire native debit.
+    """
+    from weather.market.lfc_capital import label_native
+    if (proof.get('rows_sha256') != digest(proof['rows']) or source not in proof['rows'] or
+            str(source['transaction_hash']).lower() != proof['transaction_hash']):
+        raise ValueError('capital_native_row_scope')
+    if proof.get('receipt') is None:
+        return None
+    receipt = result(proof['receipt'])
+    if receipt is None:
+        return None
+    maker = str(source['proxy_wallet']).lower()
+    total = wallet_transfer_totals(receipt, proof['transaction_hash'], maker)
     def direction(row):
         if row['type'] == 'TIP':
             if row.get('side') not in ('IN', 'OUT'):

@@ -925,7 +925,10 @@ For a failed pre-enrollment F0 session, use this owner setup order:
 5. `Verify`, then perform the pre-enable check and `Enable` through the registrar.
    Check the reconciled `ENROLLMENT_FUNDING` result against the new F2 inventory anchor.
 
-Personal trades: only when status is idle, outside run hours; none while a session is open; no open orders from the start of the entry window until the session has started; an open order refuses admission (`account_not_empty`).
+The owner can trade by hand on the shared wallet. Keep every campaign-condition
+holding under campaign control. Admission still requires an empty open-order
+list (`account_not_empty`), and a foreign resting order during a session still
+fails the existing open-order check.
 
 Manual or automatic redemption is not manual trading. The owner chooses a
 manual redemption cadence or the separately authorized auto-redeem facility;
@@ -937,9 +940,25 @@ For the intended fully funded sleeve, confirm `funding_native = 300000000` and
 `capital_bridge_complete = true`; a configured ceiling is not proof of funding.
 
 Personal activity between fully closed sessions may change non-campaign tokens
-and wallet cash. Every campaign-token quantity stays protected across those
-sessions. Personal trades, merges or splits during a session halt F2 through
-the account inventory proof. Redemption follows the separate rule above.
+and wallet cash. A scoped own-wallet trade message during F2 is retained as
+`account_external_trade_notice`. Quoting can continue only when a fresh account
+read confirms the execution outside the selected bands and protected campaign
+holdings, its trade and order IDs are separate from F2, and its confirmed
+transaction proves the exact token transfer and native collateral change. The
+full-wallet read must agree with both. The proof accepts up to four independent,
+single-execution receipts per read. A proved sale first repays any owner
+overdraw. The remaining proceeds stay external, and a purchase uses the
+existing owner-debit accounting. The ledger records the independently proved
+movement once and attributes no principal or gain to the campaign.
+
+If the live check cannot complete, `account_external_trade_unproved` stops the
+session and retains the notice. The ordinary date rules still apply. A stop
+of this type does not itself create an incident. Postcheck and owner-close can
+prove the movement against a fresh complete read. Unexplained or contradictory
+money still goes through the ordinary refusal path. Existing incident evidence,
+including gaps, stays retained after owner-close. Merges and splits retain the
+existing rules. The separate native redemption proof and the stop on a venue
+auto-redemption notice also retain their existing rules.
 
 A retained resolution with an exact zero payout books that lot's remaining basis
 as realized loss without requiring a burn. Its unswept physical quantity remains
