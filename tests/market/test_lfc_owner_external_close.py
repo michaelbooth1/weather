@@ -353,9 +353,9 @@ def test_coordinator_finalization_reuses_commit_but_explicit_retry_rereads(tmp_p
         no_reads.setattr('weather.market.lfc_owner_external_close.rpc_read',
                          lambda *args: pytest.fail('chain read during finalization'))
         assert close.complete_committed(runtime.state, ATTEMPT, runtime.clock.now())
-    assert ledger.event_rows('autostart_owner_close') == [decision]
+    assert ledger.event_rows('autostart_owner_close') == (decision,)
     with pytest.raises(StateRefused, match='owner_external_facts_required'):
         close.owner_close(runtime, INCIDENT)
     assert close.owner_close(runtime, INCIDENT, external_facts=facts) == 0
     assert calls == ['account', 'chain'] * 2
-    assert ledger.event_rows('autostart_owner_close') == [decision]
+    assert ledger.event_rows('autostart_owner_close') == (decision,)
