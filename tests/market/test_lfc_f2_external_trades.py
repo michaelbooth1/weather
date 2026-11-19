@@ -186,10 +186,11 @@ def test_external_redemption_keeps_its_separate_native_proof_inside_a_pending_at
 
 
 @pytest.mark.parametrize('confirmed', [False, True])
-def test_typed_stream_notice_stops_with_clean_proof_or_continues_and_deduplicates(tmp_path, confirmed):
+def test_typed_stream_notice_stops_cleanly_or_continues(tmp_path, confirmed, account_guard, monkeypatch):
+    from tests.market.test_lfc_f2_evidence import runtime_at_controller
     from tests.market.test_lfc_f2_repost import campaign_stream
 
-    coordinator, account, status, ledger, clock = setup(tmp_path)
+    coordinator, account, status, ledger, clock = setup(tmp_path, enrolled=True)
     account.raws[0].fixture_directory = tmp_path
     row = {'event_type': 'trade', 'status': 'MATCHED', 'trader_side': 'TAKER',
            'id': 'external-trade', 'market': '0x' + 'e' * 64, 'maker_address': MAKER,
@@ -210,8 +211,14 @@ def test_typed_stream_notice_stops_with_clean_proof_or_continues_and_deduplicate
     assert result['reason'] == ('fixed_end' if confirmed else STOP)
     assert checked == ['external-trade']
     assert result['cleanup_ok'] and ledger.unresolved_legs() == []
+    outcome = status.finish(success=True)
     local = local_money_proof(coordinator.directory, ledger=ledger, session_id=coordinator.session_id,
-                              attempt_id=coordinator.attempt_id, outcome=status.finish(success=True),
+                              attempt_id=coordinator.attempt_id, outcome=outcome,
                               terminal_backfill=True)
     assert local['complete']
-    assert ledger.autostart_incidents == []
+    runtime = runtime_at_controller(coordinator, account, status, ledger, clock, monkeypatch)
+    runtime.save_result(account.claim, runtime.session_result(account.claim, status, outcome, 0))
+    proof = runtime.postcheck(account.claim, runtime.saved_result(account.claim))
+    assert proof['cleanup_proven'] and proof['money_accounting_complete']
+    runtime.state.close(account.claim, proof, clock.now())
+    assert runtime.state.incidents() == [] and runtime.state.pending() == []
