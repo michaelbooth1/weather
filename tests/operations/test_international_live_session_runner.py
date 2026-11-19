@@ -27,7 +27,7 @@ WALLET = "0x" + "2" * 40
 
 
 @pytest.fixture(autouse=True)
-def private_attempt_root(monkeypatch):
+def private_attempt_root(monkeypatch, tmp_path):
     monkeypatch.setattr(
         runner,
         "validate_private_attempt_root",
@@ -37,6 +37,11 @@ def private_attempt_root(monkeypatch):
         runner,
         "_default_overlay_file_provider",
         lambda _root, _hashes: {},
+    )
+    git_executable = tmp_path / "git.exe"
+    git_executable.write_bytes(b"fixture Git executable")
+    monkeypatch.setattr(
+        sealer, "canonical_git_executable", lambda: git_executable
     )
 
 
