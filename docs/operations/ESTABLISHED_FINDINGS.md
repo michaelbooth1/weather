@@ -158,6 +158,7 @@ sequence numbers, not calendar dates.
 | 10bh | A094 T+0 pre-fill toxicity screen 2026-11-15 (ledger row 130, K kill-only; register X118): book/clock/model features rank toxic public maker fills slightly above price/time (AUC 0.655 [0.637, 0.674] vs 0.647; Brier −0.0015 [−0.0027, −0.0004]) but the fixed gate nets −0.034 c per original share [−0.299, +0.131] after nominal rebate stress; F2-context AUC 0.530; observed-high state missing; T+1 pre-fill idea PARKED, no new quoting term, T+1 transfer unverified |
 | 10bi | A093 target-day management of carried inventory 2026-11-16 (ledger row 129, K kill-only; register X119): no alternative cleared the positive-lower-bound requirement against B; target-day B minus holding −0.16 c/share [−6.12, +5.85] unresolved; hold residuals to settlement, keep B's 1.5 c pair cap, no stop/SELL/looser cap before the seal |
 | 10bj | F2 Pin B Friday settlement and Monday run A 2026-11-16 (T120/T121; descriptive, two live dates, one settled): Friday +13.62 pUSD before rewards (Miami +25.07, rest −11.45); Monday 311 quoting min, 13 fills 162.28 sh, Chicago 37% of cost; +30 min −0.49 c/share vs purchase, −1.89 c vs pre-fill mid; fills per order-hour ~1.87x A092; reward per city-hour 31.6% below A092; gates uncertifiable/FAIL |
+| 10bk | LOW-ASK-1 N68 power 2026-11-18 (T123r5/T123r6; SYNTHETIC PLANNING, no LOW-ASK-1 data read, not an edge result): SCREEN_ONLY under the owner's .80 rule (minimum simultaneous planning-power lower bound 2.12%, power 2.90-4.95% at the $0.6741 planning effect; null size ≤ 1.13% vs 1.25%); MDE at 68 dates $1.36 per scheduled city-day (~2.0x); 80% needs ~36-37 weeks (extrapolated, 32-48) |
 
 ---
 
@@ -5843,6 +5844,38 @@ evidence for the decision table, which applies after the confirmation dates.
   YES, which paid. No wider prices, bigger orders, higher caps or city exclusions are justified by two dates.
 - **Records.** `C:\t\codex\T120\REPORT.md` and `C:\t\codex\T121\REPORT.md` (workstation). T121's ledger
   snapshot sha256 is `a19ed958…`: 792 rows, with predecessor hashes continuous.
+
+### 10bk. LOW-ASK-1 at its registered 68 dates is SCREEN_ONLY: synthetic power at the planning effect is about 3-5%, and the smallest detectable effect is about twice that effect (SYNTHETIC PLANNING, not an edge measurement) — Codex T123r5 and T123r6, 2026-11-18
+
+Synthetic simulation only. No outcome, price or label of any LOW-ASK-1 date was read. The planning effect,
+$0.6741 per scheduled city-day, is an assumption, not a measured executable effect: T090 design B took it from
+T086's 18:00 midpoint gap (§10bf), with a conditional arithmetic sensitivity of $0.45-$0.89. Nothing here is
+an edge claim, a kill or a statement about the lowest-temperature lead itself.
+
+- **N68 calibration (T123r5, 21:27, master-accepted): SCREEN_ONLY.** The owner's rule (DECISION_LOG
+  2026-11-18) calls the design CALIBRATED only if the minimum simultaneous planning-power lower bound is at
+  least .80.
+  - 80 training and 80 independent validation arms; 576 power cells.
+  - Minimum simultaneous planning-power lower bound 2.122119% at the $0.6741 effect. Estimated power is
+    2.90-4.95% in the four cells: spread or clustered dates, times all events resolved or the latest event
+    pending.
+  - Worst simultaneous null-size upper bound 1.130936%, inside the 1.25% ceiling. Registered critical value
+    6.5812921161346365.
+  - Frozen like this, the final classification would be DESCRIBE with family p = 1.
+- **Planning (T123r6, about 22:40, same simulator, synthetic only).**
+  - At the registered 68 dates the minimum detectable effect is $1.36 per scheduled city-day
+    (search-adjusted; worst lower bound 81.73% at 2,000 panels), about 2.0 times the planning effect.
+  - At $0.6741, 20 weeks gives weakest-cell lower bounds of 20.3% (11 cities) and 22.3% (12 cities).
+    Reaching 80% projects to about 36-37 weeks, a first look about 2027-08-14 or 08-19. That is an
+    extrapolation; its fit sensitivity is 32-48 weeks.
+- **Reading.** The 68-date design cannot confirm an effect of the planned size; it can only describe. Codex
+  recommends dropping LOW-ASK-1 as a standalone confirmatory trial (c). The alternatives are (a) a
+  SCREEN_ONLY freeze for a descriptive 02-09 look and (b) a redesign for about 37 weeks. The decision is the
+  owner's ([STATE_OF_PLAY](STATE_OF_PLAY.md)).
+- **Records** (workstation). `CALIBRATION_RECEIPT.json` sha256
+  `5c666d40e33e31ab3fc6c51c50a2dc1ad6e9ad0bcacfd849faab6d80d329fb61`; `N68-SCREEN-ONLY-DISPOSITION.json`
+  sha256 `d2008c08eda2719da103ddbe27501c26dc9bee2dc6e734d712972b7b4a02bc11`. The candidate
+  `codex/t123-low-ask-restart-20261117` @ `8208b137` (draft PR #300) is unfrozen.
 
 ## Related
 

@@ -980,3 +980,76 @@ was released when the tick exited.
   - cap diagnostics;
   - the 2 h start-window cap;
   - bot memory growth.
+
+## 2026-11-17 F2 Pin B Tuesday: the B rule's first fill halted B090-L2; fixes B090-L3 and B090-L4
+
+- **Card** (owner 08:16-08:25): disable and clean control, replay IDENTICAL, checkout `d15e8f02`, campaign revision 6
+  `87ef3ebc…` (`complete_pairs`, entry 09:00-11:00, end 18:45), Upgrade/Verify/Enable: TUESDAY READY, release
+  `autostart-release-b090l2.json` `821cb39f…`. A chat paste broke one long line inside a Python string, so block C was
+  re-sent with short lines; later cards are also exported as `-File` scripts under `C:\t\codex\owner\`.
+- **Session** `F2-83d038f9…` from 09:04: 6 bands (4 paired, 2 cheap), 11 orders, all acknowledged; all 820 heartbeat
+  requests acknowledged, so Monday's transport fixes held. 09:31 the first fill: the Chicago cheap leg, BUY No at 0.40,
+  9.516667 of 20 shares; the remainder was cancelled within 7 s.
+- **Halt.** About 09:32 `f2_exception` (`ValueError('completion_projection_binding')`, `lfc_pair_inventory.py`): the
+  venue's maker execution price times the exact quantity ceiled to one native unit above the signed limit's cost, a
+  binary64 tail at an exact native boundary, and the guard read it as an attribution mismatch. The same check ran again
+  while writing the terminal packet, so Chicago's packet never finalized; account proof refused
+  `private_evidence_unbound` and latched incident `5486e62b` at 09:33. No complement was submitted; the account-wide
+  open-order read at 09:32:53 was empty. The traceback was lost: F2 kept only the exception class and the windowless
+  launcher discarded stderr.
+- **B090-L3 `b961dc2d`** (Codex T119r4/r5): snap the execution product to the native boundary only within one binary64
+  ULP times the shares, then ceil; larger mismatches still refuse; `f2_exception` keeps safe stack frames. 204 focused
+  tests and two retained-data reproductions (the old code raises, the new code finalizes the packet) passed under a
+  master ruling of a 3 GiB memory floor (the owner's other work leaves about 4 GB free). Owner card 18:03: owner-close of
+  `5486e62b` after a fresh account proof, replay IDENTICAL, checkout, Upgrade/Verify/Enable.
+- **Second occurrence** `9a0f7353` at 18:06, same source attempt: `lfc_f2_economics.publish_supplements` called
+  `state.retained_result` for the owner-closed attempt and bypassed the owner-close binding. **B090-L4 `869b7763`**
+  (T119r6/r7): skip the supplement for a validated owner-closed attempt; a changed or lost artifact still latches. 179
+  passed (176 focused, 3 copied-state simulations: Wednesday 09:00 admits; lost artifacts refuse). Owner card 18:49:
+  owner-close of occurrence 2, replay IDENTICAL, checkout, Upgrade (`autostart-release-b090l4.json` `f41739c9…`).
+  Enable first deferred `admission_busy`: the master had created `C:\t\codex\HOLD_HEAVY`, which the campaign guard
+  honours. After it was removed, an Enable-only block succeeded; the first tick at 18:56 was IDLE and clean.
+- **Result:** about 29 quoting minutes and one partial fill, held to settlement; 11-17 is consumed; the complete-pairs
+  complement has not yet run live.
+- **Lessons:** an active wrapped heavy job writes a workload marker that owner cards read as poison, so no heavy work
+  while a card is pending; never create `HOLD_HEAVY` on an enable or trading day; export cards as scripts.
+- **Still open:** the T122 operations branch `codex/b090l4-ops-20261117` `5725dc1c` (not installed); the A095 maker
+  fixes (`codex/a095-maker-depth`, `codex/a095-maker-fresh-distance`) for review after Wednesday; the 2 h start-window
+  cap; bot memory growth.
+
+## 2026-11-18 F2 Pin B Wednesday: incident 3 on B090-L4; B090-L5 installed; B090-L6 candidate
+
+- **Incident 3** (`4b7715b6…`), during Wednesday's B session on B090-L4. Root cause (Codex T119r8,
+  master-accepted): an own-account redemption notice for a non-campaign position (non-campaign activity on the
+  shared account) arrived on the user stream mid-session. L4 treated it as an invalid stream event, so the strict
+  `*_failed` guard latched `private_evidence_unbound`. Separately, the 10 final repeat terminal GETs had failed:
+  HTTP 200 with null bodies. The owner closed the incident about 14:58 with the L4 owner-close card.
+- **B090-L5 `321fbace`** (`codex/b090l5-terminal-read-retry-20261118`):
+  - retryable terminal-read gaps are recorded per order and re-read at postcheck, before the private proof binds;
+  - an own-account redemption notice becomes `account_redemption_notice` and ends the whole session cleanly; a
+    same-day restart is possible only inside 09:00-11:00.
+  - T119r9 (master-accepted): keep L5. The modelled cost of ending the session on such a notice is tiny. A
+    keep-quoting design was specified but not built.
+- **Install** (owner card, about 20:27). The first Enable at 20:20 refused, because non-campaign resting orders
+  were open on the shared account and the funding proof requires zero open orders. The retry at 20:27 passed
+  after they cleared. Release `autostart-release-b090l5.json` sha256 `765eacfe…`; campaign revision 6
+  `87ef3ebc…` is unchanged (`complete_pairs`). Thursday 11-19 09:00 runs on L5.
+- **Operating rule (master):** before every Enable or owner card, the shared account has no non-campaign resting
+  orders. The L6 card prints that count before Enable.
+- **B090-L6 candidate `e9f58310`** (`codex/b090l6-postcheck-hardening-20261118`, stacked on L5):
+  - A095's three L5-review findings: a contradiction refuses instead of being retried away; every named
+    observation interval is staged against the attempt's anchored result time before any terminal write; GET-age
+    semantics are documented and tested;
+  - A095's two R6 residuals: a full ordinary account preflight before any terminal append; a sparse GET cannot
+    hide a changed booked quantity;
+  - one scope gap: the same strict checks for every first terminal write;
+  - A095's two quote fixes (bundle `0d1ada320`, commit `e7fd7275`): owned depth and the fresh-book distance, the
+    work of `codex/a095-maker-depth` and `codex/a095-maker-fresh-distance`.
+
+  654 focused checks passed, and a ledger-copy replay L5→L6 printed IDENTICAL on 985 copied rows. A095's
+  independent review R6-L6B-REVIEW: INSTALLABLE, with one inherited recovery corner that L5 also has. Owner
+  installation is recommended for Thursday 11-19 evening, after the session.
+- **Card fix (T119r12):** the owner card's block 1 now refuses before it disables the task when a heavy-workload
+  marker or hold exists. The L5 card had the old ordering.
+- **Still open:** the inherited recovery corner; the T122 operations branch `codex/b090l4-ops-20261117`
+  `5725dc1c` (in neither L5 nor L6, not installed); the 2 h start-window cap; bot memory growth.
