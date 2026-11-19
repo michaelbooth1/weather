@@ -81,7 +81,11 @@ def traded_token_ids(root, condition):
                    and str(row['condition_id']).lower() == condition})
 
 
-def select_token_pair(condition, rows, traded_tokens):
+class SettlementScopeUnproven(ValueError):
+    """Intact recorder evidence cannot identify a terminal position mapping."""
+
+
+def select_token_pair(condition, rows, traded_tokens, *, replay_posted=False):
     traded = set(map(str, traded_tokens))
     groups = {}
     for row in rows:
@@ -89,6 +93,7 @@ def select_token_pair(condition, rows, traded_tokens):
             continue
         key = (row['module'], row.get('structural_condition_id'))
         groups.setdefault(key, []).append(row)
+    matched = None
     for group in groups.values():
         slots = {}
         for row in group:
@@ -99,13 +104,31 @@ def select_token_pair(condition, rows, traded_tokens):
             slots[index] = token
         else:
             if set(slots) == {0, 1} and len(set(slots.values())) == 2 and traded and traded <= set(slots.values()):
-                return [slots[0], slots[1]]
+                pair = [slots[0], slots[1]]
+                if replay_posted:
+                    return pair
+                if matched is not None and pair != matched:
+                    raise SettlementScopeUnproven('ambiguous_matching_token_pair')
+                matched = pair
+    if matched is not None:
+        return matched
     raise ValueError('no_matching_token_pair')
 
 
-def resolution_result(condition, resolution_raw, tokens_raw, *, traded_tokens):
+def settlement_rows(raw, *, replay_posted):
+    page = envelope(raw)
+    pagination = page.get('pagination')
+    if not replay_posted and pagination is not None:
+        if (not isinstance(pagination, dict)
+                or ('has_more' in pagination and pagination['has_more'] is not False)
+                or pagination.get('next_cursor') not in (None, '')):
+            raise SettlementScopeUnproven('settlement_page_incomplete')
+    return page['data']
+
+
+def resolution_result(condition, resolution_raw, tokens_raw, *, traded_tokens, replay_posted=False):
     """Use on-chain payout slots and reference ids only, never final_price or price."""
-    rows = envelope(resolution_raw)['data']
+    rows = settlement_rows(resolution_raw, replay_posted=replay_posted)
     if any(condition_id(r['condition_id']) != condition for r in rows) or len(rows) > 1:
         raise ValueError('resolution_condition_scope')
     if not rows or rows[0]['status'] != 'resolved':
@@ -117,7 +140,8 @@ def resolution_result(condition, resolution_raw, tokens_raw, *, traded_tokens):
     if (not isinstance(payouts, list) or len(payouts) != 2 or
             any(type(p) is not int or p < 0 for p in payouts) or sum(payouts) != 1_000_000):
         raise ValueError('resolution_payouts_unreadable')
-    pair = select_token_pair(condition, envelope(tokens_raw)['data'], traded_tokens)
+    pair = select_token_pair(condition, settlement_rows(tokens_raw, replay_posted=replay_posted),
+                             traded_tokens, replay_posted=replay_posted)
     winner = next((pair[i] for i, payout in enumerate(payouts) if payout == 1_000_000), None)
     return True, winner, pair
 
@@ -131,6 +155,9 @@ def record_settlement(root, condition, *, clock=None, get=public_get, traded_tok
     if target.exists():
         try:
             read_recovered(target, lambda p: validate_settlement(p, condition))
+        except SettlementScopeUnproven:
+            # An intact historical record with competing mappings is not corruption.
+            raise
         except (ValueError, KeyError, TypeError, UnicodeError):
             if not recover_corrupt:
                 raise
@@ -183,12 +210,12 @@ def validate_settlement(path, condition):
     return validate_settlement_row(row, condition)
 
 
-def validate_settlement_row(row, condition):
-    """Pure replay validator for the retained recorder evidence in the ledger."""
+def validate_settlement_row(row, condition, *, replay_posted=False):
+    """Keep historical postings reproducible while requiring consensus for new use."""
     if row.get('schema_version') != SETTLEMENT_SCHEMA or row.get('condition_id') != condition:
         raise ValueError('settlement_record_scope')
     terminal, winner, pair = resolution_result(condition, response_bytes(row['resolution']),
-        response_bytes(row['tokens']), traded_tokens=row['traded_token_ids'])
+        response_bytes(row['tokens']), traded_tokens=row['traded_token_ids'], replay_posted=replay_posted)
     if row.get('terminal') is not terminal or row.get('winning_token_id') != winner or row.get('token_ids') != pair:
         raise ValueError('settlement_record_mismatch')
     utc(row['observed_at_utc'])

@@ -112,7 +112,7 @@ class CapitalBook:
         self.pool_movements, self.pools_dirty = [], False
         self.owner_overdraw_outstanding = self.owner_overdraw_repaid = 0
         for row in getattr(ledger, 'capital_rows', []):
-            self.apply(row)
+            self.apply(row, replay_posted=True)
         self.refresh_pools()
 
     def sync_lots(self):
@@ -123,7 +123,7 @@ class CapitalBook:
                      ('basis', 'quantity', 'token_id', 'condition_id', 'terminal_sequence')):
                 raise CapitalRefused('capital_terminal_lot_changed')
 
-    def apply(self, row):
+    def apply(self, row, *, replay_posted=False):
         event = row['event']
         if event == 'autostart_owner_close':
             from weather.market.lfc_campaign_state import StateRefused
@@ -377,7 +377,7 @@ class CapitalBook:
         elif event == 'capital_zero_resolution':
             from weather.market.lfc_settlement_record import validate_settlement_row, envelope
             from weather.market.lfc_recording_io import response_bytes
-            record = validate_settlement_row(row['settlement'], row['condition_id'])
+            record = validate_settlement_row(row['settlement'], row['condition_id'], replay_posted=replay_posted)
             if record.get('terminal') is not True or row.get('settlement_sha256') != digest(record):
                 raise CapitalRefused('capital_zero_resolution_evidence')
             payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']

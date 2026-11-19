@@ -206,7 +206,7 @@ class Ledger:
                 book = CapitalBook(self)
             else:
                 book.sync_lots()
-            book.apply(row)
+            book.apply(row, replay_posted=getattr(self, '_replaying', False))
         except (ValueError, KeyError, TypeError) as exc:
             raise LedgerUnavailable(str(exc) if isinstance(exc, CapitalRefused) else 'capital_event_invalid') from None
         self.capital_rows.append(row)
