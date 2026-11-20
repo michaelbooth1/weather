@@ -368,9 +368,8 @@ def test_positive_unrelated_native_receipt_leaves_ordinary_owner_activity_unreso
     if kind == 'TIP':
         source['side'] = 'OUT'
     raw = strict_json(response_bytes(evidence['receipt']))
-    target = '0x' + '3'*64
     for log in raw['result']['logs']:
-        log['topics'][1:3] = [target, '0x'+'4'*64]
+        log['topics'][1:3] = ['0x' + '0'*24 + digit*40 for digit in ('3', '4')]
     evidence.update(rows=[source], rows_sha256=digest([source]),
                     receipt=retained(json.dumps(raw).encode('utf-8')))
     prior = CapitalBook(ledger).figures()
