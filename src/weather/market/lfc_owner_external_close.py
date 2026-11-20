@@ -422,8 +422,11 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         for token, delta in deltas.items():
             projected[token] = str(quantity(projected.get(token, 0)) + delta)
     positions = packet['positions']
-    from weather.market.lfc_owner_external_inventory import INDEX_OMISSION_LIMIT, collect_checkpoints, native_corrections
-    omitted = {}
+    from weather.market.lfc_owner_external_inventory import (
+        INDEX_OMISSION_LIMIT, booked_checkpoints, check_booked_omissions, collect_checkpoints, native_corrections,
+    )
+    prior_omissions = booked_checkpoints(book.ledger, facts['attempt_id'], sequence) if session else {}
+    omitted, booked_omitted = {}, {}
     for token in set(projected) | set(positions) | set(deltas):
         before, after = projected.get(token, 0), positions.get(token, 0)
         expected = Decimal(before)
@@ -434,6 +437,9 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
                 raise StateRefused('owner_external_native_inventory_binding')
             omitted[token] = (expected - deltas[token], deltas[token], next(iter(contracts)))
             continue
+        if token in prior_omissions and token not in positions and token not in owned and 0 < expected < INDEX_OMISSION_LIMIT:
+            booked_omitted[token] = expected, prior_omissions[token]
+            continue
         if expected < 0:
             raise StateRefused('owner_external_inventory_changed')
         equal = same_position(before, after) if token in owned else expected == quantity(after)
@@ -442,6 +448,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
     shortfall = book.expected_cash() + (0 if already_booked else cash) - packet['cash_native']
     if shortfall:
         raise WalletCashMismatch(shortfall)
+    if session:
+        check_booked_omissions(packet, wallet, cut, booked_omitted, collect=collect_inventory, rpc=rpc)
     corrections = {}
     if omitted:
         trade_blocks = [observed['block_number'] for _, _, observed, _ in personal] + gap_blocks

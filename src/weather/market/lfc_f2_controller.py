@@ -3,8 +3,8 @@
 No thread posts orders. Each band retains its own finite profile budget,
 private journal and durable intents. Band cleanup cancels that band's orders;
 the explicit breadth protocol may continue only after inventory proof and cooldown.
-Any monetary ambiguity, STOP or account fault cleans up the account.
-The final account-wide cancel/verify remains distinct from band cancellation.
+Any monetary ambiguity, STOP or account fault triggers campaign cleanup.
+The final wallet-wide read verifies the result of scoped order cancellation.
 """
 from decimal import Decimal
 from pathlib import Path

@@ -8,6 +8,7 @@ from weather.market.lfc_capital import SCALE
 from weather.market.lfc_capital_native import hex_number, result, rpc_read
 from weather.market.lfc_redemption_native import CTF, PM, call_data
 from weather.market.lfc_recording_io import response_bytes
+from weather.market.mm_stage2_hold import utc
 
 
 BALANCE_SELECTOR = call_data('balanceOf(address,uint256)', ['address', 'uint256'], ['0x' + '0'*40, 1])[:10]
@@ -138,3 +139,41 @@ def native_corrections(witness, wallet, anchor, cut, omitted, trade_blocks):
             raise StateRefused('owner_external_inventory_changed')
         corrections[token] = before - baseline
     return corrections
+
+
+def booked_checkpoints(ledger, attempt, sequence):
+    """The most recent accepted native witness for each omitted token in this attempt."""
+    checkpoints = {}
+    for row in ledger.event_rows('capital_f2_owner_activity', field='attempt_id', value=attempt):
+        if sequence is not None and row['sequence'] >= sequence:
+            break
+        proof = row['proof']
+        witness = proof.get('native_inventory')
+        if witness is not None:
+            cut = utc(proof['coverage_utc'])
+            height = header(witness['brackets'][1][0])[0]
+            for token, pair in witness['balances'].items():
+                contract = pair[1]['params'][0]['to'] if 'params' in pair[1] else CTF
+                checkpoints[token] = (row['sequence'], cut, height, contract)
+    return checkpoints
+
+
+def check_booked_omissions(packet, wallet, cut, omissions, *, collect, rpc):
+    """Recheck indexed-out dust without turning a prior checkpoint into new cash or inventory."""
+    groups = {}
+    for token, (expected, (sequence, previous_cut, height, contract)) in omissions.items():
+        if cut < previous_cut:
+            raise StateRefused('owner_external_inventory_changed')
+        group = groups.setdefault(str(sequence), (previous_cut, height, {}))
+        group[2][token] = (expected, Decimal(0), contract)
+    if collect and groups:
+        packet['booked_native_inventory'] = {
+            key: collect_checkpoints(wallet, previous_cut, cut, tokens, height + 1, rpc=rpc)
+            for key, (previous_cut, height, tokens) in groups.items()
+        }
+    witnesses = packet.get('booked_native_inventory', {})
+    if set(witnesses) != set(groups):
+        raise StateRefused('owner_external_native_inventory_binding')
+    for key, (previous_cut, _, tokens) in groups.items():
+        if any(native_corrections(witnesses[key], wallet, previous_cut, cut, tokens, ()).values()):
+            raise StateRefused('owner_external_inventory_changed')
