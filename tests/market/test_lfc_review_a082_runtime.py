@@ -19,6 +19,7 @@ from weather.market.mm_stage2_hold import digest
 
 @pytest.mark.parametrize('reopen', [False, True])
 def test_personal_activity_then_positions_catchup_does_not_latch(tmp_path, monkeypatch, reopen):
+    from tests.market.test_lfc_f2_controller import FIXTURE_HEARTBEAT_KEY
     from weather.market import re1_transport, lfc_campaign_runtime, lfc_capital_reads, lfc_f2_wallet_reads
     clock = Clock(); clock.value = NOW
     source, proof, tokens = paired(auto=True)
@@ -41,7 +42,8 @@ def test_personal_activity_then_positions_catchup_does_not_latch(tmp_path, monke
             def balances(self): return observation(runtime.state.ledger, clock, positions={}, cash='310')['balances']
             def geography(self): return {'blocked': False}
             def close(self): pass
-        monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': MAKER}, None))
+        monkeypatch.setattr(re1_transport, 'load_owner_credentials',
+                            lambda _: ({'FUNDER_ADDRESS': MAKER, 'API_KEY': FIXTURE_HEARTBEAT_KEY}, None))
         monkeypatch.setattr(re1_transport, 'build_client', lambda *args, **kwargs: object())
         monkeypatch.setattr(re1_transport, 'OwnerVenue', Venue)
         monkeypatch.setattr(lfc_campaign_runtime, 'fetch_account_positions', lambda _:

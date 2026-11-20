@@ -14,6 +14,7 @@ from weather.market.lfc_ledger import Ledger
 
 
 def test_real_account_read_can_finish_after_its_last_activity_cutoff(tmp_path, monkeypatch):
+    from tests.market.test_lfc_f2_controller import FIXTURE_HEARTBEAT_KEY
     from weather.market import re1_transport, lfc_campaign_runtime, lfc_capital_reads, lfc_f2_wallet_reads
     from weather.market.lfc_campaign_runtime import Runtime
     from weather.market.lfc_f2_pinb import example_policy
@@ -32,7 +33,8 @@ def test_real_account_read_can_finish_after_its_last_activity_cutoff(tmp_path, m
         def balances(self): return observation(ledger, clock, positions={}, cash='310' if world['redeemed'] else '290')['balances']
         def geography(self): return {'blocked': False}
         def close(self): pass
-    monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': MAKER}, None))
+    monkeypatch.setattr(re1_transport, 'load_owner_credentials',
+                        lambda _: ({'FUNDER_ADDRESS': MAKER, 'API_KEY': FIXTURE_HEARTBEAT_KEY}, None))
     monkeypatch.setattr(re1_transport, 'build_client', lambda *a, **k: object())
     monkeypatch.setattr(re1_transport, 'OwnerVenue', Venue)
     monkeypatch.setattr(lfc_campaign_runtime, 'fetch_account_positions', lambda _: [] if world['redeemed'] else original['positions'])
