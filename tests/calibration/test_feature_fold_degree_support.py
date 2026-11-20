@@ -106,7 +106,7 @@ def test_matched_outer_roster_keeps_as_of_features_and_scores_missing_actual_key
             return np.full((len(matrix), len(self.classes_)), 1 / len(self.classes_))
 
     monkeypatch.setattr(trainer, "make_feature_hgb", UniformClassifier)
-    labels = pd.Series([0, 1, 0, 1, 1, 2, 3, 4])
+    labels = pd.Series([0, 1, 0, 1, 1, 2, 1, 4])
     dates = tuple(date(2018 + i // 2, 1, 1 + i % 2) for i in range(len(labels)))
     records = [{"target_date": day, "final_bucket": int(label)} for day, label in zip(dates, labels)]
     frame = pd.DataFrame({"as_of_reading": np.arange(8, dtype=float)})
@@ -131,9 +131,18 @@ def test_matched_outer_roster_keeps_as_of_features_and_scores_missing_actual_key
                for train_values, train_labels in membership)
     assert tuple(row["validation_index"] for row in changed) == outer_roster
     assert tuple(row["validation_index"] for row in legacy) == outer_roster
+    paired_deltas = []
     for fixed, control in zip(changed, legacy, strict=True):
         assert fixed["calibration_status"] == control["calibration_status"] == "nested_inner_oof"
-        assert fixed["actual"] not in fixed["distribution"] and control["actual"] in control["distribution"]
-        scores = list(fixed["distribution"].values())
-        assert trainer.brier_score(fixed["distribution"], fixed["actual"]) == pytest.approx(
-            1.0 + sum(value ** 2 for value in scores))
+        actual = fixed["actual"]
+        assert (actual in fixed["distribution"]) is (actual == 1)
+        assert actual in control["distribution"]
+        score = trainer.brier_score(fixed["distribution"], actual)
+        if actual == 4:
+            assert score == pytest.approx(1.0 + sum(value ** 2 for value in fixed["distribution"].values()))
+        paired_deltas.append(score - trainer.brier_score(control["distribution"], actual))
+    # Exhaust all four equally weighted whole-date bootstrap draws for the two invented dates.
+    resampled = [(left + right) / 2 for left in paired_deltas for right in paired_deltas]
+    assert min(resampled) < max(resampled)
+    print(f"synthetic paired Brier change {np.mean(paired_deltas):.8f}; "
+          f"whole-date resample range [{min(resampled):.8f}, {max(resampled):.8f}]")
