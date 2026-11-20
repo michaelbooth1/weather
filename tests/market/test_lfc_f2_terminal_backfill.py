@@ -119,8 +119,8 @@ def test_postcheck_needs_an_exact_get_for_missing_private_terminal_order(tmp_pat
         assert file_sha(runtime.state.root / 'results' / (controller.attempt_id + '.json')) == outcome_hash
 
 
-@pytest.mark.parametrize('kind', ['auto_redeem', 'trade'])
-def test_owner_notice_keeps_other_bands_running_with_clean_account_proof(tmp_path, monkeypatch, kind):
+@pytest.mark.parametrize('kind,outcome', [('auto_redeem', None), ('trade', 'CONFIRMED'), ('trade', 'FAILED')])
+def test_owner_notice_keeps_other_bands_running_with_clean_account_proof(tmp_path, monkeypatch, kind, outcome):
     from weather.market.lfc_f2_owner_notice import NOTICE
     from weather.market.lfc_f2_runtime import stream_factory
     from weather.market.re1_attended import SecretGuard
@@ -129,7 +129,7 @@ def test_owner_notice_keeps_other_bands_running_with_clean_account_proof(tmp_pat
     market = '0x'+'2'*64
     notice = {'event_type': kind, 'proxy_wallet': MAKER, 'txn_hash': '0x'+'1'*64, 'condition_id': market}
     if kind == 'trade':
-        notice.update(status='MATCHED', market=market, id='manual-trade', trader_side='TAKER',
+        notice.update(status='MATCHED_NOT_BROADCASTED', market=market, id='manual-trade', trader_side='TAKER',
                       asset_id='5001', taker_order_id='0x'+'3'*64, maker_orders=[])
     factory = stream_factory({}, owner_activity_scope=lambda: (set(), set()))
     stream = factory(tokens=raw.memory.tokens, guard=SecretGuard(), api_key='fake', secret='fake',
@@ -142,10 +142,11 @@ def test_owner_notice_keeps_other_bands_running_with_clean_account_proof(tmp_pat
             stream._normalize_event(dict(notice, order_id='unexpected-order'))
     marker = stream._normalize_event(notice)
     assert marker[0]['event_type'] == NOTICE
+    finished = stream._normalize_event(dict(notice, status=outcome)) if outcome is not None else []
     def receipt_rpc(*args, **kwargs):
         pytest.fail('quote loop entered receipt RPC')
     monkeypatch.setattr('weather.market.lfc_capital_native.rpc_read', receipt_rpc)
-    raw.events = lambda: marker if clock.seconds >= 12 else []
+    raw.events = lambda: (marker + finished if clock.seconds >= 20 else marker if clock.seconds >= 12 else [])
     result = controller.run()
     assert result['reason'] == 'fixed_end'
     assert result['cleanup_ok'] and result['inventory_proven']
@@ -156,7 +157,8 @@ def test_owner_notice_keeps_other_bands_running_with_clean_account_proof(tmp_pat
                               attempt_id=controller.attempt_id, outcome=status.finish(success=True),
                               terminal_backfill=True)
     assert local['complete'] and not local.get('missing_terminal_orders')
-    assert local['owner_activity'] == [[NOTICE, marker[0]['activity_identity_sha256']]]
+    identities = {item['activity_identity_sha256'] for item in marker + finished}
+    assert local['owner_activity'] == [[NOTICE, identity] for identity in sorted(identities, key=lambda v: v or '')]
 
 
 @pytest.mark.parametrize(('fields', 'booked', 'verdict'), [

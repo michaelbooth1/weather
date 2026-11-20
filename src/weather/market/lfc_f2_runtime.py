@@ -19,7 +19,9 @@ def stream_factory(registry, *, retain_trade_identity=False, owner_activity_scop
 
         def _normalize_event(self, item):
             if owner_activity_scope is not None:
-                from weather.market.lfc_f2_owner_notice import classify
+                from weather.market.lfc_f2_owner_notice import classify, validate_lifecycle
+                if isinstance(item, dict):
+                    validate_lifecycle(item)
                 notice = classify(item, wallet=self.maker_address.lower(), registry=registry,
                                   known_scope=owner_activity_scope)
                 if notice is not None:

@@ -40,6 +40,27 @@ def frame(kind):
     return dict(event_type=kind, condition_id=FOREIGN, proxy_wallet=MAKER, txn_hash=TX)
 
 
+def test_raw_lifecycle_statuses_keep_the_owner_overlap_guard(tmp_path):
+    pair = stream_factory({}, owner_activity_scope=lambda: ({MARKET}, {'201', '202'}))
+    stream = pair(tokens=('201', '202'), guard=SecretGuard(), api_key=KEY, secret='inert',
+                  passphrase='inert', maker_address=MAKER, condition_id=MARKET,
+                  journal_path=tmp_path/'ws.jsonl')
+    stream.known_order_ids.add(ORDER)
+    for status in ('MATCHED', 'MATCHED_NOT_BROADCASTED', 'MINED', 'CONFIRMED', 'RETRYING', 'FAILED'):
+        row = frame('trade') | {'status': status}
+        assert stream._normalize_event(row)[0]['event_type'] == OVERLAP
+        disjoint = row | {'taker_order_id': '0x'+'9'*64}
+        assert stream._normalize_event(disjoint)[0]['event_type'] == NOTICE
+    with pytest.raises(RuntimeError, match='unknown_account_trade_status'):
+        stream._normalize_event(frame('trade') | {'status': 'UNRECOGNIZED'})
+    for status in ('LIVE', 'MATCHED', 'DELAYED', 'UNMATCHED', 'CANCELED', None):
+        order = {'event_type': 'order', 'type': 'UPDATE', 'status': status, 'market': FOREIGN,
+                 'asset_id': '90', 'maker_address': MAKER, 'id': ORDER}
+        assert stream._normalize_event(order)[0]['event_type'] == NOTICE
+    with pytest.raises(RuntimeError, match='unknown_account_order_status'):
+        stream._normalize_event(order | {'status': 'UNRECOGNIZED'})
+
+
 @pytest.mark.parametrize('kind', ['trade', 'auto_redeem', 'redeem', 'deposit', 'withdrawal', 'reward',
                                   'rebate', 'maker_rebate', 'merge'])
 def test_stream_notice_stays_out_of_fills_without_transport(tmp_path, monkeypatch, kind):

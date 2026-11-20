@@ -10,6 +10,20 @@ TYPES = {'trade', 'auto_redeem', 'redeem', 'deposit', 'withdrawal', 'reward', 'y
          'rebate', 'maker_rebate', 'taker_rebate', 'referral_reward', 'merge',
          'directional_merge', 'tip', 'order'}
 HASH = re.compile(r'0x[0-9a-f]{64}', re.I)
+TRADE_STATUSES = frozenset({'MATCHED', 'MATCHED_NOT_BROADCASTED', 'MINED', 'CONFIRMED', 'RETRYING', 'FAILED'})
+ORDER_STATUSES = frozenset({'LIVE', 'MATCHED', 'DELAYED', 'UNMATCHED', 'CANCELED', 'CANCELLED'})
+ORDER_TRANSITIONS = frozenset({'PLACEMENT', 'UPDATE', 'CANCELLATION'})
+
+
+def validate_lifecycle(item):
+    """Validate raw F2 lifecycle labels before passing an event to either route."""
+    kind = str(item.get('event_type', '')).lower()
+    status = item.get('status')
+    if kind == 'trade' and str(status).upper() not in TRADE_STATUSES:
+        raise RuntimeError('unknown_account_trade_status')
+    if kind == 'order' and (status is not None and str(status).upper() not in ORDER_STATUSES or
+                            str(item.get('type')).upper() not in ORDER_TRANSITIONS):
+        raise RuntimeError('unknown_account_order_status')
 
 
 def scope(ledger, cut=None):
@@ -51,7 +65,7 @@ def classify(item, *, wallet, registry, known_scope):
             # The normal fill handler binds it to the order and the REST proof
             # still rejects mixed or non-campaign executions in this market.
             return None
-        if str(item.get('status', '')).upper() not in {'MATCHED', 'MINED', 'CONFIRMED', 'RETRYING', 'FAILED'}:
+        if str(item.get('status', '')).upper() not in TRADE_STATUSES:
             return None
         if not isinstance(item.get('id'), str) or not item['id']:
             return None
