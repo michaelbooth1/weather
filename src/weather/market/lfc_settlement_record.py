@@ -81,6 +81,9 @@ def traded_token_ids(root, condition):
                    and str(row['condition_id']).lower() == condition})
 
 
+TOKEN_MAP_CONSENSUS = 'consensus_v1'
+
+
 class SettlementScopeUnproven(ValueError):
     """Intact recorder evidence cannot identify a terminal position mapping."""
 

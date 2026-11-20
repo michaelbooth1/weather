@@ -213,6 +213,7 @@ def test_recorder_post_reopen_and_native_redemption(tmp_path, mode):
             assert row['terminal'] and row['winning_token_id'] is None
             return
         assert written == 1 and record_zero_payouts(ledger, tmp_path) == 0
+        assert ledger.capital_rows[-1]['token_map_policy'] == 'consensus_v1'
         posted = CapitalBook(ledger)
         assert posted.losses == 3_000_000 and posted.cash_in == 0
         assert posted.lots['winner']['remaining_basis'] == 8_000_000

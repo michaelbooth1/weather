@@ -773,7 +773,8 @@ holdings, places orders or consumes another date. Redemption remains an owner or
 separately authorized facility action; until proved, its principal stays charged.
 New zero-payout postings require complete recorder pages and agreement on the
 ordered payout-token pair across the eligible reference groups. Follow-up retains
-unresolved evidence and reports the affected-condition count. Existing ledger
+unresolved evidence and reports the affected-condition count. New ledger
+postings bind the consensus rule in the posted event. Existing ledger
 postings retain their original replay semantics.
 Later facts create immutable `status/<session>.e-<hash>.json` economics supplements;
 the original outcome remains unchanged. The control projection remains free of

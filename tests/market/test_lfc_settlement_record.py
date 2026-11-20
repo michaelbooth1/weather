@@ -95,8 +95,8 @@ def test_settlement_observed_after_response_and_hash_checked(tmp_path):
 
 def test_ambiguous_token_mapping_and_wrong_condition_refused():
     rows = json.loads(tokens())
-    rows['data'].append(rows['data'][0])
-    with pytest.raises(ValueError, match='no_matching_token_pair'):
+    rows['data'].append(dict(rows['data'][0], token_id='111'))
+    with pytest.raises(ValueError, match='incomplete_matching_token_pair'):
         resolution_result(CONDITION, resolution(), json.dumps(rows).encode(), traded_tokens=['111'])
     with pytest.raises(ValueError, match='resolution_condition_scope'):
         resolution_result('0x' + 'd' * 64, resolution(), tokens(), traded_tokens=['111'])

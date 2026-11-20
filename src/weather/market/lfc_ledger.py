@@ -462,6 +462,9 @@ class Ledger:
         fields = {**getattr(self, 'policy_metadata', {}), **fields}
         if event not in _EVENTS or event == 'genesis':
             raise LedgerUnavailable('ledger_event_unknown')
+        if event == 'capital_zero_resolution':
+            from weather.market.lfc_settlement_record import TOKEN_MAP_CONSENSUS
+            fields.setdefault('token_map_policy', TOKEN_MAP_CONSENSUS)
         if self.enrollment is not None or self.history_recoveries or event in {'autostart_enroll', 'owner_history_recovery'}:
             from weather.market.lfc_campaign_guard import require_account
             require_account(self.rows[0]['maker_address'])

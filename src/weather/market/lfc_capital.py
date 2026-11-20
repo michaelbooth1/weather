@@ -375,10 +375,15 @@ class CapitalBook:
                 from weather.market.lfc_f2_wallet_cash import captured_debit
                 captured_debit(self, item, self.cash_out - cash_out_before)
         elif event == 'capital_zero_resolution':
-            from weather.market.lfc_settlement_record import SettlementScopeUnproven, validate_settlement_row, envelope
+            from weather.market.lfc_settlement_record import (
+                TOKEN_MAP_CONSENSUS, SettlementScopeUnproven, envelope, validate_settlement_row,
+            )
             from weather.market.lfc_recording_io import response_bytes
+            legacy_mapping = replay_posted and 'token_map_policy' not in row
+            if not legacy_mapping and row.get('token_map_policy') != TOKEN_MAP_CONSENSUS:
+                raise CapitalRefused('capital_zero_resolution_token_map_policy')
             try:
-                record = validate_settlement_row(row['settlement'], row['condition_id'], replay_posted=replay_posted)
+                record = validate_settlement_row(row['settlement'], row['condition_id'], replay_posted=legacy_mapping)
             except SettlementScopeUnproven as exc:
                 raise CapitalRefused(str(exc)) from exc
             if record.get('terminal') is not True or row.get('settlement_sha256') != digest(record):
