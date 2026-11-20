@@ -75,7 +75,7 @@ def empty_protocol_feed(monkeypatch):
 
 
 def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withdraw=0, quarantine=0,
-                  example=False, owner_position='30', personal_holdings=None):
+                  example=False, owner_position='30', personal_holdings=None, shared_wallet=False):
     ledger, baseline, clock, _ = fixture(tmp_path, personal=False, bridge=False)
     holdings = {'denver': '20', '90': owner_position, **(personal_holdings or {})}
     if not example:
@@ -110,7 +110,8 @@ def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withd
                   closure_anchor_protocol=PROTOCOL)
     ledger.record('autostart_claim', attempt_id=ATTEMPT, file_sha256='claim')
     ledger.record('session_start', session_id='end-band', protocol='lfc_autostart_v2',
-                  condition_id=MARKET, autostart_attempt_id=ATTEMPT)
+                  condition_id=MARKET, autostart_attempt_id=ATTEMPT,
+                  **({'f2_owner_activity_tokens': ['201', '202']} if shared_wallet else {}))
     clock.value += timedelta(seconds=6)
     ledger.record('session_end', session_id='end-band')
     book = CapitalBook(ledger)
@@ -156,8 +157,9 @@ def finish_claim(ledger):
 
 @pytest.mark.parametrize('kind, funded', [('DEPOSIT', False), ('WITHDRAWAL', True), ('WITHDRAWAL', False),
                                          ('REDEEM', False), ('MERGE', False), ('REWARD', False)])
+@pytest.mark.parametrize('shared_wallet', [False, True])
 def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_path, monkeypatch, account_guard,
-                                                                   kind, funded):
+                                                                   kind, funded, shared_wallet):
     from tests.market.test_lfc_redemption_native import event, log, BLOCK, TX as PROTOCOL_TX, word
     from weather.market.lfc_capital_native import result
     from weather.market.lfc_capital_reads import TYPES
@@ -168,10 +170,12 @@ def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_pat
 
     redemption, group, tokens = paired(auto=True)
     runtime, ledger, initial, facts, trade = fixture_trade(tmp_path, example=True, deposit=25 if funded else 0,
-                                                           personal_holdings=dict.fromkeys(tokens, '30'))
+                                                           personal_holdings=dict.fromkeys(tokens, '30'),
+                                                           shared_wallet=shared_wallet)
     clock = runtime.clock
     clock.value += timedelta(minutes=1)
-    when = int(clock.now().timestamp()) - 20
+    when = (int(utc(ledger.sessions['end-band']['start']['recorded_at_utc']).timestamp()) + 4
+            if shared_wallet else int(clock.now().timestamp()) - 20)
     positions = {row['asset']: row['size'] for row in initial['positions']}
     movements, main = [], []
     if kind in {'REDEEM', 'MERGE'}:
@@ -216,7 +220,7 @@ def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_pat
     monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda _, args:
         trade if args == [TX] else group['receipt'])
     original = ledger.path.read_bytes(), ledger.previous
-    if kind == 'DEPOSIT':
+    if kind == 'DEPOSIT' and not shared_wallet:
         overlap = deepcopy(read)
         conflicted = {**source, 'condition_id': MARKET}
         overlap['capital_activity'].update(read_activity(MAKER, scope['start'], scope['end'], types=TYPES,
@@ -225,14 +229,29 @@ def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_pat
         with pytest.raises(StateRefused, match='^owner_external_campaign_overlap$'):
             live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, overlap, facts)
         assert (ledger.path.read_bytes(), ledger.previous) == original
-    proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
-    packet = proof['owner_external_close']
-    assert packet['schema_version'] == GAP_SCHEMA
-    validate_retained_read(ledger, packet, read, coverage(read))
-    assert (ledger.path.read_bytes(), ledger.previous) == original
     count = len(ledger.rows)
-    ledger.record('autostart_owner_close', attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT,
-                  proof=proof, proof_sha256=digest(proof))
+    if shared_wallet:
+        from weather.market.lfc_f2_owner_postcheck import prove
+        from weather.market.lfc_f2_owner_notice import NOTICE
+        budget = SimpleNamespace(public_get=lambda *_: activity_page(movements),
+                                 rpc=lambda _, args: trade if args == [TX] else group['receipt'])
+        traded = runtime.account_read_preflight(ledger, read)
+        notices = [(NOTICE, digest(['trade', read['trades'][-1]['id']])),
+                   (NOTICE, digest(['transaction', tx]))]
+        proof = prove(runtime, ledger, ATTEMPT, read, traded, notices, budget)
+        assert proof['money_accounting_complete'] is True and proof['cleanup_proven'] is True
+        assert proof['money_contradiction'] is False and not ledger.autostart_incidents
+        packet = ledger.capital_rows[-1]['proof']
+        # Rereading the same sources after committing the row cannot book twice.
+        assert prove(runtime, ledger, ATTEMPT, read, traded, notices, budget)['money_accounting_complete']
+    else:
+        proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
+        packet = proof['owner_external_close']
+        assert packet['schema_version'] == GAP_SCHEMA
+        validate_retained_read(ledger, packet, read, coverage(read))
+        assert (ledger.path.read_bytes(), ledger.previous) == original
+        ledger.record('autostart_owner_close', attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT,
+                      proof=proof, proof_sha256=digest(proof))
     reopened = Ledger.open(ledger.path, clock=clock.now)
     book = CapitalBook(reopened)
     assert len(reopened.rows) == count + 1 and book.expected_cash() == int(Decimal(final_cash) * 1_000_000)

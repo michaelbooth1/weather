@@ -4,7 +4,7 @@ Only known, exactly bound LIVE orders with zero matched quantity may remain in
 other bands. An unacknowledged intent never takes this route. No order mutation,
 adoption, incident recovery, baseline advance or principal inference occurs here.
 """
-from weather.market.lfc_accounting import quantity
+from weather.market.lfc_accounting import quantity, same_position
 from weather.market.lfc_campaign import TransientPrecheck
 from weather.market.lfc_campaign_reads import account_read_age
 from weather.market.lfc_capital import CapitalRefused
@@ -65,7 +65,15 @@ def prove(runtime, band, read):
     """This proof permits another quote; it never claims account cleanup PASS."""
     ledger = band.ledger
     runtime.validate_account_read(ledger, read)
-    validate_live(ledger, read, attempt=band.venue.coordinator.attempt_id, now=runtime.clock.now())
+    coordinator = band.venue.coordinator
+    if coordinator.shared_wallet:
+        from weather.market.lfc_f2_order_scope import foreign_reserve, split
+        campaign, foreign = split(ledger, read['open_orders'], selected=coordinator.selected)
+        locked = foreign_reserve(ledger, foreign)
+        scoped_read = {**read, 'open_orders': campaign}
+    else:
+        scoped_read = read
+    validate_live(ledger, scoped_read, attempt=coordinator.attempt_id, now=runtime.clock.now())
     from weather.market.lfc_f2_repost import private_fill_proof
     for peer in band.venue.coordinator.bands:
         try:
@@ -78,9 +86,22 @@ def prove(runtime, band, read):
             band.journal.record('repost_peer_proof_pending', peer_session_id=peer.session_id,
                                 exception_type=type(exc).__name__)
             raise TransientPrecheck('repost_peer_private_unproven') from exc
-    from weather.market.lfc_capital_reads import synchronize
-    capital = synchronize(ledger, runtime.original_baseline(ledger), read,
-                          live_proof={'attempt_id': band.venue.coordinator.attempt_id})
+    if coordinator.shared_wallet:
+        from weather.market.lfc_capital import CapitalBook
+        if campaign_inventory(ledger, read, CapitalBook(ledger))['changed']:
+            raise CapitalRefused('capital_inventory_unreconciled')
+        try:
+            figures = CapitalBook(ledger).gate(reserve=0, available_cash=read['balances']['available_collateral'],
+                                               external_resting=locked)
+        except CapitalRefused as exc:
+            if str(exc) == 'capital_cash_changed':
+                raise TransientPrecheck('owner_activity_repost_pending') from exc
+            raise
+        capital = {'cash_bridge_complete': True, 'figures': figures}
+    else:
+        from weather.market.lfc_capital_reads import synchronize
+        capital = synchronize(ledger, runtime.original_baseline(ledger), read,
+                              live_proof={'attempt_id': coordinator.attempt_id})
     if capital.get('cash_bridge_complete') is not True:
         raise CapitalRefused('repost_cash_bridge_unproven')
     ids = {str(row['id']) for row in read['trades'] if row.get('id') is not None}
@@ -91,3 +112,37 @@ def prove(runtime, band, read):
     return {'inventory_proven': True, 'unknown_submit': False, 'cleanup_proven': False,
             'read_sha256': digest(read), 'ledger_head_sha256': ledger.previous,
             'proven_trade_ids': sorted(ids), 'capital': capital}
+
+
+def campaign_inventory(ledger, read, book):
+    from weather.market.lfc_f2_inventory import inventory
+    from weather.market.lfc_f2_owner_notice import scope
+    from weather.market.lfc_ledger import normalize_positions
+    positions = normalize_positions(read['positions'])
+    checked = inventory(ledger, book.inventory_anchor, positions, book, campaign_only=True)
+    _, tokens = scope(ledger)
+    checked['changed'] = sorted(set(checked['changed']) | {
+        token for token in tokens if not same_position(checked['expected'].get(token, 0), positions.get(token, 0))})
+    return checked
+
+
+def campaign_cleanup(runtime, ledger, read):
+    from weather.market.lfc_capital import CapitalBook, native
+    from weather.market.lfc_f2_order_scope import campaign_open_rows
+    traded = runtime.account_read_preflight(ledger, read)
+    book = CapitalBook(ledger)
+    cleanup = not (campaign_open_rows(ledger, read['open_orders']) or ledger.unresolved_legs())
+    runtime._orders_open_unproven = not cleanup
+    inventory = campaign_inventory(ledger, read, book)
+    # This fast read cannot account for owner wallet movements. Preserve the
+    # gap and let the outside-session postcheck reconcile the whole wallet.
+    accounting = (cleanup and not ledger.trade_mismatches(traded) and not inventory['changed'] and
+                  native(read['balances']['available_collateral']) == book.expected_cash() and
+                  not inventory_full_changed(ledger, read, book))
+    return {'cleanup_proven': cleanup, 'money_accounting_complete': accounting}
+
+
+def inventory_full_changed(ledger, read, book):
+    from weather.market.lfc_f2_inventory import inventory
+    from weather.market.lfc_ledger import normalize_positions
+    return inventory(ledger, book.inventory_anchor, normalize_positions(read['positions']), book)['changed']

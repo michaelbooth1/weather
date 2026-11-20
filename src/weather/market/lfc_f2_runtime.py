@@ -10,7 +10,7 @@ from weather.market.lfc_recording_io import write_new, file_sha
 from weather.market.mm_stage2_hold import digest
 
 
-def stream_factory(registry, *, retain_trade_identity=False):
+def stream_factory(registry, *, retain_trade_identity=False, owner_activity_scope=None):
     from weather.market.re1_transport import PairStream
     class CampaignPairStream(PairStream):
         def __init__(self, **kwargs):
@@ -19,6 +19,12 @@ def stream_factory(registry, *, retain_trade_identity=False):
             registry[self.condition_id] = self
 
         def _normalize_event(self, item):
+            if owner_activity_scope is not None:
+                from weather.market.lfc_f2_owner_notice import classify
+                notice = classify(item, wallet=self.maker_address.lower(), registry=registry,
+                                  known_scope=owner_activity_scope)
+                if notice is not None:
+                    return [notice]
             if isinstance(item, dict) and item.get('event_type') == 'auto_redeem':
                 wallet = item.get('proxy_wallet')
                 hashes_valid = all(isinstance(item.get(key), str) and re.fullmatch(
@@ -129,22 +135,36 @@ def run_live(runtime, authority, status):
                     'policy_sha256': policy.sha256, 'selection_sha256': digest(table), **status.policy_metadata,
                     **({'quote_arms': [{key: row[key] for key in ('market_id', *arm_field_keys(policy))}
                          for row in selected]} if breadth else {})})
+        if breadth and CapitalBook(ledger).inventory_anchor is None:
+            raise RuntimeError('f2_session_anchor_required')
         def verify():
             # Keep the same in-process ledger object until every band closes.
             # The later ordinary postcheck reopens/validates it independently.
+            if breadth:
+                from weather.market.lfc_f2_reconcile import campaign_cleanup
+                return campaign_cleanup(runtime, ledger, runtime.read_account(activity=False))
             read = runtime.read_account()
             return runtime.core_proof(ledger, read)
         def repost_proof(band):
             from weather.market.lfc_f2_reconcile import prove
-            return prove(runtime, band, runtime.read_account())
+            read = runtime.read_account(activity=False) if breadth else runtime.read_account()
+            return prove(runtime, band, read)
         coordinator = F2Coordinator(ledger=ledger, clock=runtime.clock, directory=directory, session_id=root_id,
                       attempt_id=claim['attempt_id'], policy=policy, entry=entry, table=table,
-                      status=status, verify=verify, guard=guard, repost_proof=repost_proof)
+                      status=status, verify=verify, guard=guard, repost_proof=repost_proof,
+                      heartbeat_key=fields['API_KEY'] if breadth else None, selected=selected)
         status.bind(root_id, directory=directory, selection={}, ledger=ledger)
         status.session = coordinator
         public = LfcPublicBooks(clock=runtime.clock.now)
         registry = {}
-        factory = stream_factory(registry, retain_trade_identity=True)
+        from weather.market.lfc_f2_owner_notice import scope as owner_activity_scope
+        historical_conditions, historical_tokens = owner_activity_scope(ledger)
+        activity_conditions = historical_conditions | {row['condition_id'] for row in selected}
+        activity_tokens = historical_tokens | {token for row in selected for token in row['token_ids']}
+        def activity_scope():
+            return activity_conditions, activity_tokens
+        factory = stream_factory(registry, retain_trade_identity=True,
+                                 owner_activity_scope=activity_scope if breadth else None)
         number = ledger.counted_sessions() + 1
         bindings = []
         for index, row in enumerate(selected, 1):
@@ -178,7 +198,9 @@ def run_live(runtime, authority, status):
                 raise RuntimeError('f2_start_gates')
             selected = validate_table(table, now=runtime.clock.now(), policy=policy)
             reserve = sum(Decimal(row['quote']['reserve_pusd']) for row in selected)
-            CapitalBook(ledger).gate(reserve=reserve, available_cash=balances['available_collateral'])
+            from weather.market.lfc_f2_order_scope import gate
+            gate(ledger, read['open_orders'], reserve=reserve, cash=balances['available_collateral'],
+                 selected=selected, loss_basis=policy.raw.get('sleeve_loss_basis', 'gross'))
             for row in selected:
                 selection_account_screen(band_table(table, row['condition_id']), balances)
             go_evidence = guard.clean({'read': read, 'proof': authority.go_proof,
@@ -214,7 +236,8 @@ def run_live(runtime, authority, status):
                     owner_local_date=entry.local_date, directory=band_directory.relative_to(runtime.pilot_root).as_posix(),
                     condition_id=row['condition_id'], market_id=row['market_id'], event_date=row['target_date'],
                     event_slug=row['event_slug'], selection_sha256=digest(table), protocol=protocol, **arm_fields, **day_fields,
-                    **({'go_account_sha256': coordinator.scope['go_account_sha256']} if breadth else {}),
+                    **({'go_account_sha256': coordinator.scope['go_account_sha256'],
+                        'f2_owner_activity_tokens': list(row['token_ids'])} if breadth else {}),
                     autostart_attempt_id=claim['attempt_id'], autostart_policy_sha256=policy.sha256, **limit_fields)
             band = F2Band(policy=policy, entry=entry, ledger=ledger, session_id=sid, profile=authority.profile,
                     root=runtime.pilot_root, exclusion={'event_slug': row['event_slug'],

@@ -76,7 +76,9 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
             prediction.get('journal_sha256') != hashes['journal.jsonl'] or
             ending.get('session_id') != session_id or evidence_flags(ending) != evidence_flags(prediction)):
         raise ValueError('f2_private_terminal')
-    _, _, _, root_gaps, root_money_gaps = journal_contract(directory / 'journal.jsonl', prediction, owner_review=owner)
+    owner_activity = set()
+    _, _, _, root_gaps, root_money_gaps = journal_contract(directory / 'journal.jsonl', prediction, owner_review=owner,
+                                                          owner_activity=owner_activity)
     expected_sessions = {sid for sid, s in ledger.sessions.items()
                          if s['start'].get('autostart_attempt_id') == attempt_id}
     declared_go = {ledger.sessions[sid]['start']['go_account_sha256'] for sid in expected_sessions
@@ -118,6 +120,8 @@ def money_proof(directory, *, ledger, session_id, attempt_id, outcome, owner=Fal
             'evidence_sha256': hashes, 'bands': proofs,
             'explained_gaps': sorted(root_gaps | {gap for p in proofs for gap in p['explained_gaps']}),
             'money_read_gaps': sorted(root_money_gaps | {gap for p in proofs for gap in p['money_read_gaps']}),
+            **({'owner_activity': [list(item) for item in sorted(owner_activity, key=digest)]}
+                if owner_activity else {}),
             **({'missing_terminal_orders': missing} if missing else {})}
 
 

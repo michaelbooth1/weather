@@ -225,3 +225,30 @@ compatible code and the existing next-unclaimed-session rule.
 
 Update with changes to Pin B policy fields, quote-side definitions, capture
 epochs, account-preserving migration or owner registrar arguments.
+
+
+## Shared-wallet activity
+
+F2 records own-wallet activity outside campaign conditions and tokens as
+unverified notices. A notice cannot credit collateral or count as a campaign
+fill. The quote and repost paths issue no native receipt requests. A fresh
+campaign order still needs sufficient proved spendable cash. An unaccounted
+debit can defer that order even while existing quotes continue.
+
+Postcheck binds the REST trade, public activity, native receipts and exact
+wallet deltas to the terminal attempt and its session anchor. Owner debits use
+verified owner credit before explicit overdraw. Owner proceeds repay overdraw
+first. Rewards use the existing incentive pool. The ledger books accepted
+activity in a single replay-checked append. A pending or conflicting personal
+proof leaves the consumed attempt in postcheck pending for a fresh read. An
+unresolved postcheck still blocks another entry. Campaign overlap and
+unexplained campaign inventory or cash shortfalls retain the incident gate.
+
+A resting order outside campaign scope needs an independently identified
+heartbeat key. Polymarket heartbeats cover all orders on the sending API key,
+including orders outside the selected markets. F2 never sends account-wide
+cancellation on this path. Foreign BUY exposure consumes verified owner cash
+first and any uncovered reservation needs room in campaign spendable cash.
+A foreign order sharing F2's key can still be affected by the venue dead-man
+if it is posted while F2 is active.
+[Polymarket heartbeat documentation](https://docs.polymarket.com/trading/manage-orders#order-heartbeats)

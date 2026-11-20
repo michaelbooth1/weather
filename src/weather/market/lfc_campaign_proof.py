@@ -25,7 +25,7 @@ TERMINAL_RETRY_ERRORS = {'TimeoutError', 'ConnectionError', 'URLError', 'Transpo
 
 
 def journal_contract(path, prediction, *, legacy=False, owner_review=False, allow_open=False,
-                     expected_head=None, submit_limit=10, terminal_read_gaps=None):
+                     expected_head=None, submit_limit=10, terminal_read_gaps=None, owner_activity=None):
     """Stream the exact chained journal; a gap name cannot replace core rows."""
     if path.stat().st_size > 256 * 1024 * 1024:
         raise ValueError('private_journal_limit')
@@ -87,6 +87,17 @@ def journal_contract(path, prediction, *, legacy=False, owner_review=False, allo
                         'RuntimeError', 'ConnectionError', 'TimeoutError'}:
                     raise ValueError('private_startup_gap_after_placement')
                 gaps.add(event)
+            elif event in {'account_external_activity_notice', 'account_external_campaign_overlap'}:
+                from weather.market.lfc_f2_owner_notice import TYPES
+                raw = row.get('raw_event_sha256')
+                identity = row['activity_identity_sha256']
+                def valid_sha(value):
+                    return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
+                if (row.get('activity_type') not in TYPES or not valid_sha(raw) or
+                        identity is not None and not valid_sha(identity)):
+                    raise ValueError('private_owner_activity_notice_shape')
+                if owner_activity is not None:
+                    owner_activity.add((event, identity))
             elif event == 'campaign_task_readback_unavailable':
                 if (row.get('readback_reason') not in {'timeout', 'failed', 'invalid'} or
                         type(row.get('consecutive_failures')) is not int or

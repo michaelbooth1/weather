@@ -23,7 +23,7 @@ MAX_NEW_RECEIPTS = 200
 MAX_NEW_VIEWS = 100
 
 
-def rpc_read(method, params, *, opener=None, owner_inventory=False):
+def rpc_read(method, params, *, opener=None, owner_inventory=False, timeout=5):
     from weather.market.re1_transport import RPC
     from weather.market.lfc_capital import ASSET
     from weather.operations.live_path_security import assert_no_ambient_proxy_configuration
@@ -45,7 +45,7 @@ def rpc_read(method, params, *, opener=None, owner_inventory=False):
     request = Request(RPC, data=raw, method='POST', headers={'Content-Type': 'application/json',
                       'Accept': 'application/json', 'User-Agent': 'weather-lfc-capital/1'})
     try:
-        response = (opener or direct_opener().open)(request, timeout=5)
+        response = (opener or direct_opener().open)(request, timeout=timeout)
     except HTTPError as exc:
         try:
             body = exc.read(MAX_BYTES + 1)
@@ -97,6 +97,9 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep, persist=True):
             from weather.market.lfc_owner_external_close import GAP_SCHEMA
             close = event['proof']['owner_external_close']
             groups = close['additional_activity'].values() if close.get('schema_version') == GAP_SCHEMA else ()
+            known_groups.update(digest(proof) for proof in groups)
+        elif event['event'] == 'capital_f2_owner_activity':
+            groups = event['proof']['additional_activity'].values()
             known_groups.update(digest(proof) for proof in groups)
         elif event['event'] == 'capital_native_group':
             groups = (event['proof'],)

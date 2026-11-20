@@ -146,6 +146,9 @@ class CapitalBook:
                 raise CapitalRefused('owner_external_close_replay') from exc
             if 'owner_cash_allocation' in packet and packet['owner_cash_allocation'] != allocation:
                 raise CapitalRefused('owner_external_cash_allocation_changed')
+        elif event == 'capital_f2_owner_activity':
+            from weather.market.lfc_f2_owner_postcheck import replay
+            replay(self, row)
         elif event == 'capital_native_group':
             from weather.market.lfc_capital_native import cash_native
             proof, sha = row['proof'], row['proof_sha256']
@@ -800,7 +803,8 @@ class CapitalBook:
                 'zero_payout_losses': list(self.zero_resolutions),
                 'redemptions': list(self.redemptions.values())}
 
-    def gate(self, *, reserve, available_cash=None, own_resting=0, owner_fault_review=False, loss_basis=None):
+    def gate(self, *, reserve, available_cash=None, own_resting=0, owner_fault_review=False, loss_basis=None,
+             external_resting=0):
         if self.bridge is None:
             raise CapitalRefused('capital_bridge_required')
         if self.pending_native_outgoing:
@@ -834,7 +838,10 @@ class CapitalBook:
             segregated = (self.profit + self.incentives + figures['segregated_external_cash_native']
                           - figures['retained_gains_offset_native'])
             # A reserve includes own still-resting legs exactly once.
-            if cash - segregated < figures['resting_reserve_native'] - own + reserve:
+            # Only verified owner cash can absorb a foreign resting BUY.
+            # The uncovered liability competes with campaign spendable cash.
+            external_shortfall = max(0, external_resting - self.verified_owner_cash)
+            if cash - segregated < figures['resting_reserve_native'] - own + reserve + external_shortfall:
                 raise CapitalRefused('capital_spendable_cash')
         return figures
 

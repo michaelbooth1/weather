@@ -99,7 +99,7 @@ def pending_rows(ledger, *, excluding=()):
     return [raw for tx in sorted(groups)[:remaining] for raw in groups[tx]]
 
 
-def collect_window(packet, *, ledger, persist=True):
+def collect_window(packet, *, ledger, persist=True, rpc=None):
     from weather.market.lfc_capital_native import collect
     selected_rows = native_rows(packet, ledger)
     current = {str(row['transaction_hash']).lower() for row in selected_rows}
@@ -107,6 +107,8 @@ def collect_window(packet, *, ledger, persist=True):
     selected = current | {str(row['transaction_hash']).lower() for row in bootstrap}
     pending = pending_rows(ledger, excluding=selected)
     options = {} if persist else {'persist': False}
+    if rpc is not None:
+        options['rpc'] = rpc
     observed = collect({**packet, 'rows': selected_rows + bootstrap + pending}, ledger=ledger, **options)
     receipts = observed['native_receipts']
     return {**packet, 'native_asset_proof': observed['native_asset_proof'],

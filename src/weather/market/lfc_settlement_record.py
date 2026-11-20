@@ -32,7 +32,7 @@ def condition_id(value):
     return value.lower()
 
 
-def public_get(path, params):
+def public_get(path, params, *, timeout=15):
     """Exact public GET allowlist; no credential loader, SDK, or mutation transport."""
     if path not in {'/v2/resolutions', '/v2/tokens', '/v2/activity'}:
         raise ValueError('recording_endpoint_refused')
@@ -41,7 +41,7 @@ def public_get(path, params):
     response, status, body = None, None, bytearray()
     try:
         try:
-            response = direct_opener().open(request, timeout=15)
+            response = direct_opener().open(request, timeout=timeout)
         except HTTPError as exc:
             response = exc
         status = response.status

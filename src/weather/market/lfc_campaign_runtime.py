@@ -257,14 +257,34 @@ class ScheduledAuthority:
         if ledger.enrollment is None or ledger.open_sessions() or ledger.unresolved_legs() or ledger.halted:
             refused.append('unresolved_campaign_money')
         if open_orders != []:
-            refused.append('account_not_empty')
+            from weather.market.lfc_f2_breadth import enabled as breadth
+            if breadth(self.policy):
+                from weather.market.lfc_f2_order_scope import split, foreign_reserve
+                from weather.market.lfc_capital import CapitalRefused
+                try:
+                    campaign, foreign = split(ledger, open_orders)
+                    if campaign:
+                        raise CapitalRefused('foreign_open_order_campaign_overlap')
+                    foreign_reserve(ledger, foreign)
+                except CapitalRefused as exc:
+                    refused.append(str(exc))
+            else:
+                refused.append('account_not_empty')
         if not self.policy.f2 and ledger.counted_sessions() >= self.policy.terms['max_sessions']:
             refused.append('session_cap')
         if not self.policy.f2 and ledger.L() > quantity(self.policy.terms['budget_pusd']):
             refused.append('cap_below_committed_l')
         if str(maker_address).lower() != str(self.baseline['maker_address']).lower():
             refused.append('baseline_account_changed')
-        if inventory_delta(ledger, self.baseline, normalize_positions(positions))['changed']:
+        changed = inventory_delta(ledger, self.baseline, normalize_positions(positions))['changed']
+        from weather.market.lfc_f2_breadth import enabled as breadth
+        if breadth(self.policy):
+            from weather.market.lfc_f2_reconcile import campaign_inventory
+            from weather.market.lfc_capital import CapitalBook
+            book = CapitalBook(ledger)
+            if book.inventory_anchor is not None:
+                changed = campaign_inventory(ledger, {'positions': positions}, book)['changed']
+        if changed:
             refused.append('inventory_changed_after_baseline')
         from weather.market.lfc_cli import session0_passed
         if not session0_passed(ledger, root=self.pilot_root):
@@ -478,11 +498,15 @@ class Runtime:
                 finally:
                     self.lease = None
 
-    def read_account(self, *, terminal_order_ids=(), persist=True):
+    def read_account(self, *, terminal_order_ids=(), persist=True, activity=True, budget=None):
         """Read the account, with no observation or native ledger writes when unpublished."""
         options = {'terminal_order_ids': terminal_order_ids} if terminal_order_ids else {}
         if not persist:
             options['persist'] = False
+        if not activity:
+            options['activity'] = False
+        if budget is not None:
+            options['budget'] = budget
         try:
             read = self.account_read_once(**options)
             if not persist:
@@ -504,7 +528,7 @@ class Runtime:
                 raise TransientPrecheck('account_read_unavailable') from None
             raise
 
-    def account_read_once(self, *, terminal_order_ids=(), persist=True):
+    def account_read_once(self, *, terminal_order_ids=(), persist=True, activity=True, budget=None):
         """Read-only SDK route, retaining bounded source responses in the runtime.
 
         The independent LAN reader remains useful owner evidence, not an extra
@@ -554,13 +578,18 @@ class Runtime:
             if values['geography'].get('blocked') is not False:
                 raise StateRefused('geoblock')
             policy = load_policy(self.policy_path)
-            if policy.f2 or any(r['event'] == 'capital_bridge' for r in self.state.ledger.capital_rows):
+            from weather.market.lfc_f2_breadth import enabled as breadth
+            if breadth(policy):
+                from weather.market.lfc_f2_order_scope import mark_open_orders
+                values['open_orders'] = mark_open_orders(values['open_orders'], fields['API_KEY'])
+            if activity and (policy.f2 or any(r['event'] == 'capital_bridge' for r in self.state.ledger.capital_rows)):
                 from weather.market.lfc_capital_reads import read_activity
                 from weather.market.lfc_f2_inventory import activity_start
                 activity_since = (activity_start(self.state.ledger, start.isoformat()) if policy.f2 else
                                   int(venue.trades_after))
+                sources = {} if budget is None else {'get': budget.public_get}
                 values['capital_activity'] = read_activity(self.state.maker, activity_since,
-                                      int(self.clock.now().timestamp()))
+                                      int(self.clock.now().timestamp()), **sources)
                 if policy.f2:
                     from weather.market.lfc_f2_wallet_reads import bootstrap_scope, require_bootstrap_trades
                     scope = bootstrap_scope(self.state.ledger, values['positions'])
@@ -574,6 +603,8 @@ class Runtime:
                     from weather.market.lfc_f2_wallet_reads import collect_window
                     collect = collect_window
                 kwargs = {} if persist else {'persist': False}
+                if budget is not None:
+                    kwargs['rpc'] = budget.rpc
                 values['capital_activity'] = collect(values['capital_activity'], ledger=self.state.ledger, **kwargs)
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'maker_address': self.state.maker,
                     **self.state.policy_binding,
@@ -657,6 +688,25 @@ class Runtime:
     def core_proof(self, ledger, read, *, loss_basis=None):
         self._orders_open_unproven = True
         traded = self.account_read_preflight(ledger, read)
+        rows = read['open_orders']
+        # Other account readers and historical proofs keep the empty-wallet rule.
+        policy_path = getattr(self, 'policy_path', None)
+        if rows and policy_path is not None and policy_path.is_file():
+            from weather.market.lfc_f2_breadth import enabled as breadth
+            if breadth(load_policy(policy_path)) and not ledger.open_sessions() and not ledger.unresolved_legs():
+                from weather.market.lfc_f2_order_scope import split, foreign_reserve
+                from weather.market.lfc_capital import CapitalRefused
+                try:
+                    campaign, foreign = split(ledger, rows)
+                    if campaign:
+                        raise CapitalRefused('foreign_open_order_campaign_overlap')
+                    foreign_reserve(ledger, foreign)
+                except CapitalRefused as exc:
+                    raise TransientPrecheck(str(exc)) from exc
+                campaign_read = {**read, 'open_orders': [], 'foreign_open_orders_sha256': digest(rows)}
+                proof = self._prove_preflighted_account(ledger, campaign_read, traded, loss_basis=loss_basis)
+                proof.update(read_sha256=digest(read), foreign_open_orders=len(foreign))
+                return proof
         return self._prove_preflighted_account(ledger, read, traded, loss_basis=loss_basis)
 
     def _prove_preflighted_account(self, ledger, read, traded, *, loss_basis=None):
@@ -783,10 +833,35 @@ class Runtime:
         write_new(directory / 'selection.json', table)
         client = build_client(fields, readonly=True)
         profile = ScheduledProfile(policy, entry)
+        from weather.market.lfc_f2_breadth import enabled as breadth
+        shared_wallet = breadth(policy)
+        selected_rows = [row for row in table['rows'] if row['condition_id'] in table.get('selected_condition_ids', ())]
+        stream_options = {}
+        if shared_wallet:
+            from weather.market.lfc_f2_runtime import stream_factory
+            from weather.market.lfc_f2_owner_notice import scope
+            conditions, tokens = scope(self.state.ledger)
+            conditions.update(row['condition_id'] for row in selected_rows)
+            tokens.update(token for row in selected_rows for token in row['token_ids'])
+            stream_options['stream_factory'] = stream_factory({}, owner_activity_scope=lambda: (conditions, tokens))
         venue = OwnerVenue(client, fields, guard, condition=selected['condition_id'], tokens=selected['token_ids'],
-                           directory=directory, readonly=True, preflight=True,
+                           directory=directory, readonly=True, preflight=True, **stream_options,
                            size=profile.size, reserve_cap=profile.venue_ceiling(profile.size)[1], profile=profile)
         timings = {}
+        def check_orders(rows):
+            if shared_wallet and rows:
+                from weather.market.lfc_f2_order_scope import gate, mark_open_orders
+                from weather.market.lfc_capital import CapitalRefused
+                try:
+                    gate(self.state.ledger, mark_open_orders(rows, fields['API_KEY']),
+                         cash=read['balances']['available_collateral'], reserve=reserve, selected=selected_rows,
+                         loss_basis=policy.raw.get('sleeve_loss_basis', 'gross'))
+                except CapitalRefused as exc:
+                    raise TransientPrecheck(str(exc)) from exc
+            elif rows:
+                raise StateRefused('account_not_empty')
+        if shared_wallet:
+            venue.preflight_order_scope = check_orders
         try:
             venue.start()
             for name, fn in [('user_stream', venue.events), ('open_orders', venue.open_orders),
@@ -810,8 +885,8 @@ class Runtime:
                             if attempt == 2:
                                 raise TransientPrecheck('readiness_transport_unavailable') from None
                     values.append(self.clock.monotonic() - started)
-                    if name == 'open_orders' and result != []:
-                        raise StateRefused('account_not_empty')
+                    if name == 'open_orders':
+                        check_orders(result)
                     if name == 'geoblock' and result.get('blocked') is not False:
                         raise StateRefused('geoblock')
                     if name == 'heartbeat':
@@ -1082,29 +1157,58 @@ class Runtime:
         missing = local.get('missing_terminal_orders', ())
         result_at = terminal_result_time(ledger, claim['attempt_id'])
 
+        from weather.market.lfc_f2_owner_notice import OVERLAP
+        from weather.market.lfc_f2_owner_postcheck import ActivityPending, Budget, enabled, prove
+        shared_wallet = enabled(ledger, claim['attempt_id'])
+        budget = Budget(self.clock) if shared_wallet else None
+
         def read_for_postcheck():
-            read = self.read_account(terminal_order_ids=missing) if missing else self.read_account()
+            if shared_wallet:
+                try:
+                    read = self.read_account(terminal_order_ids=missing, persist=False, budget=budget)
+                except (OSError, TransientPrecheck, ValueError) as exc:
+                    raise ActivityPending('owner_activity_account_pending') from exc
+                except StateRefused as exc:
+                    if str(exc) != 'geoblock':
+                        raise
+                    raise ActivityPending('owner_activity_geoblock_pending') from exc
+            else:
+                read = self.read_account(terminal_order_ids=missing) if missing else self.read_account()
             writes = stage_postcheck_terminals(ledger, missing, read, now=self.clock.now(),
                                                result_at=result_at, reconcile=True)
             return read, writes
 
-        read, writes = read_for_postcheck()
-        if writes:
-            # Reject the entire packet before committing any terminal fact.
-            # Reuse its projection at the same freshness cut after the writes.
+        def account_proof(read, traded):
+            if shared_wallet:
+                return prove(self, ledger, claim['attempt_id'], read, traded, local.get('owner_activity', ()), budget)
+            return self._prove_preflighted_account(ledger, read, traded)
+
+        try:
+            read, writes = read_for_postcheck()
             self._orders_open_unproven = True
-            traded = self.account_read_preflight(ledger, read)
-            for oid, row in writes.items():
-                ledger.terminal(oid, row, source='autostart_postcheck')
-            proof = self._prove_preflighted_account(ledger, read, traded)
-        else:
-            proof = self.core_proof(ledger, read)
-        for _ in range(4):
-            if not proof.get('money_contradiction'):
-                break
-            self.clock.sleep(2)
-            read, _ = read_for_postcheck()
-            proof = self.core_proof(ledger, read)
+            if shared_wallet or writes:
+                traded = self.account_read_preflight(ledger, read)
+                for oid, row in writes.items():
+                    ledger.terminal(oid, row, source='autostart_postcheck')
+                proof = account_proof(read, traded)
+            else:
+                proof = self.core_proof(ledger, read)
+            for _ in range(4):
+                if not proof.get('money_contradiction'):
+                    break
+                # A retained scope overlap is an immutable contradiction.
+                if shared_wallet and (proof.get('owner_activity_reason') == 'owner_external_campaign_overlap' or
+                                      any(row[0] == OVERLAP for row in local.get('owner_activity', ()))):
+                    break
+                self.clock.sleep(2)
+                read, _ = read_for_postcheck()
+                proof = (account_proof(read, self.account_read_preflight(ledger, read))
+                         if shared_wallet else self.core_proof(ledger, read))
+        except ActivityPending as exc:
+            self.state.save('postcheck-gaps/' + uuid.uuid4().hex + '.json', {
+                'at_utc': self.clock.now().isoformat(), 'attempt_id': claim['attempt_id'],
+                'reason': str(exc), 'monetary_placement_retried': False})
+            raise
         if missing:
             proof['terminal_backfill_result_at_utc'] = result_at.isoformat()
         proof.update(research_evidence_complete=result.get('evidence_complete') is True,

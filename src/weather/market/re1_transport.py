@@ -470,8 +470,13 @@ class OwnerVenue:
     def geography(self): return geography(timeout=max(READ_TIMEOUT, self.timeouts.get('geoblock', READ_TIMEOUT)))
     def heartbeat(self):
         if self.readonly and not getattr(self, 'preflight', False): raise RuntimeError('read_only')
-        if self.readonly and self.open_orders() != []:
-            raise RuntimeError('preflight_heartbeat_requires_empty_account')
+        if self.readonly:
+            rows = self.open_orders()
+            scoped_check = getattr(self, 'preflight_order_scope', None)
+            if scoped_check is not None:
+                scoped_check(rows)
+            elif rows != []:
+                raise RuntimeError('preflight_heartbeat_requires_empty_account')
         try:
             return self.sender.send()
         finally:

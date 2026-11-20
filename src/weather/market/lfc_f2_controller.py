@@ -52,19 +52,27 @@ class ScopedVenue:
         setattr(self.raw, name, value)
 
     def open_orders(self):
-        rows = self.raw.open_orders()
-        self.coordinator.validate_account_orders(rows)
+        rows = self.coordinator.account_orders(self.raw.open_orders())
         return [row for row in rows if self.coordinator.order_session(row) == self.session_id]
 
     def account_events(self):
+        from weather.market.lfc_f2_owner_notice import NOTICE, OVERLAP
         rows = self.raw.events()
-        for row in rows or ():
-            if row.get('event_type') == 'account_redemption_notice':
+        if not isinstance(rows, list):
+            return rows
+        fills = []
+        for row in rows:
+            event = row.get('event_type')
+            if event in {NOTICE, OVERLAP}:
+                self.coordinator.note_owner_activity(row)
+                continue
+            if event == 'account_redemption_notice':
                 reason = 'account_redemption_notice'
                 self.coordinator.account_fault_reason = reason
                 self.coordinator.retain(reason, raw_event_sha256=row['raw_event_sha256'])
                 raise HoldEnd(reason)
-        return rows
+            fills.append(row)
+        return fills
 
     def events(self):
         rows = self.account_events()
@@ -81,6 +89,14 @@ class ScopedVenue:
             return result
         band.project_trades(rows, source='stream')
         return rows
+
+    def cancel(self, oid):
+        if self.coordinator.shared_wallet:
+            ledger = self.coordinator.ledger
+            leg = ledger.legs.get(ledger.by_order.get(oid))
+            if leg is None or leg['session_id'] != self.session_id:
+                raise HoldEnd('campaign_cancel_order_unbound')
+        return self.raw.cancel(oid)
 
     def cancel_all(self):
         raise RuntimeError('band_has_no_account_cancel_all')
@@ -327,8 +343,11 @@ class F2Band(PilotSession):
     def _cash(self, balances, reserve):
         own = sum((self.size * price for _, price in self.active.values()), Decimal(0))
         try:
+            coordinator = self.venue.coordinator
+            external = (coordinator.foreign_orders_reserve(self.venue.raw.open_orders())
+                        if coordinator.shared_wallet else 0)
             figures = CapitalBook(self.ledger).gate(reserve=reserve, own_resting=own,
-                                                   available_cash=balances['available_collateral'])
+                       available_cash=balances['available_collateral'], external_resting=external)
         except CapitalRefused as exc:
             peers = {band.session_id for band in self.venue.coordinator.bands if band is not self}
             if (self.breadth and str(exc) == 'capital_cash_changed' and
@@ -506,17 +525,20 @@ class F2Band(PilotSession):
 
 class F2Coordinator:
     def __init__(self, *, ledger, clock, directory, session_id, attempt_id, policy, entry, table,
-                 status, verify, guard=None, repost_proof=None):
+                 status, verify, guard=None, repost_proof=None, heartbeat_key=None, selected=()):
         self.ledger, self.clock, self.directory = ledger, clock, Path(directory)
         self.session_id, self.attempt_id, self.policy, self.entry = session_id, attempt_id, policy, entry
         self.table, self.status, self.verify = table, status, verify
         self.repost_proof = repost_proof
+        self.heartbeat_key, self.selected = heartbeat_key, selected
+        self.shared_wallet = heartbeat_key is not None
         self.guard = guard or SecretGuard()
         self.bands, self.results, self.closed_bands = [], {}, set()
         self.cleanup_ok = self.cancellation_ok = self.inventory_proven = False
         self.evidence_failed, self.posts, self.known, self.fill_seen = False, 0, {}, False
         self.reason, self.open_rows = 'fixed_end', None
         self.account_fault_reason = None
+        self.owner_notice_digests = set()
         self.account_evidence_faults = set()
         self.task_readback_gaps = []
         self.post_books = None
@@ -536,6 +558,17 @@ class F2Coordinator:
         except BaseException:
             self.evidence_failed = True
 
+    def note_owner_activity(self, row):
+        from weather.market.lfc_f2_owner_notice import OVERLAP
+        event, raw = row['event_type'], row['raw_event_sha256']
+        if raw not in self.owner_notice_digests:
+            self.journal.record(event, activity_type=row['activity_type'], raw_event_sha256=raw,
+                                activity_identity_sha256=row['activity_identity_sha256'])
+            self.owner_notice_digests.add(raw)
+        if event == OVERLAP:
+            self.account_fault_reason = event
+            raise HoldEnd(event)
+
     def note_task_readback_gap(self, row):
         # Persist before tolerating the read. This cannot mask missing money
         # evidence or a failed journal write with an ancillary gap label.
@@ -549,12 +582,41 @@ class F2Coordinator:
         for band in self.bands:
             if oid in band.known:
                 return band.session_id
-        # An ACK-lost request stays reserved and fails the final flags. This
-        # exact field match only permits cleanup; it never adopts or retries it.
+        # On a shared wallet the same terms cannot establish ownership.
+        # An ACK-lost request stays reserved and follows ordinary recovery.
+        if self.shared_wallet:
+            return None
         for band in self.bands:
             if band._ours(row):
                 return band.session_id
         return None
+
+    def split_orders(self, rows):
+        from weather.market.lfc_f2_order_scope import mark_open_orders, split
+        if not isinstance(rows, list):
+            raise CapitalRefused('foreign_open_order_identity')
+        return split(self.ledger, mark_open_orders(rows, self.heartbeat_key), selected=self.selected)
+
+    def foreign_orders_reserve(self, rows):
+        from weather.market.lfc_f2_order_scope import foreign_reserve
+        campaign, foreign = self.split_orders(rows)
+        self.validate_account_orders(campaign)
+        return foreign_reserve(self.ledger, foreign)
+
+    def account_orders(self, rows):
+        if self.shared_wallet:
+            from weather.market.lfc_f2_order_scope import foreign_reserve
+            try:
+                rows, foreign = self.split_orders(rows)
+                locked = foreign_reserve(self.ledger, foreign)
+                if locked:
+                    book = CapitalBook(self.ledger)
+                    book.gate(reserve=0, available_cash=Decimal(book.expected_cash()) / SCALE, external_resting=locked)
+            except CapitalRefused as exc:
+                self.account_fault_reason = str(exc)
+                raise HoldEnd(self.account_fault_reason) from exc
+        self.validate_account_orders(rows)
+        return rows
 
     def validate_account_orders(self, rows):
         if not isinstance(rows, list) or any(self.order_session(row) is None for row in rows):
@@ -693,14 +755,20 @@ class F2Coordinator:
                 # prevent cancellation by writing to an already closed band.
                 if hasattr(primary, 'set_journal'):
                     primary.set_journal(self.journal)
-                self.retain('account_cleanup_cancel_all_request')
-                response = primary.cancel_all()
-                cancel_ack_ids(response)
-                self.retain('account_cleanup_cancel_all_response', response=response)
+                if self.shared_wallet:
+                    self.retain('campaign_cleanup_scoped')
+                    # Per-band cleanup already addressed every known live ID.
+                    # Never widen a failed or ACK-lost cleanup to a wallet cancel.
+                else:
+                    self.retain('account_cleanup_cancel_all_request')
+                    response = primary.cancel_all()
+                    cancel_ack_ids(response)
+                    self.retain('account_cleanup_cancel_all_response', response=response)
                 for _ in range(10):
                     self.status.progress()
                     loop.tick()
-                    self.open_rows = primary.open_orders()
+                    rows = primary.open_orders()
+                    self.open_rows = self.split_orders(rows)[0] if self.shared_wallet else rows
                     self.retain('account_cleanup_open_orders', rows=self.open_rows)
                     if self.open_rows == []:
                         break
@@ -762,7 +830,7 @@ class F2Coordinator:
         write_new(self.directory / 'f2_manifest.json', manifest)
         terminal = {'reason': self.reason, 'failure_type': (type(failed).__name__ if failed is not None and
                     not isinstance(failed, HoldEnd) else None), 'cleanup_ok': self.cleanup_ok,
-                    'cancellation_ok': self.cancellation_ok, 'cancellation_scope': 'account',
+                    'cancellation_ok': self.cancellation_ok, 'cancellation_scope': 'campaign' if self.shared_wallet else 'account',
                     'submits': sum(b.submits for b in self.bands), 'requotes': sum(b.requotes for b in self.bands),
                     'post_count': self.posts, 'order_ids': list(self.known), 'fill_seen': self.fill_seen,
                     'post_book_recording_failure': getattr(self.post_books, 'failure', None),

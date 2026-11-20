@@ -27,7 +27,7 @@ def sources(book, rows, finish, cut, *, retained=()):
         tx = str(row['transaction_hash']).lower()
         if tx in booked or row['timestamp'] < int(anchor.timestamp()):
             continue
-        if row['timestamp'] <= finish.timestamp() or row['type'] not in TYPES:
+        if (finish is not None and row['timestamp'] <= finish.timestamp()) or row['type'] not in TYPES:
             refuse_movements([row], anchor, set())
             raise StateRefused('owner_external_activity_session_overlap')
         if row['timestamp'] + 1 > cut.timestamp():

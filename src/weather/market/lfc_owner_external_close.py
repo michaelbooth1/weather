@@ -23,7 +23,8 @@ SCHEMA = schema_version('lfc_owner_external_close_facts')
 PROOF_SCHEMA = schema_version('lfc_owner_external_close_proof')
 GAP_SCHEMA = schema_version('lfc_owner_external_close_proof_v4')
 LEGACY_SCHEMA = schema_version('lfc_owner_external_close_proof_v2')
-FRESH_SCHEMAS = {PROOF_SCHEMA, GAP_SCHEMA}
+SESSION_SCHEMA = schema_version('lfc_f2_owner_activity')
+FRESH_SCHEMAS = {PROOF_SCHEMA, GAP_SCHEMA, SESSION_SCHEMA}
 MAX_PINNED_TRADES = 4
 MAX_TRADES = 32
 PROTOCOL_MOVEMENTS = ('MERGE', 'DIRECTIONAL_MERGE', 'SPLIT', 'DIRECTIONAL_SPLIT', 'CONVERSION', 'MIGRATION',
@@ -31,6 +32,12 @@ PROTOCOL_MOVEMENTS = ('MERGE', 'DIRECTIONAL_MERGE', 'SPLIT', 'DIRECTIONAL_SPLIT'
 EXCHANGES = {'0xe111180000d2663c0091e4f400237545b87b996b', '0xe2222d279d744050d28e00520010520000310f59'}
 ORDER_FILLED = '0xd543adfd945773f1a62f74f0ee55a5e3b9b1a28262980ba90b1a89f2ea84d8ee'
 DECODE_ERRORS = (KeyError, TypeError, ValueError, ArithmeticError, AttributeError, DecodingError)
+
+
+class WalletCashMismatch(StateRefused):
+    def __init__(self, shortfall_native):
+        super().__init__('owner_external_cash_changed')
+        self.shortfall_native = shortfall_native
 
 
 def hash32(value):
@@ -70,13 +77,16 @@ def sdk_trade_source(row, part, order, size_key, when):
             'quantity': str(quantity(part[size_key]).normalize()), 'matched_at': when.isoformat()}
 
 
-def normalized_sources(book, read, attempt, cut, *, fresh=False):
+def normalized_sources(book, read, attempt, cut, *, fresh=False, session=False):
     """Bind confirmed wallet executions to the requested historical or fresh cut."""
     wallet = book.ledger.rows[0]['maker_address'].lower()
     ids = book.ledger.our_order_ids()
     bands = attempt_bands(book.ledger, attempt)
     markets = campaign_conditions(book.ledger) if fresh else {s['start']['condition_id'] for s in bands}
     campaign_tokens = book.ledger.tokens()
+    if session:
+        from weather.market.lfc_f2_owner_notice import scope
+        markets, campaign_tokens = scope(book.ledger)
     start = min(utc(s['start']['recorded_at_utc']) for s in bands)
     finish = max(utc(s['end']['recorded_at_utc']) for s in bands)
     anchor = utc(book.inventory_anchor['snapshot_at_utc'])
@@ -110,6 +120,12 @@ def normalized_sources(book, read, attempt, cut, *, fresh=False):
         if source['condition_id'] in markets or source['token_id'] in campaign_tokens or ids & order_ids or trade_id in ids:
             raise StateRefused('owner_external_campaign_overlap')
         tx = hash32(tx)
+        if session:
+            booked = book.personal_trades.get(trade_id + '/' + source['order_id'])
+            if booked is not None:
+                if booked.get('sdk_source') != source or booked.get('receipt_transaction_hash') != tx:
+                    raise StateRefused('owner_external_trade_set_changed')
+                continue
         if tx in sources or trade_id in trade_ids:
             raise StateRefused('owner_external_trade_set_changed')
         trade_ids.add(trade_id)
@@ -267,7 +283,8 @@ def gap_sources(book, facts, rows, cut, movement, *, retained=()):
     return sources(book, [*rows, *protocol_rows(wallet, anchor, cut, movement)], finish, cut, retained=retained)
 
 
-def gap_receipts(book, read, groups, *, reread=False):
+def gap_receipts(book, read, groups, *, reread=False, rpc=None):
+    rpc = rpc_read if rpc is None else rpc
     from weather.market.lfc_owner_close_activity import MAX_TRANSACTIONS, MERGES
 
     if len(groups) > MAX_TRANSACTIONS:
@@ -283,8 +300,8 @@ def gap_receipts(book, read, groups, *, reread=False):
             if any(row['type'] not in MERGES for row in rows):
                 raise StateRefused('owner_external_activity_receipt_missing')
             bound = {'transaction_hash': tx, 'rows': rows, 'rows_sha256': digest(rows),
-                     'receipt': rpc_read('eth_getTransactionReceipt', [tx]), 'failure_type': None}
-        if reread and tx in proofs and result(rpc_read('eth_getTransactionReceipt', [tx])) != result(bound['receipt']):
+                     'receipt': rpc('eth_getTransactionReceipt', [tx]), 'failure_type': None}
+        if reread and tx in proofs and result(rpc('eth_getTransactionReceipt', [tx])) != result(bound['receipt']):
             raise StateRefused('owner_external_activity_receipt_changed')
         result_groups[tx] = bound
     return result_groups
@@ -319,11 +336,12 @@ def load_facts(path, sha):
     return facts
 
 
-def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inventory=False):
-    """Verify the packet against the original book and apply only on an owner-close row."""
+def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inventory=False, rpc=None):
+    """Validate receipts and project cash and inventory before applying an accepted row."""
     facts, receipts = packet['facts'], packet['receipts']
     fresh = packet.get('schema_version') in FRESH_SCHEMAS
-    with_gap = packet.get('schema_version') == GAP_SCHEMA
+    session = packet.get('schema_version') == SESSION_SCHEMA
+    with_gap = session or packet.get('schema_version') == GAP_SCHEMA
     if not with_gap and {'additional_activity', 'activity_sha256'}.intersection(packet):
         raise StateRefused('owner_external_activity_binding')
     extras = packet['additional_trades'] if fresh else []
@@ -331,7 +349,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
     pinned = {item['receipt']['transaction_hash'] for item in facts['trades']}
     if (facts['schema'] != SCHEMA or packet['facts_sha256'] != digest(facts) or
             facts['anchor_sha256'] != digest(book.inventory_anchor) or
-            not 1 <= len(facts['trades']) <= MAX_PINNED_TRADES or len(trades) > MAX_TRADES or
+            not (len(facts['trades']) == 0 if session else 1 <= len(facts['trades']) <= MAX_PINNED_TRADES)
+            or len(trades) > MAX_TRADES or
             set(receipts) != {item['receipt']['transaction_hash'] for item in trades} or len(trades) != len(receipts) or
             len({item['source']['trade_id'] for item in trades}) != len(trades)):
         raise StateRefused('owner_external_facts_binding')
@@ -341,6 +360,9 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
     bands = attempt_bands(book.ledger, facts['attempt_id'])
     markets = campaign_conditions(book.ledger, sequence) if fresh else {band['start']['condition_id'] for band in bands}
     owned = {row['token_id'] for row in book.ledger.rows[:sequence] if row['event'] == 'leg_intent'} if fresh else book.ledger.tokens()
+    if session:
+        from weather.market.lfc_f2_owner_notice import scope
+        markets, owned = scope(book.ledger, sequence)
     order_ids = ({row['order_id'] for row in book.ledger.rows[:sequence] if row['event'] in ('leg_ack', 'leg_adopt')}
                  if fresh else book.ledger.our_order_ids())
     projected = expected_inventory(book.ledger, book.inventory_anchor, book, cut=sequence)
@@ -378,11 +400,12 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         from weather.market.lfc_owner_close_activity import MERGES, apply as apply_gap, prove as prove_gap
 
         groups = packet['additional_activity']
-        finish = max(utc(band['end']['recorded_at_utc']) for band in bands)
-        protocol = gap_sources(book, facts, [], cut, packet['protocol_movements'],
-                               retained=groups if already_booked else ())
+        finish = None if session else max(utc(band['end']['recorded_at_utc']) for band in bands)
+        from weather.market.lfc_owner_close_activity import sources as activity_sources
+        protocol = activity_sources(book, protocol_rows(wallet, anchor, cut, packet['protocol_movements']),
+                                    finish, cut, retained=groups if already_booked else ())
         embedded = {tx: group['rows'] for tx, group in groups.items() if any(row['type'] in MERGES for row in group['rows'])}
-        if not groups or protocol != embedded:
+        if (not session and not groups) or protocol != embedded:
             raise StateRefused('owner_external_activity_binding')
         gap, decoded, gap_deltas = prove_gap(book, groups, wallet=wallet,
             markets={str(market).lower() for market in markets}, owned=owned,
@@ -416,13 +439,15 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         equal = same_position(before, after) if token in owned else expected == quantity(after)
         if not equal:
             raise StateRefused('owner_external_inventory_changed')
-    if packet['cash_native'] != book.expected_cash() + (0 if already_booked else cash):
-        raise StateRefused('owner_external_cash_changed')
+    shortfall = book.expected_cash() + (0 if already_booked else cash) - packet['cash_native']
+    if shortfall:
+        raise WalletCashMismatch(shortfall)
     corrections = {}
     if omitted:
         trade_blocks = [observed['block_number'] for _, _, observed, _ in personal] + gap_blocks
         if collect_inventory:
-            packet['native_inventory'] = collect_checkpoints(wallet, anchor, cut, omitted, min(trade_blocks))
+            options = {} if rpc is None else {'rpc': rpc}
+            packet['native_inventory'] = collect_checkpoints(wallet, anchor, cut, omitted, min(trade_blocks), **options)
         corrections = native_corrections(packet['native_inventory'], wallet, anchor, cut, omitted, trade_blocks)
     elif 'native_inventory' in packet:
         raise StateRefused('owner_external_native_inventory_binding')
@@ -430,7 +455,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         return
     for token, correction in sorted(corrections.items()):
         if correction:
-            book.owner_inventory_adjustments.append({'activity_id': 'owner-native-anchor-' + facts['incident_id'],
+            origin = facts['attempt_id'] if session else facts['incident_id']
+            book.owner_inventory_adjustments.append({'activity_id': 'owner-native-anchor-' + origin,
                 'sequence': sequence, 'token_id': token, 'delta': str(correction), 'read_sha256': packet['read_sha256']})
     for key, source, observed, delta in personal:
         timestamp = utc(source['matched_at']).timestamp()

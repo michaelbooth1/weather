@@ -61,12 +61,13 @@ def balance_params(wallet, token, contract, height):
     return [{'to': contract, 'data': data}, hex(height)]
 
 
-def collect_checkpoints(wallet, anchor, cut, omitted, first_trade_block):
+def collect_checkpoints(wallet, anchor, cut, omitted, first_trade_block, *, rpc=None):
+    rpc = rpc_read if rpc is None else rpc
     cache = {}
 
     def block(tag):
         if tag not in cache:
-            raw = rpc_read('eth_getBlockByNumber', [tag, False], owner_inventory=True)
+            raw = rpc('eth_getBlockByNumber', [tag, False], owner_inventory=True)
             info = header(raw)
             if tag != 'latest' and info[0] != int(tag, 16):
                 raise StateRefused('owner_external_native_block_binding')
@@ -82,10 +83,10 @@ def collect_checkpoints(wallet, anchor, cut, omitted, first_trade_block):
     balances = {}
     for token, (_, _, contract) in sorted(omitted.items()):
         requests = [balance_params(wallet, token, contract, info[0]) for info in checkpoints]
-        balances[token] = [{'params': params, 'response': rpc_read('eth_call', params, owner_inventory=True)}
+        balances[token] = [{'params': params, 'response': rpc('eth_call', params, owner_inventory=True)}
                            for params in requests]
     for info in checkpoints:
-        again = rpc_read('eth_getBlockByNumber', [hex(info[0]), False], owner_inventory=True)
+        again = rpc('eth_getBlockByNumber', [hex(info[0]), False], owner_inventory=True)
         if header(again) != info:
             raise StateRefused('owner_external_native_block_changed_retry')
     return {'brackets': brackets, 'balances': balances}

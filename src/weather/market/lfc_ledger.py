@@ -61,7 +61,7 @@ _EVENTS = {'genesis', 'baseline', 'session_start', 'leg_intent', 'leg_ack', 'leg
            'owner_history_recovery', 'autostart_no_intent_close', 'autostart_owner_close', 'autostart_close', 'autostart_close_intent',
            'autostart_owner_artifact_restored', 'capital_anchor', 'capital_bridge', 'capital_native_group',
            'capital_activity', 'capital_resolution', 'capital_cost', 'capital_zero_resolution',
-           'capital_owner_inventory', 'f2_session_anchor'}
+           'capital_owner_inventory', 'capital_f2_owner_activity', 'f2_session_anchor'}
 
 
 class LedgerUnavailable(RuntimeError):

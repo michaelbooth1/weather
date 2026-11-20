@@ -12,7 +12,7 @@ import pytest
 
 from tests.market.test_lfc_campaign import Mutexes
 from tests.market.test_lfc_f2_breadth import cities, NOW
-from tests.market.test_lfc_f2_capital import install, MAKER
+from tests.market.test_lfc_f2_capital import MAKER
 from tests.market.test_lfc_f2_capital_reads import native_packet, packet
 from tests.market.test_lfc_f2_repost import FillingAccount, FundedRaw
 from tests.market.test_lfc_pilot import Clock
@@ -45,7 +45,13 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
     policy = parse_policy(row)
     entry = next(e for e in policy.entries if e.local_date == '2026-11-11')
     ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=clock.now, maker_address=MAKER)
-    install(ledger, cash='300')
+    from tests.market.test_lfc_f2_inventory_b080 import observation
+    from weather.market.lfc_capital_reads import synchronize
+    from weather.market.lfc_ledger import take_baseline, write_baseline
+    baseline = take_baseline(label='t40', now=clock.now(), maker_address=MAKER, positions=[],
+                             open_orders=[], available_collateral='300')
+    write_baseline(tmp_path, baseline, ledger)
+    synchronize(ledger, baseline, observation(ledger, clock, positions={}, cash='300'), anchor_mode='enrollment')
     account = FillingAccount(clock); account.fills_enabled = fills
     rows = cities()
     table = build_table(rows, now=NOW, policy=policy, cash='300', capital=CapitalBook(ledger).figures())
@@ -96,7 +102,8 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
             return deepcopy(snapshots[condition]) | {'observed_at_utc': clock.now().isoformat()}
     from weather.market import re1_transport, re1_owner_checks, lfc_pilot, lfc_ledger, lfc_fees, lfc_cli
     monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda mode: (
-        sources.append(mode) or {'FUNDER_ADDRESS': MAKER}, SecretGuard()))
+        sources.append(mode) or {'FUNDER_ADDRESS': MAKER,
+                                  'API_KEY': '00000000-0000-4000-8000-000000000001'}, SecretGuard()))
     monkeypatch.setattr(re1_transport, 'build_client', build)
     monkeypatch.setattr(re1_transport, 'OwnerVenue', venue)
     monkeypatch.setattr(re1_owner_checks, 'code_identity', lambda: '0' * 40)
@@ -110,7 +117,7 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
         runtime = object.__new__(Runtime)
         runtime.state, runtime.clock, runtime.pilot_root = state, clock, tmp_path
         runtime.lease = SimpleNamespace(check=lambda: None)
-        def read():
+        def read(*, activity=True):
             when = clock.now().isoformat()
             positions = {}
             for raw in account.raws:
