@@ -61,7 +61,8 @@ def test_low_share_rate25_depth30_survives_real_prego_selection_submit_and_requo
                        capital=CapitalBook(ledger).figures(), held_conditions=[])
     assert len(validate_table(initial, now=clock.now(), policy=controller.policy)) == 2
     monkeypatch.setattr(lfc_pilot, 'LfcPublicBooks', lambda: public)
-    monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': ledger.rows[0]['maker_address']}, SecretGuard()))
+    monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': ledger.rows[0]['maker_address'],
+        'API_KEY': fixtures.FIXTURE_HEARTBEAT_KEY}, SecretGuard()))
     monkeypatch.setattr(re1_transport, 'build_client', lambda *a, **kw: object())
     monkeypatch.setattr(lfc_campaign_runtime, 'selection_account_screen', lambda *a: None)
     readonly = SimpleNamespace(start=lambda: None, close=lambda: None, events=lambda: [], open_orders=lambda: [],
@@ -69,7 +70,8 @@ def test_low_share_rate25_depth30_survives_real_prego_selection_submit_and_requo
         heartbeat=lambda: {'status': 'ok'})
     monkeypatch.setattr(re1_transport, 'OwnerVenue', lambda *a, **kw: readonly)
     runtime = SimpleNamespace(state=SimpleNamespace(root=tmp_path / 'state', ledger=ledger,
-        maker=ledger.rows[0]['maker_address']), clock=clock, task_enabled=lambda: True)
+        maker=ledger.rows[0]['maker_address']), clock=clock, task_enabled=lambda: True,
+        release=fixtures.fixture_heartbeat_release())
     prego = Runtime.readiness(runtime, controller.entry, controller.policy,
                               {'balances': {'available_collateral': '300'}, 'positions': []})
     saved = json.loads((runtime.state.root / prego['readiness_directory'] / 'selection.json').read_text())

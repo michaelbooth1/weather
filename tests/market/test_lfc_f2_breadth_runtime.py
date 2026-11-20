@@ -6,7 +6,6 @@ No SDK client, signer, credential source, task, reader or network is exercised.
 from copy import deepcopy
 from decimal import Decimal
 from datetime import timedelta
-from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
@@ -60,6 +59,7 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
     write_baseline(tmp_path, baseline, ledger)
     synchronize(ledger, baseline, observation(ledger, clock, positions={}, cash='300'), anchor_mode='enrollment')
     account = FillingAccount(clock); account.fills_enabled = fills
+    account.venue_ids = True
     key = '00000000-0000-4000-8000-000000000001'
     external = {'id': '0x'+'e'*64, 'market': '0x'+'f'*64, 'asset_id': '8091',
                 'maker_address': MAKER, 'owner': '00000000-0000-4000-8000-000000000002',
@@ -96,19 +96,10 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
             return []
         def close(self):
             self.client.close()
-    class CampaignRaw(FundedRaw):
-        def submit(self, request, *, checkpoint=lambda: None):
-            response = super().submit(request, checkpoint=checkpoint)
-            previous = response['order_id']
-            oid = '0x' + sha256(previous.encode()).hexdigest()
-            row = self.memory.orders.pop(previous)
-            self.memory.orders[oid] = {**row, 'id': oid}
-            return {**response, 'order_id': oid}
-
     def venue(client, fields, guard, **kwargs):
         if kwargs.get('readonly'):
             return Reader(client)
-        raw = CampaignRaw(snapshots[kwargs['condition']], kwargs['directory'], clock=clock,
+        raw = FundedRaw(snapshots[kwargs['condition']], kwargs['directory'], clock=clock,
                           account=account, index=len(raws))
         raw.fixture_stream_factory = kwargs['stream_factory']
         def start():

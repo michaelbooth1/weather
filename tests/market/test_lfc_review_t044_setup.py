@@ -10,7 +10,8 @@ import pytest
 
 from tests.market.test_lfc_campaign import Mutexes
 from tests.market.test_lfc_f2_breadth import cities, NOW
-from tests.market.test_lfc_f2_capital import install, MAKER
+from tests.market.test_lfc_f2_capital import MAKER
+from tests.market.test_lfc_f2_controller import FIXTURE_HEARTBEAT_KEY, fixture_heartbeat_release
 from tests.market.test_lfc_f2_capital_reads import native_packet, packet
 from tests.market.test_lfc_f2_repost import FillingAccount, FundedRaw
 from tests.market.test_lfc_pilot import Clock
@@ -37,8 +38,15 @@ def test_b058_4_twelve_serial_stream_starts_fit_go_budget(tmp_path, monkeypatch)
     policy = parse_policy(row)
     entry = next(e for e in policy.entries if e.local_date == '2026-11-11')
     ledger = Ledger.create(tmp_path / 'ledger.jsonl', clock=clock.now, maker_address=MAKER)
-    install(ledger, cash='300')
+    from tests.market.test_lfc_f2_inventory_b080 import observation
+    from weather.market.lfc_capital_reads import synchronize
+    from weather.market.lfc_ledger import take_baseline, write_baseline
+    baseline = take_baseline(label='t40', now=clock.now(), maker_address=MAKER, positions=[],
+                             open_orders=[], available_collateral='300')
+    write_baseline(tmp_path, baseline, ledger)
+    synchronize(ledger, baseline, observation(ledger, clock, positions={}, cash='300'), anchor_mode='enrollment')
     account = FillingAccount(clock); account.fills_enabled = fills
+    account.venue_ids = True
     rows = cities()
     table = build_table(rows, now=NOW, policy=policy, cash='300', capital=CapitalBook(ledger).figures())
     snapshots = {r['condition_id']: r['snapshot'] for r in rows}
@@ -82,7 +90,7 @@ def test_b058_4_twelve_serial_stream_starts_fit_go_budget(tmp_path, monkeypatch)
             return deepcopy(snapshots[condition]) | {'observed_at_utc': clock.now().isoformat()}
     from weather.market import re1_transport, re1_owner_checks, lfc_pilot, lfc_ledger, lfc_fees, lfc_cli
     monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda mode: (
-        sources.append(mode) or {'FUNDER_ADDRESS': MAKER}, SecretGuard()))
+        sources.append(mode) or {'FUNDER_ADDRESS': MAKER, 'API_KEY': FIXTURE_HEARTBEAT_KEY}, SecretGuard()))
     monkeypatch.setattr(re1_transport, 'build_client', build)
     monkeypatch.setattr(re1_transport, 'OwnerVenue', venue)
     monkeypatch.setattr(re1_owner_checks, 'code_identity', lambda: '0' * 40)
@@ -95,7 +103,8 @@ def test_b058_4_twelve_serial_stream_starts_fit_go_budget(tmp_path, monkeypatch)
         claim = state.claim(entry, policy, clock.now())
         runtime = object.__new__(Runtime)
         runtime.state, runtime.clock, runtime.pilot_root = state, clock, tmp_path
-        def read():
+        runtime.release = fixture_heartbeat_release()
+        def read(*, activity=True, wallet_orders=False):
             when = clock.now().isoformat()
             positions = {}
             for raw in account.raws:
@@ -103,7 +112,9 @@ def test_b058_4_twelve_serial_stream_starts_fit_go_budget(tmp_path, monkeypatch)
                     if Decimal(order['size_matched']):
                         token = order['asset_id']
                         positions[token] = positions.get(token, Decimal(0)) + Decimal(order['size_matched'])
-            balances = account.raws[0].balances()
+            balances = account.raws[0].balances() if account.raws else {
+                'available_collateral': '300', 'assets': {'pUSD': '300'},
+                'collateral_evidence': {'balance': '300000000'}}
             balances.setdefault('collateral_evidence', {})['allowances'] = {address.lower(): '300000000' for address in SPENDERS.values()}
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'complete': True, 'errors': [],
                 'maker_address': MAKER, 'since': str(int(NOW.timestamp())),

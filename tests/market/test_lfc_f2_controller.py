@@ -5,6 +5,7 @@ The actual ScheduledAuthority type is used with fixture-only admission callbacks
 """
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
+from hashlib import sha256
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -28,6 +29,12 @@ from weather.market.re1_rehearsal import RehearsalVenue
 
 NOW = datetime(2026, 11, 11, 14, tzinfo=timezone.utc)
 MAKER = '0x' + 'a' * 40
+FIXTURE_HEARTBEAT_KEY = '00000000-0000-4000-8000-000000000001'
+
+
+def fixture_heartbeat_release():
+    from weather.market.lfc_campaign_release import HEARTBEAT_BINDING, f2_heartbeat_key_hash
+    return {HEARTBEAT_BINDING: f2_heartbeat_key_hash(FIXTURE_HEARTBEAT_KEY)}
 
 
 class Account:
@@ -82,6 +89,8 @@ class Raw(RehearsalVenue):
         response = super().submit(request, checkpoint=checkpoint)
         old = response['order_id']
         oid = getattr(self.account, 'prefix', '') + str(self.index) + '-' + old
+        if getattr(self.account, 'venue_ids', False):
+            oid = '0x' + sha256(oid.encode()).hexdigest()
         row = self.memory.orders.pop(old)
         row['id'] = oid
         self.memory.orders[oid] = row

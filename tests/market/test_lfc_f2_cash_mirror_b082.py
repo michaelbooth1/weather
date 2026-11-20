@@ -62,8 +62,8 @@ def profitable_wallet(tmp_path):
     return ledger, clock
 
 
-def cash_activity(clock, kind, amount, *, timestamp=None):
-    source = activity(cash=str(amount), size='0', token='', tx='0x' + '2' * 64, kind=kind)
+def cash_activity(clock, kind, amount, *, timestamp=None, transaction_hash='0x' + '2' * 64):
+    source = activity(cash=str(amount), size='0', token='', tx=transaction_hash, kind=kind)
     source['timestamp'] = timestamp if timestamp is not None else int(clock.now().timestamp()) - 20
     if kind == 'TIP':
         source['side'] = 'OUT'

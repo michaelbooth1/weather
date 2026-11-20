@@ -9,7 +9,7 @@ import pytest
 
 from tests.market.test_lfc_campaign import Mutexes
 from tests.market.test_lfc_f2_capital import MAKER, install
-from tests.market.test_lfc_f2_controller import Account, Raw, NOW
+from tests.market.test_lfc_f2_controller import Account, FIXTURE_HEARTBEAT_KEY, Raw, NOW, fixture_heartbeat_release
 from tests.market.test_lfc_f2_selection import universe
 from tests.market.test_lfc_pilot import Clock
 from weather.market.lfc_campaign_guard import account_lease
@@ -62,7 +62,7 @@ def test_owner_adapter_builds_two_independent_inert_clients_with_one_claim(tmp_p
         raw.client, raw.start, raw.close = client, lambda: None, close
         return raw
     public = SimpleNamespace(snapshot=lambda condition, tokens, **kw: by_id[condition]['snapshot'])
-    monkeypatch.setattr(transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': MAKER}, SecretGuard()))
+    monkeypatch.setattr(transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': MAKER, 'API_KEY': FIXTURE_HEARTBEAT_KEY}, SecretGuard()))
     monkeypatch.setattr(transport, 'build_client', client)
     monkeypatch.setattr(transport, 'OwnerVenue', venue)
     monkeypatch.setattr(checks, 'code_identity', lambda: 'f' * 40)
@@ -76,7 +76,7 @@ def test_owner_adapter_builds_two_independent_inert_clients_with_one_claim(tmp_p
         status = F2Status(kind='autostart', clock=clock.now, monotonic=clock.monotonic,
                          policy_metadata={key: claim[key] for key in ('policy_name', 'policy_revision', 'evidence_lane')})
         status.directory, status.stop_file = tmp_path / 'public', tmp_path / 'fixture-owner-stop'
-        runtime = SimpleNamespace(state=state, clock=clock, pilot_root=tmp_path,
+        runtime = SimpleNamespace(state=state, clock=clock, pilot_root=tmp_path, release=fixture_heartbeat_release(),
             read_account=lambda: {}, core_proof=lambda *a: {'money_accounting_complete': True, 'cleanup_proven': True})
         authority = object.__new__(ScheduledAuthority)
         authority.__dict__.update(policy=policy, entry=entry, claim=claim, profile=ScheduledProfile(policy, entry),

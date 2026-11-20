@@ -368,6 +368,7 @@ def test_real_band_submit_refuses_cash_drop_between_plan_and_post(tmp_path, monk
                                         ('cash_debit', 'capital_cash_changed')])
 def test_run_live_start_gate_refuses_before_creating_order_capable_clients(tmp_path, monkeypatch, fault, reason):
     from weather.market import re1_transport as transport, re1_owner_checks, lfc_ledger
+    from tests.market.test_lfc_f2_controller import FIXTURE_HEARTBEAT_KEY, fixture_heartbeat_release
     from weather.market.lfc_f2_runtime import run_live
     from weather.market.re1_attended import SecretGuard
     controller, account, status, ledger, clock = setup(tmp_path / 'prepared')
@@ -385,7 +386,7 @@ def test_run_live_start_gate_refuses_before_creating_order_capable_clients(tmp_p
             assert kw.get('readonly') is True
             clients.append('read-only')
             return SimpleNamespace()
-        monkeypatch.setattr(transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': MAKER}, SecretGuard()))
+        monkeypatch.setattr(transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': MAKER, 'API_KEY': FIXTURE_HEARTBEAT_KEY}, SecretGuard()))
         monkeypatch.setattr(transport, 'build_client', client)
         monkeypatch.setattr(transport, 'OwnerVenue', lambda *a, **kw: reader)
         monkeypatch.setattr(re1_owner_checks, 'code_identity', lambda: 'f' * 40)
@@ -394,7 +395,7 @@ def test_run_live_start_gate_refuses_before_creating_order_capable_clients(tmp_p
             claim={'attempt_id': 'a' * 32}, preflight=lambda **kw: None, selection=lambda: controller.table,
             prepared={'preflight': {'timeouts_seconds': {'get': 1}}}, start_gates=lambda **kw: [])
         runtime = SimpleNamespace(state=SimpleNamespace(ledger=ledger, maker=MAKER), clock=clock,
-                                  pilot_root=tmp_path / 'never-created-live-root')
+                                  pilot_root=tmp_path / 'never-created-live-root', release=fixture_heartbeat_release())
         with pytest.raises(CapitalRefused, match=reason):
             run_live(runtime, authority, status)
         assert clients == ['read-only'] and closed == ['reader']

@@ -319,16 +319,7 @@ def test_receipt_proved_in_session_withdrawal_and_later_deposit_preserve_headroo
     before = CapitalBook(ledger).figures()
     clock.value += timedelta(hours=1)
     if owner_credit:
-        from weather.market.lfc_recording_io import retained, response_bytes
-        from weather.market.mm_stage2_hold import digest
-        credit, receipt = cash_activity(clock, 'DEPOSIT', owner_credit)
-        credit['transaction_hash'] = '0x'+'5'*64
-        tx = strict_json(response_bytes(receipt['receipt']))
-        tx['result']['transactionHash'] = credit['transaction_hash']
-        for log in tx['result']['logs']:
-            log['transactionHash'] = credit['transaction_hash']
-        receipt.update(transaction_hash=credit['transaction_hash'], rows=[credit],
-                       rows_sha256=digest([credit]), receipt=retained(json.dumps(tx).encode()))
+        credit, receipt = cash_activity(clock, 'DEPOSIT', owner_credit, transaction_hash='0x'+'5'*64)
         synchronize(ledger, baseline, observed(ledger, clock, credit, receipt, str(290 + owner_credit),
                     positions={'denver': '20'}), owner_cash_proof=True)
     clock.value += timedelta(hours=1)
@@ -347,16 +338,7 @@ def test_receipt_proved_in_session_withdrawal_and_later_deposit_preserve_headroo
     assert debit_book.figures()['paid_or_reserved_campaign_costs_native'] == before['paid_or_reserved_campaign_costs_native']
 
     clock.value += timedelta(hours=1)
-    from weather.market.lfc_recording_io import retained, response_bytes
-    from weather.market.mm_stage2_hold import digest
-    deposit, receipt = cash_activity(clock, 'DEPOSIT', 50)
-    deposit['transaction_hash'] = '0x'+'6'*64
-    tx = strict_json(response_bytes(receipt['receipt']))
-    tx['result']['transactionHash'] = deposit['transaction_hash']
-    for log in tx['result']['logs']:
-        log['transactionHash'] = deposit['transaction_hash']
-    receipt.update(transaction_hash=deposit['transaction_hash'], rows=[deposit],
-                   rows_sha256=digest([deposit]), receipt=retained(json.dumps(tx).encode()))
+    deposit, receipt = cash_activity(clock, 'DEPOSIT', 50, transaction_hash='0x'+'6'*64)
     read = observed(ledger, clock, deposit, receipt, str(320 + owner_credit), positions={'denver': '20'})
     synchronize(ledger, baseline, read, owner_cash_proof=True)
     count = len(ledger.rows)

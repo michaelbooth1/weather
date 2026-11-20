@@ -7,7 +7,7 @@ from urllib.error import URLError
 
 import pytest
 
-from tests.market.test_lfc_f2_controller import setup
+from tests.market.test_lfc_f2_controller import FIXTURE_HEARTBEAT_KEY, fixture_heartbeat_release, setup
 from weather.market.lfc_campaign import TransientPrecheck
 from weather.market.lfc_campaign_runtime import Runtime
 from weather.market.lfc_campaign_state import StateRefused
@@ -20,7 +20,7 @@ def readiness(tmp_path, monkeypatch):
     controller, account, status, ledger, clock = setup(tmp_path)
     monkeypatch.setattr(lfc_pilot, 'LfcPublicBooks', lambda: object())
     monkeypatch.setattr(lfc_f2_selection, 'discover', lambda *a, **kw: controller.table)
-    monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': ledger.rows[0]['maker_address']}, None))
+    monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': ledger.rows[0]['maker_address'], 'API_KEY': FIXTURE_HEARTBEAT_KEY}, None))
     monkeypatch.setattr(re1_transport, 'build_client', lambda *a, **kw: object())
     monkeypatch.setattr(lfc_campaign_runtime, 'selection_account_screen', lambda *a: None)
     venue = SimpleNamespace(start=lambda: None, close=lambda: None, events=lambda: [], open_orders=lambda: [],
@@ -28,7 +28,8 @@ def readiness(tmp_path, monkeypatch):
         heartbeat=lambda: {'status': 'ok'})
     monkeypatch.setattr(re1_transport, 'OwnerVenue', lambda *a, **kw: venue)
     runtime = SimpleNamespace(state=SimpleNamespace(root=tmp_path / 'state', ledger=ledger,
-        maker=ledger.rows[0]['maker_address']), clock=clock, task_enabled=lambda: True)
+        maker=ledger.rows[0]['maker_address']), clock=clock, task_enabled=lambda: True,
+        release=fixture_heartbeat_release())
     def run():
         return Runtime.readiness(runtime, controller.entry, controller.policy,
                                  {'balances': {'available_collateral': '300'}, 'positions': []})

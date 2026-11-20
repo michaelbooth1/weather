@@ -172,7 +172,10 @@ def test_cash_below_a_qualifying_band_need_defers_without_money_incident(tmp_pat
     runtime = object.__new__(Runtime)
     runtime.clock = clock
     runtime.state = SimpleNamespace(ledger=ledger, maker=MAKER)
-    monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda _: ({'FUNDER_ADDRESS': MAKER}, None))
+    from tests.market.test_lfc_f2_controller import FIXTURE_HEARTBEAT_KEY, fixture_heartbeat_release
+    runtime.release = fixture_heartbeat_release()
+    monkeypatch.setattr(re1_transport, 'load_owner_credentials',
+                        lambda _: ({'FUNDER_ADDRESS': MAKER, 'API_KEY': FIXTURE_HEARTBEAT_KEY}, None))
     monkeypatch.setattr(lfc_pilot, 'LfcPublicBooks', lambda: object())
     monkeypatch.setattr(lfc_f2_selection, 'discover', lambda *a, **k: {
         'selected_condition_id': None, 'rows': [{'eligible': True, 'quote': {'reserve_pusd': '19.4'}}]})
