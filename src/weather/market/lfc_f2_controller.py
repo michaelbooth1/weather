@@ -86,9 +86,7 @@ class ScopedVenue:
         return rows
 
     def cancel(self, oid):
-        ledger = self.coordinator.ledger
-        leg = ledger.legs.get(ledger.by_order.get(oid))
-        if leg is None or leg['session_id'] != self.session_id:
+        if self.coordinator.acknowledged_session(oid) != self.session_id:
             raise HoldEnd('campaign_cancel_order_unbound')
         return self.raw.cancel(oid)
 
@@ -156,7 +154,9 @@ class F2Band(PilotSession):
                 if began is not None:
                     self.control()
                     if deferrals >= 24:
-                        raise HoldEnd('peer_cash_wait_expired')
+                        reason = ('owner_activity_cash_pending' if self.venue.coordinator.owner_notice_digests
+                                  else 'peer_cash_wait_expired')
+                        raise HoldEnd(reason)
                     own = sum((self.size * p for _, p in self.active.values()), Decimal(0))
                     reserve, _ = self._gate(own_resting=own)
                     self._cash(self.required('f2_wait_balances', self.venue.balances), reserve)
@@ -345,7 +345,8 @@ class F2Band(PilotSession):
         except CapitalRefused as exc:
             peers = {band.session_id for band in self.venue.coordinator.bands if band is not self}
             if (self.breadth and str(exc) == 'capital_cash_changed' and
-                    any(leg['session_id'] in peers and leg['status'] != 'terminal' for leg in self.ledger.legs.values())):
+                    (coordinator.owner_notice_digests or any(
+                        leg['session_id'] in peers and leg['status'] != 'terminal' for leg in self.ledger.legs.values()))):
                 raise PeerCashPending() from None
             raise HoldEnd(str(exc)) from None
         return quantity(balances['available_collateral']), Decimal(figures['resting_reserve_native']) / SCALE
@@ -574,10 +575,16 @@ class F2Coordinator:
         self.account_evidence_faults.add('campaign_task_readback_unavailable')
         self.evidence_failed = True
 
+    def acknowledged_session(self, oid):
+        key = self.ledger.by_order.get(oid)
+        if key is not None and self.ledger.event_rows('leg_ack', field='intent_key', value=key):
+            return self.ledger.legs[key]['session_id']
+        return None
+
     def order_session(self, row):
-        leg = self.ledger.legs.get(self.ledger.by_order.get(_order_id(row)))
-        if leg is not None and any(band.session_id == leg['session_id'] for band in self.bands):
-            return leg['session_id']
+        session = self.acknowledged_session(_order_id(row))
+        if session is not None and any(band.session_id == session for band in self.bands):
+            return session
         return None
 
     def split_orders(self, rows):

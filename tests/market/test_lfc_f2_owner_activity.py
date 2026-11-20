@@ -100,9 +100,12 @@ def test_shared_band_cancel_requires_the_exact_campaign_order():
         def cancel(self, oid):
             pytest.fail('an unbound order could reach a cancellation client')
     from weather.market.mm_stage2_hold import HoldEnd
-    ledger = SimpleNamespace(legs={}, by_order={})
-    coordinator = SimpleNamespace(shared_wallet=True, ledger=ledger)
+    from weather.market.lfc_f2_controller import F2Coordinator
+    coordinator = object.__new__(F2Coordinator)
+    coordinator.ledger = SimpleNamespace(legs={'inferred': {'session_id': 'fixture'}},
+        by_order={ORDER: 'inferred'}, event_rows=lambda *args, **kwargs: [])
     venue = ScopedVenue(NeverUsed(), coordinator, 'fixture')
+    # Inferred or adopted matching terms still have no submit acknowledgment.
     with pytest.raises(HoldEnd, match='campaign_cancel_order_unbound'):
         venue.cancel(ORDER)
 
