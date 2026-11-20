@@ -6,7 +6,7 @@ from weather.market.lfc_accounting import same_position
 from weather.market.lfc_campaign_state import StateRefused
 from weather.market.lfc_capital import SCALE
 from weather.market.lfc_capital_native import hex_number, result, rpc_read
-from weather.market.lfc_redemption_native import CTF, call_data
+from weather.market.lfc_redemption_native import CTF, PM, call_data
 from weather.market.lfc_recording_io import response_bytes
 
 
@@ -14,6 +14,7 @@ BALANCE_SELECTOR = call_data('balanceOf(address,uint256)', ['address', 'uint256'
 INDEX_OMISSION_LIMIT = Decimal('0.01')
 BLOCK_TAG = re.compile(r'0x(?:0|[1-9a-f][0-9a-f]*)')
 HASH = re.compile(r'0x[0-9a-f]{64}')
+POSITION_CONTRACTS = {CTF, PM}
 
 
 def permitted_inventory_read(method, params):
@@ -22,7 +23,8 @@ def permitted_inventory_read(method, params):
     first, second = params
     if method == 'eth_getBlockByNumber':
         return second is False and isinstance(first, str) and (first == 'latest' or BLOCK_TAG.fullmatch(first))
-    if method != 'eth_call' or not isinstance(first, dict) or set(first) != {'to', 'data'} or first['to'] != CTF:
+    if (method != 'eth_call' or not isinstance(first, dict) or set(first) != {'to', 'data'} or
+            first['to'] not in POSITION_CONTRACTS):
         return False
     data = first['data']
     return (isinstance(data, str) and re.fullmatch(BALANCE_SELECTOR + r'0{24}[0-9a-f]{104}', data) is not None
@@ -54,7 +56,12 @@ def block_at_cut(block, lower, upper, cut):
     raise StateRefused('owner_external_native_block_budget')
 
 
-def collect_checkpoints(wallet, anchor, cut, tokens, first_trade_block):
+def balance_params(wallet, token, contract, height):
+    data = call_data('balanceOf(address,uint256)', ['address', 'uint256'], [wallet, int(token)])
+    return [{'to': contract, 'data': data}, hex(height)]
+
+
+def collect_checkpoints(wallet, anchor, cut, omitted, first_trade_block):
     cache = {}
 
     def block(tag):
@@ -73,10 +80,10 @@ def collect_checkpoints(wallet, anchor, cut, tokens, first_trade_block):
     brackets = [block_at_cut(block, lower, upper, when) for when in (anchor, cut)]
     checkpoints = [header(pair[0]) for pair in brackets]
     balances = {}
-    for token in sorted(tokens):
-        data = call_data('balanceOf(address,uint256)', ['address', 'uint256'], [wallet, int(token)])
-        balances[token] = [rpc_read('eth_call', [{'to': CTF, 'data': data}, hex(info[0])], owner_inventory=True)
-                           for info in checkpoints]
+    for token, (_, _, contract) in sorted(omitted.items()):
+        requests = [balance_params(wallet, token, contract, info[0]) for info in checkpoints]
+        balances[token] = [{'params': params, 'response': rpc_read('eth_call', params, owner_inventory=True)}
+                           for params in requests]
     for info in checkpoints:
         again = rpc_read('eth_getBlockByNumber', [hex(info[0]), False], owner_inventory=True)
         if header(again) != info:
@@ -84,13 +91,12 @@ def collect_checkpoints(wallet, anchor, cut, tokens, first_trade_block):
     return {'brackets': brackets, 'balances': balances}
 
 
-def native_corrections(witness, anchor, cut, omitted, trade_blocks):
+def native_corrections(witness, wallet, anchor, cut, omitted, trade_blocks):
     brackets, balances = witness['brackets'], witness['balances']
     if len(brackets) != 2 or set(balances) != set(omitted):
         raise StateRefused('owner_external_native_inventory_binding')
-    raw = [item for pair in brackets for item in pair]
-    raw.extend(item for pair in balances.values() for item in pair)
-    if sum(len(response_bytes(item)) for item in raw) > 2_000_000:
+    size = sum(len(response_bytes(item)) for pair in brackets for item in pair)
+    if size > 2_000_000:
         raise StateRefused('owner_external_native_inventory_budget')
     numbers = []
     for pair, when in zip(brackets, (anchor, cut), strict=True):
@@ -102,8 +108,27 @@ def native_corrections(witness, anchor, cut, omitted, trade_blocks):
     if any(not numbers[0] < n <= numbers[1] for n in trade_blocks):
         raise StateRefused('owner_external_native_block_cut')
     corrections = {}
-    for token, (baseline, delta) in omitted.items():
-        raw_before, raw_after = (result(value) for value in balances[token])
+    for token, (baseline, delta, contract) in omitted.items():
+        pair = balances[token]
+        if len(pair) != 2:
+            raise StateRefused('owner_external_native_inventory_binding')
+        has_params = ['params' in entry or 'response' in entry for entry in pair]
+        if has_params[0] != has_params[1] or (not has_params[0] and contract != CTF):
+            raise StateRefused('owner_external_native_inventory_binding')
+        replies = []
+        for entry, height in zip(pair, numbers, strict=True):
+            if has_params[0]:
+                if (set(entry) != {'params', 'response'} or
+                        entry['params'] != balance_params(wallet, token, contract, height)):
+                    raise StateRefused('owner_external_native_inventory_binding')
+                replies.append(entry['response'])
+            else:
+                # The previous writer always called CTF and retained just the response.
+                replies.append(entry)
+        size += sum(len(response_bytes(reply)) for reply in replies)
+        if size > 2_000_000:
+            raise StateRefused('owner_external_native_inventory_budget')
+        raw_before, raw_after = map(result, replies)
         if any(not HASH.fullmatch(value) for value in (raw_before, raw_after)):
             raise StateRefused('owner_external_native_inventory_binding')
         before, after = (Decimal(int(value, 16))/SCALE for value in (raw_before, raw_after))

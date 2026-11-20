@@ -658,13 +658,18 @@ is bound to its own V2 receipt, including the exact chain gross and fee. A price
 difference must improve the owner's REST price and the native movements must
 still reconcile exactly. The full inventory and native collateral reconcile at
 the fresh cut. An omitted, touched personal position below 0.01 share requires
-exact historical native token balances at both cuts. This includes zero and
+exact historical native token balances at both cuts. The receipt identifies
+ConditionalTokens or PositionManager, and replay checks both request targets
+against that contract. Older response-only witnesses bind ConditionalTokens.
+This includes zero and
 small negative projections within the anchor's reporting precision. The close
 can include up to 64 additional proved transactions after the last band ended.
 It uses the usual native activity and reward attribution for owner deposits,
 withdrawals, personal redemptions, binary full-set merges, tips and incentives.
 The proof requires the entire receipt's collateral and token movements and
 refuses campaign overlap, unproved motion and activity straddling the cut.
+Positive cash-only activity must include a positive native transfer in the
+reported wallet direction. A receipt-proved losing redemption can pay zero.
 Withdrawals spend verified owner credit first and record any uncovered amount
 as overdraw. Deposits, personal payouts and sale proceeds repay that overdraw
 under the owner rule. Rewards and rebates go to the incentive pool. An explicit

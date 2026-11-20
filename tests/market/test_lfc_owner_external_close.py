@@ -522,7 +522,7 @@ def test_touched_omitted_zero_or_slightly_negative_projection_uses_native_balanc
 
     def checkpoints(wallet, anchor, cut, omitted, first_trade_block):
         assert wallet == MAKER and first_trade_block == 256
-        assert omitted == {'90': (Decimal(owner_position), Decimal('-20'))}
+        assert omitted == {'90': (Decimal(owner_position), Decimal('-20'), CTF)}
         a, b = int(anchor.timestamp()), int(cut.timestamp())
         calls.append(1)
         return {'brackets': [[block(250, a), block(251, a+1)], [block(260, b), block(261, b+1)]],
@@ -534,6 +534,96 @@ def test_touched_omitted_zero_or_slightly_negative_projection_uses_native_balanc
     inventory = expected_inventory(after.ledger, after.inventory_anchor, after)
     assert set(packet['native_inventory']['balances']) == {'90'} and calls == [1]
     assert Decimal(inventory['90']) == Decimal('0.000008')
+
+
+@pytest.mark.parametrize('mode', ['pm_manual', 'pm_auto', 'ctf', 'pm_zero_payout'])
+def test_omitted_redemption_checks_the_receipt_contract_at_both_cuts(tmp_path, monkeypatch, account_guard, mode):
+    from io import BytesIO
+    from weather.market.lfc_capital_native import result
+    from weather.market.lfc_f2_inventory import expected_inventory
+    from weather.market.lfc_owner_external_close import coverage, reconcile
+    from weather.market.lfc_owner_external_inventory import BALANCE_SELECTOR
+    from weather.market.lfc_redemption_native import PM
+    from weather.market.re1_transport import RPC
+
+    ctf = mode == 'ctf'
+    source, group, tokens = paired(auto=mode == 'pm_auto', ctf=ctf)
+    payout = 20
+    if mode == 'pm_zero_payout':
+        tokens, payout = tokens[-1:], 0
+        receipt = result(group['receipt'])
+        receipt['logs'] = receipt['logs'][3:6]
+        group['receipt'] = rpc_packet(receipt)
+        source.update(token_id=tokens[0], usdc_size='0')
+    runtime, ledger, initial, facts, trade = fixture_trade(tmp_path, example=True,
+                                                           personal_holdings=dict.fromkeys(tokens, '20'))
+    clock = runtime.clock
+    clock.value += timedelta(minutes=1)
+    source['timestamp'] = int(clock.now().timestamp()) - 20
+    group.update(rows=[source], rows_sha256=digest([source]))
+    read = observation(ledger, clock, positions={row['asset']: row['size'] for row in initial['positions']
+                                                if row['asset'] not in tokens},
+                       cash=str(Decimal(initial['balances']['available_collateral']) + payout))
+    read['trades'] = initial['trades']
+    packet = read['capital_activity']
+    scope = packet['scope']
+    packet.update(read_activity(MAKER, scope['start'], scope['end'], get=lambda *_: activity_page([source])),
+                  native_receipts={source['transaction_hash']: group})
+    anchor_at = int(utc(CapitalBook(ledger).inventory_anchor['snapshot_at_utc']).timestamp())
+    cut_at = int(coverage(read).timestamp())
+    contract, other = (CTF, PM) if ctf else (PM, CTF)
+    balances = {(target, int(token), height): 20_000_000 if target == contract and height == 250 else 0
+                for token in tokens for target in (CTF, PM) for height in (250, 320)}
+    calls = []
+
+    def open_rpc(request, *, timeout):
+        assert request.full_url == RPC
+        body = json.loads(request.data)
+        data, tag = body['params']
+        if body['method'] == 'eth_getBlockByNumber':
+            number = 350 if data == 'latest' else int(data, 16)
+            stamp = (anchor_at + number - 250 if number <= 250 else
+                     cut_at + number - 320 if number >= 320 else
+                     anchor_at + (number - 250) * (cut_at - anchor_at) // 70)
+            value = {'number': hex(number), 'timestamp': hex(stamp),
+                     'hash': f'0x{number:064x}', 'parentHash': f'0x{max(0, number-1):064x}'}
+        else:
+            assert body['method'] == 'eth_call' and data['data'].startswith(BALANCE_SELECTOR)
+            assert data['data'][10:74] == MAKER[2:].rjust(64, '0')
+            key = data['to'], int(data['data'][74:], 16), int(tag, 16)
+            calls.append(key)
+            value = f'0x{balances[key]:064x}'
+        response = BytesIO(json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': value}).encode())
+        response.status, response.geturl = 200, lambda: RPC
+        return response
+
+    monkeypatch.setattr('weather.market.lfc_capital_native.direct_opener', lambda: SimpleNamespace(open=open_rpc))
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda *_: trade)
+    before = ledger.path.read_bytes(), ledger.previous
+    proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
+    assert (ledger.path.read_bytes(), ledger.previous) == before
+    assert calls == [(contract, int(token), height) for token in sorted(tokens) for height in (250, 320)]
+    external = proof['owner_external_close']
+    with_wrong_contract = deepcopy(external)
+    calls_for_token = with_wrong_contract['native_inventory']['balances'][tokens[0]]
+    calls_for_token[0]['params'][0]['to'] = other
+    with pytest.raises(StateRefused, match='^owner_external_native_inventory_binding$'):
+        reconcile(CapitalBook(ledger), with_wrong_contract)
+    legacy = deepcopy(external)
+    legacy['native_inventory']['balances'] = {
+        token: [entry['response'] for entry in pair] for token, pair in external['native_inventory']['balances'].items()}
+    if ctf:
+        reconcile(CapitalBook(ledger), legacy)  # Existing CTF witnesses retain their original meaning.
+    else:
+        with pytest.raises(StateRefused, match='^owner_external_native_inventory_binding$'):
+            reconcile(CapitalBook(ledger), legacy)
+    ledger.record('autostart_owner_close', attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT,
+                  proof=proof, proof_sha256=digest(proof))
+    replay = CapitalBook(Ledger.open(ledger.path, clock=clock.now))
+    positions = expected_inventory(replay.ledger, replay.inventory_anchor, replay)
+    assert all(Decimal(positions[token]) == 0 for token in tokens)
+    redeemed, = replay.redemptions.values()
+    assert redeemed['cash_native'] == payout * 1_000_000
 
 
 @pytest.mark.parametrize(('case', 'reason'), [
@@ -654,6 +744,53 @@ def interrupted_partial(runtime, facts, monkeypatch):
         with pytest.raises(OSError, match='interrupted after partial receipt'):
             owner_close(runtime, INCIDENT, external_facts=facts)
     return root / 'owner-closures' / (INCIDENT + '.json')
+
+
+@pytest.mark.parametrize(('kind', 'direction'), [('WITHDRAWAL', 'OUT'), ('DEPOSIT', 'IN'), ('REWARD', 'IN'),
+                                               ('TIP', 'IN'), ('TIP', 'OUT')])
+def test_positive_cash_row_without_wallet_transfer_refuses_without_writes(tmp_path, monkeypatch, account_guard,
+                                                                         kind, direction):
+    from weather.market.lfc_campaign_owner_close import owner_close
+    from weather.market.lfc_capital_native import result
+
+    runtime, facts, _ = owner_runtime(tmp_path, monkeypatch)
+    ledger, root = runtime.state.ledger, runtime.state.root
+    partial = interrupted_partial(runtime, facts, monkeypatch)
+    incident, seal = root / 'incidents' / (INCIDENT + '.json'), tmp_path / 'owner-closed-release.json'
+    initial = runtime.read_account(persist=False)
+    clock = runtime.clock
+    clock.value += timedelta(minutes=1)
+    later = observation(ledger, clock, positions={row['asset']: row['size'] for row in initial['positions']},
+                        cash=initial['balances']['available_collateral'])
+    later['trades'] = initial['trades']
+    source, group = cash_activity(clock, 'WITHDRAWAL' if direction == 'OUT' else 'DEPOSIT', 1)
+    tx = '0x' + '6' * 64
+    source.update(type=kind, condition_id='', transaction_hash=tx, **({'side': direction} if kind == 'TIP' else {}))
+    receipt = result(group['receipt'])
+    receipt['transactionHash'] = tx
+    for log in receipt['logs']:
+        log['transactionHash'] = tx
+        leg = 1 if direction == 'OUT' else 2
+        log['topics'][leg] = f'0x{177:064x}'
+    group.update(transaction_hash=tx, receipt=rpc_packet(receipt), rows=[source], rows_sha256=digest([source]))
+    packet = later['capital_activity']
+    scope = packet['scope']
+    packet.update(read_activity(MAKER, scope['start'], scope['end'], get=lambda *_: activity_page([source])),
+                  native_receipts={source['transaction_hash']: group})
+    monkeypatch.setattr(runtime, 'read_account', lambda *, persist: later if not persist else pytest.fail('published'))
+
+    def snapshot():
+        opened = Ledger.open(ledger.path, clock=clock.now)
+        book = CapitalBook(opened)
+        return (opened.path.read_bytes(), opened.previous, book.pending_native_outgoing, book.figures(),
+                book.expected_cash(), incident.read_bytes(), partial.read_bytes(), frozenset(root.rglob('*.json')))
+
+    before = snapshot()
+    for _ in range(2):
+        with pytest.raises(StateRefused, match='^owner_external_activity_cash_unproved$'):
+            if owner_close(runtime, INCIDENT, external_facts=facts) == 0:
+                seal.write_text('unexpected close')
+        assert snapshot() == before and not seal.exists()
 
 
 @pytest.mark.parametrize('corruption', [None, 'nested_facts', 'occurrence', 'positions', 'allocation'])

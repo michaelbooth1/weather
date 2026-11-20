@@ -53,7 +53,7 @@ def merge_burns(row, receipt, tx, wallet, incoming, outgoing):
     return outgoing, amount
 
 
-def prove(book, groups, *, wallet, markets, owned, trade_hashes, finish, cut, already_booked):
+def prove(book, groups, *, wallet, markets, owned, trade_hashes, finish, cut, already_booked, inventory_contracts):
     """Decode the same native rows used by ordinary capital reads and bind full wallet legs."""
     from weather.market.lfc_owner_external_close import hash32, wallet_position_moves
 
@@ -79,7 +79,7 @@ def prove(book, groups, *, wallet, markets, owned, trade_hashes, finish, cut, al
             raise StateRefused('owner_external_campaign_overlap')
         receipt = result(group['receipt'])
         cash = wallet_transfer_totals(receipt, tx, wallet)
-        incoming, outgoing = wallet_position_moves(receipt, tx, wallet)
+        incoming, outgoing, contracts = wallet_position_moves(receipt, tx, wallet)
         items = [normalize_activity(row, group) for row in rows]
         ids = {item['id'] for item in items}
         if len(ids) != len(items) or any((item['id'] in book.activities) != already_booked or (
@@ -100,8 +100,12 @@ def prove(book, groups, *, wallet, markets, owned, trade_hashes, finish, cut, al
             burns, paid = merge_burns(rows[0], receipt, tx, wallet, incoming, outgoing)
             if paid != item['cash_native']:
                 raise StateRefused('owner_external_merge_unproved')
-        elif incoming or outgoing:
-            raise StateRefused('owner_external_activity_inventory_changed')
+        else:
+            if incoming or outgoing:
+                raise StateRefused('owner_external_activity_inventory_changed')
+            reported = rows[0]['usdc_size']
+            if reported is not None and quantity(reported) > 0 and not cash['OUT' if debit else 'IN']:
+                raise StateRefused('owner_external_activity_cash_unproved')
         if owned.intersection(burns):
             raise StateRefused('owner_external_campaign_overlap')
         signed = cash['IN'] - cash['OUT']
@@ -109,6 +113,8 @@ def prove(book, groups, *, wallet, markets, owned, trade_hashes, finish, cut, al
         if cash != allowed_cash or any(other['cash_native'] != abs(signed) for other in items):
             raise StateRefused('owner_external_activity_cash_unproved')
         deltas.subtract({token: Decimal(amount) / SCALE for token, amount in burns.items()})
+        for token in burns:
+            inventory_contracts.setdefault(token, set()).update(contracts[token])
         facts[tx] = {'sources': [digest(row) for row in rows], 'receipt': digest(receipt),
             'block_hash': hash32(receipt['blockHash']), 'block_number': hex_number(receipt['blockNumber']),
             'cash_in_native': cash['IN'], 'cash_out_native': cash['OUT'], 'burns_native': burns}

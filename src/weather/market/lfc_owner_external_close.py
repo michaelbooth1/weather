@@ -156,9 +156,11 @@ def exchange_amounts(receipt, tx, wallet, oid, token, side, gross, amount, *, im
 def wallet_position_moves(receipt, tx, wallet):
     """Read the wallet's entire CTF/PM movements, without netting transfers."""
     incoming, outgoing, indices = Counter(), Counter(), set()
+    contracts = {}
     for log in receipt['logs']:
+        contract = log.get('address', '').lower()
         topics = log.get('topics') or []
-        if log.get('address', '').lower() not in {CTF, PM} or not topics or topics[0] not in {SINGLE, BATCH}:
+        if contract not in {CTF, PM} or not topics or topics[0] not in {SINGLE, BATCH}:
             continue
         index = log_index(receipt, log, tx)
         if index in indices:
@@ -176,17 +178,20 @@ def wallet_position_moves(receipt, tx, wallet):
         moved = incoming if receiver == wallet else outgoing
         for asset, shares in pairs:
             if shares:
-                moved[str(asset)] += shares
-    return dict(incoming), dict(outgoing)
+                token = str(asset)
+                moved[token] += shares
+                contracts.setdefault(token, set()).add(contract)
+    return dict(incoming), dict(outgoing), contracts
 
 
 def position_transfer(receipt, tx, wallet, token, amount, side):
-    incoming, outgoing = wallet_position_moves(receipt, tx, wallet)
+    incoming, outgoing, contracts = wallet_position_moves(receipt, tx, wallet)
     if (incoming, outgoing) != (({token: amount}, {}) if side == 'BUY' else ({}, {token: amount})):
         raise ValueError('external_trade_receipt_position')
+    return contracts[token]
 
 
-def receipt_facts(wallet, tx, source, packet, *, improvement=False):
+def receipt_facts(wallet, tx, source, packet, *, improvement=False, inventory_contracts=None):
     """Prove exact wallet collateral legs as well as the corresponding token legs."""
     receipt = result(packet)
     cash = wallet_transfer_totals(receipt, tx, wallet)
@@ -196,13 +201,15 @@ def receipt_facts(wallet, tx, source, packet, *, improvement=False):
             not 0 < price <= 1 or not size):
         raise StateRefused('owner_external_trade_terms')
     amount = native(size)
-    position_transfer(receipt, tx, wallet, token, amount, side)
+    contracts = position_transfer(receipt, tx, wallet, token, amount, side)
     gross = native(price * size, ceil=True) if side == 'BUY' else int(price * size * SCALE)
     gross, fee = exchange_amounts(receipt, tx, wallet, source['order_id'], token, side, gross, amount,
                                   improvement=improvement)
     allowed_cash = ({(0, gross + fee)} if side == 'BUY' else {(gross - fee, 0), (gross, fee)})
     if (cash['IN'], cash['OUT']) not in allowed_cash:
         raise StateRefused('owner_external_cash_legs_changed')
+    if inventory_contracts is not None:
+        inventory_contracts.setdefault(token, set()).update(contracts)
     return {'transaction_hash': tx, 'block_hash': hash32(receipt['blockHash']),
             'block_number': hex_number(receipt['blockNumber']), 'shares_native': amount, 'gross_native': gross,
             'fee_native': fee, 'cash_in_native': cash['IN'], 'cash_out_native': cash['OUT']}
@@ -338,6 +345,7 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
                  if fresh else book.ledger.our_order_ids())
     projected = expected_inventory(book.ledger, book.inventory_anchor, book, cut=sequence)
     deltas, cash, personal, gap_blocks = Counter(), 0, [], []
+    inventory_contracts = {}
     if fresh:
         anchor = utc(book.inventory_anchor['snapshot_at_utc'])
         cut = utc(packet['coverage_utc'])
@@ -354,7 +362,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
             raise StateRefused('owner_external_campaign_overlap')
         if tx in book.activity_transactions.values():
             raise StateRefused('owner_external_trade_already_booked')
-        observed = receipt_facts(wallet, tx, source, receipts[tx], improvement=fresh and tx not in pinned)
+        observed = receipt_facts(wallet, tx, source, receipts[tx], improvement=fresh and tx not in pinned,
+                                 inventory_contracts=inventory_contracts)
         if observed != expected:
             raise StateRefused('owner_external_receipt_changed')
         signed = observed['cash_in_native'] - observed['cash_out_native']
@@ -377,7 +386,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
             raise StateRefused('owner_external_activity_binding')
         gap, decoded, gap_deltas = prove_gap(book, groups, wallet=wallet,
             markets={str(market).lower() for market in markets}, owned=owned,
-            trade_hashes=set(receipts), finish=finish, cut=cut, already_booked=already_booked)
+            trade_hashes=set(receipts), finish=finish, cut=cut, already_booked=already_booked,
+            inventory_contracts=inventory_contracts)
         if collect_inventory and not already_booked:
             packet['activity_sha256'] = digest(gap)
         if packet.get('activity_sha256') != digest(gap):
@@ -396,7 +406,10 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         expected = Decimal(before)
         if (fresh and token in deltas and token not in owned and token not in positions and
                 -POSITION_DUST < expected < INDEX_OMISSION_LIMIT):
-            omitted[token] = (expected - deltas[token], deltas[token])
+            contracts = inventory_contracts[token]
+            if len(contracts) != 1:
+                raise StateRefused('owner_external_native_inventory_binding')
+            omitted[token] = (expected - deltas[token], deltas[token], next(iter(contracts)))
             continue
         if expected < 0:
             raise StateRefused('owner_external_inventory_changed')
@@ -410,7 +423,7 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         trade_blocks = [observed['block_number'] for _, _, observed, _ in personal] + gap_blocks
         if collect_inventory:
             packet['native_inventory'] = collect_checkpoints(wallet, anchor, cut, omitted, min(trade_blocks))
-        corrections = native_corrections(packet['native_inventory'], anchor, cut, omitted, trade_blocks)
+        corrections = native_corrections(packet['native_inventory'], wallet, anchor, cut, omitted, trade_blocks)
     elif 'native_inventory' in packet:
         raise StateRefused('owner_external_native_inventory_binding')
     if sequence is None:
