@@ -8,13 +8,14 @@ from types import SimpleNamespace
 import pytest
 
 from tests.market.test_lfc_f2_capital import MAKER
+from tests.market.test_lfc_f2_personal_cash_b081 import account_guard
 from tests.market.test_lfc_owner_external_close import (
     ATTEMPT, FOREIGN, MARKET, ORDER, TX, activity_page, fixture_trade,
 )
 from weather.market.lfc_capital import CapitalBook, CapitalRefused
 from weather.market.lfc_f2_controller import ScopedVenue
 from weather.market.lfc_f2_order_scope import gate, mark_open_orders
-from weather.market.lfc_f2_owner_notice import NOTICE, OVERLAP
+from weather.market.lfc_f2_owner_notice import NOTICE, OVERLAP, scope
 from weather.market.lfc_f2_owner_postcheck import ActivityPending, Budget, prove
 from weather.market.lfc_f2_runtime import stream_factory
 from weather.market.mm_stage2_hold import digest
@@ -23,6 +24,13 @@ from weather.market.re1_attended import SecretGuard
 
 KEY = '00000000-0000-4000-8000-000000000001'
 OTHER_KEY = '00000000-0000-4000-8000-000000000002'
+
+
+def test_scope_uses_bound_leg_conditions_and_omits_absent_conditions():
+    ledger = SimpleNamespace(rows=[{'event': 'session_start'},
+        {'event': 'leg_intent', 'condition_id': MARKET.upper(), 'token_id': '201'}])
+    assert scope(ledger) == ({MARKET}, {'201'})
+    assert scope(ledger, 1) == (set(), set())
 
 
 def frame(kind):

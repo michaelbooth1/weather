@@ -239,7 +239,7 @@ def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_pat
         notices = [(NOTICE, digest(['trade', read['trades'][-1]['id']])),
                    (NOTICE, digest(['transaction', tx]))]
         proof = prove(runtime, ledger, ATTEMPT, read, traded, notices, budget)
-        assert proof['money_accounting_complete'] is True and proof['cleanup_proven'] is True
+        assert proof['money_accounting_complete'] is True and proof['cleanup_proven'] is True, proof
         assert proof['money_contradiction'] is False and not ledger.autostart_incidents
         packet = ledger.capital_rows[-1]['proof']
         # Rereading the same sources after committing the row cannot book twice.

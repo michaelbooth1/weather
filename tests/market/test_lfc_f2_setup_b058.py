@@ -154,9 +154,9 @@ def test_fresh_go_read_is_retained_hashed_and_missing_evidence_latches(tmp_path,
 
 
 def test_setup_that_exhausts_start_window_never_posts_or_claims_another_date(tmp_path, monkeypatch):
-    from weather.market.lfc_campaign_state import StateRefused
     from tests.market.test_lfc_pilot import Clock
-    with pytest.raises(StateRefused, match='start_window_expired'):
+    from weather.market.mm_stage2_hold import HoldEnd
+    with pytest.raises(HoldEnd, match='start_window_expired'):
         owner_runtime_fixture(tmp_path, monkeypatch, setup_latency=60)
     ledger = Ledger.open(tmp_path / 'ledger.jsonl', clock=Clock().now)
     assert ledger.legs == {} and ledger.open_sessions() == []

@@ -15,8 +15,9 @@ HASH = re.compile(r'0x[0-9a-f]{64}', re.I)
 def scope(ledger, cut=None):
     rows = ledger.rows if cut is None else ledger.rows[:cut]
     starts = [row for row in rows if row['event'] == 'session_start']
-    conditions = {str(row.get('condition_id') or '').lower() for row in starts}
-    tokens = {row['token_id'] for row in rows if row['event'] == 'leg_intent'}
+    intents = [row for row in rows if row['event'] == 'leg_intent']
+    conditions = {str(row['condition_id']).lower() for row in starts + intents if row.get('condition_id')}
+    tokens = {row['token_id'] for row in intents}
     for row in starts:
         tokens.update(row.get('f2_owner_activity_tokens', ()))
     return conditions, tokens
