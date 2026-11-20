@@ -184,8 +184,9 @@ def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
         'settlement_cutoff_clock': 'recorder_observed_at_utc',
         'late_settlement_receipts': sorted(late_settlement_receipts, key=lambda r: (r['observed_at_utc'], r['file'])),
         'settlement_supplement_gaps': sorted(settlement_supplement_gaps),
-        'unresolved_settlement_conditions': sorted(unresolved_settlement_conditions,
-                                                   key=lambda row: row['condition_id']),
+        **({'unresolved_settlement_conditions': sorted(unresolved_settlement_conditions,
+                                                      key=lambda row: row['condition_id'])}
+           if unresolved_settlement_conditions else {}),
         'late_cash_activity_ids': sorted(key for key, a in book.activities.items() if a['timestamp'] > cutoff.timestamp())}
 
 

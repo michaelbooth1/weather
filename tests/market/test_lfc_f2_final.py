@@ -120,6 +120,7 @@ def test_final_inventory_uses_only_settlement_observed_by_cutoff(tmp_path, offse
     assert row['assessment']['state'] == 'INCONCLUSIVE'
     receipt_key = str((tmp_path / 'settlement' / (CONDITION + '.json')).relative_to(tmp_path))
     assert row['settlement_cutoff_clock'] == 'recorder_observed_at_utc'
+    assert 'unresolved_settlement_conditions' not in row
     if offset_us > 0:
         assert row['unredeemed_winners_at_cutoff'] == []
         assert row['unswept_zero_payout_positions'] == []
@@ -305,7 +306,8 @@ def test_final_report_keeps_disputed_condition_separate_and_is_create_only(tmp_p
     assert report['assessment']['state'] == 'INCONCLUSIVE'
     assert report['evidence_sha256'][str(valid.relative_to(tmp_path))] == file_sha(valid)
     if accepted_recovery:
-        assert report['unresolved_settlement_conditions'] == report['unresolved_at_cutoff'] == []
+        assert 'unresolved_settlement_conditions' not in report
+        assert report['unresolved_at_cutoff'] == []
         assert report['evidence_sha256'][str(replacement.relative_to(tmp_path))] == file_sha(replacement)
     else:
         unresolved, = report['unresolved_at_cutoff']
