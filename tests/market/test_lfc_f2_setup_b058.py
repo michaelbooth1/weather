@@ -67,7 +67,8 @@ def test_known_auto_redemption_between_t40_and_go_reconciles_without_moving_anch
     runtime.state, runtime.clock = state, clock
     runtime.lease = SimpleNamespace(check=lambda: None)
     calls = []
-    def account_read():
+    def account_read(*, wallet_orders=False):
+        assert wallet_orders
         calls.append(clock.seconds)
         if gap and len(calls) == 1:
             from weather.market.lfc_campaign import TransientPrecheck
