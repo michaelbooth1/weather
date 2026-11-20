@@ -621,7 +621,10 @@ def test_omitted_redemption_checks_the_receipt_contract_at_both_cuts(tmp_path, m
                   proof=proof, proof_sha256=digest(proof))
     replay = CapitalBook(Ledger.open(ledger.path, clock=clock.now))
     positions = expected_inventory(replay.ledger, replay.inventory_anchor, replay)
-    assert all(Decimal(positions[token]) == 0 for token in tokens)
+    assert set(tokens).isdisjoint(positions)  # The inventory projection omits zero balances.
+    burns = {entry['token_id']: Decimal(entry['delta']) for entry in replay.owner_inventory_adjustments
+             if entry['token_id'] in tokens}
+    assert burns == dict.fromkeys(tokens, Decimal('-20'))
     redeemed, = replay.redemptions.values()
     assert redeemed['cash_native'] == payout * 1_000_000
 
