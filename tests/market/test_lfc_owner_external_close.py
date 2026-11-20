@@ -142,6 +142,19 @@ def book_trade(runtime, ledger, read, facts):
     return CapitalBook(Ledger.open(ledger.path, clock=runtime.clock.now)), proof['owner_external_close']
 
 
+def finish_claim(ledger):
+    from weather.market.lfc_campaign_closures import anchor
+
+    root = ledger.path.parent / 'test-postchecks'
+    root.mkdir()
+    state = AccountState(root, ledger)
+    proof = {'authority': 'owner_operational_close', 'money_accounting_complete': True, 'cleanup_proven': True,
+             'unknown_submit': False, 'ledger_head_sha256': ledger.previous}
+    state.save('closed/' + ATTEMPT + '.json', {'attempt_id': ATTEMPT, 'proof': proof,
+        'proof_sha256': digest(proof), 'closed_at_utc': ledger.clock().isoformat()})
+    anchor(state, ATTEMPT)
+
+
 @pytest.mark.parametrize('kind, funded', [('DEPOSIT', False), ('WITHDRAWAL', True), ('WITHDRAWAL', False),
                                          ('REDEEM', False), ('MERGE', False), ('REWARD', False)])
 def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_path, monkeypatch, account_guard,
@@ -181,7 +194,7 @@ def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_pat
     else:
         cash = -20 if kind == 'WITHDRAWAL' else 20
         source, group = cash_activity(clock, 'WITHDRAWAL' if cash < 0 else 'DEPOSIT', abs(cash), timestamp=when)
-        source.update(type=kind, transaction_hash='0x' + '3' * 64)
+        source.update(type=kind, condition_id='', transaction_hash='0x' + '3' * 64)
         receipt = result(group['receipt'])
         receipt['transactionHash'] = source['transaction_hash']
         for row in receipt['logs']:
@@ -230,8 +243,9 @@ def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_pat
         assert [(item['token_id'], item['delta']) for item in book.owner_inventory_adjustments if
                 item['token_id'] in tokens] == [(token, '-20') for token in sorted(tokens)]
     before = book.figures(), book.expected_cash(), book.personal_trades
+    finish_claim(reopened)
     synchronize(reopened, book.inventory_anchor, read, anchor_mode='session', owner_fault_review=True)
-    assert len(reopened.rows) == count + 2
+    assert len(reopened.rows) == count + 4  # Decision, finalization intent/anchor, then session anchor.
     book = CapitalBook(Ledger.open(reopened.path, clock=clock.now))
     assert (book.figures(), book.expected_cash(), book.personal_trades) == before
     sample, evidence = cash_activity(clock, 'DEPOSIT', 1, timestamp=int(coverage(read).timestamp()))
@@ -263,6 +277,7 @@ def test_receipt_bound_trade_rejects_campaign_counterparty_on_later_read(
         facts = build_facts(ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, {TX: receipt})
     monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda *_: receipt)
     book, _ = book_trade(runtime, ledger, read, facts)
+    finish_claim(book.ledger)
     clean = make_anchor(book, read, kind='f2_session_anchor')
     cut = clean['snapshot_at_utc']
     assert clean['personal_trade_sources'] == []

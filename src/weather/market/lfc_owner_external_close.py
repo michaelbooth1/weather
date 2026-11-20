@@ -452,6 +452,11 @@ def observed_inputs(book, read, facts, *, fresh=False, allow_gap=False):
     if fresh and not allow_gap:
         refuse_movements(rows, utc(book.inventory_anchor['snapshot_at_utc']),
                          set(book.activity_transactions.values()))
+    elif allow_gap:
+        finish = max(utc(band['end']['recorded_at_utc']) for band in attempt_bands(book.ledger, facts['attempt_id']))
+        historical = [row for row in rows if row['timestamp'] <= finish.timestamp()]
+        refuse_movements(historical, utc(book.inventory_anchor['snapshot_at_utc']),
+                         set(book.activity_transactions.values()))
     activity_matches = digest(sorted(rows, key=digest)) == facts['activity_sha256']
     if allow_gap and not activity_matches:
         historical = [row for row in rows if row['timestamp'] <= int(cut.timestamp())]
