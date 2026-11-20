@@ -5,6 +5,11 @@
   `scripts/ops/register_nightly_retrain.ps1`), base-retrain bindings,
   candidate/inactive-release outputs, reviewed promotion/rollback commands, and
   the missed-run SLA.
+
+Ordinary per-market feature validation derives degree prior support from each
+fitting fold. Only an independently declared support can widen that set. The
+full-degree Brier score includes the observed degree even when its prediction
+key is absent. This scoring rule applies to ordinary and Item 27 validation.
 - **Read when:** you change or re-arm nightly training, build a candidate
   release, or debug `nightly_retrain_status.json`.
 - **Do not use for:** whether training is armed today

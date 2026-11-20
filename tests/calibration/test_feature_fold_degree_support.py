@@ -92,3 +92,48 @@ def test_item27_entry_sends_each_fold_to_learn_its_own_support(monkeypatch):
     monkeypatch.setattr(trainer, "evaluate_feature_family_segments", evaluate)
     with pytest.raises(ReachedEvaluator):
         trainer.main_item27_feature_value_report(market_id="invented", n_splits=3)
+
+
+def test_matched_outer_roster_keeps_as_of_features_and_scores_missing_actual_keys(monkeypatch):
+    membership = []
+
+    class UniformClassifier:
+        def fit(self, matrix, labels):
+            membership.append((tuple(np.asarray(matrix).ravel()), tuple(labels)))
+            self.classes_ = np.unique(labels)
+
+        def predict_proba(self, matrix):
+            return np.full((len(matrix), len(self.classes_)), 1 / len(self.classes_))
+
+    monkeypatch.setattr(trainer, "make_feature_hgb", UniformClassifier)
+    labels = pd.Series([0, 1, 0, 1, 1, 2, 3, 4])
+    dates = tuple(date(2018 + i // 2, 1, 1 + i % 2) for i in range(len(labels)))
+    records = [{"target_date": day, "final_bucket": int(label)} for day, label in zip(dates, labels)]
+    frame = pd.DataFrame({"as_of_reading": np.arange(8, dtype=float)})
+    outer_train = tuple(range(6))
+    outer_roster = (6, 7)
+    raw_model = {0: .4, 1: .5, 2: .1}
+
+    def arm(domain):
+        prior = trainer.smoothed_dist(labels.iloc[list(outer_train)].to_list(), domain)
+        rows = [{"validation_index": index, "train_indices": outer_train, "actual": int(labels[index]),
+                 "climatology": prior, "raw_model": raw_model} for index in outer_roster]
+        return trainer.nested_temperature_blend_predictions(
+            rows, x_frame=frame, y=labels, records=records, bucket_space=domain,
+            feature_cols=["as_of_reading"], numeric_feature_count=1, blend_weights=(.5, .97))
+
+    changed = arm(None)
+    changed_membership = membership.copy()
+    membership.clear()
+    legacy = arm(tuple(sorted(set(labels))))  # Deliberately leaked control for these invented cases.
+    assert changed_membership == membership and len(membership) == 3
+    assert all(len(train_values) == 4 and set(train_labels) <= {0, 1, 2}
+               for train_values, train_labels in membership)
+    assert tuple(row["validation_index"] for row in changed) == outer_roster
+    assert tuple(row["validation_index"] for row in legacy) == outer_roster
+    for fixed, control in zip(changed, legacy, strict=True):
+        assert fixed["calibration_status"] == control["calibration_status"] == "nested_inner_oof"
+        assert fixed["actual"] not in fixed["distribution"] and control["actual"] in control["distribution"]
+        scores = list(fixed["distribution"].values())
+        assert trainer.brier_score(fixed["distribution"], fixed["actual"]) == pytest.approx(
+            1.0 + sum(value ** 2 for value in scores))
