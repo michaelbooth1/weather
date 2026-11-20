@@ -317,6 +317,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
     facts, receipts = packet['facts'], packet['receipts']
     fresh = packet.get('schema_version') in FRESH_SCHEMAS
     with_gap = packet.get('schema_version') == GAP_SCHEMA
+    if not with_gap and {'additional_activity', 'activity_sha256'}.intersection(packet):
+        raise StateRefused('owner_external_activity_binding')
     extras = packet['additional_trades'] if fresh else []
     trades = [*facts['trades'], *extras]
     pinned = {item['receipt']['transaction_hash'] for item in facts['trades']}
@@ -373,7 +375,8 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         embedded = {tx: group['rows'] for tx, group in groups.items() if any(row['type'] in MERGES for row in group['rows'])}
         if not groups or protocol != embedded:
             raise StateRefused('owner_external_activity_binding')
-        gap, decoded, gap_deltas = prove_gap(book, groups, wallet=wallet, markets=markets, owned=owned,
+        gap, decoded, gap_deltas = prove_gap(book, groups, wallet=wallet,
+            markets={str(market).lower() for market in markets}, owned=owned,
             trade_hashes=set(receipts), finish=finish, cut=cut, already_booked=already_booked)
         if collect_inventory and not already_booked:
             packet['activity_sha256'] = digest(gap)
@@ -482,6 +485,15 @@ def observed_inputs(book, read, facts, *, fresh=False, allow_gap=False):
     return sources, observed, rows
 
 
+def require_gap_snapshot(read):
+    from weather.market.lfc_capital import CapitalRefused
+    from weather.market.lfc_f2_inventory import require_stable_snapshot
+    try:
+        require_stable_snapshot(read)
+    except CapitalRefused as exc:
+        raise StateRefused('owner_external_activity_cut_retry') from exc
+
+
 def validate_retained_read(ledger, packet, read, closed_at):
     """Reprove an orphan's saved observations and allocation without fetching anything."""
     from weather.market.lfc_campaign_reads import account_read_age
@@ -503,6 +515,7 @@ def validate_retained_read(ledger, packet, read, closed_at):
                              for item in [*packet['facts']['trades'], *packet['additional_trades']]}:
         raise StateRefused('owner_close_partial_account_read')
     if with_gap:
+        require_gap_snapshot(read)
         expected = gap_sources(book, packet['facts'], rows, utc(observed['coverage_utc']), packet['protocol_movements'])
         groups = packet['additional_activity']
         if expected != {tx: proof['rows'] for tx, proof in groups.items()} or any(
@@ -560,6 +573,7 @@ def live_proof(runtime, ledger, incident, occurrence_sha, attempt, read, facts):
             if old_packet is not None and extras != old_packet['additional_trades']:
                 raise StateRefused('owner_external_trade_set_changed')
             if gaps:
+                require_gap_snapshot(read)
                 packet.update(schema_version=GAP_SCHEMA, additional_activity=gap_receipts(book, read, gaps,
                                                                                           reread=old is not None))
             if old_packet is not None and old_packet.get('schema_version') == GAP_SCHEMA:

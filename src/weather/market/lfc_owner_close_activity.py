@@ -42,7 +42,8 @@ def merge_burns(row, receipt, tx, wallet, incoming, outgoing):
     logs = [log for log in receipt['logs'] if log['address'].lower() == CTF and log['topics'] and
             log['topics'][0].lower() == MERGE and len(log['topics']) == 4 and
             address(log['topics'][1]) == wallet]
-    if len(logs) != 1 or logs[0]['topics'][3].lower() != row['condition_id'].lower():
+    if (len(logs) != 1 or int(logs[0]['topics'][2], 16) != 0 or
+            logs[0]['topics'][3].lower() != row['condition_id'].lower()):
         raise StateRefused('owner_external_merge_unproved')
     log_index(receipt, logs[0], tx)
     _, partition, amount = unpack(logs[0], 4, ['address', 'uint256[]', 'uint256'])
@@ -71,9 +72,11 @@ def prove(book, groups, *, wallet, markets, owned, trade_hashes, finish, cut, al
         kinds = {row['type'] for row in rows}
         if (tx in trade_hashes or group['transaction_hash'] != tx or not rows or len(kinds) != 1 or
                 len(rows) != 1 and kinds != {'REDEEM'} or len({row['timestamp'] for row in rows}) != 1 or
-                any(row['proxy_wallet'].lower() != wallet or str(row['condition_id']).lower() in markets or
-                    str(row['token_id']) in owned for row in rows)):
-            raise StateRefused('owner_external_activity_overlap')
+                any(row['proxy_wallet'].lower() != wallet for row in rows)):
+            raise StateRefused('owner_external_activity_binding')
+        if any(str(row['token_id']) in owned or (
+                row['type'] not in REWARD_TYPES and str(row['condition_id']).lower() in markets) for row in rows):
+            raise StateRefused('owner_external_campaign_overlap')
         receipt = result(group['receipt'])
         cash = wallet_transfer_totals(receipt, tx, wallet)
         incoming, outgoing = wallet_position_moves(receipt, tx, wallet)

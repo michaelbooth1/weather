@@ -217,6 +217,15 @@ def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_pat
     monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda _, args:
         trade if args == [TX] else group['receipt'])
     original = ledger.path.read_bytes(), ledger.previous
+    if kind == 'DEPOSIT':
+        overlap = deepcopy(read)
+        conflicted = {**source, 'condition_id': MARKET}
+        overlap['capital_activity'].update(read_activity(MAKER, scope['start'], scope['end'], types=TYPES,
+                                                         get=lambda *_: activity_page([conflicted])))
+        overlap['capital_activity']['native_receipts'][tx].update(rows=[conflicted], rows_sha256=digest([conflicted]))
+        with pytest.raises(StateRefused, match='^owner_external_campaign_overlap$'):
+            live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, overlap, facts)
+        assert (ledger.path.read_bytes(), ledger.previous) == original
     proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
     packet = proof['owner_external_close']
     assert packet['schema_version'] == GAP_SCHEMA

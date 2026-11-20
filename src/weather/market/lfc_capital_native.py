@@ -94,7 +94,9 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep, persist=True):
     known_groups = set()
     for event in ledger.capital_rows:
         if event['event'] == 'autostart_owner_close':
-            groups = event['proof']['owner_external_close'].get('additional_activity', {}).values()
+            from weather.market.lfc_owner_external_close import GAP_SCHEMA
+            close = event['proof']['owner_external_close']
+            groups = close['additional_activity'].values() if close.get('schema_version') == GAP_SCHEMA else ()
             known_groups.update(digest(proof) for proof in groups)
         elif event['event'] == 'capital_native_group':
             groups = (event['proof'],)
