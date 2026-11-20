@@ -815,7 +815,7 @@ class CapitalBook:
                 'redemptions': list(self.redemptions.values())}
 
     def gate(self, *, reserve, available_cash=None, own_resting=0, owner_fault_review=False, loss_basis=None,
-             external_resting=0):
+             external_resting=0, conservative_owner_cash=False):
         if self.bridge is None:
             raise CapitalRefused('capital_bridge_required')
         if self.pending_native_outgoing:
@@ -837,9 +837,10 @@ class CapitalBook:
         if available_cash is not None:
             cash = native(available_cash)
             expected = self.expected_cash()
-            if cash < expected:
+            if cash < expected and not (conservative_owner_cash and expected - cash <= self.verified_owner_cash):
                 # An unexplained debit could be a fill or a payable cost. It
-                # cannot be ignored while admitting another order.
+                # cannot be ignored while admitting another order. F2's shared
+                # wallet can use a conservative bound within verified owner cover.
                 raise CapitalRefused('capital_cash_changed')
             # Unrecorded incoming profit/top-ups never become spendable merely
             # because the wallet balance increased during an active session.
@@ -848,6 +849,10 @@ class CapitalBook:
             # spendable. Excess gains never increase the principal-risk cap.
             segregated = (self.profit + self.incentives + figures['segregated_external_cash_native']
                           - figures['retained_gains_offset_native'])
+            # Keep every previously segregated unit unavailable. If the debit
+            # spent owner credit, the segregation and its remaining coverage
+            # of foreign resting buys could both fall by the same amount.
+            # Holding both fixed is the worst-case campaign requirement.
             # A reserve includes own still-resting legs exactly once.
             # Only verified owner cash can absorb a foreign resting BUY.
             # The uncovered liability competes with campaign spendable cash.

@@ -369,6 +369,77 @@ def test_peer_requotes_before_first_fill_and_filled_band_still_reposts(tmp_path,
     assert set(peer.known) <= terminals
 
 
+@pytest.mark.parametrize('k,notice', [(1, False), (2, True), (2, False), (1, True)])
+@pytest.mark.parametrize('phase,enough', [('before-post', True), ('before-post', False),
+                                         ('requote', True), ('requote', False)])
+def test_shared_wallet_debit_uses_conservative_quote_reserve(tmp_path, monkeypatch, k, notice, phase, enough):
+    from tests.market.test_lfc_f2_cash_mirror_b082 import cash_activity
+    from tests.market.test_lfc_f2_controller import FIXTURE_HEARTBEAT_KEY
+    from weather.market.lfc_capital import record_activity
+    from weather.market.lfc_f2_owner_notice import NOTICE
+
+    controller, account, _, ledger, clock, _, _ = fixture(tmp_path, k=k, seconds=300)
+    controller.shared_wallet = account.venue_ids = True
+    controller.heartbeat_key, controller.selected = FIXTURE_HEARTBEAT_KEY, []
+    account.fills_enabled = False
+    account.stop_at = 165
+    clock.sleep(1)
+    cash_source, receipt = cash_activity(clock, 'DEPOSIT', 300, timestamp=int(clock.now().timestamp()))
+    record_activity(ledger, cash_source, native_evidence=receipt)
+    initial = CapitalBook(ledger)
+    assert initial.verified_owner_cash == 300_000_000
+    debit = 1 if enough else 299
+    reached_raw_gate, heartbeats = [], []
+    debit_seen = False
+
+    def balances():
+        cash = 600 - debit if debit_seen or phase == 'requote' and clock.seconds >= 40 else 600
+        return {'available_collateral': str(cash), 'assets': {ASSET: str(cash)},
+                'collateral_evidence': {'balance': str(native(cash))}}
+
+    def entered_raw_gate(request):
+        nonlocal debit_seen
+        reached_raw_gate.append(clock.seconds)
+        if phase == 'before-post':
+            debit_seen = True
+        return ordinary_before_post(request)
+
+    for raw in account.raws:
+        monkeypatch.setattr(raw, 'balances', balances)
+        monkeypatch.setattr(raw, 'heartbeat', lambda: heartbeats.append(clock.seconds) or {'status': 'ok'})
+    target = controller.bands[0]
+    ordinary_before_post = account.raws[0].before_post
+    monkeypatch.setattr(account.raws[0], 'before_post', entered_raw_gate)
+    if notice:
+        controller.note_owner_activity({'event_type': NOTICE, 'activity_type': 'trade',
+            'raw_event_sha256': '1'*64, 'activity_identity_sha256': None})
+    if phase == 'requote':
+        ordinary_advance = account.advance
+        def advance():
+            if clock.seconds >= 40:
+                account.raws[0].memory.public_input['quote_inputs'].update(
+                    yes_bids=[{'price': '.35', 'size': '300'}], yes_asks=[{'price': '.37', 'size': '300'}],
+                    no_bids=[{'price': '.63', 'size': '300'}], no_asks=[{'price': '.65', 'size': '300'}])
+            ordinary_advance()
+        monkeypatch.setattr(account, 'advance', advance)
+    def forbidden_rpc(*_, **__):
+        pytest.fail('native receipt requested on the quote loop')
+    monkeypatch.setattr('weather.market.lfc_capital_native.rpc_read', forbidden_rpc)
+    # The fixture supplies campaign cleanup only, as the live scheduler does.
+    controller.verify = lambda: {'money_accounting_complete': not ledger.unresolved_legs(),
+                                 'cleanup_proven': not ledger.unresolved_legs() and not account.open_orders()}
+    result = controller.run()
+    assert reached_raw_gate and heartbeats and not account.cancel_all_calls, result
+    assert not ledger.unresolved_legs() and not result['unknown_submit']
+    assert CapitalBook(ledger).verified_owner_cash == initial.verified_owner_cash
+    if enough:
+        assert result['reason'] == 'owner_stop' and max(heartbeats) >= 150, result
+        assert target.posts > (2 if phase == 'requote' else 0), controller.results
+    else:
+        assert target.posts == (2 if phase == 'requote' else 0), controller.results
+        assert controller.results[target.session_id]['reason'] in {'capital_spendable_cash', 'pre_post_abort'}
+
+
 def test_peer_private_proof_gap_waits_and_retries_without_account_teardown(tmp_path, monkeypatch):
     from weather.market import lfc_f2_repost
     controller, account, status, ledger, clock, runtime, read = fixture(tmp_path, seconds=300)

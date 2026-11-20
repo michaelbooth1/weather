@@ -341,7 +341,8 @@ class F2Band(PilotSession):
             external = (coordinator.foreign_orders_reserve(self.venue.raw.open_orders())
                         if coordinator.shared_wallet else 0)
             figures = CapitalBook(self.ledger).gate(reserve=reserve, own_resting=own,
-                       available_cash=balances['available_collateral'], external_resting=external)
+                       available_cash=balances['available_collateral'], external_resting=external,
+                       conservative_owner_cash=coordinator.shared_wallet)
         except CapitalRefused as exc:
             peers = {band.session_id for band in self.venue.coordinator.bands if band is not self}
             if (self.breadth and str(exc) == 'capital_cash_changed' and

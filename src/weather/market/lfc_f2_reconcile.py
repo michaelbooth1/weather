@@ -92,7 +92,7 @@ def prove(runtime, band, read):
             raise CapitalRefused('capital_inventory_unreconciled')
         try:
             figures = CapitalBook(ledger).gate(reserve=0, available_cash=read['balances']['available_collateral'],
-                                               external_resting=locked)
+                                               external_resting=locked, conservative_owner_cash=True)
         except CapitalRefused as exc:
             if str(exc) == 'capital_cash_changed':
                 raise TransientPrecheck('owner_activity_repost_pending') from exc
