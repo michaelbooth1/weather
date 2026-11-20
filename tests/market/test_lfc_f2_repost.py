@@ -203,7 +203,7 @@ def test_proven_fill_reposts_after_cooldown_then_daily_cap_retires_only_its_band
     assert len(filled_legs) >= 2 and first.submits == 2 * len(filled_legs), controller.results[first.session_id]
     assert controller.results[first.session_id]['reason'] == 'per_band_daily_filled_cap'
     assert controller.bands[1].submits == 2
-    assert account.cancel_all_calls == [900]
+    assert not account.cancel_all_calls
     rows = [strict_json(line) for line in first.journal.path.read_bytes().splitlines()]
     proved = [row for row in rows if row['event'] == 'repost_inventory_proven']
     ready = [row for row in rows if row['event'] == 'repost_ready']
@@ -363,7 +363,7 @@ def test_peer_requotes_before_first_fill_and_filled_band_still_reposts(tmp_path,
     first, peer = controller.bands
     assert peer.requotes > 0 and account.fill_times[0] >= 90
     assert first.submits > 2, (result, controller.results)
-    assert account.cancel_all_calls == [360]
+    assert not account.cancel_all_calls
     rows = [strict_json(line) for line in peer.journal.path.read_bytes().splitlines()]
     terminals = {r['order']['id'] for r in rows if r['event'] == 'terminal_order'}
     assert set(peer.known) <= terminals
@@ -383,5 +383,5 @@ def test_peer_private_proof_gap_waits_and_retries_without_account_teardown(tmp_p
     monkeypatch.setattr(lfc_f2_repost, 'private_fill_proof', private)
     result = controller.run()
     assert refused and controller.bands[0].submits > 2
-    assert account.cancel_all_calls == [300]
+    assert not account.cancel_all_calls
     assert result['cleanup_ok'], result

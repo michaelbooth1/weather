@@ -95,7 +95,7 @@ def decode(book, sources):
             raise CapitalRefused('capital_cash_capture_binding')
         if entry['native_group_sha256'] not in rows:
             rows[entry['native_group_sha256']] = {digest(raw) for raw in proof['rows']}
-        item = normalize_activity(entry['source'], proof)
+        item = normalize_activity(entry['source'], proof, strict_cash=entry.get('owner_cash_proof', False))
         if (digest(entry['source']) not in rows[entry['native_group_sha256']] or item['id'] in identities or
                 item['wallet'] != book.ledger.rows[0]['maker_address'].lower()):
             raise CapitalRefused('capital_cash_capture_binding')
@@ -119,13 +119,14 @@ def assignment(book, sources, cash, *, fixed=0):
     return {key: key not in chosen for key, _ in variables}
 
 
-def context(book, read, remaining, *, anchor_mode=None):
+def context(book, read, remaining, *, anchor_mode=None, owner_cash_proof=False):
     """The binding travels atomically with its activity, including on retry."""
     from weather.market.lfc_capital import native
     if reference(book) is None:
         return None
     source, group = remaining[0]
-    sources = [{'source': raw, 'native_group_sha256': sha} for raw, sha in remaining]
+    sources = [{'source': raw, 'native_group_sha256': sha,
+                **({'owner_cash_proof': True} if owner_cash_proof else {})} for raw, sha in remaining]
     item = decode(book, sources[:1])[0]
     if item['cash_native'] is not None and not delta(book, item, set()):
         return None
@@ -176,6 +177,8 @@ def accept(book, row, item):
                 value['ledger_head_sha256'] != row['previous_sha256'] or
                 not re.fullmatch('[0-9a-f]{64}', value['read_sha256']) or
                 native(assets[ASSET]) != cash or str(balances['collateral_evidence']['balance']) != str(cash) or
+                any(entry.get('owner_cash_proof', False) != row.get('owner_cash_proof', False)
+                    for entry in value['sources']) or
                 decode(book, value['sources'][:1])[0] != item or type(value['captured']) is not bool):
             raise ValueError('binding')
         captured = relation(book, item)

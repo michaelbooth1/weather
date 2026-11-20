@@ -6,6 +6,8 @@ import json
 import subprocess
 import sys
 import hashlib
+from hmac import compare_digest
+import re
 
 from weather.execution_host import (current_execution_host_id, current_execution_principal_id,
                                       require_current_portable_execution_assignment)
@@ -50,7 +52,26 @@ def validate_policy_path(path):
     return validate_regular_nonreparse_file(path)
 
 
-def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, output, previous_release=None):
+HEARTBEAT_BINDING = 'f2_exclusive_heartbeat_key_sha256'
+
+
+def f2_heartbeat_key_hash(api_key):
+    return hashlib.sha256(('weather-f2-heartbeat-v1:' + api_key).encode('utf-8')).hexdigest()
+
+
+def require_f2_heartbeat_key(release, fields):
+    """A successful poll of the order list cannot prove exclusive API-key use."""
+    from weather.market.lfc_campaign import TransientPrecheck
+
+    expected = release.get(HEARTBEAT_BINDING)
+    actual = fields.get('API_KEY')
+    if (not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected) or
+            not isinstance(actual, str) or not actual or not compare_digest(expected, f2_heartbeat_key_hash(actual))):
+        raise TransientPrecheck('f2_heartbeat_key_not_bound')
+
+
+def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, output, previous_release=None,
+                 f2_exclusive_heartbeat_key_sha256=None):
     """Called by the OWNER registrar, after it qualifies the full pregate receipt.
 
     This is not an agent setup command. No credentials or venue are read. The
@@ -64,6 +85,9 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
     root = validate_nonreparse_directory(REPO_ROOT)
     policy_path = validate_policy_path(campaign_path)
     policy = load_policy(policy_path)
+    if f2_exclusive_heartbeat_key_sha256 is not None and (
+            not policy.f2 or not re.fullmatch(r'[0-9a-f]{64}', f2_exclusive_heartbeat_key_sha256)):
+        raise RuntimeError('f2_heartbeat_key_binding')
     from weather.market.lfc_f2_policy import require_live_loss_basis
     basis = require_live_loss_basis(policy)
     assignment = require_current_portable_execution_assignment()
@@ -116,6 +140,8 @@ def seal_release(*, campaign_path, pregate_path, qualified_head, python_path, ou
                    Path(python_path).resolve().parent.parent.parent, interpreter_redirector=python_path),
                'packages': {name: package_binding(name) for name in BOUND_PACKAGES},
                'task_name': TASK_NAME, 'created_at_utc': now.isoformat()}
+        if f2_exclusive_heartbeat_key_sha256 is not None:
+            row[HEARTBEAT_BINDING] = f2_exclusive_heartbeat_key_sha256
         write_new(output, row)
     return row
 

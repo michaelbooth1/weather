@@ -227,7 +227,7 @@ def test_two_bands_share_one_session_claim_and_keep_limits_per_band(tmp_path):
     assert result['cleanup_ok'] and result['post_count'] == 4, result
     assert [b.submits for b in controller.bands] == [2, 2]
     assert ledger.counted_sessions() == 1 and len(ledger.sessions) == 2
-    assert account.cancel_all_calls == [300]
+    assert not account.cancel_all_calls
     assert max(len(ids) for _, ids in account.exposure) == 4
     outcome = status.finish(success=True)
     assert outcome['state'] == 'COMPLETE' and outcome['f2_session']
@@ -248,17 +248,17 @@ def test_first_fill_retires_only_own_band_without_replacement(tmp_path):
     assert [b.submits for b in controller.bands] == [2, 2]
     assert any(second == 200 and len(ids) == 2 for second, ids in account.exposure)
     assert all(when >= 300 for when, _ in account.raws[1].cancellations)
-    assert account.cancel_all_calls == [300]
+    assert not account.cancel_all_calls
     assert result['cleanup_ok'], result
 
 
-def test_stop_cleans_all_bands_and_requests_one_account_cancel_all(tmp_path):
+def test_stop_cleans_all_bands_with_acknowledged_ids(tmp_path):
     controller, account, status, ledger, clock = setup(tmp_path)
     account.stop_at = 12
     result = controller.run()
     assert result['reason'] == 'owner_stop'
     assert not ledger.unresolved_legs() and not account.open_orders()
-    assert account.cancel_all_calls == [12]
+    assert not account.cancel_all_calls
     assert all(b.closed for b in controller.bands)
 
 
@@ -269,7 +269,8 @@ def test_ack_loss_stops_other_band_and_never_releases_unknown_reserve(tmp_path):
     assert result['unknown_submit'] and not result['cleanup_ok']
     assert controller.bands[1].submits == 0
     assert ledger.unacknowledged_intents() and CapitalBook(ledger).figures()['resting_reserve_native'] > 0
-    assert account.cancel_all_calls
+    assert not account.cancel_all_calls
+    assert len(account.open_orders()) == 1 and not account.raws[0].cancellations
 
 
 def test_scoring_gap_does_not_end_either_band(tmp_path):
@@ -331,7 +332,7 @@ def test_denver_local_midnight_retires_only_denver_while_toronto_continues(tmp_p
     assert controller.results[toronto.session_id]['reason'] == 'fixed_end'
     assert denver.horizon_retirement['current_local_event_dte'] == 0
     assert not hasattr(toronto, 'horizon_retirement')
-    assert result['cleanup_ok'] and account.cancel_all_calls == [900]
+    assert result['cleanup_ok'] and not account.cancel_all_calls
     assert any(second == 600 and len(ids) == 2 for second, ids in account.exposure)
 
 

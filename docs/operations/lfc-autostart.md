@@ -502,7 +502,9 @@ keeps the capture's conservative timing, so it cannot restore spent gains.
 Any newly explained masked credit remains owner cash. Pending incoming labels
 are included in full at capture, with a shortfall recorded as an owner debit.
 Later native proof replaces the pending label without increasing expected cash
-again. A withdrawal inside a past session retains its on-time cost charge.
+again. Historical withdrawal rows can retain their original on-time cost
+charge. The prospective [shared-wallet rules](lfc-autostart-pinb.md#shared-wallet-activity)
+use proved owner cash and overdraw for newly reconciled withdrawals.
 An activity timestamp represents a whole-second interval. An overlapping cash
 snapshot requires a unique explanation from the complete native cash balance,
 remaining proven movements and confirmed personal trades including their fees,

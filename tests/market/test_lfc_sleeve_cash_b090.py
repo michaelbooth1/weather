@@ -5,6 +5,7 @@ sleeve's own cash. A later owner contribution repays that overdraw before any
 of it is segregated, headroom never changes, and pre-go deferrals keep their true reason.
 """
 from datetime import timedelta
+import json
 
 import pytest
 
@@ -307,3 +308,95 @@ def test_idle_fast_path_never_hides_a_reopened_window(tmp_path, reason, ended, i
             clock.value = entry.end + timedelta(minutes=1)
         # Prior skips do not hide an open window under B090's retry rule.
         assert lfc_campaign_idle.eligible(coordinator, policy) is idle
+
+
+@pytest.mark.parametrize('owner_credit', [0, 10, 25])
+def test_receipt_proved_in_session_withdrawal_and_later_deposit_preserve_headroom(tmp_path, owner_credit):
+    from tests.market.test_lfc_f2_cash_mirror_b082 import cash_activity, observed
+    from weather.market.lfc_capital_reads import synchronize
+
+    ledger, baseline, clock, _ = fixture(tmp_path, personal=False)
+    before = CapitalBook(ledger).figures()
+    clock.value += timedelta(hours=1)
+    if owner_credit:
+        from weather.market.lfc_recording_io import retained, response_bytes
+        from weather.market.mm_stage2_hold import digest
+        credit, receipt = cash_activity(clock, 'DEPOSIT', owner_credit)
+        credit['transaction_hash'] = '0x'+'5'*64
+        tx = strict_json(response_bytes(receipt['receipt']))
+        tx['result']['transactionHash'] = credit['transaction_hash']
+        for log in tx['result']['logs']:
+            log['transactionHash'] = credit['transaction_hash']
+        receipt.update(transaction_hash=credit['transaction_hash'], rows=[credit],
+                       rows_sha256=digest([credit]), receipt=retained(json.dumps(tx).encode()))
+        synchronize(ledger, baseline, observed(ledger, clock, credit, receipt, str(290 + owner_credit),
+                    positions={'denver': '20'}), owner_cash_proof=True)
+    clock.value += timedelta(hours=1)
+    ledger.record('session_start', session_id='owner-cash-witness', counted=True)
+    clock.value += timedelta(seconds=5)
+    debit, receipt = cash_activity(clock, 'WITHDRAWAL', 20, timestamp=int(clock.now().timestamp()))
+    clock.value += timedelta(seconds=5)
+    ledger.record('session_end', session_id='owner-cash-witness')
+    synchronize(ledger, baseline, observed(ledger, clock, debit, receipt, str(270 + owner_credit),
+                positions={'denver': '20'}), owner_cash_proof=True)
+    debit_book = CapitalBook(Ledger.open(ledger.path, clock=clock.now))
+    uncovered = max(20 - owner_credit, 0)
+    assert debit_book.figures()['owner_overdraw_outstanding_native'] == uncovered * UNIT
+    assert debit_book.verified_owner_cash == max(owner_credit - 20, 0) * UNIT
+    assert debit_book.figures()['headroom_native'] == before['headroom_native']
+    assert debit_book.figures()['paid_or_reserved_campaign_costs_native'] == before['paid_or_reserved_campaign_costs_native']
+
+    clock.value += timedelta(hours=1)
+    from weather.market.lfc_recording_io import retained, response_bytes
+    from weather.market.mm_stage2_hold import digest
+    deposit, receipt = cash_activity(clock, 'DEPOSIT', 50)
+    deposit['transaction_hash'] = '0x'+'6'*64
+    tx = strict_json(response_bytes(receipt['receipt']))
+    tx['result']['transactionHash'] = deposit['transaction_hash']
+    for log in tx['result']['logs']:
+        log['transactionHash'] = deposit['transaction_hash']
+    receipt.update(transaction_hash=deposit['transaction_hash'], rows=[deposit],
+                   rows_sha256=digest([deposit]), receipt=retained(json.dumps(tx).encode()))
+    read = observed(ledger, clock, deposit, receipt, str(320 + owner_credit), positions={'denver': '20'})
+    synchronize(ledger, baseline, read, owner_cash_proof=True)
+    count = len(ledger.rows)
+    synchronize(ledger, baseline, read, owner_cash_proof=True)
+    assert len(ledger.rows) == count
+    fresh = CapitalBook(Ledger.open(ledger.path, clock=clock.now))
+    figures = fresh.figures()
+    assert figures['owner_overdraw_outstanding_native'] == 0
+    assert figures['owner_overdraw_repaid_native'] == uncovered * UNIT
+    assert figures['segregated_external_cash_native'] == (30 + owner_credit) * UNIT
+    assert spendable(fresh, 320 + owner_credit) == 290 * UNIT
+    assert figures['headroom_native'] == before['headroom_native']
+    assert figures['paid_or_reserved_campaign_costs_native'] == before['paid_or_reserved_campaign_costs_native']
+
+
+@pytest.mark.parametrize('kind', ['WITHDRAWAL', 'DEPOSIT', 'REWARD', 'TIP'])
+def test_positive_unrelated_native_receipt_leaves_ordinary_owner_activity_unresolved(tmp_path, kind):
+    from tests.market.test_lfc_f2_cash_mirror_b082 import cash_activity
+    from weather.market.lfc_capital import normalize_activity
+    from weather.market.lfc_recording_io import retained, response_bytes
+    from weather.market.mm_stage2_hold import digest
+
+    ledger, _, clock, _ = fixture(tmp_path, personal=False)
+    clock.value += timedelta(hours=1)
+    source, evidence = cash_activity(clock, 'WITHDRAWAL' if kind in {'WITHDRAWAL', 'TIP'} else 'DEPOSIT', 20)
+    source['type'] = kind
+    if kind == 'TIP':
+        source['side'] = 'OUT'
+    raw = strict_json(response_bytes(evidence['receipt']))
+    target = '0x' + '3'*64
+    for log in raw['result']['logs']:
+        log['topics'][1:3] = [target, '0x'+'4'*64]
+    evidence.update(rows=[source], rows_sha256=digest([source]),
+                    receipt=retained(json.dumps(raw).encode('utf-8')))
+    prior = CapitalBook(ledger).figures()
+    item = normalize_activity(source, evidence, strict_cash=True)
+    assert item['cash_native'] is None
+    record_activity(ledger, source, native_evidence=evidence, owner_cash_proof=True)
+    fresh = CapitalBook(Ledger.open(ledger.path, clock=clock.now))
+    assert item['id'] in fresh.unknown and fresh.activities[item['id']]['cash_native'] is None
+    assert fresh.figures()['headroom_native'] == prior['headroom_native']
+    assert fresh.figures()['owner_overdraw_outstanding_native'] == 0
+    assert fresh.figures()['paid_or_reserved_campaign_costs_native'] == prior['paid_or_reserved_campaign_costs_native']

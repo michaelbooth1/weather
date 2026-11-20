@@ -65,7 +65,7 @@ def test_permanent_peer_private_gap_never_reposts_and_exits_at_session_end(tmp_p
     monkeypatch.setattr(lfc_f2_repost, 'private_fill_proof', private)
     result = controller.run()
     assert waits and controller.bands[0].submits == 2
-    assert clock.seconds <= 301 and account.cancel_all_calls == [300]
+    assert clock.seconds <= 301 and not account.cancel_all_calls
     assert not result['unknown_submit']
     assert not result['cleanup_ok']  # Missing research proof cannot become COMPLETE.
 
@@ -90,7 +90,7 @@ def test_permanent_peer_cash_gap_is_bounded_and_never_posts_waiting_band(tmp_pat
     monkeypatch.setattr(raw, 'balances', discrepant)
     result = controller.run()
     assert controller.bands[1].posts == 0 and raw.memory.orders == {}
-    assert clock.seconds <= 301 and account.cancel_all_calls == [300]
+    assert clock.seconds <= 301 and not account.cancel_all_calls
     assert not result['unknown_submit']
     rows = [strict_json(line) for line in controller.bands[1].journal.path.read_bytes().splitlines()]
     assert any(row['event'] == 'f2_peer_cash_wait' for row in rows)

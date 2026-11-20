@@ -152,7 +152,7 @@ def test_peer_partial_fill_defers_a_post_then_resumes_after_reconciliation(tmp_p
     result = controller.run()
     assert triggered and second.posts >= 2, (result, controller.results)
     assert controller.results[second.session_id]['reason'] == 'fixed_end'
-    assert account.cancel_all_calls == [300]
+    assert not account.cancel_all_calls
     assert result['cleanup_ok'] and not result['unknown_submit'], result
     assert any(leg['size_matched'] == '1' for leg in ledger.legs.values())
     assert all(band.submits <= 10 for band in controller.bands)

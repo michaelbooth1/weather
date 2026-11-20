@@ -66,11 +66,6 @@ class ScopedVenue:
             if event in {NOTICE, OVERLAP}:
                 self.coordinator.note_owner_activity(row)
                 continue
-            if event == 'account_redemption_notice':
-                reason = 'account_redemption_notice'
-                self.coordinator.account_fault_reason = reason
-                self.coordinator.retain(reason, raw_event_sha256=row['raw_event_sha256'])
-                raise HoldEnd(reason)
             fills.append(row)
         return fills
 
@@ -91,11 +86,10 @@ class ScopedVenue:
         return rows
 
     def cancel(self, oid):
-        if self.coordinator.shared_wallet:
-            ledger = self.coordinator.ledger
-            leg = ledger.legs.get(ledger.by_order.get(oid))
-            if leg is None or leg['session_id'] != self.session_id:
-                raise HoldEnd('campaign_cancel_order_unbound')
+        ledger = self.coordinator.ledger
+        leg = ledger.legs.get(ledger.by_order.get(oid))
+        if leg is None or leg['session_id'] != self.session_id:
+            raise HoldEnd('campaign_cancel_order_unbound')
         return self.raw.cancel(oid)
 
     def cancel_all(self):
@@ -387,8 +381,11 @@ class F2Band(PilotSession):
     def cancel_remaining(self):
         # This is BAND cleanup, not a claim of account-wide cancellation.
         # Filled and already-terminal orders are proved, never labelled cancelled.
-        rows = self._recover('cleanup_open_orders', self.venue.open_orders)
+        rows = self._recover('cleanup_open_orders', self.venue.raw.open_orders)
+        coordinator = self.venue.coordinator
         for row in rows:
+            if coordinator.order_session(row) != self.session_id:
+                continue  # A matching token, price and size cannot grant cancel authority.
             oid = _order_id(row)
             self._retain('cleanup_cancel_request', order_id=oid)
             response = self._recover('cleanup_cancel', lambda: self.venue.cancel(oid))
@@ -578,17 +575,9 @@ class F2Coordinator:
         self.evidence_failed = True
 
     def order_session(self, row):
-        oid = _order_id(row)
-        for band in self.bands:
-            if oid in band.known:
-                return band.session_id
-        # On a shared wallet the same terms cannot establish ownership.
-        # An ACK-lost request stays reserved and follows ordinary recovery.
-        if self.shared_wallet:
-            return None
-        for band in self.bands:
-            if band._ours(row):
-                return band.session_id
+        leg = self.ledger.legs.get(self.ledger.by_order.get(_order_id(row)))
+        if leg is not None and any(band.session_id == leg['session_id'] for band in self.bands):
+            return leg['session_id']
         return None
 
     def split_orders(self, rows):
@@ -751,20 +740,11 @@ class F2Coordinator:
                     steps[key].close()
             stage = 'cancel'
             try:
-                # Band journals are closed. Rebind the primary SDK's existing
-                # observational hooks before account-wide cleanup; no hook may
-                # prevent cancellation by writing to an already closed band.
+                # Band cleanup sent per-ID requests. An unproved submit
+                # stays reserved and cannot authorize a wider cancellation.
                 if hasattr(primary, 'set_journal'):
                     primary.set_journal(self.journal)
-                if self.shared_wallet:
-                    self.retain('campaign_cleanup_scoped')
-                    # Per-band cleanup already addressed every known live ID.
-                    # Never widen a failed or ACK-lost cleanup to a wallet cancel.
-                else:
-                    self.retain('account_cleanup_cancel_all_request')
-                    response = primary.cancel_all()
-                    cancel_ack_ids(response)
-                    self.retain('account_cleanup_cancel_all_response', response=response)
+                self.retain('campaign_cleanup_scoped')
                 for _ in range(10):
                     self.status.progress()
                     loop.tick()
@@ -831,7 +811,7 @@ class F2Coordinator:
         write_new(self.directory / 'f2_manifest.json', manifest)
         terminal = {'reason': self.reason, 'failure_type': (type(failed).__name__ if failed is not None and
                     not isinstance(failed, HoldEnd) else None), 'cleanup_ok': self.cleanup_ok,
-                    'cancellation_ok': self.cancellation_ok, 'cancellation_scope': 'campaign' if self.shared_wallet else 'account',
+                    'cancellation_ok': self.cancellation_ok, 'cancellation_scope': 'campaign',
                     'submits': sum(b.submits for b in self.bands), 'requotes': sum(b.requotes for b in self.bands),
                     'post_count': self.posts, 'order_ids': list(self.known), 'fill_seen': self.fill_seen,
                     'post_book_recording_failure': getattr(self.post_books, 'failure', None),

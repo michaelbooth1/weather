@@ -126,7 +126,7 @@ def require_stable_snapshot(read):
         raise CapitalRefused('f2_anchor_snapshot_pending')
 
 
-def make_anchor(book, read, *, kind):
+def make_anchor(book, read, *, kind, owner_cash_proof=False):
     from weather.market.lfc_capital import CapitalRefused, native
     from weather.market.lfc_ledger import normalize_positions
     require_closed(book.ledger, read)
@@ -142,6 +142,7 @@ def make_anchor(book, read, *, kind):
     covered = min(int(utc(snapshot_at).timestamp()), read['capital_activity']['scope']['end'])
     from weather.market.lfc_f2_personal_cash import sources
     return {'kind': kind, 'maker_address': read['maker_address'].lower(),
+            **({'owner_cash_proof': True} if owner_cash_proof else {}),
             'at_utc': read['ended_at_utc'], 'read_sha256': digest(read),
             'snapshot_at_utc': snapshot_at, 'activity_covered_through': covered,
             'cash_snapshot_at_utc': component_times.get('balances', {}).get('started_at_utc', read['started_at_utc']),
@@ -167,7 +168,8 @@ def validate_anchor(book, anchor, row, *, enrollment=False):
     cut = row['sequence']
     tokens = campaign_tokens(ledger, cut)
     expected_lots = lot_quantities(book, cut)
-    valid = (anchor.get('kind') == ('f2_inventory_anchor' if enrollment else 'f2_session_anchor') and
+    valid = (('owner_cash_proof' not in anchor or anchor['owner_cash_proof'] is True and not enrollment) and
+             anchor.get('kind') == ('f2_inventory_anchor' if enrollment else 'f2_session_anchor') and
              anchor.get('ledger_cut') == cut and anchor.get('ledger_head_sha256') == row['previous_sha256'] and
              anchor.get('maker_address') == ledger.rows[0]['maker_address'].lower() and
              anchor.get('positions_sha256') == digest(anchor['positions']) and

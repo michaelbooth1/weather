@@ -81,7 +81,12 @@ def test_pending_exception_never_hides_other_funding_blockers(pending_runtime, m
 
 
 def wire_cli(cli, runtime, monkeypatch, tmp_path):
-    monkeypatch.setattr(cli, 'load_release', lambda *args: {'campaign_path': str(runtime.policy_path), 'maker_address': MAKER})
+    from weather.market.lfc_campaign_release import HEARTBEAT_BINDING, f2_heartbeat_key_hash
+    key = 'inert-fixture-key'
+    monkeypatch.setattr(cli, 'load_release', lambda *args: {'campaign_path': str(runtime.policy_path),
+                        'maker_address': MAKER, HEARTBEAT_BINDING: f2_heartbeat_key_hash(key)})
+    monkeypatch.setattr('weather.market.re1_transport.load_owner_credentials',
+                        lambda mode: ({'API_KEY': key}, None))
     monkeypatch.setattr(cli, 'validate_release', lambda *args: None)
     monkeypatch.setattr(cli, 'bound_state', lambda *args, **kwargs: (runtime.pilot_root, runtime.state))
     monkeypatch.setattr(cli, 'account_lease', lambda *args: nullcontext())

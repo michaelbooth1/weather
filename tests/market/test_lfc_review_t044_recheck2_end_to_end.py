@@ -166,7 +166,7 @@ def test_actual_tick_preserves_pre_post_vs_post_through_result_and_closure(tmp_p
             assert not state.ledger.unacknowledged_intents() and not state.incidents() and not state.pending()
             assert first.posts == nth - 1 and peer.posts == 2
             assert len(real_posts) == nth - 1
-            assert account.cancel_all_calls == [300]
+            assert not account.cancel_all_calls
         # After the entry window, a tick must neither relatch a proved abort
         # nor restart an ambiguous POST, even after reopening retained state.
         # Clean retries inside the window are separately covered under B090.
@@ -204,7 +204,7 @@ def test_legitimate_peer_fill_reconciled_before_cash_bound_does_not_retire_waite
     result = controller.run()
     assert triggered and waiting.posts == 2, (result, controller.results)
     assert controller.results[waiting.session_id]['reason'] == 'fixed_end'
-    assert account.cancel_all_calls == [600] and not result['unknown_submit']
+    assert not account.cancel_all_calls and not result['unknown_submit']
     assert any(Decimal(leg['size_matched']) == 1 for leg in ledger.legs.values())
     rows = [strict_json(line) for line in waiting.journal.path.read_bytes().splitlines()]
     assert any(row['event'] == 'f2_peer_cash_wait' for row in rows)

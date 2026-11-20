@@ -5,6 +5,7 @@ param([Parameter(Mandatory=$true)][ValidateSet('Register','Upgrade','Verify','En
       [Parameter(Mandatory=$true)][string]$ReleasePath,
       [string]$PythonPath,[string]$PregateReceipt,[ValidatePattern('^[0-9a-f]{40}$')][string]$QualifiedHead,
       [string]$PreviousReleasePath='',
+      [ValidatePattern('^[0-9a-f]{64}$')][string]$F2ExclusiveHeartbeatKeySha256,
       # OWNER ONLY (B090, owner 11-13): -PregateReceipt is then an owner waiver
       # JSON for the same QualifiedHead instead of a full pregate receipt.
       [switch]$OwnerWaivedPregate)
@@ -55,6 +56,9 @@ if($Action -in @('Register','Upgrade')) {
     try {
         $sealArgs=@('-m','weather.market.lfc_campaign_cli','seal','--campaign',$CampaignPath,'--release',$ReleasePath,'--pregate',$PregateReceipt,'--head',$QualifiedHead,'--python',$PythonPath)
         if($Action -eq 'Upgrade') { $sealArgs += @('--previous-release',$PreviousReleasePath) }
+        if($F2ExclusiveHeartbeatKeySha256) {
+            $sealArgs += @('--f2-exclusive-heartbeat-key-sha256',$F2ExclusiveHeartbeatKeySha256)
+        }
         & $PythonPath @sealArgs
         if($LASTEXITCODE -ne 0) { throw 'release/enrollment failed; do not reset account state' }
     } finally { Pop-Location }

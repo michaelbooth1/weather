@@ -218,7 +218,7 @@ def test_recorder_start_failure_is_ancillary_and_never_spoils_money_proof(tmp_pa
             stopped.append(True)
     controller.post_books = Unavailable()
     result = controller.run()
-    assert result['cleanup_ok'] and stopped and account.cancel_all_calls == [300]
+    assert result['cleanup_ok'] and stopped and not account.cancel_all_calls
     outcome = status.finish(success=True)
     proof = local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
                              attempt_id=controller.attempt_id, outcome=outcome)
@@ -371,7 +371,7 @@ def test_nonpassing_shared_geoblock_ends_whole_session(tmp_path, blocked):
         raw.geography = lambda: {'blocked': blocked}
     result = controller.run()
     assert result['reason'] == 'geoblock' and result['post_count'] == 0
-    assert account.cancel_all_calls == [0] and not ledger.unresolved_legs()
+    assert not account.cancel_all_calls and not ledger.unresolved_legs()
 
 
 @pytest.mark.parametrize('selected,active,scoring,expected', [

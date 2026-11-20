@@ -1,7 +1,6 @@
 """Owner-task wiring for F2. Importing this module creates no account client."""
 from pathlib import Path
 from decimal import Decimal
-import re
 
 from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_f2_controller import F2Band, F2Coordinator, ScopedVenue
@@ -25,16 +24,6 @@ def stream_factory(registry, *, retain_trade_identity=False, owner_activity_scop
                                   known_scope=owner_activity_scope)
                 if notice is not None:
                     return [notice]
-            if isinstance(item, dict) and item.get('event_type') == 'auto_redeem':
-                wallet = item.get('proxy_wallet')
-                hashes_valid = all(isinstance(item.get(key), str) and re.fullmatch(
-                    r'0x[0-9a-fA-F]{64}', item[key]) for key in ('txn_hash', 'condition_id'))
-                if (isinstance(wallet, str) and wallet.lower() == self.maker_address.lower() and hashes_valid and
-                        not {'order_id', 'id', 'asset_id', 'market', 'maker_orders', 'taker_order_id'}.intersection(item)):
-                    # This is a cash/inventory notice, not a fill or settlement
-                    # receipt. Stop quoting and let the account proof verify it.
-                    return [{'event_type': 'account_redemption_notice', 'raw_event_sha256': digest(item)}]
-                # Wrong wallet/shape takes the existing invalid-stream path.
             market = str(item.get('market', '')).lower() if isinstance(item, dict) else ''
             peer = registry.get(market)
             if peer is not None and peer is not self:
@@ -111,6 +100,8 @@ def run_live(runtime, authority, status):
     fields, guard = load_owner_credentials('live')
     if fields['FUNDER_ADDRESS'].lower() != runtime.state.maker.lower():
         raise RuntimeError('preflight_account_changed')
+    from weather.market.lfc_campaign_release import require_f2_heartbeat_key
+    require_f2_heartbeat_key(runtime.release, fields)
     timeouts = authority.prepared['preflight']['timeouts_seconds']
     reader = OwnerVenue(build_client(fields, readonly=True, timeout=max(timeouts.values())), fields, guard,
                         readonly=True, timeouts=timeouts)

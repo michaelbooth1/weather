@@ -238,19 +238,33 @@ debit can defer that order even while existing quotes continue.
 Postcheck binds the REST trade, public activity, native receipts and exact
 wallet deltas to the terminal attempt and its session anchor. Owner debits use
 verified owner credit before explicit overdraw. Owner proceeds repay overdraw
-first. Rewards use the existing incentive pool. The ledger books accepted
+first. Rewards use the existing incentive pool. Ordinary F2 reconciliation also
+requires wallet-specific native cash for positive cash labels. An unresolved
+label cannot clear a withdrawal or become a verified owner credit. The
+prospective ledger marker routes a proved withdrawal or outgoing TIP to
+verified owner cash and explicit overdraw. Deposits repay the overdraw before
+the excess becomes verified owner cash. Campaign costs and risk headroom stay
+unchanged, and historic rows retain their original interpretation. The ledger books accepted
 activity in a single replay-checked append. A pending or conflicting personal
 proof leaves the consumed attempt in postcheck pending for a fresh read. An
 unresolved postcheck still blocks another entry. Campaign overlap and
 unexplained campaign inventory or cash shortfalls retain the incident gate.
 
-A resting order outside campaign scope needs an independently identified
-heartbeat key. Polymarket heartbeats cover all orders on the sending API key,
-including orders outside the selected markets. F2 never sends account-wide
-cancellation on this path. Foreign BUY exposure consumes verified owner cash
-first and any uncovered reservation needs room in campaign spendable cash.
-A foreign order sharing F2's key can still be affected by the venue dead-man
-if it is posted while F2 is active. For a Deposit Wallet, F2 uses the CLOB
+F2 cancels only ledger-bound order IDs belonging to one of its active attempt's
+bands. It retains the unknown-submit reserve after a lost ACK. Foreign BUY
+exposure consumes verified owner cash first and any uncovered reservation
+needs room in campaign spendable cash.
+
+Before F2 can Enable, probe heartbeats during readiness, or run the live
+session, the release must bind an API key the owner reserves exclusively
+for F2. The owner registrar accepts the attested fingerprint with
+-F2ExclusiveHeartbeatKeySha256.
+The fingerprint is SHA-256 over the UTF-8 text weather-f2-heartbeat-v1:
+followed by the exact API-key identifier. The live and preflight credentials
+must match it. Keep owner orders and other bots on distinct keys. The venue
+cancels against all open orders under the heartbeat key after expiry, across
+markets and processes. The venue provides no disarm. Other keys remain
+outside the expiry scope, including after a process crash. For a Deposit Wallet, F2 uses the CLOB
 wallet-open-orders route to see orders across signers and keeps an unknown
 key/ownership out of the safe set.
 [Wallet order scope](https://docs.polymarket.com/trading/session-keys#manage-wallet-orders)

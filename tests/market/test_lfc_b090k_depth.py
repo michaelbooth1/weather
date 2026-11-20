@@ -70,7 +70,7 @@ def test_depth_pause_keeps_end_stop_budgets_and_cap_gates(tmp_path, stop):
     expected = 'per_band_daily_filled_cap' if stop == 'capital' else stop
     assert controller.results[band.session_id]['reason'] == expected
     assert band.submits == 2 and not ledger.unresolved_legs()
-    assert account.cancel_all_calls == [90 if stop == 'owner_stop' else 600]
+    assert not account.cancel_all_calls
 
 
 def test_nonterminal_cancel_never_reposts_after_depth_pause(tmp_path):

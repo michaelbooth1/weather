@@ -34,6 +34,8 @@ def parser():
     for key in ('campaign', 'release', 'pregate', 'head', 'python'):
         seal.add_argument('--' + key, required=True)
     seal.add_argument('--previous-release', help='owner-only Pin B takeover; retain the same enrolled account')
+    seal.add_argument('--f2-exclusive-heartbeat-key-sha256',
+                      help='owner attestation for an API key reserved exclusively for F2')
     history = commands.add_parser('owner-recover-history', help='owner-only explicit pre-enrollment money recovery')
     history.add_argument('--head', required=True)
     history.add_argument('--session', required=True)
@@ -198,6 +200,8 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
     if args.command == 'seal':
         seal_release(campaign_path=args.campaign, pregate_path=args.pregate, qualified_head=args.head,
                      python_path=args.python, output=args.release,
+                     **({'f2_exclusive_heartbeat_key_sha256': args.f2_exclusive_heartbeat_key_sha256}
+                        if args.f2_exclusive_heartbeat_key_sha256 is not None else {}),
                      **({'previous_release': args.previous_release} if args.previous_release is not None else {}))
         print('Campaign release sealed; task activation remains owner-only.')
         return 0
@@ -259,6 +263,10 @@ def dispatch(argv=None, *, attempt=None, diagnostic=None):
                 if args.require_enabled and not policy.raw['enabled']:
                     raise StateRefused('campaign_disabled')
                 if args.require_enabled and policy.f2:
+                    from weather.market.lfc_campaign_release import require_f2_heartbeat_key
+                    from weather.market.re1_transport import load_owner_credentials
+                    fields, _ = load_owner_credentials('preflight')
+                    require_f2_heartbeat_key(release, fields)
                     runtime = Runtime(state=state, pilot_root=root, policy_path=release['campaign_path'], release=release,
                         clock=clock, control_root=CONTROL_ROOT, task_enabled=lambda: False)
                     funding = runtime.confirm_funding()

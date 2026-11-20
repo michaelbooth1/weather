@@ -119,31 +119,44 @@ def test_postcheck_needs_an_exact_get_for_missing_private_terminal_order(tmp_pat
         assert file_sha(runtime.state.root / 'results' / (controller.attempt_id + '.json')) == outcome_hash
 
 
-def test_owner_auto_redeem_finishes_via_account_proof_and_foreign_notice_still_refuses(tmp_path):
+@pytest.mark.parametrize('kind', ['auto_redeem', 'trade'])
+def test_owner_notice_keeps_other_bands_running_with_clean_account_proof(tmp_path, monkeypatch, kind):
+    from weather.market.lfc_f2_owner_notice import NOTICE
+    from weather.market.lfc_f2_runtime import stream_factory
+    from weather.market.re1_attended import SecretGuard
     controller, account, status, ledger, clock = setup(tmp_path)
     raw = account.raws[0]
-    raw.fixture_directory = tmp_path
-    raw.maker = MAKER
-    notice = {'event_type': 'auto_redeem', 'proxy_wallet': MAKER,
-              'txn_hash': '0x' + '1' * 64, 'condition_id': '0x' + '2' * 64}
-    stream = campaign_stream(raw)
+    market = '0x'+'2'*64
+    notice = {'event_type': kind, 'proxy_wallet': MAKER, 'txn_hash': '0x'+'1'*64, 'condition_id': market}
+    if kind == 'trade':
+        notice.update(status='MATCHED', market=market, id='manual-trade', trader_side='TAKER',
+                      asset_id='5001', taker_order_id='0x'+'3'*64, maker_orders=[])
+    factory = stream_factory({}, owner_activity_scope=lambda: (set(), set()))
+    stream = factory(tokens=raw.memory.tokens, guard=SecretGuard(), api_key='fake', secret='fake',
+                     passphrase='fake', maker_address=MAKER, condition_id=raw.memory.condition,
+                     journal_path=tmp_path/'user-stream.jsonl')
     with pytest.raises(RuntimeError, match='unknown_account_event'):
-        stream._normalize_event(dict(notice, proxy_wallet='0x' + 'f' * 40))
-    with pytest.raises(RuntimeError, match='unknown_account_event'):
-        stream._normalize_event(dict(notice, order_id='unexpected-order'))
+        stream._normalize_event(dict(notice, proxy_wallet='0x'+'f'*40))
+    if kind == 'auto_redeem':
+        with pytest.raises(RuntimeError, match='unknown_account_event'):
+            stream._normalize_event(dict(notice, order_id='unexpected-order'))
     marker = stream._normalize_event(notice)
-    assert marker[0]['event_type'] == 'account_redemption_notice'
-    assert set(marker[0]) == {'event_type', 'raw_event_sha256'}
+    assert marker[0]['event_type'] == NOTICE
+    def receipt_rpc(*args, **kwargs):
+        pytest.fail('quote loop entered receipt RPC')
+    monkeypatch.setattr('weather.market.lfc_capital_native.rpc_read', receipt_rpc)
     raw.events = lambda: marker if clock.seconds >= 12 else []
     result = controller.run()
-    assert result['reason'] == 'account_redemption_notice'
+    assert result['reason'] == 'fixed_end'
     assert result['cleanup_ok'] and result['inventory_proven']
     assert ledger.unresolved_legs() == []
+    assert any(when == 200 and len(ids) == 4 for when, ids in account.exposure)
     from weather.market.lfc_campaign_proof import local_money_proof
     local = local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
                               attempt_id=controller.attempt_id, outcome=status.finish(success=True),
                               terminal_backfill=True)
     assert local['complete'] and not local.get('missing_terminal_orders')
+    assert local['owner_activity'] == [[NOTICE, marker[0]['activity_identity_sha256']]]
 
 
 @pytest.mark.parametrize(('fields', 'booked', 'verdict'), [

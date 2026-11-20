@@ -761,7 +761,7 @@ class Runtime:
                 mode = 'idle'
             try:
                 capital = synchronize(ledger, self.original_baseline(ledger), read,
-                    loss_basis=loss_basis, anchor_mode=mode, bridge_allowed=bridge_allowed,
+                    loss_basis=loss_basis, anchor_mode=mode, bridge_allowed=bridge_allowed, owner_cash_proof=f2,
                     **({'owner_fault_review': True} if getattr(self, 'owner_fault_review', False) else {}))
             except CapitalRefused as exc:
                 if str(exc) not in REASONS:
@@ -794,6 +794,9 @@ class Runtime:
         fields, guard = load_owner_credentials('preflight')
         if fields['FUNDER_ADDRESS'].lower() != self.state.maker.lower():
             raise StateRefused('account_changed')
+        if policy.f2:
+            from weather.market.lfc_campaign_release import require_f2_heartbeat_key
+            require_f2_heartbeat_key(self.release, fields)
         public = LfcPublicBooks()
         if policy.f2:
             from weather.market.lfc_f2_selection import discover

@@ -246,7 +246,9 @@ class CapitalBook:
             evidence = row.get('native_evidence', self.native_groups.get(row.get('native_group_sha256')))
             if self.ledger.enrollment is not None and evidence is None:
                 raise CapitalRefused('capital_native_evidence_required')
-            if row.get('source_sha256') != digest(row['source']) or normalize_activity(row['source'], evidence) != activity:
+            strict_cash = row.get('owner_cash_proof', False)
+            if (row.get('source_sha256') != digest(row['source']) or
+                    normalize_activity(row['source'], evidence, strict_cash=strict_cash) != activity):
                 raise CapitalRefused('capital_activity_source')
             if activity['wallet'] != self.ledger.rows[0]['maker_address'].lower():
                 raise CapitalRefused('capital_activity_wallet')
@@ -299,7 +301,7 @@ class CapitalBook:
                 if cash is None:
                     self.unknown.append(key)
                 else:
-                    self.withdraw(cash, activity, counted=not included)
+                    self.withdraw(cash, activity, counted=not included, owner_cash=strict_cash)
             else:
                 raise CapitalRefused('capital_activity_type')
             if cash is None and self.incoming(activity) and row['source'].get('usdc_size') is not None:
@@ -320,7 +322,8 @@ class CapitalBook:
             evidence = row.get('native_evidence', self.native_groups.get(row.get('native_group_sha256')))
             if self.ledger.enrollment is not None and evidence is None:
                 raise CapitalRefused('capital_native_evidence_required')
-            item = normalize_activity(row['source'], evidence)
+            strict_cash = row.get('owner_cash_proof', False)
+            item = normalize_activity(row['source'], evidence, strict_cash=strict_cash)
             old = self.activities.get(item['id'])
             if (old is None or item['cash_native'] is None or
                     old['cash_native'] is not None and not ('native_redemption' not in old and 'native_redemption' in item) or
@@ -360,7 +363,7 @@ class CapitalBook:
             elif kind == 'TIP' and item['direction'] == 'IN':
                 self.credit('external', cash, item, native_proven=evidence is not None)
             elif kind in {'WITHDRAWAL', 'TIP'}:
-                self.withdraw(cash, item, counted=not before_bridge)
+                self.withdraw(cash, item, counted=not before_bridge, owner_cash=strict_cash)
             if kind != 'REDEEM' and not before_bridge and self.incoming(item):
                 self.cash_in += cash
             allocation_unknown = (kind == 'REDEEM' and (item.get('principal_unproved') or
@@ -490,10 +493,18 @@ class CapitalBook:
         self.pools_dirty = True
         return movement
 
-    def withdraw(self, cash, activity, *, counted=True):
+    def withdraw(self, cash, activity, *, counted=True, owner_cash=False):
         from weather.market.lfc_f2_inventory import during_session
-        charge = (self.bridge is not None and not self.cash_before_bridge(activity) and
-                  (self.inventory_anchor is None or during_session(self.ledger, activity['timestamp'])))
+        post_bridge = self.bridge is not None and not self.cash_before_bridge(activity)
+        if owner_cash and post_bridge:
+            self.pool_movements.append({'kind': 'owner_close_debit', 'amount': cash,
+                'activity_id': activity['id'], 'owner_close_trade': 'activity-' + activity['id'],
+                'timestamp': activity['timestamp'], 'sequence': self.activity_sequences[activity['id']]})
+            self.pools_dirty = True
+            if counted:
+                self.cash_out += cash
+            return
+        charge = post_bridge and (self.inventory_anchor is None or during_session(self.ledger, activity['timestamp']))
         self.pool_movements.append({'kind': 'withdraw', 'amount': cash, 'timestamp': activity['timestamp'],
                                     'activity_id': activity['id'],
                                     'sequence': self.activity_sequences[activity['id']],
@@ -910,7 +921,7 @@ def prefix_inventory(ledger, baseline, sequence):
     return {token: str(size) for token, size in expected.items() if size}
 
 
-def normalize_activity(row, native_evidence=None):
+def normalize_activity(row, native_evidence=None, *, strict_cash=False):
     """Official /v2/activity shape (OpenAPI), never infer cash from price."""
     required = ('proxy_wallet', 'timestamp', 'condition_id', 'type', 'size', 'usdc_size',
                 'transaction_hash', 'token_id')
@@ -928,6 +939,13 @@ def normalize_activity(row, native_evidence=None):
     else:
         from weather.market.lfc_capital_native import cash_native
         cash = cash_native(row, native_evidence)
+    if type(strict_cash) is not bool or strict_cash and native_evidence is None:
+        raise CapitalRefused('capital_owner_cash_proof')
+    if (strict_cash and row['type'] in REWARD_TYPES | {'WITHDRAWAL', 'DEPOSIT', 'TIP'} and
+            cash == 0 and row['usdc_size'] is not None and quantity(row['usdc_size']) > 0):
+        # Keep the claimed amount unresolved until a wallet-specific native
+        # transfer arrives. Zero-payout redemptions use their burn proof.
+        cash = None
     bundle = None
     if native_evidence is not None and row['type'] == 'REDEEM' and cash is not None:
         from weather.market.lfc_redemption_native import positions
@@ -941,11 +959,13 @@ def normalize_activity(row, native_evidence=None):
             'timestamp': row['timestamp'], **({'direction': row['side']} if row['type'] == 'TIP' else {})}
 
 
-def record_activity(ledger, raw, *, native_evidence=None, native_group_sha256=None, owner_inventory=None, cash_capture=None):
-    activity = normalize_activity(raw, native_evidence)
+def record_activity(ledger, raw, *, native_evidence=None, native_group_sha256=None, owner_inventory=None,
+                    cash_capture=None, owner_cash_proof=False):
+    activity = normalize_activity(raw, native_evidence, strict_cash=owner_cash_proof)
     if activity['wallet'] != ledger.rows[0]['maker_address'].lower():
         raise CapitalRefused('capital_activity_wallet')
     return ledger.record('capital_activity', source=raw, source_sha256=digest(raw), activity=activity,
+                         **({'owner_cash_proof': True} if owner_cash_proof else {}),
                          **({'cash_capture': cash_capture} if cash_capture is not None else {}),
                          **({'owner_inventory': owner_inventory} if owner_inventory is not None else {}),
                          **({'native_group_sha256': native_group_sha256} if native_group_sha256 is not None else

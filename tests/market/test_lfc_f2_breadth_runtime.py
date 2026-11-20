@@ -38,12 +38,13 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
     owner_runtime_fixture(tmp_path, monkeypatch, fills=fills)
 
 
-def test_breadth_runtime_leaves_separate_key_personal_order_at_rest(tmp_path, monkeypatch):
-    owner_runtime_fixture(tmp_path, monkeypatch, setup_latency=.1, foreign_order=True)
+@pytest.mark.parametrize('stop', [False, True], ids=['fixed-end', 'owner-stop'])
+def test_breadth_runtime_leaves_owner_and_youtube_orders_at_rest(tmp_path, monkeypatch, stop):
+    owner_runtime_fixture(tmp_path, monkeypatch, setup_latency=.1, foreign_order=True, stop=stop)
 
 
 def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0, audit=None,
-                          startup_failures=0, foreign_order=False):
+                          startup_failures=0, foreign_order=False, stop=False):
     clock = Clock(NOW)
     row = example_policy(); row['max_session_seconds'] = 900 if fills or setup_latency else 300
     if setup_latency:
@@ -63,9 +64,12 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
     external = {'id': '0x'+'e'*64, 'market': '0x'+'f'*64, 'asset_id': '8091',
                 'maker_address': MAKER, 'owner': '00000000-0000-4000-8000-000000000002',
                 'side': 'BUY', 'status': 'LIVE', 'price': '.5', 'original_size': '10', 'size_matched': '0'}
+    youtube = {**external, 'id': '0x'+'a'*64, 'asset_id': '8092',
+               'owner': '00000000-0000-4000-8000-000000000003', 'size_matched': '3'}
+    unrelated = [external, youtube]
     if foreign_order:
         campaign_orders = account.open_orders
-        account.open_orders = lambda: [*campaign_orders(), deepcopy(external)]
+        account.open_orders = lambda: [*campaign_orders(), *deepcopy(unrelated)]
     rows = cities()
     table = build_table(rows, now=NOW, policy=policy, cash='300', capital=CapitalBook(ledger).figures())
     snapshots = {r['condition_id']: r['snapshot'] for r in rows}
@@ -138,6 +142,8 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
         claim = state.claim(entry, policy, clock.now())
         runtime = object.__new__(Runtime)
         runtime.state, runtime.clock, runtime.pilot_root = state, clock, tmp_path
+        from weather.market.lfc_campaign_release import HEARTBEAT_BINDING, f2_heartbeat_key_hash
+        runtime.release = {HEARTBEAT_BINDING: f2_heartbeat_key_hash(key)}
         runtime.lease = SimpleNamespace(check=lambda: None)
         def read(*, activity=True, wallet_orders=False):
             when = clock.now().isoformat()
@@ -190,16 +196,25 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
         status = F2Status(kind='autostart', clock=clock.now, monotonic=clock.monotonic,
                           policy_metadata=policy.labels(entry.local_date))
         status.directory, status.stop_file = tmp_path / 'status', tmp_path / 'OWNER-STOP-FIXTURE'
-        assert run_live(runtime, authority, status) == 0
-        outcome = status.finish(success=True)
-        assert outcome['state'] == 'COMPLETE' and len(outcome['bands']) == 12
+        if stop:
+            original_sleep = clock.sleep
+            def trip_stop(seconds):
+                original_sleep(seconds)
+                if clock.seconds >= 20 and not status.stop_file.exists():
+                    status.stop_file.touch()
+            clock.sleep = trip_stop
+        assert run_live(runtime, authority, status) == (1 if stop else 0)
+        outcome = status.finish(success=not stop)
+        assert outcome['state'] == ('STOPPED' if stop else 'COMPLETE') and len(outcome['bands']) == 12
         assert len(raws) == len(signed_guards) == 12 and len(clients) == 13
         assert len(start_gaps) == startup_failures
         assert sources == ['live'] and all(c.closed for c in clients)
         if foreign_order:
-            assert account.open_orders() == [external]
+            assert account.open_orders() == unrelated
             assert not account.cancel_all_calls
-            assert all(oid != external['id'] for raw in raws for _, oid in raw.cancellations)
+            canceled = {oid for raw in raws for _, oid in raw.cancellations}
+            assert canceled and canceled <= ledger.our_order_ids()
+            assert not canceled & {row['id'] for row in unrelated}
         assert len(ledger.legs) >= 24 and ledger.counted_sessions() == 1
         if fills:
             assert len(ledger.legs) > 24

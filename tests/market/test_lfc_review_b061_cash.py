@@ -41,4 +41,4 @@ def test_owner_withdrawal_retires_waiting_band_within_120_seconds(tmp_path, monk
              for row in rows if row['event'] == 'f2_wait_balances_request']
     assert polls and len(polls) <= 24
     assert all(b - a >= 5 for a, b in zip(polls, polls[1:]))
-    assert not result['unknown_submit'] and account.cancel_all_calls == [600]
+    assert not result['unknown_submit'] and not account.cancel_all_calls

@@ -74,7 +74,7 @@ def test_heartbeat_stale_and_nontransient_failure_still_end_all_bands(tmp_path, 
     result = controller.run()
     assert good == [0, 2]
     assert result['reason'] == reason and result['cleanup_ok'], result
-    assert account.cancel_all_calls == [stop_at]
+    assert not account.cancel_all_calls
     assert all(row['reason'] == reason for row in controller.results.values())
     assert not account.open_orders() and not ledger.unresolved_legs()
     if reason == 'heartbeat_stale':
@@ -133,7 +133,7 @@ def test_lagging_repeat_cancel_closes_band_and_peer_continues(tmp_path, reason):
     assert first.cancellation_ok and controller.results[first.session_id]['reason'] == 'fill'
     assert controller.results[peer.session_id]['reason'] == 'fixed_end'
     assert all(when >= 300 for when, _ in account.raws[1].cancellations)
-    assert account.cancel_all_calls == [300] and result['cleanup_ok'], result
+    assert not account.cancel_all_calls and result['cleanup_ok'], result
     retained = [row['response'] for row in journal_rows(first.journal.path)
                 if row['event'] == 'cleanup_cancel_response' and row['response'].get('not_canceled')]
     assert retained == account.raws[0].repeat_responses
@@ -156,7 +156,7 @@ def test_repeat_not_canceled_with_order_still_open_stops_peers_as_money_fault(tm
     assert len(reads) == 10 and all(row['rows'] for row in reads)
     assert result['reason'] == 'f2_band_money_or_core_fault' and not result['cleanup_ok'], result
     assert controller.results[peer.session_id]['reason'] == 'f2_band_money_or_core_fault'
-    assert account.cancel_all_calls[0] < 300
+    assert not account.cancel_all_calls and all(when < 300 for raw in account.raws for when, _ in raw.cancellations)
     assert account.open_orders() and ledger.unresolved_legs()
 
 

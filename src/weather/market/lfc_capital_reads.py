@@ -104,7 +104,7 @@ def validate_packet(packet, *, maker, start, end, types=TYPES):
 
 
 def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=False, live_proof=None, loss_basis=None,
-                anchor_mode=None, bridge_allowed=True):
+                anchor_mode=None, bridge_allowed=True, owner_cash_proof=False):
     """Reconcile before F2 admission. Repeated reads never repeat a cash credit."""
     live = live_proof is not None
     if anchor_mode not in {None, 'enrollment', 'session', 'idle'}:
@@ -169,8 +169,11 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     jobs = []
     for source in sources:
         evidence = evidence_for(native_packet, source, ledger=ledger)
-        item = normalize_activity(source, evidence)
+        item = normalize_activity(source, evidence, strict_cash=owner_cash_proof)
         old = previous.activities.get(item['id'])
+        if (owner_cash_proof and old is not None and old['cash_native'] == 0 and item['cash_native'] is None and
+                normalize_activity(source, evidence) == old):
+            continue  # A retained legacy decision keeps its original replay.
         if old != item:
             jobs.append((source, evidence, item, old))
     # Resolve definite before/after movements first. The overlapping-second
@@ -180,7 +183,8 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
     for index, (source, evidence, item, old) in enumerate(jobs):
         current_book = CapitalBook(ledger)
         inclusion = cash_context(current_book, read, [
-            (raw, group_shas[proof['transaction_hash']]) for raw, proof, _, _ in jobs[index:]], anchor_mode=anchor_mode)
+            (raw, group_shas[proof['transaction_hash']]) for raw, proof, _, _ in jobs[index:]],
+            anchor_mode=anchor_mode, owner_cash_proof=owner_cash_proof)
         from weather.market.lfc_f2_owner_inventory import decision
         owner_inventory = (decision(current_book, read, item)
                            if book.inventory_anchor is not None or anchor_mode == 'enrollment' else None)
@@ -189,12 +193,13 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
                 ledger.record('capital_resolution', source=source, source_sha256=digest(source),
                               previous_source_sha256=previous.sources[item['id']],
                               native_group_sha256=group_shas[evidence['transaction_hash']],
+                              **({'owner_cash_proof': True} if owner_cash_proof else {}),
                               **({'cash_capture': inclusion} if inclusion is not None else {}),
                               **({'owner_inventory': owner_inventory} if owner_inventory is not None else {}))
             continue
         record_activity(ledger, source, native_evidence=evidence,
                         native_group_sha256=group_shas[evidence['transaction_hash']], owner_inventory=owner_inventory,
-                        cash_capture=inclusion)
+                        cash_capture=inclusion, owner_cash_proof=owner_cash_proof)
     from weather.market.lfc_f2_owner_inventory import reconcile as reconcile_owner_inventory
     reconcile_owner_inventory(ledger, read)
     from weather.market.lfc_ledger import normalize_positions
@@ -212,7 +217,7 @@ def synchronize(ledger, baseline, read, *, funding='300', owner_fault_review=Fal
         inventory = {'expected': enrollment_anchor['positions'], 'changed': [], 'missing_or_below_visibility': []}
     elif anchor_mode == 'session':
         book.gate(reserve='0', owner_fault_review=owner_fault_review, loss_basis=loss_basis)
-        anchor = make_anchor(book, read, kind='f2_session_anchor')
+        anchor = make_anchor(book, read, kind='f2_session_anchor', owner_cash_proof=owner_cash_proof)
         ledger.record('f2_session_anchor', anchor=anchor, anchor_sha256=digest(anchor),
                       previous_anchor_sha256=digest(book.inventory_anchor or book.anchor), read_sha256=digest(read))
         book = CapitalBook(ledger)

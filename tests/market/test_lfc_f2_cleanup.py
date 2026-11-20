@@ -46,7 +46,7 @@ def test_final_account_read_outage_stays_pending_with_retained_private_proof(tmp
     controller.verify = unavailable
     result = controller.run()
     assert result['unknown_submit'] is False and not result['inventory_proven'] and not result['cleanup_ok']
-    assert account.cancel_all_calls and account.open_orders() == []
+    assert not account.cancel_all_calls and account.open_orders() == []
     outcome = status.finish(success=False)
     proof = local_money_proof(controller.directory, ledger=ledger, session_id=controller.session_id,
                              attempt_id=controller.attempt_id, outcome=outcome)

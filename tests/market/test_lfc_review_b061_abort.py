@@ -72,7 +72,7 @@ def test_submit_exit_has_only_proved_monetary_ambiguity_end_to_end(tmp_path, mon
         assert not ledger.unacknowledged_intents()
         assert first.posts == 0 and not account.raws[0].memory.orders
         assert peer.posts == 2 and peer.session_id in controller.closed_bands
-        assert account.cancel_all_calls == [300]  # Peer kept quoting to fixed end.
+        assert not account.cancel_all_calls  # Peer kept quoting to fixed end.
         assert controller.results[first.session_id]['failure_type'] is None
 
 

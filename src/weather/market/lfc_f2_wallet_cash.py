@@ -2,9 +2,12 @@
 from weather.market.mm_stage2_hold import utc
 
 
-def owner_debit(book, amount, *, timestamp, sequence, explained=False):
+def owner_debit(book, amount, *, timestamp, sequence, explained=False, owner_cash_proof=False):
     movement = {'kind': 'withdraw', 'amount': amount, 'timestamp': timestamp,
                 'sequence': sequence, 'charge_excess': False, 'explained_native': amount if explained else 0}
+    if owner_cash_proof:
+        movement.update(kind='owner_close_debit',
+                        owner_close_trade=f'wallet-anchor-{sequence}-{len(book.wallet_debit_quarantines)}')
     book.pool_movements.append(movement)
     book.wallet_debit_quarantines.append(movement)
     book.pools_dirty = True
@@ -27,14 +30,15 @@ def capture(book, anchor, sequence):
         grant = book.credit('external', difference, movement, sequence=sequence)
         book.wallet_quarantines.append(grant)
     if difference < 0:
-        owner_debit(book, -difference, timestamp=movement['timestamp'], sequence=sequence)
+        owner_debit(book, -difference, timestamp=movement['timestamp'], sequence=sequence,
+                    owner_cash_proof=anchor.get('owner_cash_proof', False))
     book.refresh_pools()
     book.cash_reference = {'cash_native': anchor['cash_native'],
         'purchased_native_at_bridge': sum(lot['basis'] for lot in book.lots.values()),
         'cash_in_at_bridge': book.cash_in, 'cash_out_at_bridge': book.cash_out,
         'included_incoming': included, 'at_utc': anchor['at_utc'],
         'snapshot_at_utc': anchor.get('cash_snapshot_at_utc', anchor.get('snapshot_at_utc', anchor['at_utc'])),
-        'sequence': sequence}
+        'sequence': sequence, **({'owner_cash_proof': True} if anchor.get('owner_cash_proof') else {})}
 
 
 def captured_credit(book, activity, amount, *, label=False):
@@ -83,7 +87,7 @@ def captured_credit(book, activity, amount, *, label=False):
         reference['cash_in_at_bridge'] += accounted
     if included < accounted:
         owner_debit(book, accounted - included, timestamp=int(utc(reference['at_utc']).timestamp()),
-                    sequence=reference['sequence'])
+                    sequence=reference['sequence'], owner_cash_proof=reference.get('owner_cash_proof', False))
 
 
 def captured_debit(book, activity, amount):
@@ -96,6 +100,27 @@ def captured_debit(book, activity, amount):
         return
     if (reference is None or amount <= 0 or
             activity['timestamp'] > utc(reference.get('snapshot_at_utc', reference['at_utc'])).timestamp()):
+        return
+    proved = any(move['kind'] == 'owner_close_debit' and move.get('activity_id') == activity['id']
+                 for move in book.pool_movements)
+    if proved:
+        # Replace a provisional debit with the proved movement at its own
+        # time. If another unknown credit masked it, hold that credit.
+        reference['cash_out_at_bridge'] += amount
+        remaining = amount
+        for marker in book.wallet_debit_quarantines:
+            if marker['sequence'] > reference['sequence'] or marker['timestamp'] < activity['timestamp']:
+                continue
+            take = min(remaining, marker['amount'] - marker.get('explained_native', 0))
+            marker['amount'] -= take
+            remaining -= take
+            if not remaining:
+                break
+        if remaining:
+            grant = book.credit('external', remaining, {'id': 'masked-credit-' + activity['id'],
+                'timestamp': int(utc(reference['at_utc']).timestamp())}, sequence=reference['sequence'])
+            book.wallet_quarantines.append(grant)
+        book.pools_dirty = True
         return
     moves = [move for move in book.pool_movements if move['kind'] == 'withdraw' and
              move.get('activity_id') == activity['id']]

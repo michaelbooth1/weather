@@ -1,4 +1,7 @@
-"""Shared wallet notices, bounded terminal evidence, and foreign reserves."""
+"""Synthetic shared-wallet activity.
+
+Guards: B090-L7b, exclusive heartbeat keys, scoped cancellation and bounded owner proofs.
+"""
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -151,3 +154,13 @@ def test_wallet_order_with_withheld_key_binds_a_distinct_signer():
     left, right = mark_open_orders(rows, KEY, signer)
     assert left['heartbeat_key_isolated'] and not right['heartbeat_key_isolated']
     assert 'owner' not in left and 'owner' not in right
+
+
+def test_exclusive_heartbeat_attestation_rejects_unbound_and_rotated_keys():
+    from weather.market.lfc_campaign import TransientPrecheck
+    from weather.market.lfc_campaign_release import HEARTBEAT_BINDING, f2_heartbeat_key_hash, require_f2_heartbeat_key
+    seal = {HEARTBEAT_BINDING: f2_heartbeat_key_hash(KEY)}
+    require_f2_heartbeat_key(seal, {'API_KEY': KEY})
+    for release, fields in (({}, {'API_KEY': KEY}), (seal, {'API_KEY': OTHER_KEY}), (seal, {})):
+        with pytest.raises(TransientPrecheck, match='f2_heartbeat_key_not_bound'):
+            require_f2_heartbeat_key(release, fields)

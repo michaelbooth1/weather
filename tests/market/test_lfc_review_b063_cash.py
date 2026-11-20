@@ -43,4 +43,4 @@ def test_peer_bounded_reads_do_not_spend_waiting_bands_cash_poll_budget(tmp_path
     assert pauses and pauses[0]-began[0]>120
     assert waiting.posts==2, controller.results[waiting.session_id]
     assert controller.results[waiting.session_id]['reason']=='fixed_end'
-    assert not result['unknown_submit'] and account.cancel_all_calls==[600]
+    assert not result['unknown_submit'] and not account.cancel_all_calls
