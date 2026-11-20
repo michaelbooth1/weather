@@ -223,7 +223,7 @@ def test_first_late_receipt_keeps_cutoff_rows_on_report_rerun(tmp_path, monkeypa
     for key, token in [('loser', '111'), ('winner', '222')]:
         filled(ledger, key, token=token, condition=CONDITION)
     install(ledger, cash='280')
-    state = SimpleNamespace(ledger=ledger, require_retained_evidence=lambda: None)
+    state = SimpleNamespace(root=tmp_path, ledger=ledger, require_retained_evidence=lambda: None)
     monkeypatch.setattr(lfc_f2_freeze, 'verify', lambda *a, **kw: None)
     before_path = tmp_path / 'before.json'
     first = write_final(state, policy, root=tmp_path, output=before_path, now=cutoff)
