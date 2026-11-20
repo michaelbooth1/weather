@@ -119,17 +119,19 @@ def test_final_inventory_uses_only_settlement_observed_by_cutoff(tmp_path, offse
     assert sum(row['proved_redemption_cash_native'].values()) == 0
     assert row['assessment']['state'] == 'INCONCLUSIVE'
     receipt_key = str((tmp_path / 'settlement' / (CONDITION + '.json')).relative_to(tmp_path))
-    assert receipt_key in row['evidence_sha256']
+    assert row['settlement_cutoff_clock'] == 'recorder_observed_at_utc'
     if offset_us > 0:
         assert row['unredeemed_winners_at_cutoff'] == []
         assert row['unswept_zero_payout_positions'] == []
         assert {lot['token_id'] for lot in row['unresolved_at_cutoff']} == {'111', '222'}
-        assert all(lot['settlement_observed_after_cutoff_utc'] == observed.isoformat()
-                   for lot in row['unresolved_at_cutoff'])
+        assert receipt_key not in row['evidence_sha256']
+        late, = row['late_settlement_receipts']
+        assert late['file'] == receipt_key and late['observed_at_utc'] == observed.isoformat()
     else:
         assert [lot['token_id'] for lot in row['unredeemed_winners_at_cutoff']] == ['222']
         assert [lot['token_id'] for lot in row['unswept_zero_payout_positions']] == ['111']
         assert row['unresolved_at_cutoff'] == []
+        assert receipt_key in row['evidence_sha256'] and not row['late_settlement_receipts']
 
 
 def test_after_cutoff_before_final_look_is_an_honest_snapshot(tmp_path):
@@ -207,3 +209,60 @@ def test_deposit_after_enrollment_before_first_bridge_never_becomes_funding(tmp_
     book = CapitalBook(ledger)
     assert book.external == book.figures()['funding_native'] == 100_000_000
     assert book.figures()['headroom_native'] == 100_000_000
+
+
+@pytest.mark.parametrize('recovery', [False, True])
+def test_first_late_receipt_keeps_cutoff_rows_on_report_rerun(tmp_path, monkeypatch, recovery):
+    from weather.market import lfc_f2_freeze
+    from weather.market.lfc_f2_final import write_final
+
+    policy = parse_policy(example_policy())
+    cutoff = datetime.fromisoformat(policy.raw['evidence_cutoff_toronto']).astimezone(timezone.utc)
+    observed = cutoff + timedelta(microseconds=1)
+    ledger = ledger_at(tmp_path)
+    for key, token in [('loser', '111'), ('winner', '222')]:
+        filled(ledger, key, token=token, condition=CONDITION)
+    install(ledger, cash='280')
+    state = SimpleNamespace(ledger=ledger, require_retained_evidence=lambda: None)
+    monkeypatch.setattr(lfc_f2_freeze, 'verify', lambda *a, **kw: None)
+    before_path = tmp_path / 'before.json'
+    first = write_final(state, policy, root=tmp_path, output=before_path, now=cutoff)
+    original = tmp_path / 'settlement' / (CONDITION + '.json')
+    if recovery:
+        original.parent.mkdir()
+        original.write_bytes(b'invalid fixture\n')
+    record_settlement(tmp_path, CONDITION, clock=lambda: observed, recover_corrupt=recovery,
+                      get=lambda path, params: resolution() if path.endswith('resolutions') else tokens())
+    current = write_final(state, policy, root=tmp_path, output=tmp_path / 'after.json', now=cutoff + timedelta(hours=6))
+    for key in ('unresolved_at_cutoff', 'unredeemed_winners_at_cutoff', 'unswept_zero_payout_positions',
+                'proved_redemption_cash_native', 'evidence_sha256'):
+        assert first[key] == current[key]
+    assert not first['late_settlement_receipts']
+    receipt, = current['late_settlement_receipts']
+    assert receipt['observed_at_utc'] == observed.isoformat()
+    assert ('-recovery-' in receipt['file']) is recovery
+    from weather.market.lfc_recording_io import file_sha
+    assert receipt['sha256'] == file_sha(tmp_path / receipt['file'])
+    assert json.loads(before_path.read_bytes())['late_settlement_receipts'] == []
+
+
+def test_valid_early_original_takes_precedence_over_later_published_recovery(tmp_path):
+    from weather.market.lfc_recording_io import prepare_recovery, publish_recovery, write_new
+
+    policy = parse_policy(example_policy())
+    cutoff = datetime.fromisoformat(policy.raw['evidence_cutoff_toronto']).astimezone(timezone.utc)
+    ledger = settled_ledger(tmp_path, settlement_time=cutoff)
+    before = snapshot(ledger, policy, root=tmp_path, now=cutoff)
+    original = tmp_path / 'settlement' / (CONDITION + '.json')
+    late_time = cutoff + timedelta(seconds=1)
+    replacement, manifest = prepare_recovery(original, clock=lambda: late_time, reason='test_fixture')
+    new = dict(json.loads(original.read_bytes()), observed_at_utc=late_time.isoformat())
+    write_new(replacement, new)
+    publish_recovery(replacement, manifest)
+    after = snapshot(ledger, policy, root=tmp_path, now=late_time)
+    for key in ('unresolved_at_cutoff', 'unredeemed_winners_at_cutoff', 'unswept_zero_payout_positions',
+                'evidence_sha256'):
+        assert before[key] == after[key]
+    assert [row['token_id'] for row in after['unredeemed_winners_at_cutoff']] == ['222']
+    late, = after['late_settlement_receipts']
+    assert late['file'] == str(replacement.relative_to(tmp_path))
