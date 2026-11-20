@@ -11,7 +11,7 @@ from pathlib import Path
 from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_f2_economics import final_cash_assessment
-from weather.market.lfc_recording_io import read_recovered, response_bytes, write_new, file_sha
+from weather.market.lfc_recording_io import file_sha, published_recoveries, read_recovered, response_bytes, write_new
 from weather.market.lfc_settlement_record import envelope, validate_settlement
 from weather.market.mm_stage2_hold import digest, utc
 from weather.operations.live_path_security import validate_contained_regular_file
@@ -60,12 +60,43 @@ def confirmation_sessions(ledger, frozen):
     return result
 
 
+def cutoff_settlement(root, condition, cutoff, now, hashes, late, supplement_gaps):
+    """Use the recorder observation clock and retain later terminal evidence."""
+    path = root / 'settlement' / (condition + '.json')
+    if not path.exists():
+        return {}
+
+    def validate(candidate):
+        return validate_settlement(validate_contained_regular_file(root, candidate), condition)
+
+    record, accepted = read_recovered(path, validate)
+    # A valid immutable original wins. Published replacements never supersede it.
+    receipts = [(record, accepted)]
+    if accepted == path:
+        try:
+            receipts.extend(published_recoveries(path, validate))
+        except (OSError, ValueError, KeyError, TypeError, UnicodeError):
+            # Optional supplements cannot invalidate the accepted original.
+            supplement_gaps.append(condition)
+    for observed, receipt_path in receipts:
+        observed_at = utc(observed['observed_at_utc'])
+        if observed['terminal'] and cutoff < observed_at <= now:
+            late.append({'condition_id': condition, 'observed_at_utc': observed['observed_at_utc'],
+                         'file': str(receipt_path.relative_to(root)), 'sha256': file_sha(receipt_path)})
+    if not record['terminal'] or utc(record['observed_at_utc']) > cutoff:
+        return {}
+    hashes[str(accepted.relative_to(root))] = file_sha(accepted)
+    payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']
+    return dict(zip(record['token_ids'], payouts))
+
+
 def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
     cutoff = datetime.fromisoformat(policy.raw['evidence_cutoff_toronto'])
     if now < cutoff:
         raise ValueError('final_cutoff_not_open')
     book = CapitalBook(ledger)
     winners, unknown, zeros, hashes, by_lot = [], [], [], {}, {}
+    settlements, late_settlement_receipts, settlement_supplement_gaps = {}, [], []
     for allocation in book.allocations:
         activity = book.activities[allocation['activity_id']]
         if activity['timestamp'] <= cutoff.timestamp():
@@ -76,20 +107,13 @@ def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
             not book.activities[a['activity_id']].get('principal_unproved')), Decimal(0))
         if not left:
             continue
-        path = Path(root) / 'settlement' / (lot['condition_id'] + '.json')
-        payout = None
+        condition = lot['condition_id']
+        if condition not in settlements:
+            settlements[condition] = cutoff_settlement(Path(root), condition, cutoff, now,
+                                                       hashes, late_settlement_receipts, settlement_supplement_gaps)
+        payout = settlements[condition].get(lot['token_id'])
         row = {'intent_key': key, 'session_id': lot['session_id'], 'token_id': lot['token_id'],
                'quantity_at_cutoff': str(left), 'counted_as_cash_native': 0}
-        if path.exists():
-            record, accepted = read_recovered(path, lambda p: validate_settlement(
-                validate_contained_regular_file(Path(root), p), lot['condition_id']))
-            hashes[str(Path(accepted).relative_to(root))] = file_sha(accepted)
-            if record['terminal'] and lot['token_id'] in record['token_ids']:
-                if utc(record['observed_at_utc']) <= cutoff:
-                    payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']
-                    payout = payouts[record['token_ids'].index(lot['token_id'])]
-                else:
-                    row['settlement_observed_after_cutoff_utc'] = record['observed_at_utc']
         if payout is None:
             unknown.append(row)
         elif payout == 0:
@@ -140,6 +164,9 @@ def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
         'decision_page_inputs': {'rewards': reward_inputs},
         'unredeemed_winners_at_cutoff': winners, 'unresolved_at_cutoff': unknown,
         'unswept_zero_payout_positions': zeros, 'evidence_sha256': hashes,
+        'settlement_cutoff_clock': 'recorder_observed_at_utc',
+        'late_settlement_receipts': sorted(late_settlement_receipts, key=lambda r: (r['observed_at_utc'], r['file'])),
+        'settlement_supplement_gaps': sorted(settlement_supplement_gaps),
         'late_cash_activity_ids': sorted(key for key, a in book.activities.items() if a['timestamp'] > cutoff.timestamp())}
 
 

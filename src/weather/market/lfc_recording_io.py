@@ -168,29 +168,36 @@ def publish_recovery(path, manifest):
     write_new(path.parent / 'recovery' / (manifest['recovery_id'] + '-published.json'), row)
 
 
+def published_recoveries(path, validate):
+    """List hash-bound published replacements without changing original precedence."""
+    path = Path(path)
+    original_sha = file_sha(path)
+    candidates = []
+    for index, candidate in enumerate((path.parent / 'recovery').glob('*-published.json')):
+        if index >= 1000:
+            raise ValueError('recording_recovery_budget')
+        manifest = strict_json(read_bytes(candidate, 65536))
+        if manifest.get('original') != path.name or manifest.get('original_sha256') != original_sha:
+            continue
+        name = manifest.get('replacement')
+        if (manifest.get('schema_version') != RECOVERY_SCHEMA or manifest.get('state') != 'PUBLISHED' or
+                not isinstance(name, str) or Path(name).name != name or '/' in name or '\\' in name or
+                not name.startswith(path.stem + '-recovery-')):
+            raise ValueError('recording_recovery_scope')
+        replacement = path.parent / name
+        if file_sha(replacement) != manifest.get('replacement_sha256'):
+            raise ValueError('recording_recovery_hash')
+        candidates.append((validate(replacement), replacement))
+    return candidates
+
+
 def read_recovered(path, validate):
     """A corrupt original needs a hash-bound published recovery, never a silent skip."""
     path = Path(path)
     try:
         return validate(path), path
     except (ValueError, KeyError, TypeError, UnicodeError) as original_error:
-        original_sha = file_sha(path)
-        candidates = []
-        for index, candidate in enumerate((path.parent / 'recovery').glob('*-published.json')):
-            if index >= 1000:
-                raise ValueError('recording_recovery_budget')
-            manifest = strict_json(read_bytes(candidate, 65536))
-            if manifest.get('original') != path.name or manifest.get('original_sha256') != original_sha:
-                continue
-            name = manifest.get('replacement')
-            if (manifest.get('schema_version') != RECOVERY_SCHEMA or manifest.get('state') != 'PUBLISHED' or
-                    not isinstance(name, str) or Path(name).name != name or '/' in name or '\\' in name or
-                    not name.startswith(path.stem + '-recovery-')):
-                raise ValueError('recording_recovery_scope')
-            replacement = path.parent / name
-            if file_sha(replacement) != manifest.get('replacement_sha256'):
-                raise ValueError('recording_recovery_hash')
-            candidates.append((validate(replacement), replacement))
+        candidates = published_recoveries(path, validate)
         if len(candidates) > 1:
             raise ValueError('recording_recovery_conflict')
         if candidates:
