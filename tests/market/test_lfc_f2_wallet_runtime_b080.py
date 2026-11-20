@@ -75,7 +75,7 @@ def test_first_tick_reanchors_personal_wallet_before_session_stub(tmp_path, monk
             assert result == 'MISSED' and not calls and not state.incidents()
             assert not state.ledger.autostart_claims
             assert not any(row['event'] == 'f2_session_anchor' for row in state.ledger.rows)
-            assert latest_control(tmp_path / 'control')['reason'] == 'foreign_open_order'
+            assert latest_control(tmp_path / 'control')['reason'] == 'foreign_open_order_identity'
             return
         assert result == 'STARTED'
         assert len(calls) == 1 and not state.incidents()

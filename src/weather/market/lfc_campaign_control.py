@@ -16,6 +16,8 @@ SAFE_STATES = {'IDLE', 'DEFERRED', 'MISSED', 'DISABLED', 'RUNNING', 'POSTCHECK_P
 # only: no amount, band, token or raw exception text reaches the agent view.
 PRECHECK_REASONS = frozenset({
     'wallet_cash_below_sleeve', 'foreign_open_order', 'capital_cash_snapshot_pending', 'f2_heartbeat_key_not_bound',
+    'foreign_open_order_identity', 'foreign_open_order_campaign_overlap',
+    'foreign_open_order_heartbeat_scope', 'foreign_open_order_quantity',
     'f2_personal_trade_unproven', 'f2_personal_trade_fee_unproven', 'f2_personal_trade_changed',
     'f2_anchor_snapshot_pending', 'no_qualifying_band', 'account_read_stale', 'account_read_unavailable',
     'account_transport_unavailable', 'heartbeat_latency_budget', 'private_stream_not_ready',

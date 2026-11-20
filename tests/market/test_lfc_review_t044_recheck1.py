@@ -67,7 +67,9 @@ def test_permanent_peer_private_gap_never_reposts_and_exits_at_session_end(tmp_p
     assert waits and controller.bands[0].submits == 2
     assert clock.seconds <= 301 and not account.cancel_all_calls
     assert not result['unknown_submit']
-    assert not result['cleanup_ok']  # Missing research proof cannot become COMPLETE.
+    assert result['cleanup_ok'] and result['inventory_proven'] and result['cancellation_ok']
+    assert not result['evidence_complete']
+    assert 'repost_inventory_unavailable' in result['evidence_faults']
 
 
 def test_permanent_peer_cash_gap_is_bounded_and_never_posts_waiting_band(tmp_path, monkeypatch):
@@ -125,8 +127,8 @@ def test_refresh_go_rejects_fresh_envelope_with_stale_balance_component(tmp_path
     reads = []
     def refresh(self, **kwargs):
         read_account = self.runtime.read_account
-        def stale():
-            row = read_account()
+        def stale(**options):
+            row = read_account(**options)
             stamp = (self.runtime.clock.now() - timedelta(seconds=121)).isoformat()
             row['started_at_utc'] = stamp
             row['component_times']['balances'] = {'started_at_utc': stamp, 'ended_at_utc': stamp}
