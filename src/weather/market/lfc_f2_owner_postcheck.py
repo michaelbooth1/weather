@@ -81,6 +81,19 @@ def make_proof(book, attempt, read, notices, budget):
     observed_ids.update(digest(['trade', item['sdk_source']['trade_id']])
                         for item in book.personal_trades.values() if 'sdk_source' in item)
     observed_ids.update(digest(['transaction', tx]) for tx in (*book.activity_transactions.values(), *groups))
+    for row in read['trades']:
+        # A delayed lifecycle message can refer to a trade already included in
+        # the anchor, or to a MATCHED event that the REST source settled FAILED.
+        # Neither authorizes a booking. The exact cash and position checks
+        # must still pass, and only an authenticated own trade can discharge it.
+        status = row.get('status')
+        if (status == 'FAILED' or status == 'CONFIRMED' and row.get('matched_at') and
+                utc(row['matched_at']) < anchor):
+            own_taker = row.get('trader_side') == 'TAKER' and str(row.get('maker_address', '')).lower() == wallet
+            own_maker = row.get('trader_side') == 'MAKER' and any(
+                str(part.get('maker_address', '')).lower() == wallet for part in row.get('maker_orders') or ())
+            if (own_taker or own_maker) and isinstance(row.get('id'), str):
+                observed_ids.add(digest(['trade', row['id']]))
     if not {identity for _, identity in notices if identity is not None} <= observed_ids:
         raise ActivityPending('owner_activity_confirmation_pending')
     if any(set(item) != {'native_group_sha256'} for item in
@@ -104,7 +117,10 @@ def prove(runtime, ledger, attempt, read, traded, notices, budget):
 
     book = CapitalBook(ledger)
     differences = ledger.trade_mismatches(traded)
-    open_rows = campaign_open_rows(ledger, read['open_orders'])
+    try:
+        open_rows = campaign_open_rows(ledger, read['open_orders'])
+    except CapitalRefused as exc:
+        raise ActivityPending(str(exc)) from exc
     from weather.market.lfc_f2_reconcile import campaign_inventory
     inv = campaign_inventory(ledger, read, book)
     cleanup = not open_rows and not ledger.unresolved_legs()
