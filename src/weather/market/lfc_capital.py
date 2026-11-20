@@ -383,6 +383,11 @@ class CapitalBook:
                 raise CapitalRefused(str(exc)) from exc
             if record.get('terminal') is not True or row.get('settlement_sha256') != digest(record):
                 raise CapitalRefused('capital_zero_resolution_evidence')
+            if not replay_posted:
+                intent_tokens = {str(leg['token_id']) for leg in self.ledger.legs.values()
+                                 if str(leg['condition_id']).lower() == row['condition_id']}
+                if not intent_tokens <= set(record['token_ids']):
+                    raise CapitalRefused('settlement_leg_token_outside_pair')
             payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']
             zero_tokens = {token for token, payout in zip(record['token_ids'], payouts) if payout == 0}
             keys = row.get('intent_keys')

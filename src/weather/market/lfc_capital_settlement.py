@@ -3,7 +3,7 @@ from pathlib import Path
 
 from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_recording_io import read_recovered, response_bytes
-from weather.market.lfc_settlement_record import envelope, validate_settlement
+from weather.market.lfc_settlement_record import SettlementScopeUnproven, envelope, validate_settlement
 from weather.market.mm_stage2_hold import digest
 from weather.operations.live_path_security import validate_contained_regular_file
 
@@ -17,8 +17,11 @@ def record_zero_payouts(ledger, root):
         if not path.exists():
             continue
         validate_contained_regular_file(Path(root), path)
-        record, _ = read_recovered(path, lambda p: validate_settlement(
-            validate_contained_regular_file(Path(root), p), condition))
+        try:
+            record, _ = read_recovered(path, lambda p: validate_settlement(
+                validate_contained_regular_file(Path(root), p), condition))
+        except SettlementScopeUnproven:
+            continue  # Follow-up retains the unresolved case; other conditions can still settle.
         if not record['terminal']:
             continue
         payouts = envelope(response_bytes(record['resolution']))['data'][0]['payouts']

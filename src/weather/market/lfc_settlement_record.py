@@ -98,21 +98,28 @@ def select_token_pair(condition, rows, traded_tokens, *, replay_posted=False):
         slots = {}
         for row in group:
             index, token = row['outcome_index'], row['token_id']
-            if (type(index) is not int or index not in (0, 1) or index in slots or
-                    not isinstance(token, str) or not re.fullmatch(r'[0-9]+', token)):
+            if (type(index) is not int or index not in (0, 1) or
+                    not isinstance(token, str) or not re.fullmatch(r'[0-9]+', token) or
+                    (index in slots and (replay_posted or slots[index] != token))):
                 break
             slots[index] = token
         else:
-            if set(slots) == {0, 1} and len(set(slots.values())) == 2 and traded and traded <= set(slots.values()):
-                pair = [slots[0], slots[1]]
-                if replay_posted:
-                    return pair
-                if matched is not None and pair != matched:
-                    raise SettlementScopeUnproven('ambiguous_matching_token_pair')
-                matched = pair
+            if set(slots) == {0, 1} and len(set(slots.values())) == 2:
+                if traded and traded <= set(slots.values()):
+                    pair = [slots[0], slots[1]]
+                    if replay_posted:
+                        return pair
+                    if matched is not None and pair != matched:
+                        raise SettlementScopeUnproven('ambiguous_matching_token_pair')
+                    matched = pair
+                continue
+        if not replay_posted and any(isinstance(row.get('token_id'), str) and row['token_id'] in traded for row in group):
+            raise SettlementScopeUnproven('incomplete_matching_token_pair')
     if matched is not None:
         return matched
-    raise ValueError('no_matching_token_pair')
+    if replay_posted:
+        raise ValueError('no_matching_token_pair')
+    raise SettlementScopeUnproven('no_matching_token_pair')
 
 
 def settlement_rows(raw, *, replay_posted):

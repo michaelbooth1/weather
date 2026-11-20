@@ -43,7 +43,7 @@ def event(contract, signature, indexed, types, values, index):
             'blockHash': BLOCK, 'blockNumber': '0x123', 'logIndex': hex(index), 'removed': False}
 
 
-def paired(*, auto=False, ctf=False):
+def paired(*, auto=False, ctf=False, losing_shares=20):
     source = json.loads((Path(__file__).parents[1] / 'fixtures/lfc/paired_redeem_v2.json').read_text())
     logs, views = [], {}
     if ctf:
@@ -64,11 +64,12 @@ def paired(*, auto=False, ctf=False):
     else:
         tokens, module = [101, 102], sorted(MODULES)[0]
         for token, payout in zip(tokens, [20_000_000, 0]):
+            burned = 20_000_000 if payout else losing_shares * 1_000_000
             logs.append(event(PM, SINGLE, [AUTO if auto else MAKER, MAKER, module],
-                              ['uint256', 'uint256'], [token, 20_000_000], len(logs)))
-            logs.append(event(PM, SINGLE, [module, module, ZERO], ['uint256', 'uint256'], [token, 20_000_000], len(logs)))
+                              ['uint256', 'uint256'], [token, burned], len(logs)))
+            logs.append(event(PM, SINGLE, [module, module, ZERO], ['uint256', 'uint256'], [token, burned], len(logs)))
             logs.append(event(module, POSITION, [AUTO if auto else MAKER, token, AUTO if auto else MAKER],
-                              ['uint256', 'uint256'], [20_000_000, payout], len(logs)))
+                              ['uint256', 'uint256'], [burned, payout], len(logs)))
             if auto:
                 if payout:
                     logs.append(log(payout, index=len(logs)))

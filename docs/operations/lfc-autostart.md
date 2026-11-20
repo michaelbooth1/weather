@@ -771,6 +771,10 @@ granted. Unavailable exclusion is retried on a later tick. Public calls are capp
 pass has a bounded read budget. Failures remain explicit gaps. It never redeems
 holdings, places orders or consumes another date. Redemption remains an owner or
 separately authorized facility action; until proved, its principal stays charged.
+New zero-payout postings require complete recorder pages and agreement on the
+ordered payout-token pair across the eligible reference groups. Follow-up retains
+unresolved evidence and reports the affected-condition count. Existing ledger
+postings retain their original replay semantics.
 Later facts create immutable `status/<session>.e-<hash>.json` economics supplements;
 the original outcome remains unchanged. The control projection remains free of
 economic facts for researchers who must stay blind. The default final-look helper

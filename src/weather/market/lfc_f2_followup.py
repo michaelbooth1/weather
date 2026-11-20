@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import uuid
 
 def collect(runtime, *, get=None, reward_client=None):
-    from weather.market.lfc_settlement_record import public_get, record_settlement
+    from weather.market.lfc_settlement_record import SettlementScopeUnproven, public_get, record_settlement
     from weather.market.lfc_rewards_record import record_rewards, record_rebates, latest_record, record_complete
     from weather.market.re1_payout_evidence import ReadJournal
     from weather.market.wallet_reader_security import SecretGuard
@@ -17,6 +17,7 @@ def collect(runtime, *, get=None, reward_client=None):
     observed = runtime.clock.now()
     stop = runtime.clock.monotonic() + 120
     observations, gaps = [], []
+    settlement_scope_unresolved = 0
     last_get = [None]
     def bounded_get(endpoint, params):
         if last_get[0] is not None:
@@ -43,6 +44,14 @@ def collect(runtime, *, get=None, reward_client=None):
             row = record_settlement(runtime.pilot_root, condition, clock=runtime.clock.now,
                                      get=bounded_get, traded_tokens=tokens)
             observations.append({'condition_id': condition, 'settlement_terminal': row['terminal']})
+            reason = row.get('reason')
+            if reason in {'ambiguous_matching_token_pair', 'incomplete_matching_token_pair',
+                          'no_matching_token_pair', 'settlement_page_incomplete'}:
+                settlement_scope_unresolved += 1
+                gaps.append('settlement_' + reason)
+        except SettlementScopeUnproven as exc:
+            settlement_scope_unresolved += 1
+            gaps.append('settlement_' + str(exc))
         except FileExistsError:
             continue
         except Exception as exc:
@@ -102,7 +111,7 @@ def collect(runtime, *, get=None, reward_client=None):
         except Exception as exc:
             gaps.append(f'd{lag}_rebate_' + type(exc).__name__)
     return {'observed_at_utc': observed.isoformat(), 'observations': observations, 'gaps': gaps,
-            'monetary_action': False}
+            'settlement_scope_unresolved': settlement_scope_unresolved, 'monetary_action': False}
 
 
 def due(runtime, policy, *, evidence_only=False):

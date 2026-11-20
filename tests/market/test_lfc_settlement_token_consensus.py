@@ -159,3 +159,69 @@ def test_historical_first_match_reopens_in_warm_and_detached_books(tmp_path):
     detached._capital_checkpoint = None
     assert book_state(reopened) == book_state(detached) == (1_200_000, [(1_200_000, 3), (0, 3)])
     assert ledger.path.read_bytes() == original and clone.read_bytes() == posted
+
+
+@pytest.mark.parametrize('mode', ('conflict', 'reversed_conflict', 'incomplete', 'partial_page',
+                                  'duplicate', 'migration', 'unique', 'split'))
+def test_recorder_post_reopen_and_native_redemption(tmp_path, mode):
+    from types import SimpleNamespace
+
+    from tests.market.test_lfc_campaign import Mutexes
+    from tests.market.test_lfc_f2_capital import MAKER, filled, install, ledger_at
+    from tests.market.test_lfc_pilot import Clock
+    from tests.market.test_lfc_redemption_native import paired
+    from weather.market.lfc_campaign_guard import account_lease
+    from weather.market.lfc_capital import record_activity
+    from weather.market.lfc_capital_settlement import record_zero_payouts
+    from weather.market.lfc_f2_followup import collect
+
+    source, native, (win, lose) = paired(losing_shares=5)
+    condition = source['condition_id']
+    first = [dict(row, condition_id=condition) for row in group('a', win, lose)]
+    reversed_pair = [dict(row, condition_id=condition) for row in group('b', lose, win)]
+    disjoint = [dict(row, condition_id=condition) for row in group('other', '303', '404')]
+    rows = {'conflict': first + reversed_pair, 'reversed_conflict': reversed_pair + first,
+            'incomplete': first + reversed_pair[:1], 'duplicate': first + first,
+            'migration': disjoint + first}.get(mode, first)
+    reasons = {'conflict': 'ambiguous_matching_token_pair', 'reversed_conflict': 'ambiguous_matching_token_pair',
+               'incomplete': 'incomplete_matching_token_pair', 'partial_page': 'settlement_page_incomplete'}
+    tokens = payload(rows, pagination={'has_more': mode == 'partial_page'})
+    payouts = [500_000, 500_000] if mode == 'split' else [1_000_000, 0]
+    resolution = payload([dict(condition_id=condition, status='resolved', payouts=payouts)])
+    ledger = ledger_at(tmp_path)
+    filled(ledger, 'winner', token=win, condition=condition, price='.4')
+    filled(ledger, 'loser', token=lose, condition=condition, size='5', price='.6')
+    get = lambda path, params: resolution if path.endswith('resolutions') else tokens
+    clock = Clock(ledger.clock())
+    runtime = SimpleNamespace(clock=clock, pilot_root=tmp_path, state=SimpleNamespace(ledger=ledger, maker=MAKER))
+    with account_lease(MAKER, backend=Mutexes()):
+        install(ledger, cash='289')
+        original = ledger.path.read_bytes()
+        report = collect(runtime, get=get, reward_client=SimpleNamespace())
+        assert report['settlement_scope_unresolved'] == int(mode in reasons)
+        assert report['gaps'] == (['settlement_' + reasons[mode]] if mode in reasons else [])
+        written = record_zero_payouts(ledger, tmp_path)
+        if mode in reasons:
+            assert written == 0 and ledger.path.read_bytes() == original
+            pending, = (tmp_path / 'settlement' / 'pending' / condition).glob('*.json')
+            assert json.loads(pending.read_bytes())['tokens'] == retained(tokens)
+            assert CapitalBook(ledger).losses == 0
+            return
+        if mode == 'split':
+            assert written == 0 and ledger.path.read_bytes() == original
+            row = json.loads((tmp_path / 'settlement' / (condition + '.json')).read_bytes())
+            assert row['terminal'] and row['winning_token_id'] is None
+            return
+        assert written == 1 and record_zero_payouts(ledger, tmp_path) == 0
+        posted = CapitalBook(ledger)
+        assert posted.losses == 3_000_000 and posted.cash_in == 0
+        assert posted.lots['winner']['remaining_basis'] == 8_000_000
+        assert posted.lots['loser']['remaining_quantity'] == 5
+        reopened = Ledger.open(ledger.path, clock=ledger.clock)
+        assert CapitalBook(reopened).figures() == posted.figures()
+        record_activity(reopened, source, native_evidence=native)
+        redeemed = CapitalBook(reopened)
+        assert redeemed.cash_in == 20_000_000 and redeemed.returned_principal == 8_000_000
+        assert redeemed.losses == 3_000_000 and redeemed.profit == 12_000_000
+        assert all(lot['remaining_quantity'] == 0 for lot in redeemed.lots.values())
+        assert CapitalBook(Ledger.open(ledger.path, clock=ledger.clock)).figures() == redeemed.figures()
