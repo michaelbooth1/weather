@@ -95,6 +95,58 @@ def test_overlap_is_money_contradiction_and_missing_confirmation_defers(tmp_path
     assert (ledger.path.read_bytes(), ledger.previous, CapitalBook(ledger).figures()) == prior
 
 
+@pytest.mark.parametrize('withdraw,deposit,position_gap,unproved,latches', [
+    (25, 0, False, False, True), (25, 20, False, False, False),
+    (25, 0, True, False, True), (0, 0, False, True, False),
+])
+def test_cash_incident_uses_owner_cover_after_this_cut(tmp_path, account_guard, monkeypatch,
+                                                       withdraw, deposit, position_gap, unproved, latches):
+    from tests.market.test_lfc_f2_cash_mirror_b082 import cash_activity
+    from tests.market.test_lfc_f2_inventory_b080 import observation
+    from weather.market.lfc_campaign import CampaignCoordinator
+    from weather.market.lfc_capital_reads import TYPES, read_activity
+
+    runtime, ledger, _, _, _ = fixture_trade(tmp_path, example=True, shared_wallet=True, deposit=25)
+    original = CapitalBook(ledger)
+    cash = original.expected_cash() // 1_000_000 - withdraw + deposit - 10
+    holdings = {'denver': '20', '90': '30'}
+    if position_gap:
+        holdings['91'] = '2'
+    read = observation(ledger, runtime.clock, positions=holdings, cash=str(cash))
+    sources, receipts = [], {}
+    for kind, amount, digit in (('WITHDRAWAL', withdraw, '3'), ('DEPOSIT', deposit, '4')):
+        if amount:
+            tx = '0x' + digit * 64
+            when = int(runtime.clock.now().timestamp()) - (4 if withdraw and kind == 'WITHDRAWAL' else 2)
+            source, evidence = cash_activity(runtime.clock, kind, amount, timestamp=when, transaction_hash=tx)
+            source['condition_id'] = ''
+            evidence.update(rows=[source], rows_sha256=digest([source]))
+            sources.append(source)
+            receipts[tx] = evidence
+    old_activity = read['capital_activity']
+    scope = old_activity['scope']
+    read['capital_activity'] = {**old_activity, **read_activity(MAKER, scope['start'], scope['end'], types=TYPES,
+        get=lambda *_: activity_page(sources)), 'native_receipts': receipts}
+    notices = [(NOTICE, digest(['trade', 'incomplete-source']))] if unproved else []
+    budget = SimpleNamespace(public_get=lambda *_: activity_page([]), rpc=lambda *_: pytest.fail('unexpected RPC'))
+    traded = runtime.account_read_preflight(ledger, read)
+    before = ledger.path.read_bytes(), ledger.previous, original.figures()
+    monkeypatch.setattr('weather.market.lfc_campaign_recovery.recover_empty', lambda *_: ())
+    states, incidents = [], []
+    campaign = object.__new__(CampaignCoordinator)
+    campaign.state = SimpleNamespace(ledger=ledger, pending=lambda: [{'attempt_id': ATTEMPT}],
+        incidents=lambda: incidents, latch=lambda attempt, reason, _: incidents.append(
+            {'source_attempt_id': attempt, 'reason': reason}))
+    campaign.runtime = SimpleNamespace(saved_result=lambda _: {'unknown_submit': False},
+        postcheck=lambda *_: prove(runtime, ledger, ATTEMPT, read, traded, notices, budget))
+    campaign.status, campaign.clock = lambda state, *a, **k: states.append(state), runtime.clock
+    for _ in range(2):
+        assert campaign.pending()
+        assert (ledger.path.read_bytes(), ledger.previous, CapitalBook(ledger).figures()) == before
+    assert states == ['INCIDENT' if latches else 'POSTCHECK_PENDING'] * 2
+    assert [row['reason'] for row in incidents] == (['postcheck_money_contradiction'] * 2 if latches else [])
+
+
 def test_deadline_does_not_admit_next_chain_request(tmp_path, account_guard, monkeypatch):
     runtime, _, _, _, _ = fixture_trade(tmp_path, example=True)
     calls = []

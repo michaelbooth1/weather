@@ -35,9 +35,10 @@ DECODE_ERRORS = (KeyError, TypeError, ValueError, ArithmeticError, AttributeErro
 
 
 class WalletCashMismatch(StateRefused):
-    def __init__(self, shortfall_native):
+    def __init__(self, shortfall_native, owner_cover_native=None):
         super().__init__('owner_external_cash_changed')
         self.shortfall_native = shortfall_native
+        self.owner_cover_native = owner_cover_native
 
 
 def hash32(value):
@@ -397,7 +398,7 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
             raise StateRefused('owner_external_trade_already_booked')
         personal.append((key, source, observed, delta))
     if with_gap:
-        from weather.market.lfc_owner_close_activity import MERGES, apply as apply_gap, prove as prove_gap
+        from weather.market.lfc_owner_close_activity import MERGES, prove as prove_gap
 
         groups = packet['additional_activity']
         finish = None if session else max(utc(band['end']['recorded_at_utc']) for band in bands)
@@ -418,6 +419,14 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         deltas.update(gap_deltas)
         cash += sum(item['cash_in_native'] - item['cash_out_native'] for item in gap.values())
         gap_blocks = [item['block_number'] for item in gap.values()]
+    shortfall = book.expected_cash() + (0 if already_booked else cash) - packet['cash_native']
+    if session and shortfall:
+        from copy import deepcopy
+        # A foreign position gap cannot mask a cash deficit. Use the exact
+        # owner allocation rules on a detached projection before classifying it.
+        projection = deepcopy(book, {id(book.ledger): book.ledger})
+        apply_movements(projection, packet, personal, groups, gap, decoded, sequence, fresh)
+        raise WalletCashMismatch(shortfall, projection.verified_owner_cash)
     if not already_booked:
         for token, delta in deltas.items():
             projected[token] = str(quantity(projected.get(token, 0)) + delta)
@@ -445,7 +454,6 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         equal = same_position(before, after) if token in owned else expected == quantity(after)
         if not equal:
             raise StateRefused('owner_external_inventory_changed')
-    shortfall = book.expected_cash() + (0 if already_booked else cash) - packet['cash_native']
     if shortfall:
         raise WalletCashMismatch(shortfall)
     if session:
@@ -466,6 +474,13 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
             origin = facts['attempt_id'] if session else facts['incident_id']
             book.owner_inventory_adjustments.append({'activity_id': 'owner-native-anchor-' + origin,
                 'sequence': sequence, 'token_id': token, 'delta': str(correction), 'read_sha256': packet['read_sha256']})
+    return apply_movements(book, packet, personal, groups if with_gap else {}, gap if with_gap else {},
+                           decoded if with_gap else {}, sequence, fresh)
+
+
+def apply_movements(book, packet, personal, groups, gap, decoded, sequence, fresh):
+    from weather.market.lfc_owner_close_activity import apply as apply_gap
+
     for key, source, observed, delta in personal:
         timestamp = utc(source['matched_at']).timestamp()
         book.personal_trades[key] = {'id': key, 'order_id': source['order_id'],
@@ -490,7 +505,7 @@ def reconcile(book, packet, *, already_booked=False, sequence=None, collect_inve
         book.cash_out += observed['cash_out_native']
     book.owner_external_close_cash += sum(observed['cash_in_native'] - observed['cash_out_native']
                                            for _, _, observed, _ in personal)
-    gap_allocations = apply_gap(book, groups, gap, decoded, sequence, packet['read_sha256']) if with_gap else []
+    gap_allocations = apply_gap(book, groups, gap, decoded, sequence, packet['read_sha256'])
     book.refresh_pools()
     return {key: book.owner_close_allocations[key] for key in [*(part[0] for part in personal), *gap_allocations]}
 

@@ -97,21 +97,23 @@ def make_proof(book, attempt, read, notices, budget):
                 str(part.get('maker_address', '')).lower() == wallet for part in row.get('maker_orders') or ())
             if (own_taker or own_maker) and isinstance(row.get('id'), str):
                 observed_ids.add(digest(['trade', row['id']]))
+    pending = None
     if not {identity for _, identity in notices if identity is not None} <= observed_ids:
-        raise ActivityPending('owner_activity_confirmation_pending')
-    if any(set(item) != {'native_group_sha256'} for item in
-           read['capital_activity'].get('pending_native', {}).get('native_receipts', {}).values()):
-        raise ActivityPending('owner_activity_pending_native')
+        pending = 'owner_activity_confirmation_pending'
+    elif any(set(item) != {'native_group_sha256'} for item in
+             read['capital_activity'].get('pending_native', {}).get('native_receipts', {}).values()):
+        pending = 'owner_activity_pending_native'
     cash = native(read['balances']['available_collateral'])
     if ([native(value) for asset, value in read['balances']['assets'].items() if asset.lower() == ASSET] != [cash] or
             str(read['balances']['collateral_evidence']['balance']) != str(cash)):
         raise StateRefused('owner_external_collateral_identity')
     facts = {'schema': SCHEMA, 'attempt_id': attempt, 'anchor_sha256': digest(book.inventory_anchor),
              'coverage_utc': cut.isoformat(), 'trades': []}
-    return {'schema_version': SESSION_SCHEMA, 'facts': facts, 'facts_sha256': digest(facts),
+    packet = {'schema_version': SESSION_SCHEMA, 'facts': facts, 'facts_sha256': digest(facts),
             'read_sha256': digest(read), 'positions': normalize_positions(read['positions']), 'cash_native': cash,
             'coverage_utc': cut.isoformat(), 'receipts': receipts, 'additional_trades': bound_trades,
             'additional_activity': gap_receipts(book, read, groups, rpc=budget.rpc), 'protocol_movements': movement}
+    return packet, pending
 
 
 def prove(runtime, ledger, attempt, read, traded, notices, budget):
@@ -138,13 +140,14 @@ def prove(runtime, ledger, attempt, read, traded, notices, budget):
     if not cleanup or proof['money_contradiction']:
         return proof
     try:
-        packet = make_proof(book, attempt, read, notices, budget)
+        packet, pending = make_proof(book, attempt, read, notices, budget)
         packet['owner_cash_allocation'] = reconcile(book, packet, sequence=len(ledger.rows),
                                                      collect_inventory=True, rpc=budget.rpc)
     except StateRefused as exc:
         reason = str(exc)
-        campaign_cash = isinstance(exc, WalletCashMismatch) and exc.shortfall_native > book.verified_owner_cash
+        campaign_cash = isinstance(exc, WalletCashMismatch) and exc.shortfall_native > exc.owner_cover_native
         if reason == 'owner_external_campaign_overlap' or campaign_cash:
+            runtime.account_read_preflight(ledger, read)
             proof['money_contradiction'] = True
             proof['owner_activity_reason'] = reason
             return proof
@@ -152,6 +155,8 @@ def prove(runtime, ledger, attempt, read, traded, notices, budget):
     except (OSError, *DECODE_ERRORS) as exc:
         raise ActivityPending('owner_activity_proof_unavailable') from exc
     runtime.account_read_preflight(ledger, read)
+    if pending:
+        raise ActivityPending(pending)
     try:
         book.gate(reserve='0')
     except CapitalRefused as exc:
