@@ -20,11 +20,14 @@ class ActivityPending(TransientPrecheck):
 class Budget:
     """Leave time for account freshness and bound each auxiliary read."""
     def __init__(self, clock, *, seconds=40):
-        self.clock = clock
-        self.deadline = clock.monotonic() + seconds
+        self.clock, self.seconds = clock, seconds
+        self.deadline = None
 
     def timeout(self, maximum):
-        remaining = self.deadline - self.clock.monotonic()
+        now = self.clock.monotonic()
+        if self.deadline is None:
+            self.deadline = now + self.seconds
+        remaining = self.deadline - now
         if remaining <= 0:
             raise ActivityPending('owner_activity_proof_deadline')
         return min(remaining, maximum)

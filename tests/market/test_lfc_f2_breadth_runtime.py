@@ -38,7 +38,12 @@ def test_actual_owner_runtime_builds_twelve_bands_with_arms_and_no_external_capa
     owner_runtime_fixture(tmp_path, monkeypatch, fills=fills)
 
 
-def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0, audit=None, startup_failures=0):
+def test_breadth_runtime_leaves_separate_key_personal_order_at_rest(tmp_path, monkeypatch):
+    owner_runtime_fixture(tmp_path, monkeypatch, setup_latency=.1, foreign_order=True)
+
+
+def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0, audit=None,
+                          startup_failures=0, foreign_order=False):
     clock = Clock(NOW)
     row = example_policy(); row['max_session_seconds'] = 900 if fills or setup_latency else 300
     if setup_latency:
@@ -54,6 +59,13 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
     write_baseline(tmp_path, baseline, ledger)
     synchronize(ledger, baseline, observation(ledger, clock, positions={}, cash='300'), anchor_mode='enrollment')
     account = FillingAccount(clock); account.fills_enabled = fills
+    key = '00000000-0000-4000-8000-000000000001'
+    external = {'id': '0x'+'e'*64, 'market': '0x'+'f'*64, 'asset_id': '8091',
+                'maker_address': MAKER, 'owner': '00000000-0000-4000-8000-000000000002',
+                'side': 'BUY', 'status': 'LIVE', 'price': '.5', 'original_size': '10', 'size_matched': '0'}
+    if foreign_order:
+        campaign_orders = account.open_orders
+        account.open_orders = lambda: [*campaign_orders(), deepcopy(external)]
     rows = cities()
     table = build_table(rows, now=NOW, policy=policy, cash='300', capital=CapitalBook(ledger).figures())
     snapshots = {r['condition_id']: r['snapshot'] for r in rows}
@@ -113,7 +125,7 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
     from weather.market import re1_transport, re1_owner_checks, lfc_pilot, lfc_ledger, lfc_fees, lfc_cli
     monkeypatch.setattr(re1_transport, 'load_owner_credentials', lambda mode: (
         sources.append(mode) or {'FUNDER_ADDRESS': MAKER,
-                                  'API_KEY': '00000000-0000-4000-8000-000000000001'}, SecretGuard()))
+                                  'API_KEY': key}, SecretGuard()))
     monkeypatch.setattr(re1_transport, 'build_client', build)
     monkeypatch.setattr(re1_transport, 'OwnerVenue', venue)
     monkeypatch.setattr(re1_owner_checks, 'code_identity', lambda: '0' * 40)
@@ -139,12 +151,13 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
                 'available_collateral': '300', 'assets': {ASSET: '300'},
                 'collateral_evidence': {'balance': '300000000'}}
             balances['collateral_evidence']['allowances'] = {address.lower(): '300000000' for address in SPENDERS.values()}
+            from weather.market.lfc_f2_order_scope import mark_open_orders
             return {'schema_version': 'lfc_campaign_account_read_v0.1', 'complete': True, 'errors': [],
                 'maker_address': MAKER, 'since': str(int(NOW.timestamp())),
                 'scope': 'account_wide_sdk_trades_and_f0_v2_positions', 'started_at_utc': when, 'ended_at_utc': when,
                 'component_times': {key: {'started_at_utc': when, 'ended_at_utc': when}
                     for key in ('open_orders', 'trades', 'positions', 'balances', 'geography')},
-                'open_orders': account.open_orders(),
+                'open_orders': mark_open_orders(account.open_orders(), key),
                 'positions': [{'asset': token, 'size': str(size)} for token, size in positions.items()],
                 'trades': [row for raw in account.raws for row in raw.trades()], 'geography': {'blocked': False},
                 'balances': balances, 'terminal_orders': {leg['order_id']: {
@@ -183,6 +196,10 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
         assert len(raws) == len(signed_guards) == 12 and len(clients) == 13
         assert len(start_gaps) == startup_failures
         assert sources == ['live'] and all(c.closed for c in clients)
+        if foreign_order:
+            assert account.open_orders() == [external]
+            assert not account.cancel_all_calls
+            assert all(oid != external['id'] for raw in raws for _, oid in raw.cancellations)
         assert len(ledger.legs) >= 24 and ledger.counted_sessions() == 1
         if fills:
             assert len(ledger.legs) > 24
