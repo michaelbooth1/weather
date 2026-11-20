@@ -91,11 +91,21 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep, persist=True):
     """Reuse anchored history and return new proofs inline for an unpublished read."""
     from weather.market.lfc_capital import ASSET
     cache, cached_views = {}, {}
+    known_groups = set()
     for event in ledger.capital_rows:
-        proof = event.get('proof') if event['event'] == 'capital_native_group' else event.get('native_evidence')
-        if proof is not None and proof.get('receipt') is not None and result(proof['receipt']) is not None:
-            cache[proof['transaction_hash']] = proof['receipt']
-            cached_views[proof['transaction_hash']] = proof.get('ctf_views', {})
+        if event['event'] == 'autostart_owner_close':
+            groups = event['proof']['owner_external_close'].get('additional_activity', {}).values()
+            known_groups.update(digest(proof) for proof in groups)
+        elif event['event'] == 'capital_native_group':
+            groups = (event['proof'],)
+            known_groups.add(event['proof_sha256'])
+        else:
+            proof = event.get('native_evidence')
+            groups = () if proof is None else (proof,)
+        for proof in groups:
+            if proof.get('receipt') is not None and result(proof['receipt']) is not None:
+                cache[proof['transaction_hash']] = proof['receipt']
+                cached_views[proof['transaction_hash']] = proof.get('ctf_views', {})
     chain = rpc('eth_chainId', [])
     sleep(.5)
     decimals = rpc('eth_call', [{'to': ASSET, 'data': '0x313ce567'}, 'latest'])
@@ -108,7 +118,6 @@ def collect(packet, *, ledger, rpc=rpc_read, sleep=time.sleep, persist=True):
     if len(set(grouped) - set(cache)) > MAX_NEW_RECEIPTS:
         raise ValueError('capital_native_receipt_budget')
     proofs, byte_count, new_views = {}, 0, 0
-    known_groups = {row['proof_sha256'] for row in ledger.capital_rows if row['event'] == 'capital_native_group'}
     for tx, rows in grouped.items():
         receipt, failure, failed_response = cache.get(tx), None, None
         if receipt is None:

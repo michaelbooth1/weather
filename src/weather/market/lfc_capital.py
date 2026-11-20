@@ -19,6 +19,7 @@ SCALE = 10 ** DECIMALS
 ASSET = '0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb'
 MODE = 'fixed_sleeve_redeemed_principal_only'
 CEILING = 300 * SCALE
+REWARD_TYPES = frozenset({'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'})
 EVENTS = {'capital_anchor', 'capital_bridge', 'capital_native_group', 'capital_activity', 'capital_resolution',
           'capital_cost', 'capital_zero_resolution', 'capital_owner_inventory', 'f2_session_anchor'}
 
@@ -126,7 +127,7 @@ class CapitalBook:
         event = row['event']
         if event == 'autostart_owner_close':
             from weather.market.lfc_campaign_state import StateRefused
-            from weather.market.lfc_owner_external_close import DECODE_ERRORS, LEGACY_SCHEMA, PROOF_SCHEMA, reconcile
+            from weather.market.lfc_owner_external_close import DECODE_ERRORS, GAP_SCHEMA, LEGACY_SCHEMA, PROOF_SCHEMA, reconcile
             proof = row['proof']
             packet = proof['owner_external_close']
             facts = packet['facts']
@@ -135,7 +136,7 @@ class CapitalBook:
                     proof.get('read_sha256') != packet['read_sha256']):
                 raise CapitalRefused('owner_external_facts_binding')
             if 'schema_version' in packet:
-                if packet['schema_version'] not in (LEGACY_SCHEMA, PROOF_SCHEMA):
+                if packet['schema_version'] not in (LEGACY_SCHEMA, PROOF_SCHEMA, GAP_SCHEMA):
                     raise CapitalRefused('owner_external_close_proof_schema')
                 if 'owner_cash_allocation' not in packet:
                     raise CapitalRefused('owner_external_cash_allocation_missing')
@@ -268,7 +269,7 @@ class CapitalBook:
                 self.reclassify_legacy_credit(max(0, cash - self.quarantine_for(activity) - opening_owner_cash(self, activity, cut=row['sequence'])))
             if kind == 'REDEEM':
                 self.redeem(activity, row['sequence'], owner_inventory=row.get('owner_inventory'))
-            elif kind in {'REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE', 'REFERRAL_REWARD'}:
+            elif kind in REWARD_TYPES:
                 if cash is None:
                     self.unknown.append(key)
                 else:
@@ -600,7 +601,8 @@ class CapitalBook:
         personal = self.personal_trades.get(key[len('personal-'):]) if key.startswith('personal-') else None
         if personal is not None:
             return personal['side'] == 'SELL' and move['amount'] <= personal['cash_native']
-        return (activity is not None and activity.get('native_redemption') is not None and
+        return (activity is not None and (activity.get('native_redemption') is not None or
+                activity['type'] in {'MERGE', 'DIRECTIONAL_MERGE'}) and
                 not self.cash_before_bridge(activity) and move.get('owner_cash_native', 0) > 0)
 
     def undo_redemption(self, activity):

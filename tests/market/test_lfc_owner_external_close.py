@@ -75,9 +75,9 @@ def empty_protocol_feed(monkeypatch):
 
 
 def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withdraw=0, quarantine=0,
-                  example=False, owner_position='30'):
+                  example=False, owner_position='30', personal_holdings=None):
     ledger, baseline, clock, _ = fixture(tmp_path, personal=False, bridge=False)
-    holdings = {'denver': '20', '90': owner_position}
+    holdings = {'denver': '20', '90': owner_position, **(personal_holdings or {})}
     if not example:
         source, proof, tokens = paired(auto=True)
         for idx, token in enumerate(tokens):
@@ -120,7 +120,8 @@ def fixture_trade(tmp_path, *, separate_fee=False, side='SELL', deposit=0, withd
                          (gross, FEE) if separate_fee else (gross - FEE, 0))
     cash = str(Decimal(book.expected_cash() + cash_in - cash_out) / 1_000_000)
     after = Decimal(owner_position) + (20 if side == 'BUY' else -20)
-    read = observation(ledger, clock, positions={'denver': '20', **({'90': str(after)} if after > 0 else {})}, cash=cash)
+    read = observation(ledger, clock, positions={'denver': '20', **(personal_holdings or {}),
+                                                **({'90': str(after)} if after > 0 else {})}, cash=cash)
     trade = owner_trade(clock, side, seconds=3)
     trade.update(market=FOREIGN, condition_id=FOREIGN, taker_order_id=ORDER)
     if example:
@@ -139,6 +140,111 @@ def book_trade(runtime, ledger, read, facts):
     ledger.record('autostart_owner_close', attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT,
                   proof=proof, proof_sha256=digest(proof))
     return CapitalBook(Ledger.open(ledger.path, clock=runtime.clock.now)), proof['owner_external_close']
+
+
+@pytest.mark.parametrize('kind, funded', [('DEPOSIT', False), ('WITHDRAWAL', True), ('WITHDRAWAL', False),
+                                         ('REDEEM', False), ('MERGE', False), ('REWARD', False)])
+def test_between_session_activity_replays_and_reaches_next_cash_snapshot(tmp_path, monkeypatch, account_guard,
+                                                                   kind, funded):
+    from tests.market.test_lfc_redemption_native import event, log, BLOCK, TX as PROTOCOL_TX, word
+    from weather.market.lfc_capital_native import result
+    from weather.market.lfc_capital_reads import TYPES
+    from weather.market.lfc_f2_cash_snapshot import context
+    from weather.market.lfc_owner_close_activity import MERGE
+    from weather.market.lfc_owner_external_close import GAP_SCHEMA, coverage, validate_retained_read
+    from weather.market.lfc_redemption_native import BATCH, ZERO
+
+    redemption, group, tokens = paired(auto=True)
+    runtime, ledger, initial, facts, trade = fixture_trade(tmp_path, example=True, deposit=25 if funded else 0,
+                                                           personal_holdings=dict.fromkeys(tokens, '30'))
+    clock = runtime.clock
+    clock.value += timedelta(minutes=1)
+    when = int(clock.now().timestamp()) - 20
+    positions = {row['asset']: row['size'] for row in initial['positions']}
+    movements, main = [], []
+    if kind in {'REDEEM', 'MERGE'}:
+        positions.update(dict.fromkeys(tokens, '10'))
+        cash = 20
+        if kind == 'REDEEM':
+            source = {**redemption, 'timestamp': when}
+            main = [source]
+        else:
+            source = {**redemption, 'timestamp': when, 'type': 'MERGE', 'size': '20'}
+            movements = [source]
+            rows = [event(CTF, BATCH, [MAKER, MAKER, ZERO], ['uint256[]', 'uint256[]'],
+                          [list(map(int, tokens)), [20_000_000] * 2], 0),
+                    event(CTF, MERGE, [MAKER, ZERO, source['condition_id']], ['address', 'uint256[]', 'uint256'],
+                          [ASSET, [1, 2], 20_000_000], 1), log(20_000_000, index=2)]
+            group = {'transaction_hash': PROTOCOL_TX, 'receipt': rpc_packet({'transactionHash': PROTOCOL_TX,
+                'blockHash': BLOCK, 'blockNumber': word(0x123), 'status': '0x1', 'logs': rows}), 'failure_type': None}
+        group.update(rows=[source], rows_sha256=digest([source]))
+    else:
+        cash = -20 if kind == 'WITHDRAWAL' else 20
+        source, group = cash_activity(clock, 'WITHDRAWAL' if cash < 0 else 'DEPOSIT', abs(cash), timestamp=when)
+        source.update(type=kind, transaction_hash='0x' + '3' * 64)
+        receipt = result(group['receipt'])
+        receipt['transactionHash'] = source['transaction_hash']
+        for row in receipt['logs']:
+            row['transactionHash'] = source['transaction_hash']
+        group.update(transaction_hash=source['transaction_hash'], rows=[source], rows_sha256=digest([source]),
+                     receipt=rpc_packet(receipt))
+        main = [source]
+    tx = source['transaction_hash'].lower()
+    final_cash = str(Decimal(initial['balances']['available_collateral']) + cash)
+    read = observation(ledger, clock, positions=positions, cash=final_cash)
+    read['trades'] = initial['trades']
+    asset = read['capital_activity']['native_asset_proof']
+    scope = read['capital_activity']['scope']
+    read['capital_activity'] = {**read_activity(MAKER, scope['start'], scope['end'], types=TYPES,
+        get=lambda *_: activity_page(main)), 'native_asset_proof': asset,
+        'native_receipts': {tx: group} if main else {}}
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.read_protocol_movements', lambda wallet, anchor, cut:
+        read_activity(wallet, anchor.timestamp(), cut.timestamp(), types=PROTOCOL_MOVEMENTS,
+                      get=lambda *_: activity_page(movements)))
+    monkeypatch.setattr('weather.market.lfc_owner_external_close.rpc_read', lambda _, args:
+        trade if args == [TX] else group['receipt'])
+    original = ledger.path.read_bytes(), ledger.previous
+    proof = live_proof(runtime, ledger, INCIDENT, INCIDENT_HASH, ATTEMPT, read, facts)
+    packet = proof['owner_external_close']
+    assert packet['schema_version'] == GAP_SCHEMA
+    validate_retained_read(ledger, packet, read, coverage(read))
+    assert (ledger.path.read_bytes(), ledger.previous) == original
+    count = len(ledger.rows)
+    ledger.record('autostart_owner_close', attempt_id=INCIDENT, incident_id=INCIDENT, source_attempt_id=ATTEMPT,
+                  proof=proof, proof_sha256=digest(proof))
+    reopened = Ledger.open(ledger.path, clock=clock.now)
+    book = CapitalBook(reopened)
+    assert len(reopened.rows) == count + 1 and book.expected_cash() == int(Decimal(final_cash) * 1_000_000)
+    assert len(book.personal_trades) == 1 and tx in book.activity_transactions.values()
+    if kind == 'WITHDRAWAL':
+        allocation, = (item for key, item in packet['owner_cash_allocation'].items() if key.startswith('activity-'))
+        assert bool(allocation['owner_overdraw_created_native']) is not funded
+        assert allocation['verified_owner_cash_used_native'] + allocation['owner_overdraw_created_native'] == 20_000_000
+        assert book.owner_overdraw_outstanding == allocation['owner_overdraw_created_native']
+        assert book.costs == 0
+    elif kind == 'REWARD':
+        assert book.incentives == 20_000_000
+    else:
+        assert book.verified_owner_cash == 24_400_000
+    if kind in {'REDEEM', 'MERGE'}:
+        assert [(item['token_id'], item['delta']) for item in book.owner_inventory_adjustments if
+                item['token_id'] in tokens] == [(token, '-20') for token in sorted(tokens)]
+    before = book.figures(), book.expected_cash(), book.personal_trades
+    synchronize(reopened, book.inventory_anchor, read, anchor_mode='session', owner_fault_review=True)
+    assert len(reopened.rows) == count + 2
+    book = CapitalBook(Ledger.open(reopened.path, clock=clock.now))
+    assert (book.figures(), book.expected_cash(), book.personal_trades) == before
+    sample, evidence = cash_activity(clock, 'DEPOSIT', 1, timestamp=int(coverage(read).timestamp()))
+    # Give this independent overlap probe a distinct identity from the close movement.
+    receipt = result(evidence['receipt'])
+    sample['transaction_hash'] = receipt['transactionHash'] = '0x' + '4' * 64
+    for row in receipt['logs']:
+        row['transactionHash'] = sample['transaction_hash']
+    evidence.update(transaction_hash=sample['transaction_hash'], rows=[sample], rows_sha256=digest([sample]),
+                    receipt=rpc_packet(receipt))
+    sha = digest(evidence)
+    book.native_groups[sha] = evidence
+    assert context(book, read, [(sample, sha)])['personal_trade_sources'] == []
 
 
 @pytest.mark.parametrize('role', ['MAKER', 'TAKER'])

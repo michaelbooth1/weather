@@ -186,7 +186,7 @@ def binding(state, attempt, *, incident=None):
     external = external_binding(row, proof)
     committed_external = anchor['proof'].get('owner_external_close', {})
     if any(external.get(key) != committed_external.get(key) for key in
-           ('facts_sha256', 'owner_cash_allocation', 'additional_trades')):
+           ('facts_sha256', 'owner_cash_allocation', 'additional_trades', 'activity_sha256')):
         raise StateRefused('owner_external_facts_binding')
     for name, previous in row.get('artifact_manifest', {}).items():
         current = artifact_path(state, name)
@@ -379,7 +379,8 @@ def owner_close(runtime, incident, *, external_facts=None):
                             retained.get('read_sha256') != digest(partial.get('account_read')) or
                             any(retained.get('owner_external_close', {}).get(key) !=
                                 proof.get('owner_external_close', {}).get(key)
-                                for key in ('facts_sha256', 'owner_cash_allocation', 'additional_trades'))):
+                                for key in ('facts_sha256', 'owner_cash_allocation', 'additional_trades',
+                                            'activity_sha256'))):
                         raise StateRefused('owner_close_partial_binding')
                     closure_sha = current_binding[2]
                     recovery = {'receipt_ledger_sha256': previous, 'recovered_partial': True}
