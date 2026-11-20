@@ -772,7 +772,12 @@ pass has a bounded read budget. Failures remain explicit gaps. It never redeems
 holdings, places orders or consumes another date. Redemption remains an owner or
 separately authorized facility action; until proved, its principal stays charged.
 Later facts create immutable `status/<session>.e-<hash>.json` economics supplements;
-the original outcome remains unchanged. The control projection remains free of
+the original outcome remains unchanged. A native redemption with an unallocated
+position is listed as possible in each session with a matching filled-token
+intent by its activity second. An intent in the same second remains ambiguous.
+These warnings carry zero allocated cash, returned principal and released
+basis, including when a different position in the activity was proved.
+The control projection remains free of
 economic facts for researchers who must stay blind. The default final-look helper
 requires complete measured cash and the registered family closure; positive cash
 alone is not qualified edge, and missing evidence gives INCONCLUSIVE.

@@ -12,7 +12,7 @@ from weather.market.lfc_recording_io import file_sha, write_new, STATE_JSON_LIMI
 from weather.market.mm_stage2_hold import digest, utc
 
 
-def possible_unallocated_payouts(book, sessions, allocated_ids):
+def possible_unallocated_payouts(book, sessions):
     """Refused native burns on a selected lot's token, without claiming its proceeds."""
     if not book.unknown:
         return {}
@@ -25,8 +25,6 @@ def possible_unallocated_payouts(book, sessions, allocated_ids):
 
     candidates = {}
     for key in book.unknown:
-        if key in allocated_ids:
-            continue
         activity = book.activities[key]
         if activity.get('native_redemption') is None or activity['cash_native'] is None:
             continue
@@ -49,7 +47,13 @@ def measured(ledger, sessions):
              and Decimal(leg['size_matched'])]
     releases = [r for r in book.allocations if book.lots[r['intent_key']]['session_id'] in sessions]
     ids = {r['activity_id'] for r in releases}
-    possible = possible_unallocated_payouts(book, sessions, ids)
+    possible = possible_unallocated_payouts(book, sessions)
+    possible_evidence = [
+        {'activity_id': key, 'token_ids': tokens, 'timestamp': book.activities[key]['timestamp'],
+         'attribution': 'possible', 'allocated_cash_native': 0, 'returned_principal_native': 0,
+         'cost_basis_released_native': 0}
+        for key, tokens in sorted(possible.items())
+    ]
     redemptions = []
     for key in sorted(ids):
         all_allocations = [r for r in book.allocations if r['activity_id'] == key]
@@ -82,7 +86,7 @@ def measured(ledger, sessions):
         'settlement': {'cost_basis_releases': releases, 'redemptions': redemptions,
                        'zero_payout_losses': [r for r in book.zero_resolutions if book.lots[r['intent_key']]['session_id'] in sessions],
                        'unknown_payouts': [key for key in book.unknown if key in ids or key in possible],
-                       **({'possible_unallocated_tokens_by_activity': possible} if possible else {})},
+                       **({'possible_unallocated_redemptions': possible_evidence} if possible_evidence else {})},
         'rewards': {'accruals': [], 'actually_paid_native': None, 'rebates_actually_paid_native': None,
                     'account_cash_credits': credits, 'earned_session_link_verified': False,
                     'state': 'earned_scope_evidence_pending', 'planning_is_income': False, **reward_rails},
