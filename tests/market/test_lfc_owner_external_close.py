@@ -145,9 +145,8 @@ def book_trade(runtime, ledger, read, facts):
 def finish_claim(ledger):
     from weather.market.lfc_campaign_closures import anchor
 
-    root = ledger.path.parent / 'test-postchecks'
-    root.mkdir()
-    state = AccountState(root, ledger)
+    state = AccountState(ledger.path.parent / 'test-postchecks', ledger)
+    state.root.mkdir(parents=True)
     proof = {'authority': 'owner_operational_close', 'money_accounting_complete': True, 'cleanup_proven': True,
              'unknown_submit': False, 'ledger_head_sha256': ledger.previous}
     state.save('closed/' + ATTEMPT + '.json', {'attempt_id': ATTEMPT, 'proof': proof,
@@ -310,7 +309,7 @@ def test_receipt_bound_trade_rejects_campaign_counterparty_on_later_read(
         row['maker_orders'].append({'order_id': campaign_order, 'maker_address': '0x'+'9'*40})
         part, size_key = row, 'size'
     item, = book.personal_trades.values()
-    before = ledger.path.read_bytes(), ledger.previous, book.figures(), book.expected_cash(), deepcopy(book.personal_trades)
+    before = ledger.path.read_bytes(), book.ledger.previous, book.figures(), book.expected_cash(), deepcopy(book.personal_trades)
     for readback in (
             lambda: make_anchor(book, mixed, kind='f2_session_anchor'),
             lambda: personal_net(book, mixed['trades'], cut),
@@ -319,7 +318,7 @@ def test_receipt_bound_trade_rejects_campaign_counterparty_on_later_read(
                                         campaign_order_ids={order.lower() for order in campaign_ids})):
         with pytest.raises(CapitalRefused, match='^f2_personal_trade_changed$'):
             readback()
-        assert (ledger.path.read_bytes(), ledger.previous, book.figures(), book.expected_cash(), book.personal_trades) == before
+        assert (ledger.path.read_bytes(), book.ledger.previous, book.figures(), book.expected_cash(), book.personal_trades) == before
 
 
 @pytest.mark.parametrize('separate_fee', [False, True])
