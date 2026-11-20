@@ -12,7 +12,7 @@ from weather.market.lfc_capital import CapitalBook
 from weather.market.lfc_accounting import quantity
 from weather.market.lfc_f2_economics import final_cash_assessment
 from weather.market.lfc_recording_io import file_sha, published_recoveries, read_recovered, response_bytes, write_new
-from weather.market.lfc_settlement_record import envelope, validate_settlement
+from weather.market.lfc_settlement_record import SettlementScopeUnproven, envelope, validate_settlement
 from weather.market.mm_stage2_hold import digest, utc
 from weather.operations.live_path_security import validate_contained_regular_file
 
@@ -60,16 +60,31 @@ def confirmation_sessions(ledger, frozen):
     return result
 
 
-def cutoff_settlement(root, condition, cutoff, now, hashes, late, supplement_gaps):
+def cutoff_settlement(root, condition, cutoff, now, hashes, late, supplement_gaps, unresolved_conditions):
     """Use the recorder observation clock and retain later terminal evidence."""
     path = root / 'settlement' / (condition + '.json')
     if not path.exists():
         return {}
 
-    def validate(candidate):
-        return validate_settlement(validate_contained_regular_file(root, candidate), condition)
+    disputed_path = path
 
-    record, accepted = read_recovered(path, validate)
+    def validate(candidate):
+        nonlocal disputed_path
+        candidate = validate_contained_regular_file(root, candidate)
+        try:
+            return validate_settlement(candidate, condition)
+        except SettlementScopeUnproven:
+            disputed_path = candidate
+            raise
+
+    try:
+        record, accepted = read_recovered(path, validate)
+    except SettlementScopeUnproven as exc:
+        unresolved_conditions.append({
+            'condition_id': condition, 'state': 'SETTLEMENT_SCOPE_UNPROVEN', 'reason': str(exc),
+            'file': str(disputed_path.relative_to(root)), 'sha256': file_sha(disputed_path),
+        })
+        return {}
     # A valid immutable original wins. Published replacements never supersede it.
     receipts = [(record, accepted)]
     if accepted == path:
@@ -97,6 +112,7 @@ def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
     book = CapitalBook(ledger)
     winners, unknown, zeros, hashes, by_lot = [], [], [], {}, {}
     settlements, late_settlement_receipts, settlement_supplement_gaps = {}, [], []
+    unresolved_settlement_conditions = []
     for allocation in book.allocations:
         activity = book.activities[allocation['activity_id']]
         if activity['timestamp'] <= cutoff.timestamp():
@@ -110,7 +126,8 @@ def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
         condition = lot['condition_id']
         if condition not in settlements:
             settlements[condition] = cutoff_settlement(Path(root), condition, cutoff, now,
-                                                       hashes, late_settlement_receipts, settlement_supplement_gaps)
+                                                       hashes, late_settlement_receipts, settlement_supplement_gaps,
+                                                       unresolved_settlement_conditions)
         payout = settlements[condition].get(lot['token_id'])
         row = {'intent_key': key, 'session_id': lot['session_id'], 'token_id': lot['token_id'],
                'quantity_at_cutoff': str(left), 'counted_as_cash_native': 0}
@@ -167,6 +184,8 @@ def snapshot(ledger, policy, *, root, now, frozen=None, state=None):
         'settlement_cutoff_clock': 'recorder_observed_at_utc',
         'late_settlement_receipts': sorted(late_settlement_receipts, key=lambda r: (r['observed_at_utc'], r['file'])),
         'settlement_supplement_gaps': sorted(settlement_supplement_gaps),
+        'unresolved_settlement_conditions': sorted(unresolved_settlement_conditions,
+                                                   key=lambda row: row['condition_id']),
         'late_cash_activity_ids': sorted(key for key, a in book.activities.items() if a['timestamp'] > cutoff.timestamp())}
 
 

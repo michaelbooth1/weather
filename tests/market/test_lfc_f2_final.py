@@ -266,3 +266,61 @@ def test_valid_early_original_takes_precedence_over_later_published_recovery(tmp
     assert [row['token_id'] for row in after['unredeemed_winners_at_cutoff']] == ['222']
     late, = after['late_settlement_receipts']
     assert late['file'] == str(replacement.relative_to(tmp_path))
+
+
+@pytest.mark.parametrize('accepted_recovery', [False, True])
+def test_final_report_keeps_disputed_condition_separate_and_is_create_only(tmp_path, monkeypatch, accepted_recovery):
+    from tests.market.test_lfc_settlement_token_consensus import CID, ORIGINAL, historical_row, payload
+    from weather.market import lfc_f2_freeze
+    from weather.market.lfc_f2_final import write_final
+    from weather.market.lfc_recording_io import file_sha, prepare_recovery, publish_recovery, retained, write_new
+
+    policy = parse_policy(example_policy())
+    cutoff = datetime.fromisoformat(policy.raw['evidence_cutoff_toronto']).astimezone(timezone.utc)
+    now = cutoff + timedelta(hours=6)
+    ledger = ledger_at(tmp_path)
+    filled(ledger, 'disputed', token='101', condition=CID)
+    filled(ledger, 'valid_winner', token='222', condition=CONDITION)
+    filled(ledger, 'valid_loser', token='111', condition=CONDITION)
+    original = tmp_path / 'settlement' / (CID + '.json')
+    disputed = historical_row()
+    write_new(original, disputed)
+    record_settlement(tmp_path, CONDITION, clock=lambda: cutoff,
+                      get=lambda path, params: resolution() if path.endswith('resolutions') else tokens())
+    valid = tmp_path / 'settlement' / (CONDITION + '.json')
+    if accepted_recovery:
+        replacement, manifest = prepare_recovery(original, clock=lambda: cutoff, reason='fixture')
+        write_new(replacement, dict(disputed, tokens=retained(payload(ORIGINAL))))
+        publish_recovery(replacement, manifest)
+
+    evidence_before = (original.read_bytes(), valid.read_bytes(), ledger.path.read_bytes())
+    state = SimpleNamespace(root=tmp_path, ledger=ledger, require_retained_evidence=lambda: None)
+    monkeypatch.setattr(lfc_f2_freeze, 'verify', lambda *a, **kw: None)
+    output = tmp_path / 'report.json'
+    report = write_final(state, policy, root=tmp_path, output=output, now=now)
+    assert {row['intent_key'] for row in report['unredeemed_winners_at_cutoff']} == (
+        {'valid_winner', 'disputed'} if accepted_recovery else {'valid_winner'})
+    assert [row['intent_key'] for row in report['unswept_zero_payout_positions']] == ['valid_loser']
+    assert sum(report['proved_redemption_cash_native'].values()) == 0
+    assert report['assessment']['state'] == 'INCONCLUSIVE'
+    assert report['evidence_sha256'][str(valid.relative_to(tmp_path))] == file_sha(valid)
+    if accepted_recovery:
+        assert report['unresolved_settlement_conditions'] == report['unresolved_at_cutoff'] == []
+        assert report['evidence_sha256'][str(replacement.relative_to(tmp_path))] == file_sha(replacement)
+    else:
+        unresolved, = report['unresolved_at_cutoff']
+        assert unresolved['intent_key'] == 'disputed' and unresolved['counted_as_cash_native'] == 0
+        assert report['unresolved_settlement_conditions'] == [
+            {'condition_id': CID, 'state': 'SETTLEMENT_SCOPE_UNPROVEN',
+             'reason': 'ambiguous_matching_token_pair', 'file': str(original.relative_to(tmp_path)),
+             'sha256': file_sha(original)}
+        ]
+
+    first_bytes = output.read_bytes()
+    with pytest.raises(FileExistsError):
+        write_final(state, policy, root=tmp_path, output=output, now=now)
+    assert output.read_bytes() == first_bytes
+    repeated = tmp_path / 'second-report.json'
+    assert write_final(state, policy, root=tmp_path, output=repeated, now=now) == report
+    assert repeated.read_bytes() == first_bytes
+    assert (original.read_bytes(), valid.read_bytes(), ledger.path.read_bytes()) == evidence_before

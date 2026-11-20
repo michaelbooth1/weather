@@ -1027,7 +1027,10 @@ observed by the recorder through the cutoff, inclusive. Its clock records
 observation, with no independent proof of when the receipt reached durable
 storage. An intact original takes precedence over a recovery, and a corrupt
 original requires one hash-bound published recovery. Later terminal receipts
-remain timestamped supplements with their file identity and hash. Known
+remain timestamped supplements with their file identity and hash. A disputed
+settlement scope with no accepted recovery leaves that condition unresolved.
+The report retains the refusal reason, receipt path and hash while still
+classifying the other conditions. Known
 purchase/redemption cash subtotals are MEASURED and exclude PLANNING predictions.
 The current automatic evidence does not prove earned-session links for paid
 rewards, all fee/cost attribution, family closure or an independent cutoff cash
