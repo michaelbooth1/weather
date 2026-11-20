@@ -6,6 +6,7 @@ No SDK client, signer, credential source, task, reader or network is exercised.
 from copy import deepcopy
 from decimal import Decimal
 from datetime import timedelta
+from hashlib import sha256
 from types import SimpleNamespace
 
 import pytest
@@ -79,11 +80,20 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
             return []
         def close(self):
             self.client.close()
+    class CampaignRaw(FundedRaw):
+        def submit(self, request, *, checkpoint=lambda: None):
+            response = super().submit(request, checkpoint=checkpoint)
+            previous = response['order_id']
+            oid = '0x' + sha256(previous.encode()).hexdigest()
+            row = self.memory.orders.pop(previous)
+            self.memory.orders[oid] = {**row, 'id': oid}
+            return {**response, 'order_id': oid}
+
     def venue(client, fields, guard, **kwargs):
         if kwargs.get('readonly'):
             return Reader(client)
-        raw = FundedRaw(snapshots[kwargs['condition']], kwargs['directory'], clock=clock,
-                        account=account, index=len(raws))
+        raw = CampaignRaw(snapshots[kwargs['condition']], kwargs['directory'], clock=clock,
+                          account=account, index=len(raws))
         raw.fixture_stream_factory = kwargs['stream_factory']
         def start():
             clock.sleep(setup_latency / 4)
