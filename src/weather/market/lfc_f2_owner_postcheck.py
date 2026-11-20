@@ -16,12 +16,17 @@ from weather.market.mm_stage2_hold import _order_id, digest, utc
 class ActivityPending(TransientPrecheck):
     """The consumed attempt stays pending until another fresh read can prove it."""
 
+    def __init__(self, reason, *, stage=None):
+        super().__init__(reason)
+        self.stage = stage
+
 
 class Budget:
     """Leave time for account freshness and bound each auxiliary read."""
     def __init__(self, clock, *, seconds=40):
         self.clock, self.seconds = clock, seconds
         self.deadline = None
+        self.component_times = {}
 
     def timeout(self, maximum):
         now = self.clock.monotonic()
@@ -147,14 +152,14 @@ def prove(runtime, ledger, attempt, read, traded, notices, budget):
         reason = str(exc)
         campaign_cash = isinstance(exc, WalletCashMismatch) and exc.shortfall_native > exc.owner_cover_native
         if reason == 'owner_external_campaign_overlap' or campaign_cash:
-            runtime.account_read_preflight(ledger, read)
+            fresh_preflight(runtime, ledger, read)
             proof['money_contradiction'] = True
             proof['owner_activity_reason'] = reason
             return proof
         raise ActivityPending(reason) from exc
     except (OSError, *DECODE_ERRORS) as exc:
         raise ActivityPending('owner_activity_proof_unavailable') from exc
-    runtime.account_read_preflight(ledger, read)
+    fresh_preflight(runtime, ledger, read)
     if pending:
         raise ActivityPending(pending)
     try:
@@ -166,3 +171,39 @@ def prove(runtime, ledger, attempt, read, traded, notices, budget):
     proof.update(money_accounting_complete=True, ledger_head_sha256=ledger.previous,
                  capital={'cash_bridge_complete': True, 'figures': book.figures()})
     return proof
+
+
+def fresh_preflight(runtime, ledger, read, *, stage='final_account_preflight'):
+    from weather.market.lfc_campaign_reads import account_read_age
+
+    if account_read_age(read, runtime.clock.now()) > 120:
+        raise ActivityPending('account_read_stale', stage=stage)
+    try:
+        return runtime.account_read_preflight(ledger, read)
+    except TransientPrecheck as exc:
+        raise ActivityPending(str(exc), stage=stage) from exc
+
+
+def gap_evidence(*, now, attempt, result_sha, local, ledger, read, components, stage, reason):
+    import re
+    from weather.market.lfc_campaign_reads import ACCOUNT_READ_COMPONENTS, account_read_age
+
+    intervals = {}
+    for name in ACCOUNT_READ_COMPONENTS:
+        try:
+            interval = components[name]
+            intervals[name] = {key: utc(interval[key]).isoformat() for key in ('started_at_utc', 'ended_at_utc')}
+        except (KeyError, TypeError, ValueError):
+            continue
+    try:
+        age = account_read_age(read, now) if read is not None else None
+    except (KeyError, TypeError, ValueError):
+        age = None
+    return {'at_utc': now.isoformat(), 'attempt_id': attempt,
+            'pending_claim_sha256': digest(['f2-owner-postcheck', attempt, result_sha]),
+            'stage': stage, 'reason': reason if re.fullmatch(r'[a-z][a-z_0-9]{0,95}', reason)
+            else 'owner_activity_proof_unavailable',
+            'preflight_age_seconds': age, 'component_times': intervals,
+            'result_sha256': result_sha, 'private_evidence_sha256': digest(local),
+            'read_sha256': digest(read) if read is not None else None, 'ledger_head_sha256': ledger.previous,
+            'monetary_placement_retried': False}

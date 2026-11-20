@@ -159,6 +159,51 @@ def test_deadline_does_not_admit_next_chain_request(tmp_path, account_guard, mon
     assert calls == [4]
 
 
+def test_stale_final_preflight_and_initial_deadline_retain_the_same_pending_claim(tmp_path, account_guard, monkeypatch):
+    runtime, ledger, read, _, receipt = fixture_trade(tmp_path, example=True, shared_wallet=True)
+    result = {'unknown_submit': False}
+    claim, local, result_sha = {'attempt_id': ATTEMPT}, {'owner_activity': []}, '1'*64
+    ledger.record('autostart_result', attempt_id=ATTEMPT, file_sha256=result_sha)
+    prior = ledger.path.read_bytes(), ledger.previous
+    saved = []
+    runtime.lease, runtime.reload_ledger = object(), lambda: ledger
+    runtime.state.retained_result = lambda _: (result, result_sha, local)
+    runtime.state.save = lambda path, row: saved.append((path, row))
+    read_at = runtime.clock.value
+    runtime.clock.value += timedelta(seconds=119)
+    runtime.read_account = lambda **_: read
+    monkeypatch.setattr(Budget, 'public_get', lambda *a: activity_page([]))
+
+    def final_receipt(*_, **__):
+        runtime.clock.value += timedelta(seconds=2)
+        return receipt
+
+    monkeypatch.setattr(Budget, 'rpc', final_receipt)
+    with pytest.raises(ActivityPending, match='account_read_stale'):
+        runtime.postcheck(claim, result)
+    path, stale = saved[0]
+    assert path.startswith('postcheck-gaps/') and stale['stage'] == 'final_account_preflight'
+    assert stale['preflight_age_seconds'] == 121
+    assert stale['component_times'] == read['component_times']
+    assert stale['read_sha256'] == digest(read) and stale['private_evidence_sha256'] == digest(local)
+    assert (ledger.path.read_bytes(), ledger.previous) == prior
+
+    def partial(*, budget, **_):
+        budget.component_times['balances'] = read['component_times']['balances']
+        raise ActivityPending('owner_activity_proof_deadline')
+
+    runtime.read_account = partial
+    runtime.clock.value = read_at + timedelta(seconds=200)
+    with pytest.raises(ActivityPending, match='owner_activity_proof_deadline'):
+        runtime.postcheck(claim, result)
+    retry_path, gap = saved[1]
+    assert retry_path != path and gap['pending_claim_sha256'] == stale['pending_claim_sha256']
+    assert gap['stage'] == 'account_read' and gap['preflight_age_seconds'] is None
+    assert gap['component_times'] == {'balances': read['component_times']['balances']}
+    assert gap['read_sha256'] is None and gap['monetary_placement_retried'] is False
+    assert (ledger.path.read_bytes(), ledger.previous) == prior
+
+
 def test_non_campaign_order_checks_key_scope_and_campaign_spendable(tmp_path, account_guard):
     _, ledger, read, _, _ = fixture_trade(tmp_path, example=True, shared_wallet=True, deposit=20)
     order = dict(id=ORDER, market=FOREIGN, asset_id='90', owner=OTHER_KEY, maker_address=MAKER,

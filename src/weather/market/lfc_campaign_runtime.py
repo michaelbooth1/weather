@@ -556,6 +556,8 @@ class Runtime:
             start = self.clock.now()
             terminal_orders = self.read_missing_terminal_orders(venue, terminal_order_ids)
             values, times = {}, {}
+            if budget is not None:
+                budget.component_times = times
             readers = {'open_orders': venue.open_orders, 'trades': venue.trades,
                        'positions': lambda: fetch_account_positions(self.state.maker),
                        'balances': venue.balances, 'geography': venue.geography}
@@ -1166,14 +1168,20 @@ class Runtime:
         result_at = terminal_result_time(ledger, claim['attempt_id'])
 
         from weather.market.lfc_f2_owner_notice import OVERLAP
-        from weather.market.lfc_f2_owner_postcheck import ActivityPending, Budget, enabled, prove
+        from weather.market.lfc_f2_owner_postcheck import ActivityPending, Budget, enabled, fresh_preflight, gap_evidence, prove
         shared_wallet = enabled(ledger, claim['attempt_id'])
         budget = Budget(self.clock) if shared_wallet else None
+        stage, read = 'account_read', None
 
         def read_for_postcheck():
+            nonlocal stage, read
+            stage, read = 'account_read', None
             if shared_wallet:
+                budget.component_times = {}
                 try:
                     read = self.read_account(terminal_order_ids=missing, persist=False, budget=budget)
+                except ActivityPending:
+                    raise
                 except (OSError, TransientPrecheck, ValueError) as exc:
                     raise ActivityPending('owner_activity_account_pending') from exc
                 except StateRefused as exc:
@@ -1182,6 +1190,7 @@ class Runtime:
                     raise ActivityPending('owner_activity_geoblock_pending') from exc
             else:
                 read = self.read_account(terminal_order_ids=missing) if missing else self.read_account()
+            stage = 'terminal_order_preflight'
             writes = stage_postcheck_terminals(ledger, missing, read, now=self.clock.now(),
                                                result_at=result_at, reconcile=True)
             return read, writes
@@ -1195,9 +1204,12 @@ class Runtime:
             read, writes = read_for_postcheck()
             self._orders_open_unproven = True
             if shared_wallet or writes:
-                traded = self.account_read_preflight(ledger, read)
+                stage = 'initial_account_preflight'
+                traded = (fresh_preflight(self, ledger, read, stage=stage) if shared_wallet
+                          else self.account_read_preflight(ledger, read))
                 for oid, row in writes.items():
                     ledger.terminal(oid, row, source='autostart_postcheck')
+                stage = 'owner_projection'
                 proof = account_proof(read, traded)
             else:
                 proof = self.core_proof(ledger, read)
@@ -1210,12 +1222,19 @@ class Runtime:
                     break
                 self.clock.sleep(2)
                 read, _ = read_for_postcheck()
-                proof = (account_proof(read, self.account_read_preflight(ledger, read))
-                         if shared_wallet else self.core_proof(ledger, read))
-        except ActivityPending as exc:
-            self.state.save('postcheck-gaps/' + uuid.uuid4().hex + '.json', {
-                'at_utc': self.clock.now().isoformat(), 'attempt_id': claim['attempt_id'],
-                'reason': str(exc), 'monetary_placement_retried': False})
+                if shared_wallet:
+                    stage = 'initial_account_preflight'
+                    traded = fresh_preflight(self, ledger, read, stage=stage)
+                    stage = 'owner_projection'
+                    proof = account_proof(read, traded)
+                else:
+                    proof = self.core_proof(ledger, read)
+        except TransientPrecheck as exc:
+            if shared_wallet:
+                self.state.save('postcheck-gaps/' + uuid.uuid4().hex + '.json', gap_evidence(
+                    now=self.clock.now(), attempt=claim['attempt_id'], result_sha=result_sha, local=local,
+                    ledger=ledger, read=read, components=budget.component_times if read is None else read['component_times'],
+                    stage=getattr(exc, 'stage', None) or stage, reason=str(exc)))
             raise
         if missing:
             proof['terminal_backfill_result_at_utc'] = result_at.isoformat()
