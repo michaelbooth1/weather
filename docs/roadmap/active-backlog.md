@@ -5,7 +5,7 @@ remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan. DORMANT items are parked with a dated
 disposition and listed separately.
 
-Generated: 2026-11-14T05:55:07.328766+00:00
+Generated: 2026-11-20T05:31:20.178836+00:00
 Status: `OK`
 
 ## Summary
@@ -18,7 +18,7 @@ Status: `OK`
 | PARTIAL | 12 |
 | COMPLETE | 289 |
 | DORMANT | 28 |
-| Active, no disposition within 45 days of 2026-11-14 | 9 |
+| Active, no disposition within 45 days of 2026-11-19 | 9 |
 | ROADMAP rows | 336 |
 | ROADMAP primary rows | 336 |
 | Metadata manifest rows | 336 |
@@ -28,7 +28,7 @@ Status: `OK`
 
 | Item | Status | Date | Disposition | File |
 | :--- | :--- | :--- | :--- | :--- |
-| 67 | PARTIAL | 2026-11-14 | LFC F2 PIN B TRADING LIVE (LEARNING) SINCE 2026-11-13; PAID-VS-PREDICTED EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | PARTIAL | 2026-11-19 | LFC F2 PIN B LIVE TESTING PAUSED BY THE OWNER 2026-11-19 AFTER LIVE SESSIONS FROM 2026-11-13; PAID-VS-PREDICTED EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 224 | PARTIAL | 2026-07-11 | REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 309 | PARTIAL | 2026-08-19 | INTERNATIONAL V0.3/PUSD CONTRACT INTEGRATED; EXPLICIT ACCEPTANCE OPEN | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
@@ -55,14 +55,14 @@ disposition or mark the item `DORMANT YYYY-MM-DD - reason`.
 
 | Item | Status | Date | Days | File |
 | :--- | :--- | :--- | :--- | :--- |
-| 224 | PARTIAL | 2026-07-11 | 126 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
-| 309 | PARTIAL | 2026-08-19 | 87 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
-| 323 | PARTIAL | 2026-07-15 | 122 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
-| 324 | PARTIAL | 2026-08-22 | 84 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 325 | PARTIAL | 2026-09-13 | 62 | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
-| 326 | PARTIAL | 2026-08-15 | 91 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
-| 331 | PARTIAL | 2026-09-12 | 63 | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
-| 332 | PARTIAL | 2026-09-12 | 63 | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
+| 224 | PARTIAL | 2026-07-11 | 131 | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 309 | PARTIAL | 2026-08-19 | 92 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 323 | PARTIAL | 2026-07-15 | 127 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 324 | PARTIAL | 2026-08-22 | 89 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
+| 325 | PARTIAL | 2026-09-13 | 67 | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 326 | PARTIAL | 2026-08-15 | 96 | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 331 | PARTIAL | 2026-09-12 | 68 | [Overnight Reliability Program](items/item-331-overnight-reliability-program.md) |
+| 332 | PARTIAL | 2026-09-12 | 68 | [Bounded Settlement-Source Audit](items/item-332-bounded-settlement-source-audit.md) |
 | 333 | PARTIAL | - | undated | [Signed Native Temperature Band Parser](items/item-333-signed-native-temperature-band-parser.md) |
 
 ## Dormant Items

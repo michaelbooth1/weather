@@ -1,7 +1,8 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-11-14 - LFC F2 PIN B TRADING LIVE (LEARNING) SINCE 2026-11-13; PAID-VS-PREDICTED EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-11-19 - LFC F2 PIN B LIVE TESTING PAUSED BY THE OWNER 2026-11-19 AFTER LIVE SESSIONS FROM 2026-11-13; PAID-VS-PREDICTED EVIDENCE OPEN]
 
-> **Read the last section first.** The F2 Pin B live campaign (LFC lane) has
-> traded since 2026-11-13; its dated sections are last. The 2026-09-06
+> **Read the last section first.** The F2 Pin B live campaign (LFC lane)
+> traded from 2026-11-13 until the owner paused live testing on 2026-11-19;
+> its dated sections are last. The 2026-09-06
 > owner-attended Stage 0/1 test (three 0.005 pUSD orders, cancelled, zero
 > fills; spent) ran from unmerged branch code; its attempt ledger is below.
 > Current authority is in [STATE_OF_PLAY.md](../../operations/STATE_OF_PLAY.md).
@@ -1053,3 +1054,51 @@ was released when the tick exited.
   marker or hold exists. The L5 card had the old ordering.
 - **Still open:** the inherited recovery corner; the T122 operations branch `codex/b090l4-ops-20261117`
   `5725dc1c` (in neither L5 nor L6, not installed); the 2 h start-window cap; bot memory growth.
+
+## 2026-11-19 F2 Pin B Thursday: incident 4 on B090-L5; live testing paused; closed on B090-L6E; L6F and L7b before any resume
+
+- **Incident 4** (`2f570a1b…`) latched at 10:18 on the installed B090-L5, during Thursday's B session. Cause:
+  the owner's personal activity on the shared wallet during the F2 session (a manual, non-campaign trade).
+  L5's full-wallet inventory proof failed (`private_evidence_unbound`), and L5 keeps the date consumed. That
+  activity is a durable owner capability (DECISION_LOG 2026-11-12), so the halt is a bot defect: F2 must
+  tolerate it.
+- **Live testing paused** (owner about 12:20, DECISION_LOG 2026-11-19): no owner card, Enable or session until
+  the owner resumes; work is fixes and continued capture.
+- **Same-day close attempts.** The owner wanted incident 4 closed the same day. Close-only builds, stacked on
+  the L6 candidate `e9f58310` and each independently reviewed by Astra on WS branches
+  (`codex/b090l6c-owner-external-close-20261119`, then `codex/b090l6d-owner-later-trades-20261119`):
+  - L6C `5d23e01f`: the owner's card refused, because the owner's later personal trades fell outside the
+    session window;
+  - L6D `0e934da5`: refused on a later personal withdrawal; its card block 1 also failed on a stale control
+    label while the task was disabled;
+  - L6E `39a41ebc`: owner-close proof v4 covers trades, deposits, withdrawals, redemptions, merges and rewards.
+
+  Each round failed on another class of normal owner activity.
+- **Close** (DECISION_LOG 2026-11-19). Astra's R12 review held L6E for two edge defects: a PositionManager
+  redemption checked against the CTF contract, and a positive cash-only public row accepted with zero proved
+  transfer. Neither applied to the owner's actual activity. On the master's recommendation the owner ran the
+  L6E card, and incident 4 closed at 21:14. The task is left DISABLED with L6E installed. **Hard gate: L6E must
+  never run a session.**
+- **B090-L6F `f4b6dec9`** (on the L6D branch) fixes both R12 defects. Astra R13: INSTALLABLE as a
+  disabled-task upgrade; the ledger copy, including the 21:14 close, replays IDENTICAL.
+- **Resume blockers** (Astra, A095 pass 8): three more for shared-wallet sessions.
+  - F2 cleanup, and venue heartbeat expiry, can cancel non-F2 orders (the owner's own, or another of the
+    owner's bots') in the same authenticated scope.
+  - A personal withdrawal can reach campaign cost or headroom in an L6F test path.
+  - A valid auto-redemption notice ends the session even when inventory reconciles, and personal fills can
+    interrupt quoting.
+
+  All three are being built into **B090-L7b** (`codex/b090l7b-session-owner-activity-20261119`, stacked on
+  L6F): the session tolerates owner wallet activity, and no chain-receipt wait sits on the quote loop.
+  Qualification is pending. **Resume requires L7b, not just L6F** (master).
+- **L8 measured, not built.** Snapshot-age refusals at the 10-second submit age limit (`fresh_book_scope`; the
+  serial snapshot median is about 11.7 s) and missed refreshes during sequential startup
+  (`market_snapshot_stale`) cost up to 874.58 band-minutes on 11-18 and 387.78 on 11-19. It is an upper-bound
+  cost measurement for the L8 build decision (EF §10bl).
+- **Lesson:** an owner-close proof must be no stricter than the ordinary between-session re-anchor. Each
+  close-only round that asked for more failed on the next class of normal owner activity.
+- **Still open:** L7b's build, qualification and review; A095 pass 7's findings, routed to engineering (Codex
+  T123r7, in progress): a settlement token-map conflict that can write off a winning lot (ranked first), a
+  training-fold support defect, the final-cutoff inventory status and a session-supplement burn omission; the
+  T122 operations branch `5725dc1c` (in none of L6E, L6F or L7b); L6's inherited recovery corner; the 2 h
+  start-window cap; bot memory growth.

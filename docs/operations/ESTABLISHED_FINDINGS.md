@@ -159,6 +159,7 @@ sequence numbers, not calendar dates.
 | 10bi | A093 target-day management of carried inventory 2026-11-16 (ledger row 129, K kill-only; register X119): no alternative cleared the positive-lower-bound requirement against B; target-day B minus holding −0.16 c/share [−6.12, +5.85] unresolved; hold residuals to settlement, keep B's 1.5 c pair cap, no stop/SELL/looser cap before the seal |
 | 10bj | F2 Pin B Friday settlement and Monday run A 2026-11-16 (T120/T121; descriptive, two live dates, one settled): Friday +13.62 pUSD before rewards (Miami +25.07, rest −11.45); Monday 311 quoting min, 13 fills 162.28 sh, Chicago 37% of cost; +30 min −0.49 c/share vs purchase, −1.89 c vs pre-fill mid; fills per order-hour ~1.87x A092; reward per city-hour 31.6% below A092; gates uncertifiable/FAIL |
 | 10bk | LOW-ASK-1 N68 power 2026-11-18 (T123r5/T123r6; SYNTHETIC PLANNING, no LOW-ASK-1 data read, not an edge result): SCREEN_ONLY under the owner's .80 rule (minimum simultaneous planning-power lower bound 2.12%, power 2.90-4.95% at the $0.6741 planning effect; null size ≤ 1.13% vs 1.25%); MDE at 68 dates $1.36 per scheduled city-day (~2.0x); 80% needs ~36-37 weeks (extrapolated, 32-48) |
+| 10bl | F2 Pin B snapshot-age cost 2026-11-19 (L8 measurement; MEASURED UPPER BOUND, descriptive, two live dates; L8 not built): `fresh_book_scope` refusals at the 10 s submit age limit (serial snapshot median ~11.7 s) and `market_snapshot_stale` missed refreshes during sequential startup cost up to 874.58 band-minutes on 11-18 and 387.78 on 11-19; an input to the L8 build decision, not a profit or reward cost |
 
 ---
 
@@ -5876,6 +5877,23 @@ an edge claim, a kill or a statement about the lowest-temperature lead itself.
   `5c666d40e33e31ab3fc6c51c50a2dc1ad6e9ad0bcacfd849faab6d80d329fb61`; `N68-SCREEN-ONLY-DISPOSITION.json`
   sha256 `d2008c08eda2719da103ddbe27501c26dc9bee2dc6e734d712972b7b4a02bc11`. The candidate
   `codex/t123-low-ask-restart-20261117` @ `8208b137` (draft PR #300) is unfrozen.
+
+### 10bl. F2 Pin B snapshot-age paths cost up to 874.58 band-minutes on 11-18 and 387.78 on 11-19 (MEASURED UPPER BOUND, descriptive, two live dates; an input to the L8 build decision, L8 not built) — L8 measurement, 2026-11-19
+
+Two live B sessions on the owner's shared wallet: 11-18 on B090-L4 and 11-19 on B090-L5, both ended early by
+incidents 3 and 4 ([item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md)
+§2026-11-18, §2026-11-19). Own live-session records, read under the owner's F2 look waiver
+([reserved window](reserved-confirmation-window.md)). This is quoting time lost to two snapshot-age paths. It
+is **not an edge, profit or reward result**, and it does not size L8's benefit in fills or net result.
+
+- **Path 1, `fresh_book_scope`.** The submit path refuses a quote whose book snapshot is older than the
+  10-second submit age limit. The serial snapshot median is about 11.7 s, above that limit.
+- **Path 2, `market_snapshot_stale`.** Markets missed their refresh during sequential startup, so their
+  snapshots were stale.
+- **Cost, upper bound.** Together the two paths cost up to 874.58 band-minutes on 11-18 and 387.78 on 11-19.
+  Support: two live dates, each cut short by its incident; counts only, no interval.
+- **Use.** An upper-bound cost measurement for the L8 build decision (measured, not built;
+  [STATE_OF_PLAY](STATE_OF_PLAY.md)).
 
 ## Related
 
