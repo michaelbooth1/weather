@@ -328,6 +328,10 @@ def bounded_rows(paginator, *, seconds=None):
     return account_rows(paginator, normalize=plain_sdk_value, seconds=seconds, monotonic=time.monotonic)
 
 
+class WalletOrderTransportContractError(RuntimeError):
+    """The installed GET transport cannot be called with the pinned SDK contract."""
+
+
 def wallet_open_orders(get):
     # The pinned SDK exposes the authenticated GET transport but did not yet
     # expose this Deposit Wallet method. It signs the path and reuses the
@@ -339,7 +343,11 @@ def wallet_open_orders(get):
         cursor = ''
         while True:
             params = {'cursor': cursor} if cursor else {}
-            page = validate_wallet_order_page(get('/data/wallet-open-orders', params))
+            try:
+                raw = get('/data/wallet-open-orders', params=params)
+            except TypeError as exc:
+                raise WalletOrderTransportContractError('wallet_open_orders_get_signature') from exc
+            page = validate_wallet_order_page(raw)
             cursor = page['next_cursor']
             yield SimpleNamespace(items=page['data'], next_cursor=cursor or None, has_more=bool(cursor))
             if not cursor:

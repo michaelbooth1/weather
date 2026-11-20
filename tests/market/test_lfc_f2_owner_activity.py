@@ -145,7 +145,7 @@ def test_deposit_wallet_order_read_uses_all_pages_with_documented_cursor():
     pages = {None: {'data': [], 'next_cursor': 'first'},
              'first': {'data': [{'id': ORDER}], 'next_cursor': ''}}
     calls = []
-    def get(path, params):
+    def get(path, *, params):
         assert path == '/data/wallet-open-orders'
         calls.append(params)
         return pages[params.get('cursor')]
@@ -157,6 +157,71 @@ def test_deposit_wallet_order_read_uses_all_pages_with_documented_cursor():
     pages['first'].pop('next_cursor')
     with pytest.raises(ConnectionError, match='wallet_open_orders_unavailable'):
         wallet_open_orders(get)
+
+
+@pytest.mark.parametrize('phase', ['readiness', 'reserve', 'postcheck'])
+def test_deposit_wallet_paths_use_pinned_sdk_get(tmp_path, account_guard, phase):
+    from importlib.metadata import version
+
+    import httpx
+    from polymarket.clients._transport import SyncTransport
+    from weather.market.lfc_f2_controller import F2Coordinator
+    from weather.market.lfc_f2_order_scope import campaign_open_rows
+    from weather.market.mm_account_reads import install_account_guard
+    from weather.market.re1_transport import OwnerVenue
+
+    assert version('polymarket-client') == '0.6.0'
+    _, ledger, _, _, _ = fixture_trade(tmp_path, example=True, shared_wallet=True, deposit=20)
+    order = dict(id=ORDER, market=FOREIGN, asset_id='90', owner=OTHER_KEY, maker_address=MAKER,
+                 side='BUY', status='LIVE', price='.5', original_size='40', size_matched='8')
+    pages = {'': ([], 'a'), 'a': ([order], 'b'), 'b': ([], 'c'), 'c': ([], '')}
+    calls, signed = [], []
+
+    def headers(method, path, body):
+        signed.append((method, path, body))
+        return {'X-Inert-Fixture': 'test'}
+
+    def respond(request):
+        assert request.headers['X-Inert-Fixture'] == 'test'
+        cursor = request.url.params.get('cursor', '')
+        calls.append(cursor)
+        data, next_cursor = pages[cursor]
+        return httpx.Response(200, json={'data': data, 'next_cursor': next_cursor})
+
+    with httpx.Client(base_url='https://fixture.invalid', transport=httpx.MockTransport(respond)) as http:
+        transport = SyncTransport(base_url=str(http.base_url), client=http, header_resolver=headers)
+        venue = object.__new__(OwnerVenue)
+        venue.readonly = True
+        venue.wallet_order_scope, venue.fields, venue.preflight = True, {'SIGNATURE_TYPE': '3'}, True
+        venue.client = SimpleNamespace(_ctx=SimpleNamespace(secure_clob=transport))
+        install_account_guard(venue.client)
+        sent = []
+        venue.sender = SimpleNamespace(send=lambda: sent.append(True))
+        coordinator = object.__new__(F2Coordinator)
+        coordinator.ledger, coordinator.selected = ledger, []
+        coordinator.heartbeat_key, coordinator.heartbeat_signer = KEY, None
+        if phase == 'readiness':
+            venue.preflight_order_scope = coordinator.foreign_orders_reserve
+            venue.heartbeat()
+            assert sent == [True]
+        elif phase == 'reserve':
+            assert coordinator.foreign_orders_reserve(venue.open_orders()) == 16_000_000
+        else:
+            assert campaign_open_rows(ledger, mark_open_orders(venue.open_orders(), KEY)) == []
+    assert calls == ['', 'a', 'b', 'c']
+    assert signed == [('GET', '/data/wallet-open-orders', None)] * len(calls)
+
+
+def test_wallet_order_signature_failure_is_not_transient():
+    from weather.market.lfc_campaign_runtime import transient_read_error
+    from weather.market.re1_transport import WalletOrderTransportContractError, wallet_open_orders
+
+    def incompatible(_path, _positional_params):
+        pytest.fail('the incompatible transport body must not run')
+
+    with pytest.raises(WalletOrderTransportContractError, match='wallet_open_orders_get_signature') as exc:
+        wallet_open_orders(incompatible)
+    assert not transient_read_error(exc.value)
 
 
 def test_wallet_order_with_withheld_key_binds_a_distinct_signer():

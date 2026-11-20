@@ -33,12 +33,13 @@ def test_adoption_uses_real_sdk_dump_without_aliases(tmp_path, mode):
 def sdk_client(reply):
     """Use real public SDK pagination/parsing with a synthetic HTTP transport; no constructor or credentials."""
     from polymarket import SecureClient
+    from polymarket.clients._transport import SyncTransport
     calls = []
     def handler(request):
         calls.append(request)
         return httpx.Response(200, json=reply(len(calls)), request=request)
     http = httpx.Client(base_url='https://clob.polymarket.com', transport=httpx.MockTransport(handler))
-    transport = SimpleNamespace(_client=http, get_json=lambda path, params: http.get(path, params=params).json())
+    transport = SyncTransport(base_url=str(http.base_url), client=http)
     client = object.__new__(SecureClient)
     client._ended = False
     client._ctx = SimpleNamespace(secure_clob=transport)
