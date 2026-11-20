@@ -250,5 +250,8 @@ including orders outside the selected markets. F2 never sends account-wide
 cancellation on this path. Foreign BUY exposure consumes verified owner cash
 first and any uncovered reservation needs room in campaign spendable cash.
 A foreign order sharing F2's key can still be affected by the venue dead-man
-if it is posted while F2 is active.
+if it is posted while F2 is active. For a Deposit Wallet, F2 uses the CLOB
+wallet-open-orders route to see orders across signers and keeps an unknown
+key/ownership out of the safe set.
+[Wallet order scope](https://docs.polymarket.com/trading/session-keys#manage-wallet-orders)
 [Polymarket heartbeat documentation](https://docs.polymarket.com/trading/manage-orders#order-heartbeats)

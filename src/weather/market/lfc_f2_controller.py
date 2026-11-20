@@ -525,12 +525,12 @@ class F2Band(PilotSession):
 
 class F2Coordinator:
     def __init__(self, *, ledger, clock, directory, session_id, attempt_id, policy, entry, table,
-                 status, verify, guard=None, repost_proof=None, heartbeat_key=None, selected=()):
+                 status, verify, guard=None, repost_proof=None, heartbeat_key=None, heartbeat_signer=None, selected=()):
         self.ledger, self.clock, self.directory = ledger, clock, Path(directory)
         self.session_id, self.attempt_id, self.policy, self.entry = session_id, attempt_id, policy, entry
         self.table, self.status, self.verify = table, status, verify
         self.repost_proof = repost_proof
-        self.heartbeat_key, self.selected = heartbeat_key, selected
+        self.heartbeat_key, self.heartbeat_signer, self.selected = heartbeat_key, heartbeat_signer, selected
         self.shared_wallet = heartbeat_key is not None
         self.guard = guard or SecretGuard()
         self.bands, self.results, self.closed_bands = [], {}, set()
@@ -595,7 +595,8 @@ class F2Coordinator:
         from weather.market.lfc_f2_order_scope import mark_open_orders, split
         if not isinstance(rows, list):
             raise CapitalRefused('foreign_open_order_identity')
-        return split(self.ledger, mark_open_orders(rows, self.heartbeat_key), selected=self.selected)
+        return split(self.ledger, mark_open_orders(rows, self.heartbeat_key, self.heartbeat_signer),
+                     selected=self.selected)
 
     def foreign_orders_reserve(self, rows):
         from weather.market.lfc_f2_order_scope import foreign_reserve

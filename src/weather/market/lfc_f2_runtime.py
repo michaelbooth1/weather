@@ -152,7 +152,8 @@ def run_live(runtime, authority, status):
         coordinator = F2Coordinator(ledger=ledger, clock=runtime.clock, directory=directory, session_id=root_id,
                       attempt_id=claim['attempt_id'], policy=policy, entry=entry, table=table,
                       status=status, verify=verify, guard=guard, repost_proof=repost_proof,
-                      heartbeat_key=fields['API_KEY'] if breadth else None, selected=selected)
+                      heartbeat_key=fields['API_KEY'] if breadth else None,
+                      heartbeat_signer=fields.get('WALLET_ADDRESS'), selected=selected)
         status.bind(root_id, directory=directory, selection={}, ledger=ledger)
         status.session = coordinator
         public = LfcPublicBooks(clock=runtime.clock.now)
@@ -179,6 +180,7 @@ def run_live(runtime, authority, status):
                 client.close()
                 raise
             raws.append(raw)
+            raw.wallet_order_scope = breadth
             from weather.market.lfc_pair_runtime import transport_legs
             trade_legs = transport_legs(policy, row['trade_legs'])
             raw.allowed_trade_tokens = tuple(row['token_ids'][leg] for leg in trade_legs)

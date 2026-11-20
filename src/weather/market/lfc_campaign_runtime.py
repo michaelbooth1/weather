@@ -170,7 +170,7 @@ class ScheduledAuthority:
             self.runtime.lease.check()
             progress()
             try:
-                read = self.runtime.read_account()
+                read = self.runtime.read_account(wallet_orders=True)
                 proof = self.runtime.core_proof(ledger, read)
                 if (not proof['money_accounting_complete'] or not proof['cleanup_proven'] or
                         proof.get('unknown_submit') is not False or
@@ -498,7 +498,7 @@ class Runtime:
                 finally:
                     self.lease = None
 
-    def read_account(self, *, terminal_order_ids=(), persist=True, activity=True, budget=None):
+    def read_account(self, *, terminal_order_ids=(), persist=True, activity=True, budget=None, wallet_orders=False):
         """Read the account, with no observation or native ledger writes when unpublished."""
         options = {'terminal_order_ids': terminal_order_ids} if terminal_order_ids else {}
         if not persist:
@@ -507,6 +507,8 @@ class Runtime:
             options['activity'] = False
         if budget is not None:
             options['budget'] = budget
+        if wallet_orders or not activity or budget is not None or getattr(self, 'preparing_f2', False):
+            options['wallet_orders'] = True
         try:
             read = self.account_read_once(**options)
             if not persist:
@@ -528,7 +530,7 @@ class Runtime:
                 raise TransientPrecheck('account_read_unavailable') from None
             raise
 
-    def account_read_once(self, *, terminal_order_ids=(), persist=True, activity=True, budget=None):
+    def account_read_once(self, *, terminal_order_ids=(), persist=True, activity=True, budget=None, wallet_orders=False):
         """Read-only SDK route, retaining bounded source responses in the runtime.
 
         The independent LAN reader remains useful owner evidence, not an extra
@@ -542,8 +544,11 @@ class Runtime:
         # Share only the existing read credential subset in memory with R3.
         # No private key, reader token, credential path or file is exported.
         self.reward_read_context = reward_context(fields)
+        from weather.market.lfc_f2_breadth import enabled as breadth
+        policy = load_policy(self.policy_path)
         client = build_client(fields, readonly=True)
         venue = OwnerVenue(client, fields, guard, readonly=True)
+        venue.wallet_order_scope = wallet_orders and breadth(policy)
         try:
             venue.trades_after = str(int(datetime.fromisoformat(self.state.ledger.rows[0]['recorded_at_utc']).timestamp()))
             from weather.market import lfc_constants as C
@@ -577,11 +582,10 @@ class Runtime:
                                                        'ended_at_utc': self.clock.now().isoformat()}
             if values['geography'].get('blocked') is not False:
                 raise StateRefused('geoblock')
-            policy = load_policy(self.policy_path)
-            from weather.market.lfc_f2_breadth import enabled as breadth
             if breadth(policy):
                 from weather.market.lfc_f2_order_scope import mark_open_orders
-                values['open_orders'] = mark_open_orders(values['open_orders'], fields['API_KEY'])
+                values['open_orders'] = mark_open_orders(values['open_orders'], fields['API_KEY'],
+                                                        fields.get('WALLET_ADDRESS'))
             if activity and (policy.f2 or any(r['event'] == 'capital_bridge' for r in self.state.ledger.capital_rows)):
                 from weather.market.lfc_capital_reads import read_activity
                 from weather.market.lfc_f2_inventory import activity_start
@@ -853,7 +857,7 @@ class Runtime:
                 from weather.market.lfc_f2_order_scope import gate, mark_open_orders
                 from weather.market.lfc_capital import CapitalRefused
                 try:
-                    gate(self.state.ledger, mark_open_orders(rows, fields['API_KEY']),
+                    gate(self.state.ledger, mark_open_orders(rows, fields['API_KEY'], fields.get('WALLET_ADDRESS')),
                          cash=read['balances']['available_collateral'], reserve=reserve, selected=selected_rows,
                          loss_basis=policy.raw.get('sleeve_loss_basis', 'gross'))
                 except CapitalRefused as exc:
@@ -861,6 +865,7 @@ class Runtime:
             elif rows:
                 raise StateRefused('account_not_empty')
         if shared_wallet:
+            venue.wallet_order_scope = True
             venue.preflight_order_scope = check_orders
         try:
             venue.start()

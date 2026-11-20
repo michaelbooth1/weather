@@ -123,3 +123,31 @@ def test_readiness_heartbeat_checks_scope_before_sender():
     with pytest.raises(CapitalRefused, match='foreign_open_order_heartbeat_scope'):
         venue.heartbeat()
     assert sent == [True]
+
+
+def test_deposit_wallet_order_read_uses_all_pages_with_documented_cursor():
+    from weather.market.re1_transport import wallet_open_orders
+
+    pages = {None: {'data': [], 'next_cursor': 'first'},
+             'first': {'data': [{'id': ORDER}], 'next_cursor': ''}}
+    calls = []
+    def get(path, params):
+        assert path == '/data/wallet-open-orders'
+        calls.append(params)
+        return pages[params.get('cursor')]
+    assert wallet_open_orders(get) == [{'id': ORDER}]
+    assert calls == [{}, {'cursor': 'first'}]
+    pages['first']['next_cursor'] = 'first'
+    with pytest.raises(ConnectionError, match='wallet_open_orders_unavailable'):
+        wallet_open_orders(get)
+    pages['first'].pop('next_cursor')
+    with pytest.raises(ConnectionError, match='wallet_open_orders_unavailable'):
+        wallet_open_orders(get)
+
+
+def test_wallet_order_with_withheld_key_binds_a_distinct_signer():
+    signer, other = '0x' + '1'*40, '0x' + '2'*40
+    rows = [{'owner': None, 'signer_address': other}, {'owner': None, 'signer_address': signer}]
+    left, right = mark_open_orders(rows, KEY, signer)
+    assert left['heartbeat_key_isolated'] and not right['heartbeat_key_isolated']
+    assert 'owner' not in left and 'owner' not in right

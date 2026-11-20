@@ -328,6 +328,28 @@ def bounded_rows(paginator, *, seconds=None):
     return account_rows(paginator, normalize=plain_sdk_value, seconds=seconds, monotonic=time.monotonic)
 
 
+def wallet_open_orders(get):
+    # The pinned SDK exposes the authenticated GET transport but did not yet
+    # expose this Deposit Wallet method. It signs the path and reuses the
+    # usual bounded raw response hook. No auth or credential code is added.
+    from types import SimpleNamespace
+    from weather.market.mm_account_reads import AmbiguousAccountRead, account_rows, validate_wallet_order_page
+
+    def pages():
+        cursor = ''
+        while True:
+            params = {'cursor': cursor} if cursor else {}
+            page = validate_wallet_order_page(get('/data/wallet-open-orders', params))
+            cursor = page['next_cursor']
+            yield SimpleNamespace(items=page['data'], next_cursor=cursor or None, has_more=bool(cursor))
+            if not cursor:
+                return
+    try:
+        return account_rows(pages(), normalize=lambda row: row, seconds=READ_TIMEOUT)
+    except AmbiguousAccountRead as exc:
+        raise ConnectionError('wallet_open_orders_unavailable') from exc
+
+
 class OwnerVenue:
     host = HOST
     def __init__(self, client, fields, guard, *, condition=None, tokens=(), directory=None, readonly=False,
@@ -383,6 +405,12 @@ class OwnerVenue:
                     payload = json.loads(raw) if len(raw) <= 2_000_000 else None
                 except (ValueError, UnicodeError):
                     payload = None
+                # Wallet reads can contain other integrations' API-key IDs.
+                if response.url.path in {'/data/orders', '/data/wallet-open-orders'} and isinstance(payload, dict):
+                    rows = payload.get('data')
+                    if isinstance(rows, list):
+                        payload['data'] = [{k: v for k, v in row.items() if k != 'owner'}
+                                           if isinstance(row, dict) else row for row in rows]
                 self.journal.record('sdk_response', **metadata, response=payload)
             except BaseException:
                 self.journal_failed = True
@@ -446,7 +474,11 @@ class OwnerVenue:
             raise ConnectionError('user_stream_unavailable')
         return new
 
-    def open_orders(self): return self.adapter.open_orders()
+    def open_orders(self):
+        if getattr(self, 'wallet_order_scope', False) and self.fields.get('SIGNATURE_TYPE') == '3':
+            return wallet_open_orders(self.client._ctx.secure_clob.get_json)
+        return self.adapter.open_orders()
+
     def order(self, oid):
         try:
             return self.adapter.get_order(oid)

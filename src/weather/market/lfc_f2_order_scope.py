@@ -8,7 +8,7 @@ from weather.market.lfc_f2_owner_notice import scope
 from weather.market.mm_stage2_hold import _order_id
 
 
-def mark_open_orders(rows, heartbeat_key):
+def mark_open_orders(rows, heartbeat_key, signer=None):
     """Classify in memory and never retain the API-key owner field."""
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise CapitalRefused('foreign_open_order_identity')
@@ -22,8 +22,14 @@ def mark_open_orders(rows, heartbeat_key):
             owner = UUID(row.get('owner'))
         except (TypeError, ValueError, AttributeError):
             owner = None
+        signing_address = row.get('signer_address')
+        distinct_signer = (isinstance(signer, str) and re.fullmatch('0x[0-9a-fA-F]{40}', signer) and
+                           isinstance(signing_address, str) and re.fullmatch('0x[0-9a-fA-F]{40}', signing_address)
+                           and signer.lower() != signing_address.lower())
+        isolated = (heartbeat is not None and owner is not None and owner != heartbeat or
+                    row.get('owner') in (None, '') and bool(distinct_signer))
         clean.append({**{key: value for key, value in row.items() if key != 'owner'},
-                      'heartbeat_key_isolated': heartbeat is not None and owner is not None and owner != heartbeat})
+                      'heartbeat_key_isolated': isolated})
     return clean
 
 

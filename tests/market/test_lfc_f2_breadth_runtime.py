@@ -139,7 +139,7 @@ def owner_runtime_fixture(tmp_path, monkeypatch, *, fills=False, setup_latency=0
         runtime = object.__new__(Runtime)
         runtime.state, runtime.clock, runtime.pilot_root = state, clock, tmp_path
         runtime.lease = SimpleNamespace(check=lambda: None)
-        def read(*, activity=True):
+        def read(*, activity=True, wallet_orders=False):
             when = clock.now().isoformat()
             positions = {}
             for raw in account.raws:

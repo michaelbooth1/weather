@@ -60,8 +60,18 @@ def validate_account_page(payload):
     return payload
 
 
+def validate_wallet_order_page(payload):
+    # This documented cursor ends with an empty string, unlike /data/orders.
+    if (not isinstance(payload, dict) or not isinstance(payload.get('data'), list) or
+            not isinstance(payload.get('next_cursor'), str) or
+            any(not isinstance(row, dict) for row in payload['data'])):
+        raise AmbiguousAccountRead('AMBIGUOUS: incomplete_wallet_order_page')
+    return payload
+
+
 def validate_account_response(response):
-    if (response.request.method != 'GET' or response.url.path not in {'/data/orders', '/data/trades'} or
+    path = response.url.path
+    if (response.request.method != 'GET' or path not in {'/data/orders', '/data/trades', '/data/wallet-open-orders'} or
             response.status_code != 200):
         return
     body = bytearray()
@@ -73,7 +83,8 @@ def validate_account_response(response):
         # httpx.Response.read uses this same cache; SDK parsing must see the
         # exact validated bytes after the bounded stream has been consumed.
         response._content = bytes(body)
-        validate_account_page(strict_json(bytes(body)))
+        validate = validate_wallet_order_page if path == '/data/wallet-open-orders' else validate_account_page
+        validate(strict_json(bytes(body)))
     except AmbiguousAccountRead:
         raise
     except Exception:
